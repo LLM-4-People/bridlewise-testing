@@ -1,0 +1,10 @@
+{
+  "callId": "call_version",
+  "expectedResponseId": 47,
+  "wire": {
+    "jsonrpc": "1.0",
+    "id": 47,
+    "result": { "content": [] }
+  },
+  "expectedImportError": "mcp_tool_result_invalid"
+}

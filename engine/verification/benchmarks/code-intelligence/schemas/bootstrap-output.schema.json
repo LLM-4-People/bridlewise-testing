@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://bridlewise.local/schemas/code-intelligence/bootstrap-output.v3.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "builderVersion", "projection", "projectionSha256", "admission"],
+  "properties": {
+    "schemaVersion": {"const": "code-intelligence-bootstrap-output/v3"}, "builderVersion": {"const": "code-intelligence-bootstrap/v3"},
+    "projection": {"type": "object", "additionalProperties": false, "required": ["identity", "inventory", "structure", "dependencies", "publicApis", "calls", "reuseEvidence", "knownUnknowns", "omissions", "sourceEvidence"], "properties": {
+      "identity": {"type": "object", "additionalProperties": false, "required": ["protocolSha256", "policyBundleSha256", "candidateId", "candidateResolutionSha256", "repositorySnapshotSha256", "eligibleManifestSha256", "indexInventorySha256", "toolSchemaSha256", "oracleSha256", "runSha256", "admissionSha256", "repositoryIdentitySha256", "indexGeneration"], "properties": {"protocolSha256": {"$ref": "#/$defs/sha256"}, "policyBundleSha256": {"$ref": "#/$defs/sha256"}, "candidateId": {"type": "string"}, "candidateResolutionSha256": {"$ref": "#/$defs/sha256"}, "repositorySnapshotSha256": {"$ref": "#/$defs/sha256"}, "eligibleManifestSha256": {"$ref": "#/$defs/sha256"}, "indexInventorySha256": {"$ref": "#/$defs/sha256"}, "toolSchemaSha256": {"$ref": "#/$defs/sha256"}, "oracleSha256": {"$ref": "#/$defs/sha256"}, "runSha256": {"$ref": "#/$defs/sha256"}, "admissionSha256": {"$ref": "#/$defs/sha256"}, "repositoryIdentitySha256": {"$ref": "#/$defs/sha256"}, "indexGeneration": {"type": "integer", "minimum": 1}}},
+      "inventory": {"type": "array", "minItems": 1, "items": {"type": "object"}}, "structure": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fact"}},
+      "dependencies": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fact"}}, "publicApis": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fact"}},
+      "calls": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fact"}}, "reuseEvidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fact"}},
+      "knownUnknowns": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "omissions": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["class", "reason"], "properties": {"class": {"type": "string"}, "reason": {"type": "string"}}, "additionalProperties": false}},
+      "sourceEvidence": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["id", "path", "contentSha256"], "properties": {"id": {"type": "string"}, "path": {"type": "string"}, "contentSha256": {"$ref": "#/$defs/sha256"}}, "additionalProperties": false}}
+    }},
+    "projectionSha256": {"$ref": "#/$defs/sha256"},
+    "admission": {"type": "object", "additionalProperties": false, "required": ["admissionId", "admissionSha256", "preAdmissionReproductions"], "properties": {"admissionId": {"type": "string"}, "admissionSha256": {"$ref": "#/$defs/sha256"}, "preAdmissionReproductions": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/sha256"}}}}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "fact": {"type": "object", "additionalProperties": false, "required": ["id", "value", "sourceEvidenceIds", "generation"], "properties": {"id": {"type": "string"}, "value": {}, "sourceEvidenceIds": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "generation": {"type": "integer", "minimum": 1}}}}
+}

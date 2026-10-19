@@ -1,0 +1,1 @@
+export function copyBytes(value) { return Buffer.from(value); }

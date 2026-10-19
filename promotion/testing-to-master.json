@@ -1,0 +1,177 @@
+{
+  "schema": "bridlewise-promotion-profile/v1",
+  "name": "testing-to-master",
+  "source": {
+    "ref": "refs/heads/testing"
+  },
+  "target": {
+    "ref": "refs/heads/master"
+  },
+  "remote": "origin",
+  "trigger": "on-source-publish",
+  "boundary": {
+    "entryPoints": [
+      "src/main.ts",
+      "server/index.ts",
+      "engine/src/cli.ts",
+      "engine/src/bundle-entry.ts",
+      "svelte.config.ts",
+      "vite.config.ts",
+      "scripts/sd.mjs",
+      "scripts/dev-all.ts",
+      "scripts/dev-stop.ts",
+      "scripts/db-key.ts",
+      "scripts/generate-pwa-icons.mjs",
+      "engine/scripts/build-bundle.ts",
+      "engine/scripts/commit-guard.ts",
+      "engine/scripts/post-commit.ts",
+      "engine/scripts/bootstrap-hooks.ts",
+      "engine/scripts/generation/repository-path-unicode.ts"
+    ],
+    "include": [
+      "index.html",
+      "public/",
+      "shared/",
+      "engine/bridlewise.config.json",
+      "engine/src/",
+      "engine/guardian/",
+      "engine/traceability/canonical/",
+      "engine/traceability/sources/",
+      "engine/traceability/self-protection/",
+      "engine/traceability/artifacts/",
+      "engine/traceability/requirements.json",
+      "engine/traceability/config-document-schema.json",
+      "engine/traceability/s1-test-inventory.json",
+      "engine/traceability/test-surface-dispositions.json",
+      "engine/traceability/s1.json",
+      "engine/traceability/s2.json",
+      "engine/traceability/s2.4.json",
+      "engine/traceability/s2.4-requirements-schema.json",
+      "engine/traceability/s2-contract-schemas.json",
+      "engine/traceability/s3.1.json",
+      "engine/traceability/s3.1-forensic-schemas.json",
+      "package.json",
+      "package-lock.json",
+      "engine/package.json",
+      "engine/package-lock.json",
+      "tsconfig.json",
+      "tsconfig.server.json",
+      "engine/tsconfig.json",
+      "svelte.config.ts",
+      "vite.config.ts",
+      "src/vite-env.d.ts",
+      "server/web-tree-sitter.d.ts",
+      ".gitignore",
+      "engine/.gitignore",
+      ".githooks/",
+      "engine/README.md",
+      "engine/docs/architecture/",
+      "engine/docs/registration-procedure.md",
+      "scripts/trace.ts"
+    ],
+    "exclude": [
+      "bench/",
+      "cockpit-dev.html",
+      "docs/",
+      "engine/_experiments/",
+      "engine/docs/findings/",
+      "engine/docs/history/",
+      "engine/docs/research/",
+      "engine/docs/round-history/",
+      "engine/scripts/concurrent/",
+      "engine/scripts/exp/",
+      "engine/scripts/tooling/",
+      "engine/scripts/verification/authority/",
+      "engine/test/",
+      "engine/traceability/evidence/",
+      "engine/traceability/findings/",
+      "engine/traceability/prevention/",
+      "engine/verification/",
+      "experiments/",
+      "playwright.config.ts",
+      "playwright.perf.config.ts",
+      "scripts/harness-root/",
+      "scripts/testing/",
+      "src/cockpit/flow/dev/",
+      "src/cockpit/sweep/dev/",
+      "tests/",
+      "tsconfig.templates.json",
+      "tsconfig.tests.json",
+      "promotion/",
+      "vitest.config.ts",
+      "engine/tsconfig.tests.json"
+    ],
+    "companions": [
+      "README.md"
+    ],
+    "spawnCalls": [
+      {
+        "callee": "runScriptSubprocess",
+        "argument": 1,
+        "base": "engine/"
+      }
+    ]
+  },
+  "transforms": [
+    {
+      "kind": "package-manifest",
+      "path": "package.json",
+      "scripts": [
+        "bootstrap:hooks",
+        "dev",
+        "dev:api",
+        "dev:all",
+        "dev:stop",
+        "db-key",
+        "build",
+        "preview",
+        "serve",
+        "typecheck:client",
+        "typecheck:server",
+        "typecheck"
+      ]
+    },
+    {
+      "kind": "package-manifest",
+      "path": "engine/package.json",
+      "scripts": [
+        "bootstrap:hooks",
+        "start",
+        "typecheck",
+        "build:bundle"
+      ]
+    },
+    {
+      "kind": "lockfile",
+      "path": "package-lock.json",
+      "manifest": "package.json",
+      "command": "lockfile"
+    },
+    {
+      "kind": "lockfile",
+      "path": "engine/package-lock.json",
+      "manifest": "engine/package.json",
+      "command": "lockfile"
+    }
+  ],
+  "phases": {
+    "setup": [
+      "web-deps",
+      "engine-deps",
+      "guardian",
+      "bundle"
+    ],
+    "converge": [
+      "harness-sync"
+    ],
+    "verify": [
+      "web-typecheck",
+      "engine-typecheck",
+      "engine-check",
+      "web-build"
+    ]
+  },
+  "safety": {
+    "maxDeletedFraction": 0.1
+  }
+}

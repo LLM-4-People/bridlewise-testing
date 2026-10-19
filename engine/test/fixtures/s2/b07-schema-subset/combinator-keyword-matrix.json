@@ -1,0 +1,19 @@
+{
+  "groups": [
+    {
+      "kind": "combinator",
+      "valid": [
+        { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        { "oneOf": [{ "type": "integer", "const": 1 }, { "type": "integer", "const": 2 }] },
+        { "allOf": [{ "type": "string", "minLength": 1 }, { "type": "string", "maxLength": 8 }], "description": "bounded" }
+      ],
+      "invalid": [
+        { "anyOf": [], "description": "empty" },
+        { "anyOf": [{ "type": "string" }], "oneOf": [{ "type": "string" }] },
+        { "type": "string", "anyOf": [{ "type": "string" }] },
+        { "anyOf": [{ "type": "string", "minimum": 1 }] },
+        { "allOf": [{ "type": "array", "items": { "type": "string", "maximum": 3 } }] }
+      ]
+    }
+  ]
+}

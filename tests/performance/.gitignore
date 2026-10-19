@@ -1,0 +1,11 @@
+# Everything this directory's tooling generates, declared HERE rather than in
+# the repository root's file. Git resolves an anchored pattern relative to the
+# `.gitignore` that declares it, so rules kept beside the subtree they govern
+# keep meaning the right place when the subtree moves; the same rules written
+# at the root as `tests/performance/...` stop matching the moment it does.
+#
+# Written by `playwright test --config=playwright.perf.config.ts` and read by
+# the vitest regression gate. Not source artifacts.
+/.report.json
+/.run.json
+/.cockpit-report/

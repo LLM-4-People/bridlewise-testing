@@ -1,0 +1,69 @@
+{
+  "groups": [
+    {
+      "kind": "string",
+      "valid": [
+        { "type": "string", "minLength": 1, "maxLength": 32 },
+        { "type": "string", "pattern": "^[a-z]+$" },
+        { "type": "string", "format": "uuid", "enum": ["123e4567-e89b-12d3-a456-426614174000"] }
+      ],
+      "invalid": [
+        { "type": "string", "minimum": 1 },
+        { "type": "string", "items": { "type": "string" } },
+        { "type": "string", "properties": {} }
+      ]
+    },
+    {
+      "kind": "number",
+      "valid": [
+        { "type": "number", "minimum": -1, "maximum": 1 },
+        { "type": "number", "enum": [0.5, 1.5] },
+        { "type": "number", "const": 2.5 }
+      ],
+      "invalid": [
+        { "type": "number", "minLength": 1 },
+        { "type": "number", "pattern": "^[0-9]+$" },
+        { "type": "number", "items": { "type": "number" } }
+      ]
+    },
+    {
+      "kind": "integer",
+      "valid": [
+        { "type": "integer", "minimum": 0, "maximum": 10 },
+        { "type": "integer", "enum": [1, 2, 3] },
+        { "type": "integer", "const": 7 }
+      ],
+      "invalid": [
+        { "type": "integer", "format": "uuid" },
+        { "type": "integer", "minItems": 1 },
+        { "type": "integer", "properties": { "x": { "type": "integer" } } }
+      ]
+    },
+    {
+      "kind": "boolean",
+      "valid": [
+        { "type": "boolean", "description": "toggle" },
+        { "type": "boolean", "enum": [true, false] },
+        { "type": "boolean", "const": true }
+      ],
+      "invalid": [
+        { "type": "boolean", "minimum": 0 },
+        { "type": "boolean", "items": { "type": "boolean" } },
+        { "type": "boolean", "format": "date" }
+      ]
+    },
+    {
+      "kind": "null",
+      "valid": [
+        { "type": "null", "description": "empty" },
+        { "type": "null", "enum": [null] },
+        { "type": "null", "const": null }
+      ],
+      "invalid": [
+        { "type": "null", "minLength": 0 },
+        { "type": "null", "properties": {} },
+        { "type": "null", "maximum": 0 }
+      ]
+    }
+  ]
+}

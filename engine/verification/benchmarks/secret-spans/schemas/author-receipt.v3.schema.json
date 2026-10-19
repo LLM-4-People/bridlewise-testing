@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/schemas/secret-span-author-receipt/v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "artifacts", "trustBase", "claims", "receiptIdentity"],
+  "properties": {
+    "schemaVersion": { "const": "bridlewise-secret-span-author-receipt/v3" },
+    "status": { "const": "author-snapshot-unadmitted-external-pin-required" },
+    "artifacts": {
+      "type": "array",
+      "minItems": 25,
+      "items": { "$ref": "#/$defs/file" }
+    },
+    "trustBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "originClass",
+        "authorityOwner",
+        "lease",
+        "environmentBindings",
+        "node",
+        "packages",
+        "portability",
+        "trustBaseIdentity"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "bridlewise-secret-span-trust-base/v3" },
+        "originClass": { "const": "portable-repository-qualification-trust-base" },
+        "authorityOwner": { "const": "verification/benchmarks/shared/qualification-authority.mjs" },
+        "lease": { "$ref": "#/$defs/lease" },
+        "environmentBindings": { "$ref": "#/$defs/environmentBindings" },
+        "node": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "originClass",
+            "execArgv",
+            "nodeVersion",
+            "v8Version",
+            "opensslVersion",
+            "platform",
+            "architecture",
+            "byteLength",
+            "sha256",
+            "portableIdentity"
+          ],
+          "properties": {
+            "originClass": { "const": "host-runtime-executable" },
+            "execArgv": { "type": "array", "maxItems": 0 },
+            "nodeVersion": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$" },
+            "v8Version": { "type": "string", "minLength": 1 },
+            "opensslVersion": { "type": "string", "minLength": 1 },
+            "platform": { "type": "string", "minLength": 1 },
+            "architecture": { "type": "string", "minLength": 1 },
+            "byteLength": { "type": "integer", "minimum": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "portableIdentity": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "packages": {
+          "type": "array",
+          "minItems": 6,
+          "items": { "$ref": "#/$defs/package" }
+        },
+        "portability": { "$ref": "#/$defs/portability" },
+        "trustBaseIdentity": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resultSelfBindingUsed",
+        "serializedReceiptConfersAuthority",
+        "independentAcceptance",
+        "repositoryAdmission",
+        "runtimeQualification"
+      ],
+      "properties": {
+        "resultSelfBindingUsed": { "const": false },
+        "serializedReceiptConfersAuthority": { "const": false },
+        "independentAcceptance": { "const": false },
+        "repositoryAdmission": { "const": false },
+        "runtimeQualification": { "const": false }
+      }
+    },
+    "receiptIdentity": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "byteLength", "sha256"],
+      "properties": {
+        "relativePath": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "byteLength": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "originClass",
+        "name",
+        "version",
+        "packageJsonSha256",
+        "declaredRuntimeDependencies",
+        "fileCount",
+        "byteLength",
+        "treeIdentity",
+        "portableIdentity"
+      ],
+      "properties": {
+        "originClass": { "const": "installed-package-closure-member" },
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "packageJsonSha256": { "$ref": "#/$defs/sha256" },
+        "declaredRuntimeDependencies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "fileCount": { "type": "integer", "minimum": 1 },
+        "byteLength": { "type": "integer", "minimum": 1 },
+        "treeIdentity": { "$ref": "#/$defs/sha256" },
+        "portableIdentity": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leaseId", "leaseIdentity", "requiredUseCardinality"],
+      "properties": {
+        "leaseId": { "const": "secret-spans/foundation-trust-base" },
+        "leaseIdentity": { "$ref": "#/$defs/sha256" },
+        "requiredUseCardinality": { "const": 1 }
+      }
+    },
+    "environmentBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "names"],
+      "properties": {
+        "mode": { "const": "compiled-source-accesses" },
+        "names": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "portability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "normalizedRootIdentity", "findingCount", "findings"],
+      "properties": {
+        "schemaVersion": { "const": "bridlewise-qualification-portable-disclosure/v1" },
+        "normalizedRootIdentity": { "$ref": "#/$defs/sha256" },
+        "findingCount": { "const": 0 },
+        "findings": { "type": "array", "maxItems": 0 }
+      }
+    }
+  }
+}

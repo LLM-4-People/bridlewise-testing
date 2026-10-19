@@ -1,0 +1,696 @@
+{
+  "schemaVersion": 1,
+  "slice": "S3.1",
+  "name": "pure offline forensic contracts and cryptographic primitives",
+  "requirementsRegistry": {
+    "path": "traceability/requirements.json",
+    "schemaVersion": "bridlewise-requirements/v1",
+    "fileSha256": "d38bed088fdd7a2d62e61230782135c3ee3ef8111b4b3ccc7eb7284c99080553",
+    "identityHash": "37071513f8260bb7f925516700101fb6a50dd1023be28dc4a9c67f71c5fb7cb5"
+  },
+  "supersedes": {
+    "commit": "04b00b27e8c8b46ca98c180400df215151942d14",
+    "reason": "S2.4 established the canonical requirements registry required before forensic evidence contracts could claim trace links."
+  },
+  "scope": {
+    "network": "disabled",
+    "modelInvocation": "disabled",
+    "toolExecution": "disabled",
+    "processExecution": "disabled",
+    "repositoryMutation": "disabled",
+    "storage": "disabled",
+    "durableAudit": "disabled",
+    "forwarding": "disabled",
+    "cli": "exact-preflight-only",
+    "harnessReady": false
+  },
+  "requirements": [
+    "REQ-001",
+    "REQ-006",
+    "REQ-010",
+    "REQ-013",
+    "REQ-016",
+    "REQ-020",
+    "REQ-021",
+    "REQ-025",
+    "REQ-028",
+    "REQ-029",
+    "REQ-032",
+    "REQ-033",
+    "REQ-034"
+  ],
+  "derivedControls": [
+    "DER-001",
+    "DER-003",
+    "DER-006",
+    "DER-007",
+    "DER-008",
+    "DER-010",
+    "DER-011",
+    "DER-018",
+    "DER-021",
+    "DER-022",
+    "DER-023",
+    "DER-025"
+  ],
+  "research": {
+    "accessedOn": "2026-07-12",
+    "manifest": {
+      "path": "traceability/sources/s3.1/manifest.json",
+      "sha256": "ad594706f32c7f749f2887023d37f9b3f2bab05441b503742f159725a44ccd7c"
+    },
+    "primarySources": 10,
+    "licensedReferenceFragments": 4
+  },
+  "contracts": {
+    "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
+    "canonicalization": "RFC8785-with-verified-erratum-7920",
+    "schemaBundleHash": "fcd53d7d19c959d1f9417869cdf4d68236875a0231b0eeb3875b313c153c6a91",
+    "offlineForensicHash": "43ffcbbee67777996292194f6981e890db4815af37a8463d342132335645fe92",
+    "artifact": {
+      "path": "traceability/s3.1-forensic-schemas.json",
+      "sha256": "0aab9bbceef1e566a06ed07587fd4b98291048f03181d2218d53698886c012a0"
+    }
+  },
+  "behaviors": [
+    {
+      "id": "S3.1-B01",
+      "name": "bounded unambiguous RFC 8785 canonical intake",
+      "testName": "S3.1-B01 canonical intake rejects ambiguity, hostile structures, and every bound breach",
+      "scenarios": [
+        "S3.1-B01-DUPLICATE-ROOT-NESTED",
+        "S3.1-B01-NEGATIVE-ZERO-RAW-PROGRAMMATIC",
+        "S3.1-B01-UNICODE-NONFINITE",
+        "S3.1-B01-SIZE-DEPTH-NODES",
+        "S3.1-B01-SPARSE-CLASS-ACCESSOR-CYCLE",
+        "S3.1-B01-SEQUENCE-2P53-SIGNED64-BOUNDARIES",
+        "S3.1-B01-SCHEMA-UNKNOWN",
+        "S3.1-B01-PROXY-TRAP-ZERO-RECURSIVE",
+        "S3.1-B01-UTF8-BASE64-CROSS-FIELD",
+        "S3.1-B01-TOOL-PAYLOAD-ALL-OR-NONE"
+      ]
+    },
+    {
+      "id": "S3.1-B02",
+      "name": "exact-byte and structured raw normalization",
+      "testName": "S3.1-B02 normalization preserves exact bytes, duplicate headers, causes, and rejects object smuggling",
+      "scenarios": [
+        "S3.1-B02-BINARY-COPY",
+        "S3.1-B02-ORDERED-DUPLICATE-HEADERS",
+        "S3.1-B02-ERROR-CAUSES",
+        "S3.1-B02-STDERR-TOOL-PAYLOAD",
+        "S3.1-B02-CLASS-UNKNOWN-CRLF",
+        "S3.1-B02-PROXY-ACCESSOR-SUBCLASS-NO-READ"
+      ]
+    },
+    {
+      "id": "S3.1-B03",
+      "name": "deterministic redacted projection and independent leakage oracle",
+      "testName": "S3.1-B03 projection removes every raw surface and the independent oracle catches bypass variants",
+      "scenarios": [
+        "S3.1-B03-NESTED-RAW-CANARIES",
+        "S3.1-B03-HEADER-TOOL-ERROR-CANARIES",
+        "S3.1-B03-BASE64-URL-MIXED-CASE",
+        "S3.1-B03-NONSTRING-CLASS-BYPASS",
+        "S3.1-B03-BLIND-INDEX-INTERNAL-KEYED",
+        "S3.1-B03-BLIND-INDEX-UNISSUED-CLONE",
+        "S3.1-B03-PROXY-ORACLE-TRAP-ZERO"
+      ]
+    },
+    {
+      "id": "S3.1-B04",
+      "name": "AES-256-GCM sealed payload and opaque operation ports",
+      "testName": "S3.1-B04 AEAD authenticates ciphertext, tag, nonce, AAD, event binding, and issued ports",
+      "scenarios": [
+        "S3.1-B04-CIPHERTEXT-TAG-FLIP",
+        "S3.1-B04-NONCE-AAD-SUBSTITUTION",
+        "S3.1-B04-WRONG-SECRET",
+        "S3.1-B04-NONCE-LENGTH-FORGED-PORT",
+        "S3.1-B04-CIPHERTEXT-REHASHED-AUTH",
+        "S3.1-B04-AAD-REHASHED-AUTH",
+        "S3.1-B04-PROXY-ACCESSOR-SUBCLASS-TRAP-ZERO"
+      ]
+    },
+    {
+      "id": "S3.1-B05",
+      "name": "domain-separated hash and HMAC ledger verification",
+      "testName": "S3.1-B05 hash and HMAC verification identifies mutation, gaps, reorder, recomputation, and transplant",
+      "scenarios": [
+        "S3.1-B05-ENVELOPE-MUTATION",
+        "S3.1-B05-GAP-REORDER",
+        "S3.1-B05-UNKEYED-RECOMPUTATION",
+        "S3.1-B05-WRONG-HMAC",
+        "S3.1-B05-LEDGER-SEGMENT-TRANSPLANT",
+        "S3.1-B05-MAC-LENGTH-FRAME-SPLIT",
+        "S3.1-B05-MAC-INDEPENDENT-VECTOR",
+        "S3.1-B05-CAPABILITY-CROSS-PURPOSE",
+        "S3.1-B05-ANCHOR-EMPTY-CONTINUATION",
+        "S3.1-B05-MALFORMED-TOCTOU-TYPED-INVALID"
+      ]
+    },
+    {
+      "id": "S3.1-B06",
+      "name": "pure persist-before-forward outbox and receipt state",
+      "testName": "S3.1-B06 outbox contracts enforce persist-before-forward, binding, idempotency, and no authority",
+      "scenarios": [
+        "S3.1-B06-FORWARD-BEFORE-COMMIT",
+        "S3.1-B06-COMMIT-EVIDENCE-CONFLICT",
+        "S3.1-B06-RECEIPT-BEFORE-FORWARD",
+        "S3.1-B06-RECEIPT-BINDING-CONFLICT",
+        "S3.1-B06-IDEMPOTENT-RETRY-CORRELATION-CONFLICT",
+        "S3.1-B06-PROXY-ACCESSOR-TRAP-ZERO"
+      ]
+    },
+    {
+      "id": "S3.1-B07",
+      "name": "offline bundle identity and deny-by-default authority",
+      "testName": "S3.1-B07 schemas, bundle, root policy, and receipts expose no secret-key or runtime authority",
+      "scenarios": [
+        "S3.1-B07-SCHEMA-DIALECT-FREEZE",
+        "S3.1-B07-NO-KEY-PROPERTIES",
+        "S3.1-B07-CAPABILITIES-DISABLED",
+        "S3.1-B07-EFFECTS-UNAVAILABLE",
+        "S3.1-B07-VERIFIER-PROXY-TRAP-ZERO",
+        "S3.1-B07-SAFE-STRUCTURAL-IDENTITY"
+      ]
+    }
+  ],
+  "acceptance": {
+    "minimumIndependentCausalScenariosPerBehavior": 3,
+    "syntheticCanariesOnly": true,
+    "constantTimeMacAndDigestComparison": true,
+    "rawKeysInSchemasProjectionsReceipts": "forbidden",
+    "hostileBoundaryPolicy": "proxy-accessor-subclass-rejected-before-observation",
+    "proxyTrapInvocationCount": 0,
+    "runtimeFaultMatrixDisposition": "deferred-until-storage-anchor-and-dispatch-authority-exist",
+    "modelMayNotScoreItself": true,
+    "candidateMustBeFrozenBeforeFinalHashAudit": true
+  },
+  "auditMatrix": {
+    "schemaVersion": "bridlewise-audit-matrix/v1",
+    "angles": [
+      {
+        "id": "alignment",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "functionality",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "architecture-and-layers",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "dry-ssot-and-configuration",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "data-and-migrations",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "reliability-concurrency-and-recovery",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "test-quality-and-false-green-resistance",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "security-and-privacy",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "performance-and-overhead",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "ux-and-operator-error",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "maintainability-dependencies-and-licenses",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "extensibility",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "neutrality",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "observability-and-learning",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "real-world-robustness",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      }
+    ],
+    "stages": [
+      {
+        "id": "author",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "independent-source",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "failure-mutation",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "integration-and-recovery",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "real-project",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "performance-and-ux",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "frozen-replay",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      },
+      {
+        "id": "post-run",
+        "surfaceAssessments": {
+          "builder": {
+            "subjectRealm": "builder",
+            "executionBoundary": "repository-build-and-maintenance",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent builder acceptance for this audit cell.",
+            "evidenceLinks": []
+          },
+          "runtime": {
+            "subjectRealm": "runtime",
+            "executionBoundary": "governed-project-execution",
+            "applicability": "applicable",
+            "outcome": "unassessed",
+            "reason": "This slice has not completed independent runtime acceptance for this audit cell.",
+            "evidenceLinks": []
+          }
+        }
+      }
+    ],
+    "findingLifecycle": {
+      "requiredSequence": [
+        "finding",
+        "root-cause",
+        "permanent-regression",
+        "repair",
+        "recheck"
+      ],
+      "findings": []
+    },
+    "independentAudit": {
+      "required": true,
+      "selfHostedSufficient": false,
+      "outcome": "unassessed",
+      "reason": "The mandatory non-self-hosted independent audit has not yet completed for this slice.",
+      "evidenceLinks": []
+    }
+  }
+}

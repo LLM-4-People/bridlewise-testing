@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "bridlewise-path-policy-sources/v1",
+  "sourceSets": {
+    "unicode": {
+      "id": "unicode-17.0.0-path-portability",
+      "role": "unicode-portability-source-manifest",
+      "manifest": {
+    "path": "traceability/sources/path-policy/unicode-17.0.0/manifest.json",
+    "byteLength": 1792,
+    "sha256": "256e0a074c76136027c5b5eaab82de8a360844057520bf997daea31d0c863b16"
+      }
+    },
+    "git": {
+      "id": "git-2.55.0-ntfs-path-aliases",
+      "role": "git-ntfs-symlink-alias-authority",
+      "retrievedAt": "2026-07-13T09:13:50Z",
+      "upstream": {
+        "repository": "https://github.com/git/git",
+        "version": "2.55.0",
+        "tag": "v2.55.0",
+        "commit": "e9019fcafe0040228b8631c30f97ae1adb61bcdc"
+      },
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "path": "traceability/sources/path-policy/git-2.55.0/COPYING",
+        "url": "https://raw.githubusercontent.com/git/git/v2.55.0/COPYING",
+        "byteLength": 18765,
+        "sha256": "5b2198d1645f767585e8a88ac0499b04472164c0d2da22e75ecf97ef443ab32e"
+      },
+      "sources": [
+        {
+          "id": "git-2.55.0-path-c",
+          "role": "production-ntfs-alias-algorithm-authority",
+          "upstreamPath": "path.c",
+          "path": "traceability/sources/path-policy/git-2.55.0/path.c",
+          "url": "https://raw.githubusercontent.com/git/git/v2.55.0/path.c",
+          "byteLength": 40192,
+          "sha256": "2df449fe5972466c44a16d0c599c20be4e83fa15b90ce8f4fb4463a7b34eb387"
+        },
+        {
+          "id": "git-2.55.0-t0060-path-utils",
+          "role": "upstream-ntfs-alias-boundary-test-authority",
+          "upstreamPath": "t/t0060-path-utils.sh",
+          "path": "traceability/sources/path-policy/git-2.55.0/t/t0060-path-utils.sh",
+          "url": "https://raw.githubusercontent.com/git/git/v2.55.0/t/t0060-path-utils.sh",
+          "byteLength": 20432,
+          "sha256": "56ce23d9967f9015295bb3fdc07a001eb370a31be1b65fe971f663ce963d1c06"
+        }
+      ]
+    }
+  }
+}

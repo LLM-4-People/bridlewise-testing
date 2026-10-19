@@ -1,0 +1,231 @@
+{
+  "schemaVersion": "bridlewise-handoff-protocol-manifest/v1",
+  "currentProtocolVersion": 3,
+  "featurePolicyDisposition": "capability-unavailable",
+  "contractSchemaVersions": {
+    "assignment": "bridlewise-handoff-assignment/v3",
+    "proposal": "bridlewise-handoff-proposal/v3",
+    "admissionContext": "bridlewise-handoff-admission-context/v3",
+    "decision": "bridlewise-handoff-decision/v3"
+  },
+  "identityDomains": {
+    "assignment": "bridlewise/handoff/assignment/v3",
+    "assignmentCandidate": "bridlewise/handoff/assignment-candidate/v3",
+    "proposal": "bridlewise/handoff/proposal/v3",
+    "proposalCandidate": "bridlewise/handoff/proposal-candidate/v3",
+    "admissionContext": "bridlewise/handoff/admission-context/v3",
+    "decision": "bridlewise/handoff/decision/v3"
+  },
+  "invariantOrder": {
+    "values": [
+      "assignment-structure",
+      "proposal-structure",
+      "context-structure",
+      "assignment-contract",
+      "assignment-identity",
+      "proposal-contract",
+      "context-contract",
+      "active-assignment",
+      "task",
+      "subtask",
+      "attempt",
+      "assignee",
+      "parent",
+      "recipient",
+      "subject",
+      "output-schema",
+      "snapshot",
+      "focus",
+      "unfinished-work",
+      "checklist",
+      "evidence",
+      "disposition",
+      "feature-policy",
+      "nominal-authority"
+    ],
+    "identity": {
+      "count": 24,
+      "sha256": "6db5fa5d9e5b6c4bc88a5c763381c908c3d6905e07a28ed3637a3f6c6dd6097b"
+    }
+  },
+  "reasonOrder": {
+    "values": [
+      "observer-advisory-only",
+      "assignment-structure-rejected",
+      "proposal-structure-rejected",
+      "context-structure-rejected",
+      "assignment-contract-invalid",
+      "assignment-identity-invalid",
+      "proposal-contract-invalid",
+      "admission-context-invalid",
+      "active-assignment-mismatch",
+      "task-mismatch",
+      "subtask-mismatch",
+      "attempt-mismatch",
+      "assignee-mismatch",
+      "parent-mismatch",
+      "recipient-mismatch",
+      "subject-mismatch",
+      "output-schema-mismatch",
+      "snapshot-mismatch",
+      "focus-mismatch",
+      "unfinished-work-mismatch",
+      "checklist-mismatch",
+      "checklist-unsatisfied",
+      "evidence-mismatch",
+      "snapshot-authority-unavailable",
+      "evidence-authority-unavailable",
+      "feature-policy-unavailable",
+      "nominal-authority-unavailable"
+    ],
+    "identity": {
+      "count": 27,
+      "sha256": "299fc44c6ed8409ff1d7949c94ef8aad7c231bc38e2a7a333cb2ada87d9f352f"
+    }
+  },
+  "configKeyReferences": {
+    "values": [
+      {
+        "purpose": "identifier-maximum",
+        "owner": "config-document",
+        "path": "contracts.limits.maximumIdentifierCharacters",
+        "availability": "required"
+      },
+      {
+        "purpose": "handoff-feature-policy",
+        "owner": "config-document",
+        "path": "handoffValidation",
+        "availability": "required-absent"
+      },
+      {
+        "purpose": "structural-maximum-canonical-bytes",
+        "owner": "root-policy",
+        "path": "forensics.limits.maximumCanonicalBytes",
+        "availability": "required"
+      },
+      {
+        "purpose": "structural-maximum-depth",
+        "owner": "root-policy",
+        "path": "forensics.limits.maximumDepth",
+        "availability": "required"
+      },
+      {
+        "purpose": "structural-maximum-nodes",
+        "owner": "root-policy",
+        "path": "forensics.limits.maximumNodes",
+        "availability": "required"
+      }
+    ],
+    "identity": {
+      "count": 5,
+      "sha256": "ad1a4d7ad3b99aa1f5d25f685c9e24f78809e345350f28d9ddbad615daa201dc"
+    }
+  },
+  "semanticOwners": {
+    "values": [
+      {
+        "role": "safe-structural-boundary",
+        "path": "src/kernel/safe-structural.ts",
+        "byteLength": 12409,
+        "sha256": "3e0d84d3338fd408bb2773b76474eb4c8208c8348a6f8f3c7821b5ac3f09b518"
+      },
+      {
+        "role": "handoff-domain-owner",
+        "path": "src/modules/tasks-agents/domain/handoff-contracts.ts",
+        "byteLength": 30513,
+        "sha256": "e0adafd54d537ecea2b97a17fe9b3822f3001db7bd2a41b2c128d8d7e24579bd"
+      },
+      {
+        "role": "assignment-compiler",
+        "path": "src/modules/tasks-agents/application/compile-assignment-contract.ts",
+        "byteLength": 3068,
+        "sha256": "c1f7d79d2a371946c3d03dff4fed3c10840f48a453162996755b16487be4ad27"
+      },
+      {
+        "role": "handoff-admission-gate",
+        "path": "src/modules/tasks-agents/application/admit-handoff.ts",
+        "byteLength": 11861,
+        "sha256": "d5c233e6dafb77012f515cb045b1e3a857b6a41d8b7bfff283e448c523c37fd4"
+      },
+      {
+        "role": "tasks-agents-facade",
+        "path": "src/modules/tasks-agents/index.ts",
+        "byteLength": 1168,
+        "sha256": "a70aecffcb14edb57e056f62f77d2e58772f265e652ddb1fe14e42a9a41b25a5"
+      }
+    ],
+    "identity": {
+      "count": 5,
+      "sha256": "92f1bc3be10e024410aac4872465ad082dd065fc091b1c7d6d8104f7e1acf054"
+    }
+  },
+  "lineage": [
+    {
+      "protocolVersion": 1,
+      "executableSchemaFingerprint": "76e500b525f2563d7c53ec160d6287021aa3c77b065f8a8640fd4705cd01d106",
+      "invariantOrderIdentity": {
+        "count": 18,
+        "sha256": "473e05280e05cbb50eb0e570ed309f12a22b2c52ec6b7e203df29d37d4030522"
+      },
+      "reasonOrderIdentity": {
+        "count": 21,
+        "sha256": "ac7c94188b7b8aec456e615fbddb981201391519e3fbc097d73f389b9eee9ad7"
+      },
+      "configKeyReferenceIdentity": {
+        "count": 1,
+        "sha256": "1efafb661788d918f58390168c59c5fe386aa94820a4118a4294076edb77ad63"
+      },
+      "semanticOwnerSetIdentity": {
+        "count": 4,
+        "sha256": "d91367df84e4895ce92dc2653ce51c62fd1313254d9c2af407b7e70f7f1b8090"
+      },
+      "previousExecutableSchemaFingerprint": null,
+      "disposition": "superseded-unqualified"
+    },
+    {
+      "protocolVersion": 2,
+      "executableSchemaFingerprint": "316a9ec070d14878885007122b70eb949b82aa263f6a3d8ae9d530e98221a808",
+      "invariantOrderIdentity": {
+        "count": 24,
+        "sha256": "6db5fa5d9e5b6c4bc88a5c763381c908c3d6905e07a28ed3637a3f6c6dd6097b"
+      },
+      "reasonOrderIdentity": {
+        "count": 27,
+        "sha256": "299fc44c6ed8409ff1d7949c94ef8aad7c231bc38e2a7a333cb2ada87d9f352f"
+      },
+      "configKeyReferenceIdentity": {
+        "count": 5,
+        "sha256": "ad1a4d7ad3b99aa1f5d25f685c9e24f78809e345350f28d9ddbad615daa201dc"
+      },
+      "semanticOwnerSetIdentity": {
+        "count": 5,
+        "sha256": "2073e071cef7c3332e1dd903455683d18f8a2b5e736e1c7ba1ede8bd082289ef"
+      },
+      "previousExecutableSchemaFingerprint": "76e500b525f2563d7c53ec160d6287021aa3c77b065f8a8640fd4705cd01d106",
+      "disposition": "superseded-unqualified"
+    },
+    {
+      "protocolVersion": 3,
+      "executableSchemaFingerprint": "c18e73beaf3c7557c0414cafb8f89fa3674015b525909cb39a07465eaf6aca1e",
+      "invariantOrderIdentity": {
+        "count": 24,
+        "sha256": "6db5fa5d9e5b6c4bc88a5c763381c908c3d6905e07a28ed3637a3f6c6dd6097b"
+      },
+      "reasonOrderIdentity": {
+        "count": 27,
+        "sha256": "299fc44c6ed8409ff1d7949c94ef8aad7c231bc38e2a7a333cb2ada87d9f352f"
+      },
+      "configKeyReferenceIdentity": {
+        "count": 5,
+        "sha256": "ad1a4d7ad3b99aa1f5d25f685c9e24f78809e345350f28d9ddbad615daa201dc"
+      },
+      "semanticOwnerSetIdentity": {
+        "count": 5,
+        "sha256": "92f1bc3be10e024410aac4872465ad082dd065fc091b1c7d6d8104f7e1acf054"
+      },
+      "previousExecutableSchemaFingerprint": "316a9ec070d14878885007122b70eb949b82aa263f6a3d8ae9d530e98221a808",
+      "disposition": "current-unqualified"
+    }
+  ],
+  "integrityHash": "f9b546abb704b0d8cf159e2d7a6b7dbd6140b39ad1e330ac289ab1cc7dbc2ad5"
+}

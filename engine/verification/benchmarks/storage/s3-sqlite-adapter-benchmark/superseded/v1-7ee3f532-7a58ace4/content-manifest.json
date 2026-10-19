@@ -1,0 +1,203 @@
+{
+  "schemaVersion": "bridlewise-superseded-benchmark-content/v2",
+  "role": "lossless-normalized-search-projection-and-original-byte-reconstruction",
+  "createdAt": "2026-07-12T13:16:49Z",
+  "sourceArchives": [
+    {
+      "path": "historical-evidence.tar.gz",
+      "byteLength": 74046,
+      "sha256": "ccb12dd679f3be9a07f132fd34ad6e357e8df22428c87f09c1529ebf3fde0ea7",
+      "disposition": "preserved-rejected-binary-fixture"
+    },
+    {
+      "path": "runner-source-snapshot.tar.gz",
+      "byteLength": 21079,
+      "sha256": "4bfab87b0ba4fa865d96791ec42159386cefce7810679116e7d34e79c287427f",
+      "disposition": "preserved-rejected-binary-fixture"
+    }
+  ],
+  "outerEntries": [
+    {
+      "originalPath": "SHA256SUMS",
+      "searchablePath": "SHA256SUMS",
+      "originalBytes": 1637,
+      "originalSha256": "b817cb663677c79c4d8d025a8f94fd9ea96783b8a2590c8f35403be7b384db45",
+      "searchableBytes": 1637,
+      "searchableSha256": "b817cb663677c79c4d8d025a8f94fd9ea96783b8a2590c8f35403be7b384db45",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "README.md",
+      "searchablePath": "README.md",
+      "originalBytes": 1252,
+      "originalSha256": "ca9571a0a91bc74f01b4a98a19cd3d2d6a41d2dc81ee5a928242a175bb4009c6",
+      "searchableBytes": 1252,
+      "searchableSha256": "ca9571a0a91bc74f01b4a98a19cd3d2d6a41d2dc81ee5a928242a175bb4009c6",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "artifacts/raw/benchmark-results-project-fs.json",
+      "searchablePath": "artifacts/raw/benchmark-results-project-fs.json",
+      "originalBytes": 360872,
+      "originalSha256": "73266ef585593f5abd89cfc106b28787888fd16c6a97179c6b1f3985703ba972",
+      "searchableBytes": 360872,
+      "searchableSha256": "73266ef585593f5abd89cfc106b28787888fd16c6a97179c6b1f3985703ba972",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "artifacts/raw/benchmark-results-project-fs.sha256",
+      "searchablePath": "artifacts/raw/benchmark-results-project-fs.sha256",
+      "originalBytes": 100,
+      "originalSha256": "9e174cb1d52d979b3a2c7efa5ea6d661be12fc582b6020b05b31bebfcd352d7f",
+      "searchableBytes": 100,
+      "searchableSha256": "9e174cb1d52d979b3a2c7efa5ea6d661be12fc582b6020b05b31bebfcd352d7f",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "artifacts/raw/benchmark-results.json",
+      "searchablePath": "artifacts/raw/benchmark-results.json",
+      "originalBytes": 359847,
+      "originalSha256": "7ee3f532b7800e807b2f9118a0c8602489da509a301a416f373ac48047bbbbf3",
+      "searchableBytes": 359847,
+      "searchableSha256": "7ee3f532b7800e807b2f9118a0c8602489da509a301a416f373ac48047bbbbf3",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "artifacts/raw/benchmark-results.sha256",
+      "searchablePath": "artifacts/raw/benchmark-results.sha256",
+      "originalBytes": 89,
+      "originalSha256": "cdf41baa3cce55dcad86a3b2cb5a11c4c0135a98981c6f823b857a7dd696ac10",
+      "searchableBytes": 89,
+      "searchableSha256": "cdf41baa3cce55dcad86a3b2cb5a11c4c0135a98981c6f823b857a7dd696ac10",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "artifacts/raw/install-reliability.json",
+      "searchablePath": "artifacts/raw/install-reliability.json",
+      "originalBytes": 3990,
+      "originalSha256": "0152dd73065c86dc9288bc85e855c2f7e0c82eef3d38f9c0c5b09238f24dbdca",
+      "searchableBytes": 3990,
+      "searchableSha256": "0152dd73065c86dc9288bc85e855c2f7e0c82eef3d38f9c0c5b09238f24dbdca",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "artifacts/raw/sqlite-3.53.3-review.json",
+      "searchablePath": "artifacts/raw/sqlite-3.53.3-review.json",
+      "originalBytes": 4101,
+      "originalSha256": "21c98a0e3de74df4cb17c929393837f1b61d84353a0226c38e35f0c9cbf9d881",
+      "searchableBytes": 4101,
+      "searchableSha256": "21c98a0e3de74df4cb17c929393837f1b61d84353a0226c38e35f0c9cbf9d881",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "docs/README.md",
+      "searchablePath": "docs/README.md",
+      "originalBytes": 1627,
+      "originalSha256": "7dde8f65f90585724843eeb9f62c887114f6c7bafd877b6c9a2f1dd6b20c86bb",
+      "searchableBytes": 1627,
+      "searchableSha256": "7dde8f65f90585724843eeb9f62c887114f6c7bafd877b6c9a2f1dd6b20c86bb",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "docs/REPORT.md",
+      "searchablePath": "docs/REPORT.md",
+      "originalBytes": 6989,
+      "originalSha256": "3209ff173a6533f5d72076966dc2dfc0667af73fb1110e783f38898b703fe032",
+      "searchableBytes": 6989,
+      "searchableSha256": "3209ff173a6533f5d72076966dc2dfc0667af73fb1110e783f38898b703fe032",
+      "reconstruction": "identity"
+    }
+  ],
+  "runnerEntries": [
+    {
+      "originalPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/adapters/better-sqlite3.mjs",
+      "searchablePath": "expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/adapters/better-sqlite3.mjs",
+      "originalBytes": 4323,
+      "originalSha256": "fdf1698e0b26ca9e29613f13675a8f7221e116040ace1f0a9892f6670bebd9f8",
+      "searchableBytes": 4322,
+      "searchableSha256": "23441181febec7af63255f402e828063588aa4b648df3519879fe3aecc97653a",
+      "reconstruction": "append-one-lf"
+    },
+    {
+      "originalPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/adapters/node-sqlite.mjs",
+      "searchablePath": "expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/adapters/node-sqlite.mjs",
+      "originalBytes": 5163,
+      "originalSha256": "0f65139f7c480bf1c12b043554b698b745c6578a87330544d209745a0e66ad64",
+      "searchableBytes": 5162,
+      "searchableSha256": "154ec8f5c9a73b769c2b38181ee61d4b1dd29af9ae518c4599416b18f7219dc0",
+      "reconstruction": "append-one-lf"
+    },
+    {
+      "originalPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/bench-worker.mjs",
+      "searchablePath": "expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/bench-worker.mjs",
+      "originalBytes": 3143,
+      "originalSha256": "9cb73fde8e90ba83465d1986d05f0b7be468bff4129c0047ff32218e5aaa04f2",
+      "searchableBytes": 3142,
+      "searchableSha256": "24e869fb88389f754d6f1638fbb3a8b3c01ec68ac119ee4ba6ab0357a0dad307",
+      "reconstruction": "append-one-lf"
+    },
+    {
+      "originalPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/benchmark.mjs",
+      "searchablePath": "expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/benchmark.mjs",
+      "originalBytes": 33662,
+      "originalSha256": "42d3da3b893d7c6cb3d324936397257d42632fd3de4c49a1c460b09fa00277cd",
+      "searchableBytes": 33662,
+      "searchableSha256": "42d3da3b893d7c6cb3d324936397257d42632fd3de4c49a1c460b09fa00277cd",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/common.mjs",
+      "searchablePath": "expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/common.mjs",
+      "originalBytes": 3126,
+      "originalSha256": "1f21d597098fe8d70e0f3a16fe090cc1772da75dbbabb34b087d3dc46c7a22c3",
+      "searchableBytes": 3125,
+      "searchableSha256": "c95b21eae9a0b5c897e12678c1505a60dff172b35cd49e35a175dda729120630",
+      "reconstruction": "append-one-lf"
+    },
+    {
+      "originalPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs",
+      "searchablePath": "expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs",
+      "originalBytes": 4165,
+      "originalSha256": "588bbbc874d76f62e033bc9e3175f68ae800e089c810c1c6e604818fad4e046a",
+      "searchableBytes": 4164,
+      "searchableSha256": "abeabb4b91be312e25b39b15dd07ec1b287cfc96643cf7bd09e4cba9cc2c0901",
+      "reconstruction": "append-one-lf"
+    },
+    {
+      "originalPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/package-lock.json",
+      "searchablePath": "expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/package-lock.json",
+      "originalBytes": 16762,
+      "originalSha256": "884867846287523329e21600201a2c182eac5c929b3ae625e466afed4a860370",
+      "searchableBytes": 16762,
+      "searchableSha256": "884867846287523329e21600201a2c182eac5c929b3ae625e466afed4a860370",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/package.json",
+      "searchablePath": "expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/package.json",
+      "originalBytes": 309,
+      "originalSha256": "24e834b0ac81db61d422a71ac39469f04c9b08ab2f783b21c5de94553e5f7bc8",
+      "searchableBytes": 309,
+      "searchableSha256": "24e834b0ac81db61d422a71ac39469f04c9b08ab2f783b21c5de94553e5f7bc8",
+      "reconstruction": "identity"
+    },
+    {
+      "originalPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/schema.mjs",
+      "searchablePath": "expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/schema.mjs",
+      "originalBytes": 4931,
+      "originalSha256": "7e40765aba6f584098e7571822b820584f1173bc51f6590ba3013c882977b3ed",
+      "searchableBytes": 4930,
+      "searchableSha256": "b5a22fc6b58c4d873228466a9c668b050f23a5356988d09ec8f2045d804af4cc",
+      "reconstruction": "append-one-lf"
+    },
+    {
+      "originalPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/verify-artifacts.mjs",
+      "searchablePath": "expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/verify-artifacts.mjs",
+      "originalBytes": 4533,
+      "originalSha256": "c009f0b3deaf8693cad9eb6226a79391b0c875fbb0fc05cc70c5d65adbe5b954",
+      "searchableBytes": 4533,
+      "searchableSha256": "c009f0b3deaf8693cad9eb6226a79391b0c875fbb0fc05cc70c5d65adbe5b954",
+      "reconstruction": "identity"
+    }
+  ]
+}

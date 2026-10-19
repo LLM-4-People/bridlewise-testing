@@ -1,0 +1,14 @@
+#!/bin/sh
+# THE PROMOTION TRIGGER (engine/src/workflow/promotion/trigger-hook.ts owns this
+# text; the commit guard refuses any other). After a push or a fetch moves a
+# remote-tracking ref, start `harness promote auto` in the background: it
+# promotes each profile whose source that ref is (`trigger: on-source-publish`).
+# It must NEVER fail: a non-zero exit in git's `prepared` state aborts every ref
+# update in the repository. No `set -e`; every step that can fail exits 0.
+[ "$1" = committed ] || { cat >/dev/null 2>&1; exit 0; }
+[ -z "$HARNESS_PROMOTION_RUN" ] || { cat >/dev/null 2>&1; exit 0; }
+refs=$(grep -o ' refs/remotes/[^ ]*$' 2>/dev/null) || exit 0
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+command -v node >/dev/null 2>&1 || exit 0
+( node --experimental-strip-types "$root/engine/src/cli.ts" harness promote auto --refs "$refs" --text </dev/null >&2 2>/dev/null & )
+exit 0

@@ -1,0 +1,43 @@
+{
+  "protocol": "openai-chat-completions",
+  "wire": {
+    "type": "function",
+    "function": {
+      "name": "get_weather",
+      "description": "Return weather for a city.",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "city": { "type": "string", "minLength": 1 },
+          "units": { "type": "string", "enum": ["celsius", "fahrenheit"] }
+        },
+        "required": ["city"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "tool": {
+    "model": {
+      "name": "get_weather",
+      "description": "Return weather for a city.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "city": { "type": "string", "minLength": 1 },
+          "units": { "type": "string", "enum": ["celsius", "fahrenheit"] }
+        },
+        "required": ["city"],
+        "additionalProperties": false
+      }
+    },
+    "control": {
+      "effect": "network",
+      "approval": "always",
+      "pathScope": [],
+      "idempotency": "intrinsic",
+      "retry": "idempotent-only"
+    }
+  }
+}

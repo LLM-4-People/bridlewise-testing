@@ -1,0 +1,3218 @@
+{
+  "schema": "exp465-integration-merge/v1",
+  "mergedAt": "2026-07-22T10:23:15.385Z",
+  "baseline": "candidate",
+  "order": [
+    "exp420-proactive-injection",
+    "exp422-long-running",
+    "exp424-self-improving",
+    "exp431-architecture-audit",
+    "exp432-bandaid-no-static",
+    "exp433-tool-results-memory",
+    "exp435-trim-continuity",
+    "exp436-memory-arch",
+    "exp437-lang-agnostic",
+    "exp438-full-e2e",
+    "exp440-query-expansion",
+    "exp441-grep-quickview",
+    "exp444-improve-editor",
+    "exp445-improve-memory",
+    "exp446-improve-quality",
+    "exp447-improve-safety",
+    "exp448-improve-tools",
+    "exp449-llm-output-v2",
+    "exp451-improve-learning",
+    "exp450-integration",
+    "exp452-memory-1b",
+    "exp453-editor-no-gemma",
+    "exp454-dedup-lower-layer",
+    "exp456-10x-tests",
+    "exp457-api-queue",
+    "exp458-verify-findings",
+    "exp459-web-ui",
+    "exp461-safety-10x",
+    "exp462-quality-10x",
+    "exp463-tools-10x",
+    "exp460-search-10x",
+    "exp464-e2e-10x"
+  ],
+  "experiments": [
+    {
+      "experiment": "exp420-proactive-injection",
+      "newFiles": 8,
+      "replaceFiles": 0,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp422-long-running",
+      "newFiles": 6,
+      "replaceFiles": 0,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp424-self-improving",
+      "newFiles": 7,
+      "replaceFiles": 0,
+      "skipped": 8,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp431-architecture-audit",
+      "newFiles": 0,
+      "replaceFiles": 0,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp432-bandaid-no-static",
+      "newFiles": 9,
+      "replaceFiles": 0,
+      "skipped": 10,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp433-tool-results-memory",
+      "newFiles": 10,
+      "replaceFiles": 0,
+      "skipped": 20,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp435-trim-continuity",
+      "newFiles": 46,
+      "replaceFiles": 0,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp436-memory-arch",
+      "newFiles": 39,
+      "replaceFiles": 3,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp437-lang-agnostic",
+      "newFiles": 6,
+      "replaceFiles": 5,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp438-full-e2e",
+      "newFiles": 3,
+      "replaceFiles": 0,
+      "skipped": 17,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp440-query-expansion",
+      "newFiles": 15,
+      "replaceFiles": 0,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp441-grep-quickview",
+      "newFiles": 4,
+      "replaceFiles": 6,
+      "skipped": 1,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp444-improve-editor",
+      "newFiles": 5,
+      "replaceFiles": 0,
+      "skipped": 16,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp445-improve-memory",
+      "newFiles": 17,
+      "replaceFiles": 0,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp446-improve-quality",
+      "newFiles": 9,
+      "replaceFiles": 0,
+      "skipped": 134,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp447-improve-safety",
+      "newFiles": 26,
+      "replaceFiles": 0,
+      "skipped": 16,
+      "conflicts": [
+        "test/safety/bandaid-detector.test.ts",
+        "test/safety/bandaid-harder.test.ts",
+        "test/safety/bandaid-no-static.test.ts",
+        "test/safety/deviation-detector.test.ts",
+        "test/safety/exp432-helpers.ts",
+        "test/safety/investigation.test.ts",
+        "test/safety/pause-ask.test.ts",
+        "test/safety/step-skip-detector.test.ts",
+        "test/safety/workaround-detector.test.ts"
+      ]
+    },
+    {
+      "experiment": "exp448-improve-tools",
+      "newFiles": 42,
+      "replaceFiles": 7,
+      "skipped": 6,
+      "conflicts": [
+        "test/prevention/duplicate-bodies-allowlist.json"
+      ]
+    },
+    {
+      "experiment": "exp449-llm-output-v2",
+      "newFiles": 30,
+      "replaceFiles": 0,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp451-improve-learning",
+      "newFiles": 19,
+      "replaceFiles": 0,
+      "skipped": 20,
+      "conflicts": [
+        "test/self-improving/command-log.test.ts",
+        "test/self-improving/integration.test.ts",
+        "test/self-improving/learner.test.ts",
+        "test/self-improving/llm-boundary.test.ts",
+        "test/self-improving/mistake-detector.test.ts",
+        "test/self-improving/success-detector.test.ts",
+        "test/self-improving/workflow-improver.test.ts"
+      ]
+    },
+    {
+      "experiment": "exp450-integration",
+      "newFiles": 16,
+      "replaceFiles": 0,
+      "skipped": 9,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp452-memory-1b",
+      "newFiles": 4,
+      "replaceFiles": 0,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp453-editor-no-gemma",
+      "newFiles": 23,
+      "replaceFiles": 0,
+      "skipped": 0,
+      "conflicts": [
+        "scripts/exp444-10x-harder.mjs",
+        "scripts/exp444-benchmark.mjs",
+        "scripts/exp444-llm-smoke.mjs",
+        "scripts/exp444-smoke.mjs"
+      ]
+    },
+    {
+      "experiment": "exp454-dedup-lower-layer",
+      "newFiles": 12,
+      "replaceFiles": 0,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp456-10x-tests",
+      "newFiles": 4,
+      "replaceFiles": 0,
+      "skipped": 15,
+      "conflicts": [
+        "test/memory/unified/unified.test.ts",
+        "scripts/exp445/run-exp445.mjs"
+      ]
+    },
+    {
+      "experiment": "exp457-api-queue",
+      "newFiles": 14,
+      "replaceFiles": 1,
+      "skipped": 1,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp458-verify-findings",
+      "newFiles": 1,
+      "replaceFiles": 2,
+      "skipped": 9,
+      "conflicts": [
+        "src/evaluation/scenarios.ts"
+      ]
+    },
+    {
+      "experiment": "exp459-web-ui",
+      "newFiles": 0,
+      "replaceFiles": 0,
+      "skipped": 0,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp461-safety-10x",
+      "newFiles": 59,
+      "replaceFiles": 6,
+      "skipped": 22,
+      "conflicts": [
+        "test/auto-learning/auto-learning-5-rounds.test.ts",
+        "test/auto-learning/exp451-benchmark.test.ts",
+        "test/aux/exp447-learning.test.ts",
+        "test/safety/bandaid-detector.test.ts",
+        "test/safety/bandaid-harder.test.ts",
+        "test/safety/bandaid-no-static.test.ts",
+        "test/safety/deviation-detector.test.ts",
+        "test/safety/exp432-helpers.ts",
+        "test/safety/exp447-bias.test.ts",
+        "test/safety/exp447-hallucination.test.ts",
+        "test/safety/exp447-helpers.ts",
+        "test/safety/investigation.test.ts",
+        "test/safety/pause-ask.test.ts",
+        "test/safety/step-skip-detector.test.ts",
+        "test/safety/workaround-detector.test.ts",
+        "test/self-improving/command-log.test.ts",
+        "test/self-improving/integration.test.ts",
+        "test/self-improving/learner.test.ts",
+        "test/self-improving/llm-boundary.test.ts",
+        "test/self-improving/mistake-detector.test.ts",
+        "test/self-improving/success-detector.test.ts",
+        "test/self-improving/workflow-improver.test.ts",
+        "src/architecture-manifest.ts",
+        "test/prevention/duplicate-bodies-allowlist.json"
+      ]
+    },
+    {
+      "experiment": "exp462-quality-10x",
+      "newFiles": 145,
+      "replaceFiles": 0,
+      "skipped": 34,
+      "conflicts": [
+        "test/aux/awareness.test.ts",
+        "test/aux/exp446-checks.test.ts",
+        "test/aux/exposure.test.ts",
+        "test/aux/learning.test.ts",
+        "test/aux/quality.test.ts",
+        "test/aux/safety.test.ts",
+        "scripts/exp446/run-benchmark.mts",
+        "scripts/exp446/run-llm-usefulness.mts"
+      ]
+    },
+    {
+      "experiment": "exp463-tools-10x",
+      "newFiles": 39,
+      "replaceFiles": 0,
+      "skipped": 19,
+      "conflicts": [
+        "test/mcp/auth-headers.test.ts",
+        "test/mcp/config-schema.test.ts",
+        "test/mcp/config.test.ts",
+        "test/mcp/exposure.test.ts",
+        "test/mcp/health.test.ts",
+        "test/mcp/improper-usage.test.ts",
+        "test/mcp/no-static-constants.test.ts",
+        "test/mcp/real-servers.test.ts",
+        "test/mcp/registry.test.ts",
+        "test/mcp/retry.test.ts",
+        "test/mcp/runtime-bridge.test.ts",
+        "test/mcp/transport.test.ts",
+        "test/mcp/fixtures/adversarial-mcp-server.mjs",
+        "test/mcp/fixtures/fake-mcp-server.mjs",
+        "test/tools/concurrent/dependency-graph.test.ts",
+        "test/tools/concurrent/dispatcher.test.ts",
+        "test/tools/concurrent/long-task-runner.test.ts",
+        "test/tools/concurrent/worker-pool.test.ts",
+        "scripts/exp448/benchmark.mjs",
+        "scripts/exp448/exp448-results.json",
+        "scripts/exp448/handlers.mjs",
+        "scripts/exp448/io-handlers.mjs",
+        "scripts/exp448/worker-entry.mjs"
+      ]
+    },
+    {
+      "experiment": "exp460-search-10x",
+      "newFiles": 38,
+      "replaceFiles": 0,
+      "skipped": 105,
+      "conflicts": []
+    },
+    {
+      "experiment": "exp464-e2e-10x",
+      "newFiles": 13,
+      "replaceFiles": 0,
+      "skipped": 17,
+      "conflicts": [
+        "test/exp450/exp450-unified.test.ts"
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "path": "test/safety/bandaid-detector.test.ts",
+      "prior": "exp432-bandaid-no-static",
+      "next": "exp447-improve-safety",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/bandaid-harder.test.ts",
+      "prior": "exp432-bandaid-no-static",
+      "next": "exp447-improve-safety",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/bandaid-no-static.test.ts",
+      "prior": "exp432-bandaid-no-static",
+      "next": "exp447-improve-safety",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/deviation-detector.test.ts",
+      "prior": "exp432-bandaid-no-static",
+      "next": "exp447-improve-safety",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/exp432-helpers.ts",
+      "prior": "exp432-bandaid-no-static",
+      "next": "exp447-improve-safety",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/investigation.test.ts",
+      "prior": "exp432-bandaid-no-static",
+      "next": "exp447-improve-safety",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/pause-ask.test.ts",
+      "prior": "exp432-bandaid-no-static",
+      "next": "exp447-improve-safety",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/step-skip-detector.test.ts",
+      "prior": "exp432-bandaid-no-static",
+      "next": "exp447-improve-safety",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/workaround-detector.test.ts",
+      "prior": "exp432-bandaid-no-static",
+      "next": "exp447-improve-safety",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/prevention/duplicate-bodies-allowlist.json",
+      "prior": "exp437-lang-agnostic",
+      "next": "exp448-improve-tools",
+      "resolved": "replace-wins"
+    },
+    {
+      "path": "test/self-improving/command-log.test.ts",
+      "prior": "exp424-self-improving",
+      "next": "exp451-improve-learning",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/integration.test.ts",
+      "prior": "exp424-self-improving",
+      "next": "exp451-improve-learning",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/learner.test.ts",
+      "prior": "exp424-self-improving",
+      "next": "exp451-improve-learning",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/llm-boundary.test.ts",
+      "prior": "exp424-self-improving",
+      "next": "exp451-improve-learning",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/mistake-detector.test.ts",
+      "prior": "exp424-self-improving",
+      "next": "exp451-improve-learning",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/success-detector.test.ts",
+      "prior": "exp424-self-improving",
+      "next": "exp451-improve-learning",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/workflow-improver.test.ts",
+      "prior": "exp424-self-improving",
+      "next": "exp451-improve-learning",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp444-10x-harder.mjs",
+      "prior": "exp444-improve-editor",
+      "next": "exp453-editor-no-gemma",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp444-benchmark.mjs",
+      "prior": "exp444-improve-editor",
+      "next": "exp453-editor-no-gemma",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp444-llm-smoke.mjs",
+      "prior": "exp444-improve-editor",
+      "next": "exp453-editor-no-gemma",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp444-smoke.mjs",
+      "prior": "exp444-improve-editor",
+      "next": "exp453-editor-no-gemma",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/memory/unified/unified.test.ts",
+      "prior": "exp445-improve-memory",
+      "next": "exp456-10x-tests",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp445/run-exp445.mjs",
+      "prior": "exp445-improve-memory",
+      "next": "exp456-10x-tests",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "src/evaluation/scenarios.ts",
+      "prior": "exp437-lang-agnostic",
+      "next": "exp458-verify-findings",
+      "resolved": "replace-wins"
+    },
+    {
+      "path": "test/auto-learning/auto-learning-5-rounds.test.ts",
+      "prior": "exp451-improve-learning",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/auto-learning/exp451-benchmark.test.ts",
+      "prior": "exp451-improve-learning",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/aux/exp447-learning.test.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/bandaid-detector.test.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/bandaid-harder.test.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/bandaid-no-static.test.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/deviation-detector.test.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/exp432-helpers.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/exp447-bias.test.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/exp447-hallucination.test.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/exp447-helpers.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/investigation.test.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/pause-ask.test.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/step-skip-detector.test.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/safety/workaround-detector.test.ts",
+      "prior": "exp447-improve-safety",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/command-log.test.ts",
+      "prior": "exp451-improve-learning",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/integration.test.ts",
+      "prior": "exp451-improve-learning",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/learner.test.ts",
+      "prior": "exp451-improve-learning",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/llm-boundary.test.ts",
+      "prior": "exp451-improve-learning",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/mistake-detector.test.ts",
+      "prior": "exp451-improve-learning",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/success-detector.test.ts",
+      "prior": "exp451-improve-learning",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/self-improving/workflow-improver.test.ts",
+      "prior": "exp451-improve-learning",
+      "next": "exp461-safety-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "src/architecture-manifest.ts",
+      "prior": "exp441-grep-quickview",
+      "next": "exp461-safety-10x",
+      "resolved": "replace-wins"
+    },
+    {
+      "path": "test/prevention/duplicate-bodies-allowlist.json",
+      "prior": "exp448-improve-tools",
+      "next": "exp461-safety-10x",
+      "resolved": "replace-wins"
+    },
+    {
+      "path": "test/aux/awareness.test.ts",
+      "prior": "exp446-improve-quality",
+      "next": "exp462-quality-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/aux/exp446-checks.test.ts",
+      "prior": "exp446-improve-quality",
+      "next": "exp462-quality-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/aux/exposure.test.ts",
+      "prior": "exp446-improve-quality",
+      "next": "exp462-quality-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/aux/learning.test.ts",
+      "prior": "exp446-improve-quality",
+      "next": "exp462-quality-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/aux/quality.test.ts",
+      "prior": "exp446-improve-quality",
+      "next": "exp462-quality-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/aux/safety.test.ts",
+      "prior": "exp446-improve-quality",
+      "next": "exp462-quality-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp446/run-benchmark.mts",
+      "prior": "exp446-improve-quality",
+      "next": "exp462-quality-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp446/run-llm-usefulness.mts",
+      "prior": "exp446-improve-quality",
+      "next": "exp462-quality-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/auth-headers.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/config-schema.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/config.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/exposure.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/health.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/improper-usage.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/no-static-constants.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/real-servers.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/registry.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/retry.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/runtime-bridge.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/transport.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/fixtures/adversarial-mcp-server.mjs",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/mcp/fixtures/fake-mcp-server.mjs",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/tools/concurrent/dependency-graph.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/tools/concurrent/dispatcher.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/tools/concurrent/long-task-runner.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/tools/concurrent/worker-pool.test.ts",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp448/benchmark.mjs",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp448/exp448-results.json",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp448/handlers.mjs",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp448/io-handlers.mjs",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "scripts/exp448/worker-entry.mjs",
+      "prior": "exp448-improve-tools",
+      "next": "exp463-tools-10x",
+      "resolved": "later-wins"
+    },
+    {
+      "path": "test/exp450/exp450-unified.test.ts",
+      "prior": "exp450-integration",
+      "next": "exp464-e2e-10x",
+      "resolved": "later-wins"
+    }
+  ],
+  "protectedSkips": [
+    {
+      "path": "src/quality-packs/prevention/duplicate-body-detector.ts",
+      "experiment": "exp441-grep-quickview"
+    },
+    {
+      "path": "src/quality-packs/prevention/duplicate-body-detector.ts",
+      "experiment": "exp461-safety-10x"
+    }
+  ],
+  "ownerSkips": [
+    {
+      "path": "src/self-improving/command-log.ts",
+      "experiment": "exp424-self-improving",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/config.ts",
+      "experiment": "exp424-self-improving",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/index.ts",
+      "experiment": "exp424-self-improving",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/learner.ts",
+      "experiment": "exp424-self-improving",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/llm-boundary.ts",
+      "experiment": "exp424-self-improving",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/mistake-detector.ts",
+      "experiment": "exp424-self-improving",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/success-detector.ts",
+      "experiment": "exp424-self-improving",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/workflow-improver.ts",
+      "experiment": "exp424-self-improving",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/safety/bandaid-ast-detector.ts",
+      "experiment": "exp432-bandaid-no-static",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bandaid-config.ts",
+      "experiment": "exp432-bandaid-no-static",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bandaid-detector.ts",
+      "experiment": "exp432-bandaid-no-static",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bandaid-exposure.ts",
+      "experiment": "exp432-bandaid-no-static",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bandaid-pattern-learner.ts",
+      "experiment": "exp432-bandaid-no-static",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/deviation-detector.ts",
+      "experiment": "exp432-bandaid-no-static",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/investigation.ts",
+      "experiment": "exp432-bandaid-no-static",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/pause-ask.ts",
+      "experiment": "exp432-bandaid-no-static",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/step-skip-detector.ts",
+      "experiment": "exp432-bandaid-no-static",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/workaround-detector.ts",
+      "experiment": "exp432-bandaid-no-static",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/shared/exposure/README.md",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/awareness.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/bias.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/context.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/editor.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/hallucination.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/learning.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/memory.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/quality.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/safety.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/search.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/tools.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/llm/circuit-breaker.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/client.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/config.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/errors.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/failover.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/index.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/queue.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/stats.ts",
+      "experiment": "exp433-tool-results-memory",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/exposure/registrations/awareness.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/bias.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/context.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/editor.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/hallucination.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/learning.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/memory.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/quality.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/safety.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/search.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/exposure/registrations/tools.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/shared/llm/llm-circuit-breaker.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-client.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-config.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-errors.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-queue.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-stats.ts",
+      "experiment": "exp438-full-e2e",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/smart-edit/ast-skeleton.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/auto-heal.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/bandaid-guard.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/config.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/edit-engine.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/feedback-auto-heal.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/git-auto-heal.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/index.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/language.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/llm.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/partial-auto-heal.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/semantic-auto-heal.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/small-file.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/smart-editor.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/unified-editor.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/smart-edit/viewport.mjs",
+      "experiment": "exp444-improve-editor",
+      "owner": "exp453-editor-no-gemma"
+    },
+    {
+      "path": "src/aux/index.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/compact.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/config.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/delta.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/engine.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/fisher-ranking.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/multi-turn.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/types.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/ag-spectrum.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/architecture.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/banach-contraction.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/bell-clones.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/benford.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/chromatic-number.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/clone-graph.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/clones.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/complexity.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/debt.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/dependencies.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/drift.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/edit-predictability.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/entropy.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/ergodic-drift.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/fiber-bundle.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/fiedler-bisection.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/free-probability.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/function-classification.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/function-stats.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/health.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/homology.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/hotspots.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/hub-stress.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/linguistic-typology.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/martingale-debt.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/maxwell-demon.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/mechanism-design.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/module-roles.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/persistence-landscapes.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/qec-distance.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/quality.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/quantum-stability.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/recursion-hierarchy.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/ricci-curvature.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/risk.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/shape-dna.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/sheaf-cohomology.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/test-coverage.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/thermodynamics.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/topos.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/trending.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/turing-treadmills.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/type-level.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/signals/wavelet-clones.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/languages/generic.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/languages/go-tree-sitter.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/languages/go.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/languages/index.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/languages/python-tree-sitter.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/languages/python.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/languages/rust-tree-sitter.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/languages/rust.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/languages/tree-sitter-base.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/awareness/languages/typescript.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/learning/bayesian.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/bias-detector.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/collector.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/config.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/cusum.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/extractor.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/generalizer.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/index.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/multi-cause.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/simulation.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/updater.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/validator.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/quality/aggregator.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/base.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/config.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/index.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/monitoring.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/scoring.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/signals.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/languages/index.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/languages/shared/tree-sitter-loader.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/languages/shared/tree-sitter-walker.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/languages/rust/parser.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/languages/python/parser.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/languages/js-ts/parser.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/languages/java/parser.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/languages/go/parser.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/languages/c-cpp/parser.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/barrel-detection.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/circular-deps.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/code-health-aggregate.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/code-health.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/complex-condition.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/complexity.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/dead-code.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/dead-exports.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/duplicate-imports.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/duplicate-strings.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/duplicates.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/empty-function.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/long-line.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/long-params.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/parse-errors.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/performance-anti-pattern.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/race-condition.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/security-hotspot.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/shadowed-declaration.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/unreachable-catch.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/quality/checks/unused-imports.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp462-quality-10x"
+    },
+    {
+      "path": "src/safety/bandaid-config.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bandaid-detector.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bias-config.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bias-detector.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bias-preventer.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/deviation-detector.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/hallucination-config.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/hallucination-detector.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/index.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/investigation.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/pause-ask.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/step-skip-detector.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/workaround-detector.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/shared/llm/circuit-breaker.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/client.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/config.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/errors.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/exposure.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp433-tool-results-memory"
+    },
+    {
+      "path": "src/shared/llm/failover.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/index.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/queue.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/stats.ts",
+      "experiment": "exp446-improve-quality",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/safety/bandaid-ast-detector.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bandaid-config.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bandaid-detector.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bandaid-exposure.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bandaid-pattern-learner.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bias-config.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bias-detector.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bias-preventer.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/deviation-detector.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/hallucination-config.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/hallucination-detector.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/hallucination-semantic.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/investigation.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/pause-ask.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/step-skip-detector.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/workaround-detector.ts",
+      "experiment": "exp447-improve-safety",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/tools/concurrent/dependency-graph.ts",
+      "experiment": "exp448-improve-tools",
+      "owner": "exp463-tools-10x"
+    },
+    {
+      "path": "src/tools/concurrent/dispatcher.ts",
+      "experiment": "exp448-improve-tools",
+      "owner": "exp463-tools-10x"
+    },
+    {
+      "path": "src/tools/concurrent/index.ts",
+      "experiment": "exp448-improve-tools",
+      "owner": "exp463-tools-10x"
+    },
+    {
+      "path": "src/tools/concurrent/long-task-runner.ts",
+      "experiment": "exp448-improve-tools",
+      "owner": "exp463-tools-10x"
+    },
+    {
+      "path": "src/tools/concurrent/long-task-wrapper.mjs",
+      "experiment": "exp448-improve-tools",
+      "owner": "exp463-tools-10x"
+    },
+    {
+      "path": "src/tools/concurrent/worker-pool.ts",
+      "experiment": "exp448-improve-tools",
+      "owner": "exp463-tools-10x"
+    },
+    {
+      "path": "src/auto-learning/anomaly-detector.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/bayesian.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/benchmark.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/bias-detector.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/collector.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/config.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/cusum.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/decision-tree.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/exp451-profile.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/exp451-simulation.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/extractor.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/generalizer.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/genetic-algorithm.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/index.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/multi-cause.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/ngram.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/semantic-match.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/simulation.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/updater.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/validator.ts",
+      "experiment": "exp451-improve-learning",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/exp420/proactive-injector.ts",
+      "experiment": "exp450-integration",
+      "owner": "exp420-proactive-injection"
+    },
+    {
+      "path": "src/exp420/query-classifier.ts",
+      "experiment": "exp450-integration",
+      "owner": "exp420-proactive-injection"
+    },
+    {
+      "path": "src/exp420/types.ts",
+      "experiment": "exp450-integration",
+      "owner": "exp420-proactive-injection"
+    },
+    {
+      "path": "src/shared/llm/llm-circuit-breaker.ts",
+      "experiment": "exp450-integration",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-client.ts",
+      "experiment": "exp450-integration",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-config.ts",
+      "experiment": "exp450-integration",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-errors.ts",
+      "experiment": "exp450-integration",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-queue.ts",
+      "experiment": "exp450-integration",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-stats.ts",
+      "experiment": "exp450-integration",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/memory/unified/cache.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/content-store.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/conversation-summary.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/drift-detector.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/ebbinghaus.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/embeddings.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/index.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/inverted-index.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/proactive-injector.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/tokenizer.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/tool-result-store.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/trust-enforcer.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/unified-config.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/unified-context-manager.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/memory/unified/unified-memory-store.ts",
+      "experiment": "exp456-10x-tests",
+      "owner": "exp445-improve-memory"
+    },
+    {
+      "path": "src/shared/llm/exposure.ts",
+      "experiment": "exp457-api-queue",
+      "owner": "exp433-tool-results-memory"
+    },
+    {
+      "path": "src/llm-beyond-max/dedup-v2.ts",
+      "experiment": "exp458-verify-findings",
+      "owner": "exp449-llm-output-v2"
+    },
+    {
+      "path": "src/safety/hallucination-semantic.ts",
+      "experiment": "exp458-verify-findings",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/shared/memory/retrieval/retriever.ts",
+      "experiment": "exp458-verify-findings",
+      "owner": "exp436-memory-arch"
+    },
+    {
+      "path": "src/auto-learning/benchmark.ts",
+      "experiment": "exp458-verify-findings",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/auto-learning/exp451-simulation.ts",
+      "experiment": "exp458-verify-findings",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/learning/bayesian.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/bias-detector.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/collector.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/config.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/cusum.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/extractor.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/generalizer.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/index.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/multi-cause.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/simulation.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/updater.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/validator.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/self-improving/command-log.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/config.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/generation-evolver.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/index.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/learner.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/llm-boundary.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/mistake-detector.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/success-detector.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/self-improving/workflow-improver.ts",
+      "experiment": "exp461-safety-10x",
+      "owner": "exp451-improve-learning"
+    },
+    {
+      "path": "src/learning/bayesian.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/bias-detector.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/collector.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/config.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/cusum.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/extractor.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/generalizer.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/index.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/multi-cause.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/simulation.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/updater.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/learning/validator.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp447-improve-safety"
+    },
+    {
+      "path": "src/safety/bandaid-config.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bandaid-detector.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bias-config.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bias-detector.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/bias-preventer.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/deviation-detector.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/hallucination-config.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/hallucination-detector.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/index.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/investigation.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/pause-ask.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/step-skip-detector.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/safety/workaround-detector.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp461-safety-10x"
+    },
+    {
+      "path": "src/shared/llm/circuit-breaker.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/client.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/config.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/errors.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/exposure.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp433-tool-results-memory"
+    },
+    {
+      "path": "src/shared/llm/failover.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/index.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/queue.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/stats.ts",
+      "experiment": "exp462-quality-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/mcp/auth.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/config.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/core.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/errors.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/exposure.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/factory.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/headers.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/health.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/index.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/registry.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/retry.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/runtime-bridge.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/tool-adapter.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/transport/abort-utils.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/transport/http.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/transport/sse.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/transport/stdio.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/transport/types.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "src/mcp/transport/websocket.ts",
+      "experiment": "exp463-tools-10x",
+      "owner": "exp448-improve-tools"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/LICENSE",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/README.md",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/package.json",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/tree-sitter.cjs",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/tree-sitter.cjs.map",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/tree-sitter.js",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/tree-sitter.js.map",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/tree-sitter.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/tree-sitter.wasm.map",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/web-tree-sitter.d.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/web-tree-sitter.d.ts.map",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/src/bindings.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/src/constants.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/src/index.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/src/language.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/src/lookahead_iterator.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/src/marshal.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/src/node.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/src/parser.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/src/query.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/src/tree.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/src/tree_cursor.ts",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/alloc.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/alloc.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/array.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/atomic.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/clock.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/error_costs.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/get_changed_ranges.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/get_changed_ranges.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/host.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/language.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/language.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/length.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/lexer.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/lexer.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/lib.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/node.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/parser.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/parser.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/point.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/query.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/reduce_action.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/reusable_node.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/stack.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/stack.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/subtree.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/subtree.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/tree-sitter.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/tree-sitter.cjs",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/tree-sitter.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/tree-sitter.wasm.map",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/tree.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/tree.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/tree_cursor.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/tree_cursor.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/ts_assert.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/unicode.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/wasm_store.c",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/lib/wasm_store.h",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/debug/tree-sitter.cjs",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/debug/tree-sitter.cjs.map",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/debug/tree-sitter.js",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/debug/tree-sitter.js.map",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/debug/tree-sitter.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/web-tree-sitter/debug/tree-sitter.wasm.map",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/LICENSE",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/README.md",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/package.json",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-bash.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-c.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-c_sharp.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-cpp.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-css.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-dart.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-elisp.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-elixir.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-elm.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-embedded_template.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-go.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-html.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-java.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-javascript.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-json.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-kotlin.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-lua.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-objc.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-ocaml.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-php.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-python.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-ql.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-rescript.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-ruby.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-scala.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-solidity.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-swift.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-systemrdl.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-tlaplus.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-toml.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-vue.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-yaml.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "scripts/exp460/local_modules/tree-sitter-wasms/out/tree-sitter-zig.wasm",
+      "experiment": "exp460-search-10x",
+      "owner": "__exclude__"
+    },
+    {
+      "path": "src/exp420/proactive-injector.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp420-proactive-injection"
+    },
+    {
+      "path": "src/exp420/query-classifier.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp420-proactive-injection"
+    },
+    {
+      "path": "src/exp420/types.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp420-proactive-injection"
+    },
+    {
+      "path": "src/exp450/index.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp450-integration"
+    },
+    {
+      "path": "src/exp450/machine-side.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp450-integration"
+    },
+    {
+      "path": "src/exp450/perf-tracker.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp450-integration"
+    },
+    {
+      "path": "src/exp450/response-analyzer.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp450-integration"
+    },
+    {
+      "path": "src/exp450/safety-checks.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp450-integration"
+    },
+    {
+      "path": "src/exp450/signal-registry.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp450-integration"
+    },
+    {
+      "path": "src/exp450/types.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp450-integration"
+    },
+    {
+      "path": "src/exp450/unified-harness.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp450-integration"
+    },
+    {
+      "path": "src/shared/llm/llm-circuit-breaker.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-client.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-config.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-errors.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-queue.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp457-api-queue"
+    },
+    {
+      "path": "src/shared/llm/llm-stats.ts",
+      "experiment": "exp464-e2e-10x",
+      "owner": "exp457-api-queue"
+    }
+  ],
+  "fileCount": 699,
+  "newCount": 669,
+  "replaceCount": 30,
+  "passed": true
+}

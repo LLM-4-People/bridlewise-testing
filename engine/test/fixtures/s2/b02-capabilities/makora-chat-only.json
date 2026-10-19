@@ -1,0 +1,77 @@
+{
+  "protocol": "openai-chat-completions",
+  "request": {
+    "requestId": "req-makora-chat",
+    "model": "makora-model",
+    "messages": [{ "role": "user", "content": "hello" }],
+    "tools": [{
+      "model": {
+        "name": "lookup",
+        "description": "Look up a value.",
+        "inputSchema": {
+          "type": "object",
+          "properties": { "key": { "type": "string", "minLength": 1 } },
+          "required": ["key"],
+          "additionalProperties": false
+        }
+      },
+      "control": {
+        "effect": "read",
+        "approval": "always",
+        "pathScope": ["."],
+        "idempotency": "intrinsic",
+        "retry": "idempotent-only"
+      }
+    }],
+    "toolChoice": "auto",
+    "parallelToolCalls": false,
+    "stream": true
+  },
+  "wire": {
+    "transport": {
+      "protocol": "openai-chat-completions",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "framing": "sse",
+      "stream": true,
+      "executionAuthorized": false
+    },
+    "body": {
+      "model": "makora-model",
+      "messages": [{ "role": "user", "content": "hello" }],
+      "stream": true,
+      "tool_choice": "auto",
+      "tools": [{
+        "type": "function",
+        "function": {
+          "name": "lookup",
+          "description": "Look up a value.",
+          "parameters": {
+            "type": "object",
+            "properties": { "key": { "type": "string", "minLength": 1 } },
+            "required": ["key"],
+            "additionalProperties": false
+          }
+        }
+      }],
+      "parallel_tool_calls": false,
+      "stream_options": { "include_usage": true }
+    }
+  },
+  "requirement": {
+    "required": ["text", "streaming", "tools"],
+    "preferred": ["reasoning", "usage"]
+  },
+  "offers": [{
+    "protocol": "openai-chat-completions",
+    "supported": ["text", "streaming", "tools"]
+  }],
+  "expected": {
+    "accepted": true,
+    "selectedProtocol": "openai-chat-completions",
+    "losses": [
+      { "capability": "reasoning", "disposition": "preferred-unavailable", "protocol": "openai-chat-completions" },
+      { "capability": "usage", "disposition": "preferred-unavailable", "protocol": "openai-chat-completions" }
+    ]
+  }
+}

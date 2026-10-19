@@ -1,0 +1,34 @@
+{
+  "frames": [
+    "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_tools\",\"object\":\"response\",\"status\":\"in_progress\",\"model\":\"contract-model\"}}\n\n",
+    "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"rs_1\",\"type\":\"reasoning\",\"status\":\"in_progress\",\"summary\":[]}}\n\n",
+    "event: response.reasoning_summary_text.delta\ndata: {\"type\":\"response.reasoning_summary_text.delta\",\"sequence_number\":2,\"item_id\":\"rs_1\",\"output_index\":0,\"summary_index\":0,\"delta\":\"Need two calls.\"}\n\n",
+    "event: response.reasoning_summary_text.done\ndata: {\"type\":\"response.reasoning_summary_text.done\",\"sequence_number\":3,\"item_id\":\"rs_1\",\"output_index\":0,\"summary_index\":0,\"text\":\"Need two calls.\"}\n\n",
+    "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":4,\"output_index\":0,\"item\":{\"id\":\"rs_1\",\"type\":\"reasoning\",\"status\":\"completed\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Need two calls.\"}]}}\n\n",
+    "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":5,\"output_index\":1,\"item\":{\"id\":\"fc_weather\",\"type\":\"function_call\",\"status\":\"in_progress\",\"call_id\":\"call_weather\",\"name\":\"get_weather\",\"arguments\":\"\"}}\n\n",
+    "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":6,\"output_index\":2,\"item\":{\"id\":\"fc_math\",\"type\":\"function_call\",\"status\":\"in_progress\",\"call_id\":\"call_math\",\"name\":\"calculate\",\"arguments\":\"\"}}\n\n",
+    "event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":7,\"item_id\":\"fc_weather\",\"output_index\":1,\"delta\":\"{\\\"city\\\":\\\"Paris\\\"}\"}\n\n",
+    "event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":8,\"item_id\":\"fc_math\",\"output_index\":2,\"delta\":\"{\\\"x\\\":1}\"}\n\n",
+    "event: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"sequence_number\":9,\"item_id\":\"fc_math\",\"output_index\":2,\"name\":\"calculate\",\"arguments\":\"{\\\"x\\\":1}\"}\n\n",
+    "event: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"sequence_number\":10,\"item_id\":\"fc_weather\",\"output_index\":1,\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\"}\n\n",
+    "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":11,\"output_index\":1,\"item\":{\"id\":\"fc_weather\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_weather\",\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\"}}\n\n",
+    "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":12,\"output_index\":2,\"item\":{\"id\":\"fc_math\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_math\",\"name\":\"calculate\",\"arguments\":\"{\\\"x\\\":1}\"}}\n\n",
+    "event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":13,\"response\":{\"id\":\"resp_tools\",\"object\":\"response\",\"status\":\"completed\",\"output\":[{\"id\":\"rs_1\",\"type\":\"reasoning\",\"status\":\"completed\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Need two calls.\"}]},{\"id\":\"fc_weather\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_weather\",\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\"},{\"id\":\"fc_math\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_math\",\"name\":\"calculate\",\"arguments\":\"{\\\"x\\\":1}\"}],\"usage\":{\"input_tokens\":20,\"output_tokens\":10,\"total_tokens\":30,\"output_tokens_details\":{\"reasoning_tokens\":3}},\"model\":\"contract-model\"}}\n\n"
+  ],
+  "expectedTypes": [
+    "start",
+    "reasoning_delta",
+    "tool_call_start",
+    "tool_call_start",
+    "tool_call_delta",
+    "tool_call_delta",
+    "usage",
+    "tool_call_done",
+    "tool_call_done",
+    "finish"
+  ],
+  "expectedCalls": [
+    "call_weather",
+    "call_math"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "frames": [
+    "data: {\"id\":\"chatcmpl-usage-data\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+    "data: {\"id\":\"chatcmpl-usage-data\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1,\"total_tokens\":3}}\n\n",
+    "data: {\"id\":\"chatcmpl-usage-data\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"late\"},\"finish_reason\":null}]}\n\n"
+  ],
+  "expectedError": "stream_after_usage"
+}

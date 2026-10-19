@@ -1,0 +1,10 @@
+{
+  "callId": "call_mismatch",
+  "expectedResponseId": "request-expected",
+  "wire": {
+    "jsonrpc": "2.0",
+    "id": "request-other",
+    "result": { "content": [{ "type": "text", "text": "wrong request" }] }
+  },
+  "expectedImportError": "mcp_response_id_mismatch"
+}

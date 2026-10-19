@@ -1,0 +1,95 @@
+{
+  "$id": "https://bridlewise.local/schemas/code-intelligence/query-oracle.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "classes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "answerShape": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "metrics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answerShape",
+          "id",
+          "metrics",
+          "question"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "oracleVersion": {
+      "type": "string"
+    },
+    "rules": {
+      "additionalProperties": false,
+      "properties": {
+        "ambiguityRecordedNotGuessed": {
+          "type": "boolean"
+        },
+        "candidateBlind": {
+          "type": "boolean"
+        },
+        "compilerAstLspAndManualCrossCheck": {
+          "type": "boolean"
+        },
+        "createdBeforeCandidateRun": {
+          "type": "boolean"
+        },
+        "emptyTruthSetMustHaveCompletenessProof": {
+          "type": "boolean"
+        },
+        "minimumIndependentMethods": {
+          "type": "integer"
+        },
+        "sourceLocationsAndContentHashesRequired": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ambiguityRecordedNotGuessed",
+        "candidateBlind",
+        "compilerAstLspAndManualCrossCheck",
+        "createdBeforeCandidateRun",
+        "emptyTruthSetMustHaveCompletenessProof",
+        "minimumIndependentMethods",
+        "sourceLocationsAndContentHashesRequired"
+      ],
+      "type": "object"
+    },
+    "schemaVersion": {
+      "type": "string"
+    },
+    "semanticEpoch": {
+      "type": "integer"
+    },
+    "status": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "classes",
+    "oracleVersion",
+    "rules",
+    "schemaVersion",
+    "semanticEpoch",
+    "status"
+  ],
+  "title": "Closed structural schema for code-intelligence-query-oracle/v1",
+  "type": "object"
+}

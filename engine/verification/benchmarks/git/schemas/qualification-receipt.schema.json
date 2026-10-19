@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/schemas/git-qualification-receipt-v1.json",
+  "title": "Workspace/Git qualification receipt",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "suiteManifestSha256", "catalogSha256", "subject", "surface", "status", "repetitions", "blockers", "readinessClaim"],
+  "properties": {
+    "schemaVersion": { "const": "bridlewise-git-qualification-receipt/v1" },
+    "suiteManifestSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "catalogSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "subject": { "type": "string", "minLength": 1 },
+    "surface": { "enum": ["builder", "runtime"] },
+    "status": { "enum": ["unassessed", "blocked", "failed", "qualified"] },
+    "repetitions": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["scenarioId", "repetition", "variant", "outcome", "preGraphSha256", "postGraphSha256", "oracleFindings"],
+        "properties": {
+          "scenarioId": { "type": "string", "pattern": "^GIT-[A-Z]+-[0-9]{3}$" },
+          "repetition": { "type": "integer", "minimum": 1 },
+          "variant": { "type": "string" },
+          "outcome": { "enum": ["passed", "failed", "blocked", "unassessed"] },
+          "preGraphSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "postGraphSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "oracleFindings": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "blockers": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "review": {
+      "type": "object", "additionalProperties": false, "required": ["independent", "reviewerIdentity", "evidenceSha256"],
+      "properties": {
+        "independent": { "const": true },
+        "reviewerIdentity": { "type": "string", "minLength": 1 },
+        "evidenceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "readinessClaim": { "const": false }
+  },
+  "allOf": [{
+    "if": { "properties": { "status": { "const": "qualified" } } },
+    "then": { "required": ["review"], "properties": { "blockers": { "maxItems": 0 } } }
+  }]
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://bridlewise.local/schemas/code-intelligence/review-receipt.v2.json",
+  "type": "object", "additionalProperties": false, "required": ["schemaVersion", "payload", "signature"],
+  "properties": {
+    "schemaVersion": {"const": "code-intelligence-review-receipt/v2"},
+    "payload": {"type": "object", "additionalProperties": false, "required": ["reviewId", "reviewerId", "role", "reviewerToolchainSha256", "admissionVerifierToolchainSha256", "protocolSha256", "policyBundleSha256", "candidateResolutionSha256", "runSha256", "runnerIdentities", "reviewedObjectSetSha256", "preAdmissionProjectionSha256", "decision"], "properties": {"reviewId": {"type": "string"}, "reviewerId": {"type": "string"}, "role": {"enum": ["oracle", "evidence"]}, "reviewerToolchainSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "admissionVerifierToolchainSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "protocolSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "policyBundleSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "candidateResolutionSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "runSha256": {"type": "array", "minItems": 9, "maxItems": 9, "items": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "uniqueItems": true}, "runnerIdentities": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true}, "reviewedObjectSetSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "preAdmissionProjectionSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "decision": {"const": "admitted"}}},
+    "signature": {"type": "object", "additionalProperties": false, "required": ["algorithm", "signatureBase64"], "properties": {"algorithm": {"const": "Ed25519"}, "signatureBase64": {"type": "string", "minLength": 40}}}
+  }
+}

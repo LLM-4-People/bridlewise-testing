@@ -1,0 +1,2 @@
+const environmentAlias = process.env;
+environmentAlias.NAME;

@@ -1,0 +1,11 @@
+{
+  "frames": [
+    "data: {\"id\":\"chatcmpl-tools\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":\"call_weather\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"\"}},{\"index\":1,\"id\":\"call_math\",\"type\":\"function\",\"function\":{\"name\":\"calculate\",\"arguments\":\"{\\\"x\\\":\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"chatcmpl-tools\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"arguments\":\"1}\"}},{\"index\":0,\"function\":{\"arguments\":\"Paris\\\"}\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"chatcmpl-tools\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+    "data: {\"id\":\"chatcmpl-tools\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":8,\"total_tokens\":18}}\n\n",
+    "data: [DONE]\n\n"
+  ],
+  "expectedTypes": ["start", "tool_call_start", "tool_call_delta", "tool_call_start", "tool_call_delta", "tool_call_delta", "tool_call_delta", "tool_call_done", "tool_call_done", "finish", "usage"],
+  "expectedCalls": ["call_weather", "call_math"]
+}

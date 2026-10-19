@@ -1,0 +1,7 @@
+{
+  "protocol": "openai-chat-completions",
+  "frames": [
+    "data: {\"id\":\"first\",\"id\":\"second\",\"choices\":[]}\n\n"
+  ],
+  "expectedError": "protocol_key_duplicate"
+}

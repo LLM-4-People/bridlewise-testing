@@ -1,0 +1,10 @@
+#!/bin/sh
+# After a commit: consume the deletion declarations it used, and expire the
+# ones whose path is on disk again (engine/src/git/declared-deletions.ts). git
+# ignores this hook's status, since the commit is already made. A declaration
+# it could not consume stays behind, stale for good (HEAD moved), and the commit
+# guard refuses a stale declaration rather than re-using it.
+set -e
+root=$(git rev-parse --show-toplevel)
+exec node --experimental-strip-types \
+  "$root/engine/scripts/post-commit.ts" "$root"

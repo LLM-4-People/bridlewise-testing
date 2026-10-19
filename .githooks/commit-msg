@@ -1,0 +1,8 @@
+#!/bin/sh
+# The message of a commit: one that turns a workflow lesson to `acted` names
+# it in a `Lesson: L-<id>` trailer (engine/scripts/verification/lesson-trailers.ts).
+# It hands over to the same door as `pre-commit`, in its message mode.
+set -e
+root=$(git rev-parse --show-toplevel)
+exec node --experimental-strip-types \
+  "$root/engine/scripts/commit-guard.ts" "$root" --message "$1"

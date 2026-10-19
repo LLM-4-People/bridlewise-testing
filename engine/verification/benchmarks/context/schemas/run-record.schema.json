@@ -1,0 +1,567 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/research/context/run-record.schema.json",
+  "title": "Progressive context/shared-memory qualification run record",
+  "description": "Minimum future evidence envelope. Validation proves shape only and never proves qualification.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "protocol_id",
+    "run_id",
+    "status",
+    "started_at",
+    "finished_at",
+    "repetition",
+    "scenario",
+    "strategy",
+    "environment",
+    "identities",
+    "source_evidence",
+    "incident_learning_evidence",
+    "memory_lifecycle",
+    "broker_evidence",
+    "steering_continuity",
+    "runtime_language_boundary",
+    "context_plans",
+    "metrics",
+    "artifacts",
+    "failures",
+    "gate_results",
+    "qualification_claim"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "const": "2.0.0" },
+    "protocol_id": { "const": "PCM-SLM-QS-2" },
+    "run_id": { "$ref": "#/$defs/id" },
+    "status": { "enum": ["complete", "failed", "blocked", "cancelled"] },
+    "started_at": { "$ref": "#/$defs/dateTime" },
+    "finished_at": { "$ref": "#/$defs/dateTime" },
+    "repetition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seed", "ordinal", "fresh_state", "cache_namespace"],
+      "properties": {
+        "seed": { "type": "integer", "minimum": 0 },
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "fresh_state": { "const": true },
+        "cache_namespace": { "$ref": "#/$defs/id" }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fixture_sha256", "horizon_events", "agent_count", "project_artifact"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "fixture_sha256": { "$ref": "#/$defs/sha256" },
+        "horizon_events": { "type": "integer", "minimum": 1 },
+        "agent_count": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "project_artifact": {
+          "oneOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }]
+        }
+      }
+    },
+    "strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "manifest_sha256", "components", "effective_token_budget", "fallbacks"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "effective_token_budget": { "type": "integer", "minimum": 1 },
+        "fallbacks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fallback" }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["manifest_sha256", "os", "architecture", "cpu", "memory_bytes", "network_mode"],
+      "properties": {
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "os": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "minLength": 1 },
+        "cpu": { "type": "string", "minLength": 1 },
+        "memory_bytes": { "type": "integer", "minimum": 1 },
+        "network_mode": { "enum": ["offline", "restricted", "online"] }
+      }
+    },
+    "identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_requested",
+        "provider_returned",
+        "model_requested",
+        "model_returned",
+        "capability_epoch",
+        "capability_manifest_sha256",
+        "memory_runtime",
+        "embedding",
+        "reranker",
+        "mcp_servers"
+      ],
+      "properties": {
+        "provider_requested": { "type": ["string", "null"] },
+        "provider_returned": { "type": ["string", "null"] },
+        "model_requested": { "type": ["string", "null"] },
+        "model_returned": { "type": ["string", "null"] },
+        "capability_epoch": { "$ref": "#/$defs/id" },
+        "capability_manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "memory_runtime": { "$ref": "#/$defs/identity" },
+        "embedding": {
+          "oneOf": [{ "$ref": "#/$defs/embeddingIdentity" }, { "type": "null" }]
+        },
+        "reranker": {
+          "oneOf": [{ "$ref": "#/$defs/identity" }, { "type": "null" }]
+        },
+        "mcp_servers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/identity" }
+        }
+      }
+    },
+    "source_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_stream", "event_count", "terminal_event_hash", "redaction_policy_sha256"],
+      "properties": {
+        "event_stream": { "$ref": "#/$defs/artifact" },
+        "event_count": { "type": "integer", "minimum": 1 },
+        "terminal_event_hash": { "$ref": "#/$defs/sha256" },
+        "redaction_policy_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "memory_lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capture_policy_id",
+        "trigger_policy",
+        "retrieval_mode",
+        "memory_agent_topology",
+        "sourced_views",
+        "capture_decisions_artifact",
+        "injection_decisions_artifact",
+        "proposal_artifact"
+      ],
+      "properties": {
+        "capture_policy_id": { "$ref": "#/$defs/id" },
+        "trigger_policy": {
+          "enum": [
+            "fixed_hooks_only",
+            "change_threshold",
+            "risk_threshold",
+            "novelty_threshold",
+            "hybrid_change_risk_novelty"
+          ]
+        },
+        "retrieval_mode": { "enum": ["proactive", "on_demand", "hybrid"] },
+        "memory_agent_topology": {
+          "enum": [
+            "no_memory_agent_direct_query",
+            "one_shared_readonly_memory_agent",
+            "per_agent_readonly_memory_agents"
+          ]
+        },
+        "sourced_views": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["present", "short", "long"],
+          "properties": {
+            "present": { "$ref": "#/$defs/artifact" },
+            "short": { "$ref": "#/$defs/artifact" },
+            "long": { "$ref": "#/$defs/artifact" }
+          }
+        },
+        "capture_decisions_artifact": { "$ref": "#/$defs/artifact" },
+        "injection_decisions_artifact": { "$ref": "#/$defs/artifact" },
+        "proposal_artifact": {
+          "oneOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }]
+        }
+      }
+    },
+    "incident_learning_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "incident_events_artifact",
+        "finding_links_artifact",
+        "root_cause_and_correction_artifact",
+        "regression_or_nonreproduction_artifact",
+        "independent_recheck_artifact",
+        "closure_state"
+      ],
+      "properties": {
+        "incident_events_artifact": { "$ref": "#/$defs/artifact" },
+        "finding_links_artifact": { "$ref": "#/$defs/artifact" },
+        "root_cause_and_correction_artifact": { "$ref": "#/$defs/artifact" },
+        "regression_or_nonreproduction_artifact": { "$ref": "#/$defs/artifact" },
+        "independent_recheck_artifact": { "$ref": "#/$defs/artifact" },
+        "closure_state": {
+          "enum": ["open_blocking", "recheck_pending", "closed_verified", "recurred_blocking"]
+        }
+      }
+    },
+    "broker_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker_id",
+        "physical_resource_sets_artifact",
+        "semantic_resource_sets_artifact",
+        "lease_ledger_artifact",
+        "effect_boundary_checks_artifact",
+        "isolated_worktree_bypass_allowed"
+      ],
+      "properties": {
+        "broker_id": { "$ref": "#/$defs/id" },
+        "physical_resource_sets_artifact": { "$ref": "#/$defs/artifact" },
+        "semantic_resource_sets_artifact": { "$ref": "#/$defs/artifact" },
+        "lease_ledger_artifact": { "$ref": "#/$defs/artifact" },
+        "effect_boundary_checks_artifact": { "$ref": "#/$defs/artifact" },
+        "isolated_worktree_bypass_allowed": { "const": false }
+      }
+    },
+    "steering_continuity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy",
+        "steering_directive_sets_artifact",
+        "focus_dispositions_artifact",
+        "continuity_transitions_artifact",
+        "focus_stack_artifact",
+        "constraint_merge_artifact",
+        "supervisor_offset_artifact",
+        "observer_subscription_artifact",
+        "observer_proposals_artifact",
+        "observer_delivery_replay_artifact",
+        "strategy_enforcement_eligible",
+        "sanitized_inputs_only",
+        "chain_of_thought_visible",
+        "observer_effect_authority",
+        "observer_mutation_authority",
+        "observer_private_memory_authority",
+        "observer_direct_peer_channel",
+        "observer_independent_state_authority"
+      ],
+      "properties": {
+        "strategy": {
+          "enum": [
+            "no_monitor_negative_control",
+            "deterministic_supervisor_only",
+            "isolated_model_only_simulator",
+            "hybrid_rules_and_small_model_proposal"
+          ]
+        },
+        "steering_directive_sets_artifact": { "$ref": "#/$defs/artifact" },
+        "focus_dispositions_artifact": { "$ref": "#/$defs/artifact" },
+        "continuity_transitions_artifact": { "$ref": "#/$defs/artifact" },
+        "focus_stack_artifact": { "$ref": "#/$defs/artifact" },
+        "constraint_merge_artifact": { "$ref": "#/$defs/artifact" },
+        "supervisor_offset_artifact": { "$ref": "#/$defs/artifact" },
+        "observer_subscription_artifact": {
+          "oneOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }]
+        },
+        "observer_proposals_artifact": {
+          "oneOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }]
+        },
+        "observer_delivery_replay_artifact": {
+          "oneOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }]
+        },
+        "strategy_enforcement_eligible": { "type": "boolean" },
+        "sanitized_inputs_only": { "const": true },
+        "chain_of_thought_visible": { "const": false },
+        "observer_effect_authority": { "const": false },
+        "observer_mutation_authority": { "const": false },
+        "observer_private_memory_authority": { "const": false },
+        "observer_direct_peer_channel": { "const": false },
+        "observer_independent_state_authority": { "const": false }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "strategy": { "enum": ["no_monitor_negative_control", "isolated_model_only_simulator"] }
+            },
+            "required": ["strategy"]
+          },
+          "then": { "properties": { "strategy_enforcement_eligible": { "const": false } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "strategy": { "enum": ["deterministic_supervisor_only", "hybrid_rules_and_small_model_proposal"] }
+            },
+            "required": ["strategy"]
+          },
+          "then": { "properties": { "strategy_enforcement_eligible": { "const": true } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "strategy": { "enum": ["no_monitor_negative_control", "deterministic_supervisor_only"] }
+            },
+            "required": ["strategy"]
+          },
+          "then": {
+            "properties": {
+              "observer_subscription_artifact": { "type": "null" },
+              "observer_proposals_artifact": { "type": "null" },
+              "observer_delivery_replay_artifact": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "strategy": { "enum": ["isolated_model_only_simulator", "hybrid_rules_and_small_model_proposal"] }
+            },
+            "required": ["strategy"]
+          },
+          "then": {
+            "properties": {
+              "observer_subscription_artifact": { "$ref": "#/$defs/artifact" },
+              "observer_proposals_artifact": { "$ref": "#/$defs/artifact" },
+              "observer_delivery_replay_artifact": { "$ref": "#/$defs/artifact" }
+            }
+          }
+        }
+      ]
+    },
+    "runtime_language_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root_policy_sha256",
+        "package_engine_sha256",
+        "production_runner",
+        "node_version",
+        "typescript_version",
+        "python_available",
+        "python_core_dependency_observed",
+        "external_python_boundary_artifact",
+        "independent_oracle_mode",
+        "oracle_separation_verified",
+        "oracle_disagreement_outcome",
+        "node_equivalent_qualification",
+        "migration_decision"
+      ],
+      "properties": {
+        "root_policy_sha256": { "$ref": "#/$defs/sha256" },
+        "package_engine_sha256": { "$ref": "#/$defs/sha256" },
+        "production_runner": { "type": "string", "minLength": 1 },
+        "node_version": { "type": "string", "minLength": 1 },
+        "typescript_version": { "type": "string", "minLength": 1 },
+        "python_available": { "type": "boolean" },
+        "python_core_dependency_observed": { "type": "boolean" },
+        "external_python_boundary_artifact": {
+          "oneOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }]
+        },
+        "independent_oracle_mode": { "enum": ["absent", "independent_readonly_test_only"] },
+        "oracle_separation_verified": { "type": "boolean" },
+        "oracle_disagreement_outcome": {
+          "enum": ["not_applicable", "fail_closed", "incorrectly_accepted"]
+        },
+        "node_equivalent_qualification": { "enum": ["not_run", "pass", "fail", "blocked"] },
+        "migration_decision": { "enum": ["pending", "retire_python", "retain_independent_oracle"] }
+      }
+    },
+    "context_plans": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/contextPlan" }
+    },
+    "metrics": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/metric" }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "failures": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/failure" }
+    },
+    "gate_results": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/gateResult" }
+    },
+    "qualification_claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "scope", "evidence_reviewed"],
+      "properties": {
+        "level": { "enum": ["none", "diagnostic", "candidate", "qualified"] },
+        "scope": { "type": "string" },
+        "evidence_reviewed": { "type": "boolean" }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9]+(?:[._:-][A-Za-z0-9]+)*$",
+      "maxLength": 180
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "dateTime": { "type": "string", "format": "date-time" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path_or_uri", "sha256", "media_type", "size_bytes", "classification"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "path_or_uri": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "media_type": { "type": "string", "minLength": 1 },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "classification": { "enum": ["public", "sanitized", "restricted", "sealed_holdout"] }
+      }
+    },
+    "fallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested_capability", "outcome", "equivalence_profile", "evidence_id"],
+      "properties": {
+        "requested_capability": { "$ref": "#/$defs/id" },
+        "outcome": { "enum": ["not_needed", "blocked", "qualified_equivalent_used"] },
+        "equivalence_profile": { "type": ["string", "null"] },
+        "evidence_id": { "$ref": "#/$defs/id" }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version_or_revision", "artifact_digest", "license", "status"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version_or_revision": { "type": "string", "minLength": 1 },
+        "artifact_digest": { "type": ["string", "null"] },
+        "license": { "type": ["string", "null"] },
+        "status": { "enum": ["used", "not_used", "blocked", "unknown"] }
+      }
+    },
+    "embeddingIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version_or_revision",
+        "artifact_digest",
+        "license",
+        "status",
+        "tokenizer_sha256",
+        "pooling",
+        "dimension",
+        "normalization",
+        "dtype",
+        "quantization",
+        "instruction"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version_or_revision": { "type": "string", "minLength": 1 },
+        "artifact_digest": { "type": ["string", "null"] },
+        "license": { "type": ["string", "null"] },
+        "status": { "enum": ["used", "not_used", "blocked", "unknown"] },
+        "tokenizer_sha256": { "$ref": "#/$defs/sha256" },
+        "pooling": { "type": "string", "minLength": 1 },
+        "dimension": { "type": "integer", "minimum": 1 },
+        "normalization": { "type": "string", "minLength": 1 },
+        "dtype": { "type": "string", "minLength": 1 },
+        "quantization": { "type": "string", "minLength": 1 },
+        "instruction": { "type": "string" }
+      }
+    },
+    "contextPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_id",
+        "boundary",
+        "effective_token_budget",
+        "source_event_ids",
+        "protected_event_ids",
+        "transformations",
+        "omissions",
+        "retrieval_ranking_artifact",
+        "final_order",
+        "rendered_context_artifact"
+      ],
+      "properties": {
+        "plan_id": { "$ref": "#/$defs/id" },
+        "boundary": { "enum": ["model_turn", "high_impact_action"] },
+        "effective_token_budget": { "type": "integer", "minimum": 1 },
+        "source_event_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "protected_event_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "transformations": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "omissions": { "type": "array", "items": { "$ref": "#/$defs/omission" } },
+        "retrieval_ranking_artifact": {
+          "oneOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }]
+        },
+        "final_order": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "rendered_context_artifact": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "omission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_event_id", "reason", "protected"],
+      "properties": {
+        "source_event_id": { "$ref": "#/$defs/id" },
+        "reason": { "enum": ["irrelevant", "budget", "duplicate", "superseded_with_chain_included", "policy_redacted", "invalid_for_time"] },
+        "protected": { "type": "boolean" }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "value", "unit", "oracle_artifact_id", "missing_reason"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "value": { "type": ["number", "integer", "boolean", "null"] },
+        "unit": { "type": "string", "minLength": 1 },
+        "oracle_artifact_id": { "type": ["string", "null"] },
+        "missing_reason": { "type": ["string", "null"] }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "phase", "message", "evidence_ids", "retry_decision"],
+      "properties": {
+        "type": { "$ref": "#/$defs/id" },
+        "phase": { "$ref": "#/$defs/id" },
+        "message": { "type": "string", "minLength": 1 },
+        "evidence_ids": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "retry_decision": { "enum": ["no_retry", "retry_same_cell", "blocked", "not_applicable"] }
+      }
+    },
+    "gateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate_id", "outcome", "evidence_artifact_ids"],
+      "properties": {
+        "gate_id": { "$ref": "#/$defs/id" },
+        "outcome": { "enum": ["pass", "fail", "blocked", "not_evaluated"] },
+        "evidence_artifact_ids": { "type": "array", "items": { "$ref": "#/$defs/id" } }
+      }
+    }
+  }
+}

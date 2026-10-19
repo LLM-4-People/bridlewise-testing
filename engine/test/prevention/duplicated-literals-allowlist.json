@@ -1,0 +1,62 @@
+{
+  "concepts": [
+    {
+      "key": "error-code:input_error",
+      "canonicalOwner": "src/kernel/errors.ts (a named constant like INPUT_ERROR_CODE)",
+      "literal": "input_error",
+      "position": "any",
+      "allowlist": [
+        "src/kernel/errors.ts",
+        "src/evaluation/cli.ts",
+        "src/performance/benchmark-cli.ts",
+        "src/performance/diagnostic-cli.ts",
+        "src/kernel/root-policy.ts",
+        "src/workflow/auto-generator.ts",
+        "src/workflow/harness-commands.ts",
+        "src/workflow/hash-binding-registry.ts",
+        "src/workflow/module-registrar.ts",
+        "src/workflow/resource-lock.ts",
+        "src/workflow/test-inventory-binding.ts",
+        "src/workflow/test-result-collector.ts",
+        "src/workflow/workspace-cli.ts"
+      ]
+    },
+    {
+      "key": "content-type:application_json",
+      "canonicalOwner": "src/kernel/contracts.ts (CONTENT_TYPE_JSON)",
+      "literal": "application/json",
+      "position": "any",
+      "allowlist": [
+        "src/kernel/contracts.ts",
+        "src/evaluation/matrix-generator.ts",
+        "src/evaluation/scenario-runner.ts",
+        "src/forensics/forensic-normalization.ts"
+      ]
+    },
+    {
+      "key": "path-length:max_4096",
+      "canonicalOwner": "src/filesystem/self-protection/self-protection-contracts.ts (MAX_PATH_LENGTH)",
+      "literal": "4096",
+      "position": "max-arg",
+      "allowlist": [
+        "src/kernel/config-contracts.ts",
+        "src/filesystem/self-protection/self-protection-config.ts",
+        "src/filesystem/self-protection/self-protection-contracts.ts",
+        "src/performance/performance-config.ts",
+        "src/workflow/workspace-contracts.ts"
+      ]
+    },
+    {
+      "key": "string-length:max_1024",
+      "canonicalOwner": "src/workflow/workspace-contracts.ts (MAX_STRING_LENGTH)",
+      "literal": "1024",
+      "position": "max-arg",
+      "allowlist": [
+        "src/kernel/config-contracts.ts",
+        "src/performance/performance-config.ts",
+        "src/shared/debug/debug-config.ts",
+        "src/workflow/workspace-contracts.ts"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "callId": "call_capture",
+  "expectedResponseId": "request-3",
+  "wire": {
+    "jsonrpc": "2.0",
+    "id": "request-3",
+    "result": {
+      "content": [
+        { "type": "text", "text": "Capture failed" },
+        { "type": "image", "data": "ZmFrZQ==", "mimeType": "image/png" }
+      ],
+      "isError": true
+    }
+  },
+  "expectedText": "Capture failed",
+  "expectedIsError": true,
+  "expectedLosses": 1
+}

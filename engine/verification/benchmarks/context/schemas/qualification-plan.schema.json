@@ -1,0 +1,905 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/research/context/qualification-plan.schema.json",
+  "title": "Progressive context and shared-memory qualification plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "protocol_id",
+    "status",
+    "created_at",
+    "governing_inputs",
+    "source_oracle",
+    "incident_learning_contract",
+    "automatic_memory_contract",
+    "concurrency_contract",
+    "steering_continuity_contract",
+    "runtime_language_contract",
+    "repetitions",
+    "factors",
+    "strategies",
+    "phases",
+    "metrics",
+    "gates",
+    "artifact_contract",
+    "semantic_invariants"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "const": "2.0.0" },
+    "protocol_id": { "const": "PCM-SLM-QS-2" },
+    "status": {
+      "enum": [
+        "design",
+        "preregistered",
+        "frozen",
+        "executing",
+        "complete"
+      ]
+    },
+    "created_at": { "$ref": "#/$defs/dateTime" },
+    "governing_inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/governingInput" }
+    },
+    "source_oracle": { "$ref": "#/$defs/sourceOracle" },
+    "incident_learning_contract": { "$ref": "#/$defs/incidentLearningContract" },
+    "automatic_memory_contract": { "$ref": "#/$defs/automaticMemoryContract" },
+    "concurrency_contract": { "$ref": "#/$defs/concurrencyContract" },
+    "steering_continuity_contract": { "$ref": "#/$defs/steeringContinuityContract" },
+    "runtime_language_contract": { "$ref": "#/$defs/runtimeLanguageContract" },
+    "repetitions": { "$ref": "#/$defs/repetitions" },
+    "factors": { "$ref": "#/$defs/factors" },
+    "strategies": {
+      "type": "array",
+      "minItems": 11,
+      "items": { "$ref": "#/$defs/strategy" }
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 6,
+      "items": { "$ref": "#/$defs/phase" }
+    },
+    "metrics": {
+      "type": "array",
+      "minItems": 12,
+      "items": { "$ref": "#/$defs/metric" }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 5,
+      "items": { "$ref": "#/$defs/gate" }
+    },
+    "artifact_contract": { "$ref": "#/$defs/artifactContract" },
+    "semantic_invariants": {
+      "type": "array",
+      "minItems": 18,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+      "maxLength": 120
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "dateTime": { "type": "string", "format": "date-time" },
+    "governingInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "relationship"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "relationship": {
+          "enum": [
+            "governing_requirement",
+            "architecture_input",
+            "research_brief",
+            "reused_evaluation_method",
+            "reused_retrieval_research",
+            "coordination_input",
+            "incident_regression_input",
+            "runtime_language_policy_input"
+          ]
+        }
+      }
+    },
+    "sourceOracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "immutable",
+        "derived_views_replace_source",
+        "required_time_fields",
+        "required_lineage_fields"
+      ],
+      "properties": {
+        "kind": { "const": "append_only_event_stream" },
+        "immutable": { "const": true },
+        "derived_views_replace_source": { "const": false },
+        "required_time_fields": {
+          "type": "array",
+          "contains": { "const": "event_time" },
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "required_lineage_fields": {
+          "type": "array",
+          "minItems": 5,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    },
+    "automaticMemoryContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capture_mode",
+        "capture_bypass_allowed",
+        "memory_agent_optional",
+        "memory_agent_mutation_authority",
+        "proposal_contract",
+        "lifecycle_hooks",
+        "trigger_policies",
+        "retrieval_modes",
+        "agent_topologies",
+        "sourced_views"
+      ],
+      "properties": {
+        "capture_mode": { "const": "deterministic_immutable_event_capture" },
+        "capture_bypass_allowed": { "const": false },
+        "memory_agent_optional": { "const": true },
+        "memory_agent_mutation_authority": { "const": false },
+        "proposal_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source_ids_required", "initial_status", "admission_checks"],
+          "properties": {
+            "source_ids_required": { "const": true },
+            "initial_status": { "const": "unverified" },
+            "admission_checks": {
+              "type": "array",
+              "minItems": 4,
+              "uniqueItems": true,
+              "items": {
+                "enum": ["schema", "source_support", "contradiction", "policy"]
+              }
+            }
+          }
+        },
+        "lifecycle_hooks": {
+          "type": "array",
+          "minItems": 10,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "trigger_policies": {
+          "type": "array",
+          "minItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "fixed_hooks_only",
+              "change_threshold",
+              "risk_threshold",
+              "novelty_threshold",
+              "hybrid_change_risk_novelty"
+            ]
+          }
+        },
+        "retrieval_modes": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "enum": ["proactive", "on_demand", "hybrid"] }
+        },
+        "agent_topologies": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "no_memory_agent_direct_query",
+              "one_shared_readonly_memory_agent",
+              "per_agent_readonly_memory_agents"
+            ]
+          }
+        },
+        "sourced_views": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": { "enum": ["present", "short", "long"] }
+        }
+      }
+    },
+    "incidentLearningContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "material_incident_capture_required",
+        "source_linked_findings_required",
+        "minimum_distinct_incident_classes",
+        "closure_stages",
+        "author_only_closure_allowed",
+        "recurrence_blocks_capability"
+      ],
+      "properties": {
+        "material_incident_capture_required": { "const": true },
+        "source_linked_findings_required": { "const": true },
+        "minimum_distinct_incident_classes": { "type": "integer", "minimum": 3 },
+        "closure_stages": {
+          "type": "array",
+          "minItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "deduplicate_and_link",
+              "owned_root_cause",
+              "permanent_design_correction",
+              "deterministic_regression_or_nonreproduction_evidence",
+              "independent_recheck",
+              "supersession_or_closure_record"
+            ]
+          }
+        },
+        "author_only_closure_allowed": { "const": false },
+        "recurrence_blocks_capability": { "const": true }
+      }
+    },
+    "concurrencyContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker_count",
+        "resource_set_dimensions",
+        "parallelism_allowed",
+        "hazards_serialized_or_denied",
+        "lease_identity_fields",
+        "effect_boundary_checks",
+        "recovery_classes",
+        "isolated_worktree_bypass_allowed"
+      ],
+      "properties": {
+        "broker_count": { "const": 1 },
+        "resource_set_dimensions": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["physical", "semantic"] }
+        },
+        "parallelism_allowed": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["concurrent_reads", "proven_disjoint_writes"] }
+        },
+        "hazards_serialized_or_denied": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "write_write_overlap",
+              "read_write_overlap",
+              "semantic_overlap_across_different_files"
+            ]
+          }
+        },
+        "lease_identity_fields": {
+          "type": "array",
+          "minItems": 9,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "task_id",
+              "agent_id",
+              "attempt_id",
+              "plan_hash",
+              "config_hash",
+              "repository_base",
+              "operation",
+              "ttl",
+              "heartbeat",
+              "fence_token"
+            ]
+          }
+        },
+        "effect_boundary_checks": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": { "enum": ["cas", "fence_token", "repository_state"] }
+        },
+        "recovery_classes": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": { "enum": ["deadlock", "orphan", "expired_lease"] }
+        },
+        "isolated_worktree_bypass_allowed": { "const": false }
+      }
+    },
+    "steeringContinuityContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directive_kinds",
+        "directive_contract",
+        "destructive_directives_require_explicit_authority",
+        "focus_dispositions",
+        "transition_kinds",
+        "transition_phases",
+        "transition_operation",
+        "focus_disposition_cas",
+        "foreground_focus_count",
+        "suspended_work_fields",
+        "constraint_merge",
+        "automatic_resume",
+        "abandonment_detector",
+        "continuity_supervisor",
+        "observer_profiles"
+      ],
+      "properties": {
+        "directive_kinds": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "replace",
+              "augment",
+              "reprioritize",
+              "correct",
+              "question",
+              "pause",
+              "cancel",
+              "resume"
+            ]
+          }
+        },
+        "directive_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cardinality",
+            "ordering",
+            "source_span_unit",
+            "source_binding",
+            "ambiguity",
+            "admission",
+            "interrupt_role",
+            "replace_role",
+            "target_binding",
+            "span_partition",
+            "causal_binding"
+          ],
+          "properties": {
+            "cardinality": { "const": "one_or_more_ordered_directives_per_admitted_message" },
+            "ordering": { "const": "ordinal_then_first_source_span" },
+            "source_span_unit": { "const": "utf8_bytes_half_open" },
+            "source_binding": { "const": "message_id_utf8_length_message_sha256_and_span_sha256" },
+            "ambiguity": { "const": "record_unresolved_span_and_block_only_affected_scope" },
+            "admission": { "const": "explicit_syntax_or_validated_proposal_never_recency_or_model_confidence" },
+            "interrupt_role": { "const": "derived_transition_never_directive" },
+            "replace_role": { "const": "semantic_directive_with_explicit_target_scope" },
+            "target_binding": { "const": "exactly_one_resolved_typed_target_with_prior_resolution_event" },
+            "span_partition": { "const": "admitted_and_unresolved_utf8_spans_are_pairwise_disjoint" },
+            "causal_binding": { "const": "transition_steps_reference_individual_directive_ids_and_prior_causal_events" }
+          }
+        },
+        "destructive_directives_require_explicit_authority": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["replace", "cancel"] }
+        },
+        "focus_dispositions": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["active", "suspended", "blocked", "completed", "superseded", "cancelled", "abandoned"]
+          }
+        },
+        "transition_kinds": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["replan", "change_priority", "interrupt", "resume", "supersede", "cancel", "alert"]
+          }
+        },
+        "transition_phases": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["requested", "quiescing", "reconciling", "applied", "blocked_unknown_effect", "failed"]
+          }
+        },
+        "transition_operation": { "const": "one_operation_id_monotonic_phase_ordinals_and_centrally_legal_paths" },
+        "focus_disposition_cas": { "const": "prior_causal_event_operation_and_revision_bound_no_terminal_resurrection" },
+        "foreground_focus_count": { "const": 1 },
+        "suspended_work_fields": {
+          "type": "array",
+          "minItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "task_id",
+              "subtask_id",
+              "attempt_id",
+              "focus_id",
+              "priority",
+              "suspension_sequence",
+              "checkpoint_event_id",
+              "progress",
+              "next_safe_action",
+              "constraint_revision",
+              "requirements_hash",
+              "plan_hash",
+              "config_hash",
+              "policy_hash",
+              "architecture_hash",
+              "test_method_hash",
+              "test_inventory_hash",
+              "repository_base",
+              "lease_disposition",
+              "resource_set_revision",
+              "completed_effect_receipts",
+              "dependency_revision",
+              "capability_epoch",
+              "suspension_cause",
+              "validity",
+              "terminal_disposition",
+              "disposition_revision"
+            ]
+          }
+        },
+        "constraint_merge": { "const": "causal_event_graph_with_validity_and_supersession" },
+        "automatic_resume": { "const": "highest_priority_valid_after_full_revalidation" },
+        "abandonment_detector": { "const": "deterministic_source_linked_alert_only" },
+        "continuity_supervisor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "core_projector",
+            "source",
+            "projection_cursor_rebuildable",
+            "deduplication_key",
+            "causal_validation",
+            "duplicate_authorities_allowed",
+            "crash_recovery"
+          ],
+          "properties": {
+            "core_projector": { "const": true },
+            "source": { "const": "canonical_event_ledger" },
+            "projection_cursor_rebuildable": { "const": true },
+            "deduplication_key": { "const": "event_id" },
+            "causal_validation": { "const": true },
+            "duplicate_authorities_allowed": { "const": false },
+            "crash_recovery": { "const": "resume_from_durable_offset_or_rebuild" }
+          }
+        },
+        "observer_profiles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "optional",
+            "read_only",
+            "effect_authority",
+            "allowed_inputs",
+            "forbidden_inputs",
+            "strategies",
+            "strategy_enforcement_eligibility",
+            "proposal_kinds",
+            "output_invariants",
+            "subscription_scope_fields",
+            "delivery_controls"
+          ],
+          "properties": {
+            "optional": { "const": true },
+            "read_only": { "const": true },
+            "effect_authority": { "const": false },
+            "allowed_inputs": {
+              "type": "array",
+              "minItems": 5,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "sanitized_user_message",
+                  "sanitized_agent_message",
+                  "task_status",
+                  "subtask_status",
+                  "agent_status",
+                  "bounded_tool_summary"
+                ]
+              }
+            },
+            "proposal_kinds": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "directive_set_concern",
+                  "continuation_concern",
+                  "abandonment_staleness_concern",
+                  "alignment_concern"
+                ]
+              }
+            },
+            "output_invariants": {
+              "type": "array",
+              "minItems": 7,
+              "maxItems": 7,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "source_linked",
+                  "advisory_only",
+                  "no_effect_authority",
+                  "no_mutation_authority",
+                  "no_private_memory_authority",
+                  "no_direct_peer_channel",
+                  "no_task_state_change"
+                ]
+              }
+            },
+            "forbidden_inputs": {
+              "type": "array",
+              "minItems": 5,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "chain_of_thought",
+                  "raw_secret",
+                  "unrestricted_transcript",
+                  "raw_tool_payload",
+                  "ambient_repository",
+                  "broker_handle",
+                  "effect_port"
+                ]
+              }
+            },
+            "strategies": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "no_monitor_negative_control",
+                  "deterministic_supervisor_only",
+                  "isolated_model_only_simulator",
+                  "hybrid_rules_and_small_model_proposal"
+                ]
+              }
+            },
+            "strategy_enforcement_eligibility": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "no_monitor_negative_control",
+                "deterministic_supervisor_only",
+                "isolated_model_only_simulator",
+                "hybrid_rules_and_small_model_proposal"
+              ],
+              "properties": {
+                "no_monitor_negative_control": { "const": false },
+                "deterministic_supervisor_only": { "const": true },
+                "isolated_model_only_simulator": { "const": false },
+                "hybrid_rules_and_small_model_proposal": { "const": true }
+              }
+            },
+            "subscription_scope_fields": {
+              "type": "array",
+              "minItems": 6,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/id" }
+            },
+            "delivery_controls": {
+              "type": "array",
+              "minItems": 6,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "privacy_filter_before_delivery",
+                  "bounded_backpressure",
+                  "stable_event_id_deduplication",
+                  "durable_replay_offset",
+                  "crash_recovery",
+                  "false_alert_accounting",
+                  "no_silent_steering_drop"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "runtimeLanguageContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_core_language",
+        "product_core_runtime",
+        "production_and_canonical_runner",
+        "node_lts_major",
+        "version_authority",
+        "python_product_core_dependency_allowed",
+        "allowed_external_python_roles",
+        "independent_python_oracle",
+        "existing_python_benchmark_disposition",
+        "node_equivalent_qualification_required",
+        "rewrite_existing_python_now",
+        "minimum_clean_hostile_repetitions"
+      ],
+      "properties": {
+        "product_core_language": { "const": "typescript" },
+        "product_core_runtime": { "const": "node" },
+        "production_and_canonical_runner": { "const": "node_only" },
+        "node_lts_major": { "const": 24 },
+        "version_authority": { "const": "root_policy_with_package_engine_projection" },
+        "python_product_core_dependency_allowed": { "const": false },
+        "allowed_external_python_roles": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["qualified_external_mcp", "independent_test_oracle"] }
+        },
+        "independent_python_oracle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "optional",
+            "read_only",
+            "test_only",
+            "independently_implemented",
+            "may_import_call_or_share_production_predicate",
+            "disagreement"
+          ],
+          "properties": {
+            "optional": { "const": true },
+            "read_only": { "const": true },
+            "test_only": { "const": true },
+            "independently_implemented": { "const": true },
+            "may_import_call_or_share_production_predicate": { "const": false },
+            "disagreement": { "const": "fail_closed" }
+          }
+        },
+        "existing_python_benchmark_disposition": {
+          "const": "preserved_noncore_evidence_pending_node_equivalent_migration_decision"
+        },
+        "node_equivalent_qualification_required": { "const": true },
+        "rewrite_existing_python_now": { "const": false },
+        "minimum_clean_hostile_repetitions": { "type": "integer", "minimum": 3 }
+      }
+    },
+    "repetitions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_per_cell",
+        "exploratory_seeds",
+        "fresh_state_per_repetition",
+        "promotion_minimum_paired_real_runs"
+      ],
+      "properties": {
+        "minimum_per_cell": { "type": "integer", "minimum": 3 },
+        "exploratory_seeds": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0 }
+        },
+        "fresh_state_per_repetition": { "const": true },
+        "promotion_minimum_paired_real_runs": {
+          "type": "integer",
+          "minimum": 3
+        }
+      }
+    },
+    "factors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_counts",
+        "horizons_events",
+        "budget_profiles",
+        "repository_profiles",
+        "retrieval_units",
+        "fault_classes"
+      ],
+      "properties": {
+        "agent_counts": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "prefixItems": [
+            { "const": 0 },
+            { "const": 1 },
+            { "const": 2 },
+            { "const": 3 },
+            { "const": 4 },
+            { "const": 5 }
+          ],
+          "items": false
+        },
+        "horizons_events": {
+          "type": "array",
+          "minItems": 4,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 25 }
+        },
+        "budget_profiles": {
+          "type": "array",
+          "minItems": 4,
+          "items": { "$ref": "#/$defs/budgetProfile" }
+        },
+        "repository_profiles": {
+          "type": "array",
+          "minItems": 8,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "retrieval_units": {
+          "type": "array",
+          "minItems": 8,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "fault_classes": {
+          "type": "array",
+          "minItems": 10,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    },
+    "budgetProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "effective_tokens", "pressure_points"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "effective_tokens": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1024 },
+            { "const": "provider_capability_max" }
+          ]
+        },
+        "pressure_points": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+        },
+        "sudden_reduction_fraction": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1
+        }
+      }
+    },
+    "strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "components",
+        "protected_classes",
+        "ablations",
+        "expected_determinism"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "family": { "$ref": "#/$defs/id" },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "protected_classes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "ablations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "expected_determinism": {
+          "enum": ["byte_exact", "seeded", "numeric_tolerance"]
+        },
+        "negative_control": { "type": "boolean" }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "order", "entry_gate", "required_outputs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "order": { "type": "integer", "minimum": 1 },
+        "entry_gate": { "type": "string", "minLength": 1 },
+        "required_outputs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "class", "direction", "oracle", "unit"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "class": { "enum": ["primary", "diagnostic"] },
+        "direction": { "enum": ["higher", "lower", "exact", "report"] },
+        "oracle": { "type": "string", "minLength": 1 },
+        "unit": { "type": "string", "minLength": 1 }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "order", "rule", "failure_effect"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "order": { "type": "integer", "minimum": 1 },
+        "rule": { "type": "string", "minLength": 1 },
+        "failure_effect": { "enum": ["reject", "block", "diagnostic_only"] }
+      }
+    },
+    "artifactContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_record_schema",
+        "required_hash_algorithm",
+        "canonicalization",
+        "derived_artifacts_rebuildable",
+        "credentials_retained",
+        "required_artifact_classes"
+      ],
+      "properties": {
+        "run_record_schema": { "type": "string", "minLength": 1 },
+        "required_hash_algorithm": { "const": "sha256" },
+        "canonicalization": { "const": "rfc8785_jcs" },
+        "derived_artifacts_rebuildable": { "const": true },
+        "credentials_retained": { "const": false },
+        "required_artifact_classes": {
+          "type": "array",
+          "minItems": 10,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    }
+  }
+}

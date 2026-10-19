@@ -1,0 +1,19 @@
+#!/bin/sh
+# Refuse a commit that would drop a tracked file out of the index.
+#
+# A plain `mv` into an ignored path plus `git add -A` exits 0 and stages a
+# DELETION of the old path with nothing standing in for it; `git mv` keeps the
+# file tracked. This is the last moment the difference is visible, and there is
+# no CI here, so `git commit` is the only door both spellings pass through.
+#
+# The rule lives in one owner. Before the monorepo assembly this file existed
+# twice — once in the harness root reaching `$root/integration/`, once in the
+# web tree reaching `$root/../harness-main-v1/integration/` — two spellings of
+# one relative literal, which is exactly the duplication the assembly removes.
+# Now there is one tree and one path: the engine is in-tree at `engine/`. If it
+# is absent the hook fails and the commit is refused, which is the right
+# answer: a check that cannot run has not certified anything.
+set -e
+root=$(git rev-parse --show-toplevel)
+exec node --experimental-strip-types \
+  "$root/engine/scripts/commit-guard.ts" "$root"

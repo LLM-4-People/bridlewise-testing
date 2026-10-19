@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "bridlewise-rejected-archive-independent-replay/v1",
+  "role": "independent-failure-reproduction-and-preservation-verification",
+  "observedOn": "2026-07-12",
+  "reviewer": "independent-read-only-subagent",
+  "verifier": "bounded-gzip-tar-metadata-and-expanded-hash-replay/v1",
+  "archives": [
+    {
+      "path": "historical-evidence.tar.gz",
+      "byteLength": 74046,
+      "sha256": "ccb12dd679f3be9a07f132fd34ad6e357e8df22428c87f09c1529ebf3fde0ea7",
+      "gzipHeaderHex": "1f8b0800000000000003",
+      "fileEntryCount": 12,
+      "identityReplay": "pass-12-of-12",
+      "uid": 0,
+      "gid": 0,
+      "mtimeUnix": 946684800,
+      "bytewisePathOrder": false,
+      "firstOrderingInversion": {
+        "before": "SHA256SUMS",
+        "after": "README.md"
+      },
+      "missingEntries": 0,
+      "unexpectedEntries": 0,
+      "dangerousPaths": 0,
+      "linkMembers": 0,
+      "hashMismatches": 0,
+      "secretPatternMatches": 0,
+      "verdict": "rejected-normalization-claim-failed"
+    },
+    {
+      "path": "runner-source-snapshot.tar.gz",
+      "byteLength": 21079,
+      "sha256": "4bfab87b0ba4fa865d96791ec42159386cefce7810679116e7d34e79c287427f",
+      "gzipHeaderHex": "1f8b0800000000000003",
+      "fileEntryCount": 10,
+      "identityReplay": "pass-10-of-10",
+      "uid": 0,
+      "gid": 0,
+      "mtimeUnix": 946684800,
+      "bytewisePathOrder": true,
+      "firstOrderingInversion": null,
+      "missingEntries": 0,
+      "unexpectedEntries": 0,
+      "dangerousPaths": 0,
+      "linkMembers": 0,
+      "hashMismatches": 0,
+      "secretPatternMatches": 0,
+      "verdict": "preserved-but-valid-archive-admission-suspended"
+    }
+  ],
+  "falseGreenReproduction": {
+    "fixtureHex": "1f8b00",
+    "fixtureSha256": "4f49dc02c9600234c87f9cd67a65bba18e1ec8bab309c4a720971b25d21f144a",
+    "priorResult": "incorrectly-admitted-as-deterministic-gzip-archive",
+    "requiredResult": "rejected-binary-fixture-only"
+  },
+  "overallVerdict": "valid-archive-admission-suspended-expanded-projections-required"
+}

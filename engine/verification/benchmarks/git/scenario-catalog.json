@@ -1,0 +1,443 @@
+{
+  "schemaVersion": "bridlewise-git-qualification-catalog/v1",
+  "catalogId": "USR-043-DER-029-workspace-git",
+  "requirements": ["USR-043", "DER-029"],
+  "coverageClaims": [
+    "empty", "nonempty", "no-repository", "init", "clone", "import", "attach",
+    "existing-repository", "bare", "linked-worktree", "nested", "unborn",
+    "detached", "dirty", "corrupt", "locked", "shallow", "partial",
+    "submodule", "lfs", "signing", "protected-refs", "upstream-fetch",
+    "fork-push", "divergence", "unrelated-histories", "atomic",
+    "idempotent-recovery", "never-push-root-classes", "managed-gitignore",
+    "tracked", "ignored", "negated-ignore", "historical-reachability",
+    "concurrency", "ambiguous-network", "crash", "rollback",
+    "auth-capability", "capability-install", "hosted-disposable",
+    "protected-self-evolution", "module-dependency-graph", "leases-drain",
+    "contract-tests"
+  ],
+  "scenarios": [
+    {
+      "id": "GIT-ONBOARD-001", "title": "Initialize an empty non-repository without an implicit commit",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["empty", "no-repository", "init", "unborn"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.init", "git.status-porcelain-v2"]},
+      "fixture": {"generator": "workspace", "profile": "empty-init"},
+      "candidateAction": {"kind": "init-empty", "effectClass": "local-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["main-sha1-files", "trunk-sha256-files", "stable-sha1-reftable-probe"]},
+      "oracle": {"id": "init-empty", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["workspace becomes one non-bare repository at the frozen filesystem identity", "HEAD is unborn on the explicitly selected full branch name", "no commit, remote, unrelated file, or global configuration is created", "second execution with the same idempotency key produces an identical graph"]}
+    },
+    {
+      "id": "GIT-ONBOARD-002", "title": "Clone into an empty directory from a local bare source",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["empty", "clone", "existing-repository"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.clone", "git.rev-list", "git.cat-file"]},
+      "fixture": {"generator": "workspace", "profile": "empty-clone"},
+      "candidateAction": {"kind": "clone", "effectClass": "local-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["one-commit-main", "three-commit-trunk", "five-commit-stable-with-tag"]},
+      "oracle": {"id": "clone-equivalence", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["source bare refs and objects remain unchanged", "workspace HEAD and recursive tree equal the selected source ref", "configured fetch role and refspec equal the approved plan", "no URL userinfo, credential value, or hidden default appears"]}
+    },
+    {
+      "id": "GIT-ONBOARD-003", "title": "Inventory and import a populated unversioned directory",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["nonempty", "no-repository", "import", "init", "never-push-root-classes"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.init", "git.write-tree", "filesystem.inventory"]},
+      "fixture": {"generator": "workspace", "profile": "nonempty-import"},
+      "candidateAction": {"kind": "import-and-init", "effectClass": "local-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["text-and-lockfile", "nested-empty-directory-and-binary", "unicode-name-and-symlink-probe"]},
+      "oracle": {"id": "import-preservation", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["pre-existing bytes, modes, and approved symlink identities are preserved", "reviewed baseline tree contains exactly eligible inventoried paths", "root/additive never-push findings block before commit", "no remote is contacted or mutated"]}
+    },
+    {
+      "id": "GIT-ONBOARD-004", "title": "Clone separately before reconciling a populated unversioned directory",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["nonempty", "clone", "import", "unrelated-histories"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.clone", "git.merge-base", "filesystem.inventory"]},
+      "fixture": {"generator": "workspace", "profile": "nonempty-clone-separate"},
+      "candidateAction": {"kind": "clone-separately-and-plan-import", "effectClass": "local-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["no-path-collision", "same-path-same-bytes", "same-path-different-bytes"]},
+      "oracle": {"id": "separate-reconcile", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["source is cloned only into the separate approved peer path", "original populated directory is byte-for-byte unchanged until an import plan is approved", "collisions and unrelated histories are reported explicitly", "source remote remains unchanged"]}
+    },
+    {
+      "id": "GIT-ONBOARD-005", "title": "Attach and reconcile an existing ordinary repository",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["attach", "existing-repository", "upstream-fetch", "divergence"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.remote", "git.fetch-atomic", "git.merge-base"]},
+      "fixture": {"generator": "workspace", "profile": "existing-attach"},
+      "candidateAction": {"kind": "attach-and-reconcile", "effectClass": "local-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["no-remotes-common-history", "matching-existing-remote", "conflicting-existing-remote"]},
+      "oracle": {"id": "attach-explicit", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["existing object graph, index, worktree, and user configuration are frozen before planning", "a conflicting remote identity blocks replacement", "fetch precedes graph analysis and integration choice", "no reinit, pull, branch switch, stash, reset, clean, or push occurs implicitly"]}
+    },
+    {
+      "id": "GIT-ONBOARD-006", "title": "Classify absent Git metadata without guessing a repository action",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["empty", "nonempty", "no-repository"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["filesystem.inventory", "git.rev-parse"]},
+      "fixture": {"generator": "workspace", "profile": "classification-no-repo"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["empty-directory", "populated-directory", "directory-inside-nonrepo-parent"]},
+      "oracle": {"id": "classification-no-mutation", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["classification matches direct filesystem and rev-parse facts", "all candidate choices remain typed and non-destructive", "workspace and ancestors are byte-for-byte unchanged"]}
+    },
+    {
+      "id": "GIT-STATE-001", "title": "Distinguish ordinary, bare, and linked-worktree repositories",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["existing-repository", "bare", "linked-worktree"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.rev-parse", "git.worktree"]},
+      "fixture": {"generator": "repository-state", "profile": "repository-kinds"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["ordinary-worktree", "bare-repository", "linked-worktree-dotgit-file"]},
+      "oracle": {"id": "repository-kind", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["git-dir, common-dir, toplevel, bare, and inside-worktree facts agree", "bare and linked worktrees cannot be treated as ordinary roots", "inspection does not mutate refs, index, worktree metadata, or common directory"]}
+    },
+    {
+      "id": "GIT-STATE-002", "title": "Detect repositories nested inside or outside the selected workspace",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["nested", "existing-repository", "no-repository"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["filesystem.identity", "git.rev-parse"]},
+      "fixture": {"generator": "repository-state", "profile": "nested"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["workspace-inside-parent-repo", "workspace-contains-child-repo", "parent-and-child-repositories"]},
+      "oracle": {"id": "nested-boundary", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["all containing and contained Git boundaries are identified by canonical filesystem identity", "ambiguous ownership blocks onboarding", "neither parent nor child repository is mutated"]}
+    },
+    {
+      "id": "GIT-STATE-003", "title": "Classify unborn, detached, and dirty repository state",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["unborn", "detached", "dirty", "tracked"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.status-porcelain-v2", "git.symbolic-ref", "git.ls-files"]},
+      "fixture": {"generator": "repository-state", "profile": "head-and-dirty"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["unborn-with-untracked", "detached-clean", "branch-staged-unstaged-untracked-ignored"]},
+      "oracle": {"id": "head-dirty-state", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["HEAD state and every index/worktree class match porcelain-v2 and plumbing facts", "dirty or detached state is never silently stashed, switched, reset, or cleaned", "inspection leaves the graph and files unchanged"]}
+    },
+    {
+      "id": "GIT-STATE-004", "title": "Fail closed on corrupt or ambiguous Git metadata",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["corrupt", "existing-repository"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.fsck", "filesystem.hash"]},
+      "fixture": {"generator": "repository-state", "profile": "corrupt"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["invalid-head", "missing-reachable-object", "malformed-packed-refs"]},
+      "oracle": {"id": "corruption-block", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["independent fsck/direct metadata evidence identifies the corruption class", "no init, repair, ref rewrite, object deletion, or cleanup is attempted", "all corrupt bytes remain available for explicit recovery"]}
+    },
+    {
+      "id": "GIT-STATE-005", "title": "Detect lock and operation-in-progress states without stealing locks",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["locked", "concurrency"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["filesystem.lock-inspection", "git.rev-parse"]},
+      "fixture": {"generator": "repository-state", "profile": "locked"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["index-lock", "branch-ref-lock", "merge-rebase-operation-markers"]},
+      "oracle": {"id": "lock-block", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["lock/operation marker identity and age are recorded without opening for write", "candidate blocks rather than deleting or stealing a lock", "repository graph and markers are unchanged"]}
+    },
+    {
+      "id": "GIT-STATE-006", "title": "Preserve and reason about shallow history boundaries",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["shallow", "clone", "divergence"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.clone-shallow", "git.rev-list", "git.fetch"]},
+      "fixture": {"generator": "repository-state", "profile": "shallow"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["depth-one-main", "depth-two-trunk", "single-branch-with-unfetched-side-branch"]},
+      "oracle": {"id": "shallow-boundary", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["shallow boundary OIDs and unavailable ancestry are explicit", "merge-base absence is not misclassified as unrelated history", "no implicit deepen or unshallow occurs"]}
+    },
+    {
+      "id": "GIT-STATE-007", "title": "Preserve partial-clone promisor and filter semantics",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["partial", "clone", "capability-install"],
+      "execution": {"layer": "local", "fixtureStatus": "capability-gated", "networkMutation": false, "requiredCapabilities": ["git.clone-filter", "git.promisor", "git.cat-file"]},
+      "fixture": {"generator": "repository-state", "profile": "partial"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["blob-none-no-checkout", "blob-limit-small", "filtered-submodule-request"]},
+      "oracle": {"id": "partial-boundary", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["promisor remote and exact filter are recorded", "missing promised objects are not called corruption", "object materialization is a separately authorized transport effect"]}
+    },
+    {
+      "id": "GIT-STATE-008", "title": "Inspect submodule gitlinks, metadata, and dirty state",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["submodule", "dirty", "historical-reachability"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.submodule", "git.ls-tree", "git.status-porcelain-v2"]},
+      "fixture": {"generator": "repository-state", "profile": "submodule"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["clean-initialized", "dirty-initialized", "missing-worktree-and-unavailable-gitlink"]},
+      "oracle": {"id": "submodule-closure", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["gitlink OID, .gitmodules bytes, sanitized URL identity, and submodule dirty state are independent facts", "missing submodule object closure blocks push", "no recursive update or remote contact is implicit"]}
+    },
+    {
+      "id": "GIT-STATE-009", "title": "Classify Git LFS pointers and local object availability",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["lfs", "capability-install", "historical-reachability"],
+      "execution": {"layer": "local", "fixtureStatus": "capability-gated", "networkMutation": false, "requiredCapabilities": ["git-lfs.version", "git-lfs.fsck", "filesystem.sha256"]},
+      "fixture": {"generator": "repository-state", "profile": "lfs"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["valid-pointer-missing-object", "valid-pointer-present-local-object", "malformed-or-size-mismatched-pointer"]},
+      "oracle": {"id": "lfs-closure", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["pointer grammar OID and size are parsed independently", "local and destination LFS object availability are separately proven", "missing git-lfs is a blocker and never a weaker fallback"]}
+    },
+    {
+      "id": "GIT-STATE-010", "title": "Block when signing requirements cannot be proven",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["signing", "capability-install", "protected-refs"],
+      "execution": {"layer": "local", "fixtureStatus": "capability-gated", "networkMutation": false, "requiredCapabilities": ["git.verify-commit", "approved-test-signer", "git.push-signed-capability"]},
+      "fixture": {"generator": "repository-state", "profile": "signing"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["commit-signing-required-no-signer", "signed-push-required-server-unsupported", "unsigned-tip-on-protected-ref"]},
+      "oracle": {"id": "signing-block", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["required signer and server capability are proven behaviorally", "no key material enters config arguments environment logs or artifacts", "missing or invalid signature blocks before ref mutation"]}
+    },
+    {
+      "id": "GIT-REMOTE-001", "title": "Keep upstream fetch and fork push roles independent",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["upstream-fetch", "fork-push", "attach"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.remote", "git.fetch", "git.push"]},
+      "fixture": {"generator": "remote-graph", "profile": "upstream-fork"},
+      "candidateAction": {"kind": "fork", "effectClass": "remote-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["upstream-origin-main", "source-publish-trunk", "vendor-fork-stable-custom-refspec"]},
+      "oracle": {"id": "remote-role-separation", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["fetch URL/refspec reads only the upstream bare remote", "push URL/refspec updates only the fork bare remote", "upstream refs and objects are unchanged by push", "remote names never substitute for bound semantic roles"]}
+    },
+    {
+      "id": "GIT-REMOTE-002", "title": "Measure exact equal, ahead, and behind commit sets",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["upstream-fetch", "existing-repository", "divergence"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.fetch-atomic", "git.merge-base", "git.rev-list"]},
+      "fixture": {"generator": "remote-graph", "profile": "ahead-behind"},
+      "candidateAction": {"kind": "inspect-fetch-analyze", "effectClass": "local-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["equal", "local-ahead-two", "upstream-ahead-three"]},
+      "oracle": {"id": "ahead-behind-sets", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["observed remote OID is frozen before fetch", "merge-base and left/right rev-list sets independently establish relation", "fetch ref updates are atomic where required", "working branch is unchanged during analysis"]}
+    },
+    {
+      "id": "GIT-REMOTE-003", "title": "Require an explicit strategy for diverged histories",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["divergence", "dirty", "protected-refs"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.merge-base", "git.rev-list", "git.fetch"]},
+      "fixture": {"generator": "remote-graph", "profile": "diverged"},
+      "candidateAction": {"kind": "inspect-fetch-analyze", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["one-by-one-clean", "two-by-three-dirty", "diverged-protected-tip"]},
+      "oracle": {"id": "divergence-block", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["both unique commit sets and merge base are reported", "fast-forward-only rebase and merge consequences remain distinct choices", "without exact approval no branch/index/worktree/remote ref changes"]}
+    },
+    {
+      "id": "GIT-REMOTE-004", "title": "Distinguish unrelated histories from unavailable ancestry",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["unrelated-histories", "shallow", "partial"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.merge-base", "git.rev-list", "git.fsck"]},
+      "fixture": {"generator": "remote-graph", "profile": "unrelated"},
+      "candidateAction": {"kind": "inspect-fetch-analyze", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["unrelated-no-path-collision", "unrelated-same-path-different-bytes", "apparently-unrelated-shallow-boundary"]},
+      "oracle": {"id": "unrelated-proof", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["complete ancestry is proven before declaring unrelated histories", "path collision inventory is explicit", "no allow-unrelated-histories merge or history rewrite occurs without approval"]}
+    },
+    {
+      "id": "GIT-REMOTE-005", "title": "Honor local models of protected ref rejection",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["protected-refs", "rollback", "signing"],
+      "execution": {"layer": "fault-injected-local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.receive-pack", "git.pre-receive-hook", "git.push-porcelain"]},
+      "fixture": {"generator": "remote-graph", "profile": "protected-refs"},
+      "candidateAction": {"kind": "push", "effectClass": "remote-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["pre-receive-reject-main", "deny-non-fast-forward", "deny-delete-protected-ref"]},
+      "oracle": {"id": "protected-ref-rejection", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["remote protected ref OID is unchanged", "client classifies explicit remote rejection without force retry", "local commits and worktree remain recoverable", "hosted provider protection still requires separate evidence"]}
+    },
+    {
+      "id": "GIT-REMOTE-006", "title": "Negotiate atomic ref update support without weakening",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["atomic", "protected-refs", "rollback"],
+      "execution": {"layer": "fault-injected-local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.push-atomic", "git.fetch-atomic", "git.update-ref-transaction"]},
+      "fixture": {"generator": "remote-graph", "profile": "atomic"},
+      "candidateAction": {"kind": "multi-ref-transaction", "effectClass": "remote-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["atomic-two-ref-success", "one-ref-hook-rejection-no-ref-updated", "transport-reports-atomic-unsupported"]},
+      "oracle": {"id": "atomic-all-or-none", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["capability is observed from the actual transport", "all intended refs equal new OIDs or all equal old OIDs", "unsupported atomic requirement blocks without sequential fallback"]}
+    },
+    {
+      "id": "GIT-NEVER-001", "title": "Manage a delimited ignore section while preserving user rules",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["managed-gitignore", "ignored", "never-push-root-classes"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.check-ignore", "filesystem.atomic-replace", "filesystem.hash"]},
+      "fixture": {"generator": "never-push", "profile": "managed-ignore"},
+      "candidateAction": {"kind": "compile-never-push", "effectClass": "local-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["no-existing-gitignore", "user-rules-before-and-after", "existing-managed-section-update"]},
+      "oracle": {"id": "managed-ignore-preservation", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["user-owned bytes outside one exact delimiter pair are unchanged", "managed entries equal compiled eligible additions without root negation", "second application is byte-identical and creates no duplicate section"]}
+    },
+    {
+      "id": "GIT-NEVER-002", "title": "Block forbidden paths despite tracked and ignore state",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["tracked", "ignored", "negated-ignore", "never-push-root-classes"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.check-ignore", "git.ls-files", "git.ls-tree"]},
+      "fixture": {"generator": "never-push", "profile": "tracked-ignore-negation"},
+      "candidateAction": {"kind": "pre-push-policy", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["forbidden-already-tracked-and-now-ignored", "forbidden-untracked-ignored", "forbidden-negated-back-into-inclusion"]},
+      "oracle": {"id": "never-push-index-tree", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["worktree ignore result index stages and candidate tree are checked independently", "all three representations block before push", "no hook or .gitignore bypass can change the decision"]}
+    },
+    {
+      "id": "GIT-NEVER-003", "title": "Block forbidden content reachable only through outgoing history",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["historical-reachability", "tracked", "never-push-root-classes"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.rev-list", "git.ls-tree", "git.cat-file"]},
+      "fixture": {"generator": "never-push", "profile": "historical"},
+      "candidateAction": {"kind": "pre-push-policy", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["added-then-deleted", "added-renamed-then-deleted", "forbidden-on-side-commit-reachable-from-tip"]},
+      "oracle": {"id": "never-push-history", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["exact commits newly reachable from proposed ref update are enumerated", "every tree/blob in that set is scanned even when absent from HEAD", "remote ref remains unchanged and remediation never rewrites history automatically"]}
+    },
+    {
+      "id": "GIT-NEVER-004", "title": "Enforce immutable root prohibited data classes",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["never-push-root-classes", "tracked", "historical-reachability"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["policy.root-never-push", "content.synthetic-marker-scan", "git.rev-list"]},
+      "fixture": {"generator": "never-push", "profile": "root-classes"},
+      "candidateAction": {"kind": "pre-push-policy", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["synthetic-credential-and-key-marker", "synthetic-raw-conversation-marker", "synthetic-harness-private-state-marker"]},
+      "oracle": {"id": "root-class-floor", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["root policy identity and classification decision are bound to the plan", "project config cannot allow or negate the finding", "fixtures contain only synthetic markers and remote refs remain unchanged"]}
+    },
+    {
+      "id": "GIT-NEVER-005", "title": "Cover cache dependency database and large-file additions",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["never-push-root-classes", "ignored", "tracked"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["filesystem.inventory", "filesystem.size", "policy.additive-never-push"]},
+      "fixture": {"generator": "never-push", "profile": "generated-classes"},
+      "candidateAction": {"kind": "pre-push-policy", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["cache-and-dependency-tree", "transient-database", "configured-low-threshold-large-file"]},
+      "oracle": {"id": "generated-class-floor", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["path content classification and size are independent evidence", "additive project rules may tighten but never exempt a root class", "candidate tree and outgoing history remain unpushed"]}
+    },
+    {
+      "id": "GIT-NEVER-006", "title": "Reject unsafe symlink case-fold and rename aliases",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["never-push-root-classes", "tracked", "capability-install"],
+      "execution": {"layer": "local", "fixtureStatus": "capability-gated", "networkMutation": false, "requiredCapabilities": ["filesystem.symlink", "filesystem.case-probe", "filesystem.identity"]},
+      "fixture": {"generator": "never-push", "profile": "aliases"},
+      "candidateAction": {"kind": "pre-push-policy", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["symlink-outside-frozen-root", "case-fold-collision", "forbidden-content-renamed-to-benign-path"]},
+      "oracle": {"id": "alias-safety", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["lstat identity target and case-normalized alias set are captured", "all aliases receive the strongest applicable classification", "platform inability to represent a variant is a blocker not a pass"]}
+    },
+    {
+      "id": "GIT-NEVER-007", "title": "Extend never-push checks through submodules and LFS",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["submodule", "lfs", "never-push-root-classes"],
+      "execution": {"layer": "local", "fixtureStatus": "capability-gated", "networkMutation": false, "requiredCapabilities": ["git.submodule", "git-lfs.fsck", "git.ls-tree"]},
+      "fixture": {"generator": "never-push", "profile": "submodule-lfs"},
+      "candidateAction": {"kind": "pre-push-policy", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["submodule-url-userinfo-marker", "forbidden-submodule-gitlink-history", "lfs-pointer-missing-or-prohibited-object"]},
+      "oracle": {"id": "dependency-never-push", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": [".gitmodules and gitlink history are scanned", "LFS pointer and destination object closure are proven", "missing optional tool/provider blocks without skipping the dependency"]}
+    },
+    {
+      "id": "GIT-NEVER-008", "title": "Preserve lockfiles manifests and reproducibility evidence",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["tracked", "never-push-root-classes"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["policy.required-preservation", "filesystem.hash", "git.ls-tree"]},
+      "fixture": {"generator": "never-push", "profile": "preservation-controls"},
+      "candidateAction": {"kind": "pre-push-policy", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["dependency-lockfile", "artifact-manifest", "sanitized-reproducibility-receipt"]},
+      "oracle": {"id": "preservation-false-positive", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["required reproducibility artifact remains eligible absent independent prohibited content", "scanner records classification rationale not path-name allowlisting", "candidate does not delete or omit required evidence"]}
+    },
+    {
+      "id": "GIT-NEVER-009", "title": "Reject credential-like material in remote configuration",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["auth-capability", "never-push-root-classes", "upstream-fetch", "fork-push"],
+      "execution": {"layer": "local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["url.sanitizer", "git.config-null", "policy.credential-boundary"]},
+      "fixture": {"generator": "never-push", "profile": "remote-url-auth"},
+      "candidateAction": {"kind": "inspect-and-plan", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["https-synthetic-userinfo-marker", "scp-like-user-identity-no-secret", "plaintext-credential-store-configured"]},
+      "oracle": {"id": "remote-auth-redaction", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["raw credential-like configuration is a protected finding", "normal capture stores only sanitized URL identity and finding hash", "plaintext store and URL credential paths block capability acquisition"]}
+    },
+    {
+      "id": "GIT-TX-001", "title": "Converge idempotently after successful lifecycle effects",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["idempotent-recovery", "init", "attach", "upstream-fetch"],
+      "execution": {"layer": "candidate-instrumented", "fixtureStatus": "specification-gated", "networkMutation": false, "requiredCapabilities": ["candidate.idempotency-v1", "evidence.durable-intent", "oracle.graph"]},
+      "fixture": {"generator": "fault", "profile": "idempotent-success"},
+      "candidateAction": {"kind": "repeat-exact-plan", "effectClass": "local-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["repeat-init", "repeat-remote-attach", "repeat-fetch-after-verified-success"]},
+      "oracle": {"id": "idempotent-convergence", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["same plan hash and idempotency key converge to one graph", "no duplicate commit tag remote refspec managed-ignore section or evidence effect", "fresh inspection distinguishes replay from a new operation"]}
+    },
+    {
+      "id": "GIT-TX-002", "title": "Respect repository ref and updater lease contention",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["concurrency", "locked", "leases-drain"],
+      "execution": {"layer": "candidate-instrumented", "fixtureStatus": "specification-gated", "networkMutation": false, "requiredCapabilities": ["candidate.lease-events-v1", "filesystem.locking", "oracle.filesystem"]},
+      "fixture": {"generator": "fault", "profile": "leases"},
+      "candidateAction": {"kind": "acquire-lease", "effectClass": "local-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["repository-lease-held", "ref-lease-held", "lease-expires-after-owner-crash"]},
+      "oracle": {"id": "lease-exclusion", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["one filesystem/repository identity has at most one valid writer lease", "contender blocks without stealing or deleting evidence", "expiry recovery re-inspects graph and owner state before acquisition"]}
+    },
+    {
+      "id": "GIT-TX-003", "title": "Reject stale plans after concurrent remote ref movement",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["concurrency", "divergence", "protected-refs"],
+      "execution": {"layer": "fault-injected-local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["git.push", "git.ls-remote", "git.rev-list"]},
+      "fixture": {"generator": "fault", "profile": "concurrent-push"},
+      "candidateAction": {"kind": "push", "effectClass": "remote-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["peer-fast-forward-after-inspect", "peer-creates-destination-ref", "peer-deletes-and-recreates-ref"]},
+      "oracle": {"id": "stale-plan-rejection", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["remote old OID differs from plan-bound observed OID", "candidate performs no force or stale retry", "remote peer graph is preserved and operation returns resumable divergence"]}
+    },
+    {
+      "id": "GIT-TX-004", "title": "Resolve ambiguous transport outcomes through fresh inspection",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["ambiguous-network", "idempotent-recovery", "upstream-fetch", "fork-push"],
+      "execution": {"layer": "fault-injected-local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["fixture.fault-transport", "git.upload-pack", "git.receive-pack"]},
+      "fixture": {"generator": "fault", "profile": "ambiguous-transport"},
+      "candidateAction": {"kind": "transport-effect", "effectClass": "remote-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["receive-then-fail", "upload-then-fail", "delay-past-client-timeout"]},
+      "oracle": {"id": "ambiguous-readback", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["client failure is not treated as proof of no effect", "fresh local and remote refs/object graphs determine actual result", "retry is skipped after observed success and replanned after observed non-effect"]}
+    },
+    {
+      "id": "GIT-TX-005", "title": "Recover from process death at transaction effect boundaries",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["crash", "rollback", "idempotent-recovery"],
+      "execution": {"layer": "candidate-instrumented", "fixtureStatus": "specification-gated", "networkMutation": false, "requiredCapabilities": ["candidate.boundary-events-v1", "controller.process-kill", "evidence.durable-intent"]},
+      "fixture": {"generator": "fault", "profile": "crash-boundaries"},
+      "candidateAction": {"kind": "transaction-with-kill", "effectClass": "remote-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["kill-before-first-effect", "kill-after-local-ref-or-config", "kill-after-remote-update-before-receipt"]},
+      "oracle": {"id": "crash-resume", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["durable intent and last completed boundary survive process death", "fresh inspection derives one non-destructive resume or compensation action", "three recoveries converge without duplicated or lost objects/refs"]}
+    },
+    {
+      "id": "GIT-TX-006", "title": "Compensate local mutations to the recorded safe checkpoint",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["rollback", "managed-gitignore", "attach"],
+      "execution": {"layer": "candidate-instrumented", "fixtureStatus": "specification-gated", "networkMutation": false, "requiredCapabilities": ["candidate.compensation-v1", "filesystem.atomic-replace", "git.update-ref-transaction"]},
+      "fixture": {"generator": "fault", "profile": "rollback-boundaries"},
+      "candidateAction": {"kind": "transaction-with-failure", "effectClass": "local-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["failure-after-managed-ignore", "failure-after-remote-config", "failure-after-local-checkpoint-ref"]},
+      "oracle": {"id": "checkpoint-compensation", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["compensated state equals checkpoint bytes refs index and config", "user data and unrelated concurrent changes are preserved", "compensation failure exposes exact residual state and blocks further effects"]}
+    },
+    {
+      "id": "GIT-TX-007", "title": "Handle hook submodule and LFS partial-effect failures",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["submodule", "lfs", "rollback", "protected-refs"],
+      "execution": {"layer": "fault-injected-local", "fixtureStatus": "capability-gated", "networkMutation": false, "requiredCapabilities": ["git.pre-push-hook", "git.submodule", "git-lfs.version"]},
+      "fixture": {"generator": "fault", "profile": "partial-dependencies"},
+      "candidateAction": {"kind": "push-with-dependencies", "effectClass": "remote-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["pre-push-hook-reject", "submodule-push-succeeds-superproject-rejects", "lfs-transfer-partial-before-git-ref"]},
+      "oracle": {"id": "partial-dependency-residual", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["every repository/ref/LFS object residual is enumerated", "superproject ref never points to unavailable required dependency", "recovery is idempotent and does not erase successfully published immutable objects"]}
+    },
+    {
+      "id": "GIT-TX-008", "title": "Negotiate authentication capability without materializing secrets",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["auth-capability", "capability-install", "ambiguous-network"],
+      "execution": {"layer": "fault-injected-local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["fixture.auth-fault", "policy.credential-boundary", "redaction.transcript"]},
+      "fixture": {"generator": "fault", "profile": "auth-negotiation"},
+      "candidateAction": {"kind": "acquire-auth-capability", "effectClass": "inspect-plan", "approval": "none"},
+      "repetitions": {"minimum": 3, "variants": ["provider-absent", "opaque-capability-expired", "opaque-capability-wrong-host-or-scope"]},
+      "oracle": {"id": "auth-capability-block", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "capture-executable", "postconditions": ["only provider identity scope timing and outcome enter ordinary evidence", "no prompt URL argument environment config file plan error or receipt contains secret material", "typed missing/expired/scope blocker names exact recovery check without inferior fallback"]}
+    },
+    {
+      "id": "GIT-TX-009", "title": "Classify offline slow and reset transport failures",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["ambiguous-network", "rollback", "upstream-fetch"],
+      "execution": {"layer": "fault-injected-local", "fixtureStatus": "executable", "networkMutation": false, "requiredCapabilities": ["fixture.fault-transport", "controller.timeout", "git.fetch"]},
+      "fixture": {"generator": "fault", "profile": "network-failures"},
+      "candidateAction": {"kind": "fetch", "effectClass": "local-mutation", "approval": "bound-plan-required"},
+      "repetitions": {"minimum": 3, "variants": ["fail-before-offline", "bounded-slow-timeout", "connection-reset-during-service"]},
+      "oracle": {"id": "network-failure-boundary", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["timeouts and cancellation are bounded and recorded", "atomic fetch leaves all tracked refs old or all verified new", "retry budget never bypasses fresh inspection or auth/policy gates"]}
+    },
+    {
+      "id": "GIT-TX-010", "title": "Reject unsafe redirects and changed SSH host identity",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["ambiguous-network", "auth-capability", "hosted-disposable"],
+      "execution": {"layer": "hosted-disposable", "fixtureStatus": "specification-gated", "networkMutation": false, "requiredCapabilities": ["hosted.disposable-grant", "transport.redirect-policy", "ssh.known-hosts-capability"]},
+      "fixture": {"generator": "hosted-spec", "profile": "redirect-hostkey"},
+      "candidateAction": {"kind": "transport-preflight", "effectClass": "inspect-plan", "approval": "external-grant-required"},
+      "repetitions": {"minimum": 3, "variants": ["cross-host-http-redirect", "redirect-loop-or-downgrade", "ssh-host-key-changed"]},
+      "oracle": {"id": "transport-identity-block", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["final host/protocol identity remains within the plan-bound allow-list", "cross-host credential forwarding and protocol downgrade never occur", "host-key change blocks pending explicit out-of-band verification"]}
+    },
+    {
+      "id": "GIT-EVOL-001", "title": "Deny normal repository tools write access to installed harness versions",
+      "requirements": ["USR-043", "DER-029", "USR-045", "DER-030"], "coverage": ["protected-self-evolution", "never-push-root-classes", "linked-worktree"],
+      "execution": {"layer": "os-isolation", "fixtureStatus": "specification-gated", "networkMutation": false, "requiredCapabilities": ["os.separate-updater-authority", "filesystem.immutable-version", "controller.write-allowlist"]},
+      "fixture": {"generator": "self-evolution", "profile": "installed-isolation"},
+      "candidateAction": {"kind": "attempt-normal-tool-write", "effectClass": "self-update", "approval": "external-grant-required"},
+      "repetitions": {"minimum": 3, "variants": ["direct-and-traversal-path", "symlink-or-hardlink-alias", "alternate-git-dir-worktree-or-hook"]},
+      "oracle": {"id": "installed-write-denial", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["normal tool principal lacks installed paths and updater capability", "every installed byte manifest lease tag and current pointer remains unchanged", "mode-bit-only denial cannot count without OS principal or ACL evidence"]}
+    },
+    {
+      "id": "GIT-EVOL-002", "title": "Checkpoint lease promote and recover an immutable harness update",
+      "requirements": ["USR-043", "DER-029", "USR-045", "DER-030"], "coverage": ["protected-self-evolution", "atomic", "rollback", "leases-drain"],
+      "execution": {"layer": "candidate-instrumented", "fixtureStatus": "specification-gated", "networkMutation": false, "requiredCapabilities": ["updater.exclusive-lease", "filesystem.atomic-current-pointer", "updater.boundary-events-v1"]},
+      "fixture": {"generator": "self-evolution", "profile": "update-lifecycle"},
+      "candidateAction": {"kind": "stage-verify-promote", "effectClass": "self-update", "approval": "external-grant-required"},
+      "repetitions": {"minimum": 3, "variants": ["contended-updater-lease", "crash-before-current-pointer-promotion", "crash-after-promotion-before-receipt"]},
+      "oracle": {"id": "atomic-self-update", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["staging uses an isolated repository/worktree and immutable destination version", "checkpoint/tag lease and plan hashes precede effects", "current points wholly to old or verified new version and ambiguity is resolved by readback"]}
+    },
+    {
+      "id": "GIT-EVOL-003", "title": "Bind module bundle provenance before staging or promotion",
+      "requirements": ["USR-043", "DER-029", "USR-045", "DER-030"], "coverage": ["protected-self-evolution", "module-dependency-graph", "contract-tests"],
+      "execution": {"layer": "os-isolation", "fixtureStatus": "specification-gated", "networkMutation": false, "requiredCapabilities": ["bundle.provenance-v1", "attestation.verifier", "reproducible-build.receipt"]},
+      "fixture": {"generator": "self-evolution", "profile": "bundle-provenance"},
+      "candidateAction": {"kind": "verify-module-bundle", "effectClass": "self-update", "approval": "external-grant-required"},
+      "repetitions": {"minimum": 3, "variants": ["valid-bound-source-and-artifacts", "tampered-artifact-or-lockfile", "stale-source-policy-or-requirements-identity"]},
+      "oracle": {"id": "bundle-provenance", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["repository/ref/commit/tree artifact lockfile builder config policy requirements receipt and attestation identities all match", "mismatch blocks before installed-path write", "independent rebuild or reproducibility evidence is linked"]}
+    },
+    {
+      "id": "GIT-EVOL-004", "title": "Analyze full capability dependency graph before provider activation",
+      "requirements": ["USR-043", "DER-029", "USR-045", "DER-030"], "coverage": ["protected-self-evolution", "module-dependency-graph", "leases-drain", "contract-tests"],
+      "execution": {"layer": "candidate-instrumented", "fixtureStatus": "specification-gated", "networkMutation": false, "requiredCapabilities": ["manifest.full-dependency-graph", "capability.reverse-dependency-analysis", "lease.drain", "contract-test.provider-consumer"]},
+      "fixture": {"generator": "self-evolution", "profile": "dependency-activation"},
+      "candidateAction": {"kind": "plan-provider-replacement", "effectClass": "self-update", "approval": "external-grant-required"},
+      "repetitions": {"minimum": 3, "variants": ["compatible-provider-with-idle-dependents", "active-leases-require-drain-or-cancel", "schema-version-effect-change-breaks-dependent-contract"]},
+      "oracle": {"id": "dependency-safe-activation", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["checkpoint and activation plan bind the complete manifest publication and reverse-dependency graph", "new bindings are blocked while active calls and leases drain or cancel with evidence", "provider and every affected consumer contract test pass three times before atomic rebind", "incompatible or ambiguous dependency leaves old provider active"]}
+    },
+    {
+      "id": "GIT-EVOL-005", "title": "Rollback by atomically selecting a prior immutable version",
+      "requirements": ["USR-043", "DER-029", "USR-045", "DER-030"], "coverage": ["protected-self-evolution", "rollback", "atomic", "contract-tests"],
+      "execution": {"layer": "os-isolation", "fixtureStatus": "specification-gated", "networkMutation": false, "requiredCapabilities": ["filesystem.atomic-current-pointer", "updater.rollback", "manifest.contract-tests"]},
+      "fixture": {"generator": "self-evolution", "profile": "version-rollback"},
+      "candidateAction": {"kind": "rollback-installed-version", "effectClass": "self-update", "approval": "external-grant-required"},
+      "repetitions": {"minimum": 3, "variants": ["v2-to-v1-after-health-failure", "ambiguous-current-pointer-readback", "rollback-blocked-by-incompatible-persisted-state"]},
+      "oracle": {"id": "immutable-version-rollback", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["neither old nor failed version bytes are rewritten", "current atomically selects one manifest-verified version", "state and dependent contract compatibility are proven before activation", "rollback outcome and residual staging data are durably evidenced"]}
+    },
+    {
+      "id": "GIT-HOSTED-001", "title": "Qualify an authorized disposable hosted remote independently",
+      "requirements": ["USR-043", "DER-029"], "coverage": ["hosted-disposable", "auth-capability", "protected-refs", "atomic", "lfs", "signing"],
+      "execution": {"layer": "hosted-disposable", "fixtureStatus": "specification-gated", "networkMutation": false, "requiredCapabilities": ["hosted.disposable-grant", "hosted.independent-readback", "hosted.cleanup-proof"]},
+      "fixture": {"generator": "hosted-spec", "profile": "provider-capabilities"},
+      "candidateAction": {"kind": "hosted-qualification", "effectClass": "remote-mutation", "approval": "external-grant-required"},
+      "repetitions": {"minimum": 3, "variants": ["atomic-and-protected-ref-policy", "auth-expiry-scope-and-redaction", "lfs-submodule-signing-and-cleanup"]},
+      "oracle": {"id": "hosted-independent-layer", "implementation": "independent-git-filesystem-oracle/v1", "objectGraphRequired": true, "status": "evaluator-gated", "postconditions": ["signed grant binds provider tenant repository namespace expiry and plan", "independent channel reads refs objects protections and dependency availability back", "all mutations remain inside disposable namespace", "cleanup proves no refs LFS objects credentials or protected resources remain"]}
+    }
+  ]
+}

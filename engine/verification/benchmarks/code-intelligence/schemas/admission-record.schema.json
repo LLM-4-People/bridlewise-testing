@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.local/schemas/code-intelligence/admission-record.v3.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "admissionId", "candidateId", "candidateResolutionSha256", "candidateResolutionObject", "protocolSha256", "policyBundleSha256", "admissionVerifierToolchainSha256", "runObjects", "scenarioRunSha256", "coverage", "runnerIdentities", "reviewerRegistryObject", "oracleReviewObject", "evidenceReviewObject", "supportingEvidence", "evidenceManifest", "preAdmissionProjectionSha256", "preAdmissionReproductions", "licenseDisposition", "decision", "reasons"],
+  "properties": {
+    "schemaVersion": {"const": "code-intelligence-admission-record/v3"}, "admissionId": {"type": "string", "minLength": 1}, "candidateId": {"type": "string", "minLength": 1},
+    "candidateResolutionSha256": {"$ref": "#/$defs/sha256"}, "candidateResolutionObject": {"$ref": "#/$defs/binding"},
+    "protocolSha256": {"$ref": "#/$defs/sha256Nonzero"}, "policyBundleSha256": {"$ref": "#/$defs/sha256Nonzero"}, "admissionVerifierToolchainSha256": {"$ref": "#/$defs/sha256Nonzero"},
+    "runObjects": {"type": "array", "minItems": 9, "maxItems": 9, "items": {"$ref": "#/$defs/binding"}, "uniqueItems": true},
+    "scenarioRunSha256": {"type": "array", "minItems": 9, "maxItems": 9, "items": {"$ref": "#/$defs/sha256"}, "uniqueItems": true},
+    "coverage": {"type": "object", "additionalProperties": false, "required": ["scenarioRepetitions", "fixtureClasses", "queryClasses", "failureInjections"], "properties": {"scenarioRepetitions": {"type": "object", "additionalProperties": false, "required": ["S01-clean-polyglot", "S02-monorepo-concurrency", "S03-adversarial-recovery"], "properties": {"S01-clean-polyglot": {"const": 3}, "S02-monorepo-concurrency": {"const": 3}, "S03-adversarial-recovery": {"const": 3}}}, "fixtureClasses": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "string"}, "uniqueItems": true}, "queryClasses": {"type": "array", "minItems": 10, "maxItems": 10, "items": {"type": "string"}, "uniqueItems": true}, "failureInjections": {"type": "array", "minItems": 18, "maxItems": 18, "items": {"type": "string"}, "uniqueItems": true}}},
+    "runnerIdentities": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+    "reviewerRegistryObject": {"$ref": "#/$defs/binding"}, "oracleReviewObject": {"$ref": "#/$defs/binding"}, "evidenceReviewObject": {"$ref": "#/$defs/binding"},
+    "supportingEvidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/objectDescriptor"}},
+    "evidenceManifest": {"$ref": "#/$defs/manifestBinding"},
+    "preAdmissionProjectionSha256": {"$ref": "#/$defs/sha256"}, "preAdmissionReproductions": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/sha256"}},
+    "licenseDisposition": {"const": "approved-for-benchmark-purpose"}, "decision": {"enum": ["admitted", "rejected", "blocked"]}, "reasons": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "sha256Nonzero": {"type": "string", "pattern": "^(?!0{64})[a-f0-9]{64}$"},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "pattern": "^traceability/evidence/research/code-intelligence/sets/"}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "manifestBinding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "pattern": "^traceability/evidence/research/code-intelligence/sets/[a-z0-9-]+/manifest\\.json$"}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "objectDescriptor": {"type": "object", "additionalProperties": false, "required": ["kind", "path", "sha256", "bytes", "mediaType", "raw", "sourceSha256"], "properties": {"kind": {"type": "string"}, "path": {"type": "string", "pattern": "^traceability/evidence/research/code-intelligence/sets/"}, "sha256": {"$ref": "#/$defs/sha256"}, "bytes": {"type": "integer", "minimum": 1}, "mediaType": {"enum": ["application/json", "text/plain", "application/octet-stream"]}, "raw": {"type": "boolean"}, "sourceSha256": {"type": ["string", "null"]}}}
+  }
+}

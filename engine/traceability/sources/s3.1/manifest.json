@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "bridlewise-s3.1-primary-sources/v1",
+  "accessedOn": "2026-07-12",
+  "sources": [
+    {
+      "id": "rfc8785-jcs",
+      "url": "https://www.rfc-editor.org/rfc/rfc8785.txt",
+      "sha256": "63d52294eb0e3f0014174288186d388b4ddbf2c67d1ce8af1d9726eb0c3ab240",
+      "finding": "JCS requires I-JSON input, recursive unsigned UTF-16 property sorting, ECMAScript primitive serialization, lone-surrogate rejection, and UTF-8 output."
+    },
+    {
+      "id": "rfc8785-verified-erratum-7920",
+      "url": "https://www.rfc-editor.org/errata/eid7920",
+      "sha256": "062a335f1c705ca03f2cfe0de92bd2ce74f75b53e02aeeb2228d630f692b836e",
+      "finding": "Verified technical erratum 7920 recommends stopping on negative zero before its sign is lost by ECMAScript serialization."
+    },
+    {
+      "id": "nist-sp800-38d",
+      "url": "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38d.pdf",
+      "sha256": "d99f3921ccebca049e7522426553aba071dae14ec3d5b6041e8c111a6cb57bba",
+      "finding": "The current final recommendation specifies GCM authenticated encryption with associated data and the 96-bit IV construction used by this profile."
+    },
+    {
+      "id": "nist-sp800-38d-2026-revision-status",
+      "url": "https://csrc.nist.gov/News/2026/gcm-and-gmac-block-cipher-modes-of-operation",
+      "sha256": "9cd4ba0b9778dbb705750a6d1e343ead938148b76165ad1dc6b3606028e77062",
+      "finding": "NIST's June 2026 notice confirms SP 800-38D is under revision; the 2007 publication remains the final recommendation while the revision is pre-draft."
+    },
+    {
+      "id": "nist-fips-198-1",
+      "url": "https://csrc.nist.gov/files/pubs/fips/198-1/final/docs/fips-198-1_final.pdf",
+      "sha256": "9dbd70a9355b5f5f41c0eaabdd394f90b607f4c1784a4f35d8ca1f456f6a7557",
+      "finding": "The current final FIPS publication specifies HMAC; the researched SP 800-224 replacement remains an initial public draft."
+    },
+    {
+      "id": "node-24.18-crypto",
+      "url": "https://nodejs.org/download/release/v24.18.0/docs/api/crypto.html",
+      "sha256": "23716eaadc008c5ec684d2d20043b9606a8cb807ad6eb9dbd50d0c3a7b2bafa7",
+      "finding": "The exact repository runtime documents KeyObject, AES-GCM authTagLength, AAD ordering, authentication failure, HMAC, and timingSafeEqual behavior."
+    },
+    {
+      "id": "node-24.18-util-types",
+      "url": "https://nodejs.org/download/release/v24.18.0/docs/api/util.html",
+      "sha256": "783f82e7917b7cf4efecf570bd08abe065f834fe33b1916105df2ec4face43d1",
+      "finding": "The exact repository runtime documents util.types predicates for detecting Proxy, authentic KeyObject, and built-in Uint8Array values without structural duck typing."
+    },
+    {
+      "id": "nist-gcm-cavp-vectors",
+      "url": "https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/mac/gcmtestvectors.zip",
+      "sha256": "f9fc479e134cde2980b3bb7cddbcb567b2cd96fd753835243ed067699f26a023",
+      "finding": "The official CAVP archive supplies the AES-256-GCM known-answer vector independently reproduced by the opaque AEAD port test."
+    },
+    {
+      "id": "json-schema-draft-2020-12-core",
+      "url": "https://json-schema.org/draft/2020-12/json-schema-core",
+      "sha256": "903fcb765b974fec7d9ccb7be8b551d16f13e51c57d89d9fd65eb760ce1aa8f3",
+      "finding": "Draft 2020-12 defines the JSON Schema dialect and core vocabulary used by generated forensic artifacts."
+    },
+    {
+      "id": "jcs-author-reference-vectors",
+      "url": "https://github.com/cyberphone/json-canonicalization/tree/19d51d7fe467d4706a3ff08adf8a748f29fc21e0/testdata",
+      "ref": "19d51d7fe467d4706a3ff08adf8a748f29fc21e0",
+      "license": {
+        "spdx": "Apache-2.0",
+        "fullSourceSha256": "6821faaddedf2d78c95bb6d98b127e9e616097afd2f6bcc34389f000d13ab12d",
+        "localPath": "traceability/sources/s3.1/jcs-LICENSE",
+        "localSha256": "6ac0fc677d23776999332148b4278432854ae07d1439afa37a5a5ae2d74f555c"
+      },
+      "fragments": [
+        {
+          "sourcePath": "testdata/input/values.json",
+          "fullSourceSha256": "c4a041b503d6bc236036ef44db4dac499272f60fc22c40dc3b7a54870ba6f1c3",
+          "localPath": "traceability/sources/s3.1/jcs-values-input.json",
+          "localSha256": "495d6082445c97c4b30583d9035fa969e535730271ee1c53fbeb0c59ca605a05"
+        },
+        {
+          "sourcePath": "testdata/output/values.json",
+          "fullSourceSha256": "2d5e01a318d0f0879ab568c4be289c8b1f64ef8921a53c6277d5e069978baacb",
+          "localPath": "traceability/sources/s3.1/jcs-values-output.json",
+          "localSha256": "a7942e8aadd23087c351ebd1bfe3dec020285ade4719c095369fe99777d9b9e2"
+        },
+        {
+          "sourcePath": "testdata/input/unicode.json",
+          "fullSourceSha256": "4621864e014d4a805a563f55b9ea20aba4a2d2dc09c7394f625496998c00702c",
+          "localPath": "traceability/sources/s3.1/jcs-unicode-input.json",
+          "localSha256": "4621864e014d4a805a563f55b9ea20aba4a2d2dc09c7394f625496998c00702c"
+        },
+        {
+          "sourcePath": "testdata/output/unicode.json",
+          "fullSourceSha256": "0d99aad92a125196ff887876643fd3206786a84ddce2cee52ba4ad256d2381d3",
+          "localPath": "traceability/sources/s3.1/jcs-unicode-output.json",
+          "localSha256": "46d7c7db80b6e6bca67f2d7d1ecc3777a1698a1603114cf360d0d72f9054ce32"
+        }
+      ]
+    }
+  ]
+}

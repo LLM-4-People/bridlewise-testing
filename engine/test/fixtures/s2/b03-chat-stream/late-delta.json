@@ -1,0 +1,7 @@
+{
+  "frames": [
+    "data: {\"id\":\"chatcmpl-late\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"created\":1770000003,\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+    "data: {\"id\":\"chatcmpl-late\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"created\":1770000003,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"too late\"},\"finish_reason\":null}]}\n\n"
+  ],
+  "expectedError": "stream_after_finish"
+}

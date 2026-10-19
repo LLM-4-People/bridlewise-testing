@@ -1,0 +1,19 @@
+{
+  "groups": [
+    {
+      "kind": "object",
+      "valid": [
+        { "type": "object", "properties": {}, "additionalProperties": false },
+        { "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false },
+        { "type": "object", "properties": { "nested": { "type": "object", "properties": {}, "additionalProperties": false } }, "additionalProperties": false }
+      ],
+      "invalid": [
+        { "type": "object", "properties": {}, "items": { "type": "string" }, "additionalProperties": false },
+        { "type": "object", "properties": {}, "minLength": 1, "additionalProperties": false },
+        { "type": "object", "properties": { "nested": { "type": "object", "properties": {}, "maximum": 2, "additionalProperties": false } }, "additionalProperties": false },
+        { "type": "object", "properties": {}, "additionalProperties": true },
+        { "type": "object", "properties": {} }
+      ]
+    }
+  ]
+}

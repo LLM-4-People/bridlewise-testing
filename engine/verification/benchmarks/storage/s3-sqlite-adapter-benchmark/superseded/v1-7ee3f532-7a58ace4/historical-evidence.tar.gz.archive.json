@@ -1,0 +1,28 @@
+{
+ "schemaVersion": "bridlewise-rejected-binary-fixture/v1",
+ "role": "preserved-rejected-binary-fixture",
+ "archive": {
+  "path": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/historical-evidence.tar.gz",
+  "byteLength": 74046,
+  "sha256": "ccb12dd679f3be9a07f132fd34ad6e357e8df22428c87f09c1529ebf3fde0ea7",
+  "magicHex": "1f8b"
+ },
+ "disposition": "preserved-rejected-binary-fixture",
+ "mayEstablishEvidence": false,
+ "reasonCodes": [
+  "normalization-bytewise-order-claim-failed",
+  "valid-archive-admission-suspended-unqualified-format"
+ ],
+ "replacement": {
+  "contentManifestPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/content-manifest.json",
+  "contentManifestSha256": "52149559ff8b47b50bde90a78fc258477cce28e75ca74e457b96c5269237d0a7",
+  "expandedRoot": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4",
+  "selection": "outerEntries",
+  "expectedEntries": 10
+ },
+ "independentReplay": {
+  "path": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/independent-archive-replay.json",
+  "sha256": "28b0b2bb7ce8870355782bebb3bd5d3011f881bd23361c34445b4905f9244e01",
+  "verdict": "rejected-normalization-claim-failed"
+ }
+}

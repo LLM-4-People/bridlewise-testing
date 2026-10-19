@@ -1,0 +1,78 @@
+{
+  "schema": "bridlewise-ratchet-baseline/v1",
+  "id": "inline-literal-defaults",
+  "entries": [
+    {
+      "key": "src/awareness/fisher-ranking.ts: correlationThreshold = 0.95,",
+      "reason": "An awareness scoring parameter with no config owner yet — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/awareness/signals/info-theory.ts: const q = (freqQ.get(t) ?? 0.5) / totalQ;",
+      "reason": "An awareness scoring parameter with no config owner yet — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/awareness/temperature.ts: topN: number = 20,",
+      "reason": "An awareness scoring parameter with no config owner yet — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/editor/edit-operations.ts: function truncateForDisplay(text: string, maxLength = 80): string {",
+      "reason": "The edit preview's display truncation with no config owner yet — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/evaluation/matrix-executor.ts: const concurrency = options.concurrency ?? 3;",
+      "reason": "The evaluation matrix's run concurrency with no config owner yet — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/intelligence/reuse-discovery.ts: limit: number = 20,",
+      "reason": "An intelligence query's result limit with no config owner yet — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/intelligence/symbol-search.ts: limit: number = 100,",
+      "reason": "An intelligence query's result limit with no config owner yet — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/intelligence/symbol-search.ts: limit: number = 100,",
+      "reason": "An intelligence query's result limit with no config owner yet — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/intelligence/symbol-search.ts: limit: number = 100,",
+      "reason": "An intelligence query's result limit with no config owner yet — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/intelligence/symbol-search.ts: limit: number = 100,",
+      "reason": "An intelligence query's result limit with no config owner yet — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/memory/tool-result-store.ts: maxEntries: options.maxEntries ?? 1000,",
+      "reason": "The tool-result store's sizing with no config leaf yet (the store is not wired to the memory section) — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/memory/tool-result-store.ts: skipIfSmallTokens: options.skipIfSmallTokens ?? 200,",
+      "reason": "The tool-result store's sizing with no config leaf yet (the store is not wired to the memory section) — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/quality-packs/prevention/duplicate-body-detector.ts: const threshold = options.threshold ?? 0.92;",
+      "reason": "The duplicate-body detector's similarity threshold with no quality config owner yet — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/shared/exposure/registrations/bias.ts: const limit = Math.max(0, Number(args?.limit ?? 100));",
+      "reason": "An exposure action argument's default: it belongs in the action's declared argument schema, so it is exposed and bounded like a setting — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/shared/exposure/registrations/context.ts: const count = Math.max(0, Number(args?.count ?? 100));",
+      "reason": "An exposure action argument's default: it belongs in the action's declared argument schema, so it is exposed and bounded like a setting — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/shared/exposure/registrations/learning.ts: Math.min(1, Number(args?.confidence ?? 0.8)),",
+      "reason": "An exposure action argument's default: it belongs in the action's declared argument schema, so it is exposed and bounded like a setting — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/shared/exposure/registrations/memory.ts: const tokens = Number(args?.tokens ?? 10);",
+      "reason": "An exposure action argument's default: it belongs in the action's declared argument schema, so it is exposed and bounded like a setting — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    },
+    {
+      "key": "src/shared/exposure/registrations/tools.ts: const stated = Math.max(0, Number(args?.latencyMs ?? 100));",
+      "reason": "An exposure action argument's default: it belongs in the action's declared argument schema, so it is exposed and bounded like a setting — tracker GUARD-LITERAL-RATCHET-001 (a2-design H2 remainder)."
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://bridlewise.local/schemas/code-intelligence/reviewer-registry.v2.json",
+  "type": "object", "additionalProperties": false, "required": ["schemaVersion", "registryId", "protocolSha256", "reviewers"],
+  "properties": {"schemaVersion": {"const": "code-intelligence-reviewer-registry/v2"}, "registryId": {"type": "string"}, "protocolSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "reviewers": {"type": "array", "minItems": 2, "items": {"type": "object", "additionalProperties": false, "required": ["reviewerId", "role", "publicKeyPem", "publicKeySha256", "toolchainSha256"], "properties": {"reviewerId": {"type": "string"}, "role": {"enum": ["oracle", "evidence"]}, "publicKeyPem": {"type": "string"}, "publicKeySha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "toolchainSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}}}}
+}

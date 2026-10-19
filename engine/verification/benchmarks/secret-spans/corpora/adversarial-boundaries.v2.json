@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "bridlewise-secret-span-corpus/v2",
+  "id": "adversarial-boundaries",
+  "purpose": "Invalid encoding, overlap, adjacency, URL and diagnostic carriers plus hostile safe negatives for paging and leakage checks.",
+  "fixtures": [
+    {
+      "id": "INVALID-UTF8-001",
+      "carrierClass": "invalid-utf8",
+      "expectedDisposition": "blocked-invalid-utf8",
+      "fragments": [
+        { "kind": "text", "value": "safe-prefix=" },
+        { "kind": "invalid-bytes", "hex": "c328ff" },
+        { "kind": "text", "value": "safe-suffix\n" }
+      ],
+      "requiredSafeFragments": []
+    },
+    {
+      "id": "OVERLAP-001",
+      "carrierClass": "overlap",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "token=\"" },
+        { "kind": "secret", "secretId": "provider", "carrier": "plain" },
+        { "kind": "text", "value": "\"\n" }
+      ],
+      "requiredSafeFragments": ["token=\"", "\"\n"]
+    },
+    {
+      "id": "SHORT-SECRET-001",
+      "carrierClass": "assignment",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "password=\"" },
+        { "kind": "secret", "secretId": "overlap-short", "carrier": "plain" },
+        { "kind": "text", "value": "\"\n" }
+      ],
+      "requiredSafeFragments": ["password=\"", "\"\n"]
+    },
+    {
+      "id": "ADJACENT-001",
+      "carrierClass": "adjacent",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "secret", "secretId": "makora", "carrier": "plain" },
+        { "kind": "text", "value": ":" },
+        { "kind": "secret", "secretId": "provider", "carrier": "plain" },
+        { "kind": "text", "value": "\n" }
+      ],
+      "requiredSafeFragments": [":", "\n"]
+    },
+    {
+      "id": "URL-QUERY-001",
+      "carrierClass": "url",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "https://example.invalid/callback?token=" },
+        { "kind": "secret", "secretId": "bearer", "carrier": "url-encoded" },
+        { "kind": "text", "value": "#safe-fragment\n" }
+      ],
+      "requiredSafeFragments": ["https://example.invalid/callback?token=", "#safe-fragment\n"]
+    },
+    {
+      "id": "ERROR-TEXT-001",
+      "carrierClass": "error-text",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "raise RuntimeError(\"provider rejected token " },
+        { "kind": "secret", "secretId": "provider", "carrier": "plain" },
+        { "kind": "text", "value": "\")\n" }
+      ],
+      "requiredSafeFragments": ["raise RuntimeError(\"provider rejected token ", "\")\n"]
+    },
+    {
+      "id": "SAFE-LONG-FUNCTION-002",
+      "carrierClass": "safe-negative",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "private_key = resolve_" },
+        { "kind": "text", "value": "configured_public_key_reference(root)\n" }
+      ],
+      "requiredSafeFragments": ["private_key = ", "resolve_configured_public_key_reference", "(root)\n"]
+    },
+    {
+      "id": "SAFE-HIGH-ENTROPY-002",
+      "carrierClass": "safe-negative",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "password = \"0123456789abcdef0123456789abcdef\"  # public fixture digest\n" }
+      ],
+      "requiredSafeFragments": ["password = \"", "0123456789abcdef0123456789abcdef", "\"  # public fixture digest\n"]
+    },
+    {
+      "id": "SAFE-REPETITIVE-002",
+      "carrierClass": "safe-negative",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "const authorizationHandlerFactory = createAuthorizationHandlerFactoryForDeterministicTests;\n" }
+      ],
+      "requiredSafeFragments": ["authorizationHandlerFactory", "createAuthorizationHandlerFactoryForDeterministicTests"]
+    },
+    {
+      "id": "SAFE-EMPTY-VALUE-002",
+      "carrierClass": "safe-negative",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "api_key = \"\"\npassword = null\nsession_token = undefined\n" }
+      ],
+      "requiredSafeFragments": ["api_key = \"\"", "password = null", "session_token = undefined"]
+    }
+  ]
+}

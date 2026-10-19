@@ -1,0 +1,81 @@
+{
+  "name": "bridlewise-web",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Bridlewise development floor: tests, benchmarks, curated design records, and verification (developer preview; not a product)",
+  "engines": {
+    "node": ">=24.18.0 <25.0.0"
+  },
+  "scripts": {
+    "bootstrap:hooks": "node --experimental-strip-types engine/scripts/bootstrap-hooks.ts .",
+    "dev": "vite",
+    "dev:api": "node --experimental-strip-types server/index.ts",
+    "dev:all": "node --experimental-strip-types scripts/dev-all.ts",
+    "dev:stop": "node --experimental-strip-types scripts/dev-stop.ts",
+    "db-key": "node --experimental-strip-types scripts/db-key.ts",
+    "db-archive": "node --experimental-strip-types scripts/db-archive.ts",
+    "build": "vite build",
+    "preview": "vite preview",
+    "serve": "node --experimental-strip-types server/index.ts",
+    "typecheck:client": "tsc --noEmit --checkers 1 -p tsconfig.json",
+    "typecheck:server": "tsc --noEmit --checkers 1 -p tsconfig.server.json",
+    "typecheck:tests": "tsc --noEmit --checkers 1 -p tsconfig.tests.json",
+    "typecheck": "npm run typecheck:includes && npm run typecheck:client && npm run typecheck:server && npm run typecheck:templates && npm run typecheck:tests",
+    "typecheck:includes": "node engine/scripts/verification/tsconfig-include-liveness.ts .",
+    "test": "node --experimental-strip-types scripts/run-tests.ts",
+    "lessons": "node --experimental-strip-types engine/scripts/tooling/lessons.ts",
+    "ws": "node --experimental-strip-types engine/src/cli.ts harness workspace",
+    "promote": "node --experimental-strip-types engine/src/cli.ts harness promote",
+    "run-diff": "node --experimental-strip-types engine/scripts/tooling/run-diff.ts",
+    "budget:measure": "node --experimental-strip-types scripts/testing/measure-web-budget.ts",
+    "perf:profile": "node --experimental-strip-types scripts/testing/perf-profile.ts",
+    "cache:evidence:sweep": "node --experimental-strip-types scripts/testing/sweep-cache-evidence.ts",
+    "test:watch": "vitest",
+    "test:e2e": "node --experimental-strip-types engine/src/cli.ts harness slot run -- npx playwright test",
+    "test:all": "node --experimental-strip-types scripts/run-tests.ts && node --experimental-strip-types engine/src/cli.ts harness slot run -- npx playwright test",
+    "test:raw": "node --experimental-strip-types engine/src/cli.ts harness slot run -- npx vitest run",
+    "typecheck:templates": "node --experimental-strip-types scripts/template-check.ts --tsconfig ./tsconfig.templates.json --config ./vite.config.ts",
+    "bridlewise": "node bin/bridlewise.mjs",
+    "preflight": "node bin/bridlewise.mjs preflight",
+    "test:public": "node --test tests/public/*.test.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "verify:public": "npm run typecheck && npm run check:secrets && npm run test:public"
+  },
+  "dependencies": {
+    "nanostores": "^1.4.1",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.22.6",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@testing-library/svelte": "^5.4.2",
+    "@types/node": "^24.13.3",
+    "jsdom": "^29.1.1",
+    "svelte": "^5.56.7",
+    "svelte-check": "^4.7.3",
+    "tinyglobby": "^0.2.17",
+    "typescript": "^7.0.2",
+    "typescript5": "npm:typescript@^5.9.3",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  },
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LLM-4-People/bridlewise-testing.git"
+  },
+  "homepage": "https://github.com/LLM-4-People/bridlewise-testing",
+  "bugs": {
+    "url": "https://github.com/LLM-4-People/bridlewise-testing/issues"
+  },
+  "author": {
+    "name": "Bridlewise contributors"
+  },
+  "packageManager": "npm@11.19.0",
+  "bin": {
+    "bridlewise": "./bin/bridlewise.mjs"
+  }
+}

@@ -1,0 +1,520 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/research/runtime/node-runtime-candidate-admission.schema.json",
+  "title": "Research-only Node runtime candidate admission record",
+  "description": "Closed evidence shape for a provisional-blocked candidate. Shape validation is not admission authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "candidateId",
+    "generatedAt",
+    "authority",
+    "subject",
+    "provenance",
+    "qualifiedArtifact",
+    "verification",
+    "commandEffectRegistration",
+    "installationObservation",
+    "stagingRequirement",
+    "consumptionContract",
+    "decision"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "bridlewise-node-runtime-candidate-admission/v1"
+    },
+    "candidateId": {
+      "const": "node-v24.18.0-linux-x64-current-installation"
+    },
+    "generatedAt": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "admissionAuthorityPresent", "admittedRuntimeClaim", "evidenceRole"],
+      "properties": {
+        "classification": { "const": "research-only-provisional-blocked" },
+        "admissionAuthorityPresent": { "const": false },
+        "admittedRuntimeClaim": { "const": false },
+        "evidenceRole": { "const": "candidate-input-for-separate-central-admission" }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "platform", "architecture", "installedLexicalPath"],
+      "properties": {
+        "version": { "const": "v24.18.0" },
+        "platform": { "const": "linux" },
+        "architecture": { "const": "x64" },
+        "installedLexicalPath": { "const": "/home/example/.nvm/versions/node/v24.18.0/bin/node" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceManifest", "releaseTag", "releaseKeys", "signedChecksums", "archive"],
+      "properties": {
+        "sourceManifest": { "$ref": "#/$defs/artifactReference" },
+        "releaseTag": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "tag", "annotatedTagObject", "peeledCommit", "reproducibleBuildClaim"],
+          "properties": {
+            "repository": { "const": "https://github.com/nodejs/node" },
+            "tag": { "const": "v24.18.0" },
+            "annotatedTagObject": { "$ref": "#/$defs/gitSha1" },
+            "peeledCommit": { "$ref": "#/$defs/gitSha1" },
+            "reproducibleBuildClaim": { "const": false }
+          }
+        },
+        "releaseKeys": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "commit", "activeKeyring", "signerCertificate", "primaryFingerprint", "signingFingerprint"],
+          "properties": {
+            "repository": { "const": "https://github.com/nodejs/release-keys" },
+            "commit": { "$ref": "#/$defs/gitSha1" },
+            "activeKeyring": { "$ref": "#/$defs/digestAndLength" },
+            "signerCertificate": { "$ref": "#/$defs/digestAndLength" },
+            "primaryFingerprint": { "$ref": "#/$defs/openPgpFingerprint" },
+            "signingFingerprint": { "$ref": "#/$defs/openPgpFingerprint" }
+          }
+        },
+        "signedChecksums": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["standalone", "cleartextSigned", "detachedSignature", "standaloneEqualsVerifiedPayloadPlusLf"],
+          "properties": {
+            "standalone": { "$ref": "#/$defs/digestAndLength" },
+            "cleartextSigned": { "$ref": "#/$defs/signatureEvidence" },
+            "detachedSignature": { "$ref": "#/$defs/signatureEvidence" },
+            "standaloneEqualsVerifiedPayloadPlusLf": { "const": true }
+          }
+        },
+        "archive": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "signedChecksumLine", "sha256", "byteLength", "retainedInRepository"],
+          "properties": {
+            "name": { "const": "node-v24.18.0-linux-x64.tar.xz" },
+            "signedChecksumLine": { "type": "string", "minLength": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "byteLength": { "type": "integer", "minimum": 1 },
+            "retainedInRepository": { "const": false }
+          }
+        }
+      }
+    },
+    "qualifiedArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["extracted", "installedDescriptor"],
+      "properties": {
+        "extracted": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["member", "strategy", "type", "linkCount", "mode", "sha256", "byteLength", "candidateExecuted"],
+          "properties": {
+            "member": { "const": "node-v24.18.0-linux-x64/bin/node" },
+            "strategy": { "const": "authenticated-exact-member-only-fresh-private-directory" },
+            "type": { "const": "regular file" },
+            "linkCount": { "const": 1 },
+            "mode": { "const": "0755" },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "byteLength": { "type": "integer", "minimum": 1 },
+            "candidateExecuted": { "const": false }
+          }
+        },
+        "installedDescriptor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "lexicalPath",
+            "device",
+            "inode",
+            "uid",
+            "gid",
+            "mode",
+            "sha256",
+            "byteLength",
+            "lexicalLstatMatchesHeldDescriptor",
+            "descriptorStableAcrossHashAndCompare",
+            "exactByteEqualityWithExtractedMember"
+          ],
+          "properties": {
+            "lexicalPath": { "const": "/home/example/.nvm/versions/node/v24.18.0/bin/node" },
+            "device": { "$ref": "#/$defs/nonNegativeIntegerString" },
+            "inode": { "$ref": "#/$defs/nonNegativeIntegerString" },
+            "uid": { "$ref": "#/$defs/nonNegativeIntegerString" },
+            "gid": { "$ref": "#/$defs/nonNegativeIntegerString" },
+            "mode": { "const": "0755" },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "byteLength": { "type": "integer", "minimum": 1 },
+            "lexicalLstatMatchesHeldDescriptor": { "const": true },
+            "descriptorStableAcrossHashAndCompare": { "const": true },
+            "exactByteEqualityWithExtractedMember": { "const": true }
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verifier", "recordSchema", "schemaNegativeControls", "repetitions", "freshDownloadsPerRun", "identicalQualifiedFactsAcrossRuns", "runs"],
+      "properties": {
+        "verifier": { "$ref": "#/$defs/executableArtifactReference" },
+        "recordSchema": { "$ref": "#/$defs/artifactReference" },
+        "schemaNegativeControls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact", "caseCount", "validationRepetitions", "allRejected", "formatCheckerRequiredForRejection"],
+          "properties": {
+            "artifact": { "$ref": "#/$defs/artifactReference" },
+            "caseCount": { "const": 20 },
+            "validationRepetitions": { "const": 3 },
+            "allRejected": { "const": true },
+            "formatCheckerRequiredForRejection": { "const": false }
+          }
+        },
+        "repetitions": { "const": 3 },
+        "freshDownloadsPerRun": { "const": true },
+        "identicalQualifiedFactsAcrossRuns": { "const": true },
+        "runs": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            { "$ref": "#/$defs/runOne" },
+            { "$ref": "#/$defs/runTwo" },
+            { "$ref": "#/$defs/runThree" }
+          ],
+          "items": false
+        }
+      }
+    },
+    "commandEffectRegistration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "registration", "discovery", "qualification", "dependentCascade"],
+      "properties": {
+        "status": { "const": "registered-blocked-unqualified-research-only-non-model-facing" },
+        "registration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entryId", "manifestSource", "disposition", "exposure", "language", "owner", "registeredVerifierSha256", "effects"],
+          "properties": {
+            "entryId": { "const": "node-v24-linux-x64-runtime-provenance-verifier" },
+            "manifestSource": { "$ref": "#/$defs/artifactReference" },
+            "disposition": { "const": "blocked-unqualified" },
+            "exposure": { "const": "research-only-non-model-facing" },
+            "language": { "const": "shell" },
+            "owner": { "const": "runtime-capability-qualification" },
+            "registeredVerifierSha256": { "$ref": "#/$defs/sha256" },
+            "effects": {
+              "type": "array",
+              "prefixItems": [
+                { "const": "child-process" },
+                { "const": "cryptography" },
+                { "const": "filesystem-read" },
+                { "const": "filesystem-write" },
+                { "const": "network" },
+                { "const": "process-status" }
+              ],
+              "items": false
+            }
+          }
+        },
+        "discovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "implementation", "policySource", "architectureAnalyzer", "hostileTestSource", "testSurfaceDisposition", "genericExecutableAndShebangDiscovery", "mutationRepetitions", "authorValidation"],
+          "properties": {
+            "status": { "const": "generic-executable-and-shebang-discovery-implemented" },
+            "implementation": { "$ref": "#/$defs/artifactReference" },
+            "policySource": { "$ref": "#/$defs/artifactReference" },
+            "architectureAnalyzer": { "$ref": "#/$defs/artifactReference" },
+            "hostileTestSource": { "$ref": "#/$defs/artifactReference" },
+            "testSurfaceDisposition": { "$ref": "#/$defs/artifactReference" },
+            "genericExecutableAndShebangDiscovery": { "const": true },
+            "mutationRepetitions": { "const": 3 },
+            "authorValidation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "repetitions", "testsPerRepetition", "passedTests", "independentEffectQualification"],
+              "properties": {
+                "status": { "const": "author-effect-suite-pass-unqualified" },
+                "repetitions": { "const": 3 },
+                "testsPerRepetition": { "const": 17 },
+                "passedTests": { "const": 51 },
+                "independentEffectQualification": { "const": false }
+              }
+            }
+          }
+        },
+        "qualification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "repositoryWideCommandEffectClosureClaim"],
+          "properties": {
+            "status": { "const": "pending-central-effect-qualification" },
+            "repositoryWideCommandEffectClosureClaim": { "const": false }
+          }
+        },
+        "dependentCascade": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "migrationWriteAuthorityAuthorReceipt", "migrationWriteAuthorityStatus", "secretSpanAuthorReceipt", "secretSpanAuthorStatus", "secretSpanProtocol", "secretSpanProtocolStatus", "centralCascadeComplete"],
+          "properties": {
+            "status": { "const": "pending-current-identity-cascade" },
+            "migrationWriteAuthorityAuthorReceipt": { "$ref": "#/$defs/artifactReference" },
+            "migrationWriteAuthorityStatus": { "const": "author-snapshot-unadmitted-externally-pinned-hash-required" },
+            "secretSpanAuthorReceipt": { "$ref": "#/$defs/artifactReference" },
+            "secretSpanAuthorStatus": { "const": "author-snapshot-unadmitted-external-pin-required" },
+            "secretSpanProtocol": { "$ref": "#/$defs/artifactReference" },
+            "secretSpanProtocolStatus": { "const": "preregistered-candidate-neutral-synthetic-foundation" },
+            "centralCascadeComplete": { "const": false }
+          }
+        }
+      }
+    },
+    "installationObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modeledRuntimePrincipalAuthority", "verifierProcess", "stableAcrossRuns", "pathComponents", "conclusionBoundary"],
+      "properties": {
+        "modeledRuntimePrincipalAuthority": { "const": "missing" },
+        "verifierProcess": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uid", "gid"],
+          "properties": {
+            "uid": { "$ref": "#/$defs/nonNegativeIntegerString" },
+            "gid": { "$ref": "#/$defs/nonNegativeIntegerString" }
+          }
+        },
+        "stableAcrossRuns": { "const": true },
+        "pathComponents": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/pathComponent" }
+        },
+        "conclusionBoundary": {
+          "const": "Per-component host observations only; no authoritative all-ancestor writability conclusion for an unmodeled runtime principal."
+        }
+      }
+    },
+    "stagingRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "separateBootstrapAuthorityPresent", "requiredProperties", "circularDependency"],
+      "properties": {
+        "status": { "const": "unmet" },
+        "separateBootstrapAuthorityPresent": { "const": false },
+        "requiredProperties": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "circularDependency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["directNodeSelfExecutionAvoided", "externalBootstrapToolchainAdmitted", "resolutionRequired"],
+          "properties": {
+            "directNodeSelfExecutionAvoided": { "const": true },
+            "externalBootstrapToolchainAdmitted": { "const": false },
+            "resolutionRequired": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "consumptionContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "typeName", "genericFields", "trustedRecordSelection", "callerSelectedRecordPathAndDigestAllowed", "heldRootContainmentRequired", "referencedArtifactHashAndLengthRecomputationRequired", "readGuards", "candidateReaderOutcome"],
+      "properties": {
+        "status": { "const": "proposal-only-core-owned" },
+        "typeName": { "const": "AdmittedNodeRuntime" },
+        "genericFields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "trustedRecordSelection": {
+          "const": "Central trusted configuration or admission authority must independently supply both the record locator and expected digest; they are not caller-controlled inputs."
+        },
+        "callerSelectedRecordPathAndDigestAllowed": { "const": false },
+        "heldRootContainmentRequired": { "const": true },
+        "referencedArtifactHashAndLengthRecomputationRequired": { "const": true },
+        "readGuards": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "candidateReaderOutcome": { "const": "reject-runtime-unavailable" }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "qualifiedObservations", "blockers"],
+      "properties": {
+        "status": { "const": "provisional-blocked" },
+        "qualifiedObservations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "blockers": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/blocker" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitSha1": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "openPgpFingerprint": {
+      "type": "string",
+      "pattern": "^[0-9A-F]{40}$"
+    },
+    "dateTime": {
+      "type": "string",
+      "description": "Canonical calendar-valid RFC 3339 UTC timestamp with uppercase Z and whole non-leap-second precision; pattern enforcement does not depend on format assertions.",
+      "format": "date-time",
+      "pattern": "^(?:[0-9]{4}-(?:(?:01|03|05|07|08|10|12)-(?:0[1-9]|[12][0-9]|3[01])|(?:04|06|09|11)-(?:0[1-9]|[12][0-9]|30)|02-(?:0[1-9]|1[0-9]|2[0-8]))|(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26])|(?:0[48]|[2468][048]|[13579][26])00)-02-29)T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "nonNegativeIntegerString": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "digestAndLength": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "byteLength"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byteLength": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "byteLength"],
+      "properties": {
+        "relativePath": { "$ref": "#/$defs/repositoryRelativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byteLength": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "executableArtifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "byteLength", "mode", "candidateNodeUsed", "toolIdentityAuthority"],
+      "properties": {
+        "relativePath": { "$ref": "#/$defs/repositoryRelativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byteLength": { "type": "integer", "minimum": 1 },
+        "mode": { "const": "0755" },
+        "candidateNodeUsed": { "const": false },
+        "toolIdentityAuthority": { "const": "host-observation-only-unadmitted" }
+      }
+    },
+    "signatureEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "byteLength", "signatureCreatedAt", "verificationReferenceTime", "primaryFingerprint", "signingFingerprint", "authenticatedSignatureCount", "result"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byteLength": { "type": "integer", "minimum": 1 },
+        "signatureCreatedAt": { "$ref": "#/$defs/dateTime" },
+        "verificationReferenceTime": { "$ref": "#/$defs/dateTime" },
+        "primaryFingerprint": { "$ref": "#/$defs/openPgpFingerprint" },
+        "signingFingerprint": { "$ref": "#/$defs/openPgpFingerprint" },
+        "authenticatedSignatureCount": { "const": 1 },
+        "result": { "const": "authenticated" }
+      }
+    },
+    "pathComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "device", "inode", "uid", "gid", "mode", "type", "writableByVerifierProcess"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^/" },
+        "device": { "$ref": "#/$defs/nonNegativeIntegerString" },
+        "inode": { "$ref": "#/$defs/nonNegativeIntegerString" },
+        "uid": { "$ref": "#/$defs/nonNegativeIntegerString" },
+        "gid": { "$ref": "#/$defs/nonNegativeIntegerString" },
+        "mode": { "type": "string", "pattern": "^0[0-7]{3}$" },
+        "type": { "enum": ["directory", "regular file"] },
+        "writableByVerifierProcess": { "type": "boolean" }
+      }
+    },
+    "runBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "runId", "observedAt", "relativePath", "sha256", "byteLength", "stderrByteLength", "status", "exactByteEqualityWithExtractedMember"],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "runId": { "type": "string", "pattern": "^run-[123]$" },
+        "observedAt": { "$ref": "#/$defs/dateTime" },
+        "relativePath": { "$ref": "#/$defs/repositoryRelativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byteLength": { "const": 8604 },
+        "stderrByteLength": { "const": 0 },
+        "status": { "const": "provisional-blocked" },
+        "exactByteEqualityWithExtractedMember": { "const": true }
+      }
+    },
+    "runOne": {
+      "allOf": [
+        { "$ref": "#/$defs/runBase" },
+        { "properties": { "ordinal": { "const": 1 }, "runId": { "const": "run-1" } } }
+      ]
+    },
+    "runTwo": {
+      "allOf": [
+        { "$ref": "#/$defs/runBase" },
+        { "properties": { "ordinal": { "const": 2 }, "runId": { "const": "run-2" } } }
+      ]
+    },
+    "runThree": {
+      "allOf": [
+        { "$ref": "#/$defs/runBase" },
+        { "properties": { "ordinal": { "const": 3 }, "runId": { "const": "run-3" } } }
+      ]
+    },
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "summary", "requiredResolution"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^RUNTIME-BLOCK-[0-9]{3}$" },
+        "summary": { "type": "string", "minLength": 1 },
+        "requiredResolution": { "type": "string", "minLength": 1 }
+      }
+    },
+    "repositoryRelativePath": {
+      "type": "string",
+      "description": "Normalized unambiguous ASCII repository-relative path; absolute, backslash, empty, dot, dotdot, trailing-dot, encoded and non-ASCII forms are outside this grammar.",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?(?:/[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?)*$",
+      "not": { "pattern": "\\.\\." }
+    }
+  }
+}

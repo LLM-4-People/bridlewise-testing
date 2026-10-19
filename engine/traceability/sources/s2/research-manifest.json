@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "bridlewise-s2-research-sources/v1",
+  "accessedOn": "2026-07-11",
+  "sources": [
+    {
+      "id": "openai-openapi-2.3.0",
+      "url": "https://raw.githubusercontent.com/openai/openai-openapi/5162af98d3147432c14680df789e8e12d4891e6b/openapi.yaml",
+      "ref": "5162af98d3147432c14680df789e8e12d4891e6b",
+      "sha256": "74cbcf73838f4cd7e209b2d3f2e9ddc9fa155f21a44360b6fac7646a6d4f5f8b",
+      "finding": "OpenAPI 3.1 version 2.3.0 defines POST /v1/chat/completions and POST /v1/responses and recommends Responses for new OpenAI projects"
+    },
+    {
+      "id": "mcp-schema-2025-11-25",
+      "url": "https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/38c84e9f93ad191d9eb26d92b945d17bd0efcaf3/schema/2025-11-25/schema.ts",
+      "ref": "2025-11-25@38c84e9f93ad191d9eb26d92b945d17bd0efcaf3",
+      "sha256": "0845473b20273dae35df6651b831540be3d5866a42d0ad324e4a06caaa398a07",
+      "finding": "The latest stable MCP release is 2025-11-25 and defines tool input/output schemas, structured content, annotations, and in-result tool errors"
+    },
+    {
+      "id": "mcp-typescript-sdk-production-guidance",
+      "url": "https://raw.githubusercontent.com/modelcontextprotocol/typescript-sdk/95d28cbae98e57df1b987b656a555777de976545/README.md",
+      "ref": "main@95d28cbae98e57df1b987b656a555777de976545",
+      "sha256": "9c152501a9ecff6e1adbe1d4c2834b29225b1e5bf875b064f724acab0a96a2ca",
+      "finding": "The official SDK states that v1.x remains the supported production release until the stable v2 release"
+    },
+    {
+      "id": "mcp-typescript-sdk-v1-readme",
+      "url": "https://raw.githubusercontent.com/modelcontextprotocol/typescript-sdk/69749aa5081ddfe675d36da8d96c7e27d83742b8/README.md",
+      "ref": "v1.x@69749aa5081ddfe675d36da8d96c7e27d83742b8",
+      "sha256": "b09e435fa332a135962bf4e8154f14473d7c3364a3ff5d9c8b6bf273702f764d",
+      "finding": "The official v1.x branch provides the TypeScript SDK v1 implementation and documentation surface"
+    },
+    {
+      "id": "mcp-typescript-sdk-v1-package",
+      "url": "https://raw.githubusercontent.com/modelcontextprotocol/typescript-sdk/69749aa5081ddfe675d36da8d96c7e27d83742b8/package.json",
+      "ref": "v1.29.0@69749aa5081ddfe675d36da8d96c7e27d83742b8",
+      "sha256": "c84fa0459c383004da1f5121dbbb48671cff8394b64d32988a81047bd92fc89f",
+      "finding": "The researched v1 branch package version is 1.29.0; no SDK dependency is required for offline structural contracts"
+    }
+  ]
+}

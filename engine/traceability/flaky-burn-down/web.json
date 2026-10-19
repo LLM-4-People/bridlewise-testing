@@ -1,0 +1,549 @@
+{
+  "schemaVersion": "bridlewise-flaky-burn-down/v1",
+  "entries": [
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter same-suite-display failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/unit/resource-sampler.test.ts::the process resource sampler > a tick writes the footprint levels into the resource lane",
+      "owner": "FLAKY-RESOURCE-SAMPLER-TICK"
+    },
+    {
+      "identity": "tests/performance/regression.test.ts::web UI performance regression gate > the profile report is present and parseable",
+      "owner": "FLAKY-PERF-GATE-STALE-REPORT"
+    },
+    {
+      "identity": "tests/prevention/allowed-commands-config.test.ts::shell commands that change files are refused by the door, not by a paragraph > liveness — a command the config DOES allow still runs, so the gate is not refusing everything",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/effect-kind-recording.test.ts::git effects — gitText is the choke point > a MUTATING git operation lands in the ledger, attributed, succeeded",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/effect-kind-recording.test.ts::git effects — gitText is the choke point > a FAILED mutating git operation records outcome=failed with the real detail",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/effect-kind-recording.test.ts::git effects — gitText is the choke point > a READ-ONLY git operation records NOTHING (reads are not effects)",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/effect-kind-recording.test.ts::process effects — spawnSyncSafe and spawnCapture are the choke points > execute_command records a process effect nested under the tool effect",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/effect-kind-recording.test.ts::process effects — spawnSyncSafe and spawnCapture are the choke points > a non-zero exit records outcome=failed carrying the REAL exit code",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/effect-kind-recording.test.ts::process effects — spawnSyncSafe and spawnCapture are the choke points > an auto-check subprocess (typecheck) records spawn→exit",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/git-bridge-owner.test.ts::Git bridge owner — fs-gate enforcement at the bridge choke point > (b behavioral) a REAL repository answers repository:true (the field distinguishes, it does not vanish)",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/git-bridge-owner.test.ts::Git bridge owner — getBranches remote detection (bug fix) > (g) remote-tracking branches are detected as remote (was ALWAYS false before )",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/git-bridge-owner.test.ts::Git bridge owner — getBranches remote detection (bug fix) > (g2) the origin/HEAD symref is excluded (was a bogus 'origin' branch in the list)",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/git-bridge-owner.test.ts::Git bridge owner — getBranches remote detection (bug fix) > isGitRepo + getProjectGitStatus behave on a real repo (smoke)",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/git-refusal-not-emptiness.test.ts::a refused git read is stated, never rendered as emptiness > LIVENESS: with the plant OFF the same routes answer with real data",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/git-refusal-not-emptiness.test.ts::a refused git read is stated, never rendered as emptiness > readers BELOW the repository probe also state the refusal",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/gitignore-anchoring.test.ts::this repository's ignore rules name a place they can defend > every directory rule also covers its own MOVED-ASIDE spelling",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/no-proximity-window-assertions.test.ts::no guard bounds the distance between two anchors > the greedy/lazy split the exemption rests on is MEASURED, not asserted",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/path-spelling-comparison.test.ts::the confinement owners decide containment by identity only > no owner compares path spellings for containment or identity",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/source-root-organization.test.ts::source-root organization — README freshness (deny-by-default) > engine/test/ each README names exactly the folder's real files",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/subprocess-confinement-owner.test.ts::B. the authority a spawned command actually has > a command run through the tool executor reports the authority it had",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/subprocess-confinement-owner.test.ts::B. the authority a spawned command actually has > EVERY protected subtree is unreachable from a confined child, and nothing grants write into one",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/subprocess-confinement-owner.test.ts::B. the authority a spawned command actually has > concurrent projects are each confined to their own root, and cannot see each other",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/subprocess-confinement-owner.test.ts::B. the authority a spawned command actually has > the project's own scratch folder is writable BY CONSTRUCTION, before anything creates it",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/subprocess-confinement-owner.test.ts::D. the exempted subprocess paths, attacked > a project-planted typescript is NOT chosen by the typecheck, and could not escape if it were",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/subprocess-confinement-owner.test.ts::D. the exempted subprocess paths, attacked > a project-planted git fsmonitor cannot reach outside the project",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/subprocess-confinement-owner.test.ts::E. derived rules with their own bounds > the sandbox CANNOT reach the folder its own allow-rule is derived from",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > C3: module error observation preserves valid diagnostics and refuses malformed entries",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > C3: suite error observation preserves valid diagnostics and refuses malformed entries",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/unit/auto-check-runner.test.ts::auto-check runner > typecheck PASSES on a project with no type errors",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/unit/auto-check-runner.test.ts::auto-check runner > typecheck FAILS on a project with a type error",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/unit/custody-blocks-real-ledger.test.ts::A/B. computeParcels — the real status × the real ledger > files group under the producing conversation, newest fact wins",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-blocks-real-ledger.test.ts::A/B. computeParcels — the real status × the real ledger > ±counts are git's own numbers for hand-written edits",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-blocks-real-ledger.test.ts::A/B. computeParcels — the real status × the real ledger > the outside bucket is LAST, holds the unmatched + foreign files, and never leaks the foreign run",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-blocks-real-ledger.test.ts::A/B. computeParcels — the real status × the real ledger > a new file carries the honest absence reason, not a fabricated count",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-blocks-real-ledger.test.ts::A/B. computeParcels — the real status × the real ledger > join denominators are the store's own, not invented",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-blocks-real-ledger.test.ts::C. joinHistory — commits × recorded conversation, time-bounded > a commit is attributed by at-or-before overlap; a later-dated effect must not attribute",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-blocks-real-ledger.test.ts::C. joinHistory — commits × recorded conversation, time-bounded > an effect recorded in the SAME SECOND as its commit attributes — the coarse clock's resolution decides the bound, and the next second is still refused",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-blocks-real-ledger.test.ts::C. joinHistory — commits × recorded conversation, time-bounded > inside the ambiguous second, the LATER commit touching the path takes the effect — an earlier save cannot claim work that did not exist when it ran",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-blocks-real-ledger.test.ts::async custody Git retains real status/counts and keeps the loop responsive",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::the comparison base is the LAST SAVE, not the index > a STAGED edit has a patch — the defect the room reported",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::the comparison base is the LAST SAVE, not the index > the sheet's patch and the room's ± counts now measure the same thing",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::the comparison base is the LAST SAVE, not the index > an UNSTAGED edit still reads exactly as before (no regression)",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::the comparison base is the LAST SAVE, not the index > a DELETED file reads as its removal",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::a file with no earlier saved version > a NEW file's patch is its real content, every line added",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::a file with no earlier saved version > the added lines are the file's REAL line count, not a guess",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::a file with no earlier saved version > a path git does not report as untracked gets NO invented patch",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::a MOVED file is addressed by a path that exists > porcelain's 'old -> new' entry is normalised to the destination",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::a MOVED file is addressed by a path that exists > the destination path is one `see` can actually ask about",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::a MOVED file is addressed by a path that exists > a move's counts are found under its destination, not reported absent",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::a MOVED file is addressed by a path that exists > a move INSIDE a directory carries its counts (the folded spelling, live)",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::`<hash>^!` — one save against what came before it > a NON-root save diffs against its parent",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::`<hash>^!` — one save against what came before it > the FIRST save diffs against the empty tree, not against the working tree",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::a project with NO repository — the wire names the real cause, not 'no difference' > the answer carries the typed no-repository fact, never a bare patch",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::a project with NO repository — the wire names the real cause, not 'no difference' > the served sentence names version control — the real cause — and never commits or reverts",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/custody-see-what-changed.test.ts::a project with NO repository — the wire names the real cause, not 'no difference' > a repository-backed answer carries the POSITIVE fact and no reason to give",
+      "owner": "FLAKY-CUSTODY-KEEPOUT-ESTALE"
+    },
+    {
+      "identity": "tests/unit/mcp-stdio-landlock.test.ts::a stdio MCP server under the real guardian > writes only its own home (and TMPDIR inside it): every other root the spec could grant is EACCES, and read paths are held to W^X and the refused roots",
+      "owner": "FLAKY-WEB-SUBSTITUTE-HOME"
+    },
+    {
+      "identity": "tests/unit/tool-executor-unified.test.ts::unified executor — execute_command > runs in the project directory, not the server dir",
+      "owner": "FLAKY-WEB-F5-LINK-RUN"
+    },
+    {
+      "identity": "tests/unit/mcp-servers-route.test.ts::add and edit (the one upsert write) > a read path the confinement floor would refuse at spawn is refused at SAVE, with the floor's code",
+      "owner": "FLAKY-WEB-SUBSTITUTE-HOME"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter interrupted failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/raw-source-reader-owner.test.ts::both real trees are clean against the declared allowlist > every raw source matcher in both repositories is declared, with a reason",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/unit/landlock-project-refusal.test.ts::the ONE keep-out list at the project door and the file choke point (CRED-F11) > a home is refused because it holds credential stores (not by a name rule), and an old project AT a home never serves them",
+      "owner": "FLAKY-WEB-UNDIAGNOSED"
+    },
+    {
+      "identity": "tests/prevention/agent-docs-liveness.test.ts::the agent briefing names what exists > every link, path, npm script and node file in the briefing documents exists",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/exposure-reachable.test.ts::exposure is declared and reachable > every testExecution/harness/evaluation/resourceLock/qualityPacks/contracts/data/state/project/agents leaf has an honest disposition: a served row, a read-only budget signal, or a filed reason",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/guarded-callbacks.test.ts::event-loop callbacks > the census of server/ and engine/src/ finds no unguarded registration",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/raw-handle-owner.test.ts::A. source-scan — raw standing handles appear ONLY in registry-registering owners or argued legacy sites (dynamic discovery) > every raw-handle site registers a component or carries a argued legacy exemption",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/declared-pattern-liveness.test.ts::every test file this repository holds is executed by something > no test file is selected by no runner pattern and executed by nobody",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/error-debug-owner.test.ts::error-debug owner — router mapping (behavioral) > (B3) every error code thrown in the codebase maps to a non-500 status (dynamic discovery)",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/error-handling-consistency.test.ts::error-handling consistency — (E3) error mapping completeness > every error code THROWN in server/ by a 500-default class is mapped (dynamic discovery)",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/integration-rule-refs-ratchet.test.ts::integration backend rule-refs ratchet (no NEW references; baseline cleanup) > no NEW rule/round/directive references in the integration source (count <= baseline)",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/no-rule-refs.test.ts::no rule references in source files (sentence-case + remove-rule-refs task) > C: no binding-rule / directive / round-number / workflow-phrase stragglers",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/no-unused-imports.test.ts::no unused imports > every imported binding is referenced in its file",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/secret-intelligence-owner.test.ts::secret intelligence — measured detection and false-positive rates > the composed detector reaches at least 90% detection with ZERO false positives",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/test-helpers-dedup.test.ts::test helpers are not duplicated across test files (single owner: tests/helpers/*.ts) > no test file imports a node:fs / node:path symbol it does not use (dead imports accumulate after migrations)",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter file-share failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter unhandled-with-owned-case failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter module-with-owned-case failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter suite-with-owned-case failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter unreadable-with-owned-case failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter missing-with-owned-case failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter passed-reason-global failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter malformed-state failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter empty-module-id failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter empty-suite-id failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter unreadable-suite failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter unaccounted-module failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter summary-write failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter owned-only failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter missing-start failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter omitted-module failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter substitute-module failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter duplicate-start failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter malformed-start failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter unreadable-start failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter duplicate-module-task-id failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter malformed-module-task-id failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter same-path-project-pool failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter same-case-display failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter duplicate-case-task-id failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter duplicate-suite-task-id failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter configured-shard failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > current qualification preserves the actual reporter wrong-module-path failure independently of test rows",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > a REFUSED run leaves the ledger untouched; a JUDGED run appends exactly one record",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > a judged run's PER-TEST FAILURE ROWS land in its ledger record — the flaky memory's substrate",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > a measured run that did not hold the host's instrument lock is REFUSED: failed, said, and not recorded (engine/src/process/instrument-lock.ts)",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > a judged run's record carries the PROVISIONAL marker when the measured tree is tracked-dirty, and not when clean",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > C3: case error observation preserves valid diagnostics and refuses malformed entries",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > C3: global error observation preserves valid diagnostics and refuses malformed entries",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget-verdict.test.ts::the reporter appends ONLY judged runs — D2's other half, driven end-to-end > C3: malformed reporter module errors must publish an explicit incomplete result instead of escaping the hook",
+      "owner": "FLAKY-VERDICT-CONFIG-RACE"
+    },
+    {
+      "identity": "tests/unit/config-write-concurrency.test.ts::the config write lock across processes > a stale lock from a dead holder is broken, not waited on",
+      "owner": "FLAKY-WEB-UNDIAGNOSED"
+    },
+    {
+      "identity": "tests/performance/regression.test.ts::web UI performance regression gate > slowest API response is within budget (<= 250ms)",
+      "owner": "FLAKY-PERF-GATE-STALE-REPORT"
+    },
+    {
+      "identity": "tests/performance/regression.test.ts::web UI performance regression gate > every profiled API route is within budget (<= 250ms, isolated)",
+      "owner": "FLAKY-PERF-GATE-STALE-REPORT"
+    },
+    {
+      "identity": "tests/performance/regression.test.ts::web UI performance regression gate > the slowest discovered API route is within budget (<= 250ms, isolated)",
+      "owner": "FLAKY-PERF-GATE-STALE-REPORT"
+    },
+    {
+      "identity": "tests/prevention/centralized-config.test.ts::centralized configuration — launcher port-fallback contract > scripts/testing/perf-profile.ts port fallback matches server/config.ts DEFAULT_PORT (5174)",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/config-write-gate-owner.test.ts::the writer census — no raw write reaches the config file outside the owners > zero raw writes target the config path across the whole dev surface",
+      "owner": "FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/performance/regression.test.ts::web UI performance regression gate > every viewport LCP is within budget (<= 2000ms)",
+      "owner": "FLAKY-PERF-GATE-STALE-REPORT"
+    },
+    {
+      "identity": "tests/prevention/test-run-watchdog.test.ts::1. the watchdog lives outside the runtime and kills on a STALL, never on a slow run > C3: actual focused wrapper refuses inner forced cleanup even when its outer command finishes normally",
+      "owner": "FLAKY-WATCHDOG-C3"
+    },
+    {
+      "identity": "tests/prevention/test-isolation-contract.test.ts::isolation contract — bounded context adapter work > native descriptor exhaustion after launch fails only after its owned descendants are reaped",
+      "owner": "FLAKY-ISOLATION-PIDFD"
+    },
+    {
+      "identity": "tests/prevention/web-ui-runtime-budget.test.ts::web-UI test-runtime budget > the budget's population is still the one the budget was derived against",
+      "owner": "FLAKY-POPULATION-FLOOR-REDERIVED"
+    },
+    {
+      "identity": "tests/prevention/source-root-organization.test.ts::source-root organization — README freshness (deny-by-default) > tests/ each README names exactly the folder's real files",
+      "owner": "FLAKY-HELPERS-README-HARNESS-VIEW"
+    },
+    {
+      "identity": "tests/prevention/generated-artifact-freshness.test.ts::generated-artifact freshness — every gitignored-artifact reader binds to content or is exempt > the census discovers every gitignored-artifact reader, and the detector is awake",
+      "owner": "FLAKY-WEB-ARTIFACT-CENSUS"
+    },
+    {
+      "identity": "tests/performance/regression.test.ts::web UI performance regression gate > long-chat (1000 messages) render is within budget (<= 2000ms)",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/decisions-format.test.ts::docs/decisions > every decision file is well formed, and the README's index is the generator's output (harness sync)",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/git-refusal-not-emptiness.test.ts::a refused git read is stated, never rendered as emptiness > a git read whose spawn THROWS still releases the confinement directory",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/run-executes-once.test.ts::a run executes exactly once > TWO concurrent subscribers produce ONE execution and ONE provider POST",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/run-executes-once.test.ts::a run executes exactly once > assistant row persistence gates its published start and preserves a truthful failure",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/run-executes-once.test.ts::a run executes exactly once > tool row persistence gates its published start and preserves a truthful failure",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/run-executes-once.test.ts::a run executes exactly once > a second execution of one run is refused by the database, not by a check",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/run-executes-once.test.ts::a run executes exactly once > a subscriber leaving does NOT stop the run",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/run-executes-once.test.ts::a run executes exactly once > mid-run turns never clear the entry — a steer mid-turn 200s and a second start mid-turn is refused",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/run-executes-once.test.ts::a run executes exactly once > a steer queued mid-TOOL-turn is delivered ONCE — the continuation composes it and no drain turn re-answers it (UIE-055)",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/run-executes-once.test.ts::a run executes exactly once > a steer arriving MID-STREAM of a TEXT turn is delivered ONCE by the DRAIN — one turn started for it, its request carries the instruction, the frame stamped \"drain\" (UIE-055's other arrival shape)",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/run-executes-once.test.ts::a run executes exactly once > a call that fails before its first frame stamps NOTHING onto the previous call's message — the failure is its own record",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/run-executes-once.test.ts::a run executes exactly once > a mid-call failure still stamps its OWN message — the kept path",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/subprocess-confinement-owner.test.ts::A. the confinement decision > a project whose folder is no longer on disk is REFUSED with the real cause, not the guardian's ENOENT",
+      "owner": "FLAKY-WEB-STRAY-TREE-RUN"
+    },
+    {
+      "identity": "tests/prevention/no-proximity-window-assertions.test.ts::no guard bounds the distance between two anchors > the exempted production trees are measured, not merely excused",
+      "owner": "FLAKY-WEB-PROXIMITY-ROUND-13-REGEX"
+    }
+  ]
+}

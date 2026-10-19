@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "bridlewise-qualification-authority-reviewer-mutant-ledger/v8",
+  "sourceReviewVerdictSha256": "560558e90f422cc9246c93f5e4de88ae6229cc8cdc21d337221378f7761309c1",
+  "sourceReviewLedgerSha256": "2a1990e3ec6ea9fa2f7b8ea925c6de2d69724a4a6ef442efe0d520ba317aa32e",
+  "sourceReviewMutantCount": 39,
+  "sourceReviewFalseGreenCount": 15,
+  "repairVerdict": "all-false-greens-now-block-positive-syntax-controls-pass",
+  "falseGreensNowBlocking": [
+    { "name": "parser-boundary-emptied", "blockingMechanism": "recursively closed inventory schema (parserBoundary required + additionalProperties:false)", "testCoverage": "schema hostile: parserBoundary-extra/missing/originClass" },
+    { "name": "carrier-origin-invalid", "blockingMechanism": "closed schema sourceRecord originClass enum", "testCoverage": "schema hostile: sourceRecord-originClass/disposition" },
+    { "name": "carrier-required-fields-omitted", "blockingMechanism": "closed schema required arrays at every depth", "testCoverage": "schema hostile: sourceRecord-missing/fileRecord-missing" },
+    { "name": "edge-from-omitted", "blockingMechanism": "closed schema edge required fields", "testCoverage": "schema hostile: edge-extra/kind/missing" },
+    { "name": "edge-extra-authority", "blockingMechanism": "closed schema additionalProperties:false on edge", "testCoverage": "schema hostile: edge-extra" },
+    { "name": "consumer-path-omitted", "blockingMechanism": "closed schema consumerModule required", "testCoverage": "schema hostile: consumerModule-extra/entrypoint" },
+    { "name": "cohort-fields-omitted", "blockingMechanism": "closed schema protocolCohort required", "testCoverage": "schema hostile: protocolCohort-missing/schemaPointer" },
+    { "name": "field-influence-reclassified", "blockingMechanism": "closed schema fieldInfluence propertyNames+typed additionalProperties", "testCoverage": "schema hostile: fieldInfluence-bad-key/value/dup/empty" },
+    { "name": "environment-binding-reclassified", "blockingMechanism": "closed schema environmentBindings mode const + names/accesses", "testCoverage": "schema hostile: envBindings-mode/names-dup" },
+    { "name": "lease-extra-field", "blockingMechanism": "closed schema leaseRecord additionalProperties:false", "testCoverage": "schema hostile: lease-extra/missing" },
+    { "name": "hidden-property-computed-alias-lease-uses", "blockingMechanism": "scope-aware resolveScopedImportedBinding follows local aliases; resolvedCallTarget handles computed/optional member", "testCoverage": "scope-aware: alias chain + namespace alias" },
+    { "name": "function-local-env-alias-destructure-default-and-member", "blockingMechanism": "scope-aware resolvesToProcessEnv follows function-local aliases, destructuring defaults, member flows", "testCoverage": "scope-aware: function-local alias/destructure-default/member-flow" },
+    { "name": "default-reexport-hidden-lease-use", "blockingMechanism": "resolveExport handles default re-export chains via importedName default", "testCoverage": "scope-aware: default reexport resolves" },
+    { "name": "unicode-combining-crlf-byte-offset", "blockingMechanism": "shared UTF-16->UTF-8 offset utility with combining-mark and CRLF handling + portableAstSpan conversion", "testCoverage": "offset hostile: combining U+0301, CRLF, BMP, astral" },
+    { "name": "documentation-restates-changing-authority", "blockingMechanism": "auditQualificationAuthorityDocumentation checks byte-for-byte equality of doc claims to canonical authority", "testCoverage": "documentation-consumer hostile: drift/missing/restore" }
+  ],
+  "blockedControlsStillBlocking": [
+    { "name": "invalid-utf8-surrogate-byte-sequence", "blockingMechanism": "utf8ByteOffset/utf8ByteSpanFromMap reject surrogate-split boundaries", "testCoverage": "offset hostile: surrogate_pair throws" },
+    { "name": "dynamic-import-ambiguous-suffix", "blockingMechanism": "resolveQualificationPortableDynamicPattern ambiguous matchCount!=1", "testCoverage": "existing suite: ambiguous entry.mjs" },
+    { "name": "parser-entry-license-tree-lock-version-and-omission-drift", "blockingMechanism": "parser boundary byte/lock/version binding", "testCoverage": "existing suite: parser mutation cases" },
+    { "name": "migration-and-secret-stale-receipts-and-pin", "blockingMechanism": "build-author-receipt --check drift detection", "testCoverage": "receipt check mode current-read-only" },
+    { "name": "omitted-write-set-path", "blockingMechanism": "lease preimage checker --check-all", "testCoverage": "v9 preimage check-all: preimages-current" }
+  ],
+  "additionalV9Hostiles": {
+    "offsetBoundaryChecks": 31,
+    "schemaDepthOmissionExtraReclassificationChecks": 110,
+    "scopeAwareBindingDataFlowChecks": 23,
+    "documentationConsumerChecks": 7,
+    "description": "omission, extra-field and reclassification mutants at every schema depth plus hidden-use, hidden-environment, re-export and Unicode offset variants"
+  },
+  "replayDiverseRoots": [
+    { "name": "alpha-ascii-root", "kind": "ascii" },
+    { "name": "root with spaces", "kind": "path-whitespace" },
+    { "name": "Ω-unicode-root", "kind": "unicode-path" }
+  ],
+  "replayStatus": "three-diverse-persistent-roots-compiled-current-zero-violations",
+  "positiveSyntaxControls": "existing fixture suite (static-import, side-effect-import, named-reexport, barrel-export-all, dynamic-import, require, TSX, JSX, MTS, CJS) continues to compile-current"
+}

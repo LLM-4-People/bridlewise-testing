@@ -1,0 +1,151 @@
+    CreateChatCompletionStreamResponse:
+      type: object
+      description: |
+        Represents a streamed chunk of a chat completion response returned
+        by the model, based on the provided input. 
+        [Learn more](/docs/guides/streaming-responses).
+      properties:
+        id:
+          type: string
+          description: >-
+            A unique identifier for the chat completion. Each chunk has the same
+            ID.
+        choices:
+          type: array
+          description: >
+            A list of chat completion choices. Can contain more than one
+            elements if `n` is greater than 1. Can also be empty for the
+
+            last chunk if you set `stream_options: {"include_usage": true}`.
+          items:
+            type: object
+            required:
+              - delta
+              - finish_reason
+              - index
+            properties:
+              delta:
+                $ref: '#/components/schemas/ChatCompletionStreamResponseDelta'
+              logprobs:
+                description: Log probability information for the choice.
+                type: object
+                nullable: true
+                properties:
+                  content:
+                    description: >-
+                      A list of message content tokens with log probability
+                      information.
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ChatCompletionTokenLogprob'
+                    nullable: true
+                  refusal:
+                    description: >-
+                      A list of message refusal tokens with log probability
+                      information.
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ChatCompletionTokenLogprob'
+                    nullable: true
+                required:
+                  - content
+                  - refusal
+              finish_reason:
+                type: string
+                description: >
+                  The reason the model stopped generating tokens. This will be
+                  `stop` if the model hit a natural stop point or a provided
+                  stop sequence,
+
+                  `length` if the maximum number of tokens specified in the
+                  request was reached,
+
+                  `content_filter` if content was omitted due to a flag from our
+                  content filters,
+
+                  `tool_calls` if the model called a tool, or `function_call`
+                  (deprecated) if the model called a function.
+                enum:
+                  - stop
+                  - length
+                  - tool_calls
+                  - content_filter
+                  - function_call
+                nullable: true
+              index:
+                type: integer
+                description: The index of the choice in the list of choices.
+        created:
+          type: integer
+          format: unixtime
+          description: >-
+            The Unix timestamp (in seconds) of when the chat completion was
+            created. Each chunk has the same timestamp.
+        model:
+          type: string
+          description: The model to generate the completion.
+        service_tier:
+          $ref: '#/components/schemas/ServiceTier'
+        system_fingerprint:
+          type: string
+          deprecated: true
+          description: >
+            This fingerprint represents the backend configuration that the model
+            runs with.
+
+            Can be used in conjunction with the `seed` request parameter to
+            understand when backend changes have been made that might impact
+            determinism.
+        object:
+          type: string
+          description: The object type, which is always `chat.completion.chunk`.
+          enum:
+            - chat.completion.chunk
+          x-stainless-const: true
+        usage:
+          $ref: '#/components/schemas/CompletionUsage'
+          nullable: true
+          description: >
+            An optional field that will only be present when you set
+
+            `stream_options: {"include_usage": true}` in your request. When
+            present, it
+
+            contains a null value **except for the last chunk** which contains
+            the
+
+            token usage statistics for the entire request.
+
+
+            **NOTE:** If the stream is interrupted or cancelled, you may not
+
+            receive the final usage chunk which contains the total token usage
+            for
+
+            the request.
+      required:
+        - choices
+        - created
+        - id
+        - model
+        - object
+      x-oaiMeta:
+        name: The chat completion chunk object
+        group: chat
+        example: >
+          {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-4o-mini",
+          "system_fingerprint": "fp_44709d6fcb",
+          "choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+
+          {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-4o-mini",
+          "system_fingerprint": "fp_44709d6fcb",
+          "choices":[{"index":0,"delta":{"content":"Hello"},"logprobs":null,"finish_reason":null}]}
+
+
+          ....
+
+
+          {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-4o-mini",
+          "system_fingerprint": "fp_44709d6fcb",
+          "choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"stop"}]}

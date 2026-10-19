@@ -1,0 +1,14 @@
+{
+  "frames": [
+    "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":10,\"response\":{\"id\":\"resp_gaps\",\"object\":\"response\",\"status\":\"in_progress\",\"model\":\"contract-model\"}}\n\n",
+    "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":12,\"response\":{\"id\":\"resp_gaps\",\"object\":\"response\",\"status\":\"in_progress\",\"model\":\"contract-model\"}}\n\n",
+    "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":20,\"output_index\":0,\"item\":{\"id\":\"msg_gaps\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+    "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":30,\"output_index\":0,\"item\":{\"id\":\"msg_gaps\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+    "event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":50,\"response\":{\"id\":\"resp_gaps\",\"object\":\"response\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_gaps\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[]}],\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"total_tokens\":0},\"model\":\"contract-model\"}}\n\n"
+  ],
+  "expectedTypes": [
+    "start",
+    "usage",
+    "finish"
+  ]
+}

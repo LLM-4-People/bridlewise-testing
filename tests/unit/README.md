@@ -1,0 +1,127 @@
+# unit
+
+The `tests/unit/` folder of the development surface.
+
+## What each file does
+
+- `agent-delegation.test.ts` — @vitest-environment node.
+- `agent-orchestration.test.ts` — @vitest-environment node.
+- `anatomy-block.test.ts` — @vitest-environment node. The `observability.anatomy` block read: the auth gate (401 without a session), the block envelope (`{ data, meta }` with a content-derived etag), and the two anatomy halves in the owners' shapes — the census really walked /proc (this test process appears, honestly labelled a bystander) and the registry reports exactly what the server registered, never a fabricated list.
+- `artifact-runnability.test.ts` — @vitest-environment node.
+- `attempt-counter.test.ts` — @vitest-environment node.
+- `auth-prevention.test.ts` — @vitest-environment node.
+- `auto-check-runner.test.ts` — @vitest-environment node.
+- `auto-checks-store.test.ts` — @vitest-environment node.
+- `awareness-worker.test.ts` — @vitest-environment node.
+- `block-envelope-causality.test.ts` — @vitest-environment node.
+- `broker-action.test.ts` — `broker.action` — the client half of the action fabric, at its choke point.
+- `broker-csrf-retry.test.ts` — tHE CSRF DEAD-END, ENDED AT THE DOOR. `csrf_blocked` is a refusal the server issues.
+- `broker-path.test.ts` — @vitest-environment node.
+- `broker-refusal-hold.test.ts` — @vitest-environment node.
+- `broker-write-priority.test.ts` — the write-priority rule at the fetch choke point (UIE-044): every POST asks the browser for high priority, GETs keep the default, and the door owns the field so no call site can contradict the rule.
+- `change-password-route.test.ts` — @vitest-environment node.
+- `chat-message-store-integrity.test.ts` — @vitest-environment node.
+- `chat-messages.test.ts` — @vitest-environment node.
+- `chats-store.test.ts` — @vitest-environment node.
+- `client-hydrate.test.ts` — @vitest-environment node.
+- `client-telemetry-block.test.ts` — @vitest-environment node. The browser back-channel's server door: auth + typed-batch validation, the redaction canary (a credential in an error message reaches the ledger with zero secret bytes on disk), run/chat/trace ownership (a foreign claim records unattributed), the dedicated rate bucket's 429, and the dropped-count fact.
+- `client-telemetry-store.test.ts` — @vitest-environment node. The browser-side telemetry owner: capture wiring (error/rejection/longtask hooks through a fake window), the run ingest-lag report with its chat + trace latches, the batch bounds, the beacon door on visibility-hidden, and the no-collection rule (no URL bar, no query strings, no page content).
+- `client.test.ts` — @vitest-environment node.
+- `cockpit-spine-blocks.test.ts` — @vitest-environment node.
+- `compose-next-turn-channels.test.ts` — @vitest-environment node. The context desk's served channel census (UIE-054): the strips read through the real block routes must carry every channel the next request actually sends — including the tool schemas, the per-call constant the messages-only total used to omit — with the cost measured against the wire mapping's own definitions and the census derived from the wire vocabulary, never a hand list.
+- `config-refusal-background.test.ts` — @vitest-environment node. A settings file that goes bad while the server runs is a state, not a crash: the folder watch, its rebuild timer and the resource sampler survive it in a child carrying the server's fatal handler (the watch stays armed; the refusal is logged once), and booting against it is one typed refusal line with exit 78 (EX_CONFIG).
+- `config-refusal-server.test.ts` — @vitest-environment node. The REAL server (`server/index.ts`, its own fatal handlers) with an open `/api/live` stream while its settings file goes bad: the server stays up, the liveness beat continues, concurrent requests (`/api/health`, reads, an unknown route) are all answered from the last good snapshot, the raw config read and a save are refused `config_unreadable` (503), `settings.storeState` reads `unreadable` then `ok` after repair, one refusal line, no fallback flood.
+- `config-refusal-write-gate.test.ts` — @vitest-environment node. A corrupt config is refused (`config_unreadable`, a non-retryable 503 with a client sentence), never read as `{}`: every corrupt shape against every write verb (the self-protection gate), runtime sweeps of every export of the config owner (after a good snapshot every accessor keeps its last good answer while every file reader refuses; with no good snapshot — boot — every accessor refuses; accessors never read the file), the once-per-transition always-on log, a symlinked config written through its link, and the documented absent path.
+- `config-write-concurrency.test.ts` — @vitest-environment node. The config file's fork-race proofs (round 45): a reader storm never sees torn bytes (atomic rename), two processes' read-modify-write cycles never lose an update (the cross-process lock), an outside acquire waits, a dead holder's lock is broken, the lock is re-entrant per process, and a released lock leaves no file behind.
+- `config-snapshot.test.ts` — @vitest-environment node.
+- `context-trimming-adversarial.test.ts` — @vitest-environment node.
+- `context-trimming-e2e.test.ts` — @vitest-environment node.
+- `context-trimming.test.ts` — @vitest-environment node.
+- `coverage-blocks-real-ledger.test.ts` — @vitest-environment node.
+- `cross-user-path-access.test.ts` — @vitest-environment node.
+- `custody-blocks-real-ledger.test.ts` — @vitest-environment node.
+- `custody-history-one-spawn.test.ts` — @vitest-environment node.
+- `custody-see-what-changed.test.ts` — @vitest-environment node.
+- `db-client.test.ts` — @vitest-environment node.
+- `delete-eviction.test.ts` — @vitest-environment node.
+- `dependency-path.test.ts` — @vitest-environment node.
+- `error-messages.test.ts` — the `error-messages.test` module.
+- `editor-blocks.test.ts` — @vitest-environment node.
+- `errors.test.ts` — @vitest-environment node.
+- `codebase-file-retrieval.test.ts` — @vitest-environment node.
+- `tool-execution-root-scoping.test.ts` — the `tool-execution-root-scoping.test` module.
+- `chat-message-data-exposure.test.ts` — @vitest-environment node.
+- `filesystem-routes.test.ts` — @vitest-environment node.
+- `harness-config-webui.test.ts` — @vitest-environment node.
+- `harness-config.test.ts` — @vitest-environment node.
+- `harvested-fixes-adversarial.test.ts` — @vitest-environment node.
+- `landlock-project-refusal.test.ts` — @vitest-environment node.
+- `database-exposure.test.ts` — the `database.*` signals serve the kept-copy count and the newest verified pre-upgrade copy, read live.
+- `db-field-binding-v20.test.ts` — migration 20 frozen (golden binding bytes), idempotent, refusing a bound+unbound mix; no migration imports the live list; no writer moves a parent.
+- `db-key-rotation.test.ts` — `npm run db-key`: relocate a legacy key into the key home with proof, scan for legacy keys, re-key a database off the adopted fixed salt.
+- `http-listener.test.ts` — the server's one HTTP listener: its clocks come from the server config, and a request the HTTP parser refuses gets a typed JSON body (400, 408, 431) over a real socket.
+- `held-key-echo.test.ts` — a shapeless provider key echoed by the provider (content and split tool-call deltas) reaches no streamed event, egress, response document or ledger byte.
+- `provider-destination-rule.test.ts` — the destination rule stamped on the credential at mint: a non-admin's discovery, Test connection and runs never reach a private address.
+- `secret-file-tool-reads.test.ts` — the server's read_file and search_code show a secret file's keys and none of its values.
+- `lens-ancestry-real-ledger.test.ts` — @vitest-environment node.
+- `lens-ancestry-walk.test.ts` — @vitest-environment node.
+- `lens-broker-choke-point.test.ts` — @vitest-environment node.
+- `lens-trace-withheld.test.ts` — @vitest-environment node.
+- `ledger-dig.test.ts` — @vitest-environment node.
+- `lint-gate.test.ts` — @vitest-environment node.
+- `live-usage-mapping.test.ts` — @vitest-environment node.
+- `liveness-share.test.ts` — @vitest-environment node. ONE liveness socket per browser context (UIE-044): the elected tab opens the stream, a waiting tab opens nothing on any door, handover on leader death, the follower's state rides the leader's broadcasts while its own watchdog + diagnosis stand, and the fallback's browser-context precondition is real (Node ships a LockManager but no document whose lifetime could own a lock).
+- `mcp-held-credentials.test.ts` — an MCP server's credentials are held for its own output (masked there), never registered process-wide (no equality oracle for a guessable literal).
+- `mcp-runtime.test.ts` — @vitest-environment node.
+- `mcp-stdio-landlock.test.ts` — a stdio MCP server under the real guardian: only its home (and TMPDIR inside it) is writable; every other root the spec could grant is EACCES; the MCP env list; read-path W^X and refused roots.
+- `mcp-tool-name-migration.test.ts` — DB migration 19 with frozen golden names, keyset batches, the pre-upgrade copy and the newer-schema refusal.
+- `mcp-servers-route.test.ts` — @vitest-environment node.
+- `memory-opt-in-prevention.test.ts` — @vitest-environment node.
+- `metrics-bridge-config.test.ts` — the web server's metrics collector is built from the configured `performance` section through the engine's one `performanceConfigOf`, not from the frozen defaults (cfg-final §17 B4).
+- `metrics-dedup.test.ts` — @vitest-environment node.
+- `metrics.test.ts` — @vitest-environment node.
+- `models-in-db.test.ts` — @vitest-environment node.
+- `models-route.test.ts` — @vitest-environment node.
+- `models-store.test.ts` — the `models-store.test` module.
+- `multi-user-isolation.test.ts` — @vitest-environment node.
+- `pii-redaction-context.test.ts` — @vitest-environment node.
+- `project-folder.test.ts` — @vitest-environment node.
+- `projects.test.ts` — @vitest-environment node.
+- `prompt-tone-catalog.test.ts` — the system prompt's tone line is the tone catalog's instruction (`webUi.promptGenerator.tones`), read live; a tone the catalog does not carry adds no line (prompt-registry F-PR-3).
+- `provenance-contract.test.ts` — @vitest-environment node.
+- `repository-map-worker.test.ts` — @vitest-environment node.
+- `resource-sampler.test.ts` — @vitest-environment node.
+- `router.test.ts` — @vitest-environment node.
+- `routes-schema.test.ts` — @vitest-environment node.
+- `routes.test.ts` — @vitest-environment node.
+- `run-pane.test.ts` — @vitest-environment node.
+- `run-state.test.ts` — @vitest-environment node.
+- `safety-features-adversarial.test.ts` — @vitest-environment node.
+- `schema-store.test.ts` — @vitest-environment node.
+- `server-config.test.ts` — @vitest-environment node.
+- `settings-diagnostic-modes-block.test.ts` — @vitest-environment node. The `settings.diagnosticModes` block door: the read serves the six-mode vocabulary with the standing list, the set action writes through the one config gate (assigning the whole section on fresh installs), element refusals in human words, the duplicate cross-field refusal, the too-many bound, the admin-only write with the user-level read, and the file's byte-identity on restore.
+- `sole-writer.test.ts` — @vitest-environment node.
+- `sse-persistence.test.ts` — @vitest-environment node.
+- `sse.test.ts` — @vitest-environment node.
+- `synthesis-blocks-real-ledger.test.ts` — @vitest-environment node.
+- `system-prompt-wire.test.ts` — the system prompt goes on the wire exactly as rendered: LLM-input dedup rewrites the conversation, never the system message (prompt-registry F-PR-9).
+- `temp-git-repo.test.ts` — the fixture repository is hermetic (a4-design M5): an inherited `GIT_DIR`/`GIT_INDEX_FILE`/`GIT_WORK_TREE` never reaches its git (another repository stays untouched), and an ambient global config (default branch, hooks path, tag signing, identity) never shapes it.
+- `timeline-event-documents.test.ts` — @vitest-environment node.
+- `timeline-query.test.ts` — @vitest-environment node.
+- `timeline-refs-store.test.ts` — @vitest-environment node.
+- `timeline-tree-routes.test.ts` — @vitest-environment node.
+- `tool-bounds.test.ts` — the file-read cap is its own declared leaf (`tools.limits.maxReadBytes`), never derived from the output cap (cfg-final §17 B3).
+- `tool-call-gate-adversarial.test.ts` — @vitest-environment node.
+- `tool-executor-unified.test.ts` — @vitest-environment node.
+- `tool-settings-merge.test.ts` — the tool merge has one owner, on the server: the global list and the account's overrides are merged by `effectiveEnabledToolNames`, `GET /api/tools/settings` serves the result and the client stores it without re-merging (cfg-final §17 B1).
+- `tools.test.ts` — @vitest-environment node.
+- `ui-schema-builder.test.ts` — @vitest-environment node.
+- `ui-schema-enrichment.test.ts` — @vitest-environment node.
+- `web-ui-config.test.ts` — @vitest-environment node.
+- `when-eval.test.ts` — @vitest-environment node.
+- `conversation-archive.test.ts` — UD-S15: the conversation archive writes every owned row of trashed conversations to one verified file, removes them only then (live ones untouched, a verified copy kept), refuses untrashed conversations and a held database, and an altered archive does not verify.
+- `process-fault-policy.test.ts` — SCALE-CR1 C2 + SCALE-CR1-FIX H1: the fault policy, each case in a child process: five hostile rejection values are counted and survived by the server; the same values thrown uncaught are logged, recorded as a `process-fault` ledger event, and exit 70; a CLI that loses a rejection or a guarded timer exits 70 although it then exits 0; a process with no role keeps Node's default; a `worker` thread fails closed, a `server-thread` lives; `describeFault` loses only a hostile getter's own field; the server installs the policy as its first import.
+
+## Where it lives and what consumes it
+
+The folder lives at `tests/unit/`.

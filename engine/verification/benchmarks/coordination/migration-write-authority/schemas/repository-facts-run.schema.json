@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/schemas/migration-repository-facts-run/v1",
+  "title": "Migration repository facts qualification run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "attemptId",
+    "startedAt",
+    "finishedAt",
+    "protocolVersion",
+    "runner",
+    "capabilities",
+    "connectorAvailability",
+    "repetitions",
+    "summary",
+    "reportIdentity"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "migration-repository-facts-run/v1" },
+    "status": { "const": "observed-unadmitted" },
+    "attemptId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "startedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$" },
+    "finishedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$" },
+    "protocolVersion": { "const": "migration-repository-facts-protocol/v1" },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "contractRelativePath", "contractSha256"],
+      "properties": {
+        "relativePath": { "const": "verification/benchmarks/coordination/migration-write-authority/repository-facts.mjs" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "contractRelativePath": { "const": "verification/benchmarks/coordination/migration-write-authority/repository-facts-contract.mjs" },
+        "contractSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "nodeVersion", "git", "gitVersion"],
+      "properties": {
+        "node": { "$ref": "#/$defs/executableIdentity" },
+        "nodeVersion": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "git": { "$ref": "#/$defs/executableIdentity" },
+        "gitVersion": { "type": "string", "pattern": "^git version [0-9]+\\.[0-9]+\\.[0-9]+" }
+      }
+    },
+    "connectorAvailability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context7", "deepwiki", "kagi", "scrapling", "fallbackSubstitutionUsed"],
+      "properties": {
+        "context7": { "const": "unavailable" },
+        "deepwiki": { "const": "unavailable" },
+        "kagi": { "const": "unavailable" },
+        "scrapling": { "const": "unavailable" },
+        "fallbackSubstitutionUsed": { "const": false }
+      }
+    },
+    "repetitions": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "$ref": "#/$defs/repetitionOne" },
+        { "$ref": "#/$defs/repetitionTwo" },
+        { "$ref": "#/$defs/repetitionThree" }
+      ],
+      "items": false
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repetitionsRequired",
+        "repetitionsObserved",
+        "scenariosPerRepetition",
+        "childProcessesObserved",
+        "passed",
+        "selectionOrReadinessClaim"
+      ],
+      "properties": {
+        "repetitionsRequired": { "const": 3 },
+        "repetitionsObserved": { "const": 3 },
+        "scenariosPerRepetition": { "const": 5 },
+        "childProcessesObserved": { "const": 30 },
+        "passed": { "type": "boolean" },
+        "selectionOrReadinessClaim": { "const": false }
+      }
+    },
+    "reportIdentity": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sourceIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256"],
+      "properties": {
+        "relativePath": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "fileIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device", "inode", "mode", "ownerUid", "ownerGid", "links"],
+      "properties": {
+        "device": { "type": "string", "pattern": "^[0-9]+$" },
+        "inode": { "type": "string", "pattern": "^[0-9]+$" },
+        "mode": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "ownerUid": { "type": "string", "pattern": "^[0-9]+$" },
+        "ownerGid": { "type": "string", "pattern": "^[0-9]+$" },
+        "links": { "type": "string", "pattern": "^[0-9]+$" }
+      }
+    },
+    "executableIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lexicalPath", "canonicalPath", "byteLength", "sha256", "identity"],
+      "properties": {
+        "lexicalPath": { "type": "string", "pattern": "^/" },
+        "canonicalPath": { "type": "string", "pattern": "^/" },
+        "byteLength": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "identity": { "$ref": "#/$defs/fileIdentity" }
+      }
+    },
+    "repetitionOne": { "allOf": [{ "$ref": "#/$defs/repetition" }, { "type": "object", "properties": { "ordinal": { "const": 1 } } }] },
+    "repetitionTwo": { "allOf": [{ "$ref": "#/$defs/repetition" }, { "type": "object", "properties": { "ordinal": { "const": 2 } } }] },
+    "repetitionThree": { "allOf": [{ "$ref": "#/$defs/repetition" }, { "type": "object", "properties": { "ordinal": { "const": 3 } } }] },
+    "repetition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "scenarios", "passed"],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "scenarios": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "prefixItems": [
+            { "$ref": "#/$defs/ordinaryScenario" },
+            { "$ref": "#/$defs/detachedScenario" },
+            { "$ref": "#/$defs/separateScenario" },
+            { "$ref": "#/$defs/bareScenario" },
+            { "$ref": "#/$defs/unbornScenario" }
+          ],
+          "items": false
+        },
+        "passed": { "type": "boolean" }
+      }
+    },
+    "ordinaryScenario": { "allOf": [{ "$ref": "#/$defs/scenario" }, { "type": "object", "properties": { "scenarioId": { "const": "ordinary-main-linked" } } }] },
+    "detachedScenario": { "allOf": [{ "$ref": "#/$defs/scenario" }, { "type": "object", "properties": { "scenarioId": { "const": "detached-linked-unicode-path" } } }] },
+    "separateScenario": { "allOf": [{ "$ref": "#/$defs/scenario" }, { "type": "object", "properties": { "scenarioId": { "const": "separate-git-directory" } } }] },
+    "bareScenario": { "allOf": [{ "$ref": "#/$defs/scenario" }, { "type": "object", "properties": { "scenarioId": { "const": "bare-with-linked-worktree" } } }] },
+    "unbornScenario": { "allOf": [{ "$ref": "#/$defs/scenario" }, { "type": "object", "properties": { "scenarioId": { "const": "unborn-main" } } }] },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenarioId", "processes", "assertions", "passed"],
+      "properties": {
+        "scenarioId": { "type": "string", "minLength": 1 },
+        "processes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/processObservation" }
+        },
+        "assertions": {
+          "type": "array",
+          "minItems": 4,
+          "items": { "$ref": "#/$defs/assertion" }
+        },
+        "passed": { "type": "boolean" }
+      }
+    },
+    "assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "ok", "detail"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]+$" },
+        "ok": { "type": "boolean" },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "processObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "processId", "facts"],
+      "properties": {
+        "role": { "type": "string", "minLength": 1 },
+        "processId": { "type": "integer", "minimum": 1 },
+        "facts": { "$ref": "#/$defs/repositoryFacts" }
+      }
+    },
+    "repositoryFacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "repositoryLocator",
+        "commonDirectory",
+        "gitDirectory",
+        "objectStore",
+        "refsDirectory",
+        "worktreeRoot",
+        "index",
+        "repositoryState",
+        "acquisition"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "migration-repository-facts/v1" },
+        "repositoryLocator": { "type": "string", "pattern": "^\\$DISPOSABLE/" },
+        "commonDirectory": { "$ref": "#/$defs/pathIdentity" },
+        "gitDirectory": { "$ref": "#/$defs/pathIdentity" },
+        "objectStore": { "$ref": "#/$defs/pathIdentity" },
+        "refsDirectory": { "$ref": "#/$defs/pathIdentity" },
+        "worktreeRoot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/pathIdentity" }] },
+        "index": { "oneOf": [{ "$ref": "#/$defs/pathIdentity" }, { "$ref": "#/$defs/typedAbsence" }] },
+        "repositoryState": { "$ref": "#/$defs/repositoryState" },
+        "acquisition": { "$ref": "#/$defs/acquisition" }
+      }
+    },
+    "pathIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalPath", "kind", "device", "inode", "mode", "ownerUid", "ownerGid", "links"],
+      "properties": {
+        "canonicalPath": { "type": "string", "pattern": "^\\$DISPOSABLE/" },
+        "kind": { "enum": ["directory", "file", "symlink", "other"] },
+        "device": { "type": "string", "pattern": "^[0-9]+$" },
+        "inode": { "type": "string", "pattern": "^[0-9]+$" },
+        "mode": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "ownerUid": { "type": "string", "pattern": "^[0-9]+$" },
+        "ownerGid": { "type": "string", "pattern": "^[0-9]+$" },
+        "links": { "type": "string", "pattern": "^[0-9]+$" }
+      }
+    },
+    "typedAbsence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "parent", "path"],
+      "properties": {
+        "kind": { "const": "absent" },
+        "parent": { "$ref": "#/$defs/pathIdentity" },
+        "path": { "type": "string", "pattern": "^\\$DISPOSABLE/" }
+      }
+    },
+    "repositoryState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bare", "insideWorktree", "objectFormat", "repositoryFormatVersion", "head"],
+      "properties": {
+        "bare": { "type": "boolean" },
+        "insideWorktree": { "type": "boolean" },
+        "objectFormat": { "enum": ["sha1", "sha256"] },
+        "repositoryFormatVersion": { "type": "string", "pattern": "^[0-9]+$" },
+        "head": { "$ref": "#/$defs/headState" }
+      }
+    },
+    "headState": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "symbolicRef"],
+          "properties": {
+            "kind": { "const": "unborn" },
+            "symbolicRef": { "type": "string", "pattern": "^refs/heads/" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "objectId"],
+          "properties": {
+            "kind": { "const": "detached" },
+            "objectId": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "objectId", "symbolicRef"],
+          "properties": {
+            "kind": { "const": "symbolic" },
+            "objectId": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+            "symbolicRef": { "type": "string", "pattern": "^refs/heads/" }
+          }
+        }
+      ]
+    },
+    "acquisition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocolVersion", "commands", "environmentKeys"],
+      "properties": {
+        "protocolVersion": { "const": "migration-repository-facts-protocol/v1" },
+        "commands": {
+          "type": "array",
+          "minItems": 13,
+          "maxItems": 13,
+          "items": { "$ref": "#/$defs/commandEvent" }
+        },
+        "environmentKeys": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "enum": ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_OPTIONAL_LOCKS", "GIT_TERMINAL_PROMPT", "HOME", "LANG", "LC_ALL", "PATH"] }
+        }
+      }
+    },
+    "commandEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv", "signal", "status", "stderr", "stdout"],
+      "properties": {
+        "argv": { "type": "array", "minItems": 3, "items": { "type": "string" } },
+        "signal": { "type": ["string", "null"] },
+        "status": { "type": ["integer", "null"] },
+        "stderr": { "type": "string", "maxLength": 1048576 },
+        "stdout": { "type": "string", "maxLength": 1048576 }
+      }
+    }
+  }
+}

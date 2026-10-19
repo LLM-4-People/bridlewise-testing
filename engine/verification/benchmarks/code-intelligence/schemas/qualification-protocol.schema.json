@@ -1,0 +1,685 @@
+{
+  "$id": "https://bridlewise.local/schemas/code-intelligence/qualification-protocol.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "admission": {
+      "additionalProperties": false,
+      "properties": {
+        "admissionIsCandidateVersionFixtureProtocolSpecific": {
+          "type": "boolean"
+        },
+        "allFatalInvariantsPass": {
+          "type": "boolean"
+        },
+        "candidateRunnerCannotAdmit": {
+          "type": "boolean"
+        },
+        "emptyReviewerRegistryOutcome": {
+          "type": "string"
+        },
+        "independentEvidenceReviewerRequired": {
+          "type": "boolean"
+        },
+        "independentOracleReconcilerRequired": {
+          "type": "boolean"
+        },
+        "licenseAndPurposeDispositionRequired": {
+          "type": "boolean"
+        },
+        "preAdmissionProjectionRequiredToAvoidCircularAdmissionIdentity": {
+          "type": "boolean"
+        },
+        "rankingRequiresAllComparedArmsAdmitted": {
+          "type": "boolean"
+        },
+        "reviewMustRecomputeAllContentDigests": {
+          "type": "boolean"
+        },
+        "reviewMustReconcileEveryEligiblePath": {
+          "type": "boolean"
+        },
+        "reviewMustReproduceBootstrapThreeTimes": {
+          "type": "boolean"
+        },
+        "reviewerIdentityAndToolchainSha256Required": {
+          "type": "boolean"
+        },
+        "trustedReviewerEntryRequiredFields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "trustedReviewers": {
+          "maxItems": 0,
+          "type": "array"
+        }
+      },
+      "required": [
+        "admissionIsCandidateVersionFixtureProtocolSpecific",
+        "allFatalInvariantsPass",
+        "candidateRunnerCannotAdmit",
+        "emptyReviewerRegistryOutcome",
+        "independentEvidenceReviewerRequired",
+        "independentOracleReconcilerRequired",
+        "licenseAndPurposeDispositionRequired",
+        "preAdmissionProjectionRequiredToAvoidCircularAdmissionIdentity",
+        "rankingRequiresAllComparedArmsAdmitted",
+        "reviewMustRecomputeAllContentDigests",
+        "reviewMustReconcileEveryEligiblePath",
+        "reviewMustReproduceBootstrapThreeTimes",
+        "reviewerIdentityAndToolchainSha256Required",
+        "trustedReviewerEntryRequiredFields",
+        "trustedReviewers"
+      ],
+      "type": "object"
+    },
+    "authorization": {
+      "additionalProperties": false,
+      "properties": {
+        "authorityIdentityAndToolchainSha256Required": {
+          "type": "boolean"
+        },
+        "credentialReferenceOnly": {
+          "type": "boolean"
+        },
+        "emptyAuthorityOutcome": {
+          "type": "string"
+        },
+        "externalEgressDefault": {
+          "type": "string"
+        },
+        "fixtureLicenseReviewRequired": {
+          "type": "boolean"
+        },
+        "purposeBound": {
+          "type": "boolean"
+        },
+        "rawSecretsForbidden": {
+          "type": "boolean"
+        },
+        "remoteCandidateRequiresExplicitRepositoryScope": {
+          "type": "boolean"
+        },
+        "snapshotAllowlistRequired": {
+          "type": "boolean"
+        },
+        "sourceDataMinimized": {
+          "type": "boolean"
+        },
+        "trustedAuthorizationAuthorities": {
+          "maxItems": 0,
+          "type": "array"
+        },
+        "trustedAuthorizationAuthorityEntryRequiredFields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "authorityIdentityAndToolchainSha256Required",
+        "credentialReferenceOnly",
+        "emptyAuthorityOutcome",
+        "externalEgressDefault",
+        "fixtureLicenseReviewRequired",
+        "purposeBound",
+        "rawSecretsForbidden",
+        "remoteCandidateRequiresExplicitRepositoryScope",
+        "snapshotAllowlistRequired",
+        "sourceDataMinimized",
+        "trustedAuthorizationAuthorities",
+        "trustedAuthorizationAuthorityEntryRequiredFields"
+      ],
+      "type": "object"
+    },
+    "bootstrap": {
+      "additionalProperties": false,
+      "properties": {
+        "admittedRunOnly": {
+          "type": "boolean"
+        },
+        "budgetedOrderingRequired": {
+          "type": "boolean"
+        },
+        "builderVersion": {
+          "type": "string"
+        },
+        "candidateNarrativeForbidden": {
+          "type": "boolean"
+        },
+        "canonicalJson": {
+          "type": "string"
+        },
+        "everyFactSourceLinked": {
+          "type": "boolean"
+        },
+        "explicitOmissionsRequired": {
+          "type": "boolean"
+        },
+        "requiredInputs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "requiredSections": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sameInputsMustProduceSameBytes": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "admittedRunOnly",
+        "budgetedOrderingRequired",
+        "builderVersion",
+        "candidateNarrativeForbidden",
+        "canonicalJson",
+        "everyFactSourceLinked",
+        "explicitOmissionsRequired",
+        "requiredInputs",
+        "requiredSections",
+        "sameInputsMustProduceSameBytes"
+      ],
+      "type": "object"
+    },
+    "catalog": {
+      "type": "string"
+    },
+    "claimBoundary": {
+      "additionalProperties": false,
+      "properties": {
+        "candidatesQualified": {
+          "maxItems": 0,
+          "type": "array"
+        },
+        "historicalResultsAdmitted": {
+          "type": "boolean"
+        },
+        "rankingPermitted": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidatesQualified",
+        "historicalResultsAdmitted",
+        "rankingPermitted",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "atomicWriteWithinCanonicalRoot": {
+          "type": "boolean"
+        },
+        "canonicalRoot": {
+          "type": "string"
+        },
+        "deletionRequiresGovernedRetentionDecision": {
+          "type": "boolean"
+        },
+        "manifestBindsEveryObject": {
+          "type": "boolean"
+        },
+        "objectLayout": {
+          "type": "string"
+        },
+        "rawAndDerivedContentAddressed": {
+          "type": "boolean"
+        },
+        "redactionChangesDigestAndRetainsLineage": {
+          "type": "boolean"
+        },
+        "sanitizationReceiptRequired": {
+          "type": "boolean"
+        },
+        "temporaryOnlyEvidenceForbidden": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "atomicWriteWithinCanonicalRoot",
+        "canonicalRoot",
+        "deletionRequiresGovernedRetentionDecision",
+        "manifestBindsEveryObject",
+        "objectLayout",
+        "rawAndDerivedContentAddressed",
+        "redactionChangesDigestAndRetainsLineage",
+        "sanitizationReceiptRequired",
+        "temporaryOnlyEvidenceForbidden"
+      ],
+      "type": "object"
+    },
+    "executionMatrix": {
+      "additionalProperties": false,
+      "properties": {
+        "explicitProjectIdentityEveryCall": {
+          "type": "boolean"
+        },
+        "freshCandidateHomePerRepetition": {
+          "type": "boolean"
+        },
+        "freshProcessPerRepetition": {
+          "type": "boolean"
+        },
+        "minimumFixtureClasses": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "minimumLanguagesAcrossMatrix": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "minimumMateriallyDistinctScenarios": {
+          "type": "integer"
+        },
+        "modelBackedCandidateFeaturesExcludedFromDeterministicLane": {
+          "type": "boolean"
+        },
+        "neutralWorkingDirectory": {
+          "type": "boolean"
+        },
+        "randomizedCandidateOrderRecorded": {
+          "type": "boolean"
+        },
+        "repetitionsPerScenario": {
+          "type": "integer"
+        },
+        "requiredScenarioIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scenarioDefinitionBlocker": {
+          "type": "string"
+        },
+        "scenarioDefinitionsExecutable": {
+          "type": "boolean"
+        },
+        "warmAndColdLanesSeparated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "explicitProjectIdentityEveryCall",
+        "freshCandidateHomePerRepetition",
+        "freshProcessPerRepetition",
+        "minimumFixtureClasses",
+        "minimumLanguagesAcrossMatrix",
+        "minimumMateriallyDistinctScenarios",
+        "modelBackedCandidateFeaturesExcludedFromDeterministicLane",
+        "neutralWorkingDirectory",
+        "randomizedCandidateOrderRecorded",
+        "repetitionsPerScenario",
+        "requiredScenarioIds",
+        "scenarioDefinitionBlocker",
+        "scenarioDefinitionsExecutable",
+        "warmAndColdLanesSeparated"
+      ],
+      "type": "object"
+    },
+    "fatalInvariants": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "oracle": {
+      "type": "string"
+    },
+    "protocolVersion": {
+      "type": "string"
+    },
+    "queryQualification": {
+      "additionalProperties": false,
+      "properties": {
+        "candidateOutputCannotDefineTruth": {
+          "type": "boolean"
+        },
+        "eligibleRunRequiresEveryClassExactlyOnce": {
+          "type": "boolean"
+        },
+        "eligibleRunRequiresEveryFailureInjectionExactlyOnce": {
+          "type": "boolean"
+        },
+        "emptyAnswerRequiresCompletenessProof": {
+          "type": "boolean"
+        },
+        "exactSourceEvidenceRequired": {
+          "type": "boolean"
+        },
+        "falsePositiveAndFalseNegativeRecorded": {
+          "type": "boolean"
+        },
+        "modelSelfGradingForbidden": {
+          "type": "boolean"
+        },
+        "oracleMustPreexistCandidateRun": {
+          "type": "boolean"
+        },
+        "requiredClasses": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidateOutputCannotDefineTruth",
+        "eligibleRunRequiresEveryClassExactlyOnce",
+        "eligibleRunRequiresEveryFailureInjectionExactlyOnce",
+        "emptyAnswerRequiresCompletenessProof",
+        "exactSourceEvidenceRequired",
+        "falsePositiveAndFalseNegativeRecorded",
+        "modelSelfGradingForbidden",
+        "oracleMustPreexistCandidateRun",
+        "requiredClasses"
+      ],
+      "type": "object"
+    },
+    "repositorySnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "absoluteCanonicalRootRequired": {
+          "type": "boolean"
+        },
+        "descriptorRequired": {
+          "type": "boolean"
+        },
+        "dirtyStagedUntrackedRequired": {
+          "type": "boolean"
+        },
+        "eligibleManifest": {
+          "additionalProperties": false,
+          "properties": {
+            "eligibleContentSha256Required": {
+              "type": "boolean"
+            },
+            "equalCountsAreInsufficient": {
+              "type": "boolean"
+            },
+            "everyPathDispositionRequired": {
+              "type": "boolean"
+            },
+            "excludedReasonRequired": {
+              "type": "boolean"
+            },
+            "indexInventoryExactReconciliationRequired": {
+              "type": "boolean"
+            },
+            "unreadableIsFatalWhenEligible": {
+              "type": "boolean"
+            },
+            "unsupportedReasonRequired": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "eligibleContentSha256Required",
+            "equalCountsAreInsufficient",
+            "everyPathDispositionRequired",
+            "excludedReasonRequired",
+            "indexInventoryExactReconciliationRequired",
+            "unreadableIsFatalWhenEligible",
+            "unsupportedReasonRequired"
+          ],
+          "type": "object"
+        },
+        "freshness": {
+          "additionalProperties": false,
+          "properties": {
+            "concurrentChangeOutcome": {
+              "type": "string"
+            },
+            "generationCompareAndSwap": {
+              "type": "boolean"
+            },
+            "preBootstrapReconciliation": {
+              "type": "boolean"
+            },
+            "preModificationReconciliation": {
+              "type": "boolean"
+            },
+            "preQueryReconciliation": {
+              "type": "boolean"
+            },
+            "queryBindsCommittedGeneration": {
+              "type": "boolean"
+            },
+            "watchersAreHintsOnly": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "concurrentChangeOutcome",
+            "generationCompareAndSwap",
+            "preBootstrapReconciliation",
+            "preModificationReconciliation",
+            "preQueryReconciliation",
+            "queryBindsCommittedGeneration",
+            "watchersAreHintsOnly"
+          ],
+          "type": "object"
+        },
+        "gitIdentityRequired": {
+          "type": "boolean"
+        },
+        "headTreeIndexWorktreeRequired": {
+          "type": "boolean"
+        },
+        "submoduleLfsSymlinkRequired": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "absoluteCanonicalRootRequired",
+        "descriptorRequired",
+        "dirtyStagedUntrackedRequired",
+        "eligibleManifest",
+        "freshness",
+        "gitIdentityRequired",
+        "headTreeIndexWorktreeRequired",
+        "submoduleLfsSymlinkRequired"
+      ],
+      "type": "object"
+    },
+    "requiredFailureInjections": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "resolution": {
+      "additionalProperties": false,
+      "properties": {
+        "alternateEngineFallback": {
+          "type": "string"
+        },
+        "closestVersionFallback": {
+          "type": "string"
+        },
+        "emptyOnlineVerifierRegistryOutcome": {
+          "type": "string"
+        },
+        "freezeBeforeFixtureAccess": {
+          "type": "boolean"
+        },
+        "onlineVerifierIdentityAndToolchainSha256Required": {
+          "type": "boolean"
+        },
+        "recordEveryExaminedRelease": {
+          "type": "boolean"
+        },
+        "rejectDraft": {
+          "type": "boolean"
+        },
+        "rejectPrereleaseMetadata": {
+          "type": "boolean"
+        },
+        "rejectSemverPrereleaseTag": {
+          "type": "boolean"
+        },
+        "requireDependencyLockOrImageDigests": {
+          "type": "boolean"
+        },
+        "requireGovernedRawOfficialLicenseBytes": {
+          "type": "boolean"
+        },
+        "requireGovernedRawOfficialReleasePages": {
+          "type": "boolean"
+        },
+        "requireImmutableTagCommit": {
+          "type": "boolean"
+        },
+        "requireIndependentOnlineIdentityVerification": {
+          "type": "boolean"
+        },
+        "requireInstalledExecutableSha256": {
+          "type": "boolean"
+        },
+        "requireSourceArchiveSha256": {
+          "type": "boolean"
+        },
+        "requireToolSchemaSha256": {
+          "type": "boolean"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "silentFallback": {
+          "type": "string"
+        },
+        "trustedOnlineVerifierEntryRequiredFields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "trustedOnlineVerifiers": {
+          "maxItems": 0,
+          "type": "array"
+        },
+        "unresolvedOutcome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "alternateEngineFallback",
+        "closestVersionFallback",
+        "emptyOnlineVerifierRegistryOutcome",
+        "freezeBeforeFixtureAccess",
+        "onlineVerifierIdentityAndToolchainSha256Required",
+        "recordEveryExaminedRelease",
+        "rejectDraft",
+        "rejectPrereleaseMetadata",
+        "rejectSemverPrereleaseTag",
+        "requireDependencyLockOrImageDigests",
+        "requireGovernedRawOfficialLicenseBytes",
+        "requireGovernedRawOfficialReleasePages",
+        "requireImmutableTagCommit",
+        "requireIndependentOnlineIdentityVerification",
+        "requireInstalledExecutableSha256",
+        "requireSourceArchiveSha256",
+        "requireToolSchemaSha256",
+        "selector",
+        "silentFallback",
+        "trustedOnlineVerifierEntryRequiredFields",
+        "trustedOnlineVerifiers",
+        "unresolvedOutcome"
+      ],
+      "type": "object"
+    },
+    "scenarios": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "type": "string"
+    },
+    "semanticEpoch": {
+      "type": "integer"
+    },
+    "status": {
+      "type": "string"
+    },
+    "telemetry": {
+      "additionalProperties": false,
+      "properties": {
+        "clock": {
+          "type": "string"
+        },
+        "requiredIndex": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "requiredPerProcess": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "requiredPerToolCall": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "resourceIsolationReceiptRequired": {
+          "type": "boolean"
+        },
+        "tokenRule": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "clock",
+        "requiredIndex",
+        "requiredPerProcess",
+        "requiredPerToolCall",
+        "resourceIsolationReceiptRequired",
+        "tokenRule"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "admission",
+    "authorization",
+    "bootstrap",
+    "catalog",
+    "claimBoundary",
+    "evidence",
+    "executionMatrix",
+    "fatalInvariants",
+    "oracle",
+    "protocolVersion",
+    "queryQualification",
+    "repositorySnapshot",
+    "requiredFailureInjections",
+    "resolution",
+    "scenarios",
+    "schemaVersion",
+    "semanticEpoch",
+    "status",
+    "telemetry"
+  ],
+  "title": "Closed structural schema for code-intelligence-qualification-protocol/v2",
+  "type": "object"
+}

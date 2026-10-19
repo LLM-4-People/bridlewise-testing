@@ -1,0 +1,142 @@
+{
+  "schemaVersion": "bridlewise-node-runtime-qualification-sources/v1",
+  "sourceSetId": "node-v24.18.0-linux-x64-official-release",
+  "qualificationRuns": {
+    "firstReceiptObservedAt": "2026-07-13T10:59:54Z",
+    "lastReceiptObservedAt": "2026-07-13T11:00:04Z",
+    "timestampSemantics": "Each receipt timestamp was sampled after that run's retrieval, verification and comparison completed.",
+    "timezone": "UTC"
+  },
+  "scope": {
+    "purpose": "Research-only provenance qualification for exact Node runtime bytes",
+    "officialSourcePolicy": "Only nodejs.org distribution endpoints and repositories in the official github.com/nodejs organization were used.",
+    "archiveRetention": "The release archive was downloaded into mode-0700 ignored private scratch and deleted after every run; it is not retained in Git."
+  },
+  "release": {
+    "version": "v24.18.0",
+    "platform": "linux",
+    "architecture": "x64",
+    "distributionBaseUrl": "https://nodejs.org/dist/v24.18.0",
+    "sourceRepository": "https://github.com/nodejs/node",
+    "tag": "v24.18.0",
+    "annotatedTagObject": "b881107b8f7b03347c32fad94b053b61d0e249ae",
+    "peeledCommit": "20da4aeadabc5b0a01e3fcf520f91df8285c68a2",
+    "tagResolutionCommand": "git ls-remote https://github.com/nodejs/node.git refs/tags/v24.18.0 refs/tags/v24.18.0^{}",
+    "reproducibleBuildClaim": false
+  },
+  "releaseKeys": {
+    "repository": "https://github.com/nodejs/release-keys",
+    "branch": "main",
+    "commit": "b28073028e6d6855cfb53bf7fa0137599c01f967",
+    "commitResolutionCommand": "git ls-remote https://github.com/nodejs/release-keys.git refs/heads/main",
+    "artifacts": [
+      {
+        "role": "official-release-key-verification-guidance",
+        "repositoryPath": "README.md",
+        "url": "https://raw.githubusercontent.com/nodejs/release-keys/b28073028e6d6855cfb53bf7fa0137599c01f967/README.md",
+        "sha256": "a211a86a4e6561c730a0f007952510661e4178040f0f427e7a241e87736b2509",
+        "byteLength": 6069
+      },
+      {
+        "role": "active-release-key-fingerprint-list",
+        "repositoryPath": "keys.list",
+        "url": "https://raw.githubusercontent.com/nodejs/release-keys/b28073028e6d6855cfb53bf7fa0137599c01f967/keys.list",
+        "sha256": "d1ed2bc5c8874fbc826213e751a6dfca45143d026029640f5aced1be1cac4f20",
+        "byteLength": 1189
+      },
+      {
+        "role": "official-active-release-keyring-byte-lock",
+        "repositoryPath": "gpg-only-active-keys/pubring.kbx",
+        "url": "https://raw.githubusercontent.com/nodejs/release-keys/b28073028e6d6855cfb53bf7fa0137599c01f967/gpg-only-active-keys/pubring.kbx",
+        "sha256": "8e6f89521a0694e445f42decd022f48369c634f1b5bcb5975135b69c88629ae8",
+        "byteLength": 24268
+      },
+      {
+        "role": "signature-verification-certificate",
+        "repositoryPath": "keys/C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C.asc",
+        "url": "https://raw.githubusercontent.com/nodejs/release-keys/b28073028e6d6855cfb53bf7fa0137599c01f967/keys/C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C.asc",
+        "sha256": "84b1ca614406f341cb86e72920f5a64687a13ab67ab84038bcf2abba97898a84",
+        "byteLength": 5613
+      }
+    ],
+    "signer": {
+      "primaryFingerprint": "C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C",
+      "signingFingerprint": "C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C",
+      "primaryKeyCreatedAt": "2019-10-28T12:06:37Z",
+      "publicKeyAlgorithm": "RSA",
+      "publicKeyBits": 4096,
+      "activeListOccurrenceCount": 1
+    }
+  },
+  "signedChecksums": {
+    "standalone": {
+      "url": "https://nodejs.org/dist/v24.18.0/SHASUMS256.txt",
+      "sha256": "3927bab574a00ca0560c9583fe19655ba19603a1c5851414e4325d34ac50e469",
+      "byteLength": 2967
+    },
+    "cleartextSigned": {
+      "url": "https://nodejs.org/dist/v24.18.0/SHASUMS256.txt.asc",
+      "sha256": "2f70f136714c94decfcc3a6f47e8550375e934c956fb4df9e5a69fafd1e58fcf",
+      "byteLength": 3849,
+      "packetType": "Text",
+      "hashAlgorithm": "SHA256",
+      "signatureCreatedAt": "2026-06-23T23:07:58Z",
+      "verificationReferenceTime": "2026-06-24T00:00:00Z",
+      "verifiedPayloadSha256": "fc257b57db9b22f9baccacb453db25f030e0cf0b6c9f8b40feed0e62e464cb86",
+      "verifiedPayloadByteLength": 2966,
+      "result": "one-authenticated-signature"
+    },
+    "detachedSignature": {
+      "url": "https://nodejs.org/dist/v24.18.0/SHASUMS256.txt.sig",
+      "sha256": "d771440acfe010e7510a3c01d248525f771daa9cf75dae5784c97ea2b08d9393",
+      "byteLength": 566,
+      "packetType": "Binary",
+      "hashAlgorithm": "SHA256",
+      "signatureCreatedAt": "2026-06-23T23:07:59Z",
+      "verificationReferenceTime": "2026-06-24T00:00:00Z",
+      "result": "one-authenticated-signature"
+    },
+    "normalization": "The verified cleartext payload has no terminal LF; appending exactly one LF produces the standalone SHASUMS256.txt bytes."
+  },
+  "archive": {
+    "name": "node-v24.18.0-linux-x64.tar.xz",
+    "url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-x64.tar.xz",
+    "signedChecksumLine": "55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742  node-v24.18.0-linux-x64.tar.xz",
+    "signedChecksumLineOccurrenceCount": 1,
+    "sha256": "55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742",
+    "byteLength": 31511588,
+    "retainedInRepository": false,
+    "qualifiedMember": {
+      "path": "node-v24.18.0-linux-x64/bin/node",
+      "archiveType": "regular-file",
+      "archiveMode": "0755",
+      "archiveOwnerUid": "1001",
+      "archiveOwnerGid": "1001",
+      "archiveMtime": "2026-06-23T17:48:53Z",
+      "occurrenceCount": 1,
+      "sha256": "41a74efb34cbde5c7632cdac0cf8bd1a14d0b8d73dc1e82755014d9a9ce70f5c",
+      "byteLength": 123655872
+    }
+  },
+  "retrievalProfile": {
+    "transport": "HTTPS",
+    "minimumTls": "TLSv1.2",
+    "redirectsAllowed": false,
+    "contentEncoding": "identity",
+    "ambientCurlConfigDisabled": true
+  },
+  "trustBoundary": {
+    "classification": "research-source-lock-not-admission-authority",
+    "reliesOn": [
+      "host CA and TLS implementation for initial official-source retrieval",
+      "official Node GitHub organization ownership and commit-addressed raw content",
+      "host shell, OpenPGP, hashing, archive and comparison tools recorded by the run receipts"
+    ],
+    "doesNotEstablish": [
+      "reproducible correspondence between the release binary and source tag",
+      "admission of the host verification toolchain",
+      "nonwritable installation by a principal distinct from the modeled runtime principal",
+      "central runtime admission authority"
+    ]
+  }
+}

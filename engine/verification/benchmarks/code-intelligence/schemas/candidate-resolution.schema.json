@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.local/schemas/code-intelligence/candidate-resolution.v3.json",
+  "title": "Frozen code-intelligence candidate resolution",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "candidateId", "resolutionClass", "trustedForQualification", "status", "selector", "resolvedAt", "examinedReleases", "selected", "resolverEvidence", "licenseEvidence", "evidenceManifest", "licenseDisposition"],
+  "properties": {
+    "schemaVersion": {"const": "code-intelligence-candidate-resolution/v3"},
+    "candidateId": {"type": "string", "minLength": 1},
+    "resolutionClass": {"enum": ["synthetic-untrusted", "official-online-verified"]},
+    "trustedForQualification": {"type": "boolean"},
+    "status": {"enum": ["resolved", "blocked"]},
+    "selector": {"const": "latest-stable-at-run"},
+    "resolvedAt": {"type": "string", "format": "date-time"},
+    "resolverVersion": {"type": "string", "minLength": 1},
+    "resolverToolchainSha256": {"$ref": "#/$defs/sha256"},
+    "examinedReleases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["releaseId", "tag", "draft", "prerelease", "accepted", "reason"],
+        "properties": {
+          "releaseId": {"type": "integer"}, "tag": {"type": "string"}, "draft": {"type": "boolean"},
+          "prerelease": {"type": "boolean"}, "accepted": {"type": "boolean"}, "reason": {"type": "string"}
+        }
+      }
+    },
+    "selected": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["version", "tag", "releaseId", "releaseUrl", "tagCommitSha", "sourceArchiveUri", "sourceArchiveSha256", "installedExecutableSha256", "toolSchemaSha256", "components"],
+          "properties": {
+            "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+            "tag": {"type": "string", "pattern": "^v?[0-9]+\\.[0-9]+\\.[0-9]+$"},
+            "releaseId": {"type": "integer"}, "releaseUrl": {"type": "string", "format": "uri"},
+            "tagCommitSha": {"$ref": "#/$defs/sha1"}, "sourceArchiveUri": {"type": "string", "format": "uri"},
+            "sourceArchiveSha256": {"$ref": "#/$defs/sha256"}, "installedExecutableSha256": {"$ref": "#/$defs/sha256"},
+            "toolSchemaSha256": {"$ref": "#/$defs/sha256"},
+            "components": {"type": "array", "items": {"type": "object", "required": ["name", "identity", "sha256"], "properties": {"name": {"type": "string"}, "identity": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"}}, "additionalProperties": false}}
+          }
+        }
+      ]
+    },
+    "rawResolverObjectSha256": {"$ref": "#/$defs/sha256"},
+    "resolverEvidence": {"$ref": "#/$defs/bindingOrNull"},
+    "licenseEvidence": {"$ref": "#/$defs/bindingOrNull"},
+    "evidenceManifest": {"$ref": "#/$defs/manifestBindingOrNull"},
+    "licenseDisposition": {"enum": ["approved-for-benchmark-purpose", "blocked", "pending-independent-review"]},
+    "blockers": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "resolved"}}}, "then": {"properties": {"selected": {"type": "object"}}, "required": ["rawResolverObjectSha256"]}},
+    {"if": {"properties": {"status": {"const": "blocked"}}}, "then": {"properties": {"selected": {"type": "null"}}, "required": ["blockers"]}},
+    {"if": {"properties": {"resolutionClass": {"const": "synthetic-untrusted"}}}, "then": {"properties": {"trustedForQualification": {"const": false}, "status": {"const": "blocked"}, "resolverEvidence": {"type": "null"}, "licenseEvidence": {"type": "null"}, "evidenceManifest": {"type": "null"}}}},
+    {"if": {"properties": {"resolutionClass": {"const": "official-online-verified"}}}, "then": {"required": ["resolverToolchainSha256"], "properties": {"trustedForQualification": {"const": true}, "status": {"const": "resolved"}, "resolverEvidence": {"$ref": "#/$defs/binding"}, "licenseEvidence": {"$ref": "#/$defs/binding"}, "evidenceManifest": {"$ref": "#/$defs/binding"}}}}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "sha1": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "pattern": "^traceability/evidence/research/code-intelligence/sets/"}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "bindingOrNull": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/binding"}]},
+    "manifestBinding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "pattern": "^traceability/evidence/research/code-intelligence/sets/[a-z0-9-]+/manifest\\.json$"}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "manifestBindingOrNull": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/manifestBinding"}]}
+  }
+}
