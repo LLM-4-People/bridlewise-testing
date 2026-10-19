@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you reference the Bridlewise development floor in research, cite this repository."
+title: "Bridlewise development floor: tests, prevention guards, benchmarks, and design records"
+abstract: "The development floor behind Bridlewise, an experimental local-first coding cockpit. Includes the test and verification machinery, benchmarks, decision records, and design essays. Not a production product."
+type: software
+license: AGPL-3.0-only
+repository-code: "https://github.com/LLM-4-People/bridlewise-testing"
+url: "https://github.com/LLM-4-People/bridlewise"
+authors:
+  - name: "Bridlewise contributors"
+version: "0.0.1-preview"
+date-released: "2026-10-19"
+keywords:
+  - coding agents
+  - software testing
+  - prevention guards
+  - agent evaluation
+  - developer tools
