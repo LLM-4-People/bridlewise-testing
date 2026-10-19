@@ -134,9 +134,6 @@ node_modules
 # materialize` writes a recorded file back at its recorded path, and the copy
 # must never be committed. The block below is GENERATED from the tracked
 # evidence manifests (harness sync; never edit it by hand).
-# BEGIN GENERATED: the evidence folders git ignores, one per tracked evidence manifest (harness sync; engine/src/workflow/evidence-store.ts)
-/docs/findings/recovery/evidence/
-# END GENERATED: the evidence folders
 
 # EVERY MOVED-ASIDE SIBLING OF EVERY RULE ABOVE, AS ONE RULE ABOUT THE SHAPE.
 #

@@ -40,7 +40,8 @@
     "preflight": "node bin/bridlewise.mjs preflight",
     "test:public": "node --test tests/public/*.test.mjs",
     "check:secrets": "node scripts/check-secrets.mjs",
-    "verify:public": "npm run typecheck && npm run check:secrets && npm run test:public"
+    "verify:public": "npm run typecheck && npm run check:secrets && npm run test:public",
+    "docs:links": "node scripts/check-docs-links.mjs"
   },
   "dependencies": {
     "nanostores": "^1.4.1",

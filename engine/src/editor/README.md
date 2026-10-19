@@ -28,6 +28,6 @@ The folder lives at `engine/src/editor/`.
 - `monotone-complexity-guard-config.ts` is consumed by `engine/src/editor/monotone-complexity-guard.ts`.
 - `monotone-complexity-guard.ts` is consumed by nothing yet.
 - `syntax-validator.ts` is consumed by `engine/src/editor/edit-feedback.ts`, `engine/src/editor/edit-tools.ts`, `engine/src/editor/transactional-editor.ts`, `engine/src/quality-packs/typescript-pack.ts`.
-- `transactional-editor.ts` is consumed by `engine/scripts/exp/exp444-benchmark.mjs`, `engine/src/editor/edit-tools.ts`, `engine/src/index.ts`, `engine/src/shared/exposure/registrations/editor.ts`.
+- `transactional-editor.ts` is consumed by `engine/src/editor/edit-tools.ts`, `engine/src/index.ts`, `engine/src/shared/exposure/registrations/editor.ts`.
 
 <!-- /consumers:generated -->

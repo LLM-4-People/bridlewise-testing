@@ -1324,7 +1324,7 @@ const ROOT_POLICY_VALUE = {
     binaryRelativePath: "guardian/build/harness-landlock-guardian",
     binarySha256: "28ee831d1359c87d339f36899de33d5de9c246d1294f556430c3b6d1a30fb9c1",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "90ef93fa5cede1fe0980c154910b53a6c77067b96e8d1122a2d4a369fc838cc8",
+    bundleSha256: "3ce0d3696f1f279e8b72fd95f05e5caa786f68173e21486b8f57e446ef91b810",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
@@ -2181,10 +2181,10 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "ab56144fed98236862a7286e21c8b478997790d20d77e2f820bf3c215e003c67",
+    testInventoryHash: "f642780a6b5e89bd5a74c690a495c444a1b841ff469e8f2bbd16c1c6c88c2d21",
     testSurfaceDispositionBinding: {
-      fileSha256: "2c7e6c7d76439b6e9554b437fc712bb682c3b7cd7d1d67b4b0fdf87fd126419d",
-      identityHash: "dacdcd1a91a491d0505bb026da617564190dfbac9e42344968a7a7f7faa561ab",
+      fileSha256: "fdaaa89957aa5011c85c90099a16d3276d30abe40a98f1f3c9d0717afa74a909",
+      identityHash: "829628de3563cbe296af9eb6ca070a3cf167f5e05b748d799fe26904b08f1124",
     },
     testDiscovery: {
       inventoryScope: {
@@ -2334,8 +2334,14 @@ const ROOT_POLICY_VALUE = {
           // 12 E19), 15 -> 16: `live/provider-smoke.test.ts` joined the live
           // suite; the environment-declared provider completion left the
           // hermetic `test/runtime/makora-smoke.test.ts`, whose refusals stay.
-          count: 16,
-          sha256: "9aea26ca84622f3aa32bb029e722c7df81efe6729f55bc38926478cb71a2b48b",
+          // RESTATED BY HAND FOR THE PUBLIC DEVELOPMENT FLOOR (2026-10-19),
+          // 16 -> 8: the public snapshot does not publish the eight historical
+          // OpenCode benchmark Python manifests/tests registered by the private
+          // floor. They were pruned deliberately with `harness sync --prune`;
+          // the remaining non-canonical set is the public tree's actual set.
+          // This pin is deliberately not auto-repaired.
+          count: 8,
+          sha256: "8dcad5535d0b50a0f849d5dcc0e472afc8d8cb2f9d297e4cc749f28fa17f51d0",
         },
       },
       maximumDepth: 32,

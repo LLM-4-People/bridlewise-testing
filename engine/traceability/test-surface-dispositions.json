@@ -4141,72 +4141,6 @@
       "blocksFullRepositoryClaim": true
     },
     {
-      "path": "verification/benchmarks/historical-opencode/production-methodology/v4.7.0/integration_test_manifest.py",
-      "language": "python",
-      "disposition": "pending-external-qualification",
-      "rationale": "Preserved Python test or suite runner; interpreter, dependencies, isolation, parent-captured receipts, and execution remain unqualified and are never invoked implicitly by the Node core.",
-      "evidenceLinks": [],
-      "blocksFullRepositoryClaim": true
-    },
-    {
-      "path": "verification/benchmarks/historical-opencode/read-only-adapter/tests/test_adapter.py",
-      "language": "python",
-      "disposition": "pending-external-qualification",
-      "rationale": "Preserved Python test or suite runner; interpreter, dependencies, isolation, parent-captured receipts, and execution remain unqualified and are never invoked implicitly by the Node core.",
-      "evidenceLinks": [],
-      "blocksFullRepositoryClaim": true
-    },
-    {
-      "path": "verification/benchmarks/historical-opencode/sanitizer/test_v46.py",
-      "language": "python",
-      "disposition": "pending-external-qualification",
-      "rationale": "Preserved Python test or suite runner; interpreter, dependencies, isolation, parent-captured receipts, and execution remain unqualified and are never invoked implicitly by the Node core.",
-      "evidenceLinks": [],
-      "blocksFullRepositoryClaim": true
-    },
-    {
-      "path": "verification/benchmarks/historical-opencode/sanitizer/test_v46_acceptance.py",
-      "language": "python",
-      "disposition": "pending-external-qualification",
-      "rationale": "Preserved Python test or suite runner; interpreter, dependencies, isolation, parent-captured receipts, and execution remain unqualified and are never invoked implicitly by the Node core.",
-      "evidenceLinks": [],
-      "blocksFullRepositoryClaim": true
-    },
-    {
-      "path": "verification/benchmarks/historical-opencode/sanitizer/test_v46_lineage_v467.py",
-      "language": "python",
-      "disposition": "pending-external-qualification",
-      "rationale": "Preserved Python test or suite runner; interpreter, dependencies, isolation, parent-captured receipts, and execution remain unqualified and are never invoked implicitly by the Node core.",
-      "evidenceLinks": [],
-      "blocksFullRepositoryClaim": true
-    },
-    {
-      "path": "verification/benchmarks/historical-opencode/sanitizer/test_v46_properties.py",
-      "language": "python",
-      "disposition": "pending-external-qualification",
-      "rationale": "Preserved Python test or suite runner; interpreter, dependencies, isolation, parent-captured receipts, and execution remain unqualified and are never invoked implicitly by the Node core.",
-      "evidenceLinks": [],
-      "blocksFullRepositoryClaim": true
-    },
-    {
-      "path": "verification/benchmarks/historical-opencode/sanitizer/v46_test_manifest.py",
-      "language": "python",
-      "disposition": "pending-external-qualification",
-      "rationale": "Preserved Python test or suite runner; interpreter, dependencies, isolation, parent-captured receipts, and execution remain unqualified and are never invoked implicitly by the Node core.",
-      "evidenceLinks": [],
-      "blocksFullRepositoryClaim": true
-    },
-    {
-      "path": "verification/benchmarks/historical-opencode/sanitizer/v46_test_support.py",
-      "language": "python",
-      "disposition": "non-test-fixture",
-      "rationale": "Shared Python fixture and helper module imported by external sanitizer tests; it is not an independently collected suite.",
-      "evidenceLinks": [
-        "verification/benchmarks/historical-opencode/sanitizer/v46_test_support.py"
-      ],
-      "blocksFullRepositoryClaim": false
-    },
-    {
       "path": "verification/benchmarks/opencode-history/review/independent-scope-review.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4223,5 +4157,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "dacdcd1a91a491d0505bb026da617564190dfbac9e42344968a7a7f7faa561ab"
+  "integrityHash": "829628de3563cbe296af9eb6ca070a3cf167f5e05b748d799fe26904b08f1124"
 }
