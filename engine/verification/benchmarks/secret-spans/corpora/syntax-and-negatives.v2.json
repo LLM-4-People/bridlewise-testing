@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "bridlewise-secret-span-corpus/v2",
+  "id": "syntax-and-negatives",
+  "purpose": "Assignments and common text carriers plus safe names, calls, placeholders and public values that must not be redacted.",
+  "fixtures": [
+    {
+      "id": "TS-ASSIGN-001",
+      "carrierClass": "assignment",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "export const API_KEY = \"" },
+        { "kind": "secret", "secretId": "provider", "carrier": "plain" },
+        { "kind": "text", "value": "\";\n" }
+      ],
+      "requiredSafeFragments": ["export const API_KEY = \"", "\";\n"]
+    },
+    {
+      "id": "JSON-BEARER-001",
+      "carrierClass": "authorization-header",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "{\"authorization\":\"Bearer " },
+        { "kind": "secret", "secretId": "bearer", "carrier": "plain" },
+        { "kind": "text", "value": "\"}\n" }
+      ],
+      "requiredSafeFragments": ["{\"authorization\":\"Bearer ", "\"}\n"]
+    },
+    {
+      "id": "YAML-PASSWORD-001",
+      "carrierClass": "assignment",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "database_password: \"" },
+        { "kind": "secret", "secretId": "password", "carrier": "plain" },
+        { "kind": "text", "value": "\"\n" }
+      ],
+      "requiredSafeFragments": ["database_password: \"", "\"\n"]
+    },
+    {
+      "id": "ENV-SESSION-001",
+      "carrierClass": "assignment",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "SESSION_TOKEN=" },
+        { "kind": "secret", "secretId": "session", "carrier": "plain" },
+        { "kind": "text", "value": "\n" }
+      ],
+      "requiredSafeFragments": ["SESSION_TOKEN=", "\n"]
+    },
+    {
+      "id": "MARKDOWN-MAKORA-001",
+      "carrierClass": "provider-prefix",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "Example value: `" },
+        { "kind": "secret", "secretId": "makora", "carrier": "plain" },
+        { "kind": "text", "value": "`\n" }
+      ],
+      "requiredSafeFragments": ["Example value: `", "`\n"]
+    },
+    {
+      "id": "AWS-PREFIX-001",
+      "carrierClass": "provider-prefix",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "access key " },
+        { "kind": "secret", "secretId": "aws", "carrier": "plain" },
+        { "kind": "text", "value": " belongs to the synthetic account\n" }
+      ],
+      "requiredSafeFragments": ["access key ", " belongs to the synthetic account\n"]
+    },
+    {
+      "id": "SAFE-CALL-001",
+      "carrierClass": "safe-negative",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "    authorization = load_" },
+        { "kind": "text", "value": "bound_json_object(root, snapshot[\"authorizationReceipt\"])\n" }
+      ],
+      "requiredSafeFragments": ["    authorization = ", "load_bound_json_object", "(root, snapshot[\"authorizationReceipt\"])\n"]
+    },
+    {
+      "id": "SAFE-QUOTED-CALL-NAME-001",
+      "carrierClass": "safe-negative",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "const secret = \"load_" },
+        { "kind": "text", "value": "bound_json_object\";\n" }
+      ],
+      "requiredSafeFragments": ["const secret = \"", "load_bound_json_object", "\";\n"]
+    },
+    {
+      "id": "SAFE-PLACEHOLDER-001",
+      "carrierClass": "safe-negative",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "api_key = \"YOUR_API_" },
+        { "kind": "text", "value": "KEY_HERE\"\n" }
+      ],
+      "requiredSafeFragments": ["api_key = \"", "YOUR_API_KEY_HERE", "\"\n"]
+    },
+    {
+      "id": "SAFE-PUBLIC-DIGEST-001",
+      "carrierClass": "safe-negative",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "artifact_sha256 = 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n" }
+      ],
+      "requiredSafeFragments": ["artifact_sha256 = ", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]
+    },
+    {
+      "id": "SAFE-PUBLIC-KEY-001",
+      "carrierClass": "safe-negative",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "-----BEGIN PUBLIC KEY-----\nMIIBsyntheticpublicmaterialonly\n-----END PUBLIC KEY-----\n" }
+      ],
+      "requiredSafeFragments": ["-----BEGIN PUBLIC KEY-----", "MIIBsyntheticpublicmaterialonly", "-----END PUBLIC KEY-----"]
+    },
+    {
+      "id": "SAFE-IDENTIFIERS-001",
+      "carrierClass": "safe-negative",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "function classifyCredentialReference(secretMetadata, sessionTokenName) { return secretMetadata.kind; }\n" }
+      ],
+      "requiredSafeFragments": ["classifyCredentialReference", "secretMetadata", "sessionTokenName"]
+    }
+  ]
+}

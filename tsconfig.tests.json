@@ -1,0 +1,42 @@
+{
+  "//": [
+    "THE TEST TREE'S TYPE PROGRAM — the guards are code, and until this file existed they",
+    "were the only code in the repository no compiler ever read.",
+    "",
+    "`tsconfig.json` includes 'src/**/*.ts' + 'shared/**/*.ts' and `tsconfig.server.json`",
+    "includes 'server/**/*.ts' and EXCLUDES 'tests'. Measured with the compiler itself",
+    "(`tsc --listFilesOnly`): 661 files in the first program, 663 in the second, and ZERO",
+    "under tests/ in either. So every type-level promise a helper under tests/ makes was",
+    "erased with no diagnostic — a branded scan root, a required floor argument, a narrowed",
+    "return — and the guards enforcing every invariant in the repository were the least",
+    "type-protected code in it.",
+    "",
+    "This file changes WHAT is checked, never HOW: the compiler options are inherited from",
+    "tsconfig.json so the tests are held to exactly the strictness the app is. `tests/**` is",
+    "named as a glob so membership is a fact about the FILESYSTEM, not about the import",
+    "graph — a helper nothing imports yet is checked exactly like one that everything does.",
+    "",
+    "`server/**` is in the file set because ~a third of the guards import the server they",
+    "guard; without it their imports resolve to nothing and every symbol becomes `any`,",
+    "which is the erasure this file exists to end wearing a different hat.",
+    "",
+    "vitest's globals (`describe`/`it`/`expect`/`vi`) are configured in vitest.config.ts",
+    "(`globals: true`), so the ambient declarations must be in `types` or every test file",
+    "is a wall of 'cannot find name' errors that say nothing about the code.",
+    "",
+    "`npm run typecheck` includes this program through `npm run typecheck:tests`, alongside",
+    "include liveness, client, server and Svelte template checks. Keep these compiler",
+    "options strict and the discovered test population complete; a passing subset does",
+    "not certify the complete command. Historical first-run diagnostics remain in the",
+    "dated research and findings records."
+  ],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["node", "vitest/globals"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["tests/**/*.ts", "src/**/*.ts", "server/**/*.ts", "shared/**/*.ts", "scripts/**/*.ts"],
+  "exclude": ["node_modules", "tests/cockpit/e2e", "tests/**/*.spec.ts"]
+}

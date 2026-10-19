@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "bridlewise-slice-declarations/v1",
+  "slices": [
+    {
+      "slice": "S2.3",
+      "outputPath": "traceability/s2.json",
+      "outputSchemaVersion": 1,
+      "name": "offline provider-neutral protocol contracts S2.3",
+      "supersedes": {
+        "commit": "61e4ef2066af7159224770b47014c67cc5089990",
+        "reason": "S1.3 established the preflight-only trust boundary required before offline protocol contracts"
+      },
+      "testSourceId": "test/s2-contracts.test.ts",
+      "applicability": ["REQ-002", "REQ-006", "REQ-013", "REQ-025", "REQ-028", "REQ-029", "REQ-032", "DER-006", "DER-010", "DER-011", "DER-018", "DER-021", "DER-025"],
+      "behaviors": [
+        { "id": "S2-B01", "name": "canonical schemas and harness-only tool boundary", "testName": "S2-B01 canonical schemas and harness tool controls stay separated", "fixtureNamespace": "b01-tool-boundary" },
+        { "id": "S2-B02", "name": "capability negotiation and exact protocol projection goldens", "testName": "S2-B02 capability negotiation reports provider variation and losses", "fixtureNamespace": "b02-capabilities" },
+        { "id": "S2-B03", "name": "Chat Completions streaming state machine", "testName": "S2-B03 Chat Completions chunks preserve ordering, parallel calls, and usage", "fixtureNamespace": "b03-chat-stream" },
+        { "id": "S2-B04", "name": "Responses streaming state machine", "testName": "S2-B04 Responses events preserve lifecycle, reasoning, parallel calls, and usage", "fixtureNamespace": "b04-responses-stream" },
+        { "id": "S2-B05", "name": "MCP tool, result, and strict JSON-RPC projection", "testName": "S2-B05 MCP tools and results retain unknown data only in non-forwarded envelopes", "fixtureNamespace": "b05-mcp" },
+        { "id": "S2-B06", "name": "fail-closed framing, errors, and raw metadata", "testName": "S2-B06 malformed, duplicate, and provider-error streams fail closed without raw forwarding", "fixtureNamespace": "b06-fail-closed" },
+        { "id": "S2-B07", "name": "recursive JSON Schema keyword matrix", "testName": "S2-B07 schema keyword matrix rejects recursively misplaced keywords", "fixtureNamespace": "b07-schema-subset" }
+      ],
+      "acceptance": {
+        "minimumDistinctFixturesPerBehavior": 3,
+        "serializedFixtureFormat": "json-containing-real-wire-shapes",
+        "unknownRawMetadataForwarding": "forbidden",
+        "responsesSequencePolicy": "strictly-increasing-unique-gaps-allowed",
+        "responsesIndexPolicy": "nonnegative-identity-bound-unique-per-scope-gaps-allowed",
+        "gapPolicyEvidence": "official event fields define sequence and index identity but do not require contiguity",
+        "modelMayNotScoreItself": true,
+        "candidateMustBeFrozenBeforeFinalHashAudit": true
+      }
+    },
+    {
+      "slice": "S2.4",
+      "outputPath": "traceability/s2.4.json",
+      "outputSchemaVersion": 1,
+      "name": "canonical requirements registry and traceability enforcement",
+      "supersedes": {
+        "commit": "d39eea91276cd5eb4f54968ded373ea9702ded9f",
+        "reason": "S2.3 established the offline contracts whose requirement links now resolve through one canonical registry"
+      },
+      "testSourceId": "test/s2.4-requirements.test.ts",
+      "applicability": ["REQ-001", "REQ-004", "REQ-005", "REQ-006", "REQ-013", "REQ-016", "REQ-017", "REQ-020", "REQ-025", "REQ-028", "REQ-029", "REQ-032", "REQ-033", "REQ-034", "REQ-035", "DER-010", "DER-011", "DER-018", "DER-021", "DER-022", "DER-023", "DER-024", "DER-025", "DER-026", "DER-027"],
+      "behaviors": [
+        { "id": "S2.4-B01", "name": "exact registry, source, row-set, and generated-schema binding", "testName": "S2.4-B01 registry bytes, source lineage, row hashes, and schema artifact are bound", "scenarioSuffixes": ["CONTROL", "SOURCE-HASH-DRIFT", "ROW-HASH-DRIFT", "HARD-COUNT-DRIFT", "CROSS-EPOCH-PROVENANCE", "DUPLICATE-JSON-KEY"] },
+        { "id": "S2.4-B02", "name": "strict identifier and reference closure", "testName": "S2.4-B02 malformed, duplicate, unknown, and orphan references fail closed", "scenarioSuffixes": ["MALFORMED-ID", "DUPLICATE-ID", "UNKNOWN-REFERENCE", "ORPHAN-NON-UNASSESSED"] },
+        { "id": "S2.4-B03", "name": "false-satisfaction and secret-value rejection with future-unassessed allowance", "testName": "S2.4-B03 false satisfied claims and secret-like values fail while unassessed future requirements remain explicit", "scenarioSuffixes": ["FALSE-SATISFIED-REQUIREMENT", "FALSE-SATISFIED-CONTROL", "SECRET-LIKE-VALUE", "UNASSESSED-FUTURE-CONTROL"] },
+        { "id": "S2.4-B04", "name": "root, offline, preflight, and slice trace registry binding", "testName": "S2.4-B04 root policy, offline identity, preflight receipt, and slice traces bind the registry without enabling effects", "scenarioSuffixes": ["ROOT-REGISTRY-HASH-TAMPER", "OFFLINE-IDENTITY-TAMPER", "PREFLIGHT-RECEIPT-TAMPER", "CAPABILITY-NON-REGRESSION"] },
+        { "id": "S2.4-B05", "name": "dual builder/runtime surface evidence isolation and honest availability", "testName": "S2.4-B05 dual builder/runtime assessments fail closed without cross-surface evidence", "scenarioSuffixes": ["CONTROL", "ONE-SIDED", "HOSTILE-EVIDENCE"] }
+      ],
+      "acceptance": {
+        "minimumDistinctScenariosPerBehavior": 3,
+        "futureRequirementPolicy": "explicitly-unassessed-may-remain-unlinked-to-implementation",
+        "satisfiedClaimPolicy": "implemented-requirements-require-authority-implementation-test-and-evidence-links",
+        "secretPolicy": "literal-secret-like-values-forbidden",
+        "modelMayNotScoreItself": true,
+        "candidateMustBeFrozenBeforeFinalHashAudit": true
+      }
+    },
+    {
+      "slice": "S3.1",
+      "outputPath": "traceability/s3.1.json",
+      "outputSchemaVersion": 1,
+      "name": "pure offline forensic contracts and cryptographic primitives",
+      "supersedes": {
+        "commit": "04b00b27e8c8b46ca98c180400df215151942d14",
+        "reason": "S2.4 established the canonical requirements registry required before forensic evidence contracts could claim trace links."
+      },
+      "testSourceId": "test/s3.1-forensics.test.ts",
+      "applicability": ["REQ-001", "REQ-006", "REQ-010", "REQ-013", "REQ-016", "REQ-020", "REQ-021", "REQ-025", "REQ-028", "REQ-029", "REQ-032", "REQ-033", "REQ-034", "DER-001", "DER-003", "DER-006", "DER-007", "DER-008", "DER-010", "DER-011", "DER-018", "DER-021", "DER-022", "DER-023", "DER-025"],
+      "behaviors": [
+        { "id": "S3.1-B01", "name": "bounded unambiguous RFC 8785 canonical intake", "testName": "S3.1-B01 canonical intake rejects ambiguity, hostile structures, and every bound breach", "scenarioSuffixes": ["DUPLICATE-ROOT-NESTED", "NEGATIVE-ZERO-RAW-PROGRAMMATIC", "UNICODE-NONFINITE", "SIZE-DEPTH-NODES", "SPARSE-CLASS-ACCESSOR-CYCLE", "SEQUENCE-2P53-SIGNED64-BOUNDARIES", "SCHEMA-UNKNOWN", "PROXY-TRAP-ZERO-RECURSIVE", "UTF8-BASE64-CROSS-FIELD", "TOOL-PAYLOAD-ALL-OR-NONE"] },
+        { "id": "S3.1-B02", "name": "exact-byte and structured raw normalization", "testName": "S3.1-B02 normalization preserves exact bytes, duplicate headers, causes, and rejects object smuggling", "scenarioSuffixes": ["BINARY-COPY", "ORDERED-DUPLICATE-HEADERS", "ERROR-CAUSES", "STDERR-TOOL-PAYLOAD", "CLASS-UNKNOWN-CRLF", "PROXY-ACCESSOR-SUBCLASS-NO-READ"] },
+        { "id": "S3.1-B03", "name": "deterministic redacted projection and independent leakage oracle", "testName": "S3.1-B03 projection removes every raw surface and the independent oracle catches bypass variants", "scenarioSuffixes": ["NESTED-RAW-CANARIES", "HEADER-TOOL-ERROR-CANARIES", "BASE64-URL-MIXED-CASE", "NONSTRING-CLASS-BYPASS", "BLIND-INDEX-INTERNAL-KEYED", "BLIND-INDEX-UNISSUED-CLONE", "PROXY-ORACLE-TRAP-ZERO"] },
+        { "id": "S3.1-B04", "name": "AES-256-GCM sealed payload and opaque operation ports", "testName": "S3.1-B04 AEAD authenticates ciphertext, tag, nonce, AAD, event binding, and issued ports", "scenarioSuffixes": ["CIPHERTEXT-TAG-FLIP", "NONCE-AAD-SUBSTITUTION", "WRONG-SECRET", "NONCE-LENGTH-FORGED-PORT", "CIPHERTEXT-REHASHED-AUTH", "AAD-REHASHED-AUTH", "PROXY-ACCESSOR-SUBCLASS-TRAP-ZERO"] },
+        { "id": "S3.1-B05", "name": "domain-separated hash and HMAC ledger verification", "testName": "S3.1-B05 hash and HMAC verification identifies mutation, gaps, reorder, recomputation, and transplant", "scenarioSuffixes": ["ENVELOPE-MUTATION", "GAP-REORDER", "UNKEYED-RECOMPUTATION", "WRONG-HMAC", "LEDGER-SEGMENT-TRANSPLANT", "MAC-LENGTH-FRAME-SPLIT", "MAC-INDEPENDENT-VECTOR", "CAPABILITY-CROSS-PURPOSE", "ANCHOR-EMPTY-CONTINUATION", "MALFORMED-TOCTOU-TYPED-INVALID"] },
+        { "id": "S3.1-B06", "name": "pure persist-before-forward outbox and receipt state", "testName": "S3.1-B06 outbox contracts enforce persist-before-forward, binding, idempotency, and no authority", "scenarioSuffixes": ["FORWARD-BEFORE-COMMIT", "COMMIT-EVIDENCE-CONFLICT", "RECEIPT-BEFORE-FORWARD", "RECEIPT-BINDING-CONFLICT", "IDEMPOTENT-RETRY-CORRELATION-CONFLICT", "PROXY-ACCESSOR-TRAP-ZERO"] },
+        { "id": "S3.1-B07", "name": "offline bundle identity and deny-by-default authority", "testName": "S3.1-B07 schemas, bundle, root policy, and receipts expose no secret-key or runtime authority", "scenarioSuffixes": ["SCHEMA-DIALECT-FREEZE", "NO-KEY-PROPERTIES", "CAPABILITIES-DISABLED", "EFFECTS-UNAVAILABLE", "VERIFIER-PROXY-TRAP-ZERO", "SAFE-STRUCTURAL-IDENTITY"] }
+      ],
+      "acceptance": {
+        "minimumIndependentCausalScenariosPerBehavior": 3,
+        "syntheticCanariesOnly": true,
+        "constantTimeMacAndDigestComparison": true,
+        "rawKeysInSchemasProjectionsReceipts": "forbidden",
+        "hostileBoundaryPolicy": "proxy-accessor-subclass-rejected-before-observation",
+        "proxyTrapInvocationCount": 0,
+        "runtimeFaultMatrixDisposition": "deferred-until-storage-anchor-and-dispatch-authority-exist",
+        "modelMayNotScoreItself": true,
+        "candidateMustBeFrozenBeforeFinalHashAudit": true
+      }
+    }
+  ]
+}

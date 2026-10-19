@@ -1,0 +1,54 @@
+{
+  "protocol": "mcp-2025-11-25",
+  "wire": {
+    "name": "read_file",
+    "description": "Read a project-relative UTF-8 file.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "range": {
+          "type": "object",
+          "properties": {
+            "start": { "type": "integer", "minimum": 1 },
+            "end": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["path"],
+      "additionalProperties": false
+    }
+  },
+  "tool": {
+    "model": {
+      "name": "read_file",
+      "description": "Read a project-relative UTF-8 file.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "range": {
+            "type": "object",
+            "properties": {
+              "start": { "type": "integer", "minimum": 1 },
+              "end": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      }
+    },
+    "control": {
+      "effect": "read",
+      "approval": "on-effect",
+      "pathScope": ["src", "test"],
+      "idempotency": "intrinsic",
+      "retry": "idempotent-only"
+    }
+  }
+}

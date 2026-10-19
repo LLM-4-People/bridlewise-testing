@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "code-intelligence-independent-verifier-host-receipt/v2",
+  "observedAt": "2026-07-12T21:00:00Z",
+  "python": {
+    "version": "3.13.5",
+    "path": "/usr/bin/python3",
+    "realPath": "/usr/bin/python3.13",
+    "executableSha256": "4703a3d15898c0b5d81c3f939e93bdd8ca6116342093fb160ab1e01860dd7d8b"
+  },
+  "node": {
+    "version": "24.18.0",
+    "path": "/home/example/.nvm/versions/node/v24.18.0/bin/node",
+    "realPath": "/home/example/.nvm/versions/node/v24.18.0/bin/node",
+    "executableSha256": "41a74efb34cbde5c7632cdac0cf8bd1a14d0b8d73dc1e82755014d9a9ce70f5c"
+  },
+  "openssl": {
+    "versionPrefix": "OpenSSL 3.5.6",
+    "path": "/usr/bin/openssl",
+    "realPath": "/usr/bin/openssl",
+    "executableSha256": "38633817061f9d161c8b14c1ff72c9f223e8208d977a4c15d843010611a5dded"
+  },
+  "distributions": {
+    "attrs": {
+      "name": "attrs", "version": "26.1.0", "root": "/home/example/.local/lib/python3.13/site-packages",
+      "packageRoots": ["attr", "attrs"], "metadataPath": "attrs-26.1.0.dist-info/METADATA", "recordPath": "attrs-26.1.0.dist-info/RECORD",
+      "fileCount": 36, "totalBytes": 234681, "contentSetSha256": "41db173537ecfc6300cd639b62e895f32256cd56973ebe115e321178889bbd2f",
+      "metadataSha256": "4cd40e690f23bf37cbcad34efd6758e062df1df07c86833f7e3ce95bf1fa38cc", "recordSha256": "d5e36b4e3a4f8f4eef148e133178740d9291a00515eb59ad678ade2474f85d30",
+      "contentScope": "all-recorded-import-package-and-dist-info-files-excluding-bytecode-cache"
+    },
+    "idna": {
+      "name": "idna", "version": "3.17", "root": "/home/example/.local/lib/python3.13/site-packages",
+      "packageRoots": ["idna"], "metadataPath": "idna-3.17.dist-info/METADATA", "recordPath": "idna-3.17.dist-info/RECORD",
+      "fileCount": 17, "totalBytes": 326353, "contentSetSha256": "0d3a7a9808e7c6dcc6b0fdf403d085b9375dfa3ff6911f02fa956018ae2fa3e8",
+      "metadataSha256": "765c20c73cbd88c30d1a79b4d23899f9a7fca52222f8b6c721f4dfd92f746af2", "recordSha256": "2e5e585b25ec8fa69724c8d763e028a291246f81f1eaef3d7956d18561010cf1",
+      "contentScope": "all-recorded-import-package-and-dist-info-files-excluding-bytecode-cache"
+    },
+    "jsonschema": {
+      "name": "jsonschema", "version": "4.26.0", "root": "/home/example/.local/lib/python3.13/site-packages",
+      "packageRoots": ["jsonschema"], "metadataPath": "jsonschema-4.26.0.dist-info/METADATA", "recordPath": "jsonschema-4.26.0.dist-info/RECORD",
+      "fileCount": 44, "totalBytes": 478581, "contentSetSha256": "c1e3c0d9686e73897d67e66708f8f7565decc92465806a267cabae722c2435ab",
+      "metadataSha256": "05b189866ca98a96da3934bf6b83687ced3ff85325273b77e16b705f6d8b26d2", "recordSha256": "2e0755fdbe2e66715955a021488655a4d33e1f40b35c23ebc84ab48ab9b1ab24",
+      "contentScope": "all-recorded-import-package-and-dist-info-files-excluding-bytecode-cache"
+    },
+    "jsonschema-specifications": {
+      "name": "jsonschema-specifications", "version": "2025.9.1", "root": "/home/example/.local/lib/python3.13/site-packages",
+      "packageRoots": ["jsonschema_specifications"], "metadataPath": "jsonschema_specifications-2025.9.1.dist-info/METADATA", "recordPath": "jsonschema_specifications-2025.9.1.dist-info/RECORD",
+      "fileCount": 29, "totalBytes": 47697, "contentSetSha256": "e3656dd2f2ada1204b3d3216b6a092b4ded5b9c14692985b87df3cb8d25c040c",
+      "metadataSha256": "35abd41757f32b4ea24756920ded47b70173d77cbc052a5a6d3ab583b2e8d89d", "recordSha256": "81556fd7fef103bebb3768a52c78676b124e96ecc61e13a5b0511ae02cb13cfd",
+      "contentScope": "all-recorded-import-package-and-dist-info-files-excluding-bytecode-cache"
+    },
+    "referencing": {
+      "name": "referencing", "version": "0.37.0", "root": "/home/example/.local/lib/python3.13/site-packages",
+      "packageRoots": ["referencing"], "metadataPath": "referencing-0.37.0.dist-info/METADATA", "recordPath": "referencing-0.37.0.dist-info/RECORD",
+      "fileCount": 20, "totalBytes": 116229, "contentSetSha256": "2ff0fe6d81e32e263246b78eb4bd9ecd76f57d61dcb095b477b62b8d39e4d12a",
+      "metadataSha256": "c93b00e6ab1524fd60848376604c189a114374776475c25a31d57be47b29de6a", "recordSha256": "1f000e19b89666cefa152e450750f87a2da152fc1f282f0ad85b1e9c67e7fe68",
+      "contentScope": "all-recorded-import-package-and-dist-info-files-excluding-bytecode-cache"
+    },
+    "rpds-py": {
+      "name": "rpds-py", "version": "2026.5.1", "root": "/home/example/.local/lib/python3.13/site-packages",
+      "packageRoots": ["rpds"], "metadataPath": "rpds_py-2026.5.1.dist-info/METADATA", "recordPath": "rpds_py-2026.5.1.dist-info/RECORD",
+      "fileCount": 10, "totalBytes": 1023594, "contentSetSha256": "a0f4f26c2737f0a06aa4e321b413cc525cab7a2a78a6fe40129a523ef00a441d",
+      "metadataSha256": "1bc561b7215de8649cb5ecde1885d9d448b27f5341245844c33b4a0e38313be5", "recordSha256": "8d181bbdff470b27d0a9cd20e942c1e2e9b78a37ca7dd21dada892437e03aae8",
+      "contentScope": "all-recorded-import-package-and-dist-info-files-excluding-bytecode-cache"
+    }
+  },
+  "repositoryContent": {
+    "projectionSha256": "1dad60dc9d171afd09fa32d3f7606bac33e9e3adb66f1e3612c10fd9e60dc464",
+    "sourceCount": 3,
+    "schemaCount": 13,
+    "policyCount": 5
+  },
+  "qualificationEffect": "Host-specific immutable receipt binding exact executable, installed distribution, and governed verifier content identities; never a compatibility or candidate-version policy."
+}

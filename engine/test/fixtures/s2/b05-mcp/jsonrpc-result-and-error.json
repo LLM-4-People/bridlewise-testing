@@ -1,0 +1,11 @@
+{
+  "callId": "call_ambiguous",
+  "expectedResponseId": 45,
+  "wire": {
+    "jsonrpc": "2.0",
+    "id": 45,
+    "result": { "content": [] },
+    "error": { "code": -32603, "message": "Internal error" }
+  },
+  "expectedImportError": "mcp_tool_result_invalid"
+}

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "code-intelligence-independent-verifier-runtime-policy/v1",
+  "scope": "Independent benchmark/oracle verification only; never the production harness bootstrap compiler.",
+  "python": {"implementation": "CPython", "minimum": "3.13", "jsonschemaMajor": 4, "referencingMajor": 0},
+  "node": {"minimum": "24.18.0", "maximumExclusive": "25.0.0", "purpose": "Independent restricted-canonical-subset digest oracle only"},
+  "openssl": {"minimumMajor": 3, "purpose": "Ed25519 review and policy-bundle signature verification"},
+  "canonicalIdentitySubset": {
+    "objectKeys": "printable-ASCII-only",
+    "stringValues": "valid-UTF-8-already-NFC",
+    "numbers": "integers-only-within-plus-or-minus-9007199254740991",
+    "other": ["arrays", "objects", "booleans", "null"],
+    "floats": "forbidden",
+    "normalization": "reject-never-rewrite",
+    "broaderRfc8785": "unavailable-until-an-independent-implementation-is-qualified"
+  },
+  "missingBehavior": "block-with-install-and-verification-instructions; never select a weaker parser, canonicalizer, crypto verifier, or schema validator"
+}

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/schemas/migration-write-authority-qualification-contract/v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "scope", "claims", "connectorAvailability", "repositoryFacts", "protocol", "decisionStatus"],
+  "properties": {
+    "schemaVersion": { "const": "migration-write-authority-qualification-contract/v2" },
+    "status": { "const": "author-preregistered-unadmitted" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidateNeutral", "backendSelectionIncluded", "placementAdmissionIncluded", "readinessDecisionIncluded", "runtimeImplementationIncluded"],
+      "properties": {
+        "candidateNeutral": { "const": true },
+        "backendSelectionIncluded": { "const": false },
+        "placementAdmissionIncluded": { "const": false },
+        "readinessDecisionIncluded": { "const": false },
+        "runtimeImplementationIncluded": { "const": false }
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selection", "placementAdmission", "readiness", "runtimeAvailable", "independentAcceptance", "descriptorHeldIdentityQualified"],
+      "properties": {
+        "selection": { "const": false },
+        "placementAdmission": { "const": false },
+        "readiness": { "const": false },
+        "runtimeAvailable": { "const": false },
+        "independentAcceptance": { "const": false },
+        "descriptorHeldIdentityQualified": { "const": false }
+      }
+    },
+    "connectorAvailability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context7", "deepwiki", "kagi", "scrapling", "fallbackSubstitutionUsed"],
+      "properties": {
+        "context7": { "const": "unavailable" },
+        "deepwiki": { "const": "unavailable" },
+        "kagi": { "const": "unavailable" },
+        "scrapling": { "const": "unavailable" },
+        "fallbackSubstitutionUsed": { "const": false }
+      }
+    },
+    "repositoryFacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identitySemantics", "timeSemantics", "evidenceRuns", "authorValidation", "independentValidation"],
+      "properties": {
+        "identitySemantics": { "const": "lstat-plus-realpath-path-snapshot-only-no-held-descriptor-no-fstat-no-aba-proof" },
+        "timeSemantics": { "const": "process-wall-clock-metadata-unattested-except-by-external-evidence-hash" },
+        "evidenceRuns": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/evidenceRun" }
+        },
+        "authorValidation": { "const": "fresh-producer-and-validator-x3-unadmitted" },
+        "independentValidation": { "const": "required-after-remediation" }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaRelativePath", "fixtureRelativePath", "fixtureGeneratorRelativePath", "qualificationState", "liveGrant", "serializedEvidence", "operationControls", "semanticInvariants"],
+      "properties": {
+        "schemaRelativePath": { "const": "verification/benchmarks/coordination/migration-write-authority/schemas/authority-protocol.schema.json" },
+        "fixtureRelativePath": { "const": "verification/benchmarks/coordination/migration-write-authority/fixtures/authority-protocol-fixtures.v2.json" },
+        "fixtureGeneratorRelativePath": { "const": "verification/benchmarks/coordination/migration-write-authority/build-protocol-fixtures.mjs" },
+        "qualificationState": { "const": "closed-author-design-contract-unimplemented-unadmitted" },
+        "liveGrant": { "const": "process-private-opaque-value-required-out-of-band-and-never-serializable" },
+        "serializedEvidence": { "const": "evidence-only-never-authority" },
+        "operationControls": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "acquire" }, { "const": "reserve" }, { "const": "heartbeat" },
+            { "const": "checkpoint" }, { "const": "fence" }, { "const": "compare-and-commit" },
+            { "const": "release" }, { "const": "inspect" }, { "const": "recover" }
+          ],
+          "items": false,
+          "minItems": 9,
+          "maxItems": 9
+        },
+        "semanticInvariants": {
+          "type": "array",
+          "minItems": 8,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]+$" }
+        }
+      }
+    },
+    "decisionStatus": {
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "prefixItems": [
+        { "$ref": "#/$defs/gap001" }, { "$ref": "#/$defs/gap002" }, { "$ref": "#/$defs/gap003" },
+        { "$ref": "#/$defs/gap004" }, { "$ref": "#/$defs/gap005" }, { "$ref": "#/$defs/gap006" },
+        { "$ref": "#/$defs/gap007" }, { "$ref": "#/$defs/gap008" }, { "$ref": "#/$defs/gap009" },
+        { "$ref": "#/$defs/gap010" }, { "$ref": "#/$defs/gap011" }, { "$ref": "#/$defs/gap012" },
+        { "$ref": "#/$defs/gap013" }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "evidenceRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "reportIdentity"],
+      "properties": {
+        "relativePath": { "type": "string", "pattern": "^traceability/evidence/research/coordination/migration-write-authority/repository-facts/attempts/[0-9a-f-]{36}/repository-facts-run\\.json$" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "reportIdentity": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status"],
+      "properties": {
+        "id": { "type": "string" },
+        "status": { "type": "string", "pattern": "^(?:blocked|partial|author)-[a-z0-9-]+$" }
+      }
+    },
+    "gap001": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-001" } } }] },
+    "gap002": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-002" } } }] },
+    "gap003": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-003" }, "status": { "const": "blocked-no-held-descriptor-fstat-or-aba-proof" } } }] },
+    "gap004": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-004" } } }] },
+    "gap005": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-005" } } }] },
+    "gap006": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-006" } } }] },
+    "gap007": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-007" } } }] },
+    "gap008": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-008" } } }] },
+    "gap009": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-009" } } }] },
+    "gap010": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-010" } } }] },
+    "gap011": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-011" } } }] },
+    "gap012": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-012" } } }] },
+    "gap013": { "allOf": [{ "$ref": "#/$defs/gap" }, { "type": "object", "properties": { "id": { "const": "MWA-GAP-013" } } }] }
+  }
+}

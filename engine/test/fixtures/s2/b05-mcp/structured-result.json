@@ -1,0 +1,24 @@
+{
+  "callId": "call_weather",
+  "expectedResponseId": 2,
+  "wire": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {
+      "content": [
+        { "type": "text", "text": "18 C" }
+      ],
+      "structuredContent": {
+        "temperature": 18,
+        "unit": "celsius"
+      },
+      "isError": false,
+      "_meta": {
+        "cache": "hit"
+      }
+    }
+  },
+  "expectedText": "18 C",
+  "expectedIsError": false,
+  "expectedLosses": 0
+}

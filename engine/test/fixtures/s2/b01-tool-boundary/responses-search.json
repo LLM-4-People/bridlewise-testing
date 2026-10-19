@@ -1,0 +1,53 @@
+{
+  "protocol": "openai-responses",
+  "wire": {
+    "type": "function",
+    "name": "search_project",
+    "description": "Search indexed project text.",
+    "parameters": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "query": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
+  },
+  "tool": {
+    "model": {
+      "name": "search_project",
+      "description": "Search indexed project text.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "matches": {
+            "type": "array",
+            "items": { "type": "string" },
+            "maxItems": 100
+          }
+        },
+        "required": ["matches"],
+        "additionalProperties": false
+      }
+    },
+    "control": {
+      "effect": "read",
+      "approval": "never",
+      "pathScope": ["."],
+      "idempotency": "intrinsic",
+      "retry": "idempotent-only"
+    }
+  }
+}

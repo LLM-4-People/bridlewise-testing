@@ -1,0 +1,74 @@
+{
+  "protocol": "openai-chat-completions",
+  "request": {
+    "requestId": "req-limited",
+    "model": "limited-model",
+    "messages": [{ "role": "user", "content": "call two tools" }],
+    "tools": [{
+      "model": {
+        "name": "calculate",
+        "inputSchema": {
+          "type": "object",
+          "properties": { "expression": { "type": "string" } },
+          "required": ["expression"],
+          "additionalProperties": false
+        }
+      },
+      "control": {
+        "effect": "none",
+        "approval": "never",
+        "pathScope": [],
+        "idempotency": "intrinsic",
+        "retry": "idempotent-only"
+      }
+    }],
+    "toolChoice": "required",
+    "parallelToolCalls": true,
+    "stream": false
+  },
+  "wire": {
+    "transport": {
+      "protocol": "openai-chat-completions",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "framing": "json",
+      "stream": false,
+      "executionAuthorized": false
+    },
+    "body": {
+      "model": "limited-model",
+      "messages": [{ "role": "user", "content": "call two tools" }],
+      "stream": false,
+      "tool_choice": "required",
+      "tools": [{
+        "type": "function",
+        "function": {
+          "name": "calculate",
+          "parameters": {
+            "type": "object",
+            "properties": { "expression": { "type": "string" } },
+            "required": ["expression"],
+            "additionalProperties": false
+          }
+        }
+      }],
+      "parallel_tool_calls": true
+    }
+  },
+  "requirement": {
+    "required": ["text", "tools", "parallel_tool_calls", "tool_choice_required"],
+    "preferred": ["usage"]
+  },
+  "offers": [{
+    "protocol": "openai-chat-completions",
+    "supported": ["text", "tools", "usage"]
+  }],
+  "expected": {
+    "accepted": false,
+    "selectedProtocol": null,
+    "losses": [
+      { "capability": "parallel_tool_calls", "disposition": "required-unsupported", "protocol": "openai-chat-completions" },
+      { "capability": "tool_choice_required", "disposition": "required-unsupported", "protocol": "openai-chat-completions" }
+    ]
+  }
+}

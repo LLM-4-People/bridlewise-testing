@@ -1,0 +1,2 @@
+const moduleLoader = require;
+moduleLoader("./denied.ts");

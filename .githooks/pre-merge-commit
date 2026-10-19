@@ -1,0 +1,10 @@
+#!/bin/sh
+# The merge commit git makes by itself (`git merge` with no conflict) runs no
+# `pre-commit`; git runs this hook instead, and it hands over to the same door
+# as `pre-commit`, so a merge is certified exactly like a commit (--merge-commit
+# lets a refusal name the merge's own route). `cherry-pick`,
+# `revert` and `rebase` run no commit hook at all (git's design): see README.md.
+set -e
+root=$(git rev-parse --show-toplevel)
+exec node --experimental-strip-types \
+  "$root/engine/scripts/commit-guard.ts" "$root" --merge-commit

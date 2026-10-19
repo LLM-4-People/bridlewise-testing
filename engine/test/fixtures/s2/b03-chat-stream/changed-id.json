@@ -1,0 +1,7 @@
+{
+  "frames": [
+    "data: {\"id\":\"chatcmpl-stable\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"A\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"chatcmpl-mutated\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"B\"},\"finish_reason\":null}]}\n\n"
+  ],
+  "expectedError": "chat_identity_changed"
+}

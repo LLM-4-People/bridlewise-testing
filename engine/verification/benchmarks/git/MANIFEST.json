@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "bridlewise-git-qualification-manifest/v1",
+  "manifestSelfExcluded": true,
+  "readinessClaim": false,
+  "documentationRoot": "docs/research/git/qualification",
+  "benchmarkRoot": "verification/benchmarks/git",
+  "governedOutputRoot": "traceability/evidence/research/git",
+  "catalogSha256": "8401b2b4a07dfb7be17c2dbe2ca16a8185122742a56b671bb2c815dd3c3671f3",
+  "sourcesLockSha256": "a7e70598dfa5aff746d745c1585f1bc37c42ff0ad522d161d96afd9e49586f61",
+  "scenarioCount": 47,
+  "minimumRepetitionsPerScenario": 3,
+  "pathCollisionRecovery": {
+    "obsoleteRoot": "verification/benchmarks/git/qualification-suite",
+    "canonicalRoot": "verification/benchmarks/git",
+    "comparison": "parsed JSON equality plus canonical-JSON SHA-256 equality before deletion",
+    "obsoleteRawSha256": {
+      "candidate-exchange.schema.json": "54ef94c0a0b90a53ac61327ef560884adba980dc93bf6abf3c659f6462f9233c",
+      "qualification-receipt.schema.json": "d82a8d046444d4c8915f02a29f93bc062273b430b6d4ce624438154581d0ff36",
+      "scenario-catalog.schema.json": "6340200d2b5bb43c69e2ab6a0c0784a71773bc034daa12a346c744cf6aa7db26"
+    },
+    "canonicalJsonSha256": {
+      "candidate-exchange.schema.json": "ae3b9c62ee41d13a47ccf0f549358a7147bb82cc1d7a1e43f2f32bd9af50b0f3",
+      "qualification-receipt.schema.json": "d410e2cea6d815680fc8ebdc8121749d3b79b92976d250abbe786d61d29bd580",
+      "scenario-catalog.schema.json": "8b86fcb9524a5d27c4c648bcd317a5388b216b1f13b9334fd4662600010a4276"
+    },
+    "obsoleteCopiesRemoved": true
+  },
+  "files": [
+    {"path": "docs/research/git/qualification/README.md", "sha256": "f9054b5c5978127ef51e2995638bd7d127051258d56f875b9c03ce13b7899c17", "role": "entrypoint"},
+    {"path": "docs/research/git/qualification/METHOD.md", "sha256": "8641f1210fbcdfe1a3d99f54cedd7e73e55bbb1405b67ef1c7d3c7e8476107f2", "role": "method"},
+    {"path": "docs/research/git/qualification/CONFIG-ADDITIONS.md", "sha256": "dfdf1343de3096f840f5c0a73ed2f94b8cef22ae826e86b364480c7d079bf19e", "role": "central-config-ownership-proposal"},
+    {"path": "docs/research/git/qualification/LIMITATIONS.md", "sha256": "bd9e8ce8abed1b3ec939646345ed06ed7b5f5d533ae6ff0ca85bb82d903eb23d", "role": "blockers"},
+    {"path": "docs/research/git/qualification/sources.lock.json", "sha256": "a7e70598dfa5aff746d745c1585f1bc37c42ff0ad522d161d96afd9e49586f61", "role": "source-lock"},
+    {"path": "verification/benchmarks/git/qualification.py", "sha256": "ffd1554a0a95951512991b7b34d8df85d762d82d5db39afb52296cbce7be3430", "role": "fixture-generator-and-oracle"},
+    {"path": "verification/benchmarks/git/fault_transport.py", "sha256": "22346a118033f8e36cf68e4f9185b95fa347f53272a5538034d1e5f5de17a8b9", "role": "local-fault-transport"},
+    {"path": "verification/benchmarks/git/scenario-catalog.json", "sha256": "8401b2b4a07dfb7be17c2dbe2ca16a8185122742a56b671bb2c815dd3c3671f3", "role": "scenario-catalog"},
+    {"path": "verification/benchmarks/git/schemas/candidate-exchange.schema.json", "sha256": "ea6e103b3bd107dfbfc71c11eb53b11e885f415167cb369d8e1a7dd1d0973718", "role": "schema"},
+    {"path": "verification/benchmarks/git/schemas/qualification-receipt.schema.json", "sha256": "5f5680fd646462adceabc933e144fbda6923e0fe2623d0f8a630354bc76563bb", "role": "schema"},
+    {"path": "verification/benchmarks/git/schemas/scenario-catalog.schema.json", "sha256": "12ae5c8cbc729f173f4535e4184fdd71e1acdb22b160b76bf0818697b4599694", "role": "schema"},
+    {"path": "verification/benchmarks/git/tests/test_qualification.py", "sha256": "be99b25c1455cb26c377e8b5b6e17676fd4a4519257894a155b39e29d6123cf5", "role": "tests"}
+  ]
+}

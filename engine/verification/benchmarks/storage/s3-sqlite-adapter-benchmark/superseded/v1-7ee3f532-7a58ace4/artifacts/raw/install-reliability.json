@@ -1,0 +1,86 @@
+{
+  "format": "s3-sqlite-install-reliability-v1",
+  "nodeVersion": "v24.18.0",
+  "npmVersion": "11.16.0",
+  "registry": {
+    "version": "12.11.1",
+    "dist.integrity": "sha512-dq9AtApgg5PGFtBzPFSBl3HZQjHok5gaQCM6zh2Yk0aSmDCs1CbnVI8/HgASQkNKsWFpseIO9beg5xxpYhbIfA==",
+    "dist.shasum": "067846efabf7671957fc8a9e8df3be39c6cc0b84",
+    "dist.tarball": "https://registry.npmjs.org/better-sqlite3/-/better-sqlite3-12.11.1.tgz",
+    "engines": {
+      "node": "20.x || 22.x || 23.x || 24.x || 25.x || 26.x"
+    }
+  },
+  "distTags": {
+    "latest": "12.11.1"
+  },
+  "lockIntegrity": "sha512-dq9AtApgg5PGFtBzPFSBl3HZQjHok5gaQCM6zh2Yk0aSmDCs1CbnVI8/HgASQkNKsWFpseIO9beg5xxpYhbIfA==",
+  "installs": [
+    {
+      "repetition": 1,
+      "durationMs": 418.974615,
+      "exitStatus": 0,
+      "stdout": [
+        "added 38 packages in 371ms"
+      ],
+      "stderr": [
+        "npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.",
+        "npm warn allow-scripts 1 package has install scripts not yet covered by allowScripts:",
+        "npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install || node-gyp rebuild --release)",
+        "npm warn allow-scripts",
+        "npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow."
+      ],
+      "runtimeSmoke": {
+        "sqliteVersion": "3.53.2",
+        "sqliteSourceId": "2026-06-03 19:12:13 d6e03d8c777cfa2d35e3b60d8ec3e0187f3e9f99d8e2ee9cac695fd6fcdf1a24"
+      }
+    },
+    {
+      "repetition": 2,
+      "durationMs": 375.881443,
+      "exitStatus": 0,
+      "stdout": [
+        "added 38 packages in 335ms"
+      ],
+      "stderr": [
+        "npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.",
+        "npm warn allow-scripts 1 package has install scripts not yet covered by allowScripts:",
+        "npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install || node-gyp rebuild --release)",
+        "npm warn allow-scripts",
+        "npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow."
+      ],
+      "runtimeSmoke": {
+        "sqliteVersion": "3.53.2",
+        "sqliteSourceId": "2026-06-03 19:12:13 d6e03d8c777cfa2d35e3b60d8ec3e0187f3e9f99d8e2ee9cac695fd6fcdf1a24"
+      }
+    },
+    {
+      "repetition": 3,
+      "durationMs": 383.548846,
+      "exitStatus": 0,
+      "stdout": [
+        "added 38 packages in 343ms"
+      ],
+      "stderr": [
+        "npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.",
+        "npm warn allow-scripts 1 package has install scripts not yet covered by allowScripts:",
+        "npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install || node-gyp rebuild --release)",
+        "npm warn allow-scripts",
+        "npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow."
+      ],
+      "runtimeSmoke": {
+        "sqliteVersion": "3.53.2",
+        "sqliteSourceId": "2026-06-03 19:12:13 d6e03d8c777cfa2d35e3b60d8ec3e0187f3e9f99d8e2ee9cac695fd6fcdf1a24"
+      }
+    }
+  ],
+  "tarballIdentity": {
+    "bytes": 2660617,
+    "sha256": "ebf0ed75a7a59dbcb3b24bbd014ef49d9f15bc328e4adcbf516f2a8fadfa2835",
+    "sha512Base64": "dq9AtApgg5PGFtBzPFSBl3HZQjHok5gaQCM6zh2Yk0aSmDCs1CbnVI8/HgASQkNKsWFpseIO9beg5xxpYhbIfA==",
+    "registrySri": "sha512-dq9AtApgg5PGFtBzPFSBl3HZQjHok5gaQCM6zh2Yk0aSmDCs1CbnVI8/HgASQkNKsWFpseIO9beg5xxpYhbIfA==",
+    "sriMatches": true,
+    "npmPackIntegrity": "sha512-dq9AtApgg5PGFtBzPFSBl3HZQjHok5gaQCM6zh2Yk0aSmDCs1CbnVI8/HgASQkNKsWFpseIO9beg5xxpYhbIfA==",
+    "npmPackShasum": "067846efabf7671957fc8a9e8df3be39c6cc0b84"
+  }
+}

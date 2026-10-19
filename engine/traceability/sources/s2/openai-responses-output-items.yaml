@@ -1,0 +1,94 @@
+    ResponseOutputItemAddedEvent:
+      type: object
+      description: Emitted when a new output item is added.
+      properties:
+        type:
+          type: string
+          description: |
+            The type of the event. Always `response.output_item.added`.
+          enum:
+            - response.output_item.added
+          x-stainless-const: true
+        output_index:
+          type: integer
+          description: |
+            The index of the output item that was added.
+        sequence_number:
+          type: integer
+          description: |
+            The sequence number of this event.
+        item:
+          $ref: '#/components/schemas/OutputItem'
+          description: |
+            The output item that was added.
+      required:
+        - type
+        - output_index
+        - item
+        - sequence_number
+      x-oaiMeta:
+        name: response.output_item.added
+        group: responses
+        example: |
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "id": "msg_123",
+              "status": "in_progress",
+              "type": "message",
+              "role": "assistant",
+              "content": []
+            },
+            "sequence_number": 1
+          }
+    ResponseOutputItemDoneEvent:
+      type: object
+      description: Emitted when an output item is marked done.
+      properties:
+        type:
+          type: string
+          description: |
+            The type of the event. Always `response.output_item.done`.
+          enum:
+            - response.output_item.done
+          x-stainless-const: true
+        output_index:
+          type: integer
+          description: |
+            The index of the output item that was marked done.
+        sequence_number:
+          type: integer
+          description: |
+            The sequence number of this event.
+        item:
+          $ref: '#/components/schemas/OutputItem'
+          description: |
+            The output item that was marked done.
+      required:
+        - type
+        - output_index
+        - item
+        - sequence_number
+      x-oaiMeta:
+        name: response.output_item.done
+        group: responses
+        example: |
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "id": "msg_123",
+              "status": "completed",
+              "type": "message",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "In a shimmering forest under a sky full of stars, a lonely unicorn named Lila discovered a hidden pond that glowed with moonlight. Every night, she would leave sparkling, magical flowers by the water's edge, hoping to share her beauty with others. One enchanting evening, she woke to find a group of friendly animals gathered around, eager to be friends and share in her magic.",
+                  "annotations": []
+                }
+              ]
+            },
+            "sequence_number": 1
+          }

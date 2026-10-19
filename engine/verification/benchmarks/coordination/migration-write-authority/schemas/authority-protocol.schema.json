@@ -1,0 +1,418 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/schemas/migration-authority-message/v2",
+  "title": "Candidate-neutral migration authority protocol facts",
+  "oneOf": [
+    { "$ref": "#/$defs/acquireRequest" },
+    { "$ref": "#/$defs/reserveRequest" },
+    { "$ref": "#/$defs/heartbeatRequest" },
+    { "$ref": "#/$defs/checkpointRequest" },
+    { "$ref": "#/$defs/fenceRequest" },
+    { "$ref": "#/$defs/compareAndCommitRequest" },
+    { "$ref": "#/$defs/releaseRequest" },
+    { "$ref": "#/$defs/inspectRequest" },
+    { "$ref": "#/$defs/recoverRequest" },
+    { "$ref": "#/$defs/acceptedResult" },
+    { "$ref": "#/$defs/deniedResult" },
+    { "$ref": "#/$defs/journalEntry" }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "stableId": { "type": "string", "pattern": "^[a-z][a-z0-9._/-]{0,127}$" },
+    "positiveIntegerString": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "objectId": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "repositoryBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryIdentity", "commonDirectoryIdentity", "objectStoreIdentity", "objectFormat"],
+      "properties": {
+        "repositoryIdentity": { "$ref": "#/$defs/sha256" },
+        "commonDirectoryIdentity": { "$ref": "#/$defs/sha256" },
+        "objectStoreIdentity": { "$ref": "#/$defs/sha256" },
+        "objectFormat": { "enum": ["sha1", "sha256"] }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actorId", "taskId", "subtaskId", "attemptId", "processIdentity"],
+      "properties": {
+        "actorId": { "$ref": "#/$defs/stableId" },
+        "taskId": { "$ref": "#/$defs/stableId" },
+        "subtaskId": { "$ref": "#/$defs/stableId" },
+        "attemptId": { "$ref": "#/$defs/uuid" },
+        "processIdentity": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "baseIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "tree", "index", "candidate", "configuration", "policy", "capabilities"],
+      "properties": {
+        "commit": { "oneOf": [{ "$ref": "#/$defs/objectId" }, { "type": "null" }] },
+        "tree": { "oneOf": [{ "$ref": "#/$defs/objectId" }, { "type": "null" }] },
+        "index": { "$ref": "#/$defs/sha256" },
+        "candidate": { "$ref": "#/$defs/sha256" },
+        "configuration": { "$ref": "#/$defs/sha256" },
+        "policy": { "$ref": "#/$defs/sha256" },
+        "capabilities": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "physicalIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device", "inode", "mode", "ownerUid", "ownerGid", "links", "kind"],
+      "properties": {
+        "device": { "$ref": "#/$defs/positiveIntegerString" },
+        "inode": { "$ref": "#/$defs/positiveIntegerString" },
+        "mode": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "ownerUid": { "type": "string", "pattern": "^[0-9]+$" },
+        "ownerGid": { "type": "string", "pattern": "^[0-9]+$" },
+        "links": { "$ref": "#/$defs/positiveIntegerString" },
+        "kind": { "enum": ["file", "directory"] }
+      }
+    },
+    "typedAbsence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "parentIdentity", "entryName"],
+      "properties": {
+        "kind": { "const": "absent" },
+        "parentIdentity": { "$ref": "#/$defs/physicalIdentity" },
+        "entryName": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^/\\u0000]+$" }
+      }
+    },
+    "targetState": {
+      "oneOf": [
+        { "$ref": "#/$defs/typedAbsence" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "identity", "byteLength", "sha256"],
+          "properties": {
+            "kind": { "const": "file" },
+            "identity": { "$ref": "#/$defs/physicalIdentity" },
+            "byteLength": { "type": "integer", "minimum": 0 },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "identity", "entrySetIdentity"],
+          "properties": {
+            "kind": { "const": "directory" },
+            "identity": { "$ref": "#/$defs/physicalIdentity" },
+            "entrySetIdentity": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      ]
+    },
+    "resourceCommon": {
+      "type": "object",
+      "required": ["resourceId", "access", "resolution", "registryIdentity", "normalizerIdentity", "aliasClosure"],
+      "properties": {
+        "resourceId": { "$ref": "#/$defs/stableId" },
+        "access": { "enum": ["read", "write"] },
+        "resolution": { "const": "resolved" },
+        "registryIdentity": { "$ref": "#/$defs/sha256" },
+        "normalizerIdentity": { "$ref": "#/$defs/sha256" },
+        "aliasClosure": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
+      }
+    },
+    "physicalPathResource": {
+      "allOf": [
+        { "$ref": "#/$defs/resourceCommon" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "resourceId", "access", "resolution", "registryIdentity", "normalizerIdentity", "aliasClosure", "path", "portableCollisionKey", "observedState"],
+          "properties": {
+            "kind": { "const": "physical-path" },
+            "resourceId": true,
+            "access": true,
+            "resolution": true,
+            "registryIdentity": true,
+            "normalizerIdentity": true,
+            "aliasClosure": true,
+            "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$" },
+            "portableCollisionKey": { "type": "string", "minLength": 1 },
+            "observedState": { "$ref": "#/$defs/targetState" }
+          }
+        }
+      ]
+    },
+    "semanticOwnerResource": {
+      "allOf": [
+        { "$ref": "#/$defs/resourceCommon" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "resourceId", "access", "resolution", "registryIdentity", "normalizerIdentity", "aliasClosure", "ownerKind", "ownerId", "ancestorOwnerIds"],
+          "properties": {
+            "kind": { "const": "semantic-owner" },
+            "resourceId": true,
+            "access": true,
+            "resolution": true,
+            "registryIdentity": true,
+            "normalizerIdentity": true,
+            "aliasClosure": true,
+            "ownerKind": { "enum": ["module", "bounded-context", "public-symbol", "private-state", "port", "policy", "config", "event", "traceability"] },
+            "ownerId": { "$ref": "#/$defs/stableId" },
+            "ancestorOwnerIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } }
+          }
+        }
+      ]
+    },
+    "generatedOutputResource": {
+      "allOf": [
+        { "$ref": "#/$defs/resourceCommon" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "resourceId", "access", "resolution", "registryIdentity", "normalizerIdentity", "aliasClosure", "generatorId", "outputPath", "authorityKey"],
+          "properties": {
+            "kind": { "const": "generated-output" },
+            "resourceId": true,
+            "access": true,
+            "resolution": true,
+            "registryIdentity": true,
+            "normalizerIdentity": true,
+            "aliasClosure": true,
+            "generatorId": { "$ref": "#/$defs/stableId" },
+            "outputPath": { "type": "string", "minLength": 1 },
+            "authorityKey": { "$ref": "#/$defs/stableId" }
+          }
+        }
+      ]
+    },
+    "gitRefResource": {
+      "allOf": [
+        { "$ref": "#/$defs/resourceCommon" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "resourceId", "access", "resolution", "registryIdentity", "normalizerIdentity", "aliasClosure", "refName", "refFamilyId", "expectedOld", "intendedObjectKind"],
+          "properties": {
+            "kind": { "const": "git-ref" },
+            "resourceId": true,
+            "access": true,
+            "resolution": true,
+            "registryIdentity": true,
+            "normalizerIdentity": true,
+            "aliasClosure": true,
+            "refName": { "type": "string", "pattern": "^refs/(?:heads|tags|bridlewise)/[A-Za-z0-9._/-]+$" },
+            "refFamilyId": { "$ref": "#/$defs/stableId" },
+            "expectedOld": { "oneOf": [{ "$ref": "#/$defs/objectId" }, { "type": "null" }] },
+            "intendedObjectKind": { "enum": ["commit", "tag"] }
+          }
+        }
+      ]
+    },
+    "packageSurfaceResource": {
+      "allOf": [
+        { "$ref": "#/$defs/resourceCommon" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "resourceId", "access", "resolution", "registryIdentity", "normalizerIdentity", "aliasClosure", "surfaceKind", "surfaceId"],
+          "properties": {
+            "kind": { "const": "package-surface" },
+            "resourceId": true,
+            "access": true,
+            "resolution": true,
+            "registryIdentity": true,
+            "normalizerIdentity": true,
+            "aliasClosure": true,
+            "surfaceKind": { "enum": ["export", "script", "compiler", "dependency", "executable-registry"] },
+            "surfaceId": { "$ref": "#/$defs/stableId" }
+          }
+        }
+      ]
+    },
+    "resource": {
+      "oneOf": [
+        { "$ref": "#/$defs/physicalPathResource" },
+        { "$ref": "#/$defs/semanticOwnerResource" },
+        { "$ref": "#/$defs/generatedOutputResource" },
+        { "$ref": "#/$defs/gitRefResource" },
+        { "$ref": "#/$defs/packageSurfaceResource" }
+      ]
+    },
+    "requestCommon": {
+      "type": "object",
+      "required": ["schemaVersion", "messageKind", "operation", "requestId", "idempotencyKey", "repository"],
+      "properties": {
+        "schemaVersion": { "const": "migration-authority-message/v2" },
+        "messageKind": { "const": "request" },
+        "operation": { "enum": ["acquire", "reserve", "heartbeat", "checkpoint", "fence", "compare-and-commit", "release", "inspect", "recover"] },
+        "requestId": { "$ref": "#/$defs/uuid" },
+        "idempotencyKey": { "$ref": "#/$defs/sha256" },
+        "repository": { "$ref": "#/$defs/repositoryBinding" }
+      }
+    },
+    "leaseEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leaseId", "generation", "fenceIdentity", "state", "receiptAuthority"],
+      "properties": {
+        "leaseId": { "$ref": "#/$defs/uuid" },
+        "generation": { "$ref": "#/$defs/positiveIntegerString" },
+        "fenceIdentity": { "$ref": "#/$defs/sha256" },
+        "state": { "enum": ["active", "quiescing", "reconciling", "released", "expired", "fenced", "blocked-unknown-effect"] },
+        "receiptAuthority": { "const": "evidence-only-never-authority" }
+      }
+    },
+    "acquireRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestCommon" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "messageKind", "operation", "requestId", "idempotencyKey", "repository", "actor", "planIdentity", "base", "resourceRegistryIdentity", "requestedTtlMs", "resources"],
+          "properties": {
+            "schemaVersion": true,
+            "messageKind": true,
+            "operation": { "const": "acquire" },
+            "requestId": true,
+            "idempotencyKey": true,
+            "repository": true,
+            "actor": { "$ref": "#/$defs/actor" },
+            "planIdentity": { "$ref": "#/$defs/sha256" },
+            "base": { "$ref": "#/$defs/baseIdentity" },
+            "resourceRegistryIdentity": { "$ref": "#/$defs/sha256" },
+            "requestedTtlMs": { "type": "integer", "minimum": 1 },
+            "resources": { "type": "array", "minItems": 1, "maxItems": 4096, "items": { "$ref": "#/$defs/resource" } }
+          }
+        }
+      ]
+    },
+    "authorizedRequestCommon": {
+      "allOf": [
+        { "$ref": "#/$defs/requestCommon" },
+        {
+          "type": "object",
+          "required": ["authorityContext", "leaseEvidence"],
+          "properties": {
+            "authorityContext": { "const": "process-private-live-grant-required-out-of-band" },
+            "leaseEvidence": { "$ref": "#/$defs/leaseEvidence" }
+          }
+        }
+      ]
+    },
+    "reserveRequest": {
+      "allOf": [{ "$ref": "#/$defs/authorizedRequestCommon" }, {
+        "type": "object", "additionalProperties": false,
+        "required": ["schemaVersion", "messageKind", "operation", "requestId", "idempotencyKey", "repository", "authorityContext", "leaseEvidence", "completeResourceUnion"],
+        "properties": { "schemaVersion": true, "messageKind": true, "operation": { "const": "reserve" }, "requestId": true, "idempotencyKey": true, "repository": true, "authorityContext": true, "leaseEvidence": true, "completeResourceUnion": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/resource" } } }
+      }]
+    },
+    "heartbeatRequest": {
+      "allOf": [{ "$ref": "#/$defs/authorizedRequestCommon" }, {
+        "type": "object", "additionalProperties": false,
+        "required": ["schemaVersion", "messageKind", "operation", "requestId", "idempotencyKey", "repository", "authorityContext", "leaseEvidence", "requestedTtlMs", "clockObservationIdentity"],
+        "properties": { "schemaVersion": true, "messageKind": true, "operation": { "const": "heartbeat" }, "requestId": true, "idempotencyKey": true, "repository": true, "authorityContext": true, "leaseEvidence": true, "requestedTtlMs": { "type": "integer", "minimum": 1 }, "clockObservationIdentity": { "$ref": "#/$defs/sha256" } }
+      }]
+    },
+    "checkpointRequest": {
+      "allOf": [{ "$ref": "#/$defs/authorizedRequestCommon" }, {
+        "type": "object", "additionalProperties": false,
+        "required": ["schemaVersion", "messageKind", "operation", "requestId", "idempotencyKey", "repository", "authorityContext", "leaseEvidence", "completedEffectIdentities", "remainingWriteResourceIds", "nextSafeAction", "journalCursor"],
+        "properties": { "schemaVersion": true, "messageKind": true, "operation": { "const": "checkpoint" }, "requestId": true, "idempotencyKey": true, "repository": true, "authorityContext": true, "leaseEvidence": true, "completedEffectIdentities": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/sha256" } }, "remainingWriteResourceIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } }, "nextSafeAction": { "enum": ["none", "revalidate", "fence-next-effect", "reconcile-external-state", "release"] }, "journalCursor": { "$ref": "#/$defs/sha256" } }
+      }]
+    },
+    "fenceRequest": {
+      "allOf": [{ "$ref": "#/$defs/authorizedRequestCommon" }, {
+        "type": "object", "additionalProperties": false,
+        "required": ["schemaVersion", "messageKind", "operation", "requestId", "idempotencyKey", "repository", "authorityContext", "leaseEvidence", "effectId", "effectKind", "resourceId", "expectedState", "intendedState", "base", "journalCursor"],
+        "properties": { "schemaVersion": true, "messageKind": true, "operation": { "const": "fence" }, "requestId": true, "idempotencyKey": true, "repository": true, "authorityContext": true, "leaseEvidence": true, "effectId": { "$ref": "#/$defs/uuid" }, "effectKind": { "enum": ["filesystem-create", "filesystem-replace", "filesystem-remove", "git-object-create", "git-ref-transaction", "immutable-event-append"] }, "resourceId": { "$ref": "#/$defs/stableId" }, "expectedState": { "$ref": "#/$defs/targetState" }, "intendedState": { "$ref": "#/$defs/targetState" }, "base": { "$ref": "#/$defs/baseIdentity" }, "journalCursor": { "$ref": "#/$defs/sha256" } }
+      }]
+    },
+    "compareAndCommitRequest": {
+      "allOf": [{ "$ref": "#/$defs/authorizedRequestCommon" }, {
+        "type": "object", "additionalProperties": false,
+        "required": ["schemaVersion", "messageKind", "operation", "requestId", "idempotencyKey", "repository", "authorityContext", "leaseEvidence", "effectId", "fenceIdentity", "resourceId", "base", "expectedState", "intendedState", "observedState", "effectResultIdentity", "journalCursor"],
+        "properties": { "schemaVersion": true, "messageKind": true, "operation": { "const": "compare-and-commit" }, "requestId": true, "idempotencyKey": true, "repository": true, "authorityContext": true, "leaseEvidence": true, "effectId": { "$ref": "#/$defs/uuid" }, "fenceIdentity": { "$ref": "#/$defs/sha256" }, "resourceId": { "$ref": "#/$defs/stableId" }, "base": { "$ref": "#/$defs/baseIdentity" }, "expectedState": { "$ref": "#/$defs/targetState" }, "intendedState": { "$ref": "#/$defs/targetState" }, "observedState": { "$ref": "#/$defs/targetState" }, "effectResultIdentity": { "$ref": "#/$defs/sha256" }, "journalCursor": { "$ref": "#/$defs/sha256" } }
+      }]
+    },
+    "releaseRequest": {
+      "allOf": [{ "$ref": "#/$defs/authorizedRequestCommon" }, {
+        "type": "object", "additionalProperties": false,
+        "required": ["schemaVersion", "messageKind", "operation", "requestId", "idempotencyKey", "repository", "authorityContext", "leaseEvidence", "disposition", "journalCursor"],
+        "properties": { "schemaVersion": true, "messageKind": true, "operation": { "const": "release" }, "requestId": true, "idempotencyKey": true, "repository": true, "authorityContext": true, "leaseEvidence": true, "disposition": { "enum": ["completed", "cancelled", "superseded", "failed-known-no-effect", "blocked-unknown-effect"] }, "journalCursor": { "$ref": "#/$defs/sha256" } }
+      }]
+    },
+    "inspectRequest": {
+      "allOf": [{ "$ref": "#/$defs/requestCommon" }, {
+        "type": "object", "additionalProperties": false,
+        "required": ["schemaVersion", "messageKind", "operation", "requestId", "idempotencyKey", "repository", "leaseId"],
+        "properties": { "schemaVersion": true, "messageKind": true, "operation": { "const": "inspect" }, "requestId": true, "idempotencyKey": true, "repository": true, "leaseId": { "$ref": "#/$defs/uuid" } }
+      }]
+    },
+    "recoverRequest": {
+      "allOf": [{ "$ref": "#/$defs/authorizedRequestCommon" }, {
+        "type": "object", "additionalProperties": false,
+        "required": ["schemaVersion", "messageKind", "operation", "requestId", "idempotencyKey", "repository", "authorityContext", "leaseEvidence", "journalIdentity", "observationIdentity", "directionPreference", "recoveryFence"],
+        "properties": { "schemaVersion": true, "messageKind": true, "operation": { "const": "recover" }, "requestId": true, "idempotencyKey": true, "repository": true, "authorityContext": true, "leaseEvidence": true, "journalIdentity": { "$ref": "#/$defs/sha256" }, "observationIdentity": { "$ref": "#/$defs/sha256" }, "directionPreference": { "enum": ["previous", "next"] }, "recoveryFence": { "type": "object", "additionalProperties": false, "required": ["generation", "fenceIdentity", "supersedesGeneration", "supersedesFenceIdentity"], "properties": { "generation": { "$ref": "#/$defs/positiveIntegerString" }, "fenceIdentity": { "$ref": "#/$defs/sha256" }, "supersedesGeneration": { "$ref": "#/$defs/positiveIntegerString" }, "supersedesFenceIdentity": { "$ref": "#/$defs/sha256" } } } }
+      }]
+    },
+    "acceptedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "messageKind", "requestId", "operation", "outcome", "state", "leaseEvidence", "journalCursor", "receiptAuthority"],
+      "properties": {
+        "schemaVersion": { "const": "migration-authority-message/v2" },
+        "messageKind": { "const": "result" },
+        "requestId": { "$ref": "#/$defs/uuid" },
+        "operation": { "enum": ["acquire", "reserve", "heartbeat", "checkpoint", "fence", "compare-and-commit", "release", "inspect", "recover"] },
+        "outcome": { "const": "accepted" },
+        "state": { "enum": ["active", "quiescing", "reconciling", "released", "expired", "fenced", "blocked-unknown-effect"] },
+        "leaseEvidence": { "oneOf": [{ "$ref": "#/$defs/leaseEvidence" }, { "type": "null" }] },
+        "journalCursor": { "$ref": "#/$defs/sha256" },
+        "receiptAuthority": { "const": "evidence-only-not-a-bearer-capability" }
+      }
+    },
+    "deniedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "messageKind", "requestId", "operation", "outcome", "error", "partialReservationRetained", "receiptAuthority"],
+      "properties": {
+        "schemaVersion": { "const": "migration-authority-message/v2" },
+        "messageKind": { "const": "result" },
+        "requestId": { "$ref": "#/$defs/uuid" },
+        "operation": { "enum": ["acquire", "reserve", "heartbeat", "checkpoint", "fence", "compare-and-commit", "release", "inspect", "recover"] },
+        "outcome": { "const": "denied" },
+        "error": { "enum": ["repository-mismatch", "base-drift", "configuration-drift", "policy-drift", "capability-drift", "resource-unresolved", "resource-conflict", "resource-order-invalid", "lease-missing", "lease-expired", "lease-state-invalid", "generation-stale", "grant-invalid", "idempotency-conflict", "backend-busy", "backend-corrupt", "schema-unsupported", "clock-regression", "process-identity-ambiguous", "journal-mismatch", "cas-mismatch", "effect-unknown", "filesystem-unsupported", "operation-unsupported"] },
+        "partialReservationRetained": { "const": false },
+        "receiptAuthority": { "const": "evidence-only-not-a-bearer-capability" }
+      }
+    },
+    "journalEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "messageKind", "sequence", "previousEntryIdentity", "entryIdentity", "repositoryIdentity", "leaseId", "generation", "transition", "requestIdentity", "effectIdentity", "observedStateIdentity", "receiptAuthority"],
+      "properties": {
+        "schemaVersion": { "const": "migration-authority-message/v2" },
+        "messageKind": { "const": "journal-entry" },
+        "sequence": { "$ref": "#/$defs/positiveIntegerString" },
+        "previousEntryIdentity": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "entryIdentity": { "$ref": "#/$defs/sha256" },
+        "repositoryIdentity": { "$ref": "#/$defs/sha256" },
+        "leaseId": { "$ref": "#/$defs/uuid" },
+        "generation": { "$ref": "#/$defs/positiveIntegerString" },
+        "transition": { "enum": ["requested-active", "active-quiescing", "active-expired", "active-fenced", "quiescing-reconciling", "reconciling-released", "reconciling-blocked-unknown-effect", "active-released"] },
+        "requestIdentity": { "$ref": "#/$defs/sha256" },
+        "effectIdentity": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "observedStateIdentity": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "receiptAuthority": { "const": "evidence-only-not-a-bearer-capability" }
+      }
+    }
+  }
+}

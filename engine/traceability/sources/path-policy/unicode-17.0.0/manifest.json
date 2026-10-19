@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "bridlewise-unicode-path-policy-sources/v1",
+  "unicodeVersion": "17.0.0",
+  "retrievedAt": "2026-07-13T07:01:00Z",
+  "productionAuthority": {
+    "algorithm": "NFC(toCasefold(NFD(X)))",
+    "caseFoldingStatuses": [
+      "C",
+      "F"
+    ],
+    "expectedCaseFoldingEntries": 1585,
+    "maximumCaseFoldingExpansionCodePoints": 3
+  },
+  "license": {
+    "spdx": "Unicode-3.0",
+    "path": "traceability/sources/path-policy/unicode-17.0.0/LICENSE.txt",
+    "url": "https://www.unicode.org/license.txt",
+    "byteLength": 1995,
+    "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+  },
+  "sources": [
+    {
+      "id": "unicode-17.0.0-case-folding",
+      "role": "production-full-default-case-folding-authority",
+      "path": "traceability/sources/path-policy/unicode-17.0.0/CaseFolding.txt",
+      "url": "https://www.unicode.org/Public/17.0.0/ucd/CaseFolding.txt",
+      "byteLength": 87539,
+      "sha256": "ff8d8fefbf123574205085d6714c36149eb946d717a0c585c27f0f4ef58c4183"
+    },
+    {
+      "id": "unicode-17.0.0-normalization-test",
+      "role": "offline-normalization-qualification-authority",
+      "path": "traceability/sources/path-policy/unicode-17.0.0/NormalizationTest.txt",
+      "url": "https://www.unicode.org/Public/17.0.0/ucd/NormalizationTest.txt",
+      "byteLength": 2827429,
+      "sha256": "5019ffd530751a741900c849c0e010332f142a3612234639bd200b82138a87db"
+    },
+    {
+      "id": "unicode-17.0.0-ucd-readme",
+      "role": "unicode-release-identity",
+      "path": "traceability/sources/path-policy/unicode-17.0.0/ReadMe.txt",
+      "url": "https://www.unicode.org/Public/17.0.0/ucd/ReadMe.txt",
+      "byteLength": 740,
+      "sha256": "9fe1a90bd32659d7953616283dc2bffaa165518aae9ace026040c42c559ba606"
+    }
+  ]
+}

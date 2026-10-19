@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "bridlewise-secret-span-protocol/v3",
+  "status": "preregistered-candidate-neutral-synthetic-foundation",
+  "authority": [
+    "traceability/canonical/harness-requirements.md#USR-055",
+    "traceability/canonical/harness-requirements.md#DER-041",
+    "src/root-policy.ts#modelRepositoryInspectionArchitecture"
+  ],
+  "scope": {
+    "profile": "bounded-snapshot-text-only",
+    "encoding": "strict-utf8-or-content-free-block",
+    "rawInputEgressAllowed": false,
+    "repositoryAllowRulesMayWeakenFloor": false,
+    "externalVerificationAllowed": false,
+    "candidateExecutionTrust": "frozen-trusted-built-in-candidates-only",
+    "ambientEgressBoundary": "unqualified-worker-thread-is-not-a-security-boundary"
+  },
+  "repetitions": 3,
+  "runtimeProfile": {
+    "mainExecArgv": [],
+    "workerExecArgv": [],
+    "workerStdout": "captured-bounded-scanned-never-forwarded",
+    "workerStderr": "captured-bounded-scanned-never-forwarded"
+  },
+  "budgets": {
+    "maximumProtocolBytes": 65536,
+    "maximumCorpusBytes": 131072,
+    "maximumFixturesPerCorpus": 64,
+    "maximumFixtureBytes": 65536,
+    "maximumFragmentsPerFixture": 64,
+    "maximumFragmentTextBytes": 16384,
+    "maximumExpectedSpansPerFixture": 64,
+    "maximumProposedSpansPerFixture": 128,
+    "maximumDetectionMilliseconds": 1000,
+    "workerHeapMegabytes": 64,
+    "workerStackMegabytes": 4,
+    "cancelGraceMilliseconds": 50,
+    "maximumWorkerStdoutBytes": 4096,
+    "maximumWorkerStderrBytes": 4096,
+    "pageMaximumBytes": [17, 31, 64]
+  },
+  "minimumCoverage": {
+    "corpora": 3,
+    "fixtures": 24,
+    "positiveSecretFixturesPerCorpus": 3,
+    "safeNegativeFixtures": 6,
+    "invalidUtf8Fixtures": 1,
+    "parserFixtures": 6,
+    "safeNameTokens": 20,
+    "carrierClasses": [
+      "adjacent",
+      "assignment",
+      "authorization-header",
+      "encoded",
+      "error-text",
+      "invalid-utf8",
+      "multiline",
+      "overlap",
+      "private-key-body",
+      "provider-prefix",
+      "safe-negative",
+      "split-generated",
+      "url"
+    ]
+  },
+  "corpora": [
+    {
+      "id": "adversarial-boundaries",
+      "path": "verification/benchmarks/secret-spans/corpora/adversarial-boundaries.v2.json",
+      "sha256": "b989cb06d28e03e68d3fb0cd640a34294a54d72b41d96cab1958a00edc1c51fd"
+    },
+    {
+      "id": "encoded-and-multiline",
+      "path": "verification/benchmarks/secret-spans/corpora/encoded-and-multiline.v2.json",
+      "sha256": "c6f3f1699a8881731983ef31dfede8218132be794568f7db1badc6730692fd69"
+    },
+    {
+      "id": "syntax-and-negatives",
+      "path": "verification/benchmarks/secret-spans/corpora/syntax-and-negatives.v2.json",
+      "sha256": "46202839ad851b4ebcd72fb7409774ad00d821c93e78e0cac4de95a0de5dd1f8"
+    }
+  ],
+  "candidateFamilies": [
+    {
+      "id": "current-production-regex",
+      "mechanism": "The actual SECRET_TEXT_SIGNAL_CATALOG admission expressions, adapted to return each complete regex match as a proposed redaction span.",
+      "productionEligibleFromThisProtocol": false
+    },
+    {
+      "id": "known-value-literal",
+      "mechanism": "Exact byte matching over values supplied by a synthetic broker inventory, with longest-overlap selection and no inference about unknown values.",
+      "productionEligibleFromThisProtocol": false
+    },
+    {
+      "id": "context-aware-lexical",
+      "mechanism": "Local provider-prefix, authorization and assignment expressions that emit capture-group spans and reject a small declared placeholder set.",
+      "productionEligibleFromThisProtocol": false
+    }
+  ],
+  "hardFloors": {
+    "exactSpanPrecision": 1,
+    "exactSpanRecall": 1,
+    "falseRedactionCount": 0,
+    "publicSurfaceCanaryOccurrences": 0,
+    "pageBoundaryCanaryOccurrences": 0,
+    "safeFragmentPreservation": 1,
+    "safeByteSkeletonPreservation": 1,
+    "parserValidity": 1,
+    "safeNameMultisetPreservation": 1,
+    "redactionMultiplicity": 1,
+    "lineCountPreservation": 1,
+    "paginationReconstruction": 1,
+    "invalidUtf8Blocks": 1,
+    "candidateExceptions": 0,
+    "resourceBudgetViolations": 0,
+    "proposedSpanDenominatorPositive": true,
+    "deterministicAcrossRepetitions": true
+  },
+  "publicSurfaces": [
+    "sanitized-result",
+    "page",
+    "receipt",
+    "progress",
+    "log",
+    "error",
+    "cache-key",
+    "index-document",
+    "telemetry"
+  ],
+  "regexDenialCases": [
+    "catastrophic-backtracking-shape",
+    "empty-match-explosion",
+    "huge-alternation-or-repetition",
+    "unicode-or-encoding-expansion",
+    "cancellation-race",
+    "unsupported-backreference-or-lookaround"
+  ],
+  "blockedClaims": [
+    "production-detector-or-redactor-qualification",
+    "artifact-admission-unblock",
+    "real-project-coverage",
+    "arbitrary-credential-recall",
+    "streaming-or-unbounded-file-safety",
+    "approved-regex-engine-qualification",
+    "semantic-file-view-qualification",
+    "cross-runtime-or-cross-platform-equivalence",
+    "os-process-no-egress-qualification",
+    "new-candidate-execution-readiness",
+    "independent-admission-review"
+  ]
+}

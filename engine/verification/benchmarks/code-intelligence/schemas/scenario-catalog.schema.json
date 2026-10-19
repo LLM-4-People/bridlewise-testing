@@ -1,0 +1,123 @@
+{
+  "$id": "https://bridlewise.local/schemas/code-intelligence/scenario-catalog.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "catalogVersion": {
+      "type": "string"
+    },
+    "executable": {
+      "type": "boolean"
+    },
+    "executionBlockers": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "repetitionsPerCandidateScenario": {
+      "type": "integer"
+    },
+    "scenarios": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "class": {
+            "type": "string"
+          },
+          "fixtureBinding": {
+            "additionalProperties": false,
+            "properties": {
+              "mutationScheduleSha256": {
+                "type": "null"
+              },
+              "oracleFactsSha256": {
+                "type": "null"
+              },
+              "repositoryObjectSha256": {
+                "type": "null"
+              },
+              "seed": {
+                "type": "null"
+              },
+              "snapshotSha256": {
+                "type": "null"
+              },
+              "taskObjectSha256": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "mutationScheduleSha256",
+              "oracleFactsSha256",
+              "repositoryObjectSha256",
+              "seed",
+              "snapshotSha256",
+              "taskObjectSha256"
+            ],
+            "type": "object"
+          },
+          "hostileVariants": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "repositoryShape": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "requiredQueries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "class",
+          "fixtureBinding",
+          "hostileVariants",
+          "id",
+          "languages",
+          "repositoryShape",
+          "requiredQueries"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schemaVersion": {
+      "type": "string"
+    },
+    "semanticEpoch": {
+      "type": "integer"
+    },
+    "status": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "catalogVersion",
+    "executable",
+    "executionBlockers",
+    "repetitionsPerCandidateScenario",
+    "scenarios",
+    "schemaVersion",
+    "semanticEpoch",
+    "status"
+  ],
+  "title": "Closed structural schema for code-intelligence-scenario-catalog/v1",
+  "type": "object"
+}

@@ -1,0 +1,218 @@
+# The bridlewise engine
+
+The engine is the standalone, provider/model-neutral harness core: the CLI,
+the agent runtime, the transactional editor, code intelligence, the quality
+packs, memory, privacy, the durable timeline ledger, the forensics and
+offline protocol contracts, and the Landlock self-protection guardian. It is
+consumed two ways: directly as a CLI (`node src/cli.ts …`), and as a library
+by the web server (`server/` drives the engine through `src/index.ts`).
+
+The engine's governance contract is pinned by `src/kernel/root-policy.ts`
+(the immutable safety invariants) and verified by the development branch's
+`check` script. The
+preflight receipt (`node src/cli.ts preflight`) is integrity-only with
+`harnessReady: false`: interactive capabilities (model invocation, tool
+dispatch, repository mutation, process launch, network use, durable audit)
+are implemented but admitted through the governance gate, and until admission
+each is reported `deny` with a typed reason. The current admission state and
+its evidence are the traceability registry's subject (`traceability/`).
+
+## The subsystems
+
+Each subsystem is a domain folder under `src/` with its own README listing
+its files; the per-file consumer lists there are generated from the import
+graph.
+
+- `src/kernel/` — the trusted kernel: the typed error hierarchy, canonical
+  integrity and hashing, the root policy invariants, the product identity
+  owner (`product-identity.ts` — the single source of the product name,
+  schema namespace, config basename, state directory, and crypto domain
+  prefix), and the verification/schema/protocol contracts every other domain
+  builds on. Nothing here depends on a feature; the features depend on these.
+- `src/cli.ts` + `src/runtime/` — the CLI entry point and the interactive
+  session runtime: preflight, harness, quality, and chat commands, plus the
+  self-protection bootstrap that re-execs under the guardian in production
+  mode.
+- `src/agents/` + `src/modules/tasks-agents/` — the agent runtime: agent
+  types, the orchestrator, handoff protocol authority, and stigmergy
+  coordination.
+- `src/tools/` — the tool registry, adapters, and concurrent dispatch: the
+  model-facing tools (editor, file viewing, search, intelligence, quality,
+  git, agents, orchestrator) behind one manifest.
+- `src/editor/` — the transactional editor: multi-layer edit planning,
+  application, and validation behind the single unified `edit` tool.
+- `src/intelligence/` — code intelligence: symbol extraction and search,
+  repository maps, dependency graphs, data flow, retrieval, and reuse
+  discovery, backed by tree-sitter.
+- `src/quality/` + `src/quality-packs/` — the multi-language quality pack:
+  parsers, checks, signals, scoring, and the prevention detectors.
+- `src/memory/` — the memory subsystems: the unified store, the scale store,
+  attempt history, and tool-result exposure/retrieval.
+- `src/privacy/` — the redaction engine and PII classification.
+- `src/awareness/` — the codebase-awareness engine: language adapters and the
+  signal library.
+- `src/safety/` — the safety layer: bias, hallucination, deviation, bandaid,
+  workaround, and step-skip detectors, plus the pause/ask and tool-call gates.
+- `src/timeline/` — the durable audit timeline ledger.
+- `src/forensics/` — offline forensic contracts and cryptographic primitives
+  (canonicalization, exact raw capture, redacted projections, AES-256-GCM and
+  SHA/HMAC chains, the outbox reducer).
+- `src/filesystem/` — durable filesystem operations, path boundaries, the
+  repository-root capability, and the Landlock self-protection config.
+- `src/git/` — git operations behind the single runner.
+- `src/mcp/` — the Model Context Protocol client and its transports.
+- `src/modules/effect-boundary/` — the effect-boundary module: the typed
+  effects every capability funnels through.
+- `src/performance/` — the performance module, benchmarks, and diagnostics.
+- `src/process/` — process lifecycle primitives.
+- `src/repository-path/` — repository path policy.
+- `src/self-improving/` — the self-improvement loops.
+- `src/shared/` — the agnostic helpers every engine domain consumes, owned
+  once.
+- `src/text/` — text processing primitives.
+- `src/workflow/` — the harness commands: register, regenerate, check, sync,
+  plus the hash-binding registry, module registrar, and test-result
+  collector.
+
+## Single startup configuration
+
+[`bridlewise.config.json`](./bridlewise.config.json) is the only user-editable
+harness configuration document. The runtime pins that exact basename beside
+`src/`; there is no CLI path or environment override. Its strict schema is
+defined once by `getConfigDocumentSchema()` in `src/kernel/config-contracts.ts`; unknown
+and duplicate keys are rejected. The file contains no secret values or
+environment overrides. All operator-configurable parameters extend that same
+typed document; secrets stay outside it behind opaque handles, and immutable
+schema, protocol, cryptographic, and safety invariants stay in their owning
+shared modules and root policy.
+
+## Mandatory post-checkout permission bootstrap
+
+Git records whether a file is executable but not exact non-executable Unix
+modes, so a fresh checkout can materialize `bridlewise.config.json` as `0644`
+or `0664` while the runtime requires exactly `0600`. Before the first
+preflight after every checkout, run:
+
+```text
+node scripts/bootstrap-permissions.ts
+```
+
+This zero-argument setup command derives the repository and pinned config
+path from its own installed location, descriptor-validates ownership, file
+type, device, link count, and symlink and mount boundaries, changes only the
+already-open config descriptor to `0600`, then independently reopens it and
+revalidates identity, mode, and unchanged content. The product preflight
+fails closed with `config_mode_insecure` before this trusted step.
+
+## Preflight
+
+```text
+node src/cli.ts preflight
+```
+
+A successful result is an integrity-only receipt with `harnessReady: false`
+and a per-capability decision list; each interactive capability is reported
+`deny` until the governance gate admits it. Configuration and project roots
+must be owner-matched regular Linux paths; mode drift, hardlinks, symlinks,
+traversal, mountpoints, cross-device paths, unknown or duplicate keys,
+malformed input, and root mismatch are denied with safe typed errors.
+
+## Self-protection (Landlock)
+
+The engine ships an OS-level filesystem sandbox: a frozen C binary
+(`guardian/build/harness-landlock-guardian`) applies a Linux Landlock LSM
+restriction to itself and `execvp`s the payload. The restriction is
+irrevocable and inherited across `fork`/`exec`/`clone`, so the payload and
+its descendants cannot read or write the protected subtrees.
+
+In dev mode (`selfProtection.enabled: false`, the default) the CLI runs
+directly. In production mode the CLI bootstrap verifies the guardian binary
+and Landlock availability (failing closed with a typed
+`SelfProtectionUnavailableError`), compiles a ruleset spec from the operator
+config plus the non-overridable `ROOT_POLICY.selfProtection` floor plus
+runtime facts, and re-execs the guardian with the bundled payload
+(`dist/bundle.js`, built by `node scripts/build-bundle.ts`). Non-`chat`
+commands (`preflight`, `harness`, `quality`) are dev/CI tooling that must
+read `src/`; even when `enabled: true` they run unprotected with a warning.
+
+After any `src/` change, rebuild the bundle and re-pin the hash bindings in
+one pass:
+
+```bash
+node src/cli.ts harness sync --with-bundle
+```
+
+## Shipping a branch to another (`harness promote`)
+
+A promotion carries a source branch to a target branch through a declared
+profile on the source (`<promotion.profileDirectory>/<name>.json`): the
+target's tree is a projection of the source's — what the profile's entry
+points reach, what it includes, and the files it derives (the package
+manifests, the lockfiles) — never a merge. The verbs:
+
+```bash
+node src/cli.ts harness promote status  [--profile <name>] [--source <rev>] [--json|--text]
+node src/cli.ts harness promote plan    [--profile <name>] [--source <rev>] [--diff] [--patch] [--json|--text]
+node src/cli.ts harness promote explain [--profile <name>] [--source <rev>] [--json|--text] <path>…
+node src/cli.ts harness promote apply   [--profile <name>] [--source <rev>] [--no-publish | --no-push]
+                                        [--accept-target-edits <path>… --reason <text>] [--allow-deletions --reason <text>]
+                                        [--release-hold --reason <text>]
+node src/cli.ts harness promote rollback [--profile <name>] --to <promotion commit> --reason <text>
+node src/cli.ts harness promote hold | release-hold [--profile <name>] --reason <text>
+```
+
+Each prints the harness's JSON envelope whose `result` is the promotion's
+answer (`ok`, `code`, `class`, `message`, `remedy`, `data`) — or, with
+`--text`, a short report (the one output option every harness verb takes,
+below) — and exits with its class's code
+(`src/workflow/promotion/codes.ts`; 0 ok, 2 input, 3 precondition, 4 errored,
+5 failed, 6 integrity, 7 parked); `plan` writes no ref, index or checkout.
+`apply` builds the promotion commit in a candidate worktree (the profile's
+setup, converge and verify commands, then one `git commit` whose hooks
+certify the exact tree), pins it under
+`refs/bridlewise/promotion/<profile>/pending` with its receipt, pushes it
+atomically with its receipt (never forced) and fast-forwards the checkout
+that holds the target; `--no-publish` stops after the pin, `--no-push`
+publishes locally. A rerun resumes. `rollback` restores an earlier
+promotion's tree with a new commit and holds automatic promotion until
+`release-hold`. With the profile's `trigger: on-source-publish`, the tracked
+`.githooks/reference-transaction` hook promotes after every push of the
+source (`harness promote auto`). The runbook is
+`CONTRIBUTING.md`; `src/workflow/promotion/README.md` holds the
+details.
+
+## One output option for every harness verb
+
+Every `node src/cli.ts harness <verb>` (also exposed by the development
+root package's `ws` and `promote` aliases) answers one way: the JSON envelope
+(`{schemaVersion, command, status, result, generatedAt, integrityHash}`) by
+default or with `--json`, or a report for a person with `--text` — anywhere
+on the line, the last one wins. A refusal goes to stderr in the same format
+(the typed record, or `<code>: <message>`). The option belongs to the
+dispatch (`takeOutputFormat` and `renderCommandAnswer` in
+`src/workflow/command-result.ts`); no verb parses it, and a verb gives its own
+report only where one reads better than the generic `key: value` rendering
+(`promote`, `benchmark`, `diagnostic`, `eval`). Progress lines go to stderr.
+
+## Verification
+
+From the engine package root, `npm run typecheck` checks the installed
+engine source. The development branch additionally carries the `test`,
+`check` and `manifest:candidate` scripts and their verification fixtures;
+those scripts are not installed in the product projection. Run development
+checks from that branch, following its process guide.
+
+The development `check` script runs native typechecking, then verifies the
+complete test inventory, the hash-binding registry, and traceability
+projections against their sources. The central hash-binding registry covers
+every pinned binding; `harness sync` (register → regenerate → check) is the
+one-shot convergence command after an edit. The development
+`manifest:candidate` script includes tracked, modified, deleted and untracked
+files; its publication hash is SHA-256 over the exact stdout bytes.
+
+`traceability/` pins the requirement registry, the offline contract and
+forensic schema projections, the slice traces, and the vendored primary
+sources the verifiers compare byte-independently. The requirements registry
+is the canonical requirement-definition authority; duplicate or malformed
+IDs, unknown or orphan references, and implemented claims without evidence
+links fail closed.

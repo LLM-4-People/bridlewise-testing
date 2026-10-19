@@ -1,0 +1,246 @@
+# prevention
+
+The `tests/prevention/` folder of the development surface.
+
+## What each file does
+
+- `absence-witness-owner.test.ts` — the `absence-witness-owner.test` module.
+- `agent-docs-liveness.test.ts` — the agent briefing names what exists: every local link, backticked repository path, `npm run` script and `node` target in the root AGENTS.md, ROLES.md, the dispatch template, the process index and every decision resolves.
+- `allowed-commands-config.test.ts` — @vitest-environment node.
+- `api-identity-header-owner.test.ts` — @vitest-environment node.
+- `artifact-rendering-owner.test.ts` — @vitest-environment node.
+- `artifact-resend-bounded.test.ts` — @vitest-environment node.
+- `asof-block-split-owner.test.ts` — @vitest-environment node.
+- `async-db-facade-owner.test.ts` — @vitest-environment node.
+- `async-db-ordering.test.ts` — @vitest-environment node.
+- `async-db-orderings-through-the-server.test.ts` — @vitest-environment node.
+- `atomic-write-owner.test.ts` — @vitest-environment node.
+- `auth-owner.test.ts` — @vitest-environment node.
+- `auto-heal-owner.test.ts` — @vitest-environment node.
+- `awareness-quality-bridge-owner.test.ts` — @vitest-environment node.
+- `backend-feature-wiring.test.ts` — @vitest-environment node.
+- `bench-fixture-drift.test.ts` — @vitest-environment node.
+- `block-action-owner.test.ts` — @vitest-environment node.
+- `block-contract-owner.test.ts` — @vitest-environment node.
+- `block-description-honesty.test.ts` — @vitest-environment node.
+- `centralized-config.test.ts` — @vitest-environment node.
+- `chat-history-honest-absence.test.ts` — prevention test: A FAILED HISTORY LOAD IS STATED, NEVER RENDERED AS AN EMPTY CONVERSATION. (DESIGN-PERFORMANCE §1.
+- `chat-history-load-race.test.ts` — @vitest-environment node.
+- `chat-history-query-bounds.test.ts` — @vitest-environment node.
+- `chat-persistence-roundtrip.test.ts` — persistence comprehensive test.
+- `chat-ux-fixes.test.ts` — @vitest-environment node.
+- `check-status-history.test.ts` — @vitest-environment node.
+- `checkout-write-door-armed.test.ts` — @vitest-environment node. tHE WEB SUITE ARMS THE CHECKOUT WRITE DOOR, SO NO TEST HERE REWRITES THIS CHECKOUT.
+- `client-api-owner.test.ts` — @vitest-environment node.
+- `commit-hook-installed.test.ts` — @vitest-environment node.
+- `component-registry.test.ts` — @vitest-environment node. The component registry (the anatomy's in-process half): register/unregister semantics, per-choke-point behavioral arms (worker pool, db threads, run feeds, the sampler), the wiring pins for the spawn/watch owners, and the leak-free backstop.
+- `config-defaults-owner.test.ts` — @vitest-environment node.
+- `config-handler-dedup.test.ts` — @vitest-environment node.
+- `config-write-gate-owner.test.ts` — @vitest-environment node.
+- `content-search-deadline.test.ts` — @vitest-environment node.
+- `content-search-owner.test.ts` — @vitest-environment node.
+- `context-charge-matches-payload.test.ts` — @vitest-environment node.
+- `context-manager-owner.test.ts` — @vitest-environment node.
+- `context-memory-wired.test.ts` — @vitest-environment node.
+- `context-switch-reset-owner.test.ts` — @vitest-environment node.
+- `conversation-history-loaded.test.ts` — @vitest-environment node.
+- `cookie-flags.test.ts` — @vitest-environment node.
+- `coverage-instrument-owner.test.ts` — @vitest-environment node.
+- `create-message-atomic.test.ts` — @vitest-environment node.
+- `credential-surface-owner.test.ts` — @vitest-environment node.
+- `cross-user-run-scoping.test.ts` — @vitest-environment node.
+- `customization-write-path-owner.test.ts` — @vitest-environment node.
+- `cutover-graph-receipt-owner.test.ts` — @vitest-environment node.
+- `data-loss-1-reboot.test.ts` — @vitest-environment node.
+- `data-loss-2-crash.test.ts` — @vitest-environment node.
+- `data-loss-3-migration.test.ts` — @vitest-environment node.
+- `data-loss-4-keychange.test.ts` — @vitest-environment node.
+- `data-loss-5-keypersist.test.ts` — @vitest-environment node.
+- `data-loss-6-concurrent.test.ts` — @vitest-environment node.
+- `data-loss-7-large.test.ts` — @vitest-environment node.
+- `data-loss-8-rollback.test.ts` — @vitest-environment node.
+- `database-key-authority.test.ts` — one admitted database key per process, shared by the database, memory and timeline, cloned into workers.
+- `database-startup.test.ts` — threaded database startup joins every worker it acquired, whatever fails.
+- `db-durability-window.test.ts` — @vitest-environment node.
+- `db-transaction-owner.test.ts` — @vitest-environment node.
+- `db-wal-bounded.test.ts` — @vitest-environment node.
+- `decisions-format.test.ts` — every file in `docs/decisions/` passes the one entry checker (id, date, by, status, implementation, route / acted_in, overrides, covers, superseded_by naming real decisions) and has a line in the folder's README.
+- `declared-pattern-liveness.test.ts` — @vitest-environment node.
+- `declared-root-inventory.test.ts` — @vitest-environment node.
+- `declared-universe-owner.test.ts` — @vitest-environment node.
+- `dedup-compression-owner.test.ts` — @vitest-environment node.
+- `dedup-signal-wired.test.ts` — @vitest-environment node.
+- `dev-server-freshness.test.ts` — @vitest-environment node.
+- `dev-server-scanner-exclusion.test.ts` — @vitest-environment node.
+- `editor-bridge-owner.test.ts` — @vitest-environment node.
+- `editor-data-integrity.test.ts` — @vitest-environment node.
+- `editor-governance-wired.test.ts` — @vitest-environment node.
+- `editor-rendering-owner.test.ts` — @vitest-environment node.
+- `effect-kind-recording.test.ts` — @vitest-environment node.
+- `egress-redaction-owner.test.ts` — @vitest-environment node.
+- `encryption-and-dedup-prevention.test.ts` — @vitest-environment node.
+- `error-debug-owner.test.ts` — @vitest-environment node.
+- `error-handling-consistency.test.ts` — @vitest-environment node.
+- `error-message-projection-owner.test.ts` — @vitest-environment node.
+- `exposure-gate-block-wired.test.ts` — @vitest-environment node.
+- `exposure-reachable.test.ts` — @vitest-environment node.
+- `exposure-registry-counts.test.ts` — @vitest-environment node.
+- `file-effect-recording.test.ts` — @vitest-environment node.
+- `filesystem-owner.test.ts` — @vitest-environment node.
+- `flaky-test-memory.test.ts` — a TEST THAT IS GREEN TODAY AND RED YESTERDAY IS AN UNREAD BUG REPORT. The failure this guard exists for: a wire-level data-corruption bug presented….
+- `frontend-components-deep.test.ts` — @vitest-environment node.
+- `frontend-contracts-owner.test.ts` — @vitest-environment node.
+- `frontend-store-owner.test.ts` — @vitest-environment node.
+- `frontend-stores-deep.test.ts` — @vitest-environment node.
+- `frontend-test-closure-bound.test.ts` — @vitest-environment node.
+- `frozen-record-not-a-second-owner.test.ts` — @vitest-environment node.
+- `generated-artifact-freshness.test.ts` — @vitest-environment node.
+- `git-bridge-owner.test.ts` — @vitest-environment node.
+- `git-refusal-not-emptiness.test.ts` — @vitest-environment node.
+- `gitignore-anchoring.test.ts` — @vitest-environment node.
+- `graph-wire-shape.test.ts` — @vitest-environment node.
+- `guard-dossier.test.ts` — @vitest-environment node.
+- `hallucination-safety-gate-owner.test.ts` — @vitest-environment node.
+- `harvested-fixes-prevention.test.ts` — @vitest-environment node.
+- `history-cursor-owner.test.ts` — tHE HISTORY CURSOR — the bound that makes a 20,000-message conversation openable.
+- `history-route-bounded.test.ts` — @vitest-environment node.
+- `input-validation-deny-by-default.test.ts` — @vitest-environment node.
+- `integration-rule-refs-ratchet.test.ts` — @vitest-environment node.
+- `intelligence-bridge-owner.test.ts` — @vitest-environment node.
+- `intelligence-exposure-wired.test.ts` — @vitest-environment node.
+- `invalidation-event-firer-census.test.ts` — @vitest-environment node. THE INVALIDATION-EVENT CENSUS — every event a read declares or a feed subscribes to must have a production firer.
+- `isolated-extract-farm.test.ts` — @vitest-environment node.
+- `ledger-redaction-owner.test.ts` — @vitest-environment node.
+- `lens-provenance-owner.test.ts` — @vitest-environment node.
+- `liveness-stream-owner.test.ts` — @vitest-environment node.
+- `map-index-lifecycle.test.ts` — @vitest-environment node.
+- `map-worker-nonblocking.test.ts` — @vitest-environment node.
+- `memory-config-reader-paths.test.ts` — @vitest-environment node.
+- `memory-provenance.test.ts` — @vitest-environment node.
+- `memory-store-owner.test.ts` — @vitest-environment node.
+- `message-metadata-persistence.test.ts` — @vitest-environment node.
+- `message-persistence-audit.test.ts` — @vitest-environment node.
+- `model-prefs-no-clobber.test.ts` — @vitest-environment node.
+- `model-selection-reaches-provider.test.ts` — @vitest-environment node.
+- `module-path-literal-owner.test.ts` — @vitest-environment node.
+- `module-resolver.test.ts` — @vitest-environment node.
+- `no-a11y-warnings.test.ts` — @vitest-environment node.
+- `no-dead-css-selectors.test.ts` — @vitest-environment node.
+- `no-dead-css-tokens.test.ts` — @vitest-environment node.
+- `no-duplicate-code.test.ts` — @vitest-environment node.
+- `no-duplicate-constants.test.ts` — @vitest-environment node.
+- `no-empty-catch.test.ts` — @vitest-environment node.
+- `no-fabricated-data.test.ts` — @vitest-environment node.
+- `no-generic-css-collision.test.ts` — @vitest-environment node.
+- `no-hardcoded-config-values.test.ts` — @vitest-environment node.
+- `no-hardcoded-truncation-slices.test.ts` — @vitest-environment node.
+- `no-hardcoded-values.test.ts` — @vitest-environment node.
+- `no-nul-bytes-in-text.test.ts` — no tracked text file (the one ownership reader, by extension) holds a raw NUL byte: grep and line scanners read such a file as binary and skip it; a fixture spells the character as `\u0000`.
+- `no-port-probe-then-listen.test.ts` — @vitest-environment node.
+- `no-proximity-window-assertions.test.ts` — @vitest-environment node.
+- `no-raw-sql-outside-db.test.ts` — @vitest-environment node.
+- `no-rule-refs.test.ts` — @vitest-environment node.
+- `no-scattered-helpers.test.ts` — @vitest-environment node.
+- `no-throw-new-error.test.ts` — @vitest-environment node.
+- `no-unused-exports-index.test.ts` — @vitest-environment node.
+- `no-unused-exports.test.ts` — @vitest-environment node.
+- `no-unused-imports.test.ts` — @vitest-environment node.
+- `npm-script-targets.test.ts` — every code file an npm script of either package manifest names exists (a moved script left `cache:evidence:sweep` pointing at nothing).
+- `path-spelling-comparison.test.ts` — no confinement owner decides containment by comparing path spellings (prefix, relative `..`, `===`); planted shapes caught.
+- `performance-exposure-wired.test.ts` — @vitest-environment node.
+- `persistence-across-restart.test.ts` — @vitest-environment node.
+- `pii-redaction-owner.test.ts` — @vitest-environment node.
+- `pii-redaction-user-display.test.ts` — @vitest-environment node.
+- `pins-can-fire.test.ts` — @vitest-environment node.
+- `plain-language-owner.test.ts` — @vitest-environment node.
+- `privacy-layers-owner.test.ts` — @vitest-environment node.
+- `project-delete-safety.test.ts` — @vitest-environment node.
+- `project-folder-surface.test.ts` — @vitest-environment node.
+- `promotion-boundary.test.ts` — @vitest-environment node. the source-side promotion guard: the pure projection over the working tree raises no refusal a promotion would (an import into an excluded path, a dangling import, a missing entry point, an undeclared package, an unprojectable manifest script, an invalid profile), every registry command is run by a workspace phase or a profile, and each planted refusal turns it red by name.
+- `pwa.test.ts` — @vitest-environment node.
+- `quality-payload-completeness.test.ts` — @vitest-environment node.
+- `quick-view-slice-wired.test.ts` — @vitest-environment node.
+- `ranking-knobs-are-real.test.ts` — @vitest-environment node.
+- `rate-limit-http.test.ts` — @vitest-environment node.
+- `rate-limit-security.test.ts` — @vitest-environment node.
+- `raw-handle-owner.test.ts` — @vitest-environment node. The raw standing-handle guard: every fs.watch / setInterval / spawn / fork / new Worker site in server/ + engine/src must live in a registry-registering owner (derived by scan) or an argued legacy entry — deny by default.
+- `raw-source-reader-owner.test.ts` — @vitest-environment node.
+- `recording-choke-points.test.ts` — @vitest-environment node.
+- `recycle-bin-owner.test.ts` — recycle bin: trash is a timestamp, never a hard delete of the row.
+- `redaction-reaches-provider.test.ts` — @vitest-environment node.
+- `removal-is-recorded.test.ts` — @vitest-environment node.
+- `resume-gap-heals-in-place.test.ts` — @vitest-environment node.
+- `rewind-reaches-provider.test.ts` — @vitest-environment node.
+- `route-registry.test.ts` — @vitest-environment node.
+- `run-ends-are-announced.test.ts` — @vitest-environment node.
+- `run-executes-once.test.ts` — @vitest-environment node.
+- `run-stream-writes-its-own-chat.test.ts` — @vitest-environment node.
+- `safety-runtime-wired.test.ts` — @vitest-environment node.
+- `scan-root-refusal-owner.test.ts` — tHE SHARED WALKER MUST REFUSE A ROOT IT CANNOT READ, NOT RETURN NOTHING. `walk()` is the single door 106 guard files enter through, in 258 places.
+- `scan-universe-index-floor.test.ts` — @vitest-environment node.
+- `sd-stale-reconciliation.test.ts` — @vitest-environment node.
+- `secret-intelligence-owner.test.ts` — @vitest-environment node.
+- `selection-persistence.test.ts` — @vitest-environment node.
+- `self-improving.test.ts` — @vitest-environment node.
+- `served-module-probe.test.ts` — @vitest-environment node.
+- `settings-save-effect-honesty.test.ts` — SAVE consequence consumes declared effect (next-run vs immediately).
+- `sidebar-content-sync.test.ts` — @vitest-environment node.
+- `source-root-organization.test.ts` — @vitest-environment node.
+- `source-structure-parser-differential.test.ts` — @vitest-environment node.
+- `source-tree-verdict.test.ts` — @vitest-environment node.
+- `sse-connection-limit.test.ts` — @vitest-environment node.
+- `sse-error-code-owner.test.ts` — @vitest-environment node.
+- `sse-event-owner.test.ts` — @vitest-environment node.
+- `state-imports-resolve.test.ts` — @vitest-environment node.
+- `stripper-path-required.test.ts` — @vitest-environment node.
+- `stripper-view-owner.test.ts` — @vitest-environment node.
+- `subprocess-confinement-owner.test.ts` — @vitest-environment node.
+- `sweep-cache-evidence.test.ts` — the moved-aside cache sweep matches every spelling measured on disk (`.experimental-vitest-cache.<label>`, `.evc.`) and never the live cache.
+- `svelte-css-scope-probe.test.ts` — @vitest-environment node.
+- `svelte-effect-self-loop.test.ts` — @vitest-environment node.
+- `symbol-search-single-path.test.ts` — @vitest-environment node.
+- `system-prompt-config.test.ts` — @vitest-environment node.
+- `tasks-no-stale-duplicates.test.ts` — @vitest-environment node.
+- `temp-dir-owner.test.ts` — @vitest-environment node.
+- `template-check-wired.test.ts` — @vitest-environment node.
+- `template-mode-lexing.test.ts` — @vitest-environment node.
+- `template-token-sanitization.test.ts` — @vitest-environment node.
+- `test-helpers-dedup.test.ts` — @vitest-environment node.
+- `test-isolation-contract.test.ts` — @vitest-environment node.
+- `test-isolation-owner.test.ts` — @vitest-environment node.
+- `test-naming-structure.test.ts` — @vitest-environment node.
+- `test-run-watchdog.test.ts` — @vitest-environment node.
+- `timeline-per-chat-scope.test.ts` — prevention test: the timeline is scoped per-chat, not global.
+- `timeline-recording-fidelity.test.ts` — prevention: the timeline records what it measured, and reads all of it back.
+- `timeline-refresh-on-done.test.ts` — prevention test: timeline refresh fires once on "done", not per "finish". root cause: refreshTimeline() was called on every "finish" event.
+- `toks-stay-rail-leaves.test.ts` — @vitest-environment node.
+- `tool-call-by-callid.test.ts` — @vitest-environment node.
+- `tool-call-done-emission.test.ts` — @vitest-environment node.
+- `tool-call-persistence-db.test.ts` — @vitest-environment node.
+- `tool-duration-owner.test.ts` — @vitest-environment node.
+- `tool-execution-async-owner.test.ts` — @vitest-environment node.
+- `tool-manifest-executor-match.test.ts` — @vitest-environment node.
+- `tool-name-spec.test.ts` — every advertised tool name is a legal Responses function name and the `mcp__` namespace belongs to MCP tools only (built-ins plus adversarial minted names through `toolsToResponses`).
+- `tool-registry-owner.test.ts` — @vitest-environment node.
+- `tool-result-persistence.test.ts` — prevention test: tool call results and errors persist to the.
+- `tracked-source-owner.test.ts` — @vitest-environment node.
+- `tree-identity-owner.test.ts` — @vitest-environment node.
+- `ui-control-surface-owner.test.ts` — @vitest-environment node.
+- `ui-control-wiring.test.ts` — @vitest-environment node.
+- `value-reference-scan.test.ts` — @vitest-environment node.
+- `vite-dep-cache-staleness.test.ts` — @vitest-environment node.
+- `web-ui-defaults-owner.test.ts` — @vitest-environment node.
+- `web-ui-runtime-budget-verdict.test.ts` — @vitest-environment node.
+- `web-ui-runtime-budget.test.ts` — @vitest-environment node.
+- `when-predicate-vocabulary.test.ts` — @vitest-environment node.
+- `worker-settings-handed.test.ts` — a worker isolate reads no settings file: it uses the snapshot its spawning thread handed it, and refuses when handed none.
+- `worker-thread-owner.test.ts` — @vitest-environment node.
+- `workflow-lessons-format.test.ts` — one lesson per file under `docs/trackers/workflow-lessons/`, judged by the one entry checker (id, date, source, kind, status, route when pending, tracked `acted_in` when acted, reason when wontfix, the three sections), and the `lessons pending` report.
+- `database-thread-supervision.test.ts` — SCALE-CR1 C4: a killed database reader is replaced and its read retried; a killed writer is replaced, its in-flight write answered `db_write_outcome_unknown`, later writes succeed; restarts past the window open a circuit that answers `db_unavailable` and is not permanent.
+- `guarded-callbacks.test.ts` — SCALE-CR1 C3 + SCALE-CR1-FIX N3/H2: the census of event-loop callbacks in `server/` and `engine/src/` finds none unguarded (no allowlist; scoped names, member timers, completion callbacks, handler properties, computed members); the fault policy is installed only by its three doors and every worker thread starts with the prelude (a worker reports its role before its entry ran); `guarded` attributes and counts faults (in a service child); no user-defined SQL function is registered.
+- `real-database-under-test.test.ts` — UD-S15: a process under test refuses a product-stamped database at the web client and the timeline store, whatever the path's spelling; the fixture stamp, the product's stamping branch, the browser suites' arming and their refusal of a real server.
+- `timeline-listen-first.test.ts` — SCALE-CR1 C10: the real server listens while a held ledger migration waits, answers health with `ledger: migrating`, refuses ledger work 503 `timeline_migrating`, and opens the ledger (one recording-gap event) when the migration completes.
+
+## Where it lives and what consumes it
+
+The folder lives at `tests/prevention/`.

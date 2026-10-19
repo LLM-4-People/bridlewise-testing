@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "bridlewise-node-runtime-candidate-admission-negative-controls/v1",
+  "schemaUnderTest": "verification/benchmarks/runtime/schemas/node-runtime-candidate-admission.schema.json",
+  "baseRecord": "traceability/evidence/research/runtime/node-v24.18.0-linux-x64/candidate-admission.json",
+  "mutationSemantics": "Deep-copy the valid base record, replace the value at targetJsonPointer, and require Draft 2020-12 rejection without enabling format assertions.",
+  "cases": [
+    {
+      "id": "timestamp-offset-not-canonical-utc",
+      "targetJsonPointer": "/generatedAt",
+      "replacement": "2026-07-13T10:29:35+00:00",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "timestamp-lowercase-z",
+      "targetJsonPointer": "/generatedAt",
+      "replacement": "2026-07-13T10:29:35z",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "timestamp-fractional-seconds",
+      "targetJsonPointer": "/generatedAt",
+      "replacement": "2026-07-13T10:29:35.000Z",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "timestamp-space-separator",
+      "targetJsonPointer": "/generatedAt",
+      "replacement": "2026-07-13 10:29:35Z",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "timestamp-invalid-month",
+      "targetJsonPointer": "/generatedAt",
+      "replacement": "2026-13-13T10:29:35Z",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "timestamp-invalid-month-day",
+      "targetJsonPointer": "/generatedAt",
+      "replacement": "2026-02-30T10:29:35Z",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "timestamp-nonleap-february-29",
+      "targetJsonPointer": "/generatedAt",
+      "replacement": "2025-02-29T10:29:35Z",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "timestamp-invalid-hour",
+      "targetJsonPointer": "/generatedAt",
+      "replacement": "2026-07-13T24:29:35Z",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-absolute",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "/traceability/evidence/research/runtime/run-1.json",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-backslash",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "traceability\\evidence\\run-1.json",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-empty",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-leading-dot-segment",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "./traceability/evidence/run-1.json",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-embedded-dot-segment",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "traceability/./evidence/run-1.json",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-dotdot-traversal",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "traceability/evidence/../run-1.json",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-empty-segment",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "traceability//evidence/run-1.json",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-trailing-slash",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "traceability/evidence/run-1.json/",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-trailing-dot-ambiguity",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "traceability/evidence/run-1.json.",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-drive-prefix",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "C:/traceability/evidence/run-1.json",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-percent-encoded-traversal",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "traceability/%2e%2e/evidence/run-1.json",
+      "expectedDisposition": "reject"
+    },
+    {
+      "id": "path-nonascii-confusable",
+      "targetJsonPointer": "/verification/runs/0/relativePath",
+      "replacement": "traceability/evídence/run-1.json",
+      "expectedDisposition": "reject"
+    }
+  ]
+}

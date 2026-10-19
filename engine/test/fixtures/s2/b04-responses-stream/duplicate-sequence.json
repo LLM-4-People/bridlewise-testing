@@ -1,0 +1,7 @@
+{
+  "frames": [
+    "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_bad\",\"object\":\"response\",\"status\":\"in_progress\",\"model\":\"contract-model\"}}\n\n",
+    "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":0,\"response\":{\"id\":\"resp_bad\",\"model\":\"contract-model\"}}\n\n"
+  ],
+  "expectedError": "responses_sequence_invalid"
+}

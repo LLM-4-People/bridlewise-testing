@@ -1,0 +1,48 @@
+{
+  "expectedResponseId": 1,
+  "wire": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "tools": [
+        {
+          "name": "read_file",
+          "title": "Read file",
+          "description": "Read a project file.",
+          "inputSchema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+              "path": { "type": "string", "minLength": 1 }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+          },
+          "annotations": {
+            "readOnlyHint": true,
+            "idempotentHint": true
+          },
+          "_meta": {
+            "provider/build": "fixture-a"
+          }
+        },
+        {
+          "name": "search_project",
+          "description": "Search project text.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": { "type": "string" }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        }
+      ],
+      "nextCursor": "opaque-next",
+      "_meta": { "server": "fixture" }
+    }
+  },
+  "expectedTools": ["read_file", "search_project"],
+  "expectMetadata": true
+}

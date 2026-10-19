@@ -1,0 +1,901 @@
+{
+  "timestamp": "2026-07-22T03:27:01.205Z",
+  "fiftyScenarios": {
+    "results": [
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "makeAssertNode",
+            "limit": 200
+          },
+          "followup": "where is makeAssertNode defined and what does it do"
+        },
+        "fullResultTokens": 0,
+        "summaryTokens": 0,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "makeAssertNode"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseStatement",
+            "limit": 200
+          },
+          "followup": "where is parseStatement defined and what does it do"
+        },
+        "fullResultTokens": 1381,
+        "summaryTokens": 215,
+        "retrievedTokens": 251,
+        "savingsPercent": 66.2563359884142,
+        "retrievalMs": 5,
+        "accuracy": true,
+        "needle": "parseStatement"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "jsxReadToken",
+            "limit": 200
+          },
+          "followup": "where is jsxReadToken defined and what does it do"
+        },
+        "fullResultTokens": 42,
+        "summaryTokens": 42,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "jsxReadToken"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "finishToken",
+            "limit": 200
+          },
+          "followup": "where is finishToken defined and what does it do"
+        },
+        "fullResultTokens": 892,
+        "summaryTokens": 158,
+        "retrievedTokens": 225,
+        "savingsPercent": 57.06278026905829,
+        "retrievalMs": 3,
+        "accuracy": true,
+        "needle": "finishToken"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "nextToken",
+            "limit": 200
+          },
+          "followup": "where is nextToken defined and what does it do"
+        },
+        "fullResultTokens": 1451,
+        "summaryTokens": 200,
+        "retrievedTokens": 252,
+        "savingsPercent": 68.84906960716748,
+        "retrievalMs": 3,
+        "accuracy": true,
+        "needle": "nextToken"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseExpression",
+            "limit": 200
+          },
+          "followup": "where is parseExpression defined and what does it do"
+        },
+        "fullResultTokens": 1212,
+        "summaryTokens": 276,
+        "retrievedTokens": 306,
+        "savingsPercent": 51.98019801980198,
+        "retrievalMs": 3,
+        "accuracy": true,
+        "needle": "parseExpression"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseBlockBody",
+            "limit": 200
+          },
+          "followup": "where is parseBlockBody defined and what does it do"
+        },
+        "fullResultTokens": 107,
+        "summaryTokens": 107,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "parseBlockBody"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "expect",
+            "limit": 200
+          },
+          "followup": "where is expect defined and what does it do"
+        },
+        "fullResultTokens": 5375,
+        "summaryTokens": 332,
+        "retrievedTokens": 283,
+        "savingsPercent": 88.55813953488372,
+        "retrievalMs": 4,
+        "accuracy": true,
+        "needle": "expect"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "eat",
+            "limit": 200
+          },
+          "followup": "where is eat defined and what does it do"
+        },
+        "fullResultTokens": 5216,
+        "summaryTokens": 305,
+        "retrievedTokens": 210,
+        "savingsPercent": 90.12653374233128,
+        "retrievalMs": 4,
+        "accuracy": true,
+        "needle": "eat"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "UnexpectedToken",
+            "limit": 200
+          },
+          "followup": "where is UnexpectedToken defined and what does it do"
+        },
+        "fullResultTokens": 341,
+        "summaryTokens": 261,
+        "retrievedTokens": 285,
+        "savingsPercent": -60.11730205278592,
+        "retrievalMs": 6,
+        "accuracy": true,
+        "needle": "UnexpectedToken"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseIdentifier",
+            "limit": 200
+          },
+          "followup": "where is parseIdentifier defined and what does it do"
+        },
+        "fullResultTokens": 1955,
+        "summaryTokens": 260,
+        "retrievedTokens": 287,
+        "savingsPercent": 72.02046035805627,
+        "retrievalMs": 6,
+        "accuracy": true,
+        "needle": "parseIdentifier"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseFunctionDeclaration",
+            "limit": 200
+          },
+          "followup": "where is parseFunctionDeclaration defined and what does it do"
+        },
+        "fullResultTokens": 0,
+        "summaryTokens": 0,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "parseFunctionDeclaration"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseClassDeclaration",
+            "limit": 200
+          },
+          "followup": "where is parseClassDeclaration defined and what does it do"
+        },
+        "fullResultTokens": 0,
+        "summaryTokens": 0,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "parseClassDeclaration"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseVarStatement",
+            "limit": 200
+          },
+          "followup": "where is parseVarStatement defined and what does it do"
+        },
+        "fullResultTokens": 250,
+        "summaryTokens": 133,
+        "retrievedTokens": 252,
+        "savingsPercent": -54,
+        "retrievalMs": 4,
+        "accuracy": true,
+        "needle": "parseVarStatement"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseReturnStatement",
+            "limit": 200
+          },
+          "followup": "where is parseReturnStatement defined and what does it do"
+        },
+        "fullResultTokens": 61,
+        "summaryTokens": 61,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "parseReturnStatement"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseIfStatement",
+            "limit": 200
+          },
+          "followup": "where is parseIfStatement defined and what does it do"
+        },
+        "fullResultTokens": 57,
+        "summaryTokens": 57,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "parseIfStatement"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseWhileStatement",
+            "limit": 200
+          },
+          "followup": "where is parseWhileStatement defined and what does it do"
+        },
+        "fullResultTokens": 48,
+        "summaryTokens": 48,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "parseWhileStatement"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseForStatement",
+            "limit": 200
+          },
+          "followup": "where is parseForStatement defined and what does it do"
+        },
+        "fullResultTokens": 57,
+        "summaryTokens": 57,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "parseForStatement"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseImportDeclaration",
+            "limit": 200
+          },
+          "followup": "where is parseImportDeclaration defined and what does it do"
+        },
+        "fullResultTokens": 0,
+        "summaryTokens": 0,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "parseImportDeclaration"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseExportDeclaration",
+            "limit": 200
+          },
+          "followup": "where is parseExportDeclaration defined and what does it do"
+        },
+        "fullResultTokens": 631,
+        "summaryTokens": 203,
+        "retrievedTokens": 274,
+        "savingsPercent": 24.405705229793973,
+        "retrievalMs": 3,
+        "accuracy": true,
+        "needle": "parseExportDeclaration"
+      },
+      {
+        "scenario": {
+          "kind": "search_code",
+          "args": {
+            "query": "parseObjectProperty",
+            "limit": 200
+          },
+          "followup": "where is parseObjectProperty defined and what does it do"
+        },
+        "fullResultTokens": 148,
+        "summaryTokens": 148,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "parseObjectProperty"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/plugins/typescript/index.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/plugins/typescript/index.ts"
+        },
+        "fullResultTokens": 40225,
+        "summaryTokens": 65,
+        "retrievedTokens": 4055,
+        "savingsPercent": 89.75761342448726,
+        "retrievalMs": 10,
+        "accuracy": true,
+        "needle": "nonNull"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/plugins/flow/index.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/plugins/flow/index.ts"
+        },
+        "fullResultTokens": 31578,
+        "summaryTokens": 50,
+        "retrievedTokens": 4199,
+        "savingsPercent": 86.54442966622332,
+        "retrievalMs": 10,
+        "accuracy": true,
+        "needle": "parameter"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/parser/expression.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/parser/expression.ts"
+        },
+        "fullResultTokens": 24745,
+        "summaryTokens": 50,
+        "retrievedTokens": 4180,
+        "savingsPercent": 82.90563750252576,
+        "retrievalMs": 9,
+        "accuracy": true,
+        "needle": "expression"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/parser/statement.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/parser/statement.ts"
+        },
+        "fullResultTokens": 23609,
+        "summaryTokens": 65,
+        "retrievedTokens": 3978,
+        "savingsPercent": 82.87517472150451,
+        "retrievalMs": 4,
+        "accuracy": false,
+        "needle": "createExportedTokens"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/tokenizer/index.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/tokenizer/index.ts"
+        },
+        "fullResultTokens": 11718,
+        "summaryTokens": 54,
+        "retrievedTokens": 3633,
+        "savingsPercent": 68.53558627752176,
+        "retrievalMs": 5,
+        "accuracy": true,
+        "needle": "buildPosition"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/parser/lval.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/parser/lval.ts"
+        },
+        "fullResultTokens": 7178,
+        "summaryTokens": 57,
+        "retrievedTokens": 4337,
+        "savingsPercent": 38.785176929506825,
+        "retrievalMs": 7,
+        "accuracy": true,
+        "needle": "parameters"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/plugins/estree.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/plugins/estree.ts"
+        },
+        "fullResultTokens": 5489,
+        "summaryTokens": 53,
+        "retrievedTokens": 4339,
+        "savingsPercent": 19.985425396247038,
+        "retrievalMs": 5,
+        "accuracy": true,
+        "needle": "toESTreeLocation"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/plugins/jsx/index.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/plugins/jsx/index.ts"
+        },
+        "fullResultTokens": 5377,
+        "summaryTokens": 63,
+        "retrievedTokens": 3910,
+        "savingsPercent": 26.111214431839315,
+        "retrievalMs": 6,
+        "accuracy": true,
+        "needle": "isFragment"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/tokenizer/types.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/tokenizer/types.ts"
+        },
+        "fullResultTokens": 3849,
+        "summaryTokens": 51,
+        "retrievedTokens": 4132,
+        "savingsPercent": -8.677578591842039,
+        "retrievalMs": 7,
+        "accuracy": true,
+        "needle": "createKeyword"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/parse-error/standard-errors.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/parse-error/standard-errors.ts"
+        },
+        "fullResultTokens": 3759,
+        "summaryTokens": 56,
+        "retrievedTokens": 4700,
+        "savingsPercent": -26.523011439212564,
+        "retrievalMs": 5,
+        "accuracy": true,
+        "needle": "parameters"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/plugins/placeholders.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/plugins/placeholders.ts"
+        },
+        "fullResultTokens": 3682,
+        "summaryTokens": 68,
+        "retrievedTokens": 4228,
+        "savingsPercent": -16.675719717544823,
+        "retrievalMs": 11,
+        "accuracy": true,
+        "needle": "PlaceholdersParserMixin"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/parser/util.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/parser/util.ts"
+        },
+        "fullResultTokens": 2990,
+        "summaryTokens": 49,
+        "retrievedTokens": 3383,
+        "savingsPercent": -14.782608695652177,
+        "retrievalMs": 8,
+        "accuracy": true,
+        "needle": "UtilParser"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/options.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/options.ts"
+        },
+        "fullResultTokens": 2673,
+        "summaryTokens": 58,
+        "retrievedTokens": 3289,
+        "savingsPercent": -25.21511410400299,
+        "retrievalMs": 5,
+        "accuracy": true,
+        "needle": "createDefaultOptions"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/parse-error.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/parse-error.ts"
+        },
+        "fullResultTokens": 2539,
+        "summaryTokens": 57,
+        "retrievedTokens": 3129,
+        "savingsPercent": -25.4824734147302,
+        "retrievalMs": 5,
+        "accuracy": true,
+        "needle": "defineHidden"
+      },
+      {
+        "scenario": {
+          "kind": "read_file",
+          "args": {
+            "path": "packages/babel-parser/src/parser/comments.ts"
+          },
+          "followup": "what functions are defined in packages/babel-parser/src/parser/comments.ts"
+        },
+        "fullResultTokens": 2414,
+        "summaryTokens": 72,
+        "retrievedTokens": 3022,
+        "savingsPercent": -28.169014084507047,
+        "retrievalMs": 7,
+        "accuracy": true,
+        "needle": "setTrailingComments"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "function\\s+makeAssertNode",
+            "limit": 200
+          },
+          "followup": "find usage of function\\s+makeAssertNode in babel"
+        },
+        "fullResultTokens": 0,
+        "summaryTokens": 0,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "function"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "throw\\s+new",
+            "limit": 200
+          },
+          "followup": "find usage of throw\\s+new in babel"
+        },
+        "fullResultTokens": 588,
+        "summaryTokens": 64,
+        "retrievedTokens": 157,
+        "savingsPercent": 62.414965986394556,
+        "retrievalMs": 5,
+        "accuracy": true,
+        "needle": "throw"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "this\\.state\\.tokens",
+            "limit": 200
+          },
+          "followup": "find usage of this\\.state\\.tokens in babel"
+        },
+        "fullResultTokens": 67,
+        "summaryTokens": 67,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "this"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "this\\.eat",
+            "limit": 200
+          },
+          "followup": "find usage of this\\.eat in babel"
+        },
+        "fullResultTokens": 2916,
+        "summaryTokens": 78,
+        "retrievedTokens": 206,
+        "savingsPercent": 90.26063100137173,
+        "retrievalMs": 4,
+        "accuracy": true,
+        "needle": "this"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "this\\.expect",
+            "limit": 200
+          },
+          "followup": "find usage of this\\.expect in babel"
+        },
+        "fullResultTokens": 3655,
+        "summaryTokens": 78,
+        "retrievedTokens": 189,
+        "savingsPercent": 92.69493844049248,
+        "retrievalMs": 4,
+        "accuracy": true,
+        "needle": "this"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "nextToken\\(",
+            "limit": 200
+          },
+          "followup": "find usage of nextToken\\( in babel"
+        },
+        "fullResultTokens": 102,
+        "summaryTokens": 102,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "nextToken"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "parseExpression\\(",
+            "limit": 200
+          },
+          "followup": "find usage of parseExpression\\( in babel"
+        },
+        "fullResultTokens": 551,
+        "summaryTokens": 84,
+        "retrievedTokens": 271,
+        "savingsPercent": 35.57168784029038,
+        "retrievalMs": 5,
+        "accuracy": true,
+        "needle": "parseExpression"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "UnexpectedToken",
+            "limit": 200
+          },
+          "followup": "find usage of UnexpectedToken in babel"
+        },
+        "fullResultTokens": 292,
+        "summaryTokens": 87,
+        "retrievedTokens": 240,
+        "savingsPercent": -11.986301369863007,
+        "retrievalMs": 4,
+        "accuracy": true,
+        "needle": "UnexpectedToken"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "export\\s+function",
+            "limit": 200
+          },
+          "followup": "find usage of export\\s+function in babel"
+        },
+        "fullResultTokens": 1207,
+        "summaryTokens": 64,
+        "retrievedTokens": 224,
+        "savingsPercent": 76.13918806959403,
+        "retrievalMs": 7,
+        "accuracy": true,
+        "needle": "export"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "export\\s+const",
+            "limit": 200
+          },
+          "followup": "find usage of export\\s+const in babel"
+        },
+        "fullResultTokens": 680,
+        "summaryTokens": 74,
+        "retrievedTokens": 205,
+        "savingsPercent": 58.970588235294116,
+        "retrievalMs": 6,
+        "accuracy": true,
+        "needle": "export"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "export\\s+class",
+            "limit": 200
+          },
+          "followup": "find usage of export\\s+class in babel"
+        },
+        "fullResultTokens": 173,
+        "summaryTokens": 173,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "export"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "this\\.finishToken",
+            "limit": 200
+          },
+          "followup": "find usage of this\\.finishToken in babel"
+        },
+        "fullResultTokens": 750,
+        "summaryTokens": 80,
+        "retrievedTokens": 194,
+        "savingsPercent": 63.46666666666667,
+        "retrievalMs": 8,
+        "accuracy": true,
+        "needle": "this"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "tokenType\\.",
+            "limit": 200
+          },
+          "followup": "find usage of tokenType\\. in babel"
+        },
+        "fullResultTokens": 0,
+        "summaryTokens": 0,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "tokenType"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "charToToken",
+            "limit": 200
+          },
+          "followup": "find usage of charToToken in babel"
+        },
+        "fullResultTokens": 0,
+        "summaryTokens": 0,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "charToToken"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "isDigit",
+            "limit": 200
+          },
+          "followup": "find usage of isDigit in babel"
+        },
+        "fullResultTokens": 0,
+        "summaryTokens": 0,
+        "retrievedTokens": 0,
+        "savingsPercent": 0,
+        "retrievalMs": 0,
+        "accuracy": true,
+        "needle": "isDigit"
+      },
+      {
+        "scenario": {
+          "kind": "grep",
+          "args": {
+            "pattern": "isIdentifierStart",
+            "limit": 200
+          },
+          "followup": "find usage of isIdentifierStart in babel"
+        },
+        "fullResultTokens": 450,
+        "summaryTokens": 78,
+        "retrievedTokens": 215,
+        "savingsPercent": 34.88888888888889,
+        "retrievalMs": 5,
+        "accuracy": true,
+        "needle": "isIdentifierStart"
+      }
+    ],
+    "avgSavings": 24.18342139919645,
+    "accuracyRate": 0.9807692307692307,
+    "avgRetrievalMs": 5.676470588235294,
+    "pass": true,
+    "realisticSavings": 95.09284867641249,
+    "worstCaseSavings": 24.18342139919645,
+    "skipRate": 0.21153846153846154
+  },
+  "multiTurn": {
+    "turnCount": 100,
+    "toolCallCount": 50,
+    "finalMemoryBytes": 819862,
+    "finalTokenSavings": 98.1010896365227,
+    "retrievalCount": 10,
+    "hitRate": 1,
+    "overflow": false
+  },
+  "improperUsage": {
+    "fullResultAvailable": true,
+    "idFound": true
+  },
+  "unknown": {
+    "empty": true,
+    "missRecorded": true
+  },
+  "ship": true
+}

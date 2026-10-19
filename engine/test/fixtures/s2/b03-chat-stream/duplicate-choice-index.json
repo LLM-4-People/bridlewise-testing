@@ -1,0 +1,6 @@
+{
+  "frames": [
+    "data: {\"id\":\"chatcmpl-duplicate\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"created\":1770000002,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"first\"},\"finish_reason\":null},{\"index\":0,\"delta\":{\"content\":\"duplicate\"},\"finish_reason\":null}]}\n\n"
+  ],
+  "expectedError": "chat_choice_duplicate"
+}

@@ -1,0 +1,632 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/research/context/scenario-template.schema.json",
+  "title": "Deterministic adversarial context/memory scenario catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "catalog_version",
+    "generator_contract",
+    "distractor_pool",
+    "templates"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "catalog_version": { "const": "2.0.0" },
+    "generator_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id_algorithm", "directive_id_algorithm", "ordering", "horizons", "minimum_seeds"],
+      "properties": {
+        "id_algorithm": { "const": "sha256_v1" },
+        "directive_id_algorithm": { "const": "sha256_v1" },
+        "ordering": { "const": "position_then_declaration_order" },
+        "horizons": {
+          "type": "array",
+          "minItems": 4,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 25 }
+        },
+        "minimum_seeds": { "type": "integer", "minimum": 3 }
+      }
+    },
+    "distractor_pool": {
+      "type": "array",
+      "minItems": 8,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/distractor" }
+    },
+    "templates": {
+      "type": "array",
+      "minItems": 16,
+      "items": { "$ref": "#/$defs/template" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+      "maxLength": 120
+    },
+    "position": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sourceSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_byte", "end_byte", "span_sha256"],
+      "properties": {
+        "start_byte": { "type": "integer", "minimum": 0 },
+        "end_byte": { "type": "integer", "minimum": 1 },
+        "span_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "resolvedTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_kind", "scope_id", "resolution_event_symbol"],
+      "properties": {
+        "scope_kind": {
+          "enum": ["focus", "task", "subtask", "constraint", "fact", "plan", "project"]
+        },
+        "scope_id": { "$ref": "#/$defs/id" },
+        "resolution_event_symbol": { "$ref": "#/$defs/id" }
+      }
+    },
+    "directiveReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["directive_set_symbol", "ordinal"],
+      "properties": {
+        "directive_set_symbol": { "$ref": "#/$defs/id" },
+        "ordinal": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "directive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "kind", "source_spans", "target", "arguments"],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 0 },
+        "kind": {
+          "enum": ["replace", "augment", "reprioritize", "correct", "question", "pause", "cancel", "resume"]
+        },
+        "source_spans": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/sourceSpan" }
+        },
+        "target": { "$ref": "#/$defs/resolvedTarget" },
+        "arguments": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "enum": ["replace", "cancel"] } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["authorization_event_symbol"],
+                "properties": {
+                  "authorization_event_symbol": { "$ref": "#/$defs/id" }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "directiveSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_message_id",
+        "source_message_utf8",
+        "source_message_utf8_bytes",
+        "source_message_sha256",
+        "directives",
+        "unresolved_spans"
+      ],
+      "properties": {
+        "source_message_id": { "$ref": "#/$defs/id" },
+        "source_message_utf8": { "type": "string", "minLength": 1 },
+        "source_message_utf8_bytes": { "type": "integer", "minimum": 1 },
+        "source_message_sha256": { "$ref": "#/$defs/sha256" },
+        "directives": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/directive" }
+        },
+        "unresolved_spans": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sourceSpan" }
+        }
+      }
+    },
+    "focusDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "focus_id",
+        "disposition",
+        "source_event_symbol",
+        "causal_operation_id",
+        "expected_prior_revision",
+        "revision"
+      ],
+      "properties": {
+        "focus_id": { "$ref": "#/$defs/id" },
+        "disposition": {
+          "enum": ["active", "suspended", "blocked", "completed", "superseded", "cancelled", "abandoned"]
+        },
+        "source_event_symbol": { "$ref": "#/$defs/id" },
+        "causal_operation_id": {
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        },
+        "expected_prior_revision": { "type": "integer", "minimum": 0 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "reason": { "$ref": "#/$defs/id" }
+      }
+    },
+    "continuityTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "phase_ordinal",
+        "kind",
+        "phase",
+        "source_directive_refs",
+        "target",
+        "requires_quiescence",
+        "effect_authority",
+        "unknown_effect"
+      ],
+      "properties": {
+        "operation_id": { "$ref": "#/$defs/id" },
+        "phase_ordinal": { "type": "integer", "minimum": 0 },
+        "kind": {
+          "enum": ["replan", "change_priority", "interrupt", "resume", "supersede", "cancel", "alert"]
+        },
+        "phase": {
+          "enum": ["requested", "quiescing", "reconciling", "applied", "blocked_unknown_effect", "failed"]
+        },
+        "source_directive_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/directiveReference" }
+        },
+        "target": { "$ref": "#/$defs/resolvedTarget" },
+        "requires_quiescence": { "type": "boolean" },
+        "effect_authority": { "const": false },
+        "unknown_effect": { "type": "boolean" }
+      }
+    },
+    "observerOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "output_id",
+        "profile_id",
+        "kind",
+        "source_event_symbols",
+        "confidence",
+        "uncertainty",
+        "enforcement_eligible",
+        "effect_authority",
+        "mutation_authority",
+        "private_memory_authority",
+        "direct_peer_channel",
+        "task_state_changed"
+      ],
+      "properties": {
+        "output_id": { "$ref": "#/$defs/id" },
+        "profile_id": {
+          "enum": ["isolated_model_only_simulator", "hybrid_rules_and_small_model_proposal"]
+        },
+        "kind": {
+          "enum": [
+            "directive_set_concern",
+            "continuation_concern",
+            "abandonment_staleness_concern",
+            "alignment_concern"
+          ]
+        },
+        "source_event_symbols": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "uncertainty": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "enforcement_eligible": { "const": false },
+        "effect_authority": { "const": false },
+        "mutation_authority": { "const": false },
+        "private_memory_authority": { "const": false },
+        "direct_peer_channel": { "const": false },
+        "task_state_changed": { "const": false },
+        "alert_count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "tag": {
+      "enum": [
+        "protected_requirement",
+        "contradiction",
+        "supersession",
+        "negation",
+        "context_pressure",
+        "sudden_budget_reduction",
+        "failed_attempt",
+        "repository_change",
+        "stale_code",
+        "multi_hop",
+        "agent_conflict",
+        "write_conflict",
+        "delayed_event",
+        "duplicate_event",
+        "crash",
+        "recovery",
+        "summary_drift",
+        "malicious_memory",
+        "authority_spoof",
+        "lexical_dense",
+        "index_corruption",
+        "rebuild",
+        "missing_runtime",
+        "low_complexity",
+        "capability_epoch",
+        "activation_rollback",
+        "evidence_lineage",
+        "declared_omission",
+        "automatic_capture",
+        "capture_hook",
+        "change_trigger",
+        "risk_trigger",
+        "novelty_trigger",
+        "proactive_injection",
+        "on_demand_retrieval",
+        "hybrid_retrieval",
+        "memory_agent_topology",
+        "memory_agent_proposal",
+        "present_view",
+        "short_view",
+        "long_view",
+        "past_conversation_query",
+        "git_query",
+        "action_query",
+        "attempt_query",
+        "privacy",
+        "restart",
+        "physical_resource_set",
+        "semantic_resource_set",
+        "concurrent_read",
+        "disjoint_write",
+        "lease_ttl",
+        "heartbeat",
+        "fencing",
+        "deadlock",
+        "orphan_recovery",
+        "cas_drift",
+        "isolated_worktree",
+        "out_of_band_change",
+        "coord001_regression",
+        "incident_learning",
+        "permanent_regression",
+        "finding_deduplication",
+        "steering",
+        "augment",
+        "replace",
+        "reprioritize",
+        "correct",
+        "question",
+        "pause",
+        "cancel",
+        "resume",
+        "compound_directive",
+        "source_span",
+        "focus_disposition",
+        "transition_phase",
+        "interrupt_transition",
+        "quiescing",
+        "unknown_effect",
+        "focus_stack",
+        "automatic_resume",
+        "abandonment",
+        "nested_interrupt_transition",
+        "causal_constraint_merge",
+        "continuity_supervisor",
+        "observer_absent",
+        "observer_wrong",
+        "observer_noisy",
+        "observer_sanitization",
+        "observer_subscription",
+        "observer_backpressure",
+        "observer_replay",
+        "agent_interleaving",
+        "compaction_continuity",
+        "node_runtime",
+        "python_boundary",
+        "independent_oracle",
+        "engine_drift"
+      ]
+    },
+    "distractor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "text"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "$ref": "#/$defs/id" },
+        "text": { "type": "string", "minLength": 1 },
+        "similarity_keys": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "tags",
+        "allowed_agent_counts",
+        "default_agent_count",
+        "required_horizons",
+        "events",
+        "faults",
+        "queries"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "minLength": 1 },
+        "tags": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/tag" }
+        },
+        "allowed_agent_counts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0, "maximum": 5 }
+        },
+        "default_agent_count": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "required_horizons": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 25 }
+        },
+        "events": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/event" }
+        },
+        "faults": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fault" }
+        },
+        "queries": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/query" }
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "symbol",
+        "at",
+        "type",
+        "actor",
+        "agent_slot",
+        "repository_state_id",
+        "payload"
+      ],
+      "properties": {
+        "symbol": { "$ref": "#/$defs/id" },
+        "at": { "$ref": "#/$defs/position" },
+        "type": { "$ref": "#/$defs/id" },
+        "actor": {
+          "enum": [
+            "user",
+            "agent",
+            "scheduler",
+            "tool",
+            "repository",
+            "test",
+            "policy",
+            "untrusted_content",
+            "capability_manager",
+            "broker",
+            "memory_agent",
+            "continuity_supervisor",
+            "observer",
+            "runtime"
+          ]
+        },
+        "agent_slot": {
+          "oneOf": [
+            { "type": "integer", "minimum": 0, "maximum": 4 },
+            { "type": "null" }
+          ]
+        },
+        "repository_state_id": { "$ref": "#/$defs/id" },
+        "payload": { "type": "object" },
+        "directive_set": { "$ref": "#/$defs/directiveSet" },
+        "focus_disposition": { "$ref": "#/$defs/focusDisposition" },
+        "continuity_transition": { "$ref": "#/$defs/continuityTransition" },
+        "observer_output": { "$ref": "#/$defs/observerOutput" },
+        "causal_parent_symbols": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "fact": { "$ref": "#/$defs/fact" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "steering.directives_admitted" } }, "required": ["type"] },
+          "then": {
+            "required": ["directive_set"],
+            "properties": { "actor": { "const": "continuity_supervisor" } }
+          },
+          "else": { "not": { "required": ["directive_set"] } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "focus.disposition_recorded" } }, "required": ["type"] },
+          "then": {
+            "required": ["focus_disposition"],
+            "properties": { "actor": { "const": "continuity_supervisor" } }
+          },
+          "else": { "not": { "required": ["focus_disposition"] } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "continuity.transition" } }, "required": ["type"] },
+          "then": {
+            "required": ["continuity_transition"],
+            "properties": { "actor": { "const": "continuity_supervisor" } }
+          },
+          "else": { "not": { "required": ["continuity_transition"] } }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "enum": ["observer.proposal", "observer.alert_batch"] }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["observer_output"],
+            "properties": { "actor": { "const": "observer" } }
+          },
+          "else": { "not": { "required": ["observer_output"] } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "observer.alert_batch" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "observer_output": { "required": ["alert_count"] }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "observer.proposal" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "observer_output": { "not": { "required": ["alert_count"] } }
+            }
+          }
+        }
+      ]
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value", "protected", "authority", "valid"],
+      "properties": {
+        "key": { "$ref": "#/$defs/id" },
+        "value": {},
+        "protected": { "type": "boolean" },
+        "authority": {
+          "enum": ["user", "policy", "test", "repository", "agent", "untrusted"]
+        },
+        "valid": { "type": "boolean" },
+        "supersedes_symbols": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    },
+    "fault": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "at", "type", "payload"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "at": { "$ref": "#/$defs/position" },
+        "type": { "$ref": "#/$defs/id" },
+        "payload": { "type": "object" }
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "at", "action", "oracle", "metrics"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "at": { "$ref": "#/$defs/position" },
+        "action": { "type": "string", "minLength": 1 },
+        "oracle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "must_use_symbols",
+            "must_not_use_symbols",
+            "required_behaviors",
+            "forbidden_behaviors",
+            "expected_state"
+          ],
+          "properties": {
+            "must_use_symbols": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/id" }
+            },
+            "must_not_use_symbols": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/id" }
+            },
+            "required_behaviors": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/id" }
+            },
+            "forbidden_behaviors": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/id" }
+            },
+            "expected_state": { "type": "object" }
+          }
+        },
+        "metrics": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/schemas/secret-span-result/v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "authorReceiptSha256",
+    "authorReceiptPinVerified",
+    "protocolSha256",
+    "corpusSetSha256",
+    "repetitions",
+    "corpora",
+    "fixtureCount",
+    "coverage",
+    "atRestInspection",
+    "exactFalsePositive",
+    "resourceEnforcement",
+    "candidateResults",
+    "regexProfile",
+    "productionDisposition",
+    "repositoryAdmission",
+    "independentReviewAccepted",
+    "rawCanariesPersisted"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "bridlewise-secret-span-result/v3" },
+    "status": { "const": "measured-synthetic-foundation-not-production-qualification" },
+    "authorReceiptSha256": { "$ref": "#/$defs/sha256" },
+    "authorReceiptPinVerified": { "const": true },
+    "protocolSha256": { "$ref": "#/$defs/sha256" },
+    "corpusSetSha256": { "$ref": "#/$defs/sha256" },
+    "repetitions": { "const": 3 },
+    "corpora": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/corpus" }
+    },
+    "fixtureCount": { "type": "integer", "minimum": 24 },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "atRestInspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "derivedFromExternallyPinnedArtifactUniverse",
+        "rawSyntheticCanaryOccurrences",
+        "benchmarkArtifactAdmissionSignalFiles",
+        "pinnedExternalUnresolvedAdmissionSignalFiles",
+        "unresolvedExternalSignalBlocksAdmission"
+      ],
+      "properties": {
+        "derivedFromExternallyPinnedArtifactUniverse": { "const": true },
+        "rawSyntheticCanaryOccurrences": { "const": 0 },
+        "benchmarkArtifactAdmissionSignalFiles": { "const": 0 },
+        "pinnedExternalUnresolvedAdmissionSignalFiles": { "const": 1 },
+        "unresolvedExternalSignalBlocksAdmission": { "const": true }
+      }
+    },
+    "exactFalsePositive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exactSourceLineBytesReproduced",
+        "oracleSecretSpanCount",
+        "currentCatalogCredentialAssignmentPositive"
+      ],
+      "properties": {
+        "exactSourceLineBytesReproduced": { "const": true },
+        "oracleSecretSpanCount": { "const": 0 },
+        "currentCatalogCredentialAssignmentPositive": { "const": true }
+      }
+    },
+    "resourceEnforcement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "isolatedWorkerPerDetection",
+        "maximumFixtureBytes",
+        "maximumProposedSpansPerFixture",
+        "maximumDetectionMilliseconds",
+        "maximumWorkerStdoutBytes",
+        "maximumWorkerStderrBytes",
+        "workerHeapMegabytes",
+        "workerStackMegabytes",
+        "cancellationSignalSupported",
+        "mainExecArgvBound",
+        "workerExecArgvBound",
+        "workerStdoutCapturedBoundedAndScanned",
+        "workerStderrCapturedBoundedAndScanned",
+        "candidateExecutionTrust",
+        "ambientEgressBoundaryQualified",
+        "newCandidateExecutionReady"
+      ],
+      "properties": {
+        "isolatedWorkerPerDetection": { "const": true },
+        "maximumFixtureBytes": { "const": 65536 },
+        "maximumProposedSpansPerFixture": { "const": 128 },
+        "maximumDetectionMilliseconds": { "const": 1000 },
+        "maximumWorkerStdoutBytes": { "const": 4096 },
+        "maximumWorkerStderrBytes": { "const": 4096 },
+        "workerHeapMegabytes": { "const": 64 },
+        "workerStackMegabytes": { "const": 4 },
+        "cancellationSignalSupported": { "const": true },
+        "mainExecArgvBound": { "const": true },
+        "workerExecArgvBound": { "const": true },
+        "workerStdoutCapturedBoundedAndScanned": { "const": true },
+        "workerStderrCapturedBoundedAndScanned": { "const": true },
+        "candidateExecutionTrust": { "const": "frozen-trusted-built-in-candidates-only" },
+        "ambientEgressBoundaryQualified": { "const": false },
+        "newCandidateExecutionReady": { "const": false }
+      }
+    },
+    "candidateResults": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/candidateResult" }
+    },
+    "regexProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason", "denialCasesRecorded"],
+      "properties": {
+        "status": { "const": "unqualified-disabled" },
+        "reason": { "const": "no bounded regex engine and approved feature profile has admitted hostile evidence" },
+        "denialCasesRecorded": { "const": 6 }
+      }
+    },
+    "productionDisposition": { "const": "unchanged-blocked-no-candidate-qualified-for-shared-production-span-api" },
+    "repositoryAdmission": { "const": false },
+    "independentReviewAccepted": { "const": false },
+    "rawCanariesPersisted": { "const": false }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "corpus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sha256", "fixtureCount"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "fixtureCount": { "type": "integer", "minimum": 8, "maximum": 64 }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "corpora",
+        "fixtures",
+        "positiveSecretFixturesByCorpus",
+        "safeNegativeFixtures",
+        "invalidUtf8Fixtures",
+        "parserFixtures",
+        "safeNameTokens",
+        "carrierClasses"
+      ],
+      "properties": {
+        "corpora": { "const": 3 },
+        "fixtures": { "type": "integer", "minimum": 24 },
+        "positiveSecretFixturesByCorpus": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["adversarial-boundaries", "encoded-and-multiline", "syntax-and-negatives"],
+          "properties": {
+            "adversarial-boundaries": { "type": "integer", "minimum": 3 },
+            "encoded-and-multiline": { "type": "integer", "minimum": 3 },
+            "syntax-and-negatives": { "type": "integer", "minimum": 3 }
+          }
+        },
+        "safeNegativeFixtures": { "type": "integer", "minimum": 6 },
+        "invalidUtf8Fixtures": { "type": "integer", "minimum": 1 },
+        "parserFixtures": { "type": "integer", "minimum": 6 },
+        "safeNameTokens": { "type": "integer", "minimum": 20 },
+        "carrierClasses": {
+          "type": "array",
+          "minItems": 13,
+          "maxItems": 13,
+          "prefixItems": [
+            { "const": "adjacent" },
+            { "const": "assignment" },
+            { "const": "authorization-header" },
+            { "const": "encoded" },
+            { "const": "error-text" },
+            { "const": "invalid-utf8" },
+            { "const": "multiline" },
+            { "const": "overlap" },
+            { "const": "private-key-body" },
+            { "const": "provider-prefix" },
+            { "const": "safe-negative" },
+            { "const": "split-generated" },
+            { "const": "url" }
+          ],
+          "items": false
+        }
+      }
+    },
+    "candidateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "mechanismIdentity",
+        "status",
+        "exactSpanPrecision",
+        "exactSpanRecall",
+        "falseRedactionCount",
+        "publicSurfaceCanaryOccurrences",
+        "pageBoundaryCanaryOccurrences",
+        "safeFragmentPreservation",
+        "safeByteSkeletonPreservation",
+        "parserValidity",
+        "safeNameMultisetPreservation",
+        "redactionMultiplicity",
+        "lineCountPreservation",
+        "paginationReconstruction",
+        "invalidUtf8Blocks",
+        "candidateExceptions",
+        "resourceBudgetViolations",
+        "proposedSpanDenominatorPositive",
+        "deterministicAcrossRepetitions",
+        "failedFloors"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+        "mechanismIdentity": { "$ref": "#/$defs/sha256" },
+        "status": { "const": "not-qualified" },
+        "exactSpanPrecision": { "$ref": "#/$defs/ratio" },
+        "exactSpanRecall": { "$ref": "#/$defs/ratio" },
+        "falseRedactionCount": { "type": "integer", "minimum": 0 },
+        "publicSurfaceCanaryOccurrences": { "type": "integer", "minimum": 0 },
+        "pageBoundaryCanaryOccurrences": { "type": "integer", "minimum": 0 },
+        "safeFragmentPreservation": { "$ref": "#/$defs/ratio" },
+        "safeByteSkeletonPreservation": { "$ref": "#/$defs/ratio" },
+        "parserValidity": { "$ref": "#/$defs/ratio" },
+        "safeNameMultisetPreservation": { "$ref": "#/$defs/ratio" },
+        "redactionMultiplicity": { "$ref": "#/$defs/ratio" },
+        "lineCountPreservation": { "$ref": "#/$defs/ratio" },
+        "paginationReconstruction": { "$ref": "#/$defs/ratio" },
+        "invalidUtf8Blocks": { "$ref": "#/$defs/ratio" },
+        "candidateExceptions": { "type": "integer", "minimum": 0 },
+        "resourceBudgetViolations": { "type": "integer", "minimum": 0 },
+        "proposedSpanDenominatorPositive": { "type": "boolean" },
+        "deterministicAcrossRepetitions": { "type": "boolean" },
+        "failedFloors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "exactSpanPrecision",
+              "exactSpanRecall",
+              "falseRedactionCount",
+              "publicSurfaceCanaryOccurrences",
+              "pageBoundaryCanaryOccurrences",
+              "safeFragmentPreservation",
+              "safeByteSkeletonPreservation",
+              "parserValidity",
+              "safeNameMultisetPreservation",
+              "redactionMultiplicity",
+              "lineCountPreservation",
+              "paginationReconstruction",
+              "invalidUtf8Blocks",
+              "candidateExceptions",
+              "resourceBudgetViolations",
+              "proposedSpanDenominatorPositive",
+              "deterministicAcrossRepetitions",
+              "realProjectEvidence",
+              "independentReview",
+              "streamingProfile",
+              "regexProfile"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "frames": [
+    "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_original\",\"object\":\"response\",\"status\":\"in_progress\",\"model\":\"contract-model\"}}\n\n",
+    "event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_mutated\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"contract-model\"}}\n\n"
+  ],
+  "expectedError": "responses_identity_changed"
+}

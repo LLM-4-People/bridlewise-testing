@@ -1,0 +1,6 @@
+{
+  "frames": [
+    "data: [DONE]\n\n"
+  ],
+  "expectedError": "stream_done_out_of_order"
+}

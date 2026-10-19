@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/schemas/git-qualification-candidate-exchange-v1.json",
+  "title": "Candidate request/result exchange",
+  "oneOf": [{ "$ref": "#/$defs/request" }, { "$ref": "#/$defs/result" }],
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "kind", "runId", "scenarioId", "repetition", "variant", "idempotencyKey", "paths", "authority", "preState", "allowedEffects", "fault", "capabilities"],
+      "properties": {
+        "protocolVersion": { "const": "bridlewise-git-candidate-exchange/v1" },
+        "kind": { "const": "request" },
+        "runId": { "type": "string", "pattern": "^[a-z0-9-]{16,128}$" },
+        "scenarioId": { "type": "string", "pattern": "^GIT-[A-Z]+-[0-9]{3}$" },
+        "repetition": { "type": "integer", "minimum": 1 },
+        "variant": { "type": "string", "minLength": 1 },
+        "idempotencyKey": { "$ref": "#/$defs/hash" },
+        "paths": {
+          "type": "object", "additionalProperties": false, "required": ["caseRoot", "workspace", "allowedWriteRoots"],
+          "properties": {
+            "caseRoot": { "type": "string", "pattern": "^/" },
+            "workspace": { "type": "string", "pattern": "^/" },
+            "allowedWriteRoots": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^/" } }
+          }
+        },
+        "authority": {
+          "type": "object", "additionalProperties": false,
+          "required": ["configurationSchemaOwner", "configurationDocumentSha256", "workspaceGitJsonPointer", "scopedViewSha256", "rootPolicySha256"],
+          "properties": {
+            "configurationSchemaOwner": { "const": "src/config-contracts.ts#CONFIG_DOCUMENT_SCHEMA" },
+            "configurationDocumentSha256": { "$ref": "#/$defs/hash" },
+            "workspaceGitJsonPointer": { "const": "/workspaceGit" },
+            "scopedViewSha256": { "$ref": "#/$defs/hash" },
+            "rootPolicySha256": { "$ref": "#/$defs/hash" },
+            "syntheticScopedView": { "description": "Opaque qualification input; field authority remains with the central schema owner.", "type": ["object", "null"] }
+          }
+        },
+        "preState": {
+          "type": "object", "additionalProperties": false, "required": ["oracleVersion", "graphSha256", "filesystemSha256"],
+          "properties": {
+            "oracleVersion": { "const": "independent-git-filesystem-oracle/v1" },
+            "graphSha256": { "$ref": "#/$defs/hash" },
+            "filesystemSha256": { "$ref": "#/$defs/hash" }
+          }
+        },
+        "allowedEffects": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" } },
+        "fault": {
+          "type": "object", "additionalProperties": false, "required": ["class", "boundary"],
+          "properties": {
+            "class": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+            "boundary": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" }
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["id", "opaqueReference", "scope"],
+            "properties": {
+              "id": { "type": "string" },
+              "opaqueReference": { "type": "string", "pattern": "^qualification-handle:[a-f0-9]{16,64}$" },
+              "scope": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "kind", "runId", "outcome", "planSha256", "eventStreamSha256", "residualState"],
+      "properties": {
+        "protocolVersion": { "const": "bridlewise-git-candidate-exchange/v1" },
+        "kind": { "const": "result" },
+        "runId": { "type": "string", "pattern": "^[a-z0-9-]{16,128}$" },
+        "outcome": { "enum": ["completed", "blocked", "failed", "cancelled", "ambiguous", "compensated"] },
+        "planSha256": { "$ref": "#/$defs/hash" },
+        "eventStreamSha256": { "$ref": "#/$defs/hash" },
+        "residualState": { "type": "string", "maxLength": 4096 },
+        "claimedPostStateSha256": { "$ref": "#/$defs/hash" }
+      }
+    }
+  }
+}

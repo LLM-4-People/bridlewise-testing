@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/schemas/qualification-authority-inventory/v5",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "authorityOwner",
+    "generator",
+    "parserBoundary",
+    "sourceSurface",
+    "moduleGraph",
+    "consumerInventory",
+    "leaseInventory",
+    "violations",
+    "inventoryIdentity"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "bridlewise-qualification-authority-inventory/v5"},
+    "status": {"enum": ["compiled-current", "blocked"]},
+    "authorityOwner": {"const": "verification/benchmarks/shared/qualification-authority.mjs"},
+    "generator": {"$ref": "#/$defs/generator"},
+    "parserBoundary": {"$ref": "#/$defs/parserBoundary"},
+    "sourceSurface": {"$ref": "#/$defs/sourceSurface"},
+    "moduleGraph": {"$ref": "#/$defs/moduleGraph"},
+    "consumerInventory": {"$ref": "#/$defs/consumerInventory"},
+    "leaseInventory": {"type": "array", "items": {"$ref": "#/$defs/leaseRecord"}},
+    "violations": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "inventoryIdentity": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fileRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "byteLength", "sha256"],
+      "properties": {
+        "relativePath": {"type": "string", "minLength": 1},
+        "byteLength": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startByte", "endByte", "startLine", "startColumn", "endLine", "endColumn"],
+      "properties": {
+        "startByte": {"type": "integer", "minimum": 0},
+        "endByte": {"type": "integer", "minimum": 0},
+        "startLine": {"type": "integer", "minimum": 1},
+        "startColumn": {"type": "integer", "minimum": 0},
+        "endLine": {"type": "integer", "minimum": 1},
+        "endColumn": {"type": "integer", "minimum": 0}
+      }
+    },
+    "importAttribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "value": {"type": "string"}
+      }
+    },
+    "resolutionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "normalizedPattern", "candidateDomainCount", "candidateDomainIdentity", "matchCount"],
+      "properties": {
+        "method": {"const": "unique-portable-suffix-over-complete-module-domain"},
+        "normalizedPattern": {"type": "string", "minLength": 1},
+        "candidateDomainCount": {"type": "integer", "minimum": 1},
+        "candidateDomainIdentity": {"$ref": "#/$defs/sha256"},
+        "matchCount": {"type": "integer", "minimum": 0}
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "kind", "specifier", "resolution", "target", "attributes", "span"],
+      "properties": {
+        "from": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["static-import", "side-effect-import", "named-reexport", "barrel-export-all", "dynamic-import", "require", "require-resolve"]},
+        "specifier": {"type": ["string", "null"]},
+        "resolution": {"enum": ["internal", "external", "missing", "ambiguous", "invalid", "outside-repository", "unresolved-expression", "internal-pattern"]},
+        "target": {"type": ["string", "null"]},
+        "attributes": {"type": "array", "items": {"$ref": "#/$defs/importAttribute"}},
+        "span": {"$ref": "#/$defs/span"},
+        "resolutionEvidence": {"$ref": "#/$defs/resolutionEvidence"}
+      }
+    },
+    "environmentAccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "form", "span"],
+      "properties": {
+        "name": {"type": ["string", "null"]},
+        "form": {"enum": ["destructure", "computed-member", "member"]},
+        "span": {"$ref": "#/$defs/span"}
+      }
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath"],
+      "properties": {
+        "relativePath": {"const": "verification/benchmarks/shared/qualification-authority-inventory.mjs"}
+      }
+    },
+    "sourceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "originClass", "moduleDisposition", "dispositionReason", "byteLength", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "originClass": {"enum": ["installed-third-party", "evidence-snapshot", "vendored-source", "first-party-nonproduction", "first-party-production", "repository-auxiliary"]},
+        "moduleDisposition": {"enum": ["executable-first-party-module", "non-executable-carrier"]},
+        "dispositionReason": {"type": "string", "minLength": 1},
+        "byteLength": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "moduleRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "originClass", "byteLength", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "originClass": {"enum": ["first-party-production", "first-party-nonproduction"]},
+        "byteLength": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "parserBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "originClass", "packageName", "version", "licenseExpression", "packagePath", "packageJson", "resolvedEntry", "license", "rootPackage", "rootLock", "installedLock", "installedPackage", "parserOptions", "parserBoundaryIdentity"],
+      "properties": {
+        "schemaVersion": {"const": "bridlewise-qualification-parser-boundary/v1"},
+        "originClass": {"const": "installed-development-dependency"},
+        "packageName": {"const": "@babel/parser"},
+        "version": {"type": "string", "minLength": 1},
+        "licenseExpression": {"type": "string", "minLength": 1},
+        "packagePath": {"type": "string", "minLength": 1},
+        "packageJson": {"$ref": "#/$defs/fileRecord"},
+        "resolvedEntry": {"$ref": "#/$defs/fileRecord"},
+        "license": {"$ref": "#/$defs/fileRecord"},
+        "rootPackage": {"$ref": "#/$defs/fileRecord"},
+        "rootLock": {"$ref": "#/$defs/fileRecord"},
+        "installedLock": {"$ref": "#/$defs/fileRecord"},
+        "installedPackage": {"$ref": "#/$defs/installedPackage"},
+        "parserOptions": {"$ref": "#/$defs/parserOptions"},
+        "parserBoundaryIdentity": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "installedPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fileCount", "byteLength", "treeIdentity"],
+      "properties": {
+        "fileCount": {"type": "integer", "minimum": 1},
+        "byteLength": {"type": "integer", "minimum": 1},
+        "treeIdentity": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "parserOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceType", "errorRecovery", "attachComment", "ranges", "tokens", "createImportExpressions"],
+      "properties": {
+        "sourceType": {"const": "unambiguous"},
+        "errorRecovery": {"const": false},
+        "attachComment": {"const": false},
+        "ranges": {"const": true},
+        "tokens": {"const": false},
+        "createImportExpressions": {"const": true}
+      }
+    },
+    "sourceSurface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceCount", "productionSourceCount", "nonproductionSourceCount", "executableSourceCount", "nonExecutableCarrierCount", "sourcesIdentity", "sources"],
+      "properties": {
+        "sourceCount": {"type": "integer", "minimum": 1},
+        "productionSourceCount": {"type": "integer", "minimum": 0},
+        "nonproductionSourceCount": {"type": "integer", "minimum": 0},
+        "executableSourceCount": {"type": "integer", "minimum": 0},
+        "nonExecutableCarrierCount": {"type": "integer", "minimum": 0},
+        "sourcesIdentity": {"$ref": "#/$defs/sha256"},
+        "sources": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/sourceRecord"},
+          "minItems": {"$data": "1/sourceCount"},
+          "maxItems": {"$data": "1/sourceCount"}
+        }
+      }
+    },
+    "moduleGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["moduleCount", "modulesIdentity", "modules", "edgeCount", "edgesIdentity", "edges", "unresolvedDynamicEdges"],
+      "properties": {
+        "moduleCount": {"type": "integer", "minimum": 0},
+        "modulesIdentity": {"$ref": "#/$defs/sha256"},
+        "modules": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/moduleRecord"},
+          "minItems": {"$data": "1/moduleCount"},
+          "maxItems": {"$data": "1/moduleCount"}
+        },
+        "edgeCount": {"type": "integer", "minimum": 0},
+        "edgesIdentity": {"$ref": "#/$defs/sha256"},
+        "edges": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/edge"},
+          "minItems": {"$data": "1/edgeCount"},
+          "maxItems": {"$data": "1/edgeCount"}
+        },
+        "unresolvedDynamicEdges": {"type": "array", "items": {"$ref": "#/$defs/edge"}}
+      }
+    },
+    "consumerModule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "originClass", "entrypoint", "directAuthorityEdge", "directContractEdge", "environmentAccesses"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "originClass": {"enum": ["first-party-production", "first-party-nonproduction"]},
+        "entrypoint": {"type": "boolean"},
+        "directAuthorityEdge": {"type": "boolean"},
+        "directContractEdge": {"type": "boolean"},
+        "environmentAccesses": {"type": "array", "items": {"$ref": "#/$defs/environmentAccess"}}
+      }
+    },
+    "consumerInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modules", "edges"],
+      "properties": {
+        "modules": {"type": "array", "items": {"$ref": "#/$defs/consumerModule"}},
+        "edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}}
+      }
+    },
+    "protocolCohort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaPointer", "instancePointerPattern", "requiredFields"],
+      "properties": {
+        "schemaPointer": {"type": "string", "minLength": 1},
+        "instancePointerPattern": {"type": "string"},
+        "requiredFields": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "leaseDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modulePath", "localName"],
+      "properties": {
+        "modulePath": {"type": "string", "minLength": 1},
+        "localName": {"type": "string", "minLength": 1}
+      }
+    },
+    "leaseUse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modulePath", "span"],
+      "properties": {
+        "modulePath": {"type": "string", "minLength": 1},
+        "span": {"$ref": "#/$defs/span"}
+      }
+    },
+    "receiptSchemaRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "trustBaseJsonPointer"],
+      "properties": {
+        "relativePath": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "trustBaseJsonPointer": {"type": "string", "pattern": "^/(?:[^~/]|~[01])+(?:/(?:[^~/]|~[01])+)*$"}
+      }
+    },
+    "fieldInfluence": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": {"type": "string", "minLength": 1},
+        "uniqueItems": true
+      }
+    },
+    "environmentAccessWithModule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modulePath", "name", "form", "span"],
+      "properties": {
+        "modulePath": {"type": "string", "minLength": 1},
+        "name": {"type": ["string", "null"]},
+        "form": {"enum": ["destructure", "computed-member", "member"]},
+        "span": {"$ref": "#/$defs/span"}
+      }
+    },
+    "environmentBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "names", "accesses"],
+      "properties": {
+        "mode": {"const": "compiled-source-accesses"},
+        "names": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "accesses": {"type": "array", "items": {"$ref": "#/$defs/environmentAccessWithModule"}}
+      }
+    },
+    "leaseRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leaseId", "leaseIdentity", "declaration", "requiredUseCardinality", "uses", "rootPackages", "receiptSchema", "protocolCohorts", "fieldInfluence", "environmentBindings"],
+      "properties": {
+        "leaseId": {"type": "string", "minLength": 1},
+        "leaseIdentity": {"$ref": "#/$defs/sha256"},
+        "declaration": {"$ref": "#/$defs/leaseDeclaration"},
+        "requiredUseCardinality": {"type": "integer", "minimum": 1},
+        "uses": {"type": "array", "items": {"$ref": "#/$defs/leaseUse"}},
+        "rootPackages": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "receiptSchema": {"$ref": "#/$defs/receiptSchemaRef"},
+        "protocolCohorts": {"type": "array", "items": {"$ref": "#/$defs/protocolCohort"}},
+        "fieldInfluence": {"$ref": "#/$defs/fieldInfluence"},
+        "environmentBindings": {"$ref": "#/$defs/environmentBindings"}
+      }
+    }
+  }
+}

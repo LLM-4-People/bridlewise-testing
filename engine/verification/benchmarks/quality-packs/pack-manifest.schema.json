@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.local/schemas/quality-pack-manifest.schema.json",
+  "title": "Code Harness Quality Pack Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "version",
+    "displayName",
+    "languages",
+    "selection",
+    "stages",
+    "tools",
+    "checks",
+    "suppressionPolicy",
+    "fixtureSuites",
+    "artifactPolicy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "id": { "$ref": "#/$defs/id" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$" },
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string", "maxLength": 1000 },
+    "languages": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
+    },
+    "selection": { "$ref": "#/$defs/selection" },
+    "existingConfigPolicy": {
+      "type": "string",
+      "enum": ["require-reuse", "prefer-reuse", "isolated-generated-config"]
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/stage" }
+    },
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/tool" }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "suppressionPolicy": { "$ref": "#/$defs/suppressionPolicy" },
+    "fixtureSuites": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/fixtureSuite" }
+    },
+    "artifactPolicy": { "$ref": "#/$defs/artifactPolicy" },
+    "cacheKeyInputs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "tool-digest",
+          "tool-version",
+          "runtime-version",
+          "lockfile-hash",
+          "config-hash",
+          "source-hash",
+          "environment-contract",
+          "stage-mode"
+        ]
+      }
+    },
+    "resourceDefaults": { "$ref": "#/$defs/resources" },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["networkDefault", "shellDefault", "writeScopeDefault"],
+      "properties": {
+        "networkDefault": { "enum": ["deny", "advisory-db-only", "allow"] },
+        "shellDefault": { "enum": ["deny", "allow-declared"] },
+        "writeScopeDefault": { "enum": ["none", "artifacts-only", "workspace"] },
+        "redactEnvironmentPatterns": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "metadata": { "type": "object" }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$", "maxLength": 100 },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["include", "exclude", "respectIgnoreFiles"],
+      "properties": {
+        "include": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "exclude": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "respectIgnoreFiles": { "type": "boolean" },
+        "entrypoints": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "generatedCodeMarkers": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "mode", "checkIds", "blocking", "resources"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "mode": { "enum": ["fast", "incremental", "full", "holdout"] },
+        "checkIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "blocking": { "type": "boolean" },
+        "changedFileSource": { "enum": ["explicit", "git-diff", "all"] },
+        "resources": { "$ref": "#/$defs/resources" }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timeoutMs", "outputBytes", "concurrency"],
+      "properties": {
+        "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 86400000 },
+        "outputBytes": { "type": "integer", "minimum": 1024, "maximum": 1073741824 },
+        "concurrency": { "type": "integer", "minimum": 1, "maximum": 256 },
+        "memoryMiB": { "type": "integer", "minimum": 16 },
+        "cpuTimeMs": { "type": "integer", "minimum": 100 }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "license",
+        "source",
+        "availability",
+        "command",
+        "output",
+        "permissions"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "version": { "type": "string", "minLength": 1 },
+        "license": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "availability": { "enum": ["required-existing", "optional-existing", "provisioned-pinned", "research-only"] },
+        "command": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["executable", "args", "cwd"],
+          "properties": {
+            "executable": { "type": "string", "minLength": 1 },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "cwd": { "type": "string", "minLength": 1 },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        },
+        "configDiscovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "knownFiles": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "reuse": { "type": "boolean" },
+            "resolvedConfigCapture": { "type": "boolean" }
+          }
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "stream", "parser"],
+          "properties": {
+            "format": { "enum": ["json", "jsonl", "sarif", "junit", "tap", "lcov", "xml", "text", "custom"] },
+            "stream": { "enum": ["stdout", "stderr", "file", "directory"] },
+            "parser": { "$ref": "#/$defs/id" },
+            "path": { "type": "string" }
+          }
+        },
+        "permissions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["network", "writeScope", "shell"],
+          "properties": {
+            "network": { "enum": ["deny", "advisory-db-only", "allow"] },
+            "writeScope": { "enum": ["none", "cache", "artifacts", "workspace"] },
+            "shell": { "type": "boolean" }
+          }
+        },
+        "notes": { "type": "string", "maxLength": 1000 }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "toolId", "categories", "determinism", "gate"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "toolId": { "$ref": "#/$defs/id" },
+        "categories": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "diagnostic.schema.json#/$defs/category" }
+        },
+        "determinism": { "enum": ["deterministic", "seeded", "heuristic", "external-snapshot"] },
+        "gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimumSeverity", "minimumConfidence", "toolErrorFails"],
+          "properties": {
+            "minimumSeverity": { "enum": ["note", "warning", "error", "critical"] },
+            "minimumConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
+            "toolErrorFails": { "type": "boolean" },
+            "maximumCount": { "type": "integer", "minimum": 0 },
+            "minimumMutationScore": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "baseline": { "enum": ["none", "compare-fingerprint", "ratchet-only"] },
+        "autofix": { "enum": ["disabled", "preview", "safe-only", "explicit"] }
+      }
+    },
+    "suppressionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requireOwner", "requireReason", "requireExpiry", "maximumDays", "allowFileWide"],
+      "properties": {
+        "requireOwner": { "const": true },
+        "requireReason": { "const": true },
+        "requireExpiry": { "const": true },
+        "maximumDays": { "type": "integer", "minimum": 1, "maximum": 365 },
+        "allowFileWide": { "type": "boolean" },
+        "allowedSources": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["central-baseline", "inline", "generated-code", "tool-config"] }
+        }
+      }
+    },
+    "fixtureSuite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "catalog", "minimumScenariosPerCategory", "frozenHoldout"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "catalog": { "type": "string", "minLength": 1 },
+        "minimumScenariosPerCategory": { "type": "integer", "minimum": 3 },
+        "frozenHoldout": { "type": "boolean" },
+        "requiredCategories": {
+          "type": "array",
+          "items": { "$ref": "diagnostic.schema.json#/$defs/category" }
+        }
+      }
+    },
+    "artifactPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "retainRaw", "hashAlgorithm", "toolErrorsAreFailures", "truncateAfterBytes"],
+      "properties": {
+        "root": { "type": "string", "minLength": 1 },
+        "retainRaw": { "type": "boolean" },
+        "hashAlgorithm": { "const": "sha256" },
+        "toolErrorsAreFailures": { "const": true },
+        "truncateAfterBytes": { "type": "integer", "minimum": 1024 },
+        "retentionDays": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

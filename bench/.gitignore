@@ -1,0 +1,42 @@
+# Bench ARTEFACTS are never committed — only the harness that produces them.
+#
+# EVERY DOT-DIRECTORY HERE IS AN ARTEFACT DIRECTORY, AND THAT IS THE RULE
+# RATHER THAN A LIST OF THE THREE WE HAPPENED TO KNOW ABOUT.
+#
+# The list was `/.fixtures/`, `/.out/` and `/.scratch/`, and it was correct
+# about all three. It was also a list, so it could only defend the names
+# somebody had already met: `.after1/` and `.baseline/` — 26 run reports, the
+# same shape as `.out/`'s, written by the same command into a directory nobody
+# had named here — were committed with `git status` clean throughout. Neither
+# was a new KIND of file. Both were the same artefact under a name the rule did
+# not carry, and the next one will be too, because the person copying a report
+# aside is naming a moment ("after change 1"), not a category.
+#
+# So the rule names the SHAPE. A dot-directory at the bench root is scratch by
+# construction — the harness itself is the `.bench.ts` files, `fixtures/`,
+# `lib/`, `wire/`, `run.ts` and `bench-config.ts`, none of which are hidden.
+# Deny by default: a new artefact directory is ignored the day it appears,
+# because nobody had to remember to come back here.
+/.*/
+
+# WHAT THIS DELIBERATELY STILL ALLOWS. A report kept on purpose for regression
+# diffing is a NAMED FILE, committed deliberately, carrying the machine
+# conditions the report records — `bench/run.ts --baseline <path>` takes one
+# report path, never a directory. That spelling is unaffected by the rule
+# above, and it is the only one that makes a kept baseline reviewable: a
+# reviewer sees one file with a name that says why it was kept, instead of a
+# directory of thirteen whose name says when.
+#
+# WHAT THE IGNORED DIRECTORIES ARE, for a reader who meets them:
+#   .fixtures/  generated scale databases (the `heavy` profile is ~2 GB),
+#               reproducible from bench/fixtures/scale.ts with a fixed seed —
+#               gigabytes to carry what a 20-second command regenerates
+#               byte-identically.
+#   .out/       run reports. A report is a measurement of ONE machine at ONE
+#               moment; committing it invites comparing numbers taken under
+#               different conditions, which is the error this harness exists
+#               to prevent.
+#   .scratch/   disposable copies of fixture databases plus the pidfiles and
+#               logs of the servers bench/wire/load.ts starts. They are
+#               mutated by the server under test, so a stale copy would make a
+#               later run measure the previous run's writes.

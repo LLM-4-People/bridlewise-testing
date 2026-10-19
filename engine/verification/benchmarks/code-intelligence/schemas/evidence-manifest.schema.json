@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.local/schemas/code-intelligence/evidence-manifest.v2.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "evidenceSetId", "scope", "protocolSha256", "policyBundleSha256", "createdAt", "objects", "objectSetSha256", "sanitizationReceiptSha256", "complete"],
+  "properties": {
+    "schemaVersion": {"const": "code-intelligence-evidence-manifest/v2"},
+    "evidenceSetId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,80}$"},
+    "scope": {"enum": ["foundation", "resolution", "run", "admission"]},
+    "protocolSha256": {"$ref": "#/$defs/sha256Nonzero"},
+    "policyBundleSha256": {"$ref": "#/$defs/sha256Nonzero"},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "objects": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["kind", "sha256", "bytes", "path", "mediaType", "raw", "sourceSha256"],
+        "properties": {
+          "kind": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "bytes": {"type": "integer", "minimum": 1},
+          "path": {"type": "string", "pattern": "^traceability/evidence/research/code-intelligence/sets/[a-z0-9][a-z0-9-]{2,80}/objects/sha256/[a-f0-9]{2}/[a-f0-9]{64}\\.(json|txt|bin)$"},
+          "mediaType": {"enum": ["application/json", "text/plain", "application/octet-stream"]},
+          "raw": {"type": "boolean"}, "sourceSha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "objectSetSha256": {"$ref": "#/$defs/sha256"},
+    "sanitizationReceiptSha256": {"$ref": "#/$defs/sha256"},
+    "complete": {"const": true}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "sha256Nonzero": {"type": "string", "pattern": "^(?!0{64})[a-f0-9]{64}$"}
+  }
+}

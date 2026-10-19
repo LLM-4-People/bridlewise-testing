@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "bridlewise-secret-span-corpus/v2",
+  "id": "encoded-and-multiline",
+  "purpose": "Encoded, multiline, generated, Unicode-adjacent and repeated carriers that defeat line-only or plain-literal scanning.",
+  "fixtures": [
+    {
+      "id": "YAML-BLOCK-001",
+      "carrierClass": "multiline",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "session_token: |\n  " },
+        { "kind": "secret", "secretId": "session", "carrier": "yaml-block" },
+        { "kind": "text", "value": "\nnext: safe\n" }
+      ],
+      "requiredSafeFragments": ["session_token: |\n  ", "\nnext: safe\n"]
+    },
+    {
+      "id": "JSON-ESCAPED-001",
+      "carrierClass": "encoded",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "{\"api_key\":\"" },
+        { "kind": "secret", "secretId": "provider", "carrier": "json-unicode-escaped" },
+        { "kind": "text", "value": "\"}\n" }
+      ],
+      "requiredSafeFragments": ["{\"api_key\":\"", "\"}\n"]
+    },
+    {
+      "id": "BASE64-CARRIER-001",
+      "carrierClass": "encoded",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "encoded_session = \"" },
+        { "kind": "secret", "secretId": "session", "carrier": "base64" },
+        { "kind": "text", "value": "\"\n" }
+      ],
+      "requiredSafeFragments": ["encoded_session = \"", "\"\n"]
+    },
+    {
+      "id": "URL-ENCODED-001",
+      "carrierClass": "encoded",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "credential=" },
+        { "kind": "secret", "secretId": "makora", "carrier": "url-encoded" },
+        { "kind": "text", "value": "&mode=test\n" }
+      ],
+      "requiredSafeFragments": ["credential=", "&mode=test\n"]
+    },
+    {
+      "id": "JS-SPLIT-001",
+      "carrierClass": "split-generated",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "const apiKey = " },
+        { "kind": "secret", "secretId": "provider", "carrier": "js-concatenated" },
+        { "kind": "text", "value": ";\n" }
+      ],
+      "requiredSafeFragments": ["const apiKey = ", "\" + \"", ";\n"]
+    },
+    {
+      "id": "PRIVATE-KEY-BODY-001",
+      "carrierClass": "private-key-body",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "-----BEGIN PRIVATE " },
+        { "kind": "text", "value": "KEY-----\n" },
+        { "kind": "secret", "secretId": "private-body", "carrier": "private-key-lines" },
+        { "kind": "text", "value": "\n-----END PRIVATE " },
+        { "kind": "text", "value": "KEY-----\n" }
+      ],
+      "requiredSafeFragments": ["-----BEGIN PRIVATE ", "KEY-----", "-----END PRIVATE "]
+    },
+    {
+      "id": "UNICODE-OFFSETS-001",
+      "carrierClass": "assignment",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "const cléApi = \"" },
+        { "kind": "secret", "secretId": "provider", "carrier": "plain" },
+        { "kind": "text", "value": "\"; // café 保持\n" }
+      ],
+      "requiredSafeFragments": ["const cléApi = \"", "\"; // café 保持\n"]
+    },
+    {
+      "id": "MULTIPLE-SAME-001",
+      "carrierClass": "adjacent",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "first=" },
+        { "kind": "secret", "secretId": "makora", "carrier": "plain" },
+        { "kind": "text", "value": " second=" },
+        { "kind": "secret", "secretId": "makora", "carrier": "plain" },
+        { "kind": "text", "value": "\n" }
+      ],
+      "requiredSafeFragments": ["first=", " second=", "\n"]
+    },
+    {
+      "id": "CRLF-STRUCTURE-001",
+      "carrierClass": "assignment",
+      "expectedDisposition": "sanitized",
+      "fragments": [
+        { "kind": "text", "value": "password=\"" },
+        { "kind": "secret", "secretId": "password", "carrier": "plain" },
+        { "kind": "text", "value": "\"\r\nnext=safe\r\n" }
+      ],
+      "requiredSafeFragments": ["password=\"", "\"\r\nnext=safe\r\n"]
+    }
+  ]
+}

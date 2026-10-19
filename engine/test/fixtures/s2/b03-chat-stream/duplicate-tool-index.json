@@ -1,0 +1,6 @@
+{
+  "frames": [
+    "data: {\"id\":\"chatcmpl-tool-index\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_one\",\"type\":\"function\",\"function\":{\"name\":\"first\",\"arguments\":\"{\"}},{\"index\":0,\"id\":\"call_two\",\"type\":\"function\",\"function\":{\"name\":\"second\",\"arguments\":\"}\"}}]},\"finish_reason\":null}]}\n\n"
+  ],
+  "expectedError": "tool_delta_index_duplicate"
+}

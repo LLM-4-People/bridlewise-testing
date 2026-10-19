@@ -1,0 +1,8 @@
+{
+  "protocol": "openai-chat-completions",
+  "frames": [
+    "data: {\"error\":{\"code\":\"quota_exceeded\",\"message\":\"sensitive provider detail\",\"provider_trace\":\"trace-123\"}}\n\n"
+  ],
+  "expectedTypes": ["start", "error"],
+  "expectedErrorCode": "quota_exceeded"
+}

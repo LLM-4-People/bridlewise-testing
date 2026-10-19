@@ -1,0 +1,2638 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schemas/chep-1.0/harness-eval-matrix.schema.json",
+  "title": "CHEP-1.0 deterministic coding-harness evaluation matrix",
+  "description": "Strict structural schema for the preregistered provider-neutral coding-harness matrix. Cross-record cardinality, referential integrity, deterministic allocation, and hash recomputation are mandatory semantic-validator checks listed in semantic_invariants.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "protocol_id",
+    "matrix_id",
+    "created_at",
+    "matrix_state",
+    "preregistration",
+    "generator",
+    "endpoint_profile",
+    "models",
+    "sampling",
+    "repetitions_per_model_test_cell",
+    "target_unique_scored_scenarios",
+    "phases",
+    "projects",
+    "scenarios",
+    "prompt_variants",
+    "budget_policies",
+    "fault_profiles",
+    "conditions",
+    "tests",
+    "cells",
+    "semantic_invariants",
+    "matrix_payload_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "protocol_id": {
+      "const": "CHEP-1.0"
+    },
+    "matrix_id": {
+      "$ref": "#/$defs/matrixId"
+    },
+    "created_at": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "matrix_state": {
+      "enum": [
+        "preregistered",
+        "frozen",
+        "executing",
+        "complete"
+      ]
+    },
+    "preregistration": {
+      "$ref": "#/$defs/preregistration"
+    },
+    "generator": {
+      "$ref": "#/$defs/generator"
+    },
+    "endpoint_profile": {
+      "$ref": "#/$defs/endpointProfile"
+    },
+    "models": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "const": "google/gemma-4-26B-A4B"
+        },
+        {
+          "const": "zai-org/GLM-5.2-NVFP4"
+        }
+      ],
+      "items": false
+    },
+    "sampling": {
+      "$ref": "#/$defs/sampling"
+    },
+    "repetitions_per_model_test_cell": {
+      "const": 3
+    },
+    "target_unique_scored_scenarios": {
+      "const": 1024
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/phaseP0"
+        },
+        {
+          "$ref": "#/$defs/phaseP1"
+        },
+        {
+          "$ref": "#/$defs/phaseP2"
+        },
+        {
+          "$ref": "#/$defs/phaseP3"
+        }
+      ],
+      "items": false
+    },
+    "projects": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/project"
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1088,
+      "maxItems": 1088,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/scenario"
+      }
+    },
+    "prompt_variants": {
+      "type": "array",
+      "minItems": 1088,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/promptVariant"
+      }
+    },
+    "budget_policies": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/budgetPolicy"
+      }
+    },
+    "fault_profiles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/faultProfile"
+      }
+    },
+    "conditions": {
+      "type": "array",
+      "minItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/condition"
+      }
+    },
+    "tests": {
+      "type": "array",
+      "minItems": 3072,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/test"
+      }
+    },
+    "cells": {
+      "type": "array",
+      "minItems": 6144,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/cell"
+      }
+    },
+    "semantic_invariants": {
+      "$ref": "#/$defs/semanticInvariants"
+    },
+    "matrix_payload_sha256": {
+      "description": "SHA-256 of RFC 8785 JCS for the matrix with this property omitted.",
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "ociDigest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifactUri": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?:artifact:|oci:|https://|s3://|file:/|sealed:).+$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "uri",
+        "sha256",
+        "media_type",
+        "size_bytes",
+        "access_class"
+      ],
+      "properties": {
+        "uri": {
+          "$ref": "#/$defs/artifactUri"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "media_type": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "access_class": {
+          "enum": [
+            "public",
+            "restricted",
+            "sealed-holdout"
+          ]
+        }
+      }
+    },
+    "matrixId": {
+      "type": "string",
+      "pattern": "^mtx_[0-9a-f]{64}$"
+    },
+    "projectId": {
+      "type": "string",
+      "pattern": "^prj_[0-9a-f]{64}$"
+    },
+    "scenarioId": {
+      "type": "string",
+      "pattern": "^scn_[0-9a-f]{64}$"
+    },
+    "promptVariantId": {
+      "type": "string",
+      "pattern": "^prm_[0-9a-f]{64}$"
+    },
+    "budgetPolicyId": {
+      "type": "string",
+      "pattern": "^bdg_[0-9a-f]{64}$"
+    },
+    "faultProfileId": {
+      "type": "string",
+      "pattern": "^flt_[0-9a-f]{64}$"
+    },
+    "conditionId": {
+      "type": "string",
+      "pattern": "^cnd_[0-9a-f]{64}$"
+    },
+    "testId": {
+      "type": "string",
+      "pattern": "^tst_[0-9a-f]{64}$"
+    },
+    "cellId": {
+      "type": "string",
+      "pattern": "^cel_[0-9a-f]{64}$"
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^run_[0-9a-f]{64}$"
+    },
+    "blockId": {
+      "type": "string",
+      "pattern": "^blk_[0-9a-f]{64}$"
+    },
+    "reviewerId": {
+      "type": "string",
+      "pattern": "^rev_[A-Za-z0-9._-]{3,128}$"
+    },
+    "modelId": {
+      "enum": [
+        "google/gemma-4-26B-A4B",
+        "zai-org/GLM-5.2-NVFP4"
+      ]
+    },
+    "phaseName": {
+      "enum": [
+        "P0-shakedown",
+        "P1-baseline",
+        "P2-development",
+        "P3-holdout"
+      ]
+    },
+    "preregistration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "uri",
+        "sha256",
+        "registered_at",
+        "amendments"
+      ],
+      "properties": {
+        "uri": {
+          "$ref": "#/$defs/artifactUri"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "registered_at": {
+          "$ref": "#/$defs/dateTime"
+        },
+        "amendments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "amendment_id",
+              "registered_at",
+              "artifact",
+              "outcome_blind"
+            ],
+            "properties": {
+              "amendment_id": {
+                "type": "string",
+                "pattern": "^amd_[0-9a-f]{64}$"
+              },
+              "registered_at": {
+                "$ref": "#/$defs/dateTime"
+              },
+              "artifact": {
+                "$ref": "#/$defs/artifact"
+              },
+              "outcome_blind": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generator_version",
+        "algorithm",
+        "master_seed_hex",
+        "canonicalization",
+        "hash_algorithm",
+        "unicode_normalization",
+        "line_endings",
+        "implementation_artifact",
+        "semantic_validator_artifact"
+      ],
+      "properties": {
+        "generator_version": {
+          "const": "CHEP-GEN-1.0"
+        },
+        "algorithm": {
+          "const": "CHEP-1.0 section 19 normative deterministic allocation"
+        },
+        "master_seed_hex": {
+          "const": "4825f13e3c194ca6dc53f8127d9000ed5658a202abe188058750c325f952da3d"
+        },
+        "canonicalization": {
+          "const": "RFC8785-JCS"
+        },
+        "hash_algorithm": {
+          "const": "SHA-256"
+        },
+        "unicode_normalization": {
+          "const": "NFC"
+        },
+        "line_endings": {
+          "const": "LF"
+        },
+        "implementation_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "semantic_validator_artifact": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "endpointProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_neutral_core",
+        "adapter_protocol",
+        "base_url_binding",
+        "makora_runtime_target",
+        "credentials_in_matrix",
+        "authorization_log_policy",
+        "exact_model_string_required",
+        "model_fallback_allowed",
+        "capability_probe_required",
+        "capture_returned_model",
+        "capture_backend_fingerprint"
+      ],
+      "properties": {
+        "provider_neutral_core": {
+          "const": true
+        },
+        "adapter_protocol": {
+          "const": "openai-compatible-v1"
+        },
+        "base_url_binding": {
+          "const": "late-bound"
+        },
+        "makora_runtime_target": {
+          "const": "https://inference.makora.com/v1"
+        },
+        "credentials_in_matrix": {
+          "const": false
+        },
+        "authorization_log_policy": {
+          "const": "omit-and-record-typed-redaction"
+        },
+        "exact_model_string_required": {
+          "const": true
+        },
+        "model_fallback_allowed": {
+          "const": false
+        },
+        "capability_probe_required": {
+          "const": true
+        },
+        "capture_returned_model": {
+          "const": true
+        },
+        "capture_backend_fingerprint": {
+          "const": true
+        }
+      }
+    },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "temperature",
+        "seed_policy",
+        "top_p_policy",
+        "adaptive_reasoning_policy",
+        "max_output_tokens",
+        "request_cache"
+      ],
+      "properties": {
+        "temperature": {
+          "type": "number",
+          "const": 0
+        },
+        "seed_policy": {
+          "const": "one-cell-seed-shared-by-three-runs-if-supported"
+        },
+        "top_p_policy": {
+          "enum": [
+            "exactly-1-if-supported",
+            "omit-for-all-arms"
+          ]
+        },
+        "top_p": {
+          "type": "number",
+          "const": 1
+        },
+        "adaptive_reasoning_policy": {
+          "const": "disabled-or-omitted-uniformly"
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "frequency_penalty": {
+          "type": "number",
+          "const": 0
+        },
+        "presence_penalty": {
+          "type": "number",
+          "const": 0
+        },
+        "request_cache": {
+          "const": false
+        }
+      }
+    },
+    "phaseBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "unique_scenario_count",
+        "counted_toward_target",
+        "outcome_use",
+        "holdout",
+        "tuning_allowed"
+      ],
+      "properties": {
+        "phase": {
+          "$ref": "#/$defs/phaseName"
+        },
+        "unique_scenario_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "counted_toward_target": {
+          "type": "boolean"
+        },
+        "outcome_use": {
+          "enum": [
+            "retired-infrastructure-only",
+            "baseline-characterization",
+            "development-tuning",
+            "sealed-confirmatory"
+          ]
+        },
+        "holdout": {
+          "type": "boolean"
+        },
+        "tuning_allowed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "phaseP0": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/phaseBase"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "phase": {
+              "const": "P0-shakedown"
+            },
+            "unique_scenario_count": {
+              "const": 64
+            },
+            "counted_toward_target": {
+              "const": false
+            },
+            "outcome_use": {
+              "const": "retired-infrastructure-only"
+            },
+            "holdout": {
+              "const": false
+            },
+            "tuning_allowed": {
+              "const": false
+            }
+          }
+        }
+      ]
+    },
+    "phaseP1": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/phaseBase"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "phase": {
+              "const": "P1-baseline"
+            },
+            "unique_scenario_count": {
+              "const": 512
+            },
+            "counted_toward_target": {
+              "const": true
+            },
+            "outcome_use": {
+              "const": "baseline-characterization"
+            },
+            "holdout": {
+              "const": false
+            },
+            "tuning_allowed": {
+              "const": false
+            }
+          }
+        }
+      ]
+    },
+    "phaseP2": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/phaseBase"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "phase": {
+              "const": "P2-development"
+            },
+            "unique_scenario_count": {
+              "const": 256
+            },
+            "counted_toward_target": {
+              "const": true
+            },
+            "outcome_use": {
+              "const": "development-tuning"
+            },
+            "holdout": {
+              "const": false
+            },
+            "tuning_allowed": {
+              "const": true
+            }
+          }
+        }
+      ]
+    },
+    "phaseP3": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/phaseBase"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "phase": {
+              "const": "P3-holdout"
+            },
+            "unique_scenario_count": {
+              "const": 256
+            },
+            "counted_toward_target": {
+              "const": true
+            },
+            "outcome_use": {
+              "const": "sealed-confirmatory"
+            },
+            "holdout": {
+              "const": true
+            },
+            "tuning_allowed": {
+              "const": false
+            }
+          }
+        }
+      ]
+    },
+    "licenseRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "declared_spdx_expression",
+        "concluded_spdx_expression",
+        "license_artifacts",
+        "basis",
+        "redistribution_reviewed"
+      ],
+      "properties": {
+        "declared_spdx_expression": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "concluded_spdx_expression": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "license_artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/artifact"
+          }
+        },
+        "basis": {
+          "enum": [
+            "OSI-approved",
+            "explicit-written-permission",
+            "OSI-approved-and-explicit-permission"
+          ]
+        },
+        "redistribution_reviewed": {
+          "const": true
+        },
+        "permission_artifact": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "display_name",
+        "canonical_repository_url",
+        "owner_at_collection",
+        "license",
+        "primary_language_family",
+        "organization_group",
+        "content_hash",
+        "contamination_risk",
+        "failure_prone"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/projectId"
+        },
+        "display_name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "canonical_repository_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "owner_at_collection": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "license": {
+          "$ref": "#/$defs/licenseRecord"
+        },
+        "primary_language_family": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "organization_group": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "contamination_risk": {
+          "$ref": "#/$defs/contaminationRisk"
+        },
+        "failure_prone": {
+          "type": "boolean"
+        }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "git_commit",
+        "git_tree_sha256",
+        "source_archive",
+        "task_image_digest",
+        "verifier_image_digest",
+        "platform_os",
+        "platform_arch",
+        "dependency_lock_artifacts",
+        "sbom",
+        "network_default"
+      ],
+      "properties": {
+        "git_commit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "git_tree_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_archive": {
+          "$ref": "#/$defs/artifact"
+        },
+        "task_image_digest": {
+          "$ref": "#/$defs/ociDigest"
+        },
+        "verifier_image_digest": {
+          "$ref": "#/$defs/ociDigest"
+        },
+        "platform_os": {
+          "enum": [
+            "linux",
+            "windows"
+          ]
+        },
+        "platform_arch": {
+          "enum": [
+            "amd64",
+            "arm64"
+          ]
+        },
+        "submodule_commits": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/gitCommit"
+          }
+        },
+        "dependency_lock_artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/artifact"
+          }
+        },
+        "sbom": {
+          "$ref": "#/$defs/artifact"
+        },
+        "network_default": {
+          "const": "deny"
+        },
+        "runtime_versions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        }
+      }
+    },
+    "reviewLabel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer_id",
+        "prompt_sufficiency_severity",
+        "oracle_fairness_severity",
+        "environment_severity",
+        "license_severity",
+        "approved",
+        "review_artifact"
+      ],
+      "properties": {
+        "reviewer_id": {
+          "$ref": "#/$defs/reviewerId"
+        },
+        "prompt_sufficiency_severity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "oracle_fairness_severity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "environment_severity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "license_severity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "approved": {
+          "type": "boolean"
+        },
+        "review_artifact": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "threeReviews": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/reviewLabel"
+        },
+        {
+          "$ref": "#/$defs/reviewLabel"
+        },
+        {
+          "$ref": "#/$defs/reviewLabel"
+        }
+      ],
+      "items": false
+    },
+    "humanBaseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseliner_id",
+        "qualified",
+        "completed",
+        "duration_seconds",
+        "evidence_artifact"
+      ],
+      "properties": {
+        "baseliner_id": {
+          "type": "string",
+          "pattern": "^hum_[A-Za-z0-9._-]{3,128}$"
+        },
+        "qualified": {
+          "const": true
+        },
+        "completed": {
+          "type": "boolean"
+        },
+        "duration_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "evidence_artifact": {
+          "$ref": "#/$defs/artifact"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "completed": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "duration_seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "difficulty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "band",
+        "method",
+        "geometric_mean_success_seconds",
+        "human_baselines"
+      ],
+      "properties": {
+        "band": {
+          "enum": [
+            "tiny",
+            "small",
+            "medium",
+            "large",
+            "highly_complex"
+          ]
+        },
+        "method": {
+          "enum": [
+            "geometric-mean-of-at-least-two-successes",
+            "expert-estimate-fewer-than-two-successes"
+          ]
+        },
+        "geometric_mean_success_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "expert_estimate_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "human_baselines": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/humanBaseline"
+          }
+        }
+      }
+    },
+    "taxonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_task_family",
+        "secondary_task_families",
+        "language_family",
+        "ecosystem",
+        "repository_size_loc",
+        "repository_file_count",
+        "estimated_components_touched",
+        "multi_service",
+        "polyglot"
+      ],
+      "properties": {
+        "primary_task_family": {
+          "enum": [
+            "bug-fix",
+            "feature-api",
+            "refactor-preservation",
+            "performance-memory",
+            "security",
+            "concurrency-distributed",
+            "dependency-language-framework-migration",
+            "build-packaging-ci-deployment-config",
+            "database-data-pipeline",
+            "frontend-ui-accessibility",
+            "systems-embedded-os",
+            "tests-flake-repair",
+            "documentation-executable-spec",
+            "repository-scale-design-change"
+          ]
+        },
+        "secondary_task_families": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "language_family": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "ecosystem": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "repository_size_loc": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "repository_file_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "estimated_components_touched": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "multi_service": {
+          "type": "boolean"
+        },
+        "polyglot": {
+          "type": "boolean"
+        }
+      }
+    },
+    "taskRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_stream",
+        "source_created_at",
+        "task_text_source",
+        "oracle_solution",
+        "oracle_author_independent",
+        "real_project_work",
+        "post_resolution_leakage_removed"
+      ],
+      "properties": {
+        "source_stream": {
+          "enum": [
+            "fresh-public",
+            "embargoed-maintainer",
+            "commissioned-real-project",
+            "established-public-diagnostic"
+          ]
+        },
+        "source_created_at": {
+          "$ref": "#/$defs/dateTime"
+        },
+        "source_issue_or_request_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "source_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "task_text_source": {
+          "$ref": "#/$defs/artifact"
+        },
+        "oracle_solution": {
+          "$ref": "#/$defs/artifact"
+        },
+        "oracle_author_independent": {
+          "const": true
+        },
+        "real_project_work": {
+          "const": true
+        },
+        "post_resolution_leakage_removed": {
+          "const": true
+        }
+      }
+    },
+    "controlCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "control_id",
+        "kind",
+        "command_artifact",
+        "expected_outcome",
+        "clean_repetitions",
+        "unexplained_variance_allowed"
+      ],
+      "properties": {
+        "control_id": {
+          "type": "string",
+          "pattern": "^ctl_[0-9a-f]{64}$"
+        },
+        "kind": {
+          "enum": [
+            "base-fail-to-pass",
+            "base-pass-to-pass",
+            "oracle-all-pass",
+            "integrity-anti-gaming",
+            "resource-margin",
+            "determinism"
+          ]
+        },
+        "command_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "expected_outcome": {
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        },
+        "clean_repetitions": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "unexplained_variance_allowed": {
+          "const": false
+        }
+      }
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verifier_artifact",
+        "hidden_tests_artifact",
+        "scorer_artifact",
+        "functional_execution",
+        "keyword_matching_primary",
+        "separate_inaccessible_verifier",
+        "network_required",
+        "controls",
+        "alternate_solutions_reviewed",
+        "mutation_and_anti_gaming_checks"
+      ],
+      "properties": {
+        "verifier_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "hidden_tests_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "scorer_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "functional_execution": {
+          "const": true
+        },
+        "keyword_matching_primary": {
+          "const": false
+        },
+        "separate_inaccessible_verifier": {
+          "const": true
+        },
+        "network_required": {
+          "const": false
+        },
+        "controls": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "$ref": "#/$defs/controlCheck"
+          }
+        },
+        "alternate_solutions_reviewed": {
+          "const": true
+        },
+        "mutation_and_anti_gaming_checks": {
+          "const": true
+        }
+      }
+    },
+    "holdoutRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "is_holdout",
+        "access_class",
+        "tuning_access_prohibited",
+        "near_duplicate_check_artifact",
+        "retire_after_unseal"
+      ],
+      "properties": {
+        "is_holdout": {
+          "type": "boolean"
+        },
+        "access_class": {
+          "enum": [
+            "development",
+            "sealed-holdout",
+            "retired-shakedown"
+          ]
+        },
+        "tuning_access_prohibited": {
+          "type": "boolean"
+        },
+        "near_duplicate_check_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "retire_after_unseal": {
+          "const": true
+        }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario_id",
+        "phase",
+        "scored",
+        "project_id",
+        "snapshot",
+        "task",
+        "taxonomy",
+        "difficulty",
+        "verifier",
+        "reviews",
+        "holdout",
+        "eligible_prompt_kinds",
+        "content_hash",
+        "hidden_oracles",
+        "contamination_risk"
+      ],
+      "properties": {
+        "scenario_id": {
+          "$ref": "#/$defs/scenarioId"
+        },
+        "phase": {
+          "$ref": "#/$defs/phaseName"
+        },
+        "scored": {
+          "type": "boolean"
+        },
+        "project_id": {
+          "$ref": "#/$defs/projectId"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "task": {
+          "$ref": "#/$defs/taskRecord"
+        },
+        "taxonomy": {
+          "$ref": "#/$defs/taxonomy"
+        },
+        "difficulty": {
+          "$ref": "#/$defs/difficulty"
+        },
+        "verifier": {
+          "$ref": "#/$defs/verifier"
+        },
+        "reviews": {
+          "$ref": "#/$defs/threeReviews"
+        },
+        "holdout": {
+          "$ref": "#/$defs/holdoutRecord"
+        },
+        "eligible_prompt_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/promptKind"
+          }
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "hidden_oracles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/hiddenOracle"
+          }
+        },
+        "contamination_risk": {
+          "$ref": "#/$defs/contaminationRisk"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "P0-shakedown"
+              }
+            },
+            "required": [
+              "phase"
+            ]
+          },
+          "then": {
+            "properties": {
+              "scored": {
+                "const": false
+              },
+              "holdout": {
+                "properties": {
+                  "is_holdout": {
+                    "const": false
+                  },
+                  "access_class": {
+                    "const": "retired-shakedown"
+                  },
+                  "tuning_access_prohibited": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "scored": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "P3-holdout"
+              }
+            },
+            "required": [
+              "phase"
+            ]
+          },
+          "then": {
+            "properties": {
+              "holdout": {
+                "properties": {
+                  "is_holdout": {
+                    "const": true
+                  },
+                  "access_class": {
+                    "const": "sealed-holdout"
+                  },
+                  "tuning_access_prohibited": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "holdout": {
+                "properties": {
+                  "is_holdout": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "promptKind": {
+      "enum": [
+        "original",
+        "normalized",
+        "paraphrase",
+        "contextual",
+        "noisy",
+        "clarification"
+      ]
+    },
+    "promptVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompt_variant_id",
+        "scenario_id",
+        "kind",
+        "content_artifact",
+        "provenance_diff_artifact",
+        "semantic_equivalence_reviews",
+        "model_under_test_used_in_creation",
+        "adaptive_dialogue",
+        "content_hash"
+      ],
+      "properties": {
+        "prompt_variant_id": {
+          "$ref": "#/$defs/promptVariantId"
+        },
+        "scenario_id": {
+          "$ref": "#/$defs/scenarioId"
+        },
+        "kind": {
+          "$ref": "#/$defs/promptKind"
+        },
+        "content_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "provenance_diff_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "semantic_equivalence_reviews": {
+          "$ref": "#/$defs/threeReviews"
+        },
+        "scripted_clarification_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "model_under_test_used_in_creation": {
+          "const": false
+        },
+        "adaptive_dialogue": {
+          "const": false
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "clarification"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "scripted_clarification_artifact"
+            ]
+          }
+        }
+      ]
+    },
+    "budgetPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "budget_policy_id",
+        "mode",
+        "total_model_tokens",
+        "wall_time_seconds",
+        "max_model_calls",
+        "max_tool_calls",
+        "cpu_count",
+        "memory_bytes",
+        "disk_bytes",
+        "tool_output_bytes_per_call",
+        "network_policy",
+        "verifier_time_seconds",
+        "oracle_safety_margin_recorded",
+        "content_hash"
+      ],
+      "properties": {
+        "budget_policy_id": {
+          "$ref": "#/$defs/budgetPolicyId"
+        },
+        "mode": {
+          "enum": [
+            "resource-equalized-primary",
+            "native-scale-secondary"
+          ]
+        },
+        "total_model_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "wall_time_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_model_calls": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_tool_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cpu_count": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "memory_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "disk_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tool_output_bytes_per_call": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "network_policy": {
+          "const": "deny-except-fixture-local"
+        },
+        "verifier_time_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "oracle_safety_margin_recorded": {
+          "const": true
+        },
+        "per_agent_token_allocation": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          }
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "faultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fault_type",
+        "trigger_specification",
+        "severity",
+        "identical_across_paired_arms"
+      ],
+      "properties": {
+        "fault_type": {
+          "enum": [
+            "http-429",
+            "http-5xx",
+            "connection-reset",
+            "delayed-first-token",
+            "stream-termination",
+            "malformed-json",
+            "duplicate-stream-chunk",
+            "missing-usage",
+            "tool-timeout",
+            "tool-output-truncation",
+            "invalid-utf8",
+            "disk-full",
+            "context-pressure",
+            "subagent-crash",
+            "subagent-deadlock",
+            "message-loss",
+            "message-duplication",
+            "stale-artifact",
+            "merge-conflict",
+            "trace-backpressure",
+            "harness-restart",
+            "malformed-response",
+            "truncated-stream",
+            "unexpected-tool-call",
+            "syntax-corrupted-file",
+            "merge-conflict-state",
+            "stale-dependency",
+            "false-green-test",
+            "oracle-bypass",
+            "partial-match"
+          ]
+        },
+        "trigger_specification": {
+          "$ref": "#/$defs/artifact"
+        },
+        "severity": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ]
+        },
+        "identical_across_paired_arms": {
+          "const": true
+        }
+      }
+    },
+    "faultProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fault_profile_id",
+        "profile_kind",
+        "events",
+        "timing_seeded",
+        "outcome_adaptive",
+        "content_hash"
+      ],
+      "properties": {
+        "fault_profile_id": {
+          "$ref": "#/$defs/faultProfileId"
+        },
+        "profile_kind": {
+          "enum": [
+            "natural-no-injection",
+            "provider-harness-injection",
+            "repository-adversarial",
+            "scoring-adversarial"
+          ]
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/faultEvent"
+          }
+        },
+        "timing_seeded": {
+          "const": true
+        },
+        "outcome_adaptive": {
+          "const": false
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "profile_kind": {
+                "const": "natural-no-injection"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "events": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "events": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "agentRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role_id",
+        "specialty",
+        "role_prompt_sha256",
+        "can_mutate_candidate_workspace"
+      ],
+      "properties": {
+        "role_id": {
+          "type": "string",
+          "pattern": "^role_[A-Za-z0-9._-]{1,128}$"
+        },
+        "specialty": {
+          "enum": [
+            "generalist-implementer-verifier",
+            "implementer",
+            "tester-reviewer",
+            "triage-planner",
+            "verifier-integrator",
+            "repository-navigator",
+            "test-reproduction-engineer",
+            "reviewer-integrator",
+            "domain-specialist",
+            "adversarial-test-engineer",
+            "threat-analyst",
+            "profiler",
+            "benchmark-verifier",
+            "ui-accessibility-reviewer"
+          ]
+        },
+        "role_prompt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "can_mutate_candidate_workspace": {
+          "type": "boolean"
+        }
+      }
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_count",
+        "roles",
+        "communication_graph",
+        "workspace_mode",
+        "deterministic_orchestrator",
+        "model_backed_orchestrator"
+      ],
+      "properties": {
+        "agent_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/agentRole"
+          }
+        },
+        "communication_graph": {
+          "enum": [
+            "none",
+            "solo",
+            "pipeline",
+            "star",
+            "parallel-review"
+          ]
+        },
+        "workspace_mode": {
+          "enum": [
+            "no-tools-context-pack",
+            "single-workspace",
+            "immutable-snapshots-artifact-handoff",
+            "shared-workspace-separate-condition"
+          ]
+        },
+        "deterministic_orchestrator": {
+          "const": true
+        },
+        "model_backed_orchestrator": {
+          "const": false
+        }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition_id",
+        "arm",
+        "harness_version",
+        "topology",
+        "budget_policy_id",
+        "fault_profile_id",
+        "tool_schema_sha256",
+        "system_prompt_sha256",
+        "harness_artifact",
+        "adapter_artifact",
+        "trace_capture",
+        "model_specific_branching",
+        "adaptive_assignment",
+        "retry_policy_artifact",
+        "content_hash"
+      ],
+      "properties": {
+        "condition_id": {
+          "$ref": "#/$defs/conditionId"
+        },
+        "arm": {
+          "enum": [
+            "D0-direct",
+            "R1-reference",
+            "N1-noop",
+            "A1",
+            "A2",
+            "A3",
+            "A4",
+            "A5"
+          ]
+        },
+        "harness_version": {
+          "enum": [
+            "reference-1.0",
+            "candidate-v0",
+            "candidate-v1"
+          ]
+        },
+        "topology": {
+          "$ref": "#/$defs/topology"
+        },
+        "budget_policy_id": {
+          "$ref": "#/$defs/budgetPolicyId"
+        },
+        "fault_profile_id": {
+          "$ref": "#/$defs/faultProfileId"
+        },
+        "tool_schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "system_prompt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "harness_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "adapter_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "trace_capture": {
+          "const": "exhaustive"
+        },
+        "model_specific_branching": {
+          "const": false
+        },
+        "adaptive_assignment": {
+          "const": false
+        },
+        "retry_policy_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "noop_conformance_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "arm": {
+                "const": "D0-direct"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "topology": {
+                "properties": {
+                  "agent_count": {
+                    "const": 0
+                  },
+                  "roles": {
+                    "maxItems": 0
+                  },
+                  "communication_graph": {
+                    "const": "none"
+                  },
+                  "workspace_mode": {
+                    "const": "no-tools-context-pack"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "arm": {
+                "enum": [
+                  "R1-reference",
+                  "N1-noop",
+                  "A1"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "topology": {
+                "properties": {
+                  "agent_count": {
+                    "const": 1
+                  },
+                  "roles": {
+                    "minItems": 1,
+                    "maxItems": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "arm": {
+                "const": "A2"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "topology": {
+                "properties": {
+                  "agent_count": {
+                    "const": 2
+                  },
+                  "roles": {
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "arm": {
+                "const": "A3"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "topology": {
+                "properties": {
+                  "agent_count": {
+                    "const": 3
+                  },
+                  "roles": {
+                    "minItems": 3,
+                    "maxItems": 3
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "arm": {
+                "const": "A4"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "topology": {
+                "properties": {
+                  "agent_count": {
+                    "const": 4
+                  },
+                  "roles": {
+                    "minItems": 4,
+                    "maxItems": 4
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "arm": {
+                "const": "A5"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "topology": {
+                "properties": {
+                  "agent_count": {
+                    "const": 5
+                  },
+                  "roles": {
+                    "minItems": 5,
+                    "maxItems": 5
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "arm": {
+                "const": "R1-reference"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "harness_version": {
+                "const": "reference-1.0"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "arm": {
+                "const": "N1-noop"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "noop_conformance_artifact"
+            ]
+          }
+        }
+      ]
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "test_id",
+        "scenario_id",
+        "phase",
+        "prompt_variant_id",
+        "condition_id",
+        "budget_policy_id",
+        "fault_profile_id",
+        "allocation_stratum_id",
+        "topology_panel",
+        "prompt_panel",
+        "fault_panel",
+        "temperature",
+        "content_hash"
+      ],
+      "properties": {
+        "test_id": {
+          "$ref": "#/$defs/testId"
+        },
+        "scenario_id": {
+          "$ref": "#/$defs/scenarioId"
+        },
+        "phase": {
+          "$ref": "#/$defs/phaseName"
+        },
+        "prompt_variant_id": {
+          "$ref": "#/$defs/promptVariantId"
+        },
+        "condition_id": {
+          "$ref": "#/$defs/conditionId"
+        },
+        "budget_policy_id": {
+          "$ref": "#/$defs/budgetPolicyId"
+        },
+        "fault_profile_id": {
+          "$ref": "#/$defs/faultProfileId"
+        },
+        "allocation_stratum_id": {
+          "type": "string",
+          "pattern": "^str_[0-9a-f]{64}$"
+        },
+        "topology_panel": {
+          "type": "boolean"
+        },
+        "prompt_panel": {
+          "type": "boolean"
+        },
+        "fault_panel": {
+          "type": "boolean"
+        },
+        "temperature": {
+          "type": "number",
+          "const": 0
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "freshExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fresh_request",
+        "fresh_model_conversation",
+        "fresh_task_environment",
+        "fresh_harness_memory",
+        "fresh_agent_state",
+        "response_cache_disabled",
+        "no_output_reuse",
+        "clean_state_verified"
+      ],
+      "properties": {
+        "fresh_request": {
+          "const": true
+        },
+        "fresh_model_conversation": {
+          "const": true
+        },
+        "fresh_task_environment": {
+          "const": true
+        },
+        "fresh_harness_memory": {
+          "const": true
+        },
+        "fresh_agent_state": {
+          "const": true
+        },
+        "response_cache_disabled": {
+          "const": true
+        },
+        "no_output_reuse": {
+          "const": true
+        },
+        "clean_state_verified": {
+          "const": true
+        }
+      }
+    },
+    "modelRevisionObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested_model_id",
+        "returned_model_id",
+        "mapping_status",
+        "backend_fingerprint_status",
+        "provider_request_id",
+        "provider_date",
+        "adapter_artifact_sha256"
+      ],
+      "properties": {
+        "requested_model_id": {
+          "$ref": "#/$defs/modelId"
+        },
+        "returned_model_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mapping_status": {
+          "enum": [
+            "exact",
+            "preregistered-provider-alias",
+            "mismatch-blocked",
+            "not-returned"
+          ]
+        },
+        "backend_fingerprint_status": {
+          "enum": [
+            "captured",
+            "not-exposed",
+            "changed-block-quarantined"
+          ]
+        },
+        "backend_fingerprint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "route_or_region": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "adapter_artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scoreable",
+        "resolved",
+        "validity_population",
+        "failure_category",
+        "critical_policy_violation",
+        "verifier_artifact",
+        "final_workspace_artifact"
+      ],
+      "properties": {
+        "scoreable": {
+          "type": "boolean"
+        },
+        "resolved": {
+          "type": "boolean"
+        },
+        "validity_population": {
+          "enum": [
+            "fixture-valid",
+            "external-infrastructure-invalid"
+          ]
+        },
+        "failure_category": {
+          "enum": [
+            "none",
+            "incorrect-solution",
+            "test-regression",
+            "model-refusal",
+            "model-api-error",
+            "model-timeout",
+            "context-exhaustion",
+            "malformed-tool-call",
+            "harness-treatment-crash",
+            "harness-treatment-deadlock",
+            "resource-exhaustion",
+            "policy-block",
+            "invalid-final-artifact",
+            "critical-policy-violation",
+            "external-evaluator-infrastructure"
+          ]
+        },
+        "critical_policy_violation": {
+          "type": "boolean"
+        },
+        "verifier_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "final_workspace_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "partial_functional_fraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "wall_time_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cached_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "model_call_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_call_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "executionObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "started_at",
+        "ended_at",
+        "trace_artifact",
+        "terminal_event_hash",
+        "trace_complete",
+        "model_revision",
+        "outcome",
+        "external_invalid_attempt_artifacts"
+      ],
+      "properties": {
+        "started_at": {
+          "$ref": "#/$defs/dateTime"
+        },
+        "ended_at": {
+          "$ref": "#/$defs/dateTime"
+        },
+        "trace_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "terminal_event_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "trace_complete": {
+          "const": true
+        },
+        "model_revision": {
+          "$ref": "#/$defs/modelRevisionObservation"
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        },
+        "external_invalid_attempt_artifacts": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/artifact"
+          }
+        }
+      }
+    },
+    "runBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "replicate",
+        "runtime_block_id",
+        "schedule_key",
+        "fresh_execution",
+        "retained_result_slot",
+        "status"
+      ],
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/runId"
+        },
+        "replicate": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "runtime_block_id": {
+          "$ref": "#/$defs/blockId"
+        },
+        "schedule_key": {
+          "$ref": "#/$defs/sha256"
+        },
+        "fresh_execution": {
+          "$ref": "#/$defs/freshExecution"
+        },
+        "retained_result_slot": {
+          "const": true
+        },
+        "status": {
+          "enum": [
+            "planned",
+            "scheduled",
+            "executing",
+            "complete"
+          ]
+        },
+        "execution": {
+          "$ref": "#/$defs/executionObservation"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "execution"
+            ]
+          }
+        }
+      ]
+    },
+    "run1": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/runBase"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "replicate": {
+              "const": 1
+            }
+          }
+        }
+      ]
+    },
+    "run2": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/runBase"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "replicate": {
+              "const": 2
+            }
+          }
+        }
+      ]
+    },
+    "run3": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/runBase"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "replicate": {
+              "const": 3
+            }
+          }
+        }
+      ]
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cell_id",
+        "test_id",
+        "model_id",
+        "temperature",
+        "api_seed_support",
+        "runs",
+        "content_hash"
+      ],
+      "properties": {
+        "cell_id": {
+          "$ref": "#/$defs/cellId"
+        },
+        "test_id": {
+          "$ref": "#/$defs/testId"
+        },
+        "model_id": {
+          "$ref": "#/$defs/modelId"
+        },
+        "temperature": {
+          "type": "number",
+          "const": 0
+        },
+        "api_seed_support": {
+          "enum": [
+            "supported-cell-fixed",
+            "unsupported-omitted"
+          ]
+        },
+        "api_seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "runs": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/run1"
+            },
+            {
+              "$ref": "#/$defs/run2"
+            },
+            {
+              "$ref": "#/$defs/run3"
+            }
+          ],
+          "items": false
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "api_seed_support": {
+                "const": "supported-cell-fixed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "api_seed"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "api_seed"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "semanticInvariants": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exact_models_only",
+        "numeric_temperature_zero_everywhere",
+        "exactly_three_runs_per_model_test_cell",
+        "complete_two_model_cross_for_every_test",
+        "unique_ids_and_referential_integrity",
+        "all_content_ids_recompute",
+        "phase_counts_match",
+        "unique_scored_scenario_count",
+        "no_holdout_identity_in_earlier_phases",
+        "holdout_near_duplicate_firewall_passed",
+        "no_model_specific_harness_branching",
+        "no_adaptive_treatment_assignment",
+        "allocation_matches_normative_generator",
+        "topology_role_count_matches_agent_count",
+        "project_and_organization_caps_passed",
+        "at_least_eight_language_families",
+        "prompt_references_match_scenarios",
+        "condition_budget_fault_references_resolve",
+        "run_ids_and_schedule_keys_recompute",
+        "same_cell_api_seed_across_three_runs",
+        "no_selective_retained_fourth_run",
+        "trace_completeness_for_complete_runs",
+        "validator_report"
+      ],
+      "properties": {
+        "exact_models_only": {
+          "const": true
+        },
+        "numeric_temperature_zero_everywhere": {
+          "const": true
+        },
+        "exactly_three_runs_per_model_test_cell": {
+          "const": true
+        },
+        "complete_two_model_cross_for_every_test": {
+          "const": true
+        },
+        "unique_ids_and_referential_integrity": {
+          "const": true
+        },
+        "all_content_ids_recompute": {
+          "const": true
+        },
+        "phase_counts_match": {
+          "const": true
+        },
+        "unique_scored_scenario_count": {
+          "const": 1024
+        },
+        "no_holdout_identity_in_earlier_phases": {
+          "const": true
+        },
+        "holdout_near_duplicate_firewall_passed": {
+          "const": true
+        },
+        "no_model_specific_harness_branching": {
+          "const": true
+        },
+        "no_adaptive_treatment_assignment": {
+          "const": true
+        },
+        "allocation_matches_normative_generator": {
+          "const": true
+        },
+        "topology_role_count_matches_agent_count": {
+          "const": true
+        },
+        "project_and_organization_caps_passed": {
+          "const": true
+        },
+        "at_least_eight_language_families": {
+          "const": true
+        },
+        "prompt_references_match_scenarios": {
+          "const": true
+        },
+        "condition_budget_fault_references_resolve": {
+          "const": true
+        },
+        "run_ids_and_schedule_keys_recompute": {
+          "const": true
+        },
+        "same_cell_api_seed_across_three_runs": {
+          "const": true
+        },
+        "no_selective_retained_fourth_run": {
+          "const": true
+        },
+        "trace_completeness_for_complete_runs": {
+          "const": true
+        },
+        "validator_report": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "hiddenOracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "pattern",
+        "expected"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "regex-match",
+            "contains",
+            "not-contains",
+            "json-valid",
+            "line-count"
+          ]
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "expected": {
+          "type": "boolean"
+        }
+      }
+    },
+    "contaminationRisk": {
+      "enum": [
+        "known-clean",
+        "unknown",
+        "known-contaminated"
+      ]
+    }
+  }
+}

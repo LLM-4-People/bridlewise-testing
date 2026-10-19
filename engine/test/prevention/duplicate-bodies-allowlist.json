@@ -1,0 +1,330 @@
+{
+  "allowlistCross": [
+    {
+      "hash": "19c541de2ea1b61da88a9ee218ab56efc9359de352db6a8ff1321f751c5ca85a",
+      "fileA": "src/evaluation/cli.ts",
+      "fileB": "src/performance/benchmark-cli.ts",
+      "reason": "baseline exact duplicate (next) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "19c541de2ea1b61da88a9ee218ab56efc9359de352db6a8ff1321f751c5ca85a",
+      "fileA": "src/evaluation/cli.ts",
+      "fileB": "src/performance/diagnostic-cli.ts",
+      "reason": "baseline exact duplicate (next) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "19c541de2ea1b61da88a9ee218ab56efc9359de352db6a8ff1321f751c5ca85a",
+      "fileA": "src/performance/benchmark-cli.ts",
+      "fileB": "src/performance/diagnostic-cli.ts",
+      "reason": "baseline exact duplicate (next) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "247e9020ce37fa9d5d61c12b1ad935eb0ed5d95682285e4b5c765047fd0aa8c0",
+      "fileA": "src/git/git-port.ts",
+      "fileB": "src/quality-packs/bug-zoo.ts",
+      "reason": "baseline normalized duplicate (isValidGitOperation/isValidGitTransport/isValidGitReconciliationMode/isValidGitWorkspaceState/isValidGitWorkspacePlan/isValidGitAuthMethod/isBugZooCategory/isDiagnosticCategory/isQualityTier) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "247e9020ce37fa9d5d61c12b1ad935eb0ed5d95682285e4b5c765047fd0aa8c0",
+      "fileA": "src/git/git-port.ts",
+      "fileB": "src/quality-packs/quality-pack.ts",
+      "reason": "baseline normalized duplicate (isValidGitOperation/isValidGitTransport/isValidGitReconciliationMode/isValidGitWorkspaceState/isValidGitWorkspacePlan/isValidGitAuthMethod/isBugZooCategory/isDiagnosticCategory/isQualityTier) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "247e9020ce37fa9d5d61c12b1ad935eb0ed5d95682285e4b5c765047fd0aa8c0",
+      "fileA": "src/git/git-port.ts",
+      "fileB": "src/quality-packs/tiers.ts",
+      "reason": "baseline normalized duplicate (isValidGitOperation/isValidGitTransport/isValidGitReconciliationMode/isValidGitWorkspaceState/isValidGitWorkspacePlan/isValidGitAuthMethod/isBugZooCategory/isDiagnosticCategory/isQualityTier) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "247e9020ce37fa9d5d61c12b1ad935eb0ed5d95682285e4b5c765047fd0aa8c0",
+      "fileA": "src/quality-packs/bug-zoo.ts",
+      "fileB": "src/quality-packs/quality-pack.ts",
+      "reason": "baseline normalized duplicate (isValidGitOperation/isValidGitTransport/isValidGitReconciliationMode/isValidGitWorkspaceState/isValidGitWorkspacePlan/isValidGitAuthMethod/isBugZooCategory/isDiagnosticCategory/isQualityTier) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "247e9020ce37fa9d5d61c12b1ad935eb0ed5d95682285e4b5c765047fd0aa8c0",
+      "fileA": "src/quality-packs/bug-zoo.ts",
+      "fileB": "src/quality-packs/tiers.ts",
+      "reason": "baseline normalized duplicate (isValidGitOperation/isValidGitTransport/isValidGitReconciliationMode/isValidGitWorkspaceState/isValidGitWorkspacePlan/isValidGitAuthMethod/isBugZooCategory/isDiagnosticCategory/isQualityTier) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "247e9020ce37fa9d5d61c12b1ad935eb0ed5d95682285e4b5c765047fd0aa8c0",
+      "fileA": "src/quality-packs/quality-pack.ts",
+      "fileB": "src/quality-packs/tiers.ts",
+      "reason": "baseline normalized duplicate (isValidGitOperation/isValidGitTransport/isValidGitReconciliationMode/isValidGitWorkspaceState/isValidGitWorkspacePlan/isValidGitAuthMethod/isBugZooCategory/isDiagnosticCategory/isQualityTier) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "2dbe025e772c013a0865cf760b4d2a26223ae5ba9f3d50d7fe746d88d70fa1ec",
+      "fileA": "src/editor/edit-operations.ts",
+      "fileB": "src/filesystem/durable-filesystem.ts",
+      "reason": "baseline normalized duplicate (computeEditFromOperation/readDurableFile) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "56005750b741ad03e7620ef4602bdef7ef4c7d8eb099de4d1febfe9bc85fe5f2",
+      "fileA": "src/kernel/contracts.ts",
+      "fileB": "src/forensics/forensic-contracts.ts",
+      "reason": "baseline exact duplicate (<anonymous>) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "57be09f7f0838ab0869e220d57febd46dc5bd409c9ee5dd8112724a415a815fa",
+      "fileA": "src/agents/agent-type-background.ts",
+      "fileB": "src/agents/agent-type-call-return.ts",
+      "reason": "baseline normalized duplicate (validateProfile) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "5c6217d566d3bab56897f07ed407c5b16942b27cf4f7d32fae34d0cb8c3e7f04",
+      "fileA": "src/workflow/hash-binding-registry.ts",
+      "fileB": "src/workflow/test-result-collector.ts",
+      "reason": "baseline normalized duplicate (escapeRegex/escapeRegExpChar) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "6a117b3997ef93cdf81a2f83e5290eb0b317ad52faf6783f358803e27f779c99",
+      "fileA": "src/filesystem/durable-filesystem-internal.ts",
+      "fileB": "src/process/pinned-process-internal.ts",
+      "reason": "baseline normalized duplicate (filesystemError/processError/admissionError) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "6a117b3997ef93cdf81a2f83e5290eb0b317ad52faf6783f358803e27f779c99",
+      "fileA": "src/filesystem/durable-filesystem-internal.ts",
+      "fileB": "src/runtime/admitted-node-runtime.ts",
+      "reason": "baseline normalized duplicate (filesystemError/processError/admissionError) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "6a117b3997ef93cdf81a2f83e5290eb0b317ad52faf6783f358803e27f779c99",
+      "fileA": "src/process/pinned-process-internal.ts",
+      "fileB": "src/runtime/admitted-node-runtime.ts",
+      "reason": "baseline normalized duplicate (filesystemError/processError/admissionError) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "6b03a281627e759517621cff4d6545e25a778bf1ea581cf4a9f0fa75b2df9abe",
+      "fileA": "src/filesystem/self-protection/self-protection-config.ts",
+      "fileB": "src/performance/performance-config.ts",
+      "reason": "baseline normalized duplicate (parseSelfProtectionConfig/parsePerformanceConfig) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "6de4929958981f94ed0b76a7e63a89271bc86a8fc438eedee1b3296c2f7cd6e6",
+      "fileA": "src/agents/agent-config.ts",
+      "fileB": "src/workflow/workspace-contracts.ts",
+      "reason": "baseline normalized duplicate (hasCapability/isWorkspaceTransitionAllowed) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "7447c5d53f194650c3bb12921afa6728fbd0685c74930fee9346ad83ae05b057",
+      "fileA": "src/quality-packs/prevention/duplicate-body-detector.ts",
+      "fileB": "src/quality-packs/prevention/duplicated-literals-detector.ts",
+      "reason": "baseline exact duplicate (lineOf) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "bb3fa73d50c1b7ed5d89d59634c35d03129178f20cfb99fa23cb5e2f82a75b91",
+      "fileA": "src/runtime/event-state.ts",
+      "fileB": "src/kernel/protocol-projections.ts",
+      "reason": "baseline exact duplicate (collectUnknown) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "c9cb8d8112c5d0d6dd86d208d9a7a7d640d86b021d12cd53b0c7f582251ce897",
+      "fileA": "src/memory/memory-store.ts",
+      "fileB": "src/performance/performance-config.ts",
+      "reason": "baseline normalized duplicate (computeMemoryEntryHash/performanceConfigHash/admittedNodeRuntimeAdmissionRecordIdentity/computeRequestHash) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "c9cb8d8112c5d0d6dd86d208d9a7a7d640d86b021d12cd53b0c7f582251ce897",
+      "fileA": "src/memory/memory-store.ts",
+      "fileB": "src/runtime/admitted-node-runtime.ts",
+      "reason": "baseline normalized duplicate (computeMemoryEntryHash/performanceConfigHash/admittedNodeRuntimeAdmissionRecordIdentity/computeRequestHash) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "c9cb8d8112c5d0d6dd86d208d9a7a7d640d86b021d12cd53b0c7f582251ce897",
+      "fileA": "src/memory/memory-store.ts",
+      "fileB": "src/runtime/provider-adapter.ts",
+      "reason": "baseline normalized duplicate (computeMemoryEntryHash/performanceConfigHash/admittedNodeRuntimeAdmissionRecordIdentity/computeRequestHash) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "c9cb8d8112c5d0d6dd86d208d9a7a7d640d86b021d12cd53b0c7f582251ce897",
+      "fileA": "src/performance/performance-config.ts",
+      "fileB": "src/runtime/admitted-node-runtime.ts",
+      "reason": "baseline normalized duplicate (computeMemoryEntryHash/performanceConfigHash/admittedNodeRuntimeAdmissionRecordIdentity/computeRequestHash) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "c9cb8d8112c5d0d6dd86d208d9a7a7d640d86b021d12cd53b0c7f582251ce897",
+      "fileA": "src/performance/performance-config.ts",
+      "fileB": "src/runtime/provider-adapter.ts",
+      "reason": "baseline normalized duplicate (computeMemoryEntryHash/performanceConfigHash/admittedNodeRuntimeAdmissionRecordIdentity/computeRequestHash) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "c9cb8d8112c5d0d6dd86d208d9a7a7d640d86b021d12cd53b0c7f582251ce897",
+      "fileA": "src/runtime/admitted-node-runtime.ts",
+      "fileB": "src/runtime/provider-adapter.ts",
+      "reason": "baseline normalized duplicate (computeMemoryEntryHash/performanceConfigHash/admittedNodeRuntimeAdmissionRecordIdentity/computeRequestHash) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "cd9bfda2b6287abcce85dc521e6a17dc638702f265e09515596f9729c06cd3eb",
+      "fileA": "src/memory/attempt-history.ts",
+      "fileB": "src/memory/memory-store.ts",
+      "reason": "baseline normalized duplicate (all/present/shortTerm/longTerm) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "cf79cac798af08815e316dc2fcf4a7df9d50e15ed54fe19db53ff65eb469cd75",
+      "fileA": "src/runtime/capability-negotiation.ts",
+      "fileB": "src/modules/tasks-agents/domain/handoff-contracts.ts",
+      "reason": "baseline normalized duplicate (assertUnique) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "e31b29ed79c28c84716bfc474a4fd0263d9575af2207c1bd922d897f8284f6ad",
+      "fileA": "src/extensions/extension-lifecycle.ts",
+      "fileB": "src/extensions/self-modification-tools.ts",
+      "reason": "baseline normalized duplicate (assertOperation/assertToolId) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "ed3e7b43f84a00759498ee9bc8b76c86684e6504af73b1ed9bb960634a998adf",
+      "fileA": "src/evaluation/matrix-executor.ts",
+      "fileB": "src/evaluation/scenario-runner.ts",
+      "reason": "baseline exact duplicate (<anonymous>) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "f210b4d8a5b4e0a2ec26282b307c00621262a6c4ccfb68c9d6f3dc70f9380d66",
+      "fileA": "src/runtime/git-tools.ts",
+      "fileB": "src/runtime/quality-tools.ts",
+      "reason": "baseline normalized duplicate (<anonymous>) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "f2cd0321e87825c13614ac08188e195cef3641cb83ac47f75c9a4b45a3116758",
+      "fileA": "src/evaluation/cli.ts",
+      "fileB": "src/performance/benchmark-cli.ts",
+      "reason": "baseline normalized duplicate (nextInt) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    },
+    {
+      "hash": "f9e899dff21daaf877f47e90585a35c8287b46c1551f17fdeb03f3c5aff31347",
+      "fileA": "src/agents/agent-type-background.ts",
+      "fileB": "src/agents/orchestrator.ts",
+      "reason": "baseline normalized duplicate (isTerminal/isTerminalLifecycleState) — intentional parallel or known tech-debt; the DRY test enforces no NEW duplicates; to remove this entry, extract a shared helper and import at all sites"
+    }
+  ],
+  "allowlistSameFile": [
+    {
+      "hash": "0420cbfee2c443dc6fa074061c054c46ea3382cfc7a4a2a2949ba51a009793bc",
+      "file": "src/editor/edit-feedback.ts",
+      "count": 2,
+      "reason": "same-file sibling group (createWriteFailedFeedback/createOperationInvalidFeedback/createPatchInvalidFeedback) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "1c23b95c462881e909180773b3d17c4a87ce911076d73d994a704f65d9b86d11",
+      "file": "src/text/utf8-offsets.ts",
+      "count": 2,
+      "reason": "same-file sibling group (isHighSurrogate/isLowSurrogate) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "247e9020ce37fa9d5d61c12b1ad935eb0ed5d95682285e4b5c765047fd0aa8c0",
+      "file": "src/git/git-port.ts",
+      "count": 3,
+      "reason": "same-file sibling group (isValidGitOperation/isValidGitTransport/isValidGitReconciliationMode/isValidGitWorkspaceState/isValidGitWorkspacePlan/isValidGitAuthMethod) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "29c40df6f61f67499e7c6d30e3f1c75b0be6c8f9cfbc55801cca7971a5fec0cb",
+      "file": "src/quality-packs/bug-zoo.ts",
+      "count": 1,
+      "reason": "same-file sibling group (getFixturesByCategory/getMutationsByCategory) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "35041b2b70a23359a762be3cb8895893e4fef7fd17bcb39a29d81f18d644e680",
+      "file": "src/memory/memory-store.ts",
+      "count": 2,
+      "reason": "same-file sibling group (addPresent/addShortTerm/addLongTerm) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "3a079d5f2097c768739db88dd5742d87a00507af59208ad6ef8c5b005266324d",
+      "file": "src/evaluation/semantic-validators.ts",
+      "count": 2,
+      "reason": "same-file sibling group (pass/fail) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "5c85e1290e46b4856d92c1dbbcf14df2d4f661ae674543147962bcb6f743cd0a",
+      "file": "src/forensics/forensic-crypto.ts",
+      "count": 1,
+      "reason": "same-file sibling group (ledgerMacOperations/blindIndexOperations) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "74cce2cf1bf1e31aa82b4325087847d046cc1009ac15d722c8a23169d229d18a",
+      "file": "src/git/git-adapter.ts",
+      "count": 1,
+      "reason": "same-file sibling group (parsePorcelainV2Ordinary/parsePorcelainV2Renamed) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "772455eb00da62932c9ac384282e8c37da501d3e4384abab0aba88ca53645088",
+      "file": "src/evaluation/semantic-validators.ts",
+      "count": 2,
+      "reason": "same-file sibling group (checkNoModelSpecificBranching/checkNoAdaptiveAssignment) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "83a71443125ac8cfcb63ef2d6de400df809b6f9716ed68b830fc7e1b86ef27b6",
+      "file": "src/git/git-adapter.ts",
+      "count": 1,
+      "reason": "same-file sibling group (stdoutString/stderrString) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "90e413930b49500c6dbda7dfb8ddd4e711264b0d335fd292c76242e856fad3f0",
+      "file": "src/extensions/self-modification-tools.ts",
+      "count": 3,
+      "reason": "same-file sibling group (dispatchAdd/dispatchEdit/dispatchDelete) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "99bd759f8cae118fe8ddf5beb854ef930463f3c6d311444b974edafb93eecea8",
+      "file": "src/git/git-adapter.ts",
+      "count": 1,
+      "reason": "same-file sibling group (recordOp/recordCommit) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "a70dac8485f29573a1080484af5077df266b676760bc8653c8224b38b522d62c",
+      "file": "src/privacy/evidence-handler.ts",
+      "count": 1,
+      "reason": "same-file sibling group (redactForPersistence/redactForDisplay/redactForLog/redactEvidence) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "ad566403e76504dec07f9bcacc457e63fa48e51be317426c6064a9f1253b7c49",
+      "file": "src/memory/memory-store.ts",
+      "count": 2,
+      "reason": "same-file sibling group (searchByText/searchByAgent/searchByTopic) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "aff9f895092fc2339c5375250156a3bc7d5250d24b99ab49153b3b90d47f9f9c",
+      "file": "src/runtime/admitted-node-runtime.ts",
+      "count": 2,
+      "reason": "same-file sibling group (currentAdmittedNodeRuntimeRecord/admittedNodeRuntimePrincipal/admittedNodeRuntimeExecutable) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "b047a5520a20af57bcd979011655650dd7bd131a725dbaff78f40c3bed72b578",
+      "file": "src/architecture-manifest.ts",
+      "count": 1,
+      "reason": "same-file sibling group (blockedPythonCommand/blockedResearchShellCommand) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "cc30f1bbd5108cfade77b79cd8e0ff2abc6031b9b5ff8947e6792766ceaf7d47",
+      "file": "src/memory/attempt-history.ts",
+      "count": 2,
+      "reason": "same-file sibling group (countByOutcome/countByKind) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "cd9bfda2b6287abcce85dc521e6a17dc638702f265e09515596f9729c06cd3eb",
+      "file": "src/memory/memory-store.ts",
+      "count": 2,
+      "reason": "same-file sibling group (present/shortTerm/longTerm) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "dd53257c32946ec31f8f712f94344c3c8d331637971efc5261a29848ff71a47b",
+      "file": "src/extensions/self-modification-tools.ts",
+      "count": 2,
+      "reason": "same-file sibling group (extensionTypeForTool/operationForTool) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "e729f623801b91582f180133774ad2d3b658a6e4e574eb88cd56097715a6ac4c",
+      "file": "src/kernel/integrity.ts",
+      "count": 1,
+      "reason": "same-file sibling group (isNonNegativeSafeInteger/isPositiveFinite) — parallel functions with same normalized structure; parameterize or allowlist"
+    },
+    {
+      "hash": "f282dbece87d0393d22d566efda328cc45c6aa2e1b424ac8ec9fd1d34938b765",
+      "file": "src/extensions/semver.ts",
+      "count": 2,
+      "reason": "same-file sibling group (isValidSemver/isValidRange) — parallel functions with same normalized structure; parameterize or allowlist"
+    }
+  ]
+}

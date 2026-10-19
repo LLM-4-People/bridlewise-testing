@@ -1,0 +1,84 @@
+{
+  "format": "sqlite-3.53.3-workload-relevance-review-v1",
+  "reviewedRelease": {
+    "version": "3.53.3",
+    "releaseDate": "2026-06-26",
+    "sqliteSourceId": "2026-06-26 20:14:12 d4c0e51e4aeb96955b99185ab9cde75c339e2c29c3f3f12428d364a10d782c62",
+    "sqlite3CSourceSha3_256": "28e484abdaa43630e34040ef6ed92be973a1ad54107803d8af5145b889c23ed7"
+  },
+  "officialSources": [
+    "https://www.sqlite.org/releaselog/current.html",
+    "https://sqlite.org/src/timeline?from=version-3.53.0&to=version-3.53.3&to2=branch-3.53&y=ci",
+    "https://www.sqlite.org/wal.html"
+  ],
+  "qualifiedRuntimes": {
+    "node:sqlite": {
+      "sqliteVersion": "3.53.1",
+      "sqliteSourceId": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+      "containsAll3533Fixes": false
+    },
+    "better-sqlite3@12.11.1": {
+      "sqliteVersion": "3.53.2",
+      "sqliteSourceId": "2026-06-03 19:12:13 d6e03d8c777cfa2d35e3b60d8ec3e0187f3e9f99d8e2ee9cac695fd6fcdf1a24",
+      "containsAll3533Fixes": false
+    }
+  },
+  "workload": {
+    "journalMode": "WAL",
+    "synchronous": "FULL",
+    "operations": [
+      "single-database ledger/projection/outbox append transaction",
+      "indexed entity and pending-outbox search",
+      "online backup API",
+      "multi-process single-writer contention",
+      "close/reopen and process-kill recovery"
+    ],
+    "excluded": [
+      "ATTACH and DETACH",
+      "deserialize",
+      "extensions and virtual tables",
+      "caller-provided SQL",
+      "session changesets",
+      "row-value IN queries",
+      "custom VFS or pager-cache configuration"
+    ]
+  },
+  "findings": [
+    {
+      "fixArea": "WAL-reset database-corruption race fixed in 3.51.3 and later",
+      "relevance": "direct-high",
+      "assessment": "The workload uses WAL and multiple processes, so this historical bug class is directly relevant. Both tested runtimes are newer than 3.51.3 and therefore include the documented fix."
+    },
+    {
+      "fixArea": "database mutex coverage for busy-timeout, autocommit/error/change-count/last-rowid and related APIs",
+      "relevance": "low-for-this-wrapper",
+      "assessment": "The adapters use synchronous JavaScript calls and never share one connection across workers; each process owns a separate connection. The additional 3.53.3 mutex hardening is still desirable defense in depth."
+    },
+    {
+      "fixArea": "backup crash when deserialize occurs after backup initialization",
+      "relevance": "not-reached",
+      "assessment": "Neither adapter exposes or calls deserialize."
+    },
+    {
+      "fixArea": "backup use-after-free associated with ATTACH during active backup",
+      "relevance": "not-reached",
+      "assessment": "ATTACH is absent from the static SQL surface; node:sqlite additionally denies it through an authorizer, and neither wrapper exposes raw SQL."
+    },
+    {
+      "fixArea": "WAL/SHM corrupt-header, huge-map, and Windows long-path hardening",
+      "relevance": "defense-in-depth",
+      "assessment": "The qualification used Linux, ordinary paths, small WALs, and databases created by the same adapter. These fixes matter for hostile or corrupted inputs but were not exercised by the normal workload."
+    },
+    {
+      "fixArea": "page/index/freelist corruption detection",
+      "relevance": "defense-in-depth",
+      "assessment": "Useful to fail closed on damaged files, but the synthetic restart and backup databases remained well formed and passed quick_check."
+    },
+    {
+      "fixArea": "row-value IN, COLLATE, REAL/INT UPSERT, JSON/window, FTS, session, and extension fixes",
+      "relevance": "not-reached",
+      "assessment": "The fixed query shapes and optional modules are outside the closed schema and SQL used here."
+    }
+  ],
+  "conclusion": "Both runtimes include the directly relevant WAL-reset fix, but neither contains the complete 3.53.3 maintenance set. The missing fixes do not map to an exercised normal path in this closed workload, yet a production decision should wait for or separately qualify a runtime carrying source ID d4c0e51e... or later."
+}

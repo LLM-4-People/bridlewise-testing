@@ -1,0 +1,11 @@
+{
+  "callId": "call_extra",
+  "expectedResponseId": 46,
+  "wire": {
+    "jsonrpc": "2.0",
+    "id": 46,
+    "result": { "content": [] },
+    "providerTrace": "must-not-be-accepted"
+  },
+  "expectedImportError": "mcp_tool_result_invalid"
+}

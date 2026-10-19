@@ -1,0 +1,82 @@
+{
+  "protocol": "openai-responses",
+  "request": {
+    "requestId": "req-responses",
+    "model": "provider-model",
+    "messages": [
+      { "role": "developer", "content": "Use tools when needed." },
+      { "role": "user", "content": "hello" }
+    ],
+    "tools": [{
+      "model": {
+        "name": "search_project",
+        "description": "Search project text.",
+        "inputSchema": {
+          "type": "object",
+          "properties": { "query": { "type": "string", "minLength": 1 } },
+          "required": ["query"],
+          "additionalProperties": false
+        }
+      },
+      "control": {
+        "effect": "read",
+        "approval": "always",
+        "pathScope": ["."],
+        "idempotency": "intrinsic",
+        "retry": "idempotent-only"
+      }
+    }],
+    "toolChoice": "auto",
+    "parallelToolCalls": true,
+    "stream": true,
+    "maxOutputTokens": 512
+  },
+  "wire": {
+    "transport": {
+      "protocol": "openai-responses",
+      "method": "POST",
+      "path": "/v1/responses",
+      "framing": "sse",
+      "stream": true,
+      "executionAuthorized": false
+    },
+    "body": {
+      "model": "provider-model",
+      "input": [
+        { "type": "message", "role": "developer", "content": "Use tools when needed." },
+        { "type": "message", "role": "user", "content": "hello" }
+      ],
+      "parallel_tool_calls": true,
+      "store": false,
+      "stream": true,
+      "tool_choice": "auto",
+      "tools": [{
+        "type": "function",
+        "name": "search_project",
+        "description": "Search project text.",
+        "parameters": {
+          "type": "object",
+          "properties": { "query": { "type": "string", "minLength": 1 } },
+          "required": ["query"],
+          "additionalProperties": false
+        }
+      }],
+      "max_output_tokens": 512
+    }
+  },
+  "requirement": {
+    "required": ["text", "streaming", "tools", "parallel_tool_calls"],
+    "preferred": ["reasoning", "usage"]
+  },
+  "offers": [
+    {
+      "protocol": "openai-responses",
+      "supported": ["text", "reasoning", "streaming", "tools", "parallel_tool_calls", "tool_choice_required", "usage"]
+    },
+    {
+      "protocol": "openai-chat-completions",
+      "supported": ["text", "streaming", "tools", "usage"]
+    }
+  ],
+  "expected": { "accepted": true, "selectedProtocol": "openai-responses", "losses": [] }
+}

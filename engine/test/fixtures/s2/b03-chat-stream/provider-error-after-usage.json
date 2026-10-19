@@ -1,0 +1,8 @@
+{
+  "frames": [
+    "data: {\"id\":\"chatcmpl-usage-error\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+    "data: {\"id\":\"chatcmpl-usage-error\",\"model\":\"makora-chat\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1,\"total_tokens\":4}}\n\n",
+    "data: {\"error\":{\"code\":\"late_provider_error\",\"message\":\"must be rejected\"}}\n\n"
+  ],
+  "expectedError": "stream_after_usage"
+}

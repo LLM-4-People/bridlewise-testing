@@ -1,0 +1,89 @@
+    ResponseFunctionCallArgumentsDeltaEvent:
+      type: object
+      description: Emitted when there is a partial function-call arguments delta.
+      properties:
+        type:
+          type: string
+          description: >
+            The type of the event. Always
+            `response.function_call_arguments.delta`.
+          enum:
+            - response.function_call_arguments.delta
+          x-stainless-const: true
+        item_id:
+          type: string
+          description: >
+            The ID of the output item that the function-call arguments delta is
+            added to.
+        output_index:
+          type: integer
+          description: >
+            The index of the output item that the function-call arguments delta
+            is added to.
+        sequence_number:
+          type: integer
+          description: The sequence number of this event.
+        delta:
+          type: string
+          description: |
+            The function-call arguments delta that is added.
+      required:
+        - type
+        - item_id
+        - output_index
+        - delta
+        - sequence_number
+      x-oaiMeta:
+        name: response.function_call_arguments.delta
+        group: responses
+        example: |
+          {
+            "type": "response.function_call_arguments.delta",
+            "item_id": "item-abc",
+            "output_index": 0,
+            "delta": "{ \"arg\":"
+            "sequence_number": 1
+          }
+    ResponseFunctionCallArgumentsDoneEvent:
+      type: object
+      description: Emitted when function-call arguments are finalized.
+      properties:
+        type:
+          type: string
+          enum:
+            - response.function_call_arguments.done
+          x-stainless-const: true
+        item_id:
+          type: string
+          description: The ID of the item.
+        name:
+          type: string
+          description: The name of the function that was called.
+        output_index:
+          type: integer
+          description: The index of the output item.
+        sequence_number:
+          type: integer
+          description: The sequence number of this event.
+        arguments:
+          type: string
+          description: The function-call arguments.
+      required:
+        - type
+        - item_id
+        - name
+        - output_index
+        - arguments
+        - sequence_number
+      x-oaiMeta:
+        name: response.function_call_arguments.done
+        group: responses
+        example: |
+          {
+            "type": "response.function_call_arguments.done",
+            "item_id": "item-abc",
+            "name": "get_weather",
+            "output_index": 1,
+            "arguments": "{ \"arg\": 123 }",
+            "sequence_number": 1
+          }

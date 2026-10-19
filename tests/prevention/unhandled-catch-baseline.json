@@ -1,0 +1,122 @@
+{
+  "schema": "bridlewise-ratchet-baseline/v1",
+  "id": "web-unhandled-catch",
+  "entries": [
+    {
+      "key": "server/blocks/coverage.ts: observedTypes = undefined;",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "server/blocks/coverage.ts: occ = undefined;",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "server/context/project-context.ts: entries.push(rel);",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "server/db/async-client.ts: this.opening = null;",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "server/intelligence/auto-heal.ts: vanishedFiles.push(abs);",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "server/intelligence/content-search-engine.ts: continue;",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "server/intelligence/content-search-engine.ts: continue;",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "server/intelligence/content-search-engine.ts: continue;",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "server/kernel/harness-config.ts: fileCanStay = false;",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "server/router/sse.ts: close();",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "server/router/sse.ts: close();",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/client.ts: appendChatError( \" \", );",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/cockpit/desk/DeskPanel.svelte: modelNote = \" \";",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/cockpit/desk/TripScope.svelte: if (!cancelled) load = { kind: \" \", reason: \" \" };",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/cockpit/flow/Flow.svelte: shell?.hint(\" \");",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/cockpit/flow/Flow.svelte: shell?.hint(\" \");",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/cockpit/render/CopyButton.svelte: outcome = \" \";",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/cockpit/rooms/MicroSweep.svelte: ctx = null;",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/cockpit/rooms/Spark.svelte: ctx = null;",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/cockpit/rooms/switch-feed.ts: if (generation === epoch) patch(chatsStates, id, \" \");",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/cockpit/settings/settings-feed.ts: reason += \" \";",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/cockpit/sweep/ArmMenuBody.svelte: lastNote = \" \";",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/data/broker.ts: body = undefined;",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/state/persistence.ts: if (!adoptingForeign) s.removeItem(key);",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/state/telemetry.ts: noteAttachAbsence(\" \");",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/state/telemetry.ts: noteAttachAbsence(\" \");",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/state/telemetry.ts: noteAttachAbsence(\" \");",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/state/telemetry.ts: noteAttachAbsence(\" \");",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    },
+    {
+      "key": "src/state/timeline-event-documents.ts: content = raw;",
+      "reason": "A web catch that answers what it caught in place, without a central handler (webHandleError, webWarn, webAuditEvent), a typed rethrow or a use of the error — tracker GUARD-WEB-CATCH-001 (a2-design M4)."
+    }
+  ]
+}

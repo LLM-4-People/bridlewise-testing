@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.local/schemas/diagnostic.schema.json",
+  "title": "Code Harness Normalized Quality Diagnostic",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "diagnosticId",
+    "fingerprint",
+    "run",
+    "origin",
+    "category",
+    "severity",
+    "confidence",
+    "message",
+    "locations",
+    "determinism",
+    "outcome",
+    "evidence",
+    "suppression",
+    "execution"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "diagnosticId": { "type": "string", "pattern": "^qd_[a-f0-9]{32,64}$" },
+    "fingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "packId", "packVersion", "stage", "mode", "sourceSnapshot"],
+      "properties": {
+        "runId": { "type": "string", "minLength": 1 },
+        "packId": { "type": "string", "minLength": 1 },
+        "packVersion": { "type": "string", "minLength": 1 },
+        "stage": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["fast", "incremental", "full", "holdout"] },
+        "sourceSnapshot": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "configSnapshot": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "toolVersion", "ruleId", "nativeFormat"],
+      "properties": {
+        "tool": { "type": "string", "minLength": 1 },
+        "toolVersion": { "type": "string", "minLength": 1 },
+        "toolDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "ruleId": { "type": "string", "minLength": 1 },
+        "nativeFormat": { "enum": ["json", "jsonl", "sarif", "junit", "tap", "lcov", "xml", "text", "custom"] }
+      }
+    },
+    "category": { "$ref": "#/$defs/category" },
+    "severity": { "$ref": "#/$defs/severity" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "message": { "type": "string", "minLength": 1, "maxLength": 10000 },
+    "locations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/location" }
+    },
+    "relatedLocations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/location" }
+    },
+    "symbol": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "type": "string" },
+        "module": { "type": "string" },
+        "dependency": { "type": "string" }
+      }
+    },
+    "trace": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["message", "location"],
+        "properties": {
+          "message": { "type": "string", "minLength": 1 },
+          "location": { "$ref": "#/$defs/location" }
+        }
+      }
+    },
+    "determinism": { "enum": ["deterministic", "seeded", "heuristic", "external-snapshot"] },
+    "seed": { "type": ["string", "integer"] },
+    "outcome": {
+      "enum": ["new", "existing", "resolved", "suppressed", "tool-error", "not-applicable"]
+    },
+    "falsePositiveRisk": { "enum": ["low", "medium", "high"] },
+    "taxonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cwe": { "type": "array", "items": { "type": "string", "pattern": "^CWE-[0-9]+$" } },
+        "cve": { "type": "array", "items": { "type": "string", "pattern": "^CVE-[0-9]{4}-[0-9]{4,}$" } },
+        "advisory": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "suggestedFix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "applicability"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "applicability": { "enum": ["safe", "unsafe", "manual", "unknown"] },
+        "patchArtifact": { "type": "string" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rawArtifactHash", "nativePayloadRetained", "truncated"],
+      "properties": {
+        "rawArtifactHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "rawArtifactPath": { "type": "string" },
+        "nativePayloadRetained": { "type": "boolean" },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "suppression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["none", "active", "expired", "invalid"] },
+        "owner": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "source": { "enum": ["central-baseline", "inline", "generated-code", "tool-config"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "active" } }, "required": ["status"] },
+          "then": { "required": ["owner", "reason", "expiresAt", "source"] }
+        }
+      ]
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitCode", "durationMs", "timedOut", "outputBytes"],
+      "properties": {
+        "exitCode": { "type": ["integer", "null"] },
+        "signal": { "type": ["string", "null"] },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "timedOut": { "type": "boolean" },
+        "outputBytes": { "type": "integer", "minimum": 0 },
+        "peakMemoryMiB": { "type": "number", "minimum": 0 }
+      }
+    },
+    "metadata": { "type": "object" }
+  },
+  "$defs": {
+    "category": {
+      "type": "string",
+      "enum": [
+        "syntax",
+        "format",
+        "schema",
+        "type",
+        "name-error",
+        "undefined-symbol",
+        "unused-symbol",
+        "dead-export",
+        "dead-file",
+        "dead-dependency",
+        "unreachable",
+        "constant-condition",
+        "duplicate-branch",
+        "cycle",
+        "architecture",
+        "test-failure",
+        "test-weakness",
+        "property-counterexample",
+        "mutation-survived",
+        "coverage",
+        "security",
+        "license",
+        "supply-chain",
+        "sql",
+        "tool-error"
+      ]
+    },
+    "severity": { "type": "string", "enum": ["note", "warning", "error", "critical"] },
+    "position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line", "column"],
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 },
+        "byteOffset": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "start"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "uri": { "type": "string", "format": "uri-reference" },
+        "start": { "$ref": "#/$defs/position" },
+        "end": { "$ref": "#/$defs/position" },
+        "role": { "enum": ["primary", "definition", "reference", "cycle-edge", "test", "mutant"] }
+      }
+    }
+  }
+}

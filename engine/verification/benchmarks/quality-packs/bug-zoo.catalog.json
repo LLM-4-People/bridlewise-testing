@@ -1,0 +1,545 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-07-11",
+  "policy": {
+    "minimumPositiveScenariosPerCategory": 3,
+    "requireCleanControlPerCategory": true,
+    "network": "deny",
+    "isolation": "one scenario per temporary workspace",
+    "promotionRule": "Every expected positive is found, every clean control stays clean, tool errors are failures, and native evidence is retained."
+  },
+  "categories": [
+    {
+      "id": "undefined-symbol",
+      "scenarios": [
+        {
+          "id": "undef-ts-misspelled-local",
+          "language": "typescript",
+          "files": {
+            "src/main.ts": "const answer = 42;\nconsole.log(answr);\n",
+            "tsconfig.json": "{\"compilerOptions\":{\"strict\":true,\"noEmit\":true}}\n"
+          },
+          "expected": { "category": "undefined-symbol", "minimum": 1, "path": "src/main.ts", "line": 2, "confirmWith": ["typescript"] }
+        },
+        {
+          "id": "undef-py-runtime-name",
+          "language": "python",
+          "files": {
+            "main.py": "def total(values: list[int]) -> int:\n    return sum(valeus)\n"
+          },
+          "expected": { "category": "undefined-symbol", "minimum": 1, "path": "main.py", "line": 2, "confirmWith": ["ruff", "pyright", "python-runtime"] }
+        },
+        {
+          "id": "undef-shell-lowercase-variable",
+          "language": "shell",
+          "files": {
+            "main.sh": "#!/usr/bin/env bash\nset -u\nprintf '%s\\n' \"$usernme\"\n"
+          },
+          "expected": { "category": "undefined-symbol", "minimum": 1, "path": "main.sh", "line": 3, "confirmWith": ["shellcheck", "bash-runtime"] }
+        },
+        {
+          "id": "undef-powershell-strict-variable",
+          "language": "powershell",
+          "files": {
+            "main.ps1": "Set-StrictMode -Version Latest\n$Name = 'Ada'\nWrite-Output $Nmae\n"
+          },
+          "expected": { "category": "undefined-symbol", "minimum": 1, "path": "main.ps1", "line": 3, "confirmWith": ["psscriptanalyzer", "powershell-runtime"] }
+        }
+      ],
+      "cleanControl": {
+        "id": "undef-control-declared-platform-global",
+        "language": "typescript",
+        "files": {
+          "src/main.ts": "declare const BUILD_ID: string;\nconsole.log(BUILD_ID);\n"
+        },
+        "expected": { "clean": true, "reason": "A declared build-time global is not undefined." }
+      }
+    },
+    {
+      "id": "unused-dead",
+      "scenarios": [
+        {
+          "id": "dead-ts-export-and-file",
+          "language": "typescript",
+          "files": {
+            "src/main.ts": "export const live = 1;\nconsole.log(live);\n",
+            "src/orphan.ts": "export const nobodyImportsMe = 2;\n",
+            "package.json": "{\"type\":\"module\",\"exports\":\"./src/main.ts\"}\n"
+          },
+          "expected": { "categories": ["dead-file", "dead-export"], "minimum": 1, "path": "src/orphan.ts", "confirmWith": ["knip", "reference-search"] }
+        },
+        {
+          "id": "dead-js-dependency",
+          "language": "javascript",
+          "files": {
+            "src/main.js": "import { readFile } from 'node:fs/promises';\nexport const load = readFile;\n",
+            "package.json": "{\"type\":\"module\",\"dependencies\":{\"left-pad\":\"1.3.0\"}}\n"
+          },
+          "expected": { "category": "dead-dependency", "minimum": 1, "dependency": "left-pad", "confirmWith": ["knip", "manifest-reference-search"] }
+        },
+        {
+          "id": "dead-python-function",
+          "language": "python",
+          "files": {
+            "app.py": "def live() -> int:\n    return 1\n\ndef abandoned() -> int:\n    return 2\n\nprint(live())\n"
+          },
+          "expected": { "category": "unused-symbol", "minimum": 1, "symbol": "abandoned", "confirmWith": ["vulture", "reference-search"] }
+        },
+        {
+          "id": "dead-rust-dependency",
+          "language": "rust",
+          "files": {
+            "Cargo.toml": "[package]\nname='zoo'\nversion='0.1.0'\nedition='2024'\n[dependencies]\nregex='1'\n",
+            "src/main.rs": "fn main() { println!(\"hello\"); }\n"
+          },
+          "expected": { "category": "dead-dependency", "minimum": 1, "dependency": "regex", "confirmWith": ["cargo-machete", "cargo-udeps"] }
+        }
+      ],
+      "cleanControl": {
+        "id": "dead-control-dynamic-plugin-entry",
+        "language": "typescript",
+        "files": {
+          "src/main.ts": "const name = process.env.PLUGIN ?? 'alpha';\nawait import(`./plugins/${name}.ts`);\n",
+          "src/plugins/alpha.ts": "export function register(): void {}\n"
+        },
+        "expected": { "clean": true, "reason": "The plugin is a declared dynamic entrypoint and must be modeled, not suppressed as dead." }
+      }
+    },
+    {
+      "id": "branch-quality",
+      "scenarios": [
+        {
+          "id": "branch-ts-after-return",
+          "language": "typescript",
+          "files": {
+            "main.ts": "export function value(): number {\n  return 1;\n  console.log('unreachable');\n}\n"
+          },
+          "expected": { "category": "unreachable", "minimum": 1, "path": "main.ts", "line": 3, "confirmWith": ["typescript", "biome"] }
+        },
+        {
+          "id": "branch-ts-constant-condition",
+          "language": "typescript",
+          "files": {
+            "main.ts": "export function choose(): string {\n  if (true) return 'a';\n  return 'b';\n}\n"
+          },
+          "expected": { "category": "constant-condition", "minimum": 1, "path": "main.ts", "line": 2, "confirmWith": ["biome", "eslint-optional"] }
+        },
+        {
+          "id": "branch-python-duplicate-bodies",
+          "language": "python",
+          "files": {
+            "main.py": "def classify(x: int) -> str:\n    if x > 10:\n        return 'large'\n    elif x == 10:\n        return 'large'\n    return 'small'\n"
+          },
+          "expected": { "category": "duplicate-branch", "minimum": 1, "path": "main.py", "confirmWith": ["ruff"] }
+        },
+        {
+          "id": "branch-shell-shadowed-case",
+          "language": "shell",
+          "files": {
+            "main.sh": "#!/bin/sh\ncase \"$1\" in\n  2.*) echo any-two ;;\n  2.6.*) echo two-six ;;\nesac\n"
+          },
+          "expected": { "category": "unreachable", "minimum": 1, "path": "main.sh", "line": 4, "confirmWith": ["shellcheck"] }
+        }
+      ],
+      "cleanControl": {
+        "id": "branch-control-exhaustive-never",
+        "language": "typescript",
+        "files": {
+          "main.ts": "type State = 'open' | 'closed';\nexport function label(s: State): string {\n  switch (s) { case 'open': return 'Open'; case 'closed': return 'Closed'; }\n  const impossible: never = s;\n  return impossible;\n}\n"
+        },
+        "expected": { "clean": true, "reason": "An exhaustiveness assertion is intentional and type-checked, not a duplicate/dead branch." }
+      }
+    },
+    {
+      "id": "syntax-indent-delimiter",
+      "scenarios": [
+        {
+          "id": "syntax-ts-missing-brace",
+          "language": "typescript",
+          "files": {
+            "main.ts": "export function broken(): number {\n  if (true) { return 1;\n}\n"
+          },
+          "expected": { "category": "syntax", "minimum": 1, "path": "main.ts", "confirmWith": ["typescript"] }
+        },
+        {
+          "id": "syntax-python-bad-indent",
+          "language": "python",
+          "files": {
+            "main.py": "def broken() -> int:\n    value = 1\n  return value\n"
+          },
+          "expected": { "category": "syntax", "minimum": 1, "path": "main.py", "line": 3, "confirmWith": ["python-compile", "ruff"] }
+        },
+        {
+          "id": "syntax-yaml-indent-and-duplicate",
+          "language": "yaml",
+          "files": {
+            "bad.yaml": "service:\n  port: 8080\n   host: localhost\n  port: 9090\n"
+          },
+          "expected": { "categories": ["syntax", "schema"], "minimum": 1, "path": "bad.yaml", "confirmWith": ["yamllint"] }
+        },
+        {
+          "id": "syntax-toml-duplicate-table",
+          "language": "toml",
+          "files": {
+            "bad.toml": "[server]\nport = 8080\n[server]\nhost = 'localhost'\n"
+          },
+          "expected": { "category": "syntax", "minimum": 1, "path": "bad.toml", "confirmWith": ["tombi", "taplo-comparator"] }
+        },
+        {
+          "id": "syntax-powershell-unmatched-brace",
+          "language": "powershell",
+          "files": {
+            "bad.ps1": "function Get-Value {\n  if ($true) { return 1 }\n"
+          },
+          "expected": { "category": "syntax", "minimum": 1, "path": "bad.ps1", "confirmWith": ["powershell-parser"] }
+        },
+        {
+          "id": "syntax-shell-unclosed-quote",
+          "language": "shell",
+          "files": {
+            "bad.sh": "#!/bin/sh\nprintf '%s\\n' \"never closed\n"
+          },
+          "expected": { "category": "syntax", "minimum": 1, "path": "bad.sh", "confirmWith": ["shellcheck", "sh-n"] }
+        }
+      ],
+      "cleanControl": {
+        "id": "syntax-control-yaml-block-scalar",
+        "language": "yaml",
+        "files": {
+          "good.yaml": "script: |\n  if true; then\n    echo ok\n  fi\n"
+        },
+        "expected": { "clean": true, "reason": "Indentation inside a block scalar is content, not a malformed mapping." }
+      }
+    },
+    {
+      "id": "cycle",
+      "scenarios": [
+        {
+          "id": "cycle-ts-two-node",
+          "language": "typescript",
+          "files": {
+            "src/a.ts": "import { b } from './b.ts';\nexport const a = b + 1;\n",
+            "src/b.ts": "import { a } from './a.ts';\nexport const b = a + 1;\n"
+          },
+          "expected": { "category": "cycle", "minimum": 1, "cycle": ["src/a.ts", "src/b.ts"], "confirmWith": ["dependency-cruiser"] }
+        },
+        {
+          "id": "cycle-ts-barrel-three-node",
+          "language": "typescript",
+          "files": {
+            "src/index.ts": "export { service } from './service.ts';\nexport { config } from './config.ts';\n",
+            "src/service.ts": "import { config } from './index.ts';\nexport const service = config.port;\n",
+            "src/config.ts": "import { service } from './index.ts';\nexport const config = { port: service ? 1 : 2 };\n"
+          },
+          "expected": { "category": "cycle", "minimum": 1, "confirmWith": ["dependency-cruiser"] }
+        },
+        {
+          "id": "cycle-python-package",
+          "language": "python",
+          "files": {
+            "pkg/a.py": "from pkg.b import b\na = b + 1\n",
+            "pkg/b.py": "from pkg.a import a\nb = a + 1\n",
+            "pkg/__init__.py": ""
+          },
+          "expected": { "category": "cycle", "minimum": 1, "confirmWith": ["import-linter", "python-import-runtime"] }
+        }
+      ],
+      "cleanControl": {
+        "id": "cycle-control-types-only",
+        "language": "typescript",
+        "files": {
+          "src/a.ts": "import type { B } from './b.ts';\nexport interface A { b: B }\n",
+          "src/b.ts": "import type { A } from './a.ts';\nexport interface B { a?: A }\n"
+        },
+        "expected": { "clean": true, "reason": "The pack's runtime-cycle gate excludes an explicitly allowed type-only relationship; a separate architecture note may remain." }
+      }
+    },
+    {
+      "id": "type-name",
+      "scenarios": [
+        {
+          "id": "type-ts-incompatible-return",
+          "language": "typescript",
+          "files": {
+            "main.ts": "type Result = { ok: true; value: number } | { ok: false; error: string };\nexport function parse(): Result { return { ok: true, value: '42' }; }\n"
+          },
+          "expected": { "category": "type", "minimum": 1, "path": "main.ts", "confirmWith": ["typescript"] }
+        },
+        {
+          "id": "type-rust-mismatch",
+          "language": "rust",
+          "files": {
+            "Cargo.toml": "[package]\nname='zoo'\nversion='0.1.0'\nedition='2024'\n",
+            "src/lib.rs": "pub fn count() -> usize { \"three\" }\n"
+          },
+          "expected": { "category": "type", "minimum": 1, "path": "src/lib.rs", "confirmWith": ["cargo-check"] }
+        },
+        {
+          "id": "type-python-return",
+          "language": "python",
+          "files": {
+            "main.py": "def count() -> int:\n    return 'three'\n"
+          },
+          "expected": { "category": "type", "minimum": 1, "path": "main.py", "confirmWith": ["pyright"] }
+        },
+        {
+          "id": "name-sql-schema-column",
+          "language": "sql",
+          "files": {
+            "query.sql": "SELECT usre_id FROM users;\n",
+            "schema.json": "{\"users\":{\"user_id\":\"INT\"}}\n"
+          },
+          "expected": { "category": "name-error", "minimum": 1, "symbol": "usre_id", "confirmWith": ["sqlglot-schema-adapter"] }
+        }
+      ],
+      "cleanControl": {
+        "id": "type-control-intentional-unknown-boundary",
+        "language": "typescript",
+        "files": {
+          "main.ts": "export function parse(input: unknown): string {\n  if (typeof input !== 'string') throw new TypeError('string required');\n  return input;\n}\n"
+        },
+        "expected": { "clean": true, "reason": "Unknown is intentionally narrowed at an external boundary." }
+      }
+    },
+    {
+      "id": "test-weakness",
+      "scenarios": [
+        {
+          "id": "weak-test-tautological-true",
+          "language": "typescript",
+          "files": {
+            "src/math.ts": "export const add = (a: number, b: number): number => a - b;\n",
+            "test/math.test.ts": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('adds', () => { assert.equal(true, true); });\n"
+          },
+          "expected": { "category": "test-weakness", "minimum": 1, "path": "test/math.test.ts", "confirmWith": ["test-ast-check", "mutation"] }
+        },
+        {
+          "id": "weak-test-shared-expected-actual",
+          "language": "typescript",
+          "files": {
+            "src/value.ts": "export const value = (): number => 7;\n",
+            "test/value.test.ts": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nconst expected = 7;\ntest('value', () => { assert.equal(expected, expected); });\n"
+          },
+          "expected": { "category": "test-weakness", "minimum": 1, "path": "test/value.test.ts", "confirmWith": ["test-ast-check", "mutation"] }
+        },
+        {
+          "id": "weak-test-swallowed-error",
+          "language": "python",
+          "files": {
+            "app.py": "def parse(value: str) -> int:\n    return int(value)\n",
+            "test_app.py": "from app import parse\n\ndef test_invalid():\n    try:\n        parse('bad')\n    except Exception:\n        pass\n"
+          },
+          "expected": { "category": "test-weakness", "minimum": 1, "path": "test_app.py", "confirmWith": ["test-ast-check", "mutation"] }
+        },
+        {
+          "id": "weak-test-never-calls-production",
+          "language": "powershell",
+          "files": {
+            "Thing.ps1": "function Get-Thing { throw 'not implemented' }\n",
+            "Thing.Tests.ps1": "Describe 'Thing' { It 'works' { Mock Get-Thing { 42 }; 42 | Should -Be 42 } }\n"
+          },
+          "expected": { "category": "test-weakness", "minimum": 1, "path": "Thing.Tests.ps1", "confirmWith": ["pester-coverage", "semantic-review"] }
+        }
+      ],
+      "cleanControl": {
+        "id": "weak-test-control-behavior-and-error",
+        "language": "typescript",
+        "files": {
+          "src/parse.ts": "export const parse = (s: string): number => { const n = Number(s); if (!Number.isFinite(n)) throw new TypeError('number'); return n; };\n",
+          "test/parse.test.ts": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { parse } from '../src/parse.ts';\ntest('parses and rejects', () => { assert.equal(parse('2'), 2); assert.throws(() => parse('x'), TypeError); });\n"
+        },
+        "expected": { "clean": true, "reason": "The test calls production code and checks both value and failure behavior." }
+      }
+    },
+    {
+      "id": "mutation-survived",
+      "scenarios": [
+        {
+          "id": "mutant-boundary-comparison",
+          "language": "typescript",
+          "files": {
+            "src/adult.ts": "export const isAdult = (age: number): boolean => age >= 18;\n",
+            "test/adult.test.ts": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { isAdult } from '../src/adult.ts';\ntest('adult', () => assert.equal(isAdult(20), true));\n"
+          },
+          "expected": { "category": "mutation-survived", "minimum": 1, "mutation": ">= to >", "killerTest": "assert.equal(isAdult(18), true)", "confirmWith": ["stryker"] }
+        },
+        {
+          "id": "mutant-error-propagation",
+          "language": "python",
+          "files": {
+            "app.py": "def load(read):\n    try:\n        return read()\n    except OSError:\n        return None\n",
+            "test_app.py": "from app import load\n\ndef test_load():\n    assert load(lambda: 'ok') == 'ok'\n"
+          },
+          "expected": { "category": "mutation-survived", "minimum": 1, "mutation": "remove or broaden exception behavior", "killerTest": "assert load(raising_oserror) is None", "confirmWith": ["mutmut"] }
+        },
+        {
+          "id": "mutant-removed-await",
+          "language": "typescript",
+          "files": {
+            "src/save.ts": "export async function save(write: () => Promise<void>): Promise<boolean> { await write(); return true; }\n",
+            "test/save.test.ts": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { save } from '../src/save.ts';\ntest('save', async () => assert.equal(await save(async () => {}), true));\n"
+          },
+          "expected": { "category": "mutation-survived", "minimum": 1, "mutation": "remove await/write effect", "killerTest": "assert order or rejected promise propagation", "confirmWith": ["stryker", "manual-mutant-if-operator-unsupported"] }
+        },
+        {
+          "id": "mutant-security-path-check",
+          "language": "rust",
+          "files": {
+            "Cargo.toml": "[package]\nname='zoo'\nversion='0.1.0'\nedition='2024'\n",
+            "src/lib.rs": "pub fn allowed(path: &str) -> bool { !path.contains(\"..\") }\n",
+            "tests/path.rs": "use zoo::allowed;\n#[test] fn normal_path() { assert!(allowed(\"safe/file\")); }\n"
+          },
+          "expected": { "category": "mutation-survived", "minimum": 1, "mutation": "negate/remove traversal guard", "killerTest": "assert!(!allowed(\"../secret\"))", "confirmWith": ["cargo-mutants"] }
+        }
+      ],
+      "cleanControl": {
+        "id": "mutation-control-killed-boundaries",
+        "language": "typescript",
+        "files": {
+          "src/range.ts": "export const inside = (n: number): boolean => n >= 1 && n <= 3;\n",
+          "test/range.test.ts": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { inside } from '../src/range.ts';\ntest('boundaries', () => { for (const [n, ok] of [[0,false],[1,true],[3,true],[4,false]] as const) assert.equal(inside(n), ok); });\n"
+        },
+        "expected": { "clean": true, "reason": "Relevant comparison/boolean mutants must be killed; equivalent mutants remain separately classified." }
+      }
+    },
+    {
+      "id": "property-counterexample",
+      "scenarios": [
+        {
+          "id": "property-sort-preserves-duplicates",
+          "language": "typescript",
+          "files": {
+            "src/sort.ts": "export const sortUnique = (xs: number[]): number[] => [...new Set(xs)].sort((a,b) => a-b);\n",
+            "test/sort.property.test.ts": "// Property: output length and multiset equal input; generator should shrink to [0,0].\n"
+          },
+          "expected": { "category": "property-counterexample", "minimum": 1, "minimalShape": "[x,x]", "confirmWith": ["fast-check"] }
+        },
+        {
+          "id": "property-python-roundtrip-whitespace",
+          "language": "python",
+          "files": {
+            "codec.py": "def encode(s: str) -> str: return s.strip()\ndef decode(s: str) -> str: return s\n",
+            "test_codec.py": "# Property: decode(encode(s)) == s; Hypothesis should shrink to a whitespace string.\n"
+          },
+          "expected": { "category": "property-counterexample", "minimum": 1, "confirmWith": ["hypothesis"] }
+        },
+        {
+          "id": "property-rust-overflow-boundary",
+          "language": "rust",
+          "files": {
+            "Cargo.toml": "[package]\nname='zoo'\nversion='0.1.0'\nedition='2024'\n[dev-dependencies]\nproptest='1'\n",
+            "src/lib.rs": "pub fn average(a: u8, b: u8) -> u8 { (a + b) / 2 }\n",
+            "tests/average.rs": "// Property: result lies between inputs; generated high bytes expose debug overflow.\n"
+          },
+          "expected": { "category": "property-counterexample", "minimum": 1, "confirmWith": ["proptest", "cargo-test"] }
+        },
+        {
+          "id": "property-async-ordering",
+          "language": "typescript",
+          "files": {
+            "src/cache.ts": "export class Cache { value = 0; async add(read: () => Promise<number>) { const n = await read(); this.value += n; } }\n",
+            "test/cache.property.test.ts": "// Model property: any scheduled completion order yields the sum of resolved values.\n"
+          },
+          "expected": { "category": "property-counterexample", "minimum": 1, "confirmWith": ["fast-check-scheduler"] }
+        }
+      ],
+      "cleanControl": {
+        "id": "property-control-seed-replay",
+        "language": "typescript",
+        "files": {
+          "test/replay.contract.txt": "A passing run records seed and numRuns; a failure also records shrink path and minimal counterexample.\n"
+        },
+        "expected": { "clean": true, "reason": "Qualification verifies reproducibility metadata even when no counterexample is found." }
+      }
+    },
+    {
+      "id": "architecture",
+      "scenarios": [
+        {
+          "id": "arch-ui-imports-storage",
+          "language": "typescript",
+          "files": {
+            "src/ui/view.ts": "import { rawWrite } from '../storage/raw.ts';\nexport const view = rawWrite;\n",
+            "src/storage/raw.ts": "export const rawWrite = (): void => {};\n",
+            "architecture.json": "{\"forbid\":[{\"from\":\"src/ui/**\",\"to\":\"src/storage/**\"}]}\n"
+          },
+          "expected": { "category": "architecture", "minimum": 1, "confirmWith": ["dependency-cruiser"] }
+        },
+        {
+          "id": "arch-python-domain-imports-web",
+          "language": "python",
+          "files": {
+            "app/domain/model.py": "from app.web.http import request\n",
+            "app/web/http.py": "request = object()\n",
+            ".importlinter": "[importlinter]\nroot_package = app\n[importlinter:contract:layers]\nname=layers\ntype=layers\nlayers=app.web\n  app.domain\n"
+          },
+          "expected": { "category": "architecture", "minimum": 1, "confirmWith": ["import-linter"] }
+        },
+        {
+          "id": "arch-ts-private-internal-import",
+          "language": "typescript",
+          "files": {
+            "src/public.ts": "import { secret } from './feature/internal/secret.ts';\nexport { secret };\n",
+            "src/feature/internal/secret.ts": "export const secret = 1;\n",
+            "architecture.json": "{\"forbidPublicToInternal\":true}\n"
+          },
+          "expected": { "category": "architecture", "minimum": 1, "confirmWith": ["dependency-cruiser"] }
+        }
+      ],
+      "cleanControl": {
+        "id": "arch-control-dependency-inversion",
+        "language": "typescript",
+        "files": {
+          "src/domain/port.ts": "export interface Store { save(value: string): Promise<void> }\n",
+          "src/storage/adapter.ts": "import type { Store } from '../domain/port.ts';\nexport class Adapter implements Store { async save(): Promise<void> {} }\n"
+        },
+        "expected": { "clean": true, "reason": "An outer adapter depending on an inner port follows the declared direction." }
+      }
+    },
+    {
+      "id": "security",
+      "scenarios": [
+        {
+          "id": "security-ts-shell-injection",
+          "language": "typescript",
+          "files": {
+            "main.ts": "import { exec } from 'node:child_process';\nexport const lookup = (name: string): void => { exec(`nslookup ${name}`); };\n"
+          },
+          "expected": { "category": "security", "minimum": 1, "cwe": "CWE-78", "confirmWith": ["repo-owned-security-rule", "manual-dataflow"] }
+        },
+        {
+          "id": "security-python-subprocess-shell",
+          "language": "python",
+          "files": {
+            "main.py": "import subprocess\n\ndef run(user: str) -> None:\n    subprocess.run('echo ' + user, shell=True)\n"
+          },
+          "expected": { "category": "security", "minimum": 1, "cwe": "CWE-78", "confirmWith": ["bandit", "manual-dataflow"] }
+        },
+        {
+          "id": "security-powershell-expression",
+          "language": "powershell",
+          "files": {
+            "main.ps1": "param([string]$UserInput)\nInvoke-Expression $UserInput\n"
+          },
+          "expected": { "category": "security", "minimum": 1, "cwe": "CWE-95", "confirmWith": ["psscriptanalyzer", "manual-dataflow"] }
+        },
+        {
+          "id": "security-shell-unquoted-delete-root",
+          "language": "shell",
+          "files": {
+            "main.sh": "#!/bin/sh\nrm -rf $TARGET/*\n"
+          },
+          "expected": { "category": "security", "minimum": 1, "confirmWith": ["shellcheck", "manual-dataflow"] }
+        }
+      ],
+      "cleanControl": {
+        "id": "security-control-argv-no-shell",
+        "language": "typescript",
+        "files": {
+          "main.ts": "import { execFile } from 'node:child_process';\nexport const lookup = (name: string): void => { execFile('nslookup', [name], { shell: false }); };\n"
+        },
+        "expected": { "clean": true, "reason": "User input is passed as an argv element with shell expansion disabled; input validation may be a separate policy." }
+      }
+    }
+  ]
+}

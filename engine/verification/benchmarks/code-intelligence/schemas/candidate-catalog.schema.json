@@ -1,0 +1,642 @@
+{
+  "$id": "https://bridlewise.local/schemas/code-intelligence/candidate-catalog.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "asOf": {
+      "type": "string"
+    },
+    "candidates": {
+      "items": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "displayName": {
+                "type": "string"
+              },
+              "family": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "installAndRuntime": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fact": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fact",
+                    "source"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "lastObserved": {
+                "additionalProperties": false,
+                "properties": {
+                  "publishedAt": {
+                    "type": "string"
+                  },
+                  "releaseId": {
+                    "type": "integer"
+                  },
+                  "tag": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "publishedAt",
+                  "releaseId",
+                  "tag"
+                ],
+                "type": "object"
+              },
+              "license": {
+                "additionalProperties": false,
+                "properties": {
+                  "observed": {
+                    "type": "string"
+                  },
+                  "productionDisposition": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "observed",
+                  "productionDisposition",
+                  "source"
+                ],
+                "type": "object"
+              },
+              "resolver": {
+                "additionalProperties": false,
+                "properties": {
+                  "repository": {
+                    "type": "string"
+                  },
+                  "stableTagPattern": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "repository",
+                  "stableTagPattern",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "displayName",
+              "family",
+              "id",
+              "installAndRuntime",
+              "lastObserved",
+              "license",
+              "resolver",
+              "role"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "displayName": {
+                "type": "string"
+              },
+              "family": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "installAndRuntime": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fact": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fact",
+                    "source"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "lastObserved": {
+                "additionalProperties": false,
+                "properties": {
+                  "publishedAt": {
+                    "type": "string"
+                  },
+                  "releaseId": {
+                    "type": "integer"
+                  },
+                  "stableUnderProtocol": {
+                    "type": "boolean"
+                  },
+                  "tag": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "publishedAt",
+                  "releaseId",
+                  "stableUnderProtocol",
+                  "tag"
+                ],
+                "type": "object"
+              },
+              "license": {
+                "additionalProperties": false,
+                "properties": {
+                  "observed": {
+                    "type": "string"
+                  },
+                  "productionDisposition": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "observed",
+                  "productionDisposition",
+                  "source"
+                ],
+                "type": "object"
+              },
+              "resolver": {
+                "additionalProperties": false,
+                "properties": {
+                  "repository": {
+                    "type": "string"
+                  },
+                  "stableTagPattern": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "repository",
+                  "stableTagPattern",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "displayName",
+              "family",
+              "id",
+              "installAndRuntime",
+              "lastObserved",
+              "license",
+              "resolver",
+              "role"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "displayName": {
+                "type": "string"
+              },
+              "family": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "installAndRuntime": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fact": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fact",
+                    "source"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "lastObserved": {
+                "additionalProperties": false,
+                "properties": {
+                  "publishedAt": {
+                    "type": "string"
+                  },
+                  "readmeVersionConflict": {
+                    "type": "string"
+                  },
+                  "releaseId": {
+                    "type": "integer"
+                  },
+                  "tag": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "publishedAt",
+                  "readmeVersionConflict",
+                  "releaseId",
+                  "tag"
+                ],
+                "type": "object"
+              },
+              "license": {
+                "additionalProperties": false,
+                "properties": {
+                  "observed": {
+                    "type": "string"
+                  },
+                  "productionDisposition": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "observed",
+                  "productionDisposition",
+                  "source"
+                ],
+                "type": "object"
+              },
+              "resolver": {
+                "additionalProperties": false,
+                "properties": {
+                  "repository": {
+                    "type": "string"
+                  },
+                  "stableTagPattern": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "repository",
+                  "stableTagPattern",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "displayName",
+              "family",
+              "id",
+              "installAndRuntime",
+              "lastObserved",
+              "license",
+              "resolver",
+              "role"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "displayName": {
+                "type": "string"
+              },
+              "family": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "installAndRuntime": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fact": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fact",
+                    "source"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "lastObserved": {
+                "additionalProperties": false,
+                "properties": {
+                  "note": {
+                    "type": "string"
+                  },
+                  "tag": {
+                    "type": "null"
+                  }
+                },
+                "required": [
+                  "note",
+                  "tag"
+                ],
+                "type": "object"
+              },
+              "license": {
+                "additionalProperties": false,
+                "properties": {
+                  "observed": {
+                    "type": "string"
+                  },
+                  "productionDisposition": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "observed",
+                  "productionDisposition",
+                  "source"
+                ],
+                "type": "object"
+              },
+              "resolver": {
+                "additionalProperties": false,
+                "properties": {
+                  "requiredIdentity": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "requiredIdentity",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "displayName",
+              "family",
+              "id",
+              "installAndRuntime",
+              "lastObserved",
+              "license",
+              "resolver",
+              "role"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "displayName": {
+                "type": "string"
+              },
+              "family": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "installAndRuntime": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fact": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fact",
+                    "source"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "justification": {
+                "type": "string"
+              },
+              "lastObserved": {
+                "additionalProperties": false,
+                "properties": {
+                  "publishedAt": {
+                    "type": "string"
+                  },
+                  "releaseId": {
+                    "type": "integer"
+                  },
+                  "tag": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "publishedAt",
+                  "releaseId",
+                  "tag"
+                ],
+                "type": "object"
+              },
+              "license": {
+                "additionalProperties": false,
+                "properties": {
+                  "observed": {
+                    "type": "string"
+                  },
+                  "productionDisposition": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "observed",
+                  "productionDisposition",
+                  "source"
+                ],
+                "type": "object"
+              },
+              "resolver": {
+                "additionalProperties": false,
+                "properties": {
+                  "repository": {
+                    "type": "string"
+                  },
+                  "stableTagPattern": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "repository",
+                  "stableTagPattern",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "displayName",
+              "family",
+              "id",
+              "installAndRuntime",
+              "justification",
+              "lastObserved",
+              "license",
+              "resolver",
+              "role"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "catalogVersion": {
+      "type": "string"
+    },
+    "claimBoundary": {
+      "type": "string"
+    },
+    "discoveryFactStatus": {
+      "type": "string"
+    },
+    "resolutionPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "allowClosestVersion": {
+          "type": "boolean"
+        },
+        "allowDraft": {
+          "type": "boolean"
+        },
+        "allowPrerelease": {
+          "type": "boolean"
+        },
+        "allowSilentFallback": {
+          "type": "boolean"
+        },
+        "recordRejectedReleases": {
+          "type": "boolean"
+        },
+        "requireInstalledExecutableSha256": {
+          "type": "boolean"
+        },
+        "requireSourceArchiveSha256": {
+          "type": "boolean"
+        },
+        "requireTagCommit": {
+          "type": "boolean"
+        },
+        "requireToolSchemaSha256": {
+          "type": "boolean"
+        },
+        "selector": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "allowClosestVersion",
+        "allowDraft",
+        "allowPrerelease",
+        "allowSilentFallback",
+        "recordRejectedReleases",
+        "requireInstalledExecutableSha256",
+        "requireSourceArchiveSha256",
+        "requireTagCommit",
+        "requireToolSchemaSha256",
+        "selector"
+      ],
+      "type": "object"
+    },
+    "retainedOfficialRawEvidence": {
+      "type": "boolean"
+    },
+    "schemaVersion": {
+      "type": "string"
+    },
+    "semanticEpoch": {
+      "type": "integer"
+    },
+    "status": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "asOf",
+    "candidates",
+    "catalogVersion",
+    "claimBoundary",
+    "discoveryFactStatus",
+    "resolutionPolicy",
+    "retainedOfficialRawEvidence",
+    "schemaVersion",
+    "semanticEpoch",
+    "status"
+  ],
+  "title": "Closed structural schema for code-intelligence-candidate-catalog/v1",
+  "type": "object"
+}

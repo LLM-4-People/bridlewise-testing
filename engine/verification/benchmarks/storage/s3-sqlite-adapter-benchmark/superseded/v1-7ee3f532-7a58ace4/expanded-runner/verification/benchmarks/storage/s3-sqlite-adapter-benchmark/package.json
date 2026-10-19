@@ -1,0 +1,16 @@
+{
+  "name": "s3-sqlite-adapter-benchmark",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install-check": "node install-check.mjs",
+    "benchmark": "node benchmark.mjs"
+  },
+  "engines": {
+    "node": "24.18.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.11.1"
+  }
+}

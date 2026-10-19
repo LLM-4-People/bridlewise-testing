@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "migration-write-authority-qualification-contract/v2",
+  "status": "author-preregistered-unadmitted",
+  "scope": {
+    "candidateNeutral": true,
+    "backendSelectionIncluded": false,
+    "placementAdmissionIncluded": false,
+    "readinessDecisionIncluded": false,
+    "runtimeImplementationIncluded": false
+  },
+  "claims": {
+    "selection": false,
+    "placementAdmission": false,
+    "readiness": false,
+    "runtimeAvailable": false,
+    "independentAcceptance": false,
+    "descriptorHeldIdentityQualified": false
+  },
+  "connectorAvailability": {
+    "context7": "unavailable",
+    "deepwiki": "unavailable",
+    "kagi": "unavailable",
+    "scrapling": "unavailable",
+    "fallbackSubstitutionUsed": false
+  },
+  "repositoryFacts": {
+    "identitySemantics": "lstat-plus-realpath-path-snapshot-only-no-held-descriptor-no-fstat-no-aba-proof",
+    "timeSemantics": "process-wall-clock-metadata-unattested-except-by-external-evidence-hash",
+    "evidenceRuns": [
+      {
+        "relativePath": "traceability/evidence/research/coordination/migration-write-authority/repository-facts/attempts/f627a88f-9b52-41d5-8865-aba1dad443ea/repository-facts-run.json",
+        "sha256": "b2f2562f6ac59651adf2467903218efcc95af23ad343acf7909fc957864f4789",
+        "reportIdentity": "d700050a3394d96ce81d5d73075dbec095aa57f90d21a8b63901ef8cda3899d7"
+      },
+      {
+        "relativePath": "traceability/evidence/research/coordination/migration-write-authority/repository-facts/attempts/1a4d1745-6c3e-4a1d-9d8b-25ef3b7f7629/repository-facts-run.json",
+        "sha256": "61306a583f714719fb568060027fb0da3baa70d8ba7bfd9e215f9471ab5b3dbc",
+        "reportIdentity": "4a6a5cee1622b9816fbd162abfe09ed52811fe20b6ff3b12a02aaca1111ac385"
+      },
+      {
+        "relativePath": "traceability/evidence/research/coordination/migration-write-authority/repository-facts/attempts/42743c00-8ea5-4048-9038-13324c261976/repository-facts-run.json",
+        "sha256": "e217304c8e0c0d2036a55589732227dbdf8e7c4feee9a328f880be7376950cd7",
+        "reportIdentity": "59b70ea251fee3b94186e3cd8fbaec53d9461154eb086ffb50c2cb3ebd5403fe"
+      }
+    ],
+    "authorValidation": "fresh-producer-and-validator-x3-unadmitted",
+    "independentValidation": "required-after-remediation"
+  },
+  "protocol": {
+    "schemaRelativePath": "verification/benchmarks/coordination/migration-write-authority/schemas/authority-protocol.schema.json",
+    "fixtureRelativePath": "verification/benchmarks/coordination/migration-write-authority/fixtures/authority-protocol-fixtures.v2.json",
+    "fixtureGeneratorRelativePath": "verification/benchmarks/coordination/migration-write-authority/build-protocol-fixtures.mjs",
+    "qualificationState": "closed-author-design-contract-unimplemented-unadmitted",
+    "liveGrant": "process-private-opaque-value-required-out-of-band-and-never-serializable",
+    "serializedEvidence": "evidence-only-never-authority",
+    "operationControls": [
+      "acquire",
+      "reserve",
+      "heartbeat",
+      "checkpoint",
+      "fence",
+      "compare-and-commit",
+      "release",
+      "inspect",
+      "recover"
+    ],
+    "semanticInvariants": [
+      "acquire-starts-active",
+      "serialized-messages-never-contain-live-grants",
+      "fence-binds-resource-base-expected-and-intended-state",
+      "compare-and-commit-binds-fence-resource-base-states-and-result",
+      "release-ends-released-without-lease-evidence",
+      "recovery-requires-newer-generation-and-distinct-fence",
+      "journal-identities-are-canonical-hashes",
+      "journal-predecessors-and-transitions-are-contiguous"
+    ]
+  },
+  "decisionStatus": [
+    { "id": "MWA-GAP-001", "status": "blocked-backend-qualification" },
+    { "id": "MWA-GAP-002", "status": "blocked-config-spec-compiler" },
+    { "id": "MWA-GAP-003", "status": "blocked-no-held-descriptor-fstat-or-aba-proof" },
+    { "id": "MWA-GAP-004", "status": "blocked-architecture-placement-admission" },
+    { "id": "MWA-GAP-005", "status": "partial-author-resource-contract-only" },
+    { "id": "MWA-GAP-006", "status": "partial-author-protocol-contract-only" },
+    { "id": "MWA-GAP-007", "status": "blocked-time-and-orphan-policy" },
+    { "id": "MWA-GAP-008", "status": "partial-author-nonserializable-grant-contract-only" },
+    { "id": "MWA-GAP-009", "status": "blocked-descriptor-cas-effect-port" },
+    { "id": "MWA-GAP-010", "status": "blocked-qualified-git-capability-launcher" },
+    { "id": "MWA-GAP-011", "status": "partial-author-journal-handoff-contract-only" },
+    { "id": "MWA-GAP-012", "status": "blocked-backend-schema-and-release-policy" },
+    { "id": "MWA-GAP-013", "status": "partial-author-preregistration-independent-oracles-and-power-loss-missing" }
+  ]
+}

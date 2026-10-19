@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridlewise.invalid/schemas/secret-span-corpus/v2",
+  "title": "Secret-span hostile corpus",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "purpose", "fixtures"],
+  "properties": {
+    "schemaVersion": {
+      "const": "bridlewise-secret-span-corpus/v2"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{2,63}$"
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/fixture"
+      }
+    }
+  },
+  "$defs": {
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "carrierClass",
+        "expectedDisposition",
+        "fragments",
+        "requiredSafeFragments"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9-]{2,63}$"
+        },
+        "carrierClass": {
+          "type": "string",
+          "enum": [
+            "assignment",
+            "provider-prefix",
+            "authorization-header",
+            "multiline",
+            "encoded",
+            "split-generated",
+            "private-key-body",
+            "overlap",
+            "adjacent",
+            "url",
+            "error-text",
+            "safe-negative",
+            "invalid-utf8"
+          ]
+        },
+        "expectedDisposition": {
+          "type": "string",
+          "enum": ["sanitized", "blocked-invalid-utf8"]
+        },
+        "fragments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "value"],
+                "properties": {
+                  "kind": {
+                    "const": "text"
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 16384
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "secretId", "carrier"],
+                "properties": {
+                  "kind": {
+                    "const": "secret"
+                  },
+                  "secretId": {
+                    "type": "string",
+                    "enum": [
+                      "makora",
+                      "provider",
+                      "aws",
+                      "bearer",
+                      "password",
+                      "session",
+                      "private-body",
+                      "overlap-short"
+                    ]
+                  },
+                  "carrier": {
+                    "type": "string",
+                    "enum": [
+                      "plain",
+                      "base64",
+                      "url-encoded",
+                      "json-unicode-escaped",
+                      "yaml-block",
+                      "js-concatenated",
+                      "private-key-lines"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "hex"],
+                "properties": {
+                  "kind": {
+                    "const": "invalid-bytes"
+                  },
+                  "hex": {
+                    "type": "string",
+                    "pattern": "^(?:[0-9a-f]{2})+$"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "requiredSafeFragments": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "carrierClass": { "const": "safe-negative" } },
+            "required": ["carrierClass"]
+          },
+          "then": {
+            "properties": {
+              "expectedDisposition": { "const": "sanitized" },
+              "fragments": {
+                "not": {
+                  "type": "array",
+                  "contains": {
+                    "type": "object",
+                    "properties": { "kind": { "enum": ["secret", "invalid-bytes"] } },
+                    "required": ["kind"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "carrierClass": { "const": "invalid-utf8" } },
+            "required": ["carrierClass"]
+          },
+          "then": {
+            "properties": {
+              "expectedDisposition": { "const": "blocked-invalid-utf8" },
+              "fragments": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "properties": { "kind": { "const": "invalid-bytes" } },
+                  "required": ["kind"]
+                }
+              }
+            }
+          },
+          "else": {
+            "if": {
+              "properties": { "carrierClass": { "not": { "const": "safe-negative" } } },
+              "required": ["carrierClass"]
+            },
+            "then": {
+              "properties": {
+                "expectedDisposition": { "const": "sanitized" },
+                "fragments": {
+                  "type": "array",
+                  "contains": {
+                    "type": "object",
+                    "properties": { "kind": { "const": "secret" } },
+                    "required": ["kind"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

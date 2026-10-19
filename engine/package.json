@@ -1,0 +1,51 @@
+{
+  "name": "bridlewise",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/cli.ts"
+  },
+  "engines": {
+    "node": ">=24.18.0 <25.0.0"
+  },
+  "scripts": {
+    "bootstrap:hooks": "node --experimental-strip-types scripts/bootstrap-hooks.ts",
+    "start": "node src/cli.ts",
+    "typecheck": "node scripts/verification/tsconfig-include-liveness.ts . && tsc --noEmit --checkers 1 && tsc --noEmit --checkers 1 -p tsconfig.tests.json",
+    "test": "node scripts/tooling/run-tests.ts",
+    "run-diff": "node scripts/tooling/run-diff.ts",
+    "test:guards": "node --experimental-strip-types scripts/tooling/test-guards.ts test/architecture/*.test.ts test/prevention/*.test.ts test/workflow/auto-heal.test.ts test/s1-scenarios-registry.test.ts test/audit-matrix.test.ts",
+    "test:editor": "node --experimental-strip-types scripts/tooling/test-guards.ts test/editor/*.test.ts",
+    "test:unit": "node --experimental-strip-types scripts/tooling/test-guards.ts",
+    "test:live": "node --experimental-strip-types scripts/tooling/test-guards.ts live/*.test.ts",
+    "inventory:generate": "node scripts/test-inventory.ts --write",
+    "inventory:check": "node scripts/test-inventory.ts --check",
+    "inventory:recover": "node scripts/test-inventory.ts --recover",
+    "coverage": "node scripts/tooling/coverage.ts",
+    "test:coverage": "npm run coverage",
+    "manifest:candidate": "node scripts/tooling/candidate-manifest.ts --root .",
+    "verify:s1": "node scripts/tooling/check.ts",
+    "check": "npm run typecheck && node scripts/tooling/check.ts",
+    "foundation:plan": "node scripts/tooling/foundation.ts plan",
+    "foundation:check": "node scripts/tooling/foundation.ts check",
+    "foundation:write": "node scripts/tooling/foundation.ts write",
+    "foundation:recover": "node scripts/tooling/foundation.ts recover",
+    "build:bundle": "node scripts/build-bundle.ts"
+  },
+  "devDependencies": {
+    "@babel/types": "^8.0.4",
+    "@types/node": "^24.13.3",
+    "ajv": "^8.20.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@babel/parser": "^8.0.4",
+    "@xenova/transformers": "^2.17.2",
+    "tree-sitter-wasms": "0.1.13",
+    "undici": "8.11.2",
+    "web-tree-sitter": "0.22.6",
+    "zod": "^4.4.3"
+  }
+}

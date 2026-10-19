@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://bridlewise.local/schemas/code-intelligence/policy-bundle-lock.v2.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "bundleVersion", "semanticEpoch", "trustStatus", "qualificationPermitted", "documents", "transition", "signature", "trustBlocker"],
+  "properties": {
+    "schemaVersion": {"const": "code-intelligence-policy-bundle-lock/v2"}, "bundleVersion": {"const": "3.0.0"}, "semanticEpoch": {"const": 3},
+    "trustStatus": {"const": "integrity-only-untrusted-no-qualified-signer"}, "qualificationPermitted": {"const": false},
+    "documents": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "object", "additionalProperties": false, "required": ["id", "path", "schemaPath", "documentVersion", "semanticVersion", "semanticEpoch", "byteSha256", "canonicalSha256", "schemaSha256"], "properties": {"id": {"enum": ["candidate-catalog", "qualification-protocol", "query-oracle", "scenario-catalog"]}, "path": {"type": "string"}, "schemaPath": {"type": "string"}, "documentVersion": {"type": "string"}, "semanticVersion": {"enum": ["2.0.0", "3.0.0"]}, "semanticEpoch": {"enum": [2, 3]}, "byteSha256": {"$ref": "#/$defs/sha256"}, "canonicalSha256": {"$ref": "#/$defs/sha256"}, "schemaSha256": {"$ref": "#/$defs/sha256"}}}},
+    "transition": {"type": "object", "additionalProperties": false, "required": ["fromBundleVersion", "fromSemanticEpoch", "toSemanticEpoch", "reason", "reviewProbeSha256", "reviewProbeSha256ReportedAbbreviation", "reviewProbeFullDigestAvailable"], "properties": {"fromBundleVersion": {"const": "2.0.0"}, "fromSemanticEpoch": {"const": 2}, "toSemanticEpoch": {"const": 3}, "reason": {"type": "string", "minLength": 1}, "reviewProbeSha256": {"type": "null"}, "reviewProbeSha256ReportedAbbreviation": {"const": "7a1fa6...cf92"}, "reviewProbeFullDigestAvailable": {"const": false}}},
+    "signature": {"type": "null"}, "trustBlocker": {"type": "string", "minLength": 1}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}

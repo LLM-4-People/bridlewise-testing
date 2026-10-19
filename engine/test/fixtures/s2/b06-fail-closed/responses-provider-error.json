@@ -1,0 +1,8 @@
+{
+  "protocol": "openai-responses",
+  "frames": [
+    "event: error\ndata: {\"type\":\"error\",\"sequence_number\":0,\"code\":\"server_error\",\"message\":\"sensitive provider detail\",\"param\":null}\n\n"
+  ],
+  "expectedTypes": ["start", "error"],
+  "expectedErrorCode": "server_error"
+}

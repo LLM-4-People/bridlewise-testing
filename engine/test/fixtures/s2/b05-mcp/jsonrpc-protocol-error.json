@@ -1,0 +1,15 @@
+{
+  "callId": "call_protocol_error",
+  "expectedResponseId": 44,
+  "wire": {
+    "jsonrpc": "2.0",
+    "id": 44,
+    "error": {
+      "code": -32602,
+      "message": "Invalid params",
+      "data": { "field": "name" }
+    }
+  },
+  "expectedImportError": "mcp_jsonrpc_error",
+  "expectedProtocolCode": -32602
+}

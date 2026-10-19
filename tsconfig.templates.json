@@ -1,0 +1,21 @@
+{
+  "//": [
+    "THE TEMPLATE CHECK'S FILE SET — every .svelte file, not merely the reachable ones.",
+    "",
+    "`tsconfig.json` includes 'src/**/*.ts', which does not match a .svelte path, so a",
+    "component entered svelte-check's program ONLY by being transitively imported from",
+    "some .ts root. Measured: with that file set, breaking",
+    "src/cockpit/editor/FilePane.svelte on purpose produced ZERO errors, because nothing",
+    "in the app imports it — only tests do. That is precisely the file whose missing",
+    "`frameKey` prop shipped a dead room, so a template gate that cannot see it is a",
+    "gate that would not have caught the defect it was installed for.",
+    "",
+    "Naming the .svelte glob makes membership a fact about the FILESYSTEM rather than",
+    "about the import graph: a component that is unreachable, newly added, or reachable",
+    "only from a test is checked exactly like every other one. Compiler options are",
+    "inherited from tsconfig.json, so the templates are held to the same strictness as",
+    "the code — this file changes WHAT is checked, never HOW."
+  ],
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*.ts", "src/**/*.svelte", "shared/**/*.ts"]
+}

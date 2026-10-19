@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "code-intelligence-independent-verifier-runtime-pointer/v3",
+  "scope": "Exact canonical compatibility-policy and immutable host/toolchain-receipt byte identities; alternate repository-local targets are forbidden.",
+  "compatibilityPolicy": "verification/benchmarks/code-intelligence/runtime-policy.json",
+  "compatibilityPolicySha256": "525ebeb352b4b8607b1c4f0aa3d49fe7fa10c68ca18837f449544c7ad4c6b48e",
+  "hostReceipt": "verification/benchmarks/code-intelligence/runtime-host-receipt.json",
+  "hostReceiptSha256": "5297b3db1c6e4b5eedba5360049e7062b800c5892496a271bf2085cf19d1d536"
+}
