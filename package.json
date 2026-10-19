@@ -43,23 +43,23 @@
     "verify:public": "npm run typecheck && npm run check:secrets && npm run test:public"
   },
   "dependencies": {
-    "nanostores": "^1.4.1",
+    "nanostores": "^1.5.5",
     "tree-sitter-wasms": "^0.1.13",
-    "web-tree-sitter": "^0.22.6",
-    "zod": "^4.4.3"
+    "web-tree-sitter": "^0.27.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
-    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@playwright/test": "^1.64.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@testing-library/svelte": "^5.4.2",
     "@types/node": "^24.13.3",
     "jsdom": "^29.1.1",
-    "svelte": "^5.56.7",
-    "svelte-check": "^4.7.3",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.7",
     "tinyglobby": "^0.2.17",
     "typescript": "^7.0.2",
     "typescript5": "npm:typescript@^5.9.3",
-    "vite": "^8.1.5",
+    "vite": "^8.3.4",
     "vitest": "^4.1.10"
   },
   "license": "AGPL-3.0-only",
