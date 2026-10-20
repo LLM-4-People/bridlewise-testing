@@ -42,6 +42,7 @@
  */
 import { expect, test } from "vitest";
 import { resolve } from "node:path";
+import { modulePathMatching } from "../helpers/module-resolver.ts";
 
 import {
   CPU_METRIC_PLACEHOLDERS,
@@ -98,22 +99,22 @@ test("a duplicate derivation of a registered number is refused", () => {
 });
 
 test("a zero fallback for an unreadable measurement is refused", () => {
-  const source = WORLD.sources.get("engine/src/shared/ambient-load.ts");
+  const source = WORLD.sources.get(modulePathMatching("ambient-load.ts"));
   expect(source).toBeDefined();
   // The plant keeps the declared derivation but turns the unreadable load
   // sample into 0 — the exact historical shape that made a budget pass a
   // suite that lacked the reading.
   const planted = source!.replace("load1: toThousandths(load1 / cpuCount),", "load1: toThousandths(load1 / cpuCount) || 0,");
   expect(planted).not.toBe(source);
-  const codes = failuresWith(withSource(WORLD, "engine/src/shared/ambient-load.ts", planted));
+  const codes = failuresWith(withSource(WORLD, modulePathMatching("ambient-load.ts"), planted));
   expect(codes).toContain("zero-as-absent");
 });
 
 test("a gate that judges an unregistered measurement is a refusal, not a warning", () => {
-  const source = WORLD.sources.get("engine/src/shared/run-history.ts");
+  const source = WORLD.sources.get(modulePathMatching("run-history.ts"));
   expect(source).toBeDefined();
   const planted = `${source}\nconst plantGate = { gate: "mystery-measurement", kind: "pass" };\n`;
-  const codes = failuresWith(withSource(WORLD, "engine/src/shared/run-history.ts", planted));
+  const codes = failuresWith(withSource(WORLD, modulePathMatching("run-history.ts"), planted));
   expect(codes).toContain("unregistered-gate");
 });
 
@@ -126,14 +127,14 @@ test("an agnostic load claim with no normalisation step is refused", () => {
 });
 
 test("a new measurement producer read by a consumer cannot slip past the registry", () => {
-  const source = WORLD.sources.get("engine/src/shared/ambient-load.ts");
+  const source = WORLD.sources.get(modulePathMatching("ambient-load.ts"));
   expect(source).toBeDefined();
   const planted = `${source}\nexport function readPlantLatencyMs(): number {\n  return performance.now();\n}\n`;
-  const codes = failuresWith(withSource(WORLD, "engine/src/shared/ambient-load.ts", planted));
+  const codes = failuresWith(withSource(WORLD, modulePathMatching("ambient-load.ts"), planted));
   expect(codes).toContain("unregistered-producer");
 });
 
 test("a deleted producer is named, not silently accepted", () => {
-  const codes = failuresWith(withoutSource(WORLD, "engine/src/shared/ambient-load.ts"));
+  const codes = failuresWith(withoutSource(WORLD, modulePathMatching("ambient-load.ts")));
   expect(codes).toContain("producer-missing");
 });

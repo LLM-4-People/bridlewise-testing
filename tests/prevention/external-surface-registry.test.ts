@@ -82,7 +82,7 @@
  * registry here.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -481,7 +481,7 @@ function audit(tree: Tree): Finding[] {
     }
   }
   for (const name of tree.list(".")) {
-    if (!/^(?:Dockerfile.*|docker-compose.*\.ya?ml|Makefile)$/.test(name)) continue;
+    if (!/^(?:Dockerfile[A-Za-z0-9._-]{0,64}|docker-compose[A-Za-z0-9._-]{0,64}\.ya?ml|Makefile)$/.test(name)) continue;
     if (!build.includes(name)) findings.push({ rule: "build-universe", detail: `${name} is a build file outside the enumerated universe` });
   }
 
