@@ -40,7 +40,7 @@ The key and SQLite migration are separate effects: a failed migration can leave 
 
 The folder lives at `engine/src/filesystem/`.
 
-- `atomic-write.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/regenerate-handoff-manifest.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/s1-verification.ts` and 33 more.
+- `atomic-write.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/regenerate-handoff-manifest.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/s1-verification.ts` and 34 more.
 - `checkout-write-door.ts` is consumed by `engine/scripts/tooling/test-worker.ts`, `engine/src/filesystem/atomic-write.ts`, `engine/src/filesystem/database-provenance.ts`, `engine/src/filesystem/journaled-commit.ts`, `engine/src/filesystem/move-path.ts`, `engine/src/filesystem/private-home.ts` and 1 more.
 - `database-files.ts` is consumed by `engine/src/filesystem/persisted-key.ts`, `engine/src/filesystem/self-protection/keep-out.ts`, `engine/src/filesystem/self-protection/key-home.ts`, `server/kernel/canonical.ts`.
 - `database-provenance.ts` is consumed by `engine/src/timeline/timeline-store.ts`, `server/db/client.ts`, `server/db/wire.ts`.
@@ -52,7 +52,7 @@ The folder lives at `engine/src/filesystem/`.
 - `journaled-commit.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/publication.ts`.
 - `link-containment.ts` is consumed by `engine/scripts/tooling/bootstrap-permissions.ts`, `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/safe-repository-reader.ts`, `engine/src/filesystem/durable-filesystem-internal.ts`, `engine/src/filesystem/immutable-receipt.ts` and 6 more.
 - `linux-path.ts` is consumed by `engine/scripts/tooling/bootstrap-permissions.ts`, `engine/src/filesystem/immutable-receipt.ts`, `engine/src/filesystem/path-identity.ts`, `engine/src/filesystem/pinned-path-internal.ts`, `engine/src/filesystem/self-protection/keep-out.ts`, `engine/src/kernel/config.ts` and 1 more.
-- `move-path.ts` is consumed by `server/db/db-files.ts`, `server/db/key-rotation.ts`, `server/filesystem/editor-bridge.ts`.
+- `move-path.ts` is consumed by `server/db/backup-restore.ts`, `server/db/db-files.ts`, `server/db/key-rotation.ts`, `server/filesystem/editor-bridge.ts`.
 - `path-boundary.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/verification/rejected-binary-fixture.ts`, `engine/scripts/verification/candidate-format.ts`, `engine/scripts/verification/safe-repository-reader.ts`, `engine/scripts/verification/slice-projection-captured-values.ts` and 15 more.
 - `path-identity.ts` is consumed by `engine/src/filesystem/atomic-write.ts`, `engine/src/filesystem/checkout-write-door.ts`, `engine/src/filesystem/journaled-commit.ts`, `engine/src/filesystem/persisted-key.ts`, `engine/src/filesystem/private-home.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts` and 5 more.
 - `persisted-key.ts` is consumed by `engine/src/timeline/timeline-store.ts`, `server/kernel/canonical.ts`.

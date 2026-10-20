@@ -85,4 +85,13 @@ The launcher runs the TypeScript CLI with Node 24's type stripping. There is no 
 
 ## Rollback
 
-A preview release can be removed by deleting the GitHub release and tag. Local state is separate: back up the key home and the SQLite databases before upgrading, and never commit either.
+A preview release can be removed by deleting the GitHub release and tag. Local state is separate: take a verified backup of the database and its key material before upgrading, and never commit either.
+
+```bash
+# Stop the server first.
+npm run db-backup -- backup --db .bridlewise/web.db --to /path/to/private/backup
+# Restore keeps the database it replaces as <database>.pre-restore.
+npm run db-backup -- restore --from /path/to/private/backup --db .bridlewise/web.db
+```
+
+The bundle holds the database copy and the key material that opens it, proved to open together before the folder is named; [the CLI reference](cli.md#db-backupts) states the verification and the limits (the timeline ledger and the pre-migration copies are not in it).

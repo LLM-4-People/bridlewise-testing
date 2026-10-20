@@ -40,8 +40,8 @@
  *     open work).
  */
 
-import { randomBytes, scryptSync, createSecretKey } from "node:crypto";
-import { closeSync, constants, existsSync, fstatSync, fsyncSync, openSync, readFileSync, unlinkSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { closeSync, constants, existsSync, fsyncSync, openSync, unlinkSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -67,8 +67,8 @@ import {
 import { HarnessError } from "../../engine/src/kernel/errors.ts";
 import { webWarn } from "../observability/debug-bridge.ts";
 import { DEFAULT_TIMELINE_DB_PATH, serverConfig } from "../kernel/config.ts";
-import { createDbCryptoFromKey, databaseKeyProof, ENCRYPTED_COLUMNS, isEncryptedValue, openedBinding, ownedRowsSql, resolveDatabaseKey, type DbCrypto, type EncryptedColumn, type EncryptedTable } from "./db-crypto.ts";
-import { holdDatabaseAlone, writeVerifiedCopy } from "./db-files.ts";
+import { createDbCryptoFromKey, createDbCryptoFromMaterial, databaseKeyProof, ENCRYPTED_COLUMNS, isEncryptedValue, openedBinding, ownedRowsSql, resolveDatabaseKey, type DbCrypto, type EncryptedColumn, type EncryptedTable } from "./db-crypto.ts";
+import { holdDatabaseAlone, readPrivateKeyFile, writeVerifiedCopy } from "./db-files.ts";
 import { movePath } from "../../engine/src/filesystem/move-path.ts";
 import { readSchemaVersion } from "./migrations.ts";
 import { SCHEMA_VERSION_LATEST } from "./schema.ts";
@@ -78,24 +78,6 @@ const TIMELINE_BASENAME = basename(DEFAULT_TIMELINE_DB_PATH);
 
 function refuseKeyChange(message: string, code: string): never {
   throw new HarnessError(message, code);
-}
-
-/** The bytes of a private key-shaped file (0600, regular, never through a link), or undefined when absent. */
-function readPrivateFile(path: string): Buffer | undefined {
-  let fd: number;
-  try {
-    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    return refuseKeyChange(`${path} could not be opened (${(error as NodeJS.ErrnoException).code ?? "error"}); a key is never read through a link.`, "db_key_file_invalid");
-  }
-  try {
-    const stat = fstatSync(fd);
-    if (!stat.isFile() || (stat.mode & 0o077) !== 0) refuseKeyChange(`${path} is not a private regular file (mode ${(stat.mode & 0o777).toString(8)}).`, "db_key_file_invalid");
-    return readFileSync(fd);
-  } finally {
-    closeSync(fd);
-  }
 }
 
 function syncFolder(path: string): void {
@@ -115,7 +97,7 @@ function openDatabase(dbPath: string): DatabaseSync {
 
 /** A crypto over raw key material (key file mode) or a salt (passphrase mode). */
 function cryptoFrom(material: Buffer, passphrase: string): DbCrypto {
-  return createDbCryptoFromKey({ key: createSecretKey(passphrase.length > 0 ? scryptSync(passphrase, material, PERSISTED_KEY_BYTES) : material), persisted: true, filePath: null });
+  return createDbCryptoFromMaterial(material, passphrase);
 }
 
 // ── relocate ───────────────────────────────────────────────────────────────
@@ -151,8 +133,8 @@ export function relocateDatabaseKey(options: RelocationOptions): RelocationResul
   const passphrase = options.passphrase ?? "";
   const from = passphrase.length > 0 ? `${legacyKey}${LEGACY_SALT_SUFFIX}` : legacyKey;
   const to = passphrase.length > 0 ? databaseSaltFile(keyHome, dbPath) : databaseKeyFile(keyHome, dbPath);
-  const legacy = readPrivateFile(from);
-  const current = readPrivateFile(to);
+  const legacy = readPrivateKeyFile(from, "db_key_file_invalid");
+  const current = readPrivateKeyFile(to, "db_key_file_invalid");
   const mode = passphrase.length > 0 ? "passphrase-salt" : "key";
   if (legacy === undefined) {
     if (current === undefined) refuseKeyChange(`Neither ${from} nor ${to} exists: there is no key to move.`, "db_key_relocation_source_missing");
@@ -277,7 +259,7 @@ export function rekeyDatabase(options: Readonly<{ dbPath: string; passphrase?: s
   const keyHome = options.keyHome ?? admitHarnessKeyHome([dbPath]);
   const target = passphrase.length > 0 ? databaseSaltFile(keyHome, dbPath) : databaseKeyFile(keyHome, dbPath);
   const retiredSlot = (material: Uint8Array): string => (passphrase.length > 0 ? databaseSaltFile(keyHome, dbPath, material) : databaseKeyFile(keyHome, dbPath, material));
-  const current = (): Buffer => readPrivateFile(target) ?? refuseKeyChange(`${target} disappeared during the re-key; nothing was changed.`, "db_rekey_key_missing");
+  const current = (): Buffer => readPrivateKeyFile(target, "db_key_file_invalid") ?? refuseKeyChange(`${target} disappeared during the re-key; nothing was changed.`, "db_rekey_key_missing");
   const staged = `${target}${NEXT_SUFFIX}`;
   const copy = preRekeyCopyPath(dbPath);
   const db = openDatabase(dbPath);
@@ -290,7 +272,7 @@ export function rekeyDatabase(options: Readonly<{ dbPath: string; passphrase?: s
     // database (the fields were re-encrypted; only the move is missing) or
     // never took (the transaction rolled back): finish, or discard it. No
     // process sealed anything meanwhile: every open refuses a staged key.
-    const pending = readPrivateFile(staged);
+    const pending = readPrivateKeyFile(staged, "db_key_file_invalid");
     if (pending !== undefined) {
       if (databaseKeyProof(db, cryptoFrom(pending, passphrase)) === "opens") {
         // The key file still holds the retired material (the interrupted run kept it first).

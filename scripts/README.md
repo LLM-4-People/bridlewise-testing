@@ -41,6 +41,7 @@ ships into the client bundle or the server runtime.
   process-list pattern, which matched every checkout's orchestrator) and
   `portListeners` (what holds the dev ports: named, never stopped).
 - `db-key.ts` — `npm run db-key -- relocate --db <db> [--force-empty] | scan <folder>... [--apply] | forget --db <db> | rekey --db <db>`: the thin shell of `server/db/key-rotation.ts` (one JSON line; exit 0 done, 1 refused). `scan --apply` REGISTERS the installs it finds and never moves a key; each install moves its own with `relocate`.
+- `db-backup.ts` — `npm run db-backup -- backup --db <db> --to <new folder> | restore --from <backup folder> --db <db>`: the thin shell of `server/db/backup-restore.ts` (one JSON line; exit 0 done, 1 refused). Stop the server first: both commands hold the database alone; a backup carries the verified database copy, its key material (or passphrase salt) and a manifest of digests and row counts, and a restore keeps the database it replaces as a verified `<db>.pre-restore` copy.
 - `vite-dep-cache.ts` — the single owner of "is the Vite dep-optimizer cache
   older than the source being served", with the refusal that clears it.
 - `served-module-probe.ts` — the settle-and-poll mechanics for probing a

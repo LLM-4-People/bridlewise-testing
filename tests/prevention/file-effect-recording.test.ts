@@ -85,6 +85,7 @@ const NON_PROJECT_WRITERS: Readonly<Record<string, string>> = Object.freeze({
   "server/routes/filesystem.ts": "the folder picker creates a directory BEFORE a project exists, so there is no project to attribute it to; guarded by assertWithinAllowedRoots",
   "server/safety/landlock-runner.ts": "writes the guardian's rules into a private scratch directory it creates per command and removes when the command ends; the file never leaves that directory and is not user code",
   "server/db/conversation-archive.ts": "the conversation archive (`npm run db-archive`, server stopped): writes one archive file into the database's own archive folder beside it (harness state, never user code; UD-S15)",
+  "server/db/backup-restore.ts": "the backup/restore flow (`npm run db-backup`, server stopped): writes the backup bundle's own files (manifest, database copy, key-material copies) in the folder the operator names, and stages the restored database and its pre-restore copy beside the target (harness state, never user code)",
   "server/db/key-rotation.ts": "the database key tool (`npm run db-key`): publishes and removes key and salt files in the key home and beside legacy databases, and moves a staged key into place through the move owner; harness state, never user code",
 });
 

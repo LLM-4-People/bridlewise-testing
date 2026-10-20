@@ -17,6 +17,10 @@
  * `server/file-read.ts`, which owns the read encoding for the same reason.
  */
 import { createHash } from "node:crypto";
+import { closeSync, constants, openSync, readSync } from "node:fs";
+
+/** Chunk size for {@link sha256OfFile}: bounded memory, one pass. */
+const FILE_DIGEST_CHUNK_BYTES = 1 << 20;
 
 /** SHA-256 of `content` read as UTF-8, as a lowercase hex string. */
 export function sha256(content: string): string {
@@ -33,4 +37,27 @@ export function sha256(content: string): string {
  */
 export function sha256OfBytes(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * SHA-256 of a FILE, read in bounded chunks and never through a final link
+ * (`O_NOFOLLOW`): the third input kind this owner hashes. A database backup
+ * can be larger than memory, and its digest must not be computed from bytes
+ * a stale `readFileSync` copy happened to hold; a link is refused rather than
+ * hashed, because the backup/restore contract names regular files.
+ */
+export function sha256OfFile(path: string): string {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const hash = createHash("sha256");
+    const chunk = Buffer.allocUnsafe(FILE_DIGEST_CHUNK_BYTES);
+    for (;;) {
+      const read = readSync(fd, chunk, 0, chunk.length, null);
+      if (read === 0) break;
+      hash.update(chunk.subarray(0, read));
+    }
+    return hash.digest("hex");
+  } finally {
+    closeSync(fd);
+  }
 }

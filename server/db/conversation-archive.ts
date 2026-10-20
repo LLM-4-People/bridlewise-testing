@@ -39,7 +39,7 @@ import { readFileText } from "../filesystem/file-read.ts";
 import { serverConfig } from "../kernel/config.ts";
 import { webAuditEvent } from "../observability/debug-bridge.ts";
 import { DbClient, type ConversationRows } from "./client.ts";
-import { holdDatabaseAlone, writeVerifiedCopy } from "./db-files.ts";
+import { databaseTableCounts, holdDatabaseAlone, writeVerifiedCopy } from "./db-files.ts";
 import type { AdmittedKeyHome } from "../kernel/canonical.ts";
 
 export const CONVERSATION_ARCHIVE_SCHEMA = schemaId("conversation-archive", 1);
@@ -70,12 +70,6 @@ function encodeValue(value: unknown): unknown {
 
 function encodeRow(row: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
   return Object.fromEntries(Object.entries(row).map(([column, value]) => [column, encodeValue(value)]));
-}
-
-/** The table row counts of a database (`sqlite_master`'s tables), for the pre-change copy's proof. */
-function tableCounts(db: DatabaseSync): Readonly<Record<string, number>> {
-  const names = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as { name: string }[]).map((row) => row.name);
-  return Object.fromEntries(names.map((name) => [name, Number((db.prepare(`SELECT COUNT(*) AS n FROM "${name}"`).get() as { n: number | bigint }).n)]));
 }
 
 function countsOf(rows: ConversationRows): Readonly<Record<string, number>> {
@@ -135,8 +129,8 @@ export function archiveConversations(options: Readonly<{ dbPath: string; chatIds
     const owners = (raw.prepare("SELECT DISTINCT p.user_id AS owner FROM chats c JOIN projects p ON p.id = c.project_id WHERE c.id IN (SELECT value FROM json_each(?))").all(JSON.stringify(chatIds)) as { owner: string }[]).map((row) => row.owner);
     if (owners.length !== 1) refuseArchive(`The named conversations belong to ${String(owners.length)} users; archive one user's conversations at a time. Nothing was changed.`, "db_archive_owner_ambiguous");
     owner = owners[0]!;
-    const before = tableCounts(raw);
-    writeVerifiedCopy(raw, copy, (verified) => isDeepStrictEqual(tableCounts(verified), before), "the pre-archive copy of the database");
+    const before = databaseTableCounts(raw);
+    writeVerifiedCopy(raw, copy, (verified) => isDeepStrictEqual(databaseTableCounts(verified), before), "the pre-archive copy of the database");
   } finally {
     try { establishWalJournal(raw, serverConfig.dbBusyTimeoutMs); } finally { raw.close(); }
   }

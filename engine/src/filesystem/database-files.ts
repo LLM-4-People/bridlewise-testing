@@ -69,6 +69,14 @@ export function preRekeyCopyPath(dbPath: string): string {
   return `${resolve(dbPath)}${PRE_REKEY_MARKER}`;
 }
 
+/** The verified copy taken before a restore replaces `dbPath` (one slot; the next restore replaces it). */
+const PRE_RESTORE_MARKER = ".pre-restore";
+
+/** Where the copy taken before a restore replaces the database lives. */
+export function preRestoreCopyPath(dbPath: string): string {
+  return `${resolve(dbPath)}${PRE_RESTORE_MARKER}`;
+}
+
 /** The verified copy taken before conversations are archived and removed (one slot; the next archive replaces it). */
 const PRE_ARCHIVE_MARKER = ".pre-archive";
 /** The folder a database's archives are written to: a member of its family (the name starts with the database's own). */
@@ -100,7 +108,7 @@ export function stagingCopyPath(dbPath: string): string {
  * THE FAMILY OF A DATABASE, NAMED ONCE: its folder and the name prefixes of
  * every file that holds (or unlocks) its rows — the database's own name
  * (which starts `-wal`, `-shm`, every `.pre-v<N>`, `.pre-rekey`,
- * `.pre-archive` and `.staging-…` copy, and the `.archive` folder) and the old layout's key (`db-key`, `db-key.salt`, their
+ * `.pre-archive`, `.pre-restore` and `.staging-…` copy, and the `.archive` folder) and the old layout's key (`db-key`, `db-key.salt`, their
  * `.next`). A prefix, not a listing: a copy written after the family was named
  * is a member at once, and a member that comes and goes needs no re-listing.
  */

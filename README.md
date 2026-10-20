@@ -64,7 +64,7 @@ The full [build roadmap](https://llm-4-people.github.io/bridlewise-testing/floor
 | M0 · Public floor online | Done | Both repositories, Pages, the public gate, failure reporting, promotion, and a prerelease are live. |
 | M1 · Reproducible, sharded floor | Active | The full suite runs on shards, merges into one receipt, and every canonical test file runs once. |
 | M2 · Admission evidence | Next | Readiness is reported per capability, with evidence and a remedy attached. |
-| M3 · Product hardening | Next | Backup and restore, provider coverage, portability, scale, and accessibility have tested failure paths. |
+| M3 · Product hardening | Next | Backup and restore are one verified flow; provider coverage, portability, scale, and accessibility still need tested failure paths. |
 | M4 · Sustainable contribution | Active | A new contributor can go from clone to a merged test or docs change using only public instructions. |
 
 No dates. A milestone closes when its exit criteria are reproducible, not when a badge changes.

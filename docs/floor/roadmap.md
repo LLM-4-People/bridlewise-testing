@@ -126,11 +126,11 @@ The shard gate is `.github/workflows/test-shards.yml`, called as the `shards` jo
 
 **State: Next.**
 
-**Problem:** the preview has real machinery but no supported backup, limited provider coverage, Linux-only confinement, and no published performance envelope.
+**Problem:** the preview has a supported backup/restore flow for the database and its key material, but limited provider coverage, Linux-only confinement, and no published performance envelope.
 
 **Workstreams:**
 
-- Backup and restore for the database and key home, with verification.
+- **Backup and restore for the database and key home, with verification — done.** `npm run db-backup -- backup|restore` writes a new folder holding a verified database copy, the key material (or passphrase salt) that opens it, and a digest/row-count manifest; it proves the copy opens under that material, and a restore holds the database alone, keeps a verified `<db>.pre-restore` copy, and proves the restored database opens before calling it done. The flow, its refusals and its limits (the timeline ledger and the pre-migration/pre-rekey copies are not in the bundle) are documented in [the CLI reference](../cli.md#db-backupts).
 - Provider conformance fixtures for the Responses path and a second provider shape, plus clearer setup failures.
 - Cross-platform path handling, with an explicit refusal when Landlock is unavailable.
 - A measured scale and performance envelope for large repositories and concurrent runs.
@@ -140,11 +140,11 @@ The shard gate is `.github/workflows/test-shards.yml`, called as the `shards` jo
 **Exit criteria:**
 
 - Each capability has a documented failure path and a regression.
-- Backup and restore are one documented flow with a verification step.
+- Backup and restore are one documented flow with a verification step. Met by `server/db/backup-restore.ts` and `tests/unit/database-backup.test.ts`: the backup is proved to open under the key material written beside it, and the restore is proved against the key home's key with a pre-restore copy kept. The `empty` key proof (a database with nothing sealed yet) is recorded honestly rather than upgraded to a proof.
 - Platform limits are stated before installation.
 - Performance claims link to a method and a report.
 
-**Help wanted:** backup/restore, provider adapters, platform probes, benchmark design, and accessibility tests.
+**Help wanted:** provider adapters, platform probes, benchmark design, and accessibility tests.
 
 ---
 
@@ -183,7 +183,6 @@ The shard gate is `.github/workflows/test-shards.yml`, called as the `shards` jo
 | Now | Keep the contributor hub and roadmap current | M4 |
 | Next | Per-capability admission receipts | M2 |
 | Next | Release provenance and verification | M2 |
-| Next | Backup and restore | M3 |
 | Later | Provider and MCP coverage | M3 |
 | Later | Scale and performance envelope | M3 |
 | Later | Stable extension surface | M3 |

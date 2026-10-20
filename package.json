@@ -15,6 +15,7 @@
     "dev:stop": "node --experimental-strip-types scripts/dev-stop.ts",
     "db-key": "node --experimental-strip-types scripts/db-key.ts",
     "db-archive": "node --experimental-strip-types scripts/db-archive.ts",
+    "db-backup": "node --experimental-strip-types scripts/db-backup.ts",
     "build": "vite build",
     "preview": "vite preview",
     "serve": "node --experimental-strip-types server/index.ts",

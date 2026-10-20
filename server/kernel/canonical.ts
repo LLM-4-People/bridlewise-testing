@@ -237,6 +237,7 @@ export const {
   databaseKeyName,
   databaseKeyFile,
   databaseSaltFile,
+  databaseBindingRecord,
   registerHarnessStore,
   forgetHarnessStore,
   openStoreRegistry,
@@ -836,7 +837,7 @@ export const { resolvePersistedKey, persistedKeyDisposition, publishKeyMaterial,
 
 // The on-disk files of one harness database (names only; the copy writers stay in server/db/db-files.ts).
 import * as filesystemDatabaseFiles from "../../engine/src/filesystem/database-files.ts";
-export const { findLegacyInstalls, legacyInstallIn, preMigrationBackupPath, preMigrationBackups, preRekeyCopyPath, preArchiveCopyPath, databaseArchiveFolder, stagingCopyPath, LEGACY_KEY_BASENAME, LEGACY_SALT_SUFFIX, NEXT_SUFFIX } = engineSpans(filesystemDatabaseFiles, "src-filesystem-database-files");
+export const { findLegacyInstalls, legacyInstallIn, preMigrationBackupPath, preMigrationBackups, preRekeyCopyPath, preArchiveCopyPath, preRestoreCopyPath, databaseArchiveFolder, stagingCopyPath, LEGACY_KEY_BASENAME, LEGACY_SALT_SUFFIX, NEXT_SUFFIX } = engineSpans(filesystemDatabaseFiles, "src-filesystem-database-files");
 export type { LegacyInstall, LegacyInstallSearch } from "../../engine/src/filesystem/database-files.ts";
 export type { PersistedKey, PersistedKeyOptions } from "../../engine/src/filesystem/persisted-key.ts";
 

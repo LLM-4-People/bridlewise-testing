@@ -2810,7 +2810,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "self-protection-index", path: "src/filesystem/self-protection/index.ts",
       realm: "shared", layer: "interface", owner: "self-protection",
-      publicApi: { exportCount: 76, namesSha256: "cd6046fd90bb92749589e5bd3c2e09025d079bfb6ded26df47be5b8465cd461e" },
+      publicApi: { exportCount: 77, namesSha256: "c71f2bdd0db34b1ad6dfb4194e2c2310b56cffce5c10b7625c3bbdd3dbf50c38" },
       dependencies: ["src/filesystem/link-containment.ts","src/filesystem/path-identity.ts","src/filesystem/self-protection/guardian-binary.ts","src/filesystem/self-protection/keep-out.ts","src/filesystem/self-protection/key-home.ts","src/filesystem/self-protection/self-protection-config.ts","src/filesystem/self-protection/self-protection-contracts.ts"],
       responsibilities: ["self-protection-public-barrel-explicit-named-re-exports"],
     }),
@@ -5270,7 +5270,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-filesystem-database-files", path: "src/filesystem/database-files.ts", realm: "shared", layer: "domain",
-      owner: "filesystem-infrastructure", publicApi: { exportCount: 18, namesSha256: "fa0cdbbf116208ce817ba3a16a1119d90f31cf4d076924f89437864f99f9bbd0" },
+      owner: "filesystem-infrastructure", publicApi: { exportCount: 19, namesSha256: "b4765b818328ff96313b0e0e3068866e028e3ad520f9966d5feae67bc95cfb61" },
       dependencies: ["node:fs","node:path","src/filesystem/private-state.ts","src/kernel/errors.ts","src/kernel/root-policy.ts"],
     }),
     moduleContract({

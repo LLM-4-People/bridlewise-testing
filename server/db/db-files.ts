@@ -8,7 +8,7 @@
  * shared with the keep-out list that refuses every one of them.
  */
 
-import { closeSync, constants, lstatSync, openSync, rmSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 import { bestEffort, stagingCopyPath } from "../kernel/canonical.ts";
@@ -19,6 +19,49 @@ import { movePath } from "../../engine/src/filesystem/move-path.ts";
  * over an existing file and never through a link (`O_EXCL|O_NOFOLLOW`). */
 export function createPrivateCopyTarget(path: string): void {
   closeSync(openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600));
+}
+
+/**
+ * A private (0600), regular key-shaped file — the key material or salt the
+ * key tool moves and the backup/restore flow carries. Absent is `undefined`;
+ * a link, a FIFO, another user's file or a non-private mode is refused typed
+ * with the caller's `code`. ONE reader: the exact bytes, never a rendered
+ * value, and a file that changes while it is read is not admitted.
+ */
+export function readPrivateKeyFile(path: string, code: string): Buffer | undefined {
+  let fd: number;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new HarnessError(`${path} could not be opened as a key file (${(error as NodeJS.ErrnoException).code ?? "error"}); a key is never read through a link.`, code);
+  }
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || (stat.mode & 0o077) !== 0) throw new HarnessError(`${path} is not a private regular file (mode 0${(stat.mode & 0o777).toString(8)}).`, code);
+    const expected = stat.size;
+    const bytes = Buffer.alloc(expected + 1);
+    let read = 0;
+    while (read < bytes.length) {
+      const count = readSync(fd, bytes, read, bytes.length - read, null);
+      if (count === 0) break;
+      read += count;
+    }
+    if (read !== expected) throw new HarnessError(`${path} changed while it was read; nothing was changed.`, code);
+    return bytes.subarray(0, expected);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * The table row counts of a database (`sqlite_master`'s tables), the content
+ * proof a copy's writer checks it against — the pre-archive, pre-restore and
+ * backup copies. ONE owner so two flows cannot count different sets.
+ */
+export function databaseTableCounts(db: DatabaseSync): Readonly<Record<string, number>> {
+  const names = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as { name: string }[]).map((row) => row.name);
+  return Object.fromEntries(names.map((name) => [name, Number((db.prepare(`SELECT COUNT(*) AS n FROM "${name}"`).get() as { n: number | bigint }).n)]));
 }
 
 /** Remove one copy (a failed staging file, or one retention no longer keeps); a link is removed, never followed. */

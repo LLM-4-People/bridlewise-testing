@@ -76,6 +76,7 @@ export {
   databaseKeyName,
   databaseKeyFile,
   databaseSaltFile,
+  databaseBindingRecord,
   registerHarnessStore,
   forgetHarnessStore,
   openStoreRegistry,

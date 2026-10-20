@@ -51,7 +51,7 @@
  * No new runtime deps: only `node:crypto` + `node:fs`.
  */
 
-import { KeyObject } from "node:crypto";
+import { createSecretKey, KeyObject, scryptSync } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { WebError } from "../kernel/errors.ts";
 import { serverConfig } from "../kernel/config.ts";
@@ -322,6 +322,21 @@ export function openedBinding<T extends EncryptedTable>(crypto: DbCrypto, table:
   const owner = row["owner_user_id"];
   const bindings = typeof owner === "string" && owner.length > 0 ? [fieldBinding(table, column, row, owner), UNBOUND] : [UNBOUND];
   return bindings.find((binding) => crypto.authenticates(value, binding));
+}
+
+/**
+ * THE CODEC OVER RAW KEY MATERIAL — a key file's 32 bytes, or a passphrase
+ * salt the configured passphrase is derived over. The ONE derivation both the
+ * key tool and the backup/restore flow use to prove material opens a database
+ * WITHOUT first resolving it from a key home (a backup's material lives in
+ * the bundle, not beside the database it came from). Callers validate the
+ * material's length for its mode; a wrong length is refused by
+ * `createSecretKey`.
+ */
+export function createDbCryptoFromMaterial(material: Uint8Array, passphrase = ""): DbCrypto {
+  const bytes = Buffer.from(material);
+  const key = createSecretKey(passphrase.length > 0 ? scryptSync(passphrase, bytes, DB_KEY_LENGTH) : bytes);
+  return createDbCryptoFromKey({ key, persisted: true, filePath: null });
 }
 
 /** Build local operations around an admitted native capability. Worker startup

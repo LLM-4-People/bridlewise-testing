@@ -132,7 +132,7 @@ permalink: /
         <tr><td><strong>M0 · Public floor online</strong></td><td>Done</td><td>Both repositories, Pages, the public gate, failure reporting, promotion, and a prerelease are live.</td></tr>
         <tr><td><strong>M1 · Reproducible, sharded floor</strong></td><td>Active</td><td>A documented full-suite workflow runs on shards, merges into one receipt, and every canonical test file runs once.</td></tr>
         <tr><td><strong>M2 · Admission evidence</strong></td><td>Next</td><td>Readiness is reported per capability, with the evidence and remedy attached. A single boolean is not enough.</td></tr>
-        <tr><td><strong>M3 · Product hardening</strong></td><td>Next</td><td>Backup and restore, provider coverage, portability, scale, and accessibility have tested failure paths.</td></tr>
+        <tr><td><strong>M3 · Product hardening</strong></td><td>Next</td><td>Backup and restore are one verified flow; provider coverage, portability, scale, and accessibility still need tested failure paths.</td></tr>
         <tr><td><strong>M4 · Sustainable contribution</strong></td><td>Active</td><td>A new contributor can go from clone to a merged test or docs change using only public instructions.</td></tr>
       </tbody>
     </table>

@@ -139,6 +139,7 @@ These verbs are for maintainers of the development floor. They assume the privat
 | `npm run build` | Build the cockpit to `dist/client` |
 | `npm run preview` | Preview the built cockpit |
 | `npm run db-key -- …` | Relocate, scan, forget, or rekey the database encryption key |
+| `npm run db-backup -- …` | Back up the database and its key material, or restore them, with verification |
 | `node scripts/trace.ts …` | Inspect the run ledger: `run`, `trace`, `tail`, `runs`, `doctor`, `anatomy` |
 | `node scripts/check-secrets.mjs` | Scan tracked files for credential shapes and internal paths |
 | `node scripts/generate-pwa-icons.mjs` | Regenerate the PWA icons |
@@ -178,7 +179,22 @@ npm run db-key -- forget --db <database>
 npm run db-key -- rekey --db <database>
 ```
 
-Keys live outside the checkout under `HARNESS_KEY_HOME`, `$XDG_CONFIG_HOME/bridlewise/keys`, or `~/.config/bridlewise/keys`. Keep backups and the key separate.
+Keys live outside the checkout under `HARNESS_KEY_HOME`, `$XDG_CONFIG_HOME/bridlewise/keys`, or `~/.config/bridlewise/keys`. Never commit the key home or a backup bundle; keep both on storage only you can read.
+
+### `db-backup.ts`
+
+Stop the server first: both commands hold the database alone, and a running server's open connection refuses them.
+
+```bash
+npm run db-backup -- backup --db <database> --to <new folder>
+npm run db-backup -- restore --from <backup folder> --db <database>
+```
+
+`backup` writes a NEW folder (it refuses one that already exists). The folder holds the database copy, the key material that opens it (the key file, or the passphrase salt under `HARNESS_WEB_DB_KEY`) with its bound-fields marker, and a `manifest.json` naming every file's SHA-256, size and the database's table counts. The copy is written by the one verified-copy writer (`quick_check` plus the table counts), copied key material is checked byte for byte, and the copy is proved to open under that material (`databaseKeyProof`) before the folder takes its name. A copy whose key does not open it is refused; a database with nothing sealed yet records `empty` rather than claiming a proof it does not have.
+
+`restore` treats the manifest as untrusted input. It checks every size and digest, SQLite `quick_check`, the table counts, the configured key mode (`HARNESS_WEB_DB_KEY` set means the bundle must carry a salt), and that the key home's existing material — when it has any — opens the copy. It holds the target database alone, keeps a verified `<database>.pre-restore` copy of what it is about to replace, installs the bundle's key only when the key home has none for that path, copies the database into place atomically, and proves the restored database opens under the key home's key. A failed proof puts the pre-restore copy back. Restoring into a different folder installs the bundle's key under that folder's key name; a key home holding a DIFFERENT key that does not open the backup is refused, never overwritten.
+
+The bundle covers the web database and the key material that opens it. It does not include the timeline ledger, the pre-migration or pre-rekey copies beside the database, or SQLite's WAL/SHM sidecars (the hold leaves none at rest). Treat the bundle as the database itself: private files in a private folder, kept out of the checkout and away from anyone who should not read the data.
 
 ## Configuration
 
