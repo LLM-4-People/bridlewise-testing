@@ -70,6 +70,26 @@ The 4.1 GB `engine/large-codebases` fixture root is not published. It is an asse
 
 To reproduce a corpus-backed test, supply the root from upstream at the revisions you record. Most of the cache is not read by the default suite, and the cache alone is not enough for the full suite. The performance report, Chromium, systemd, OpenSSL, Landlock, and the live provider consent remain separate prerequisites.
 
+### Focused corpus probe
+
+A local probe can exercise the declared root without publishing the corpus. Set `CORPUS_ROOT` to a private checkout, create the ignored symlink, and run the tests that read it:
+
+```bash
+ln -s "$CORPUS_ROOT" engine/large-codebases
+cd engine
+node --experimental-strip-types --test --test-concurrency=1 \
+  test/aux/awareness.test.ts \
+  test/aux/quality.test.ts \
+  test/tools/concurrent/worker-pool.test.ts \
+  test/safety/hallucination-benchmark.test.ts \
+  test/verification/required-fixture-roots.test.ts
+cd ..
+./node_modules/.bin/vitest run tests/prevention/dev-server-scanner-exclusion.test.ts
+unlink engine/large-codebases
+```
+
+On 2026-10-20, on the public tree at `856f101`, this probe passed 73 engine tests and 5 Vitest tests. It proves the declared root, the corpus readers, the worker pool, and the scanner bait work on that machine. It is not the full suite. The performance report, the live provider consent, the Chromium E2E suite, and the full inventory did not run.
+
 ## Guardian
 
 ```bash
