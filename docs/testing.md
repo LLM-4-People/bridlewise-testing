@@ -81,6 +81,39 @@ npm run perf:profile     # writes tests/performance/.report.json
 node --experimental-strip-types bench/run.ts
 ```
 
+### The performance profile (idle-host contract)
+
+`npm run perf:profile` writes `tests/performance/.report.json`, the artifact the root
+performance-regression gate (`tests/performance/regression.test.ts`) judges. A profile is a
+measurement, not a smoke test, so the conditions under which it is taken are part of the
+result:
+
+- **One profile at a time.** The step takes the host's one instrument lock. A second run
+  waits, and a run that did not hold the lock records no measurement.
+- **The host is otherwise idle.** No other suite, build, container, or browser runs on the
+  same cores. The budgets judge worker CPU time, so contention inflates the measurement
+  rather than the budget.
+- **The host is on its normal power and thermal profile.** A laptop on battery, a throttled
+  host, or a shared runner under load is not a valid host for a comparison.
+- **Comparisons stay within one runner class.** A receipt names the runner class and the
+  exact commit; numbers from different machines, core counts, or runner labels are not
+  compared.
+- **A report belongs to one tree.** It names the head commit and a measured-surface hash. A
+  report minted against different code, or a surface that has since changed, refuses the
+  freshness test instead of judging an artifact that no longer describes the tree.
+- **The step isolates its stack.** It prepares a fresh fixture under the user's cache home,
+  serves it on port 0 with its own server, and removes the fixture when it ends. It never
+  uses the developer's running servers or stores.
+- **A budget breach is recorded as a breach.** The regression gate judges whether the report
+  can be judged (present, fresh, non-vacuous, lock-held); the web suite's reporter compares
+  the measurements with their budgets. Neither a dark gate nor a missing report is a pass.
+- **Not per shard.** The report is a prerequisite of the root performance-regression test.
+  The shard manifest excludes that test because a shard runner does not produce the report,
+  and a shard receipt is not a performance verdict.
+
+The evidence page carries the command, the commit, the measured values, and the gate's
+result. The report and its run record are gitignored; a later tree does not inherit them.
+
 ### Engine suite
 
 ```bash

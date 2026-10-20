@@ -93,16 +93,18 @@ On 2026-10-20, on the public tree at `856f101`, this probe passed 73 engine test
 
 ### Performance probe
 
-On 2026-10-20, on the public tree at `0ba57912`, the profile and its regression gate ran on this host with a private `TMPDIR` outside `/tmp`:
+On 2026-10-20, on the public tree at `2caada8f` (clean), the profile and its regression gate ran on this host:
 
 ```bash
 npm run perf:profile
 ./node_modules/.bin/vitest run tests/performance/regression.test.ts
 ```
 
-Result: the profile passed 3 of 3 tests and the regression gate passed 36 of 36. The report carried `instrumentLock: "held"`, its measured surface hash matched the tree, and the run was clean. The report and `.run.json` are gitignored and were not published.
+Result: the profile passed 3 of 3 tests and the regression gate passed 36 of 36. The report carried `instrumentLock: "held"` and `treeIdentity.headSha` `2caada8f8272c987378e3f7484cb76fb21349577` with `dirty: false`, generated at 11:25:03Z. The report and its run record are gitignored and were not published. The conditions are the idle-host contract in [the test map](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/testing.md#the-performance-profile-idle-host-contract).
 
-The measured tab switches were 85.8 to 111.1ms against a 200ms budget. The measured in-session API maximum was 3314ms during the 10k-project phase, and the isolated route maximum was 1208ms against a 250ms budget. The long-chat render was 2081ms against a 2000ms budget. The API and long-chat budgets are red. The supported shard set does not judge them, and this page does not call the profile a pass. Later test timeout and manifest edits happened after this report, so it is not a current-tree verdict.
+Measured against the configured budgets: page LCP 2144ms (1500), worst long task 199ms (100), tab switches 81.6 to 148.2ms (200), chat-input typing 23.49ms mean (60), isolated API maximum 2032ms on `GET /api/schema/ui/values` (250), long-chat (1000 messages) render 5100ms (2000), long-session DOM growth 549 nodes (1500), viewport LCP 852 to 1220ms (2000). The LCP, worst-long-task, API and long-chat budgets are red. The supported shard set does not judge them, and this page does not call the profile a pass.
+
+The previous probe at `0ba57912` measured 2081ms for the same long-chat phase and 1208ms for the isolated API maximum; the 5100ms and 2032ms readings here are one run on one host, not a trend.
 
 The manual shard workflow produced a green qualification receipt on 2026-10-20 at `d47909de` on ten `ubuntu-24.04` runners: 521 files, 8722 tests, `testPhaseMs` 86708, `testPhaseCpuMs` 636835, and assignment hash `62374d29ac19e613b4c32eec23343a817862e17445c5d1cfce0ad149bd11d45e`. The single-host supported run took 244017ms, so the measured test-phase factor is 2.81x. This is not a 10x claim.
 
