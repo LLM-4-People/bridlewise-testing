@@ -31,7 +31,8 @@ tree into the separate product repository.
   corpus boundary.
 - Run the focused suite for the area you changed. A full-suite claim needs a
   fresh run; do not infer it from a subset.
-- Measurement contract, for every signal the floor judges, records or quotes:
+- Measurement contract, for every signal the app, its build tooling or a third
+  party produces and the floor judges, records or quotes:
   it is DYNAMIC (computed from the run's own conditions, never a table of
   per-machine constants), RESILIENT (absent, never zero, when a signal is
   unreadable — and never silently substituted by a different quantity),
@@ -41,7 +42,10 @@ tree into the separate product repository.
   settings and judgement layers, and read by every consumer from there. A
   second derivation of the same number is a defect. Each clause needs a broad
   mechanical guard, not a convention: a rule that only lives in prose is not a
-  rule.
+  rule. The contract's jurisdiction is the whole app: a build step's timing, a
+  CI runner's duration, a registry's response and a third-party version are
+  signals like any other, and anything the floor depends on from outside it
+  must be pinned or measured rather than assumed.
 - Commit only after the focused checks pass, with one cohesive change and the
   verification you actually ran.
 - After every push, watch the CI run to completion (`gh run list`/`gh run view`)
