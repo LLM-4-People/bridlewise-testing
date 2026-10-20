@@ -61,6 +61,10 @@ jobs:
           npm ci --no-audit --no-fund --ignore-scripts
           npm --prefix engine ci --no-audit --no-fund --ignore-scripts
 
+      - name: Enforce the self-protection config mode
+        working-directory: testing
+        run: chmod 600 engine/bridlewise.config.json
+
       - name: Run the public testing-floor suite
         working-directory: testing
         run: npm run test:public
