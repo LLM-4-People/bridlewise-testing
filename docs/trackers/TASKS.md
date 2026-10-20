@@ -7,12 +7,13 @@ This is the public task board for the Bridlewise development floor. It is a work
 - [ ] **Activate the sharded full-suite gate** — the manifest, plan, merge, and receipt contract are built and one manual ten-shard receipt is recorded at `d47909de`; the workflow is still `workflow_dispatch` only, so decide the automatic trigger and required check.
 - [ ] **Add per-capability admission receipts** — `preflight` names each capability with an allow or deny decision and a code, but carries no evidence path or remedy.
 - [ ] **Document the backup and restore flow** — no backup or restore procedure exists; the docs only advise keeping the database and key home backed up, and `db-archive` archives conversations rather than restoring them.
-- [ ] **Verify the public floor on a fresh machine** — the commands are documented, but no fresh-clone receipt is recorded and the evidence page still expects 18 public smoke tests (the suite is 28).
+- [ ] **Verify the public floor on a fresh machine** — the commands are documented and the corpus fetch is now one of them, but no fresh-clone receipt is recorded.
 - [ ] **Link the task board from the hub** — the README, Pages hub, and floor pages never link `docs/trackers/TASKS.md`; only `ALL-BUGS-AND-ISSUES.md` does.
 - [ ] **Publish the shard receipt artifact** — the ten-shard receipt at `d47909de` is recorded only in prose; no receipt JSON is in the tree, so the 8722-test and 2.81x numbers cannot be replayed without the workflow artifact.
 - [ ] **Re-measure the shard weights at the manifest's own head** — `measuredHeadSha` is `0ba57912`, but the exclusion set changed at `3788e202`, so the weights no longer describe the manifest's current file list.
 - [ ] **Give each shard exclusion evidence that resolves** — all four evidence fields point at `docs/floor/roadmap.md#M1`, an anchor the roadmap does not define and a section that does not name them.
 - [ ] **Reconcile the flaky burn-down list with the published memory** — the memory carries 22 engine entries and no web entries, while the `FLAKY-*` rows below own 0 entries; the engine guard reports the missing rows.
+- [ ] **Bring the supported suite back under the CPU-per-file cap** — two full runs on 2026-10-20 measured 2124.7 and 2183.7 ms/file against a 2032.2 ms/file cap; the ledger holds no clean judged run on this host, so record the first idle-host run as the baseline the fix is measured against.
 
 ## Flaky burn-down owners
 

@@ -56,7 +56,7 @@ npm run inventory:check
 Expected shape, on one line:
 
 ```json
-{"conservation":{"canonicalCount":510,"excludedCount":9,"gitRecognizableCount":527,"kind":"verified","nonCanonicalCount":8},"generatorRevision":"test-inventory-generator/v4","inventoryHash":"<sha256>","sourceSetHash":"<sha256>","status":"current","testCount":10491,"transactionPresent":false}
+{"conservation":{"canonicalCount":511,"excludedCount":9,"gitRecognizableCount":528,"kind":"verified","nonCanonicalCount":8},"generatorRevision":"test-inventory-generator/v4","inventoryHash":"<sha256>","sourceSetHash":"<sha256>","status":"current","testCount":10499,"transactionPresent":false}
 ```
 
 The claim is `"status":"current"`. It means the generated inventory and the disposition manifest match the tracked test surface this checkout sees. Counts move when tests are added or removed.
@@ -64,6 +64,26 @@ The claim is `"status":"current"`. It means the generated inventory and the disp
 What this proves: the inventory is not hand-edited drift, and every recognized test surface entry has a disposition.
 
 What it does not prove: that any test passed, that the count is coverage, or that the private corpus is present. `engine/large-codebases` is not published.
+
+## The supported suite on one host
+
+Run the 521-file supported set in one process; the sharded workflow runs the same set across shards.
+
+```bash
+FILES=$(node -e "process.stdout.write(require('./tests/test-shards.json').files.map(f => f.path).join(' '))")
+./node_modules/.bin/vitest run $FILES
+```
+
+On 2026-10-20, at `fd7e058f`, the run passed **521/521 files, 8720 tests, 2 expected failures, 0 failed** in 193.2 s wall clock (1137.7 s CPU). The same set at `b4dc6b33` (before two documentation fixes) failed three tests: the two guards that found the docs and the folder README stale, and `test-run-watchdog` C3, which re-ran green alone and in the fixed run (the recorded FLAKY-WATCHDOG-C3 entry).
+
+Two judged budget gates are red on that run, and they belong to the performance track rather than to the tests:
+
+- `cpu-per-test-file`: 2183.7 ms/file against a 2032.2 ms/file cap (baseline 1926.0 × the +5.5% ambient allowance). The ledger holds no clean judged run on this machine, so this is a first measured reading, not a same-host comparison.
+- `performance-report`: unjudgeable because the profile report was generated at `2caada8f` and this tree's measured surface differs. Generate the profile at the head being judged.
+
+What this proves: the supported file set runs to completion on this host with no failing and no skipped test.
+
+What it does not prove: the four excluded suites, a 10x shard claim, an idle-host CPU verdict, or a fresh-clone run.
 
 ## Corpus boundary
 
