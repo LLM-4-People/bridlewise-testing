@@ -20,9 +20,9 @@ This is the engineering roadmap for the Bridlewise development floor: what shipp
 <!-- BEGIN GENERATED: roadmap summary, from this page's ROADMAP-PLAN block (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
 ### Where the floor stands
 
-**24 of 56 tracked items shipped (43%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it.
+**24 of 55 tracked items shipped (44%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it.
 
-24 shipped · 11 in progress · 20 planned · 1 blocked · 7 not planned.
+24 shipped · 10 in progress · 20 planned · 1 blocked · 7 not planned.
 
 ### Milestones
 
@@ -869,7 +869,6 @@ Every open row of [TASKS.md](../trackers/TASKS.md) appears here. A row leaves th
 
 | Task | State | Owner | Evidence |
 |---|---|---|---|
-| **Correct the measured shard-factor arithmetic**<br>Exit: The row closes in TASKS.md with the reproduction and verification named in its text. | in progress | public floor | [TASKS](../trackers/TASKS.md) |
 | **Bring the supported suite back under the CPU-per-file cap**<br>Exit: The row closes in TASKS.md with the reproduction and verification named in its text. | blocked (blocked by: No clean judged run: 2 of 12 recorded; needs a 12-run idle campaign or an explicit policy decision.) | public floor | [evidence: the-supported-suite-on-one-host](evidence.md#the-supported-suite-on-one-host) |
 
 #### Flaky burn-down owners
