@@ -2,7 +2,7 @@
   "schemaVersion": "bridlewise-test-shard-manifest/v1",
   "measuredHeadSha": "f54df4a547cd5ff45f06e43617d4898fefd850b1",
   "measuredAt": "2026-10-20T17:56:30.903Z",
-  "weightSource": "vitest-json:endTime-startTime; 523 supported files from 10 green shard report(s) at f54df4a547cd5ff45f06e43617d4898fefd850b1 (ubuntu-24.04)",
+  "weightSource": "vitest-json:endTime-startTime; 523 supported files from 10 green shard report(s) at f54df4a547cd5ff45f06e43617d4898fefd850b1 (ubuntu-24.04); tests/prevention/external-surface-registry.test.ts measured on its own at 4f958ef1 on 2026-10-20 pending the full re-measurement",
   "files": [
     {
       "path": "tests/cockpit/a11y-hidden-focus-owner.test.ts",
@@ -995,6 +995,10 @@
     {
       "path": "tests/prevention/exposure-registry-counts.test.ts",
       "weightMs": 520
+    },
+    {
+      "path": "tests/prevention/external-surface-registry.test.ts",
+      "weightMs": 218
     },
     {
       "path": "tests/prevention/file-effect-recording.test.ts",

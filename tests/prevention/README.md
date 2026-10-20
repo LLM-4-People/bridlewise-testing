@@ -85,6 +85,7 @@ The `tests/prevention/` folder of the development surface.
 - `exposure-gate-block-wired.test.ts` — @vitest-environment node.
 - `exposure-reachable.test.ts` — @vitest-environment node.
 - `exposure-registry-counts.test.ts` — @vitest-environment node.
+- `external-surface-registry.test.ts` — the external-surface registry guard: every action is a full-SHA pin with a version comment, every image/feature is digest-pinned, no floating `latest`, Node ranges agree across manifests, lockfiles carry integrity, installs are `npm ci`, and the enumerated workflow/build universe catches an escaped file.
 - `file-effect-recording.test.ts` — @vitest-environment node.
 - `filesystem-owner.test.ts` — @vitest-environment node.
 - `flaky-test-memory.test.ts` — a TEST THAT IS GREEN TODAY AND RED YESTERDAY IS AN UNREAD BUG REPORT. The failure this guard exists for: a wire-level data-corruption bug presented….

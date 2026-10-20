@@ -1,0 +1,500 @@
+{
+  "schemaVersion": "bridlewise-external-surface-registry/v1",
+  "owner": "tests/prevention/external-surface-registry.test.ts",
+  "contract": "AGENTS.md — Measurement contract: the jurisdiction is the whole app, and anything the floor depends on from outside it must be pinned or measured rather than assumed.",
+  "universe": {
+    "workflows": [
+      ".github/workflows/ci.yml",
+      ".github/workflows/codeql.yml",
+      ".github/workflows/dependency-review.yml",
+      ".github/workflows/docs-links.yml",
+      ".github/workflows/pages.yml",
+      ".github/workflows/promotion-gate.yml",
+      ".github/workflows/reusable-workflow-failure.yml",
+      ".github/workflows/scorecard.yml",
+      ".github/workflows/secret-scan.yml",
+      ".github/workflows/test-shards.yml",
+      ".github/workflows/workflow-failure-issue.yml"
+    ],
+    "build": [
+      ".devcontainer/Dockerfile",
+      ".devcontainer/devcontainer.json",
+      ".github/dependabot.yml",
+      "Makefile",
+      "engine/guardian/Makefile",
+      "package.json",
+      "engine/package.json",
+      "package-lock.json",
+      "engine/package-lock.json",
+      ".node-version",
+      ".nvmrc",
+      "scripts/assemble-floor-site.mjs",
+      "scripts/floor/site.mjs"
+    ]
+  },
+  "surfaces": [
+    {
+      "id": "actions/checkout",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "version": "v7"
+      },
+      "usedIn": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/dependency-review.yml",
+        ".github/workflows/docs-links.yml",
+        ".github/workflows/pages.yml",
+        ".github/workflows/promotion-gate.yml",
+        ".github/workflows/scorecard.yml",
+        ".github/workflows/secret-scan.yml",
+        ".github/workflows/test-shards.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. Dependabot's github-actions updates are configured but paused (open-pull-requests-limit: 0), so a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/setup-node",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "949feb2413d6458794dcd2491c4babbbce0c15c1",
+        "version": "v7"
+      },
+      "usedIn": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/docs-links.yml",
+        ".github/workflows/pages.yml",
+        ".github/workflows/promotion-gate.yml",
+        ".github/workflows/secret-scan.yml",
+        ".github/workflows/test-shards.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The Node tarball it installs is pinned by the node-runtime surface; a moved action SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/upload-artifact",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+        "version": "v7"
+      },
+      "usedIn": [
+        ".github/workflows/promotion-gate.yml",
+        ".github/workflows/scorecard.yml",
+        ".github/workflows/test-shards.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. Dependabot's github-actions updates are configured but paused (open-pull-requests-limit: 0), so a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/download-artifact",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "version": "v4.3.0"
+      },
+      "usedIn": [
+        ".github/workflows/test-shards.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The shard plan and shard reports are consumed through this action; a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "github/codeql-action/init",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
+        "version": "v4.39.0"
+      },
+      "usedIn": [
+        ".github/workflows/codeql.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. CodeQL's query packs are downloaded by the pinned action at run time; a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "github/codeql-action/analyze",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
+        "version": "v4.39.0"
+      },
+      "usedIn": [
+        ".github/workflows/codeql.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. It shares the pinned CodeQL release with `init` and `upload-sarif`; a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "github/codeql-action/upload-sarif",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
+        "version": "v4.39.0"
+      },
+      "usedIn": [
+        ".github/workflows/scorecard.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. It shares the pinned CodeQL release with the CodeQL workflow; a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/dependency-review-action",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "a1d282b36b6f3519aa1f3fc636f609c47dddb294",
+        "version": "v5.0.0"
+      },
+      "usedIn": [
+        ".github/workflows/dependency-review.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The action reads the dependency diff from the pull request; the lockfiles it reviews are declared dependency-tree surfaces. A moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/configure-pages",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "45bfe0192ca1faeb007ade9deae92b16b8254a0d",
+        "version": "v6"
+      },
+      "usedIn": [
+        ".github/workflows/pages.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. It resolves the Pages base path that the assembler consumes; a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/jekyll-build-pages",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "44a6e6beabd48582f863aeeb6cb2151cc1716697",
+        "version": "v1"
+      },
+      "usedIn": [
+        ".github/workflows/pages.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The action carries the Jekyll/Ruby builder image; its SHA is the only pin this tree can see for that image, so a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/upload-pages-artifact",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "fc324d3547104276b827a68afc52ff2a11cc49c9",
+        "version": "v5"
+      },
+      "usedIn": [
+        ".github/workflows/pages.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The uploaded artifact is the Jekyll output directory; a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/deploy-pages",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "368f82528645a54fb793d4d04e342629a3f51346",
+        "version": "v5"
+      },
+      "usedIn": [
+        ".github/workflows/pages.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The Pages service and its environment are provider-managed; the action SHA is the tree-visible pin. A moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "ossf/scorecard-action",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "fa7117db83c52d787ae5a89f350999701505d78e",
+        "version": "v2.5.0"
+      },
+      "usedIn": [
+        ".github/workflows/scorecard.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The scorecard checks it runs are upstream data, not a pin; a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "./.github/workflows/test-shards.yml",
+      "kind": "local-workflow",
+      "pinned": {
+        "path": ".github/workflows/test-shards.yml"
+      },
+      "usedIn": [
+        ".github/workflows/ci.yml"
+      ],
+      "drift": "Local reusable workflow, not an external action. The guard requires the target to exist in the enumerated workflow universe and the call site to be declared here; a call to a workflow outside the universe is refused."
+    },
+    {
+      "id": "./.github/workflows/reusable-workflow-failure.yml",
+      "kind": "local-workflow",
+      "pinned": {
+        "path": ".github/workflows/reusable-workflow-failure.yml"
+      },
+      "usedIn": [
+        ".github/workflows/workflow-failure-issue.yml"
+      ],
+      "drift": "Local reusable workflow, not an external action. The guard requires the target to exist in the enumerated workflow universe and the call site to be declared here; a call to a workflow outside the universe is refused."
+    },
+    {
+      "id": "runner:ubuntu-24.04",
+      "kind": "runner",
+      "pinned": {
+        "label": "ubuntu-24.04",
+        "provider": "GitHub-hosted",
+        "toolchain": "The runner image supplies git, gh, jq, make, gcc, coreutils and the apt archive; those float with the label and are not separately digest-pinned."
+      },
+      "usedIn": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/dependency-review.yml",
+        ".github/workflows/docs-links.yml",
+        ".github/workflows/pages.yml",
+        ".github/workflows/promotion-gate.yml",
+        ".github/workflows/reusable-workflow-failure.yml",
+        ".github/workflows/scorecard.yml",
+        ".github/workflows/secret-scan.yml",
+        ".github/workflows/test-shards.yml"
+      ],
+      "drift": "The label is provider-managed and its image floats within the 24.04 line. The guard refuses any other runner label in the enumerated workflows, and the shard merge receipt records the runner class it ran on. A larger runner class or a different OS is a deliberate registry edit."
+    },
+    {
+      "id": "node:24.20.0",
+      "kind": "node-runtime",
+      "pinned": {
+        "exact": "24.20.0",
+        "floorRange": ">=24.18.0 <25.0.0",
+        "verificationRange": "24.18.0",
+        "floorManifests": [
+          "package.json",
+          "engine/package.json"
+        ],
+        "verificationManifests": [
+          "engine/verification/benchmarks/security/s3-key-anchor-qualification/package.json",
+          "engine/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/package.json",
+          "engine/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/package.json"
+        ],
+        "pinFiles": [
+          ".node-version",
+          ".nvmrc"
+        ]
+      },
+      "usedIn": [
+        ".node-version",
+        ".nvmrc",
+        "package.json",
+        "engine/package.json",
+        ".github/workflows/ci.yml",
+        ".github/workflows/docs-links.yml",
+        ".github/workflows/pages.yml",
+        ".github/workflows/promotion-gate.yml",
+        ".github/workflows/secret-scan.yml",
+        ".github/workflows/test-shards.yml"
+      ],
+      "drift": "The guard requires .node-version, .nvmrc and every workflow node-version to equal 24.20.0; the two floor manifests to share >=24.18.0 <25.0.0; and every declared verification manifest to keep its exact 24.18.0 pin inside that floor range. Any tracked package.json with an engines.node outside this declaration is refused. A Node move must change all four together."
+    },
+    {
+      "id": "npm:11.19.0",
+      "kind": "package-manager",
+      "pinned": {
+        "name": "npm",
+        "version": "11.19.0"
+      },
+      "usedIn": [
+        "package.json"
+      ],
+      "drift": "The guard requires packageManager to equal npm@11.19.0 and refuses any install command other than `npm ci` in workflows and build files. An npm upgrade must move this entry and both floor lockfiles together."
+    },
+    {
+      "id": "npm-tree:web",
+      "kind": "dependency-tree",
+      "role": "floor",
+      "pinned": {
+        "manifest": "package.json",
+        "lockfile": "package-lock.json",
+        "lockfileVersion": 3,
+        "install": "npm ci --no-audit --no-fund"
+      },
+      "usedIn": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/test-shards.yml",
+        ".github/workflows/promotion-gate.yml",
+        ".devcontainer/devcontainer.json",
+        "Makefile"
+      ],
+      "drift": "The lockfile must exist, carry lockfileVersion 3 and an integrity hash on every non-link package; the guard refuses npm install/update in the enumerated install path. `npm ci` itself fails a manifest/lock disagreement in CI."
+    },
+    {
+      "id": "npm-tree:engine",
+      "kind": "dependency-tree",
+      "role": "floor",
+      "pinned": {
+        "manifest": "engine/package.json",
+        "lockfile": "engine/package-lock.json",
+        "lockfileVersion": 3,
+        "install": "npm --prefix engine ci --no-audit --no-fund"
+      },
+      "usedIn": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/test-shards.yml",
+        ".github/workflows/promotion-gate.yml",
+        ".devcontainer/devcontainer.json",
+        "Makefile"
+      ],
+      "drift": "The lockfile must exist, carry lockfileVersion 3 and an integrity hash on every non-link package; the guard refuses npm install/update in the enumerated install path. `npm ci` itself fails a manifest/lock disagreement in CI."
+    },
+    {
+      "id": "npm-tree:benchmark-security",
+      "kind": "dependency-tree",
+      "role": "verification",
+      "pinned": {
+        "manifest": "engine/verification/benchmarks/security/s3-key-anchor-qualification/package.json",
+        "lockfile": "engine/verification/benchmarks/security/s3-key-anchor-qualification/package-lock.json",
+        "lockfileVersion": 3,
+        "install": "manual; the benchmark owner installs it, the floor never does"
+      },
+      "usedIn": [
+        "engine/verification/benchmarks/security/s3-key-anchor-qualification/README.md"
+      ],
+      "drift": "The lockfile and every integrity hash are declared so the benchmark environment is reproducible. It is outside the CI install path; a lockfile or manifest change is refused until this declaration is updated deliberately."
+    },
+    {
+      "id": "npm-tree:benchmark-storage",
+      "kind": "dependency-tree",
+      "role": "verification",
+      "pinned": {
+        "manifest": "engine/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/package.json",
+        "lockfile": "engine/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/package-lock.json",
+        "lockfileVersion": 3,
+        "install": "manual; the benchmark owner installs it, the floor never does"
+      },
+      "usedIn": [
+        "engine/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/README.md"
+      ],
+      "drift": "The lockfile and every integrity hash are declared so the benchmark environment is reproducible. It is outside the CI install path; a lockfile or manifest change is refused until this declaration is updated deliberately."
+    },
+    {
+      "id": "npm-tree:benchmark-storage-superseded",
+      "kind": "dependency-tree",
+      "role": "frozen-record",
+      "pinned": {
+        "manifest": "engine/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/package.json",
+        "lockfile": "engine/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/package-lock.json",
+        "lockfileVersion": 3,
+        "install": "none; frozen historical evidence"
+      },
+      "usedIn": [
+        "engine/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/PRESERVATION.md"
+      ],
+      "drift": "Frozen evidence. The lockfile and every integrity hash are checked so the record cannot be altered silently; it is never installed. A change is refused until the preservation record and this declaration are updated deliberately."
+    },
+    {
+      "id": "image:mcr.microsoft.com/devcontainers/typescript-node:5-24-trixie",
+      "kind": "container-image",
+      "pinned": {
+        "reference": "mcr.microsoft.com/devcontainers/typescript-node:5-24-trixie",
+        "digest": "sha256:91dc841966e9b47195a1a6290a8ef9bba5ba43c02aa22f87f8669c16bb6f0f6e",
+        "version": "5-24-trixie"
+      },
+      "usedIn": [
+        ".devcontainer/Dockerfile"
+      ],
+      "drift": "The digest pins the exact image manifest; the tag is retained for readability only. The guard refuses a tag-only FROM and any digest not declared here. A new base image is refused until this declaration is updated."
+    },
+    {
+      "id": "image:ghcr.io/devcontainers/features/common-utils",
+      "kind": "container-image",
+      "pinned": {
+        "reference": "ghcr.io/devcontainers/features/common-utils",
+        "digest": "sha256:e76a6a8a35d1ad824daad1540725e0ec9f8ed2dc00d2850e990a9830013c7d08",
+        "version": "2.7.1"
+      },
+      "usedIn": [
+        ".devcontainer/devcontainer.json"
+      ],
+      "drift": "The digest pins the exact OCI feature manifest (the 2.7.1 release at declaration time). The guard refuses a tag-only feature reference and any digest not declared here. A feature upgrade is refused until this declaration is updated."
+    },
+    {
+      "id": "pages:jekyll",
+      "kind": "build-path",
+      "pinned": {
+        "workflow": ".github/workflows/pages.yml",
+        "assembler": "scripts/assemble-floor-site.mjs",
+        "configSource": "product/docs/_config.yml, checked out at run time; not tracked in this repository",
+        "builder": "actions/jekyll-build-pages, pinned by SHA in the github-action surface"
+      },
+      "usedIn": [
+        ".github/workflows/pages.yml",
+        "scripts/assemble-floor-site.mjs",
+        "scripts/floor/site.mjs"
+      ],
+      "drift": "The Jekyll builder is the SHA-pinned actions/jekyll-build-pages action. The site config and plugin set are product-owned and resolved at run time, so the assembler is forbidden from adding plugins:, gems: or remote_theme:. The guard checks that prohibition and the declared build_revision handoff; a new plugin path is refused until this declaration says how it is pinned."
+    },
+    {
+      "id": "pages:product-docs-ref",
+      "kind": "product-docs-ref",
+      "pinned": {
+        "ref": "main",
+        "floating": true,
+        "resolvedCommitRecorded": true
+      },
+      "usedIn": [
+        ".github/workflows/pages.yml"
+      ],
+      "drift": "Not pinned by SHA: the site mirrors the product docs, so the default ref follows main and the resolved commit is passed to Jekyll as build_revision. The guard requires this one declared expression and refuses any other literal branch ref. This is a declared content input, never a code-execution input; it is listed in knownExceptions."
+    },
+    {
+      "id": "apt:gcc-14",
+      "kind": "system-package",
+      "pinned": {
+        "package": "gcc-14",
+        "version": "unpinned; selected by name from the Ubuntu 24.04 runner archive",
+        "install": "sudo apt-get install -y gcc-14"
+      },
+      "usedIn": [
+        ".github/workflows/test-shards.yml"
+      ],
+      "drift": "The exact package version is runner-image-specific, so the runner label and this name are the pin. The guard refuses any apt package not declared here and any install line the declaration does not name. This is listed in knownExceptions; the owner is the shard workflow."
+    },
+    {
+      "id": "apt:build-essential",
+      "kind": "system-package",
+      "pinned": {
+        "package": "build-essential",
+        "version": "unpinned; selected by name from the devcontainer base-image archive",
+        "install": "apt-get install -y --no-install-recommends build-essential"
+      },
+      "usedIn": [
+        ".devcontainer/Dockerfile"
+      ],
+      "drift": "The exact package version is base-image specific, so the pinned image digest and this name are the pin. The guard refuses any apt package not declared here and any install line the declaration does not name. This is listed in knownExceptions; the owner is the devcontainer."
+    },
+    {
+      "id": "private:gitea",
+      "kind": "private-service",
+      "publiclyVerifiable": false,
+      "pinned": {
+        "statement": "Pinned and verified in the private floor. This public registry deliberately records no version, hostname or token; the private tree's own guard verifies it."
+      },
+      "usedIn": [],
+      "drift": "Owned and verified by the private floor. The public guard cannot see it and must not publish its version, hostname or credentials."
+    },
+    {
+      "id": "private:act_runner",
+      "kind": "private-service",
+      "publiclyVerifiable": false,
+      "pinned": {
+        "statement": "Pinned and verified in the private floor. This public registry deliberately records no version, hostname or token; the private tree's own guard verifies it."
+      },
+      "usedIn": [],
+      "drift": "Owned and verified by the private floor. The public guard cannot see it and must not publish its version, hostname or credentials."
+    }
+  ],
+  "knownExceptions": [
+    {
+      "surface": "pages:product-docs-ref",
+      "reason": "The docs site mirrors the product documentation, so the ref follows main by design; the resolved commit is recorded as the Jekyll build revision. It is a content input, not a code-execution input.",
+      "owner": ".github/workflows/pages.yml"
+    },
+    {
+      "surface": "apt:gcc-14",
+      "reason": "An exact apt version string is runner-image-specific and would drift on the provider's archive; the runner label plus the declared package name is the reproducible pin available to this tree.",
+      "owner": ".github/workflows/test-shards.yml"
+    },
+    {
+      "surface": "apt:build-essential",
+      "reason": "An exact apt version string is base-image-specific and would drift on the provider's archive; the digest-pinned image plus the declared package name is the reproducible pin available to this tree.",
+      "owner": ".devcontainer/Dockerfile"
+    }
+  ]
+}
