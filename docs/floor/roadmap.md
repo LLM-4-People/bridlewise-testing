@@ -22,8 +22,8 @@ This is the engineering roadmap for the Bridlewise development floor. It is a st
 | Latest prerelease | `v0.0.3-preview`, published through the promotion gate with a receipt and checksums |
 | Public gate | Green on both repositories at the recorded commits |
 | Public smoke suites | Product `11/11`, testing `28/28` |
-| Full suite | **Supported set green, complete tree still gated.** At the 2026-10-20 audit the 521-file supported set passed 8724 tests with 0 skipped. Four named exclusions remain: two private-only guards, the performance regression gate, and the WSL-host keep-out arm. The external corpus and performance report are not published |
-| Full-suite time | The supported 521-file run took 244s on the 12-core test host. No shard speedup is claimed until a receipt from the manual workflow records the runner class and measured test phase |
+| Full suite | **Supported set green, complete tree still gated.** At the 2026-10-20 audit the 521-file supported set passed 8722 tests with 0 skipped. Four named exclusions remain: two private-only guards, the performance regression gate, and the WSL-host keep-out arm. The external corpus and performance report are not published |
+| Full-suite time | The 10-shard `ubuntu-24.04` receipt at `d47909de` measured `testPhaseMs` 86.7s and `testPhaseCpuMs` 636.8s: 2.81x the 244.0s single-host supported run. The 10x line is not met on this runner class |
 | Readiness | Pre-admission. `preflight` reports `harnessReady: false` |
 | Security review | None |
 | Contribution path | Documented in [How to help]({{ '/floor/help/' | relative_url }}) and [CONTRIBUTING.md](https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md) |
@@ -83,7 +83,7 @@ The manual workflow is `.github/workflows/test-shards.yml`; it is not a push tri
 - A `workflow_dispatch` full-suite workflow runs the supported file set on shards and merges the results.
 - The merge refuses a missing shard, a duplicate file, a skipped file, a failed result, a dirty tree, or a shard from another commit.
 - One receipt records the exact commit, shard count, runner class, total test-phase time, and any unsupported suite with its named prerequisite.
-- The full-suite test phase is at least 10x faster than the single-runner baseline on the documented runner class. The receipt records the measured factor. A single host is not claimed to be 10x faster, because it cannot be.
+- The full-suite test phase is at least 10x faster than the single-runner baseline on the documented runner class. The receipt records the measured factor. At the 2026-10-20 audit the 10-shard standard-runner class measured 2.81x, so this line remains open.
 - A fresh clone with the documented fetch step can run the supported suite without guessing which tests are silently missing.
 
 **Help wanted:**

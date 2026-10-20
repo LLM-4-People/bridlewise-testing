@@ -104,7 +104,9 @@ Result: the profile passed 3 of 3 tests and the regression gate passed 36 of 36.
 
 The measured tab switches were 85.8 to 111.1ms against a 200ms budget. The measured in-session API maximum was 3314ms during the 10k-project phase, and the isolated route maximum was 1208ms against a 250ms budget. The long-chat render was 2081ms against a 2000ms budget. The API and long-chat budgets are red. The supported shard set does not judge them, and this page does not call the profile a pass. Later test timeout and manifest edits happened after this report, so it is not a current-tree verdict.
 
-This is one profile on one host. It is not a cross-machine benchmark, a reproducible performance proof, or the full suite.
+The manual shard workflow produced a green qualification receipt on 2026-10-20 at `d47909de` on ten `ubuntu-24.04` runners: 521 files, 8722 tests, `testPhaseMs` 86708, `testPhaseCpuMs` 636835, and assignment hash `62374d29ac19e613b4c32eec23343a817862e17445c5d1cfce0ad149bd11d45e`. The single-host supported run took 244017ms, so the measured test-phase factor is 2.81x. This is not a 10x claim.
+
+This is one profile and one shard class on one audit date. It is not a cross-machine benchmark, a reproducible performance proof, or the full suite.
 
 ## Guardian
 
