@@ -214,9 +214,10 @@ Expected shape:
 ./bridlewise-<tag>-engine-bundle.js: OK
 ./bridlewise-<tag>-sbom-engine.spdx.json: OK
 ./bridlewise-<tag>-sbom-web.spdx.json: OK
+./bridlewise-<tag>-promotion-receipt.json: OK
 ```
 
-At the 2026-10-19 snapshot the selected tag was `v0.0.2-preview`. What this proves: the downloaded bytes match the published list, and the release is marked as a prerelease.
+At the 2026-10-20 snapshot the selected tag was `v0.0.3-preview`. What this proves: the downloaded bytes match the published list, the receipt is attached, and the release is marked as a prerelease.
 
 What it does not prove: who published the list, that the build is reproducible, that the assets are signed, or that the code is correct. A checksum is not a signature.
 
