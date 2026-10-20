@@ -1,7 +1,7 @@
 {
   "schemaVersion": "bridlewise-external-surface-registry/v1",
   "owner": "tests/prevention/external-surface-registry.test.ts",
-  "contract": "AGENTS.md — Measurement contract: the jurisdiction is the whole app, and anything the floor depends on from outside it must be pinned or measured rather than assumed.",
+  "contract": "AGENTS.md \u2014 Measurement contract: the jurisdiction is the whole app, and anything the floor depends on from outside it must be pinned or measured rather than assumed.",
   "universe": {
     "workflows": [
       ".github/workflows/ci.yml",
@@ -442,6 +442,7 @@
         "install": "sudo apt-get install -y gcc-14"
       },
       "usedIn": [
+        ".github/workflows/ci.yml",
         ".github/workflows/test-shards.yml"
       ],
       "drift": "The exact package version is runner-image-specific, so the runner label and this name are the pin. The guard refuses any apt package not declared here and any install line the declaration does not name. This is listed in knownExceptions; the owner is the shard workflow."
