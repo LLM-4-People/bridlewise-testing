@@ -43,6 +43,6 @@ npm ci
 npm --prefix engine ci
 ```
 
-The public smoke suite is `npm test`. The full floor uses the harness and is
-described in [Test map](docs/testing.md). The site is assembled by the Pages
+The public smoke suite is `npm run test:public`. The full floor uses the
+harness and is described in [Test map](docs/testing.md). The site is assembled by the Pages
 workflow; do not commit generated site output.
