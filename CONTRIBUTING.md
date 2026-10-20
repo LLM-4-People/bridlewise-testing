@@ -16,6 +16,8 @@ npm ci
 npm --prefix engine ci
 npm run bootstrap:hooks
 chmod 600 engine/bridlewise.config.json
+make -C engine/guardian all
+npm --prefix engine run build:bundle
 ```
 
 Run the fresh-clone gate:
