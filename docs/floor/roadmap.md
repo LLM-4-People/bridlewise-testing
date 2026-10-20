@@ -66,21 +66,21 @@ A milestone is not "done" because a page says so. It is done when the exit crite
 
 **State: Active.**
 
-**Problem:** the full suite is not reproducible from a fresh clone, and its wall-clock time does not fit a useful feedback loop. The public snapshot has baseline failures; the 4.1 GB corpus and the performance report are external; and the 521-file web suite is already at the physical floor of one 12-core host.
+**Problem:** the full suite is not reproducible from a fresh clone, and its wall-clock time does not fit a useful feedback loop. The 4.1 GB corpus and the performance report are external; the 521-file web suite is already at the physical floor of one 12-core host. The supported public set is now explicit, but the 10x test-phase target has not been measured on a larger runner class.
 
 **Workstreams:**
 
-1. **Shard the full suite.** Add native Vitest sharding and a node:test shard contract. A matrix of runners runs disjoint shards. A merge gate proves that the union is the canonical suite, that every file ran exactly once, and that every result passed.
-2. **One qualification receipt.** Each shard records its tree, file manifest, results, and timing. The merge job writes one receipt with the shard count, the total vCPU class, the measured test-phase wall clock, and the unsupported-suite refusals.
+1. **Shard the full suite.** `tests/test-shards.json` is the supported set, derived from `vitest list --filesOnly --json` and accounting for every live file. `scripts/test-shard-manifest.mjs` verifies drift, assigns deterministic weighted shards, and wraps every report with its head commit and manifest hash. A matrix of runners runs disjoint shards.
+2. **One qualification receipt.** Each shard records its tree, file manifest, results, and timing. The merge job writes one receipt with the shard count, the exact commit, the manifest and assignment hashes, and the measured test-phase wall clock. It refuses missing, duplicate, failed, skipped, unexpected, or wrong-commit shards.
 3. **Reproducible fixtures.** Publish a pinned corpus manifest and fetch script, or a small sanitized permissive subset. Do not publish the raw cache with mixed licenses, nested histories, duplicate checkouts, and credential-shaped fixtures.
-4. **Reproducible performance report.** Make `npm run perf:profile` a documented prerequisite step with an idle-host contract, and judge the report in the suite instead of relying on a stale artifact.
-5. **Repair the baseline reds.** Restore or explicitly exclude missing public fixtures, fix the public-snapshot guards that disagree with the public test layout, and split any file that exceeds the per-file share budget. The merged gate must not hide a red shard.
+4. **Reproducible performance report.** Make `npm run perf:profile` a documented prerequisite step with an idle-host contract, and judge the report in the suite instead of relying on a stale artifact. The performance regression gate is a named exclusion until the report and the budget contract are reproducible.
+5. **Repair the baseline reds.** Restore or explicitly exclude missing public fixtures, fix the public-snapshot guards that disagree with the public test layout, and split any file that exceeds the per-file share budget. The rewind suite is now four behavior files, each with a fresh harness. The merged gate must not hide a red shard.
 
-The merge contract is implemented in `scripts/test-shard-merge.mjs` and covered by the public smoke suite. It refuses a missing file, a duplicate file, a failed shard, an unexpected file, or a path outside the checkout. The CI shard workflow is not enabled as a required gate yet: the public full-suite baseline is red and several suites need external prerequisites. Enabling a red matrix as a gate would hide failures, not remove them.
+The manual workflow is `.github/workflows/test-shards.yml`; it is not a push trigger and not a required check. The ten-shard default on standard runners is a reproducibility path, not a claim of 10x. The workflow accepts a runner label so the measured 10x target can be attempted on a documented larger class.
 
 **Exit criteria:**
 
-- A `workflow_dispatch` full-suite workflow runs the canonical file set on shards and merges the results.
+- A `workflow_dispatch` full-suite workflow runs the supported file set on shards and merges the results.
 - The merge refuses a missing shard, a duplicate file, a skipped file, a failed result, a dirty tree, or a shard from another commit.
 - One receipt records the exact commit, shard count, runner class, total test-phase time, and any unsupported suite with its named prerequisite.
 - The full-suite test phase is at least 10x faster than the single-runner baseline on the documented runner class. The receipt records the measured factor. A single host is not claimed to be 10x faster, because it cannot be.

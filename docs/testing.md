@@ -107,9 +107,19 @@ The guardian tests exercise Landlock itself. An exit code of 3 (`landlock_unavai
 
 ## Sharding
 
-The full web suite can be divided with Vitest's `--shard=<index>/<count>`. A green shard is not evidence about the full suite until the shards cover the canonical file list exactly once. The merge contract in `scripts/test-shard-merge.mjs` takes the `vitest list --filesOnly --json` manifest and the per-shard JSON reports, then refuses a missing file, a duplicate file, a failed shard, an unexpected file, or a path outside the checkout. It writes one receipt with relative paths, the shard count, the test count, and a manifest hash.
+`tests/test-shards.json` is the supported-suite manifest. Its file list comes from `vitest list --filesOnly --json`, not from a second glob. It currently accounts for 521 supported files and names three exclusions with a reason and evidence: the private cutover graph tool, the private frozen-record population, and the generated performance report consumed by the performance regression gate. A live file that is neither supported nor excluded fails verification.
 
-The merge contract is covered by the public smoke suite. A shard workflow is not enabled as a required gate yet because the public full-suite baseline is red and several suites need external prerequisites. The receipt is the unit to judge when that gate is activated.
+`scripts/test-shard-manifest.mjs` owns the manifest hash, the deterministic weighted assignment, and the shard report envelope. `scripts/test-shard-merge.mjs` accepts only envelopes that name the same head commit, manifest hash, assignment hash, shard count, and exact file assignment. It refuses a missing shard, a duplicate file, a failed or skipped test, a file outside the checkout, and a report from another commit. One receipt records the exact commit, shard count, file and test counts, manifest hash, and assignment hash.
+
+The manual workflow is `.github/workflows/test-shards.yml`. It is deliberately not a push or pull-request trigger, and it is not a required check while the supported baseline and the performance prerequisites are still being repaired. Choose the shard count and the runner label at dispatch time. The default ten shards on `ubuntu-24.04` do not prove a 10x test-phase speedup; that exit criterion needs a documented larger runner class and a measured receipt. The workflow records the receipt rather than inferring a factor from the number of jobs.
+
+```bash
+npx vitest list --filesOnly --json > "$RUNNER_TEMP/live-manifest.json"
+node scripts/test-shard-manifest.mjs verify --manifest tests/test-shards.json --live "$RUNNER_TEMP/live-manifest.json"
+node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$GITHUB_SHA" --out-dir artifacts/plan
+```
+
+The merge contract and the manifest contract are covered by the public smoke suite. A shard run judges coverage, completion, and exact-commit provenance. It does not judge the full-run runtime budget, which needs a separate full-suite run; do not describe a shard receipt as that budget's verdict.
 
 ## Test map
 

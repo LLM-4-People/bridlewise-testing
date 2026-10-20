@@ -79,6 +79,7 @@ The floor is throughput-bound and fixture-bound. Useful work includes:
 - A corpus manifest or sanitized subset with a pinned fetch step.
 - A reproducible performance profile with an idle-host contract.
 - Splitting a slow file without changing what it proves.
+- Verifying the supported shard manifest and running the manual shard workflow on a named runner class.
 - Repairing a missing fixture or an explicit, named exclusion.
 
 The goal is not a smaller test count. The goal is a complete, reproducible run that finishes sooner.
