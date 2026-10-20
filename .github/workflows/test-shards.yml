@@ -145,7 +145,7 @@ jobs:
           CC=gcc-14 make -C engine/guardian all
 
       - name: Record the guardian binary digest
-        run: sha256sum engine/guardian/build/harness-landlock-guardian
+        run: sha256sum engine/guardian/build/harness-landlock-guardian | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Require the exact commit and a clean tracked tree
         run: |

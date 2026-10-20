@@ -117,14 +117,16 @@ the caller-supplied `wait_seconds` input (a wait, not a measurement).
 
 ## Other findings
 
-- **The guardian is built by two different compilers.**
-  `.github/workflows/ci.yml:76` runs `make -C engine/guardian all` with the
-  runner's default `cc`, while `.github/workflows/test-shards.yml:145` runs
-  `CC=gcc-14 make -C engine/guardian all`. The registry declares `gcc-14` and
-  the runner toolchain, but the gate and the shards can produce different
-  guardian binaries. Owner: the workflow owner; not changed here. The digest
-  printed at `test-shards.yml:148` is not captured into the receipt, so the two
-  binaries are not compared after the fact.
+- **The guardian's compiler is now one pin in both jobs (fixed 2026-10-20).**
+  `.github/workflows/ci.yml` ran `make -C engine/guardian all` with the runner's
+  default `cc`, while `test-shards.yml` ran `CC=gcc-14 make -C engine/guardian all`,
+  and `root-policy.ts` binds the guardian binary by sha256. Both jobs now install
+  and use `gcc-14`, and the shards append the digest to the job summary so the two
+  builds are comparable after the fact. Measured locally, `cc` already resolves to
+  `gcc-14` and the two digests are identical (`28ee831d1359c87d339f3689...`), so the
+  divergence was not reproducible here; pinning removes the ambiguity instead of
+  proving a difference. Capturing the digest into the qualification receipt itself
+  (rather than the summary) is still open.
 - **The Jekyll config and plugin set are product-owned.** The Pages workflow
   copies `_config.yml` from the product docs checkout at run time; this repo
   cannot see the product's plugin set. The guard's reachable half is the

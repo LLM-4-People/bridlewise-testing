@@ -72,11 +72,16 @@ jobs:
       - name: Build engine bundle
         run: npm --prefix engine run build:bundle
 
+      - name: Install the pinned compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14
+
       - name: Build guardian
-        run: make -C engine/guardian all
+        run: CC=gcc-14 make -C engine/guardian all
 
       - name: Test guardian
-        run: make -C engine/guardian test
+        run: CC=gcc-14 make -C engine/guardian test
 
   shards:
     name: Full suite shards
