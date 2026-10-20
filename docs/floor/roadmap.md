@@ -20,20 +20,20 @@ This is the engineering roadmap for the Bridlewise development floor: what shipp
 <!-- BEGIN GENERATED: roadmap summary, from this page's ROADMAP-PLAN block (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
 ### Where the floor stands
 
-<p class="roadmap-lede"><strong>24 of 73 tracked items shipped (33%).</strong> The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it and appear only in the count chips.</p>
+<p class="roadmap-lede"><strong>24 of 72 tracked items shipped (33%).</strong> The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it and appear only in the count chips.</p>
 
 <div class="roadmap-progress" role="group" aria-label="Roadmap status counts">
 <div class="roadmap-count-row">
 <span class="roadmap-chip roadmap-chip--shipped roadmap-count"><strong>24</strong> shipped</span>
 <span class="roadmap-chip roadmap-chip--in-progress roadmap-count"><strong>10</strong> in progress</span>
-<span class="roadmap-chip roadmap-chip--planned roadmap-count"><strong>38</strong> planned</span>
+<span class="roadmap-chip roadmap-chip--planned roadmap-count"><strong>37</strong> planned</span>
 <span class="roadmap-chip roadmap-chip--blocked roadmap-count"><strong>1</strong> blocked</span>
 <span class="roadmap-chip roadmap-chip--not-planned roadmap-count"><strong>7</strong> not planned</span>
 </div>
-<div class="roadmap-meter" role="img" aria-label="Progress: 24 of 73 tracked items shipped (33%). 10 in progress, 38 planned, 1 blocked. 7 not planned are outside the tracked total.">
+<div class="roadmap-meter" role="img" aria-label="Progress: 24 of 72 tracked items shipped (33%). 10 in progress, 37 planned, 1 blocked. 7 not planned are outside the tracked total.">
 <span class="roadmap-meter-segment" data-state="shipped" style="flex: 24 1 0"></span>
 <span class="roadmap-meter-segment" data-state="in-progress" style="flex: 10 1 0"></span>
-<span class="roadmap-meter-segment" data-state="planned" style="flex: 38 1 0"></span>
+<span class="roadmap-meter-segment" data-state="planned" style="flex: 37 1 0"></span>
 <span class="roadmap-meter-segment" data-state="blocked" style="flex: 1 1 0"></span>
 </div>
 </div>
@@ -740,10 +740,6 @@ The machine-readable owner of this section is the ROADMAP-PLAN block immediately
     }
   },
   "taskOverrides": {
-    "Re-measure the shard weights at the manifest's own head": {
-      "state": "planned",
-      "evidence": "evidence.md#the-sharded-gate"
-    },
     "Bring the supported suite back under the CPU-per-file cap": {
       "state": "blocked",
       "blockedBy": "No clean judged run: 2 of 12 recorded; needs a 12-run idle campaign or an explicit policy decision.",
@@ -961,7 +957,6 @@ Every open row of [TASKS.md](../trackers/TASKS.md) appears here. A row leaves th
 
 | Task | State | Owner | Evidence |
 |---|---|---|---|
-| **Re-measure the shard weights at the manifest's own head**<br><span class="roadmap-exit">Exit: The row closes in TASKS.md with the reproduction and verification named in its text.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | public floor | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
 | **Bring the supported suite back under the CPU-per-file cap**<br><span class="roadmap-exit">Exit: The row closes in TASKS.md with the reproduction and verification named in its text.</span> | <span class="roadmap-chip roadmap-chip--blocked">blocked</span><span class="roadmap-blocked-by">No clean judged run: 2 of 12 recorded; needs a 12-run idle campaign or an explicit policy decision.</span> | public floor | [evidence: the-supported-suite-on-one-host](evidence.md#the-supported-suite-on-one-host) |
 {: .roadmap-table .roadmap-table--tasks}
 

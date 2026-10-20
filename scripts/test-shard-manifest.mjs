@@ -11,6 +11,13 @@
  * commit whose weights were measured. The plan records the head SHA of the
  * run that will use it, and every shard report is wrapped with that same
  * provenance before the merge will consider it.
+ *
+ * `measure` is the one weight producer. It reads the wrapped shard reports
+ * from a green run (the JSON reporter's per-file `endTime - startTime`), and
+ * rewrites the supported files' weights plus `measuredHeadSha`, `measuredAt`
+ * and `weightSource`. It refuses a partial, duplicated, non-green or
+ * different-manifest population, so a measurement cannot describe a set the
+ * manifest does not carry.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -20,6 +27,8 @@ import { pathToFileURL } from "node:url";
 export const MANIFEST_SCHEMA = "bridlewise-test-shard-manifest/v1";
 export const PLAN_SCHEMA = "bridlewise-test-shard-plan/v1";
 export const SHARD_REPORT_SCHEMA = "bridlewise-test-shard-report/v1";
+/** The one per-file duration definition the weights are measured with. */
+const WEIGHT_SOURCE = "vitest-json:endTime-startTime";
 
 function fail(message) {
   throw new Error(message);
@@ -41,6 +50,25 @@ function normalizeFile(root, file, subject) {
     fail(`${subject}: path escapes the repository root: ${file}`);
   }
   return rel.split(sep).join("/");
+}
+
+/**
+ * A shard report produced in CI names the checkout under the runner's own
+ * root, so a downloaded report cannot be resolved against this checkout.
+ * The manifest is the canonical population: accept an outside path only when
+ * its suffix names exactly one supported file, and never guess between two.
+ */
+function normalizeReportFile(root, file, subject, supported) {
+  if (typeof file !== "string" || file.length === 0) fail(`${subject}: empty path`);
+  const absolute = resolve(root, file);
+  const rel = relative(root, absolute);
+  if (rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel)) return rel.split(sep).join("/");
+  const candidates = supported.filter((path) => file === path || file.endsWith(`/${path}`));
+  if (candidates.length === 1) return candidates[0];
+  fail(
+    `${subject}: path is outside the repository root and ` +
+      `${candidates.length === 0 ? "matches no" : "matches more than one"} supported file: ${file}`,
+  );
 }
 
 function sha256(text) {
@@ -183,6 +211,147 @@ function timestamp(value, subject) {
   return ms;
 }
 
+function readMeasurementReport(repositoryRoot, reportPath, index, manifest) {
+  const envelope = readJson(reportPath, `shard report ${index}`);
+  if (envelope === null || typeof envelope !== "object" || Array.isArray(envelope)) {
+    fail(`shard report ${index}: expected an object`);
+  }
+  if (envelope.schemaVersion !== SHARD_REPORT_SCHEMA) {
+    fail(`shard report ${index}: expected schema ${SHARD_REPORT_SCHEMA}`);
+  }
+  if (!Number.isSafeInteger(envelope.shard) || envelope.shard < 1) {
+    fail(`shard report ${index}: shard index is missing`);
+  }
+  if (!Number.isSafeInteger(envelope.shardCount) || envelope.shardCount < 1) {
+    fail(`shard report ${index}: shard count is missing`);
+  }
+  if (typeof envelope.headSha !== "string" || !/^[0-9a-f]{7,64}$/i.test(envelope.headSha)) {
+    fail(`shard report ${index}: headSha is missing`);
+  }
+  if (envelope.manifestHash !== manifest.hash) {
+    fail(`shard report ${index}: manifest hash does not match the checked-in manifest`);
+  }
+  const report = envelope.vitest;
+  if (report === null || typeof report !== "object") fail(`shard report ${index}: vitest report is missing`);
+  if (report.success !== true) fail(`shard report ${index}: vitest reported success=false`);
+  if (Number(report.numFailedTests ?? 0) !== 0 || Number(report.numFailedTestSuites ?? 0) !== 0) {
+    fail(`shard report ${index}: the measured run has failed tests`);
+  }
+  if (Number(report.numPendingTests ?? 0) !== 0 || Number(report.numTodoTests ?? 0) !== 0) {
+    fail(`shard report ${index}: the measured run skipped or parked tests`);
+  }
+  if (!Array.isArray(report.testResults)) fail(`shard report ${index}: report has no testResults array`);
+  const finishedMs = envelope.timing === undefined ? undefined : timestamp(envelope.timing.finishedAt, `shard report ${index} timing.finishedAt`);
+  const supported = manifest.files.map((file) => file.path);
+  const entries = report.testResults.map((result, resultIndex) => {
+    const subject = `shard report ${index} testResults[${resultIndex}]`;
+    if (result === null || typeof result !== "object") fail(`${subject}: not an object`);
+    const file = normalizeReportFile(repositoryRoot, result.name, subject, supported);
+    if (!Number.isFinite(result.startTime) || !Number.isFinite(result.endTime)) {
+      fail(`${subject}: no numeric startTime and endTime`);
+    }
+    if (result.endTime < result.startTime) fail(`${subject}: endTime is before startTime`);
+    return { file, durationMs: result.endTime - result.startTime };
+  });
+  return {
+    shard: envelope.shard,
+    shardCount: envelope.shardCount,
+    headSha: envelope.headSha.toLowerCase(),
+    finishedMs,
+    entries,
+  };
+}
+
+/**
+ * Derive the per-file weights from a complete green run's wrapped shard
+ * reports and write the manifest through the owner. Without `outPath` the
+ * measurement is computed and returned without touching the manifest.
+ */
+export function measureManifest({
+  root = process.cwd(),
+  manifestPath,
+  reportPaths,
+  headSha = undefined,
+  runner = undefined,
+  outPath = undefined,
+  now = new Date(),
+}) {
+  const repositoryRoot = resolve(root);
+  const manifest = readManifest(repositoryRoot, manifestPath);
+  if (!Array.isArray(reportPaths) || reportPaths.length === 0) {
+    fail("measure: at least one shard report is required");
+  }
+  if (headSha !== undefined && (typeof headSha !== "string" || !/^[0-9a-f]{7,64}$/i.test(headSha))) {
+    fail("measure: headSha must be a commit SHA");
+  }
+  const reports = reportPaths.map((path, index) => readMeasurementReport(repositoryRoot, path, index + 1, manifest));
+  const shardCount = reports[0].shardCount;
+  if (reports.length !== shardCount) {
+    fail(`measure: expected ${String(shardCount)} shard report(s), received ${String(reports.length)}`);
+  }
+  const indexes = new Set();
+  for (const report of reports) {
+    if (report.shardCount !== shardCount) fail("measure: shard reports disagree on shardCount");
+    if (indexes.has(report.shard)) fail(`measure: shard ${String(report.shard)} was measured twice`);
+    indexes.add(report.shard);
+  }
+  for (let index = 1; index <= shardCount; index += 1) {
+    if (!indexes.has(index)) fail(`measure: shard ${String(index)} is missing`);
+  }
+  const heads = new Set(reports.map((report) => report.headSha));
+  if (heads.size !== 1) fail("measure: shard reports name more than one head commit");
+  const measuredHeadSha = [...heads][0];
+  if (headSha !== undefined && measuredHeadSha !== headSha.toLowerCase()) {
+    fail(`measure: shard reports name head ${measuredHeadSha}, not ${headSha.toLowerCase()}`);
+  }
+  const supported = new Set(manifest.files.map((file) => file.path));
+  const weights = new Map();
+  for (const report of reports) {
+    for (const entry of report.entries) {
+      if (!supported.has(entry.file)) fail(`measure: ${entry.file} is not a supported manifest file`);
+      if (weights.has(entry.file)) fail(`measure: ${entry.file} was measured more than once`);
+      weights.set(entry.file, entry.durationMs);
+    }
+  }
+  const missing = manifest.files.filter((file) => !weights.has(file.path)).map((file) => file.path);
+  if (missing.length > 0) {
+    fail(
+      `measure: ${String(missing.length)} supported file(s) were not measured: ` +
+        `${missing.slice(0, 10).join(", ")}${missing.length > 10 ? ", ..." : ""}`,
+    );
+  }
+  const finished = reports.map((report) => report.finishedMs);
+  const measuredAt = finished.every((value) => value !== undefined)
+    ? new Date(Math.max(...finished))
+    : now;
+  const weightSource = `${WEIGHT_SOURCE}; ${String(manifest.files.length)} supported files from ` +
+    `${String(reports.length)} green shard report(s) at ${measuredHeadSha}` +
+    `${runner === undefined ? "" : ` (${runner})`}`;
+  const raw = readJson(manifestPath, "manifest");
+  const measured = {
+    ...raw,
+    measuredHeadSha,
+    measuredAt: measuredAt.toISOString(),
+    weightSource,
+    files: raw.files.map((entry) => {
+      const path = normalizeFile(repositoryRoot, entry.path, "manifest file");
+      return { ...entry, weightMs: Math.max(1, Math.round(weights.get(path))) };
+    }),
+  };
+  if (outPath !== undefined) {
+    mkdirSync(dirname(resolve(outPath)), { recursive: true });
+    writeFileSync(resolve(outPath), `${JSON.stringify(measured, null, 2)}\n`);
+  }
+  return {
+    measuredHeadSha,
+    measuredAt: measured.measuredAt,
+    weightSource,
+    fileCount: manifest.files.length,
+    totalWeightMs: measured.files.reduce((sum, file) => sum + file.weightMs, 0),
+    manifest: measured,
+  };
+}
+
 export function wrapShardReport({ root = process.cwd(), planPath, shard, vitestPath, outPath, startedAt, finishedAt }) {
   const repositoryRoot = resolve(root);
   const plan = readJson(planPath, "plan");
@@ -209,7 +378,7 @@ export function wrapShardReport({ root = process.cwd(), planPath, shard, vitestP
 }
 
 function parseArgs(argv) {
-  const options = { root: process.cwd(), command: argv[0] ?? null };
+  const options = { root: process.cwd(), command: argv[0] ?? null, reportPaths: [] };
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--root") options.root = argv[++index];
@@ -221,6 +390,8 @@ function parseArgs(argv) {
     else if (arg === "--github-output") options.githubOutput = argv[++index];
     else if (arg === "--plan") options.planPath = argv[++index];
     else if (arg === "--shard") options.shard = Number(argv[++index]);
+    else if (arg === "--report") options.reportPaths.push(argv[++index]);
+    else if (arg === "--runner") options.runner = argv[++index];
     else if (arg === "--started-at") options.startedAt = argv[++index];
     else if (arg === "--finished-at") options.finishedAt = argv[++index];
     else if (arg === "--vitest") options.vitestPath = argv[++index];
@@ -246,6 +417,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         writeFileSync(options.githubOutput, `shards=${JSON.stringify(plan.shards.map((shard) => shard.index))}\n`, { flag: "a" });
       }
       process.stdout.write(`shard plan: ${plan.shardCount} shard(s), ${plan.manifestHash.slice(0, 12)}\n`);
+    } else if (options.command === "measure") {
+      if (!options.manifestPath || options.reportPaths.length === 0) {
+        fail("measure requires --manifest and at least one --report");
+      }
+      const measured = measureManifest(options);
+      process.stdout.write(
+        `shard manifest measured: ${measured.fileCount} file(s), ` +
+          `${measured.totalWeightMs}ms total, head ${measured.measuredHeadSha.slice(0, 12)}` +
+          `${options.outPath ? ` -> ${options.outPath}` : " (dry run; pass --out to write)"}\n`,
+      );
     } else if (options.command === "wrap") {
       if (!options.planPath || !options.vitestPath || !options.outPath || !options.shard) {
         fail("wrap requires --plan, --vitest, --shard, and --out");
@@ -253,7 +434,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       wrapShardReport(options);
       process.stdout.write(`shard report: shard ${options.shard} wrapped\n`);
     } else {
-      fail("command must be verify, plan, or wrap");
+      fail("command must be verify, plan, measure, or wrap");
     }
   } catch (error) {
     process.stderr.write(`shard manifest refused: ${error.message}\n`);

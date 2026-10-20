@@ -6,8 +6,10 @@ import { test } from "node:test";
 
 import {
   MANIFEST_SCHEMA,
+  SHARD_REPORT_SCHEMA,
   assignShards,
   manifestHash,
+  measureManifest,
   planShards,
   readManifest,
   verifyManifest,
@@ -27,6 +29,36 @@ function manifestFor(files, excluded = []) {
     files: files.map((file) => ({ path: file, weightMs: 1 })),
     excluded,
   };
+}
+
+function shardReportFor(work, { head, manifestHashValue, shard, shardCount, entries, finishedAt, success = true }) {
+  const path = join(work, `shard-${shard}.json`);
+  writeJson(path, {
+    schemaVersion: SHARD_REPORT_SCHEMA,
+    headSha: head,
+    manifestHash: manifestHashValue,
+    assignmentHash: "0".repeat(64),
+    shard,
+    shardCount,
+    timing: { startedAt: "2026-10-20T00:00:00.000Z", finishedAt, durationMs: 2000 },
+    vitest: {
+      success,
+      numTotalTests: entries.length,
+      numPassedTests: success ? entries.length : 0,
+      numFailedTests: success ? 0 : 1,
+      numFailedTestSuites: 0,
+      numPendingTests: 0,
+      numTodoTests: 0,
+      testResults: entries.map(([file, startTime, endTime]) => ({
+        name: file,
+        status: success ? "passed" : "failed",
+        startTime,
+        endTime,
+        assertionResults: [],
+      })),
+    },
+  });
+  return path;
 }
 
 test("the shard manifest hash is the canonical sorted-path hash", () => {
@@ -179,6 +211,88 @@ test("a wrapped report with the wrong commit or manifest hash is refused", () =>
       }),
       (error) => error instanceof Error && error.message.includes("head") && error.message.includes("is not"),
     );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("the owner measures weights from green shard reports, including runner-root paths", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-measure-"));
+  try {
+    const manifest = join(work, "manifest.json");
+    const head = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
+    writeJson(manifest, manifestFor(["tests/a.test.ts", "tests/b.test.ts"]));
+    const hash = manifestHash(["tests/a.test.ts", "tests/b.test.ts"]);
+    const runnerFile = (file) => `/home/runner/work/bridlewise-testing/bridlewise-testing/${file}`;
+    const first = shardReportFor(work, {
+      head, manifestHashValue: hash, shard: 1, shardCount: 2,
+      entries: [[runnerFile("tests/a.test.ts"), 1000, 1234.6]],
+      finishedAt: "2026-10-20T00:00:02.000Z",
+    });
+    const second = shardReportFor(work, {
+      head, manifestHashValue: hash, shard: 2, shardCount: 2,
+      entries: [[runnerFile("tests/b.test.ts"), 2000, 2000.2]],
+      finishedAt: "2026-10-20T00:00:03.000Z",
+    });
+    const out = join(work, "measured.json");
+    const measured = measureManifest({
+      root: work, manifestPath: manifest, reportPaths: [first, second], outPath: out, runner: "ubuntu-24.04",
+    });
+    const written = JSON.parse(readFileSync(out, "utf8"));
+    assert.deepEqual(written.files.map((file) => file.weightMs), [235, 1]);
+    assert.equal(written.measuredHeadSha, head);
+    assert.equal(written.measuredAt, "2026-10-20T00:00:03.000Z");
+    assert.match(written.weightSource, /endTime-startTime/);
+    assert.match(written.weightSource, /ubuntu-24\.04/);
+    assert.equal(measured.fileCount, 2);
+    assert.equal(measured.totalWeightMs, 236);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("the weight measurement refuses a partial, duplicated, non-green, or different-manifest run", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-measure-refusal-"));
+  try {
+    const manifest = join(work, "manifest.json");
+    const head = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
+    writeJson(manifest, manifestFor(["tests/a.test.ts", "tests/b.test.ts"]));
+    const hash = manifestHash(["tests/a.test.ts", "tests/b.test.ts"]);
+    const measure = (reportPaths) => measureManifest({ root: work, manifestPath: manifest, reportPaths });
+
+    const partial = shardReportFor(work, {
+      head, manifestHashValue: hash, shard: 1, shardCount: 1,
+      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
+    });
+    assert.throws(() => measure([partial]), /were not measured/);
+
+    const duplicateOne = shardReportFor(work, {
+      head, manifestHashValue: hash, shard: 1, shardCount: 2,
+      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
+    });
+    const duplicateTwo = shardReportFor(work, {
+      head, manifestHashValue: hash, shard: 2, shardCount: 2,
+      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
+    });
+    assert.throws(() => measure([duplicateOne, duplicateTwo]), /measured more than once/);
+
+    const nonGreen = shardReportFor(work, {
+      head, manifestHashValue: hash, shard: 1, shardCount: 1,
+      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z", success: false,
+    });
+    assert.throws(() => measure([nonGreen]), /success=false/);
+
+    const wrongManifest = shardReportFor(work, {
+      head, manifestHashValue: "0".repeat(64), shard: 1, shardCount: 1,
+      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
+    });
+    assert.throws(() => measure([wrongManifest]), /manifest hash/);
+
+    const backwards = shardReportFor(work, {
+      head, manifestHashValue: hash, shard: 1, shardCount: 1,
+      entries: [["tests/a.test.ts", 10, 5]], finishedAt: "2026-10-20T00:00:02.000Z",
+    });
+    assert.throws(() => measure([backwards]), /endTime is before startTime/);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

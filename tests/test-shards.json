@@ -1,208 +1,208 @@
 {
   "schemaVersion": "bridlewise-test-shard-manifest/v1",
-  "measuredHeadSha": "0ba57912b2280954e7444496c5bf961b2b805cfb",
-  "measuredAt": "2026-10-20T07:21:38.472Z",
-  "weightSource": "vitest-json:endTime-startTime; supported 521-file run at 0ba57912, after the rewind split, timeout repairs, and provider terminal-response fix; tests/unit/database-backup.test.ts measured on its own at 400a130a on 2026-10-20 pending the full re-measurement; tests/prevention/roadmap-status-owner.test.ts measured on its own on 2026-10-20 pending the full re-measurement",
+  "measuredHeadSha": "f54df4a547cd5ff45f06e43617d4898fefd850b1",
+  "measuredAt": "2026-10-20T17:56:30.903Z",
+  "weightSource": "vitest-json:endTime-startTime; 523 supported files from 10 green shard report(s) at f54df4a547cd5ff45f06e43617d4898fefd850b1 (ubuntu-24.04)",
   "files": [
     {
       "path": "tests/cockpit/a11y-hidden-focus-owner.test.ts",
-      "weightMs": 390
+      "weightMs": 564
     },
     {
       "path": "tests/cockpit/arm-firing.test.ts",
-      "weightMs": 33
+      "weightMs": 17
     },
     {
       "path": "tests/cockpit/arm-palette.test.ts",
-      "weightMs": 29
+      "weightMs": 17
     },
     {
       "path": "tests/cockpit/artifact-containment.test.ts",
-      "weightMs": 2374
+      "weightMs": 1163
     },
     {
       "path": "tests/cockpit/artifact-runtime-errors.test.ts",
-      "weightMs": 753
+      "weightMs": 591
     },
     {
       "path": "tests/cockpit/boot-waves-owner.test.ts",
-      "weightMs": 55
+      "weightMs": 27
     },
     {
       "path": "tests/cockpit/canvas-release-on-hide.test.ts",
-      "weightMs": 19
+      "weightMs": 33
     },
     {
       "path": "tests/cockpit/cockpit-boot-owner.test.ts",
-      "weightMs": 1582
+      "weightMs": 1429
     },
     {
       "path": "tests/cockpit/cockpit-chart-owner.test.ts",
-      "weightMs": 201
+      "weightMs": 122
     },
     {
       "path": "tests/cockpit/cockpit-chord-owner.test.ts",
-      "weightMs": 423
+      "weightMs": 321
     },
     {
       "path": "tests/cockpit/cockpit-derivation-owner.test.ts",
-      "weightMs": 21
+      "weightMs": 16
     },
     {
       "path": "tests/cockpit/cockpit-flow-verb-owner.test.ts",
-      "weightMs": 118
+      "weightMs": 128
     },
     {
       "path": "tests/cockpit/cockpit-keyboard-grammar.test.ts",
-      "weightMs": 9
+      "weightMs": 7
     },
     {
       "path": "tests/cockpit/cockpit-latency-budget.test.ts",
-      "weightMs": 8
+      "weightMs": 7
     },
     {
       "path": "tests/cockpit/cockpit-mouse-path-owner.test.ts",
-      "weightMs": 233
+      "weightMs": 214
     },
     {
       "path": "tests/cockpit/cockpit-no-legacy-imports.test.ts",
-      "weightMs": 53
+      "weightMs": 31
     },
     {
       "path": "tests/cockpit/cockpit-tokens-owner.test.ts",
-      "weightMs": 176
+      "weightMs": 175
     },
     {
       "path": "tests/cockpit/composer-autocreate.test.ts",
-      "weightMs": 18
+      "weightMs": 15
     },
     {
       "path": "tests/cockpit/composer-commit-seam.test.ts",
-      "weightMs": 15
+      "weightMs": 12
     },
     {
       "path": "tests/cockpit/computer-admission.test.ts",
-      "weightMs": 11
+      "weightMs": 7
     },
     {
       "path": "tests/cockpit/computer-findings.test.ts",
-      "weightMs": 53
+      "weightMs": 22
     },
     {
       "path": "tests/cockpit/computer-grammar.test.ts",
-      "weightMs": 11
+      "weightMs": 7
     },
     {
       "path": "tests/cockpit/connection-owner.test.ts",
-      "weightMs": 48
+      "weightMs": 73
     },
     {
       "path": "tests/cockpit/context-menu-owner.test.ts",
-      "weightMs": 293
+      "weightMs": 198
     },
     {
       "path": "tests/cockpit/cross-tab-coherence.test.ts",
-      "weightMs": 35
+      "weightMs": 38
     },
     {
       "path": "tests/cockpit/custody-data.test.ts",
-      "weightMs": 15
+      "weightMs": 6
     },
     {
       "path": "tests/cockpit/custody-feed.test.ts",
-      "weightMs": 64
+      "weightMs": 39
     },
     {
       "path": "tests/cockpit/custody-room.test.ts",
-      "weightMs": 5158
+      "weightMs": 3736
     },
     {
       "path": "tests/cockpit/dedup-savings-face.test.ts",
-      "weightMs": 59
+      "weightMs": 41
     },
     {
       "path": "tests/cockpit/desk-data.test.ts",
-      "weightMs": 23
+      "weightMs": 28
     },
     {
       "path": "tests/cockpit/desk-feed.test.ts",
-      "weightMs": 40
+      "weightMs": 15
     },
     {
       "path": "tests/cockpit/desk-open-close.test.ts",
-      "weightMs": 973
+      "weightMs": 664
     },
     {
       "path": "tests/cockpit/desk-panel.test.ts",
-      "weightMs": 2102
+      "weightMs": 750
     },
     {
       "path": "tests/cockpit/desk-verb-owner.test.ts",
-      "weightMs": 666
+      "weightMs": 548
     },
     {
       "path": "tests/cockpit/disclosure-grip.test.ts",
-      "weightMs": 153
+      "weightMs": 212
     },
     {
       "path": "tests/cockpit/editor-buffer-owner.test.ts",
-      "weightMs": 37
+      "weightMs": 60
     },
     {
       "path": "tests/cockpit/editor-data.test.ts",
-      "weightMs": 26
+      "weightMs": 32
     },
     {
       "path": "tests/cockpit/editor-delete-shield.test.ts",
-      "weightMs": 77
+      "weightMs": 66
     },
     {
       "path": "tests/cockpit/editor-open-request.test.ts",
-      "weightMs": 453
+      "weightMs": 366
     },
     {
       "path": "tests/cockpit/editor-probe-owner.test.ts",
-      "weightMs": 1130
+      "weightMs": 70
     },
     {
       "path": "tests/cockpit/editor-recording-owner.test.ts",
-      "weightMs": 1210
+      "weightMs": 167
     },
     {
       "path": "tests/cockpit/editor-render-owner.test.ts",
-      "weightMs": 1411
+      "weightMs": 1186
     },
     {
       "path": "tests/cockpit/editor-save-path-owner.test.ts",
-      "weightMs": 56
+      "weightMs": 45
     },
     {
       "path": "tests/cockpit/editor-surface-owner.test.ts",
-      "weightMs": 20
+      "weightMs": 15
     },
     {
       "path": "tests/cockpit/effect-beat-diff-face.test.ts",
-      "weightMs": 73
+      "weightMs": 66
     },
     {
       "path": "tests/cockpit/flow-beat-request.test.ts",
-      "weightMs": 116
+      "weightMs": 91
     },
     {
       "path": "tests/cockpit/flow-bubble-system.test.ts",
-      "weightMs": 73
+      "weightMs": 50
     },
     {
       "path": "tests/cockpit/flow-control-effect-owner.test.ts",
-      "weightMs": 385
+      "weightMs": 292
     },
     {
       "path": "tests/cockpit/flow-density-owner.test.ts",
-      "weightMs": 149
+      "weightMs": 99
     },
     {
       "path": "tests/cockpit/flow-dock.test.ts",
-      "weightMs": 3
+      "weightMs": 6
     },
     {
       "path": "tests/cockpit/flow-fisheye.test.ts",
@@ -210,139 +210,139 @@
     },
     {
       "path": "tests/cockpit/flow-grammar-menu.test.ts",
-      "weightMs": 8
+      "weightMs": 5
     },
     {
       "path": "tests/cockpit/flow-height-shape.test.ts",
-      "weightMs": 101
+      "weightMs": 125
     },
     {
       "path": "tests/cockpit/flow-heights.test.ts",
-      "weightMs": 292
+      "weightMs": 297
     },
     {
       "path": "tests/cockpit/flow-history-paging.test.ts",
-      "weightMs": 73
+      "weightMs": 32
     },
     {
       "path": "tests/cockpit/flow-ingest.test.ts",
-      "weightMs": 87
+      "weightMs": 40
     },
     {
       "path": "tests/cockpit/flow-log.test.ts",
-      "weightMs": 7
+      "weightMs": 25
     },
     {
       "path": "tests/cockpit/flow-no-internal-ids-rendered.test.ts",
-      "weightMs": 435
+      "weightMs": 675
     },
     {
       "path": "tests/cockpit/flow-operator-acts.test.ts",
-      "weightMs": 68
+      "weightMs": 138
     },
     {
       "path": "tests/cockpit/flow-paging-geometry.test.ts",
-      "weightMs": 1571
+      "weightMs": 936
     },
     {
       "path": "tests/cockpit/flow-past-view-owner.test.ts",
-      "weightMs": 299
+      "weightMs": 266
     },
     {
       "path": "tests/cockpit/flow-perf.test.ts",
-      "weightMs": 244
+      "weightMs": 113
     },
     {
       "path": "tests/cockpit/flow-rail-permanence.test.ts",
-      "weightMs": 88
+      "weightMs": 115
     },
     {
       "path": "tests/cockpit/flow-rewind-owner.test.ts",
-      "weightMs": 354
+      "weightMs": 237
     },
     {
       "path": "tests/cockpit/flow-steered-beat.test.ts",
-      "weightMs": 20
+      "weightMs": 29
     },
     {
       "path": "tests/cockpit/flow-stream-channels.test.ts",
-      "weightMs": 101
+      "weightMs": 94
     },
     {
       "path": "tests/cockpit/flow-thinking-fold.test.ts",
-      "weightMs": 75
+      "weightMs": 94
     },
     {
       "path": "tests/cockpit/flow-tool-batching.test.ts",
-      "weightMs": 73
+      "weightMs": 176
     },
     {
       "path": "tests/cockpit/flow-tool-live-progress.test.ts",
-      "weightMs": 154
+      "weightMs": 117
     },
     {
       "path": "tests/cockpit/flow-tool-sheetless.test.ts",
-      "weightMs": 186
+      "weightMs": 132
     },
     {
       "path": "tests/cockpit/flow-tool-symmetry.test.ts",
-      "weightMs": 303
+      "weightMs": 345
     },
     {
       "path": "tests/cockpit/flow-turn-timing.test.ts",
-      "weightMs": 34
+      "weightMs": 17
     },
     {
       "path": "tests/cockpit/flow-unfocused-fisheye.test.ts",
-      "weightMs": 186
+      "weightMs": 145
     },
     {
       "path": "tests/cockpit/flow-virtualizer.test.ts",
-      "weightMs": 690
+      "weightMs": 324
     },
     {
       "path": "tests/cockpit/flow-wait-refusal.test.ts",
-      "weightMs": 197
+      "weightMs": 211
     },
     {
       "path": "tests/cockpit/flow-wait-row.test.ts",
-      "weightMs": 294
+      "weightMs": 212
     },
     {
       "path": "tests/cockpit/flow-workspace-keepalive.test.ts",
-      "weightMs": 52
+      "weightMs": 41
     },
     {
       "path": "tests/cockpit/flow-workspace-view.test.ts",
-      "weightMs": 319
+      "weightMs": 173
     },
     {
       "path": "tests/cockpit/folder-picker-component.test.ts",
-      "weightMs": 1481
+      "weightMs": 480
     },
     {
       "path": "tests/cockpit/folder-picker.test.ts",
-      "weightMs": 12
+      "weightMs": 10
     },
     {
       "path": "tests/cockpit/horizon-annunciators.test.ts",
-      "weightMs": 167
+      "weightMs": 89
     },
     {
       "path": "tests/cockpit/horizon-place.test.ts",
-      "weightMs": 279
+      "weightMs": 236
     },
     {
       "path": "tests/cockpit/index-rail-owner.test.ts",
-      "weightMs": 1021
+      "weightMs": 831
     },
     {
       "path": "tests/cockpit/instruments-data.test.ts",
-      "weightMs": 58
+      "weightMs": 33
     },
     {
       "path": "tests/cockpit/instruments-feed.test.ts",
-      "weightMs": 28
+      "weightMs": 24
     },
     {
       "path": "tests/cockpit/instruments-perf.test.ts",
@@ -350,239 +350,239 @@
     },
     {
       "path": "tests/cockpit/instruments-registry-truth.test.ts",
-      "weightMs": 100
+      "weightMs": 121
     },
     {
       "path": "tests/cockpit/instruments-room.test.ts",
-      "weightMs": 2953
+      "weightMs": 720
     },
     {
       "path": "tests/cockpit/instruments-size-owner.test.ts",
-      "weightMs": 76
+      "weightMs": 94
     },
     {
       "path": "tests/cockpit/interrupted-turn-face.test.ts",
-      "weightMs": 18
+      "weightMs": 10
     },
     {
       "path": "tests/cockpit/lens-callout.test.ts",
-      "weightMs": 159
+      "weightMs": 103
     },
     {
       "path": "tests/cockpit/model-provenance-owner.test.ts",
-      "weightMs": 255
-    },
-    {
-      "path": "tests/cockpit/motion-owner.test.ts",
-      "weightMs": 203
-    },
-    {
-      "path": "tests/cockpit/paint-design-tokens.test.ts",
-      "weightMs": 1050
-    },
-    {
-      "path": "tests/cockpit/past-view-grammar.test.ts",
-      "weightMs": 106
-    },
-    {
-      "path": "tests/cockpit/recycle-confirm.test.ts",
-      "weightMs": 15
-    },
-    {
-      "path": "tests/cockpit/redaction-notice-face.test.ts",
-      "weightMs": 72
-    },
-    {
-      "path": "tests/cockpit/render-diff.test.ts",
-      "weightMs": 15
-    },
-    {
-      "path": "tests/cockpit/render-highlight.test.ts",
-      "weightMs": 174
-    },
-    {
-      "path": "tests/cockpit/render-image-shape.test.ts",
-      "weightMs": 92
-    },
-    {
-      "path": "tests/cockpit/render-markdown-output.test.ts",
-      "weightMs": 69
-    },
-    {
-      "path": "tests/cockpit/render-markdown.test.ts",
-      "weightMs": 22
-    },
-    {
-      "path": "tests/cockpit/render-perf.test.ts",
-      "weightMs": 3537
-    },
-    {
-      "path": "tests/cockpit/render-sanitization-owner.test.ts",
-      "weightMs": 400
-    },
-    {
-      "path": "tests/cockpit/render-shapes.test.ts",
-      "weightMs": 33
-    },
-    {
-      "path": "tests/cockpit/render-untrusted.test.ts",
-      "weightMs": 204
-    },
-    {
-      "path": "tests/cockpit/response-grammar-owner.test.ts",
-      "weightMs": 60
-    },
-    {
-      "path": "tests/cockpit/rest-visibility-floor.test.ts",
-      "weightMs": 14
-    },
-    {
-      "path": "tests/cockpit/rewind-confirm-face.test.ts",
-      "weightMs": 91
-    },
-    {
-      "path": "tests/cockpit/right-menu-row-path.test.ts",
-      "weightMs": 370
-    },
-    {
-      "path": "tests/cockpit/room-door-owner.test.ts",
-      "weightMs": 2929
-    },
-    {
-      "path": "tests/cockpit/room-keep-alive.test.ts",
-      "weightMs": 489
-    },
-    {
-      "path": "tests/cockpit/rooms-desk-settings-write-door-owner.test.ts",
-      "weightMs": 1517
-    },
-    {
-      "path": "tests/cockpit/run-pane-shell.test.ts",
-      "weightMs": 4536
-    },
-    {
-      "path": "tests/cockpit/run-pane.test.ts",
-      "weightMs": 3621
-    },
-    {
-      "path": "tests/cockpit/setting-chord.test.ts",
-      "weightMs": 1457
-    },
-    {
-      "path": "tests/cockpit/settings-data.test.ts",
-      "weightMs": 16
-    },
-    {
-      "path": "tests/cockpit/settings-diagnostic-modes.test.ts",
-      "weightMs": 339
-    },
-    {
-      "path": "tests/cockpit/settings-mcp-servers.test.ts",
-      "weightMs": 3227
-    },
-    {
-      "path": "tests/cockpit/settings-providers.test.ts",
-      "weightMs": 1023
-    },
-    {
-      "path": "tests/cockpit/settings-room.test.ts",
-      "weightMs": 2783
-    },
-    {
-      "path": "tests/cockpit/settings-sheet.test.ts",
-      "weightMs": 2321
-    },
-    {
-      "path": "tests/cockpit/settings-write-path-owner.test.ts",
-      "weightMs": 148
-    },
-    {
-      "path": "tests/cockpit/shell-composer-seam.test.ts",
-      "weightMs": 351
-    },
-    {
-      "path": "tests/cockpit/shell-escape-depth.test.ts",
-      "weightMs": 3795
-    },
-    {
-      "path": "tests/cockpit/shell-fold-owner.test.ts",
-      "weightMs": 96
-    },
-    {
-      "path": "tests/cockpit/shell-key-routing.test.ts",
-      "weightMs": 483
-    },
-    {
-      "path": "tests/cockpit/shell-room-load-failure.test.ts",
       "weightMs": 200
     },
     {
+      "path": "tests/cockpit/motion-owner.test.ts",
+      "weightMs": 271
+    },
+    {
+      "path": "tests/cockpit/paint-design-tokens.test.ts",
+      "weightMs": 1115
+    },
+    {
+      "path": "tests/cockpit/past-view-grammar.test.ts",
+      "weightMs": 54
+    },
+    {
+      "path": "tests/cockpit/recycle-confirm.test.ts",
+      "weightMs": 3
+    },
+    {
+      "path": "tests/cockpit/redaction-notice-face.test.ts",
+      "weightMs": 36
+    },
+    {
+      "path": "tests/cockpit/render-diff.test.ts",
+      "weightMs": 18
+    },
+    {
+      "path": "tests/cockpit/render-highlight.test.ts",
+      "weightMs": 125
+    },
+    {
+      "path": "tests/cockpit/render-image-shape.test.ts",
+      "weightMs": 87
+    },
+    {
+      "path": "tests/cockpit/render-markdown-output.test.ts",
+      "weightMs": 194
+    },
+    {
+      "path": "tests/cockpit/render-markdown.test.ts",
+      "weightMs": 24
+    },
+    {
+      "path": "tests/cockpit/render-perf.test.ts",
+      "weightMs": 1644
+    },
+    {
+      "path": "tests/cockpit/render-sanitization-owner.test.ts",
+      "weightMs": 417
+    },
+    {
+      "path": "tests/cockpit/render-shapes.test.ts",
+      "weightMs": 25
+    },
+    {
+      "path": "tests/cockpit/render-untrusted.test.ts",
+      "weightMs": 101
+    },
+    {
+      "path": "tests/cockpit/response-grammar-owner.test.ts",
+      "weightMs": 38
+    },
+    {
+      "path": "tests/cockpit/rest-visibility-floor.test.ts",
+      "weightMs": 4
+    },
+    {
+      "path": "tests/cockpit/rewind-confirm-face.test.ts",
+      "weightMs": 40
+    },
+    {
+      "path": "tests/cockpit/right-menu-row-path.test.ts",
+      "weightMs": 546
+    },
+    {
+      "path": "tests/cockpit/room-door-owner.test.ts",
+      "weightMs": 2616
+    },
+    {
+      "path": "tests/cockpit/room-keep-alive.test.ts",
+      "weightMs": 491
+    },
+    {
+      "path": "tests/cockpit/rooms-desk-settings-write-door-owner.test.ts",
+      "weightMs": 762
+    },
+    {
+      "path": "tests/cockpit/run-pane-shell.test.ts",
+      "weightMs": 3823
+    },
+    {
+      "path": "tests/cockpit/run-pane.test.ts",
+      "weightMs": 1962
+    },
+    {
+      "path": "tests/cockpit/setting-chord.test.ts",
+      "weightMs": 1045
+    },
+    {
+      "path": "tests/cockpit/settings-data.test.ts",
+      "weightMs": 32
+    },
+    {
+      "path": "tests/cockpit/settings-diagnostic-modes.test.ts",
+      "weightMs": 513
+    },
+    {
+      "path": "tests/cockpit/settings-mcp-servers.test.ts",
+      "weightMs": 1387
+    },
+    {
+      "path": "tests/cockpit/settings-providers.test.ts",
+      "weightMs": 762
+    },
+    {
+      "path": "tests/cockpit/settings-room.test.ts",
+      "weightMs": 988
+    },
+    {
+      "path": "tests/cockpit/settings-sheet.test.ts",
+      "weightMs": 1152
+    },
+    {
+      "path": "tests/cockpit/settings-write-path-owner.test.ts",
+      "weightMs": 113
+    },
+    {
+      "path": "tests/cockpit/shell-composer-seam.test.ts",
+      "weightMs": 302
+    },
+    {
+      "path": "tests/cockpit/shell-escape-depth.test.ts",
+      "weightMs": 1855
+    },
+    {
+      "path": "tests/cockpit/shell-fold-owner.test.ts",
+      "weightMs": 81
+    },
+    {
+      "path": "tests/cockpit/shell-key-routing.test.ts",
+      "weightMs": 436
+    },
+    {
+      "path": "tests/cockpit/shell-room-load-failure.test.ts",
+      "weightMs": 249
+    },
+    {
       "path": "tests/cockpit/shell-view-request.test.ts",
-      "weightMs": 234
+      "weightMs": 152
     },
     {
       "path": "tests/cockpit/splitter-owner.test.ts",
-      "weightMs": 171
+      "weightMs": 89
     },
     {
       "path": "tests/cockpit/stream-pulse.test.ts",
-      "weightMs": 994
+      "weightMs": 641
     },
     {
       "path": "tests/cockpit/svelte-markup-stray-terminator.test.ts",
-      "weightMs": 1498
+      "weightMs": 1250
     },
     {
       "path": "tests/cockpit/sw-update-owner.test.ts",
-      "weightMs": 18
+      "weightMs": 16
     },
     {
       "path": "tests/cockpit/sweep-activation.test.ts",
-      "weightMs": 1909
+      "weightMs": 972
     },
     {
       "path": "tests/cockpit/sweep-arm-sync.test.ts",
-      "weightMs": 30
+      "weightMs": 19
     },
     {
       "path": "tests/cockpit/sweep-bins.test.ts",
-      "weightMs": 319
+      "weightMs": 106
     },
     {
       "path": "tests/cockpit/sweep-categories.test.ts",
-      "weightMs": 18
+      "weightMs": 23
     },
     {
       "path": "tests/cockpit/sweep-causal-ribbon.test.ts",
-      "weightMs": 13
+      "weightMs": 8
     },
     {
       "path": "tests/cockpit/sweep-component.test.ts",
-      "weightMs": 323
+      "weightMs": 186
     },
     {
       "path": "tests/cockpit/sweep-focus-seam.test.ts",
-      "weightMs": 221
+      "weightMs": 220
     },
     {
       "path": "tests/cockpit/sweep-live-ingest.test.ts",
-      "weightMs": 35
+      "weightMs": 23
     },
     {
       "path": "tests/cockpit/sweep-now-edge.test.ts",
-      "weightMs": 11
+      "weightMs": 10
     },
     {
       "path": "tests/cockpit/sweep-painter.test.ts",
-      "weightMs": 11
+      "weightMs": 12
     },
     {
       "path": "tests/cockpit/sweep-perf.test.ts",
-      "weightMs": 93
+      "weightMs": 19
     },
     {
       "path": "tests/cockpit/sweep-spectrum-load.test.ts",
-      "weightMs": 20
+      "weightMs": 14
     },
     {
       "path": "tests/cockpit/sweep-spectrum.test.ts",
@@ -590,99 +590,99 @@
     },
     {
       "path": "tests/cockpit/sweep-store.test.ts",
-      "weightMs": 17
+      "weightMs": 11
     },
     {
       "path": "tests/cockpit/sweep-zoom.test.ts",
-      "weightMs": 12
-    },
-    {
-      "path": "tests/cockpit/switch-feed.test.ts",
-      "weightMs": 1042
-    },
-    {
-      "path": "tests/cockpit/switch-micro-bins.test.ts",
-      "weightMs": 5
-    },
-    {
-      "path": "tests/cockpit/switch-mount-population.test.ts",
-      "weightMs": 1897
-    },
-    {
-      "path": "tests/cockpit/switch-outcome.test.ts",
       "weightMs": 8
     },
     {
+      "path": "tests/cockpit/switch-feed.test.ts",
+      "weightMs": 896
+    },
+    {
+      "path": "tests/cockpit/switch-micro-bins.test.ts",
+      "weightMs": 7
+    },
+    {
+      "path": "tests/cockpit/switch-mount-population.test.ts",
+      "weightMs": 1299
+    },
+    {
+      "path": "tests/cockpit/switch-outcome.test.ts",
+      "weightMs": 9
+    },
+    {
       "path": "tests/cockpit/switch-perf.test.ts",
-      "weightMs": 72
+      "weightMs": 69
     },
     {
       "path": "tests/cockpit/switch-revisit-cache.test.ts",
-      "weightMs": 556
+      "weightMs": 335
     },
     {
       "path": "tests/cockpit/switch-river.test.ts",
-      "weightMs": 401
+      "weightMs": 333
     },
     {
       "path": "tests/cockpit/switch-room.test.ts",
-      "weightMs": 3217
+      "weightMs": 1696
     },
     {
       "path": "tests/cockpit/switch-verb-owner.test.ts",
-      "weightMs": 133
+      "weightMs": 149
     },
     {
       "path": "tests/cockpit/tab-reorder.test.ts",
-      "weightMs": 124
+      "weightMs": 91
     },
     {
       "path": "tests/cockpit/time-travel-owner.test.ts",
-      "weightMs": 35
-    },
-    {
-      "path": "tests/cockpit/token-absence-face.test.ts",
-      "weightMs": 38
-    },
-    {
-      "path": "tests/cockpit/ux-shell-owner.test.ts",
-      "weightMs": 591
-    },
-    {
-      "path": "tests/cockpit/verb-marks-owner.test.ts",
-      "weightMs": 90
-    },
-    {
-      "path": "tests/cockpit/verb-recipe-owner.test.ts",
       "weightMs": 39
     },
     {
+      "path": "tests/cockpit/token-absence-face.test.ts",
+      "weightMs": 28
+    },
+    {
+      "path": "tests/cockpit/ux-shell-owner.test.ts",
+      "weightMs": 301
+    },
+    {
+      "path": "tests/cockpit/verb-marks-owner.test.ts",
+      "weightMs": 65
+    },
+    {
+      "path": "tests/cockpit/verb-recipe-owner.test.ts",
+      "weightMs": 11
+    },
+    {
       "path": "tests/cockpit/warm-data-owner.test.ts",
-      "weightMs": 1537
+      "weightMs": 1375
     },
     {
       "path": "tests/cockpit/workspace-split.test.ts",
-      "weightMs": 679
+      "weightMs": 509
     },
     {
       "path": "tests/cockpit/workspace-strip.test.ts",
-      "weightMs": 475
+      "weightMs": 590
     },
     {
       "path": "tests/performance/scale/scratch-root-refusal.test.ts",
-      "weightMs": 14660
+      "weightMs": 15336
     },
     {
       "path": "tests/prevention/absence-witness-owner.test.ts",
-      "weightMs": 12
+      "weightMs": 10
     },
     {
       "path": "tests/prevention/agent-docs-liveness.test.ts",
-      "weightMs": 174
+      "weightMs": 217
     },
     {
       "path": "tests/prevention/allowed-commands-config.test.ts",
-      "weightMs": 580
+      "weightMs": 207
     },
     {
       "path": "tests/prevention/api-identity-header-owner.test.ts",
@@ -690,71 +690,71 @@
     },
     {
       "path": "tests/prevention/artifact-rendering-owner.test.ts",
-      "weightMs": 1218
+      "weightMs": 1247
     },
     {
       "path": "tests/prevention/artifact-resend-bounded.test.ts",
-      "weightMs": 1015
+      "weightMs": 1014
     },
     {
       "path": "tests/prevention/asof-block-split-owner.test.ts",
-      "weightMs": 10
+      "weightMs": 5
     },
     {
       "path": "tests/prevention/async-db-facade-owner.test.ts",
-      "weightMs": 160
+      "weightMs": 89
     },
     {
       "path": "tests/prevention/async-db-ordering.test.ts",
-      "weightMs": 7602
+      "weightMs": 3321
     },
     {
       "path": "tests/prevention/async-db-orderings-through-the-server.test.ts",
-      "weightMs": 7016
+      "weightMs": 3546
     },
     {
       "path": "tests/prevention/atomic-write-owner.test.ts",
-      "weightMs": 2093
+      "weightMs": 798
     },
     {
       "path": "tests/prevention/auth-owner.test.ts",
-      "weightMs": 1325
+      "weightMs": 510
     },
     {
       "path": "tests/prevention/auto-heal-owner.test.ts",
-      "weightMs": 793
+      "weightMs": 719
     },
     {
       "path": "tests/prevention/awareness-quality-bridge-owner.test.ts",
-      "weightMs": 1101
+      "weightMs": 771
     },
     {
       "path": "tests/prevention/backend-feature-wiring.test.ts",
-      "weightMs": 272
+      "weightMs": 190
     },
     {
       "path": "tests/prevention/bench-fixture-drift.test.ts",
-      "weightMs": 2015
+      "weightMs": 431
     },
     {
       "path": "tests/prevention/block-action-owner.test.ts",
-      "weightMs": 25165
+      "weightMs": 8877
     },
     {
       "path": "tests/prevention/block-contract-owner.test.ts",
-      "weightMs": 281
+      "weightMs": 102
     },
     {
       "path": "tests/prevention/block-description-honesty.test.ts",
-      "weightMs": 35
+      "weightMs": 13
     },
     {
       "path": "tests/prevention/centralized-config.test.ts",
-      "weightMs": 4
+      "weightMs": 7
     },
     {
       "path": "tests/prevention/chat-history-honest-absence.test.ts",
-      "weightMs": 26
+      "weightMs": 18
     },
     {
       "path": "tests/prevention/chat-history-load-race.test.ts",
@@ -762,407 +762,407 @@
     },
     {
       "path": "tests/prevention/chat-history-query-bounds.test.ts",
-      "weightMs": 3372
+      "weightMs": 316
     },
     {
       "path": "tests/prevention/chat-persistence-roundtrip.test.ts",
-      "weightMs": 1971
+      "weightMs": 220
     },
     {
       "path": "tests/prevention/chat-ux-fixes.test.ts",
-      "weightMs": 3
-    },
-    {
-      "path": "tests/prevention/check-status-history.test.ts",
-      "weightMs": 371
-    },
-    {
-      "path": "tests/prevention/checkout-write-door-armed.test.ts",
-      "weightMs": 370
-    },
-    {
-      "path": "tests/prevention/client-api-owner.test.ts",
-      "weightMs": 3153
-    },
-    {
-      "path": "tests/prevention/commit-hook-installed.test.ts",
-      "weightMs": 2918
-    },
-    {
-      "path": "tests/prevention/component-registry.test.ts",
-      "weightMs": 2281
-    },
-    {
-      "path": "tests/prevention/config-defaults-owner.test.ts",
-      "weightMs": 845
-    },
-    {
-      "path": "tests/prevention/config-handler-dedup.test.ts",
-      "weightMs": 18
-    },
-    {
-      "path": "tests/prevention/config-write-gate-owner.test.ts",
-      "weightMs": 8197
-    },
-    {
-      "path": "tests/prevention/content-search-deadline.test.ts",
-      "weightMs": 12336
-    },
-    {
-      "path": "tests/prevention/content-search-owner.test.ts",
-      "weightMs": 10648
-    },
-    {
-      "path": "tests/prevention/context-charge-matches-payload.test.ts",
-      "weightMs": 2118
-    },
-    {
-      "path": "tests/prevention/context-manager-owner.test.ts",
-      "weightMs": 211
-    },
-    {
-      "path": "tests/prevention/context-memory-wired.test.ts",
-      "weightMs": 9
-    },
-    {
-      "path": "tests/prevention/context-switch-reset-owner.test.ts",
-      "weightMs": 395
-    },
-    {
-      "path": "tests/prevention/conversation-history-loaded.test.ts",
-      "weightMs": 3285
-    },
-    {
-      "path": "tests/prevention/cookie-flags.test.ts",
-      "weightMs": 10
-    },
-    {
-      "path": "tests/prevention/coverage-instrument-owner.test.ts",
-      "weightMs": 39
-    },
-    {
-      "path": "tests/prevention/create-message-atomic.test.ts",
-      "weightMs": 960
-    },
-    {
-      "path": "tests/prevention/credential-surface-owner.test.ts",
-      "weightMs": 1099
-    },
-    {
-      "path": "tests/prevention/cross-user-run-scoping.test.ts",
-      "weightMs": 52
-    },
-    {
-      "path": "tests/prevention/customization-write-path-owner.test.ts",
-      "weightMs": 17400
-    },
-    {
-      "path": "tests/prevention/data-loss-1-reboot.test.ts",
-      "weightMs": 645
-    },
-    {
-      "path": "tests/prevention/data-loss-2-crash.test.ts",
-      "weightMs": 683
-    },
-    {
-      "path": "tests/prevention/data-loss-3-migration.test.ts",
-      "weightMs": 630
-    },
-    {
-      "path": "tests/prevention/data-loss-4-keychange.test.ts",
-      "weightMs": 514
-    },
-    {
-      "path": "tests/prevention/data-loss-5-keypersist.test.ts",
-      "weightMs": 11672
-    },
-    {
-      "path": "tests/prevention/data-loss-6-concurrent.test.ts",
-      "weightMs": 385
-    },
-    {
-      "path": "tests/prevention/data-loss-7-large.test.ts",
-      "weightMs": 1877
-    },
-    {
-      "path": "tests/prevention/data-loss-8-rollback.test.ts",
-      "weightMs": 424
-    },
-    {
-      "path": "tests/prevention/database-key-authority.test.ts",
-      "weightMs": 8545
-    },
-    {
-      "path": "tests/prevention/database-startup.test.ts",
-      "weightMs": 27988
-    },
-    {
-      "path": "tests/prevention/database-thread-supervision.test.ts",
-      "weightMs": 23169
-    },
-    {
-      "path": "tests/prevention/db-durability-window.test.ts",
-      "weightMs": 1928
-    },
-    {
-      "path": "tests/prevention/db-transaction-owner.test.ts",
-      "weightMs": 2806
-    },
-    {
-      "path": "tests/prevention/db-wal-bounded.test.ts",
-      "weightMs": 16957
-    },
-    {
-      "path": "tests/prevention/decisions-format.test.ts",
-      "weightMs": 56
-    },
-    {
-      "path": "tests/prevention/declared-pattern-liveness.test.ts",
-      "weightMs": 10694
-    },
-    {
-      "path": "tests/prevention/declared-root-inventory.test.ts",
-      "weightMs": 891
-    },
-    {
-      "path": "tests/prevention/declared-universe-owner.test.ts",
-      "weightMs": 3394
-    },
-    {
-      "path": "tests/prevention/dedup-compression-owner.test.ts",
-      "weightMs": 167
-    },
-    {
-      "path": "tests/prevention/dedup-signal-wired.test.ts",
-      "weightMs": 50
-    },
-    {
-      "path": "tests/prevention/dev-server-freshness.test.ts",
-      "weightMs": 9
-    },
-    {
-      "path": "tests/prevention/dev-server-scanner-exclusion.test.ts",
-      "weightMs": 102
-    },
-    {
-      "path": "tests/prevention/editor-bridge-owner.test.ts",
-      "weightMs": 2208
-    },
-    {
-      "path": "tests/prevention/editor-data-integrity.test.ts",
-      "weightMs": 3921
-    },
-    {
-      "path": "tests/prevention/editor-governance-wired.test.ts",
-      "weightMs": 1560
-    },
-    {
-      "path": "tests/prevention/editor-rendering-owner.test.ts",
-      "weightMs": 33
-    },
-    {
-      "path": "tests/prevention/effect-kind-recording.test.ts",
-      "weightMs": 11486
-    },
-    {
-      "path": "tests/prevention/egress-redaction-owner.test.ts",
-      "weightMs": 118
-    },
-    {
-      "path": "tests/prevention/encryption-and-dedup-prevention.test.ts",
-      "weightMs": 318
-    },
-    {
-      "path": "tests/prevention/error-debug-owner.test.ts",
-      "weightMs": 1696
-    },
-    {
-      "path": "tests/prevention/error-handling-consistency.test.ts",
-      "weightMs": 162
-    },
-    {
-      "path": "tests/prevention/error-message-projection-owner.test.ts",
-      "weightMs": 13
-    },
-    {
-      "path": "tests/prevention/exposure-gate-block-wired.test.ts",
-      "weightMs": 674
-    },
-    {
-      "path": "tests/prevention/exposure-reachable.test.ts",
-      "weightMs": 429
-    },
-    {
-      "path": "tests/prevention/exposure-registry-counts.test.ts",
-      "weightMs": 568
-    },
-    {
-      "path": "tests/prevention/file-effect-recording.test.ts",
-      "weightMs": 1153
-    },
-    {
-      "path": "tests/prevention/filesystem-owner.test.ts",
-      "weightMs": 2900
-    },
-    {
-      "path": "tests/prevention/flaky-test-memory.test.ts",
-      "weightMs": 1245
-    },
-    {
-      "path": "tests/prevention/frontend-components-deep.test.ts",
-      "weightMs": 576
-    },
-    {
-      "path": "tests/prevention/frontend-contracts-owner.test.ts",
-      "weightMs": 1691
-    },
-    {
-      "path": "tests/prevention/frontend-store-owner.test.ts",
-      "weightMs": 597
-    },
-    {
-      "path": "tests/prevention/frontend-stores-deep.test.ts",
-      "weightMs": 595
-    },
-    {
-      "path": "tests/prevention/frontend-test-closure-bound.test.ts",
-      "weightMs": 4520
-    },
-    {
-      "path": "tests/prevention/generated-artifact-freshness.test.ts",
-      "weightMs": 5323
-    },
-    {
-      "path": "tests/prevention/git-bridge-owner.test.ts",
-      "weightMs": 3971
-    },
-    {
-      "path": "tests/prevention/git-refusal-not-emptiness.test.ts",
-      "weightMs": 3045
-    },
-    {
-      "path": "tests/prevention/gitignore-anchoring.test.ts",
-      "weightMs": 575
-    },
-    {
-      "path": "tests/prevention/graph-wire-shape.test.ts",
-      "weightMs": 8
-    },
-    {
-      "path": "tests/prevention/guard-dossier.test.ts",
-      "weightMs": 90
-    },
-    {
-      "path": "tests/prevention/guarded-callbacks.test.ts",
-      "weightMs": 10889
-    },
-    {
-      "path": "tests/prevention/hallucination-safety-gate-owner.test.ts",
-      "weightMs": 1315
-    },
-    {
-      "path": "tests/prevention/harvested-fixes-prevention.test.ts",
-      "weightMs": 29
-    },
-    {
-      "path": "tests/prevention/history-cursor-owner.test.ts",
-      "weightMs": 1296
-    },
-    {
-      "path": "tests/prevention/history-route-bounded.test.ts",
-      "weightMs": 19220
-    },
-    {
-      "path": "tests/prevention/input-validation-deny-by-default.test.ts",
-      "weightMs": 83
-    },
-    {
-      "path": "tests/prevention/integration-rule-refs-ratchet.test.ts",
-      "weightMs": 102
-    },
-    {
-      "path": "tests/prevention/intelligence-bridge-owner.test.ts",
-      "weightMs": 2814
-    },
-    {
-      "path": "tests/prevention/intelligence-exposure-wired.test.ts",
-      "weightMs": 149
-    },
-    {
-      "path": "tests/prevention/invalidation-event-firer-census.test.ts",
-      "weightMs": 772
-    },
-    {
-      "path": "tests/prevention/isolated-extract-farm.test.ts",
-      "weightMs": 146
-    },
-    {
-      "path": "tests/prevention/ledger-redaction-owner.test.ts",
-      "weightMs": 1646
-    },
-    {
-      "path": "tests/prevention/lens-provenance-owner.test.ts",
-      "weightMs": 406
-    },
-    {
-      "path": "tests/prevention/liveness-stream-owner.test.ts",
-      "weightMs": 74
-    },
-    {
-      "path": "tests/prevention/map-index-lifecycle.test.ts",
-      "weightMs": 27299
-    },
-    {
-      "path": "tests/prevention/map-worker-nonblocking.test.ts",
-      "weightMs": 10
-    },
-    {
-      "path": "tests/prevention/memory-config-reader-paths.test.ts",
-      "weightMs": 2613
-    },
-    {
-      "path": "tests/prevention/memory-provenance.test.ts",
-      "weightMs": 15
-    },
-    {
-      "path": "tests/prevention/memory-store-owner.test.ts",
-      "weightMs": 1522
-    },
-    {
-      "path": "tests/prevention/message-metadata-persistence.test.ts",
-      "weightMs": 4719
-    },
-    {
-      "path": "tests/prevention/message-persistence-audit.test.ts",
-      "weightMs": 2811
-    },
-    {
-      "path": "tests/prevention/model-prefs-no-clobber.test.ts",
-      "weightMs": 247
-    },
-    {
-      "path": "tests/prevention/model-selection-reaches-provider.test.ts",
-      "weightMs": 24617
-    },
-    {
-      "path": "tests/prevention/module-path-literal-owner.test.ts",
-      "weightMs": 698
-    },
-    {
-      "path": "tests/prevention/module-resolver.test.ts",
-      "weightMs": 2589
-    },
-    {
-      "path": "tests/prevention/no-a11y-warnings.test.ts",
-      "weightMs": 341
-    },
-    {
-      "path": "tests/prevention/no-dead-css-selectors.test.ts",
       "weightMs": 5
     },
     {
+      "path": "tests/prevention/check-status-history.test.ts",
+      "weightMs": 42
+    },
+    {
+      "path": "tests/prevention/checkout-write-door-armed.test.ts",
+      "weightMs": 404
+    },
+    {
+      "path": "tests/prevention/client-api-owner.test.ts",
+      "weightMs": 3647
+    },
+    {
+      "path": "tests/prevention/commit-hook-installed.test.ts",
+      "weightMs": 2525
+    },
+    {
+      "path": "tests/prevention/component-registry.test.ts",
+      "weightMs": 1586
+    },
+    {
+      "path": "tests/prevention/config-defaults-owner.test.ts",
+      "weightMs": 629
+    },
+    {
+      "path": "tests/prevention/config-handler-dedup.test.ts",
+      "weightMs": 11
+    },
+    {
+      "path": "tests/prevention/config-write-gate-owner.test.ts",
+      "weightMs": 6169
+    },
+    {
+      "path": "tests/prevention/content-search-deadline.test.ts",
+      "weightMs": 11618
+    },
+    {
+      "path": "tests/prevention/content-search-owner.test.ts",
+      "weightMs": 5544
+    },
+    {
+      "path": "tests/prevention/context-charge-matches-payload.test.ts",
+      "weightMs": 2149
+    },
+    {
+      "path": "tests/prevention/context-manager-owner.test.ts",
+      "weightMs": 78
+    },
+    {
+      "path": "tests/prevention/context-memory-wired.test.ts",
+      "weightMs": 6
+    },
+    {
+      "path": "tests/prevention/context-switch-reset-owner.test.ts",
+      "weightMs": 817
+    },
+    {
+      "path": "tests/prevention/conversation-history-loaded.test.ts",
+      "weightMs": 374
+    },
+    {
+      "path": "tests/prevention/cookie-flags.test.ts",
+      "weightMs": 8
+    },
+    {
+      "path": "tests/prevention/coverage-instrument-owner.test.ts",
+      "weightMs": 20
+    },
+    {
+      "path": "tests/prevention/create-message-atomic.test.ts",
+      "weightMs": 121
+    },
+    {
+      "path": "tests/prevention/credential-surface-owner.test.ts",
+      "weightMs": 1559
+    },
+    {
+      "path": "tests/prevention/cross-user-run-scoping.test.ts",
+      "weightMs": 46
+    },
+    {
+      "path": "tests/prevention/customization-write-path-owner.test.ts",
+      "weightMs": 896
+    },
+    {
+      "path": "tests/prevention/data-loss-1-reboot.test.ts",
+      "weightMs": 79
+    },
+    {
+      "path": "tests/prevention/data-loss-2-crash.test.ts",
+      "weightMs": 96
+    },
+    {
+      "path": "tests/prevention/data-loss-3-migration.test.ts",
+      "weightMs": 64
+    },
+    {
+      "path": "tests/prevention/data-loss-4-keychange.test.ts",
+      "weightMs": 246
+    },
+    {
+      "path": "tests/prevention/data-loss-5-keypersist.test.ts",
+      "weightMs": 7907
+    },
+    {
+      "path": "tests/prevention/data-loss-6-concurrent.test.ts",
+      "weightMs": 113
+    },
+    {
+      "path": "tests/prevention/data-loss-7-large.test.ts",
+      "weightMs": 2367
+    },
+    {
+      "path": "tests/prevention/data-loss-8-rollback.test.ts",
+      "weightMs": 90
+    },
+    {
+      "path": "tests/prevention/database-key-authority.test.ts",
+      "weightMs": 4820
+    },
+    {
+      "path": "tests/prevention/database-startup.test.ts",
+      "weightMs": 15782
+    },
+    {
+      "path": "tests/prevention/database-thread-supervision.test.ts",
+      "weightMs": 10692
+    },
+    {
+      "path": "tests/prevention/db-durability-window.test.ts",
+      "weightMs": 1004
+    },
+    {
+      "path": "tests/prevention/db-transaction-owner.test.ts",
+      "weightMs": 2092
+    },
+    {
+      "path": "tests/prevention/db-wal-bounded.test.ts",
+      "weightMs": 12228
+    },
+    {
+      "path": "tests/prevention/decisions-format.test.ts",
+      "weightMs": 20
+    },
+    {
+      "path": "tests/prevention/declared-pattern-liveness.test.ts",
+      "weightMs": 6684
+    },
+    {
+      "path": "tests/prevention/declared-root-inventory.test.ts",
+      "weightMs": 448
+    },
+    {
+      "path": "tests/prevention/declared-universe-owner.test.ts",
+      "weightMs": 3594
+    },
+    {
+      "path": "tests/prevention/dedup-compression-owner.test.ts",
+      "weightMs": 78
+    },
+    {
+      "path": "tests/prevention/dedup-signal-wired.test.ts",
+      "weightMs": 57
+    },
+    {
+      "path": "tests/prevention/dev-server-freshness.test.ts",
+      "weightMs": 7
+    },
+    {
+      "path": "tests/prevention/dev-server-scanner-exclusion.test.ts",
+      "weightMs": 59
+    },
+    {
+      "path": "tests/prevention/editor-bridge-owner.test.ts",
+      "weightMs": 571
+    },
+    {
+      "path": "tests/prevention/editor-data-integrity.test.ts",
+      "weightMs": 525
+    },
+    {
+      "path": "tests/prevention/editor-governance-wired.test.ts",
+      "weightMs": 651
+    },
+    {
+      "path": "tests/prevention/editor-rendering-owner.test.ts",
+      "weightMs": 39
+    },
+    {
+      "path": "tests/prevention/effect-kind-recording.test.ts",
+      "weightMs": 5994
+    },
+    {
+      "path": "tests/prevention/egress-redaction-owner.test.ts",
+      "weightMs": 50
+    },
+    {
+      "path": "tests/prevention/encryption-and-dedup-prevention.test.ts",
+      "weightMs": 88
+    },
+    {
+      "path": "tests/prevention/error-debug-owner.test.ts",
+      "weightMs": 1824
+    },
+    {
+      "path": "tests/prevention/error-handling-consistency.test.ts",
+      "weightMs": 144
+    },
+    {
+      "path": "tests/prevention/error-message-projection-owner.test.ts",
+      "weightMs": 7
+    },
+    {
+      "path": "tests/prevention/exposure-gate-block-wired.test.ts",
+      "weightMs": 482
+    },
+    {
+      "path": "tests/prevention/exposure-reachable.test.ts",
+      "weightMs": 282
+    },
+    {
+      "path": "tests/prevention/exposure-registry-counts.test.ts",
+      "weightMs": 520
+    },
+    {
+      "path": "tests/prevention/file-effect-recording.test.ts",
+      "weightMs": 375
+    },
+    {
+      "path": "tests/prevention/filesystem-owner.test.ts",
+      "weightMs": 648
+    },
+    {
+      "path": "tests/prevention/flaky-test-memory.test.ts",
+      "weightMs": 690
+    },
+    {
+      "path": "tests/prevention/frontend-components-deep.test.ts",
+      "weightMs": 327
+    },
+    {
+      "path": "tests/prevention/frontend-contracts-owner.test.ts",
+      "weightMs": 1685
+    },
+    {
+      "path": "tests/prevention/frontend-store-owner.test.ts",
+      "weightMs": 541
+    },
+    {
+      "path": "tests/prevention/frontend-stores-deep.test.ts",
+      "weightMs": 274
+    },
+    {
+      "path": "tests/prevention/frontend-test-closure-bound.test.ts",
+      "weightMs": 2770
+    },
+    {
+      "path": "tests/prevention/generated-artifact-freshness.test.ts",
+      "weightMs": 3966
+    },
+    {
+      "path": "tests/prevention/git-bridge-owner.test.ts",
+      "weightMs": 1556
+    },
+    {
+      "path": "tests/prevention/git-refusal-not-emptiness.test.ts",
+      "weightMs": 848
+    },
+    {
+      "path": "tests/prevention/gitignore-anchoring.test.ts",
+      "weightMs": 482
+    },
+    {
+      "path": "tests/prevention/graph-wire-shape.test.ts",
+      "weightMs": 2
+    },
+    {
+      "path": "tests/prevention/guard-dossier.test.ts",
+      "weightMs": 157
+    },
+    {
+      "path": "tests/prevention/guarded-callbacks.test.ts",
+      "weightMs": 8186
+    },
+    {
+      "path": "tests/prevention/hallucination-safety-gate-owner.test.ts",
+      "weightMs": 974
+    },
+    {
+      "path": "tests/prevention/harvested-fixes-prevention.test.ts",
+      "weightMs": 14
+    },
+    {
+      "path": "tests/prevention/history-cursor-owner.test.ts",
+      "weightMs": 446
+    },
+    {
+      "path": "tests/prevention/history-route-bounded.test.ts",
+      "weightMs": 9693
+    },
+    {
+      "path": "tests/prevention/input-validation-deny-by-default.test.ts",
+      "weightMs": 52
+    },
+    {
+      "path": "tests/prevention/integration-rule-refs-ratchet.test.ts",
+      "weightMs": 134
+    },
+    {
+      "path": "tests/prevention/intelligence-bridge-owner.test.ts",
+      "weightMs": 1167
+    },
+    {
+      "path": "tests/prevention/intelligence-exposure-wired.test.ts",
+      "weightMs": 114
+    },
+    {
+      "path": "tests/prevention/invalidation-event-firer-census.test.ts",
+      "weightMs": 429
+    },
+    {
+      "path": "tests/prevention/isolated-extract-farm.test.ts",
+      "weightMs": 112
+    },
+    {
+      "path": "tests/prevention/ledger-redaction-owner.test.ts",
+      "weightMs": 1879
+    },
+    {
+      "path": "tests/prevention/lens-provenance-owner.test.ts",
+      "weightMs": 267
+    },
+    {
+      "path": "tests/prevention/liveness-stream-owner.test.ts",
+      "weightMs": 55
+    },
+    {
+      "path": "tests/prevention/map-index-lifecycle.test.ts",
+      "weightMs": 20811
+    },
+    {
+      "path": "tests/prevention/map-worker-nonblocking.test.ts",
+      "weightMs": 9
+    },
+    {
+      "path": "tests/prevention/memory-config-reader-paths.test.ts",
+      "weightMs": 1734
+    },
+    {
+      "path": "tests/prevention/memory-provenance.test.ts",
+      "weightMs": 4
+    },
+    {
+      "path": "tests/prevention/memory-store-owner.test.ts",
+      "weightMs": 1324
+    },
+    {
+      "path": "tests/prevention/message-metadata-persistence.test.ts",
+      "weightMs": 880
+    },
+    {
+      "path": "tests/prevention/message-persistence-audit.test.ts",
+      "weightMs": 365
+    },
+    {
+      "path": "tests/prevention/model-prefs-no-clobber.test.ts",
+      "weightMs": 176
+    },
+    {
+      "path": "tests/prevention/model-selection-reaches-provider.test.ts",
+      "weightMs": 9346
+    },
+    {
+      "path": "tests/prevention/module-path-literal-owner.test.ts",
+      "weightMs": 418
+    },
+    {
+      "path": "tests/prevention/module-resolver.test.ts",
+      "weightMs": 1595
+    },
+    {
+      "path": "tests/prevention/no-a11y-warnings.test.ts",
+      "weightMs": 876
+    },
+    {
+      "path": "tests/prevention/no-dead-css-selectors.test.ts",
+      "weightMs": 1
+    },
+    {
       "path": "tests/prevention/no-dead-css-tokens.test.ts",
-      "weightMs": 21
+      "weightMs": 17
     },
     {
       "path": "tests/prevention/no-duplicate-code.test.ts",
@@ -1174,19 +1174,19 @@
     },
     {
       "path": "tests/prevention/no-empty-catch.test.ts",
-      "weightMs": 374
+      "weightMs": 230
     },
     {
       "path": "tests/prevention/no-fabricated-data.test.ts",
-      "weightMs": 69
+      "weightMs": 27
     },
     {
       "path": "tests/prevention/no-generic-css-collision.test.ts",
-      "weightMs": 104
+      "weightMs": 46
     },
     {
       "path": "tests/prevention/no-hardcoded-config-values.test.ts",
-      "weightMs": 165
+      "weightMs": 157
     },
     {
       "path": "tests/prevention/no-hardcoded-truncation-slices.test.ts",
@@ -1194,31 +1194,31 @@
     },
     {
       "path": "tests/prevention/no-hardcoded-values.test.ts",
-      "weightMs": 4
+      "weightMs": 3
     },
     {
       "path": "tests/prevention/no-nul-bytes-in-text.test.ts",
-      "weightMs": 131
+      "weightMs": 71
     },
     {
       "path": "tests/prevention/no-port-probe-then-listen.test.ts",
-      "weightMs": 6260
+      "weightMs": 4751
     },
     {
       "path": "tests/prevention/no-proximity-window-assertions.test.ts",
-      "weightMs": 30344
+      "weightMs": 17262
     },
     {
       "path": "tests/prevention/no-raw-sql-outside-db.test.ts",
-      "weightMs": 60
+      "weightMs": 25
     },
     {
       "path": "tests/prevention/no-rule-refs.test.ts",
-      "weightMs": 825
+      "weightMs": 799
     },
     {
       "path": "tests/prevention/no-scattered-helpers.test.ts",
-      "weightMs": 215
+      "weightMs": 193
     },
     {
       "path": "tests/prevention/no-throw-new-error.test.ts",
@@ -1226,11 +1226,11 @@
     },
     {
       "path": "tests/prevention/no-unused-exports-index.test.ts",
-      "weightMs": 12
+      "weightMs": 11
     },
     {
       "path": "tests/prevention/no-unused-exports.test.ts",
-      "weightMs": 1
+      "weightMs": 2
     },
     {
       "path": "tests/prevention/no-unused-imports.test.ts",
@@ -1238,231 +1238,231 @@
     },
     {
       "path": "tests/prevention/npm-script-targets.test.ts",
-      "weightMs": 3
+      "weightMs": 2
     },
     {
       "path": "tests/prevention/path-spelling-comparison.test.ts",
-      "weightMs": 2899
+      "weightMs": 1536
     },
     {
       "path": "tests/prevention/performance-exposure-wired.test.ts",
-      "weightMs": 648
+      "weightMs": 309
     },
     {
       "path": "tests/prevention/persistence-across-restart.test.ts",
-      "weightMs": 7131
+      "weightMs": 971
     },
     {
       "path": "tests/prevention/pii-redaction-owner.test.ts",
-      "weightMs": 677
+      "weightMs": 547
     },
     {
       "path": "tests/prevention/pii-redaction-user-display.test.ts",
-      "weightMs": 5303
+      "weightMs": 4225
     },
     {
       "path": "tests/prevention/pins-can-fire.test.ts",
-      "weightMs": 1205
+      "weightMs": 703
     },
     {
       "path": "tests/prevention/plain-language-owner.test.ts",
-      "weightMs": 9
+      "weightMs": 7
     },
     {
       "path": "tests/prevention/privacy-layers-owner.test.ts",
-      "weightMs": 787
+      "weightMs": 721
     },
     {
       "path": "tests/prevention/project-delete-safety.test.ts",
-      "weightMs": 553
+      "weightMs": 216
     },
     {
       "path": "tests/prevention/project-folder-surface.test.ts",
-      "weightMs": 61
+      "weightMs": 72
     },
     {
       "path": "tests/prevention/promotion-boundary.test.ts",
-      "weightMs": 27531
+      "weightMs": 29003
     },
     {
       "path": "tests/prevention/pwa.test.ts",
-      "weightMs": 100
+      "weightMs": 81
     },
     {
       "path": "tests/prevention/quality-payload-completeness.test.ts",
-      "weightMs": 27
+      "weightMs": 25
     },
     {
       "path": "tests/prevention/quick-view-slice-wired.test.ts",
-      "weightMs": 3
+      "weightMs": 7
     },
     {
       "path": "tests/prevention/ranking-knobs-are-real.test.ts",
-      "weightMs": 70
+      "weightMs": 72
     },
     {
       "path": "tests/prevention/rate-limit-http.test.ts",
-      "weightMs": 1471
+      "weightMs": 514
     },
     {
       "path": "tests/prevention/rate-limit-security.test.ts",
-      "weightMs": 1893
+      "weightMs": 636
     },
     {
       "path": "tests/prevention/raw-handle-owner.test.ts",
-      "weightMs": 1670
+      "weightMs": 1687
     },
     {
       "path": "tests/prevention/raw-source-reader-owner.test.ts",
-      "weightMs": 3958
+      "weightMs": 4339
     },
     {
       "path": "tests/prevention/real-database-under-test.test.ts",
-      "weightMs": 3207
+      "weightMs": 582
     },
     {
       "path": "tests/prevention/recording-choke-points.test.ts",
-      "weightMs": 3868
+      "weightMs": 3376
     },
     {
       "path": "tests/prevention/recycle-bin-owner.test.ts",
-      "weightMs": 1100
+      "weightMs": 544
     },
     {
       "path": "tests/prevention/redaction-reaches-provider.test.ts",
-      "weightMs": 23377
+      "weightMs": 9362
     },
     {
       "path": "tests/prevention/removal-is-recorded.test.ts",
-      "weightMs": 456
+      "weightMs": 152
     },
     {
       "path": "tests/prevention/resume-gap-heals-in-place.test.ts",
-      "weightMs": 187
+      "weightMs": 174
     },
     {
       "path": "tests/prevention/rewind-reaches-provider.test.ts",
-      "weightMs": 38619
+      "weightMs": 12415
     },
     {
       "path": "tests/prevention/rewind-record-and-addressing.test.ts",
-      "weightMs": 67109
+      "weightMs": 22054
     },
     {
       "path": "tests/prevention/rewind-restore-hostile.test.ts",
-      "weightMs": 25187
+      "weightMs": 6681
     },
     {
       "path": "tests/prevention/rewind-restore.test.ts",
-      "weightMs": 31086
+      "weightMs": 8760
     },
     {
       "path": "tests/prevention/roadmap-status-owner.test.ts",
-      "weightMs": 21
+      "weightMs": 63
     },
     {
       "path": "tests/prevention/route-registry.test.ts",
-      "weightMs": 71
+      "weightMs": 21
     },
     {
       "path": "tests/prevention/run-ends-are-announced.test.ts",
-      "weightMs": 61536
+      "weightMs": 32535
     },
     {
       "path": "tests/prevention/run-executes-once.test.ts",
-      "weightMs": 60069
+      "weightMs": 25727
     },
     {
       "path": "tests/prevention/run-stream-writes-its-own-chat.test.ts",
-      "weightMs": 45
+      "weightMs": 19
     },
     {
       "path": "tests/prevention/safety-runtime-wired.test.ts",
-      "weightMs": 936
+      "weightMs": 563
     },
     {
       "path": "tests/prevention/scan-root-refusal-owner.test.ts",
-      "weightMs": 1649
+      "weightMs": 836
     },
     {
       "path": "tests/prevention/scan-universe-index-floor.test.ts",
-      "weightMs": 2600
+      "weightMs": 1750
     },
     {
       "path": "tests/prevention/sd-stale-reconciliation.test.ts",
-      "weightMs": 1983
+      "weightMs": 782
     },
     {
       "path": "tests/prevention/secret-intelligence-owner.test.ts",
-      "weightMs": 5481
+      "weightMs": 2615
     },
     {
       "path": "tests/prevention/selection-persistence.test.ts",
-      "weightMs": 11
+      "weightMs": 8
     },
     {
       "path": "tests/prevention/self-improving.test.ts",
-      "weightMs": 18
+      "weightMs": 7
     },
     {
       "path": "tests/prevention/served-module-probe.test.ts",
-      "weightMs": 14
+      "weightMs": 11
     },
     {
       "path": "tests/prevention/settings-save-effect-honesty.test.ts",
-      "weightMs": 155
+      "weightMs": 66
     },
     {
       "path": "tests/prevention/sidebar-content-sync.test.ts",
-      "weightMs": 219
+      "weightMs": 187
     },
     {
       "path": "tests/prevention/source-root-organization.test.ts",
-      "weightMs": 8063
+      "weightMs": 6628
     },
     {
       "path": "tests/prevention/source-structure-parser-differential.test.ts",
-      "weightMs": 376
+      "weightMs": 243
     },
     {
       "path": "tests/prevention/source-tree-verdict.test.ts",
-      "weightMs": 95
+      "weightMs": 33
     },
     {
       "path": "tests/prevention/sse-connection-limit.test.ts",
-      "weightMs": 2749
+      "weightMs": 1129
     },
     {
       "path": "tests/prevention/sse-error-code-owner.test.ts",
-      "weightMs": 78
+      "weightMs": 57
     },
     {
       "path": "tests/prevention/sse-event-owner.test.ts",
-      "weightMs": 459
+      "weightMs": 196
     },
     {
       "path": "tests/prevention/state-imports-resolve.test.ts",
-      "weightMs": 1
+      "weightMs": 2
     },
     {
       "path": "tests/prevention/stripper-path-required.test.ts",
-      "weightMs": 32
-    },
-    {
-      "path": "tests/prevention/stripper-view-owner.test.ts",
-      "weightMs": 2069
-    },
-    {
-      "path": "tests/prevention/subprocess-confinement-owner.test.ts",
-      "weightMs": 31894
-    },
-    {
-      "path": "tests/prevention/svelte-css-scope-probe.test.ts",
       "weightMs": 26
     },
     {
+      "path": "tests/prevention/stripper-view-owner.test.ts",
+      "weightMs": 1545
+    },
+    {
+      "path": "tests/prevention/subprocess-confinement-owner.test.ts",
+      "weightMs": 22641
+    },
+    {
+      "path": "tests/prevention/svelte-css-scope-probe.test.ts",
+      "weightMs": 11
+    },
+    {
       "path": "tests/prevention/svelte-effect-self-loop.test.ts",
-      "weightMs": 1363
+      "weightMs": 926
     },
     {
       "path": "tests/prevention/sweep-cache-evidence.test.ts",
@@ -1470,343 +1470,343 @@
     },
     {
       "path": "tests/prevention/symbol-search-single-path.test.ts",
-      "weightMs": 488
+      "weightMs": 338
     },
     {
       "path": "tests/prevention/system-prompt-config.test.ts",
-      "weightMs": 4492
+      "weightMs": 1038
     },
     {
       "path": "tests/prevention/tasks-no-stale-duplicates.test.ts",
-      "weightMs": 8
+      "weightMs": 2
     },
     {
       "path": "tests/prevention/temp-dir-owner.test.ts",
-      "weightMs": 1341
+      "weightMs": 1138
     },
     {
       "path": "tests/prevention/template-check-wired.test.ts",
-      "weightMs": 12877
+      "weightMs": 7385
     },
     {
       "path": "tests/prevention/template-mode-lexing.test.ts",
-      "weightMs": 8528
+      "weightMs": 9688
     },
     {
       "path": "tests/prevention/template-token-sanitization.test.ts",
-      "weightMs": 8286
+      "weightMs": 3473
     },
     {
       "path": "tests/prevention/test-helpers-dedup.test.ts",
-      "weightMs": 234
+      "weightMs": 194
     },
     {
       "path": "tests/prevention/test-isolation-contract.test.ts",
-      "weightMs": 70384
+      "weightMs": 39967
     },
     {
       "path": "tests/prevention/test-isolation-owner.test.ts",
-      "weightMs": 154
+      "weightMs": 94
     },
     {
       "path": "tests/prevention/test-naming-structure.test.ts",
-      "weightMs": 97
+      "weightMs": 75
     },
     {
       "path": "tests/prevention/test-run-watchdog.test.ts",
-      "weightMs": 15961
+      "weightMs": 12928
     },
     {
       "path": "tests/prevention/timeline-listen-first.test.ts",
-      "weightMs": 11677
+      "weightMs": 4249
     },
     {
       "path": "tests/prevention/timeline-per-chat-scope.test.ts",
-      "weightMs": 17
+      "weightMs": 7
     },
     {
       "path": "tests/prevention/timeline-recording-fidelity.test.ts",
-      "weightMs": 12696
+      "weightMs": 8599
     },
     {
       "path": "tests/prevention/timeline-refresh-on-done.test.ts",
-      "weightMs": 244
+      "weightMs": 240
     },
     {
       "path": "tests/prevention/toks-stay-rail-leaves.test.ts",
-      "weightMs": 233
+      "weightMs": 243
     },
     {
       "path": "tests/prevention/tool-call-by-callid.test.ts",
-      "weightMs": 301
+      "weightMs": 207
     },
     {
       "path": "tests/prevention/tool-call-done-emission.test.ts",
-      "weightMs": 19
-    },
-    {
-      "path": "tests/prevention/tool-call-persistence-db.test.ts",
-      "weightMs": 3034
-    },
-    {
-      "path": "tests/prevention/tool-duration-owner.test.ts",
-      "weightMs": 626
-    },
-    {
-      "path": "tests/prevention/tool-execution-async-owner.test.ts",
-      "weightMs": 2631
-    },
-    {
-      "path": "tests/prevention/tool-manifest-executor-match.test.ts",
-      "weightMs": 37
-    },
-    {
-      "path": "tests/prevention/tool-name-spec.test.ts",
-      "weightMs": 49
-    },
-    {
-      "path": "tests/prevention/tool-registry-owner.test.ts",
-      "weightMs": 1105
-    },
-    {
-      "path": "tests/prevention/tool-result-persistence.test.ts",
-      "weightMs": 309
-    },
-    {
-      "path": "tests/prevention/tracked-source-owner.test.ts",
-      "weightMs": 1004
-    },
-    {
-      "path": "tests/prevention/tree-identity-owner.test.ts",
-      "weightMs": 2894
-    },
-    {
-      "path": "tests/prevention/ui-control-surface-owner.test.ts",
-      "weightMs": 17
-    },
-    {
-      "path": "tests/prevention/ui-control-wiring.test.ts",
-      "weightMs": 105
-    },
-    {
-      "path": "tests/prevention/value-reference-scan.test.ts",
-      "weightMs": 13
-    },
-    {
-      "path": "tests/prevention/vite-dep-cache-staleness.test.ts",
-      "weightMs": 41
-    },
-    {
-      "path": "tests/prevention/web-ui-defaults-owner.test.ts",
-      "weightMs": 208
-    },
-    {
-      "path": "tests/prevention/web-ui-runtime-budget-verdict.test.ts",
-      "weightMs": 57636
-    },
-    {
-      "path": "tests/prevention/web-ui-runtime-budget.test.ts",
-      "weightMs": 100
-    },
-    {
-      "path": "tests/prevention/when-predicate-vocabulary.test.ts",
-      "weightMs": 5
-    },
-    {
-      "path": "tests/prevention/worker-settings-handed.test.ts",
-      "weightMs": 1430
-    },
-    {
-      "path": "tests/prevention/worker-thread-owner.test.ts",
-      "weightMs": 1452
-    },
-    {
-      "path": "tests/prevention/workflow-lessons-format.test.ts",
-      "weightMs": 24
-    },
-    {
-      "path": "tests/unit/agent-delegation.test.ts",
-      "weightMs": 3986
-    },
-    {
-      "path": "tests/unit/agent-orchestration.test.ts",
-      "weightMs": 4316
-    },
-    {
-      "path": "tests/unit/anatomy-block.test.ts",
-      "weightMs": 1026
-    },
-    {
-      "path": "tests/unit/artifact-runnability.test.ts",
-      "weightMs": 742
-    },
-    {
-      "path": "tests/unit/attempt-counter.test.ts",
-      "weightMs": 18
-    },
-    {
-      "path": "tests/unit/auth-prevention.test.ts",
-      "weightMs": 1268
-    },
-    {
-      "path": "tests/unit/auto-check-runner.test.ts",
-      "weightMs": 2680
-    },
-    {
-      "path": "tests/unit/auto-checks-store.test.ts",
-      "weightMs": 10
-    },
-    {
-      "path": "tests/unit/awareness-worker.test.ts",
-      "weightMs": 6761
-    },
-    {
-      "path": "tests/unit/block-envelope-causality.test.ts",
-      "weightMs": 61
-    },
-    {
-      "path": "tests/unit/broker-action.test.ts",
-      "weightMs": 31
-    },
-    {
-      "path": "tests/unit/broker-csrf-retry.test.ts",
-      "weightMs": 17
-    },
-    {
-      "path": "tests/unit/broker-path.test.ts",
-      "weightMs": 6
-    },
-    {
-      "path": "tests/unit/broker-refusal-hold.test.ts",
-      "weightMs": 60
-    },
-    {
-      "path": "tests/unit/broker-write-priority.test.ts",
-      "weightMs": 11
-    },
-    {
-      "path": "tests/unit/change-password-route.test.ts",
-      "weightMs": 1116
-    },
-    {
-      "path": "tests/unit/chat-message-data-exposure.test.ts",
-      "weightMs": 10
-    },
-    {
-      "path": "tests/unit/chat-message-store-integrity.test.ts",
       "weightMs": 16
     },
     {
+      "path": "tests/prevention/tool-call-persistence-db.test.ts",
+      "weightMs": 313
+    },
+    {
+      "path": "tests/prevention/tool-duration-owner.test.ts",
+      "weightMs": 605
+    },
+    {
+      "path": "tests/prevention/tool-execution-async-owner.test.ts",
+      "weightMs": 3199
+    },
+    {
+      "path": "tests/prevention/tool-manifest-executor-match.test.ts",
+      "weightMs": 28
+    },
+    {
+      "path": "tests/prevention/tool-name-spec.test.ts",
+      "weightMs": 27
+    },
+    {
+      "path": "tests/prevention/tool-registry-owner.test.ts",
+      "weightMs": 992
+    },
+    {
+      "path": "tests/prevention/tool-result-persistence.test.ts",
+      "weightMs": 244
+    },
+    {
+      "path": "tests/prevention/tracked-source-owner.test.ts",
+      "weightMs": 687
+    },
+    {
+      "path": "tests/prevention/tree-identity-owner.test.ts",
+      "weightMs": 1794
+    },
+    {
+      "path": "tests/prevention/ui-control-surface-owner.test.ts",
+      "weightMs": 13
+    },
+    {
+      "path": "tests/prevention/ui-control-wiring.test.ts",
+      "weightMs": 62
+    },
+    {
+      "path": "tests/prevention/value-reference-scan.test.ts",
+      "weightMs": 9
+    },
+    {
+      "path": "tests/prevention/vite-dep-cache-staleness.test.ts",
+      "weightMs": 17
+    },
+    {
+      "path": "tests/prevention/web-ui-defaults-owner.test.ts",
+      "weightMs": 194
+    },
+    {
+      "path": "tests/prevention/web-ui-runtime-budget-verdict.test.ts",
+      "weightMs": 32172
+    },
+    {
+      "path": "tests/prevention/web-ui-runtime-budget.test.ts",
+      "weightMs": 111
+    },
+    {
+      "path": "tests/prevention/when-predicate-vocabulary.test.ts",
+      "weightMs": 2
+    },
+    {
+      "path": "tests/prevention/worker-settings-handed.test.ts",
+      "weightMs": 1031
+    },
+    {
+      "path": "tests/prevention/worker-thread-owner.test.ts",
+      "weightMs": 999
+    },
+    {
+      "path": "tests/prevention/workflow-lessons-format.test.ts",
+      "weightMs": 16
+    },
+    {
+      "path": "tests/unit/agent-delegation.test.ts",
+      "weightMs": 2049
+    },
+    {
+      "path": "tests/unit/agent-orchestration.test.ts",
+      "weightMs": 2034
+    },
+    {
+      "path": "tests/unit/anatomy-block.test.ts",
+      "weightMs": 659
+    },
+    {
+      "path": "tests/unit/artifact-runnability.test.ts",
+      "weightMs": 838
+    },
+    {
+      "path": "tests/unit/attempt-counter.test.ts",
+      "weightMs": 13
+    },
+    {
+      "path": "tests/unit/auth-prevention.test.ts",
+      "weightMs": 888
+    },
+    {
+      "path": "tests/unit/auto-check-runner.test.ts",
+      "weightMs": 1501
+    },
+    {
+      "path": "tests/unit/auto-checks-store.test.ts",
+      "weightMs": 8
+    },
+    {
+      "path": "tests/unit/awareness-worker.test.ts",
+      "weightMs": 6412
+    },
+    {
+      "path": "tests/unit/block-envelope-causality.test.ts",
+      "weightMs": 41
+    },
+    {
+      "path": "tests/unit/broker-action.test.ts",
+      "weightMs": 20
+    },
+    {
+      "path": "tests/unit/broker-csrf-retry.test.ts",
+      "weightMs": 13
+    },
+    {
+      "path": "tests/unit/broker-path.test.ts",
+      "weightMs": 3
+    },
+    {
+      "path": "tests/unit/broker-refusal-hold.test.ts",
+      "weightMs": 43
+    },
+    {
+      "path": "tests/unit/broker-write-priority.test.ts",
+      "weightMs": 8
+    },
+    {
+      "path": "tests/unit/change-password-route.test.ts",
+      "weightMs": 392
+    },
+    {
+      "path": "tests/unit/chat-message-data-exposure.test.ts",
+      "weightMs": 6
+    },
+    {
+      "path": "tests/unit/chat-message-store-integrity.test.ts",
+      "weightMs": 6
+    },
+    {
       "path": "tests/unit/chat-messages.test.ts",
-      "weightMs": 53
+      "weightMs": 39
     },
     {
       "path": "tests/unit/chats-store.test.ts",
-      "weightMs": 23
+      "weightMs": 11
     },
     {
       "path": "tests/unit/client-hydrate.test.ts",
-      "weightMs": 33
+      "weightMs": 19
     },
     {
       "path": "tests/unit/client-telemetry-block.test.ts",
-      "weightMs": 1356
+      "weightMs": 545
     },
     {
       "path": "tests/unit/client-telemetry-store.test.ts",
-      "weightMs": 55
+      "weightMs": 48
     },
     {
       "path": "tests/unit/client.test.ts",
-      "weightMs": 397
+      "weightMs": 237
     },
     {
       "path": "tests/unit/cockpit-spine-blocks.test.ts",
-      "weightMs": 425
+      "weightMs": 141
     },
     {
       "path": "tests/unit/codebase-file-retrieval.test.ts",
-      "weightMs": 29
+      "weightMs": 23
     },
     {
       "path": "tests/unit/compose-next-turn-channels.test.ts",
-      "weightMs": 2392
+      "weightMs": 954
     },
     {
       "path": "tests/unit/config-refusal-background.test.ts",
-      "weightMs": 5823
+      "weightMs": 5583
     },
     {
       "path": "tests/unit/config-refusal-server.test.ts",
-      "weightMs": 35944
+      "weightMs": 21650
     },
     {
       "path": "tests/unit/config-refusal-write-gate.test.ts",
-      "weightMs": 4597
+      "weightMs": 2977
     },
     {
       "path": "tests/unit/config-snapshot.test.ts",
-      "weightMs": 4
+      "weightMs": 2
     },
     {
       "path": "tests/unit/config-write-concurrency.test.ts",
-      "weightMs": 23978
+      "weightMs": 2540
     },
     {
       "path": "tests/unit/context-trimming-adversarial.test.ts",
-      "weightMs": 31
+      "weightMs": 18
     },
     {
       "path": "tests/unit/context-trimming-e2e.test.ts",
-      "weightMs": 8569
+      "weightMs": 4002
     },
     {
       "path": "tests/unit/context-trimming.test.ts",
-      "weightMs": 229
+      "weightMs": 178
     },
     {
       "path": "tests/unit/conversation-archive.test.ts",
-      "weightMs": 4314
+      "weightMs": 506
     },
     {
       "path": "tests/unit/coverage-blocks-real-ledger.test.ts",
-      "weightMs": 29
+      "weightMs": 13
     },
     {
       "path": "tests/unit/cross-user-path-access.test.ts",
-      "weightMs": 2064
+      "weightMs": 565
     },
     {
       "path": "tests/unit/custody-blocks-real-ledger.test.ts",
-      "weightMs": 10745
+      "weightMs": 4501
     },
     {
       "path": "tests/unit/custody-history-one-spawn.test.ts",
-      "weightMs": 4
+      "weightMs": 6
     },
     {
       "path": "tests/unit/custody-see-what-changed.test.ts",
-      "weightMs": 2688
+      "weightMs": 671
     },
     {
       "path": "tests/unit/database-backup.test.ts",
-      "weightMs": 3585
+      "weightMs": 580
     },
     {
       "path": "tests/unit/database-exposure.test.ts",
-      "weightMs": 2904
+      "weightMs": 1985
     },
     {
       "path": "tests/unit/db-client.test.ts",
-      "weightMs": 10376
+      "weightMs": 1002
     },
     {
       "path": "tests/unit/db-field-binding-v20.test.ts",
-      "weightMs": 4322
+      "weightMs": 467
     },
     {
       "path": "tests/unit/db-key-rotation.test.ts",
-      "weightMs": 28884
+      "weightMs": 21401
     },
     {
       "path": "tests/unit/delete-eviction.test.ts",
@@ -1814,251 +1814,251 @@
     },
     {
       "path": "tests/unit/dependency-path.test.ts",
-      "weightMs": 50
-    },
-    {
-      "path": "tests/unit/editor-blocks.test.ts",
-      "weightMs": 492
-    },
-    {
-      "path": "tests/unit/error-messages.test.ts",
-      "weightMs": 3
-    },
-    {
-      "path": "tests/unit/errors.test.ts",
-      "weightMs": 14
-    },
-    {
-      "path": "tests/unit/filesystem-routes.test.ts",
-      "weightMs": 576
-    },
-    {
-      "path": "tests/unit/harness-config-webui.test.ts",
-      "weightMs": 89
-    },
-    {
-      "path": "tests/unit/harness-config.test.ts",
-      "weightMs": 2206
-    },
-    {
-      "path": "tests/unit/harvested-fixes-adversarial.test.ts",
-      "weightMs": 63
-    },
-    {
-      "path": "tests/unit/held-key-echo.test.ts",
-      "weightMs": 375
-    },
-    {
-      "path": "tests/unit/http-listener.test.ts",
-      "weightMs": 146
-    },
-    {
-      "path": "tests/unit/landlock-project-refusal.test.ts",
-      "weightMs": 3588
-    },
-    {
-      "path": "tests/unit/ledger-dig.test.ts",
-      "weightMs": 16771
-    },
-    {
-      "path": "tests/unit/lens-ancestry-real-ledger.test.ts",
-      "weightMs": 34
-    },
-    {
-      "path": "tests/unit/lens-ancestry-walk.test.ts",
-      "weightMs": 19
-    },
-    {
-      "path": "tests/unit/lens-broker-choke-point.test.ts",
-      "weightMs": 113
-    },
-    {
-      "path": "tests/unit/lens-trace-withheld.test.ts",
-      "weightMs": 12
-    },
-    {
-      "path": "tests/unit/lint-gate.test.ts",
-      "weightMs": 51
-    },
-    {
-      "path": "tests/unit/live-usage-mapping.test.ts",
-      "weightMs": 21
-    },
-    {
-      "path": "tests/unit/liveness-share.test.ts",
-      "weightMs": 72
-    },
-    {
-      "path": "tests/unit/mcp-held-credentials.test.ts",
-      "weightMs": 231
-    },
-    {
-      "path": "tests/unit/mcp-runtime.test.ts",
-      "weightMs": 12247
-    },
-    {
-      "path": "tests/unit/mcp-servers-route.test.ts",
-      "weightMs": 6317
-    },
-    {
-      "path": "tests/unit/mcp-stdio-landlock.test.ts",
-      "weightMs": 2254
-    },
-    {
-      "path": "tests/unit/mcp-tool-name-migration.test.ts",
-      "weightMs": 2763
-    },
-    {
-      "path": "tests/unit/memory-opt-in-prevention.test.ts",
-      "weightMs": 6
-    },
-    {
-      "path": "tests/unit/metrics-bridge-config.test.ts",
-      "weightMs": 112
-    },
-    {
-      "path": "tests/unit/metrics-dedup.test.ts",
-      "weightMs": 10
-    },
-    {
-      "path": "tests/unit/metrics.test.ts",
-      "weightMs": 10
-    },
-    {
-      "path": "tests/unit/models-in-db.test.ts",
-      "weightMs": 202
-    },
-    {
-      "path": "tests/unit/models-route.test.ts",
-      "weightMs": 12722
-    },
-    {
-      "path": "tests/unit/models-store.test.ts",
-      "weightMs": 7
-    },
-    {
-      "path": "tests/unit/multi-user-isolation.test.ts",
-      "weightMs": 4766
-    },
-    {
-      "path": "tests/unit/pii-redaction-context.test.ts",
-      "weightMs": 104
-    },
-    {
-      "path": "tests/unit/process-fault-policy.test.ts",
-      "weightMs": 10186
-    },
-    {
-      "path": "tests/unit/project-folder.test.ts",
-      "weightMs": 2959
-    },
-    {
-      "path": "tests/unit/projects.test.ts",
-      "weightMs": 10
-    },
-    {
-      "path": "tests/unit/prompt-tone-catalog.test.ts",
-      "weightMs": 6745
-    },
-    {
-      "path": "tests/unit/provenance-contract.test.ts",
-      "weightMs": 9
-    },
-    {
-      "path": "tests/unit/provider-destination-rule.test.ts",
-      "weightMs": 519
-    },
-    {
-      "path": "tests/unit/repository-map-worker.test.ts",
-      "weightMs": 4315
-    },
-    {
-      "path": "tests/unit/resource-sampler.test.ts",
-      "weightMs": 70
-    },
-    {
-      "path": "tests/unit/router.test.ts",
-      "weightMs": 301
-    },
-    {
-      "path": "tests/unit/routes-schema.test.ts",
-      "weightMs": 3517
-    },
-    {
-      "path": "tests/unit/routes.test.ts",
-      "weightMs": 6326
-    },
-    {
-      "path": "tests/unit/run-pane.test.ts",
-      "weightMs": 64
-    },
-    {
-      "path": "tests/unit/run-state.test.ts",
-      "weightMs": 29
-    },
-    {
-      "path": "tests/unit/safety-features-adversarial.test.ts",
-      "weightMs": 16
-    },
-    {
-      "path": "tests/unit/schema-store.test.ts",
-      "weightMs": 21
-    },
-    {
-      "path": "tests/unit/secret-file-tool-reads.test.ts",
-      "weightMs": 1911
-    },
-    {
-      "path": "tests/unit/server-config.test.ts",
-      "weightMs": 10
-    },
-    {
-      "path": "tests/unit/settings-diagnostic-modes-block.test.ts",
-      "weightMs": 977
-    },
-    {
-      "path": "tests/unit/sole-writer.test.ts",
       "weightMs": 37
     },
     {
-      "path": "tests/unit/sse-persistence.test.ts",
-      "weightMs": 6244
+      "path": "tests/unit/editor-blocks.test.ts",
+      "weightMs": 138
     },
     {
-      "path": "tests/unit/sse.test.ts",
-      "weightMs": 35
+      "path": "tests/unit/error-messages.test.ts",
+      "weightMs": 5
     },
     {
-      "path": "tests/unit/synthesis-blocks-real-ledger.test.ts",
-      "weightMs": 240
-    },
-    {
-      "path": "tests/unit/system-prompt-wire.test.ts",
-      "weightMs": 9
-    },
-    {
-      "path": "tests/unit/temp-git-repo.test.ts",
-      "weightMs": 317
-    },
-    {
-      "path": "tests/unit/timeline-event-documents.test.ts",
-      "weightMs": 24
-    },
-    {
-      "path": "tests/unit/timeline-query.test.ts",
-      "weightMs": 20
-    },
-    {
-      "path": "tests/unit/timeline-refs-store.test.ts",
+      "path": "tests/unit/errors.test.ts",
       "weightMs": 10
     },
     {
+      "path": "tests/unit/filesystem-routes.test.ts",
+      "weightMs": 170
+    },
+    {
+      "path": "tests/unit/harness-config-webui.test.ts",
+      "weightMs": 40
+    },
+    {
+      "path": "tests/unit/harness-config.test.ts",
+      "weightMs": 764
+    },
+    {
+      "path": "tests/unit/harvested-fixes-adversarial.test.ts",
+      "weightMs": 24
+    },
+    {
+      "path": "tests/unit/held-key-echo.test.ts",
+      "weightMs": 275
+    },
+    {
+      "path": "tests/unit/http-listener.test.ts",
+      "weightMs": 27
+    },
+    {
+      "path": "tests/unit/landlock-project-refusal.test.ts",
+      "weightMs": 273
+    },
+    {
+      "path": "tests/unit/ledger-dig.test.ts",
+      "weightMs": 10564
+    },
+    {
+      "path": "tests/unit/lens-ancestry-real-ledger.test.ts",
+      "weightMs": 20
+    },
+    {
+      "path": "tests/unit/lens-ancestry-walk.test.ts",
+      "weightMs": 12
+    },
+    {
+      "path": "tests/unit/lens-broker-choke-point.test.ts",
+      "weightMs": 97
+    },
+    {
+      "path": "tests/unit/lens-trace-withheld.test.ts",
+      "weightMs": 8
+    },
+    {
+      "path": "tests/unit/lint-gate.test.ts",
+      "weightMs": 32
+    },
+    {
+      "path": "tests/unit/live-usage-mapping.test.ts",
+      "weightMs": 11
+    },
+    {
+      "path": "tests/unit/liveness-share.test.ts",
+      "weightMs": 20
+    },
+    {
+      "path": "tests/unit/mcp-held-credentials.test.ts",
+      "weightMs": 194
+    },
+    {
+      "path": "tests/unit/mcp-runtime.test.ts",
+      "weightMs": 10540
+    },
+    {
+      "path": "tests/unit/mcp-servers-route.test.ts",
+      "weightMs": 1779
+    },
+    {
+      "path": "tests/unit/mcp-stdio-landlock.test.ts",
+      "weightMs": 1039
+    },
+    {
+      "path": "tests/unit/mcp-tool-name-migration.test.ts",
+      "weightMs": 416
+    },
+    {
+      "path": "tests/unit/memory-opt-in-prevention.test.ts",
+      "weightMs": 4
+    },
+    {
+      "path": "tests/unit/metrics-bridge-config.test.ts",
+      "weightMs": 51
+    },
+    {
+      "path": "tests/unit/metrics-dedup.test.ts",
+      "weightMs": 6
+    },
+    {
+      "path": "tests/unit/metrics.test.ts",
+      "weightMs": 4
+    },
+    {
+      "path": "tests/unit/models-in-db.test.ts",
+      "weightMs": 173
+    },
+    {
+      "path": "tests/unit/models-route.test.ts",
+      "weightMs": 1188
+    },
+    {
+      "path": "tests/unit/models-store.test.ts",
+      "weightMs": 10
+    },
+    {
+      "path": "tests/unit/multi-user-isolation.test.ts",
+      "weightMs": 2058
+    },
+    {
+      "path": "tests/unit/pii-redaction-context.test.ts",
+      "weightMs": 98
+    },
+    {
+      "path": "tests/unit/process-fault-policy.test.ts",
+      "weightMs": 6888
+    },
+    {
+      "path": "tests/unit/project-folder.test.ts",
+      "weightMs": 819
+    },
+    {
+      "path": "tests/unit/projects.test.ts",
+      "weightMs": 6
+    },
+    {
+      "path": "tests/unit/prompt-tone-catalog.test.ts",
+      "weightMs": 802
+    },
+    {
+      "path": "tests/unit/provenance-contract.test.ts",
+      "weightMs": 8
+    },
+    {
+      "path": "tests/unit/provider-destination-rule.test.ts",
+      "weightMs": 309
+    },
+    {
+      "path": "tests/unit/repository-map-worker.test.ts",
+      "weightMs": 2558
+    },
+    {
+      "path": "tests/unit/resource-sampler.test.ts",
+      "weightMs": 43
+    },
+    {
+      "path": "tests/unit/router.test.ts",
+      "weightMs": 3152
+    },
+    {
+      "path": "tests/unit/routes-schema.test.ts",
+      "weightMs": 2769
+    },
+    {
+      "path": "tests/unit/routes.test.ts",
+      "weightMs": 1577
+    },
+    {
+      "path": "tests/unit/run-pane.test.ts",
+      "weightMs": 69
+    },
+    {
+      "path": "tests/unit/run-state.test.ts",
+      "weightMs": 15
+    },
+    {
+      "path": "tests/unit/safety-features-adversarial.test.ts",
+      "weightMs": 7
+    },
+    {
+      "path": "tests/unit/schema-store.test.ts",
+      "weightMs": 15
+    },
+    {
+      "path": "tests/unit/secret-file-tool-reads.test.ts",
+      "weightMs": 722
+    },
+    {
+      "path": "tests/unit/server-config.test.ts",
+      "weightMs": 8
+    },
+    {
+      "path": "tests/unit/settings-diagnostic-modes-block.test.ts",
+      "weightMs": 472
+    },
+    {
+      "path": "tests/unit/sole-writer.test.ts",
+      "weightMs": 41
+    },
+    {
+      "path": "tests/unit/sse-persistence.test.ts",
+      "weightMs": 2978
+    },
+    {
+      "path": "tests/unit/sse.test.ts",
+      "weightMs": 46
+    },
+    {
+      "path": "tests/unit/synthesis-blocks-real-ledger.test.ts",
+      "weightMs": 48
+    },
+    {
+      "path": "tests/unit/system-prompt-wire.test.ts",
+      "weightMs": 6
+    },
+    {
+      "path": "tests/unit/temp-git-repo.test.ts",
+      "weightMs": 133
+    },
+    {
+      "path": "tests/unit/timeline-event-documents.test.ts",
+      "weightMs": 13
+    },
+    {
+      "path": "tests/unit/timeline-query.test.ts",
+      "weightMs": 13
+    },
+    {
+      "path": "tests/unit/timeline-refs-store.test.ts",
+      "weightMs": 3
+    },
+    {
       "path": "tests/unit/timeline-tree-routes.test.ts",
-      "weightMs": 3559
+      "weightMs": 1426
     },
     {
       "path": "tests/unit/tool-bounds.test.ts",
-      "weightMs": 15
+      "weightMs": 13
     },
     {
       "path": "tests/unit/tool-call-gate-adversarial.test.ts",
@@ -2066,57 +2066,57 @@
     },
     {
       "path": "tests/unit/tool-execution-root-scoping.test.ts",
-      "weightMs": 2458
+      "weightMs": 1422
     },
     {
       "path": "tests/unit/tool-executor-unified.test.ts",
-      "weightMs": 4678
+      "weightMs": 1651
     },
     {
       "path": "tests/unit/tool-settings-merge.test.ts",
-      "weightMs": 523
+      "weightMs": 167
     },
     {
       "path": "tests/unit/tools.test.ts",
-      "weightMs": 49
-    },
-    {
-      "path": "tests/unit/ui-schema-builder.test.ts",
-      "weightMs": 2146
-    },
-    {
-      "path": "tests/unit/ui-schema-enrichment.test.ts",
-      "weightMs": 474
-    },
-    {
-      "path": "tests/unit/web-ui-config.test.ts",
       "weightMs": 7
     },
     {
+      "path": "tests/unit/ui-schema-builder.test.ts",
+      "weightMs": 1901
+    },
+    {
+      "path": "tests/unit/ui-schema-enrichment.test.ts",
+      "weightMs": 222
+    },
+    {
+      "path": "tests/unit/web-ui-config.test.ts",
+      "weightMs": 6
+    },
+    {
       "path": "tests/unit/when-eval.test.ts",
-      "weightMs": 12
+      "weightMs": 7
     }
   ],
   "excluded": [
     {
       "path": "tests/prevention/cutover-graph-receipt-owner.test.ts",
       "reason": "private-only cutover graph generator and consumers are not published in the public snapshot",
-      "evidence": "docs/floor/roadmap.md#snapshot \u00b7 public baseline audit"
+      "evidence": "docs/floor/roadmap.md#snapshot · public baseline audit"
     },
     {
       "path": "tests/prevention/frozen-record-not-a-second-owner.test.ts",
       "reason": "the private frozen archives are not published; the public snapshot has no frozen record population to judge",
-      "evidence": "docs/floor/roadmap.md#snapshot \u00b7 public baseline audit"
+      "evidence": "docs/floor/roadmap.md#snapshot · public baseline audit"
     },
     {
       "path": "tests/performance/regression.test.ts",
       "reason": "requires the generated tests/performance report from an idle-host profile; the report is not published and cannot be produced on every shard",
-      "evidence": "docs/floor/roadmap.md#snapshot \u00b7 public baseline audit"
+      "evidence": "docs/floor/roadmap.md#snapshot · public baseline audit"
     },
     {
       "path": "tests/unit/landlock-wsl-host.test.ts",
       "reason": "requires a WSL host with a mounted Windows profile, including a credential store with its 8.3 short name; the standard Ubuntu shard runner does not provide that host",
-      "evidence": "docs/floor/roadmap.md#snapshot \u00b7 public baseline audit"
+      "evidence": "docs/floor/roadmap.md#snapshot · public baseline audit"
     }
   ]
 }

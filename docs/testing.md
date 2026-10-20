@@ -145,19 +145,34 @@ The guardian tests exercise Landlock itself. An exit code of 3 (`landlock_unavai
 
 ## Sharding
 
-`tests/test-shards.json` is the supported-suite manifest. Its file list comes from `vitest list --filesOnly --json`, not from a second glob. It currently accounts for 521 supported files and names four exclusions with a reason and evidence: the private cutover graph tool, the private frozen-record population, the generated performance report consumed by the performance regression gate, and the WSL-host keep-out arm that requires a mounted Windows profile. A live file that is neither supported nor excluded fails verification.
+`tests/test-shards.json` is the supported-suite manifest. Its file list comes from `vitest list --filesOnly --json`, not from a second glob. At `f54df4a5` it accounts for 523 supported files and names four exclusions with a reason and evidence: the private cutover graph tool, the private frozen-record population, the generated performance report consumed by the performance regression gate, and the WSL-host keep-out arm that requires a mounted Windows profile. A live file that is neither supported nor excluded fails verification.
 
-`scripts/test-shard-manifest.mjs` owns the manifest hash, the deterministic weighted assignment, and the shard report envelope. `scripts/test-shard-merge.mjs` accepts only envelopes that name the same head commit, manifest hash, assignment hash, shard count, and exact file assignment. It refuses a missing shard, a duplicate file, a failed or skipped test, a file outside the checkout, and a report from another commit. One receipt records the exact commit, shard count, runner class, manifest hash, assignment hash, per-shard file, test, pass/fail/skipped counts and timings, the excluded files with their reason and evidence anchor, the measured test-phase wall time, and summed shard duration.
+`scripts/test-shard-manifest.mjs` owns the manifest hash, the deterministic weighted assignment, the shard report envelope, and the one weight producer. `measure` reads the wrapped shard reports of a complete green run, takes each supported file's `endTime - startTime` from the JSON reporter, and rewrites `weightMs`, `measuredHeadSha`, `measuredAt`, and `weightSource` together; it refuses a partial, duplicated, non-green, or different-manifest population. `scripts/test-shard-merge.mjs` accepts only envelopes that name the same head commit, manifest hash, assignment hash, shard count, and exact file assignment. It refuses a missing shard, a duplicate file, a failed or skipped test, a file outside the checkout, and a report from another commit. One receipt records the exact commit, shard count, runner class, manifest hash, assignment hash, per-shard file, test, pass/fail/skipped counts and timings, the excluded files with their reason and evidence anchor, the measured test-phase wall time, and summed shard duration.
 
 The shard gate is `.github/workflows/test-shards.yml`, called as the `shards` job in `.github/workflows/ci.yml` on every push and pull request to `main`. It is also dispatchable with a chosen shard count and runner label. The merge job is the gate: a failed shard, a missing report, a duplicate file, a failed or skipped test, an unexpected file, or a report from another commit refuses the receipt and fails the run. The union of the shard reports must equal the manifest exactly once, so a missing shard cannot look like a smaller green suite. The merge job uploads `test-shard-receipt` (JSON); the artifact names the manifest digest, the shard indexes and timings, the pass/fail counts, and the four exclusions with their evidence anchors. Making the job a required check is a branch-protection setting, not a workflow property.
 
-The first green ten-shard receipt at `d47909de` on `ubuntu-24.04` measured `testPhaseMs` 86708, `testPhaseCpuMs` 636835, 521 files, and 8722 tests. Against the 244017ms single-host supported run that is 2.81x, not 10x. The CI gate uses the same ten-shard `ubuntu-24.04` plan; the 10x exit criterion still needs a documented larger runner class. The receipt records the measured factor rather than inferring it from the number of jobs.
+The ten-shard `ubuntu-24.04` receipt at `f54df4a5` (CI run `39470087124`, artifact `test-shard-receipt`) measured `testPhaseMs` 83438, `testPhaseCpuMs` 658687, 523 files, and 8734 tests. Against the 244017ms single-host supported run that is 2.92x, not 10x. The first green receipt at `d47909de` measured 2.81x on 521 files. The CI gate uses the same ten-shard `ubuntu-24.04` plan; the 10x exit criterion still needs a documented larger runner class. The receipt records the measured factor rather than inferring it from the number of jobs.
 
 ```bash
 mkdir -p .bridlewise/shard-plan
 npx vitest list --filesOnly --json > .bridlewise/shard-plan/live-manifest.json
 node scripts/test-shard-manifest.mjs verify --manifest tests/test-shards.json --live .bridlewise/shard-plan/live-manifest.json
 node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
+```
+
+A complete green run's wrapped reports are the weight measurement; pass the head so a report from another commit cannot be measured by mistake:
+
+```bash
+args=()
+for index in $(seq 1 10); do
+  args+=(--report ".bridlewise/shard-plan/reports/shard-${index}.json")
+done
+node scripts/test-shard-manifest.mjs measure \
+  --manifest tests/test-shards.json \
+  --head "$(git rev-parse HEAD)" \
+  --runner local \
+  --out tests/test-shards.json \
+  "${args[@]}"
 ```
 
 Run each planned shard's files through `scripts/run-tests.ts`, wrap the JSON report with `test-shard-manifest.mjs wrap`, and merge every wrapped report:
