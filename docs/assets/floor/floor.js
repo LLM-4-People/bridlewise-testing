@@ -89,32 +89,6 @@
   }
 
 
-  // Wide content tables scroll inside their own box. Mark the ones that
-  // actually overflow so CSS can show an edge affordance and the table can
-  // take keyboard focus; nothing changes when the table fits.
-  function initTables() {
-    var tables = document.querySelectorAll("main#main table");
-    if (!tables.length) return;
-
-    function sync(table) {
-      var scrollable = table.scrollWidth > table.clientWidth + 2;
-      table.classList.toggle("floor-table--scrollable", scrollable);
-      if (scrollable) table.setAttribute("tabindex", "0");
-      else table.removeAttribute("tabindex");
-    }
-
-    function syncAll() {
-      for (var i = 0; i < tables.length; i += 1) sync(tables[i]);
-    }
-
-    syncAll();
-    window.addEventListener("resize", syncAll, { passive: true });
-    if (typeof ResizeObserver === "function") {
-      var observer = new ResizeObserver(syncAll);
-      for (var j = 0; j < tables.length; j += 1) observer.observe(tables[j]);
-    }
-  }
-
   async function initStatus() {
     var root = document.querySelector("[data-floor-status]");
     if (!root) return;
@@ -355,11 +329,9 @@
     document.addEventListener("DOMContentLoaded", function () {
       initStatus();
       initAtlas();
-      initTables();
     });
   } else {
     initStatus();
     initAtlas();
-    initTables();
   }
 })();

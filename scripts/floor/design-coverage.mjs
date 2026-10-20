@@ -54,7 +54,6 @@ export const UNUSED_ALLOWLIST = new Map([
   ["floor-pill", "Created by docs/assets/floor/floor.js for live status/atlas rows."],
   ["floor-empty", "Toggled by floor.js when a live region has no rows."],
   ["floor-table-wrap", "Reserved wrapper hook; current tables scroll on the table itself."],
-  ["floor-table--scrollable", "Added by floor.js only when a table overflows at runtime."],
   ["floor-hero", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
   ["floor-title", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
   ["floor-lede", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
@@ -72,7 +71,6 @@ export const UNUSED_ALLOWLIST = new Map([
   ["floor-rule", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
   ["floor-label", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
   ["floor-kicker", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["footnotes", "Reserved for Kramdown footnotes; no current page uses footnotes."],
 ]);
 
 function walk(directory, extension, output = []) {

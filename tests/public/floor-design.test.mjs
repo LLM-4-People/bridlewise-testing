@@ -9,15 +9,14 @@ import { coverage } from "../../scripts/floor/design-coverage.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
-test("the roadmap emits the shared design contract", () => {
+test("the roadmap uses the site's ordinary components, not a private vocabulary", () => {
   const roadmap = readFileSync(join(ROOT, "docs/floor/roadmap.md"), "utf8");
-  for (const name of ["roadmap-progress", "roadmap-count", "roadmap-chip", "roadmap-table", "roadmap-group", "roadmap-details", "roadmap-toc"]) {
-    assert.match(roadmap, new RegExp(`class="[^"]*\\b${name}\\b`, "u"), `${name} must be emitted by the roadmap generator`);
-  }
+  assert.match(roadmap, /^page_class: article$/mu);
+  assert.doesNotMatch(roadmap, /class="roadmap-/u);
+  assert.match(roadmap, /^### Milestone plan$/mu);
+  assert.match(roadmap, /^\| Workstream \| State \| Owner \| Evidence \|$/mu);
   const css = readFileSync(join(ROOT, "docs/assets/floor/floor.css"), "utf8");
-  for (const selector of [".roadmap-progress", ".roadmap-count", ".roadmap-chip--shipped", ".roadmap-table--plan", ".roadmap-details", ".roadmap-toc"]) {
-    assert.ok(css.includes(selector), `${selector} must be styled by floor.css`);
-  }
+  assert.doesNotMatch(css, /\\.roadmap-/u);
   assert.match(css, /--floor-space-4/u);
 });
 

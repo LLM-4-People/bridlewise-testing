@@ -1,7 +1,7 @@
 ---
 layout: default
 floor_assets: true
-page_class: floor
+page_class: article
 title: "Roadmap: build the floor"
 description: "A milestone roadmap for the Bridlewise development floor: what shipped, what is in progress, what is planned but not done, and the evidence behind each status."
 permalink: /floor/roadmap/
@@ -20,99 +20,54 @@ This is the engineering roadmap for the Bridlewise development floor: what shipp
 <!-- BEGIN GENERATED: roadmap summary, from this page's ROADMAP-PLAN block (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
 ### Where the floor stands
 
-<p class="roadmap-lede"><strong>24 of 72 tracked items shipped (33%).</strong> The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it and appear only in the count chips.</p>
+**24 of 72 tracked items shipped (33%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it.
 
-<div class="roadmap-progress" role="group" aria-label="Roadmap status counts">
-<div class="roadmap-count-row">
-<span class="roadmap-chip roadmap-chip--shipped roadmap-count"><strong>24</strong> shipped</span>
-<span class="roadmap-chip roadmap-chip--in-progress roadmap-count"><strong>10</strong> in progress</span>
-<span class="roadmap-chip roadmap-chip--planned roadmap-count"><strong>37</strong> planned</span>
-<span class="roadmap-chip roadmap-chip--blocked roadmap-count"><strong>1</strong> blocked</span>
-<span class="roadmap-chip roadmap-chip--not-planned roadmap-count"><strong>7</strong> not planned</span>
-</div>
-<div class="roadmap-meter" role="img" aria-label="Progress: 24 of 72 tracked items shipped (33%). 10 in progress, 37 planned, 1 blocked. 7 not planned are outside the tracked total.">
-<span class="roadmap-meter-segment" data-state="shipped" style="flex: 24 1 0"></span>
-<span class="roadmap-meter-segment" data-state="in-progress" style="flex: 10 1 0"></span>
-<span class="roadmap-meter-segment" data-state="planned" style="flex: 37 1 0"></span>
-<span class="roadmap-meter-segment" data-state="blocked" style="flex: 1 1 0"></span>
-</div>
-</div>
+24 shipped · 10 in progress · 37 planned · 1 blocked · 7 not planned.
 
 ### Milestones
 
 A milestone's state is its focus state; the item states are below. Shipped and open counts cover the workstreams and exit criteria assigned to it.
 
-<nav class="roadmap-milestones" aria-label="Milestones">
-<a class="roadmap-milestone" href="#m0--public-floor-online">
-<span class="roadmap-milestone-top"><span class="roadmap-milestone-id">M0</span><span class="roadmap-chip roadmap-chip--shipped">shipped</span></span>
-<span class="roadmap-milestone-title">Public floor online</span>
-<span class="roadmap-milestone-meta">6 shipped · 0 open</span>
-</a>
-<a class="roadmap-milestone" href="#m1--reproducible-sharded-floor">
-<span class="roadmap-milestone-top"><span class="roadmap-milestone-id">M1</span><span class="roadmap-chip roadmap-chip--in-progress">in progress</span></span>
-<span class="roadmap-milestone-title">Reproducible, sharded floor</span>
-<span class="roadmap-milestone-meta">9 shipped · 3 open</span>
-</a>
-<a class="roadmap-milestone" href="#m2--admission-evidence">
-<span class="roadmap-milestone-top"><span class="roadmap-milestone-id">M2</span><span class="roadmap-chip roadmap-chip--planned">planned</span></span>
-<span class="roadmap-milestone-title">Admission evidence</span>
-<span class="roadmap-milestone-meta">3 shipped · 6 open</span>
-</a>
-<a class="roadmap-milestone" href="#m3--product-hardening">
-<span class="roadmap-milestone-top"><span class="roadmap-milestone-id">M3</span><span class="roadmap-chip roadmap-chip--planned">planned</span></span>
-<span class="roadmap-milestone-title">Product hardening</span>
-<span class="roadmap-milestone-meta">2 shipped · 9 open</span>
-</a>
-<a class="roadmap-milestone" href="#m4--sustainable-contribution">
-<span class="roadmap-milestone-top"><span class="roadmap-milestone-id">M4</span><span class="roadmap-chip roadmap-chip--in-progress">in progress</span></span>
-<span class="roadmap-milestone-title">Sustainable contribution</span>
-<span class="roadmap-milestone-meta">4 shipped · 5 open</span>
-</a>
-</nav>
-
-<nav class="roadmap-toc" aria-label="Plan sections">
-<span class="roadmap-toc-label">Plan</span>
-<a href="#plan-m0">M0</a>
-<a href="#plan-m1">M1</a>
-<a href="#plan-m2">M2</a>
-<a href="#plan-m3">M3</a>
-<a href="#plan-m4">M4</a>
-</nav>
+| Milestone | Focus | Shipped | Open |
+|---|---|---|---|
+| [M0](#m0--public-floor-online) | Public floor online | 6 | 0 |
+| [M1](#m1--reproducible-sharded-floor) | Reproducible, sharded floor | 9 | 3 |
+| [M2](#m2--admission-evidence) | Admission evidence | 3 | 6 |
+| [M3](#m3--product-hardening) | Product hardening | 2 | 9 |
+| [M4](#m4--sustainable-contribution) | Sustainable contribution | 4 | 5 |
 
 ### Now / next / later
 
-This is the focus order, not the complete list; every open item appears in [the workstreams and exit criteria](#workstreams-and-exit-criteria) below.
+Every tracked workstream or exit criterion, ordered by horizon. The plan below carries the exit criterion and source for each row.
 
 | Horizon | Work | Milestone | State | Owner | Evidence |
 |---|---|---|---|---|---|
-| <span class="roadmap-horizon" data-horizon="now">now</span> | <span class="roadmap-kind">workstream</span> **Reproducible performance report** | [M1](#m1--reproducible-sharded-floor) | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | performance | [evidence: performance-probe](evidence.md#performance-probe) |
-| <span class="roadmap-horizon" data-horizon="now">now</span> | <span class="roadmap-kind">workstream</span> **A node:test shard runner that preserves the inventory contract** | [M1](#m1--reproducible-sharded-floor) | <span class="roadmap-chip roadmap-chip--planned">planned</span> | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
-| <span class="roadmap-horizon" data-horizon="now">now</span> | <span class="roadmap-kind">exit criterion</span> **10x test-phase factor on a documented runner class** | [M1](#m1--reproducible-sharded-floor) | <span class="roadmap-chip roadmap-chip--planned">planned</span> | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
-| <span class="roadmap-horizon" data-horizon="next">next</span> | <span class="roadmap-kind">workstream</span> **Per-capability readiness receipts** | [M2](#m2--admission-evidence) | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | engine governance | [TASKS](../trackers/TASKS.md) |
-| <span class="roadmap-horizon" data-horizon="next">next</span> | <span class="roadmap-kind">workstream</span> **Close the remaining pre-admission gates** | [M2](#m2--admission-evidence) | <span class="roadmap-chip roadmap-chip--planned">planned</span> | engine governance | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
-| <span class="roadmap-horizon" data-horizon="next">next</span> | <span class="roadmap-kind">workstream</span> **Release provenance and verification** | [M2](#m2--admission-evidence) | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | release | [evidence: product-preview-release](evidence.md#product-preview-release) |
-| <span class="roadmap-horizon" data-horizon="later">later</span> | <span class="roadmap-kind">workstream</span> **Publish the method and limits of the safety and privacy controls** | [M2](#m2--admission-evidence) | <span class="roadmap-chip roadmap-chip--planned">planned</span> | engine safety | [evidence: guardian](evidence.md#guardian) |
-| <span class="roadmap-horizon" data-horizon="later">later</span> | <span class="roadmap-kind">workstream</span> **Independent security review** | [M2](#m2--admission-evidence) | <span class="roadmap-chip roadmap-chip--planned">planned</span> | maintainers | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
-| <span class="roadmap-horizon" data-horizon="later">later</span> | <span class="roadmap-kind">workstream</span> **Provider conformance fixtures and clearer setup failures** | [M3](#m3--product-hardening) | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | engine providers | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
-| <span class="roadmap-horizon" data-horizon="later">later</span> | <span class="roadmap-kind">workstream</span> **MCP coverage** | [M3](#m3--product-hardening) | <span class="roadmap-chip roadmap-chip--planned">planned</span> | engine MCP | [extending](../extending.md) |
-| <span class="roadmap-horizon" data-horizon="later">later</span> | <span class="roadmap-kind">workstream</span> **Cross-platform path handling with an explicit Landlock refusal** | [M3](#m3--product-hardening) | <span class="roadmap-chip roadmap-chip--planned">planned</span> | engine platform | [evidence: guardian](evidence.md#guardian) |
-| <span class="roadmap-horizon" data-horizon="later">later</span> | <span class="roadmap-kind">workstream</span> **Measured scale and performance envelope** | [M3](#m3--product-hardening) | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | performance | [evidence: performance-probe](evidence.md#performance-probe) |
-| <span class="roadmap-horizon" data-horizon="later">later</span> | <span class="roadmap-kind">workstream</span> **Accessibility and responsive behavior as tested contracts** | [M3](#m3--product-hardening) | <span class="roadmap-chip roadmap-chip--planned">planned</span> | web | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
-| <span class="roadmap-horizon" data-horizon="later">later</span> | <span class="roadmap-kind">workstream</span> **A stable extension surface with compatibility notes** | [M3](#m3--product-hardening) | <span class="roadmap-chip roadmap-chip--planned">planned</span> | engine extension | [extending](../extending.md) |
-| <span class="roadmap-horizon" data-horizon="later">later</span> | <span class="roadmap-kind">workstream</span> **Issue lanes with evidence requirements and a named next action** | [M4](#m4--sustainable-contribution) | <span class="roadmap-chip roadmap-chip--planned">planned</span> | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
-{: .roadmap-table .roadmap-table--focus}
+| now | **Reproducible performance report** | [M1](#m1--reproducible-sharded-floor) | in progress | performance | [evidence: performance-probe](evidence.md#performance-probe) |
+| now | **A node:test shard runner that preserves the inventory contract** | [M1](#m1--reproducible-sharded-floor) | planned | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
+| now | **10x test-phase factor on a documented runner class** | [M1](#m1--reproducible-sharded-floor) | planned | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
+| next | **Per-capability readiness receipts** | [M2](#m2--admission-evidence) | in progress | engine governance | [TASKS](../trackers/TASKS.md) |
+| next | **Close the remaining pre-admission gates** | [M2](#m2--admission-evidence) | planned | engine governance | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
+| next | **Release provenance and verification** | [M2](#m2--admission-evidence) | in progress | release | [evidence: product-preview-release](evidence.md#product-preview-release) |
+| later | **Publish the method and limits of the safety and privacy controls** | [M2](#m2--admission-evidence) | planned | engine safety | [evidence: guardian](evidence.md#guardian) |
+| later | **Independent security review** | [M2](#m2--admission-evidence) | planned | maintainers | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
+| later | **Provider conformance fixtures and clearer setup failures** | [M3](#m3--product-hardening) | in progress | engine providers | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
+| later | **MCP coverage** | [M3](#m3--product-hardening) | planned | engine MCP | [extending](../extending.md) |
+| later | **Cross-platform path handling with an explicit Landlock refusal** | [M3](#m3--product-hardening) | planned | engine platform | [evidence: guardian](evidence.md#guardian) |
+| later | **Measured scale and performance envelope** | [M3](#m3--product-hardening) | in progress | performance | [evidence: performance-probe](evidence.md#performance-probe) |
+| later | **Accessibility and responsive behavior as tested contracts** | [M3](#m3--product-hardening) | planned | web | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
+| later | **A stable extension surface with compatibility notes** | [M3](#m3--product-hardening) | planned | engine extension | [extending](../extending.md) |
+| later | **Issue lanes with evidence requirements and a named next action** | [M4](#m4--sustainable-contribution) | planned | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
 <!-- END GENERATED: roadmap summary -->
 
 ## Status legend
 
 | State | Meaning |
 |---|---|
-| <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | The mechanism exists, and its evidence resolves in the public tree or a documented external record. |
-| <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | Work has started; the exit criterion is not met. |
-| <span class="roadmap-chip roadmap-chip--planned">planned</span> | Named, owned, and not started. |
-| <span class="roadmap-chip roadmap-chip--blocked">blocked</span> | Named and owned, but it cannot proceed until the named condition changes. |
-| <span class="roadmap-chip roadmap-chip--not-planned">not planned</span> | A deliberate non-goal, kept here with its reason. |
-{: .roadmap-table .roadmap-table--legend}
+| shipped | The mechanism exists, and its evidence resolves in the public tree or a documented external record. |
+| in progress | Work has started; the exit criterion is not met. |
+| planned | Named, owned, and not started. |
+| blocked | Named and owned, but it cannot proceed until the named condition changes. |
+| not planned | A deliberate non-goal, kept here with its reason. |
 
 A milestone's state is its focus state, not a roll-up of the item states. An item's state is the row's own. A status is not a review, a support commitment, or permission to run the preview on code you cannot lose.
 
@@ -789,158 +744,114 @@ ROADMAP-PLAN-END -->
 <!-- BEGIN GENERATED: roadmap workstreams and exit criteria, from this page's ROADMAP-PLAN block (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
 ### Milestone plan
 
-Each milestone group is one disclosure. The jump links below open the plan section for that milestone; every row names its owner, state, exit criterion, evidence, and source.
+Each milestone group names its workstreams and exit criteria with the owner, state, exit criterion, evidence, and source. The Source column names the statement each row was carried from.
 
-<nav class="roadmap-toc" aria-label="Workstreams by milestone">
-<span class="roadmap-toc-label">Jump to</span>
-<a href="#plan-m0">M0</a>
-<a href="#plan-m1">M1</a>
-<a href="#plan-m2">M2</a>
-<a href="#plan-m3">M3</a>
-<a href="#plan-m4">M4</a>
-</nav>
+#### M0 · Public floor online — shipped (6 shipped · 0 open)
 
-<h3 class="roadmap-plan-heading" id="plan-m0"><span class="roadmap-plan-id">M0</span> Public floor online <span class="roadmap-chip roadmap-chip--shipped">shipped</span> <span class="roadmap-plan-count">6 shipped · 0 open</span></h3>
-
-<details class="roadmap-details roadmap-plan-body" open markdown="1">
-<summary aria-label="Workstreams and exit criteria, 6 items"><span>Workstreams and exit criteria</span><span class="roadmap-meta">6 items</span></summary>
-
-<h4 class="roadmap-table-heading" id="plan-m0-workstreams">Workstreams</h4>
+**Workstreams**
 
 | Workstream | State | Owner | Evidence |
 |---|---|---|---|
-| **Public floor, public gate and preview release**<br><span class="roadmap-exit">Exit: Both repositories, the Pages sites, the public gate, failure reporting, the promotion gate and v0.0.3-preview are live.</span><br><span class="roadmap-source">Source: M0, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | maintainers | [this page: snapshot](#snapshot) |
-| **Build the floor from a clean machine**<br><span class="roadmap-exit">Exit: A clean clone reaches the public gate, the pinned corpus probe, and the supported suite through the documented commands; the sharded gate and receipt (M1), corpus boundary (M1), contributor hub (M4), and remaining known gaps (M2-X4) are composed here rather than restated.</span><br><span class="roadmap-source">Source: TASKS.md closed rows: Verify the public floor on a fresh machine, Publish the corpus manifest; docs/testing.md setup; composes M1-SHARD, M1-RECEIPT, M1-CORPUS, M4-HUB and M2-X4</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | floor tooling | [evidence: a-fresh-clone](evidence.md#a-fresh-clone) |
-{: .roadmap-table .roadmap-table--plan}
+| **Public floor, public gate and preview release**<br>Exit: Both repositories, the Pages sites, the public gate, failure reporting, the promotion gate and v0.0.3-preview are live.<br>Source: M0, existing roadmap | shipped | maintainers | [this page: snapshot](#snapshot) |
+| **Build the floor from a clean machine**<br>Exit: A clean clone reaches the public gate, the pinned corpus probe, and the supported suite through the documented commands; the sharded gate and receipt (M1), corpus boundary (M1), contributor hub (M4), and remaining known gaps (M2-X4) are composed here rather than restated.<br>Source: TASKS.md closed rows: Verify the public floor on a fresh machine, Publish the corpus manifest; docs/testing.md setup; composes M1-SHARD, M1-RECEIPT, M1-CORPUS, M4-HUB and M2-X4 | shipped | floor tooling | [evidence: a-fresh-clone](evidence.md#a-fresh-clone) |
 
-<h4 class="roadmap-table-heading" id="plan-m0-exit-criteria">Exit criteria</h4>
+**Exit criteria**
 
 | Exit criterion | State | Owner | Evidence |
 |---|---|---|---|
-| **The setup sequence names the guardian build and engine bundle before the supported suite, and docs/testing.md names each refusal rather than calling it a skip.**<br><span class="roadmap-source">Source: docs/testing.md: Development-floor setup; TASKS.md: Verify the public floor on a fresh machine</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | floor tooling | [evidence: a-fresh-clone](evidence.md#a-fresh-clone) |
-| **The docs link check resolves every tracked repository-relative Markdown link, and the briefing liveness guard refuses a linked path or backticked repo path that git does not hold.**<br><span class="roadmap-source">Source: tests/prevention/agent-docs-liveness.test.ts; scripts/check-docs-links.mjs</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | docs | [evidence: docs-links](evidence.md#docs-links) |
-| **A tracked file recorded as 100644 stays 0644 in the working tree; a new atomic write takes 0600 only when it creates the file; and engine/bridlewise.config.json is 0600 in the checkout and CI.**<br><span class="roadmap-source">Source: TASKS.md: PUBLIC-SNAPSHOT-FILE-MODES; .github/workflows/ci.yml</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | floor tooling | [TASKS: done](../trackers/TASKS.md#done) |
-| **The evidence page's gates name a command and an expected shape, and the record-your-own-check form gives a reviewer the claim, commit, command, observation, and interpretation fields.**<br><span class="roadmap-source">Source: docs/floor/evidence.md: Record your own check</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | docs | [evidence: record-your-own-check](evidence.md#record-your-own-check) |
-{: .roadmap-table .roadmap-table--plan}
+| **The setup sequence names the guardian build and engine bundle before the supported suite, and docs/testing.md names each refusal rather than calling it a skip.**<br>Source: docs/testing.md: Development-floor setup; TASKS.md: Verify the public floor on a fresh machine | shipped | floor tooling | [evidence: a-fresh-clone](evidence.md#a-fresh-clone) |
+| **The docs link check resolves every tracked repository-relative Markdown link, and the briefing liveness guard refuses a linked path or backticked repo path that git does not hold.**<br>Source: tests/prevention/agent-docs-liveness.test.ts; scripts/check-docs-links.mjs | shipped | docs | [evidence: docs-links](evidence.md#docs-links) |
+| **A tracked file recorded as 100644 stays 0644 in the working tree; a new atomic write takes 0600 only when it creates the file; and engine/bridlewise.config.json is 0600 in the checkout and CI.**<br>Source: TASKS.md: PUBLIC-SNAPSHOT-FILE-MODES; .github/workflows/ci.yml | shipped | floor tooling | [TASKS: done](../trackers/TASKS.md#done) |
+| **The evidence page's gates name a command and an expected shape, and the record-your-own-check form gives a reviewer the claim, commit, command, observation, and interpretation fields.**<br>Source: docs/floor/evidence.md: Record your own check | shipped | docs | [evidence: record-your-own-check](evidence.md#record-your-own-check) |
 
-</details>
+#### M1 · Reproducible, sharded floor — in progress (9 shipped · 3 open)
 
-<h3 class="roadmap-plan-heading" id="plan-m1"><span class="roadmap-plan-id">M1</span> Reproducible, sharded floor <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> <span class="roadmap-plan-count">9 shipped · 3 open</span></h3>
-
-<details class="roadmap-details roadmap-plan-body" open markdown="1">
-<summary aria-label="Workstreams and exit criteria, 12 items"><span>Workstreams and exit criteria</span><span class="roadmap-meta">12 items</span></summary>
-
-<h4 class="roadmap-table-heading" id="plan-m1-workstreams">Workstreams</h4>
+**Workstreams**
 
 | Workstream | State | Owner | Evidence |
 |---|---|---|---|
-| **Shard the full suite**<br><span class="roadmap-exit">Exit: The manifest verifies against the live suite, the plan is deterministic, and a matrix of runners executes disjoint shards.</span><br><span class="roadmap-source">Source: M1 workstream 1, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
-| **One qualification receipt**<br><span class="roadmap-exit">Exit: The merge refuses a missing, duplicate, failed, skipped, dirty or wrong-commit shard and uploads one receipt with the counts, timings and exclusion anchors.</span><br><span class="roadmap-source">Source: M1 workstream 2, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
-| **Reproducible fixtures**<br><span class="roadmap-exit">Exit: The pinned corpus subset is fetched and verified outside the checkout; the raw cache stays unpublished.</span><br><span class="roadmap-source">Source: M1 workstream 3, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | engine fixtures | [evidence: corpus-boundary](evidence.md#corpus-boundary) |
-| **Reproducible performance report**<br><span class="roadmap-exit">Exit: A profile at the judged head is generated by npm run perf:profile under the idle-host contract and judged by the regression gate.</span><br><span class="roadmap-source">Source: M1 workstream 4, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | performance | [evidence: performance-probe](evidence.md#performance-probe) |
-| **Repair the baseline reds**<br><span class="roadmap-exit">Exit: The supported file set runs without a failing or skipped test, and every exclusion is named with evidence.</span><br><span class="roadmap-source">Source: M1 workstream 5, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | floor tooling | [evidence: the-supported-suite-on-one-host](evidence.md#the-supported-suite-on-one-host) |
-| **A node:test shard runner that preserves the inventory contract**<br><span class="roadmap-exit">Exit: The public node:test smoke files run inside the same shard and receipt contract as the supported Vitest set, without leaving the inventory.</span><br><span class="roadmap-source">Source: M1 help-wanted lane, existing roadmap; no task row yet</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
-{: .roadmap-table .roadmap-table--plan}
+| **Shard the full suite**<br>Exit: The manifest verifies against the live suite, the plan is deterministic, and a matrix of runners executes disjoint shards.<br>Source: M1 workstream 1, existing roadmap | shipped | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
+| **One qualification receipt**<br>Exit: The merge refuses a missing, duplicate, failed, skipped, dirty or wrong-commit shard and uploads one receipt with the counts, timings and exclusion anchors.<br>Source: M1 workstream 2, existing roadmap | shipped | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
+| **Reproducible fixtures**<br>Exit: The pinned corpus subset is fetched and verified outside the checkout; the raw cache stays unpublished.<br>Source: M1 workstream 3, existing roadmap | shipped | engine fixtures | [evidence: corpus-boundary](evidence.md#corpus-boundary) |
+| **Reproducible performance report**<br>Exit: A profile at the judged head is generated by npm run perf:profile under the idle-host contract and judged by the regression gate.<br>Source: M1 workstream 4, existing roadmap | in progress | performance | [evidence: performance-probe](evidence.md#performance-probe) |
+| **Repair the baseline reds**<br>Exit: The supported file set runs without a failing or skipped test, and every exclusion is named with evidence.<br>Source: M1 workstream 5, existing roadmap | shipped | floor tooling | [evidence: the-supported-suite-on-one-host](evidence.md#the-supported-suite-on-one-host) |
+| **A node:test shard runner that preserves the inventory contract**<br>Exit: The public node:test smoke files run inside the same shard and receipt contract as the supported Vitest set, without leaving the inventory.<br>Source: M1 help-wanted lane, existing roadmap; no task row yet | planned | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
 
-<h4 class="roadmap-table-heading" id="plan-m1-exit-criteria">Exit criteria</h4>
+**Exit criteria**
 
 | Exit criterion | State | Owner | Evidence |
 |---|---|---|---|
-| **A push and pull-request CI job calls the shard workflow; dispatch remains available.**<br><span class="roadmap-source">Source: M1 exit criterion 1, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | CI | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
-| **The merge refuses a missing shard, a duplicate file, a skipped file, a failed result, a dirty tree, or a shard from another commit.**<br><span class="roadmap-source">Source: M1 exit criterion 2, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
-| **The merge uploads one receipt naming the manifest digest, shard indexes and timings, pass/fail counts, and the excluded files with their evidence anchors.**<br><span class="roadmap-source">Source: M1 exit criterion 3, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
-| **One receipt records the exact commit, shard count, runner class, total test-phase time, and any unsupported suite with its named prerequisite.**<br><span class="roadmap-source">Source: M1 exit criterion 4, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
-| **The full-suite test phase is at least 10x faster than the single-runner baseline on the documented runner class, and the receipt records the measured factor.**<br><span class="roadmap-source">Source: M1 exit criterion 5, existing roadmap; 2.81x measured at d47909de</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
-| **A fresh clone with the documented setup runs the supported suite without guessing which tests are silently missing.**<br><span class="roadmap-source">Source: M1 exit criterion 6, existing roadmap; met at b866b826</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | floor tooling | [evidence: a-fresh-clone](evidence.md#a-fresh-clone) |
-{: .roadmap-table .roadmap-table--plan}
+| **A push and pull-request CI job calls the shard workflow; dispatch remains available.**<br>Source: M1 exit criterion 1, existing roadmap | shipped | CI | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
+| **The merge refuses a missing shard, a duplicate file, a skipped file, a failed result, a dirty tree, or a shard from another commit.**<br>Source: M1 exit criterion 2, existing roadmap | shipped | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
+| **The merge uploads one receipt naming the manifest digest, shard indexes and timings, pass/fail counts, and the excluded files with their evidence anchors.**<br>Source: M1 exit criterion 3, existing roadmap | shipped | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
+| **One receipt records the exact commit, shard count, runner class, total test-phase time, and any unsupported suite with its named prerequisite.**<br>Source: M1 exit criterion 4, existing roadmap | shipped | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
+| **The full-suite test phase is at least 10x faster than the single-runner baseline on the documented runner class, and the receipt records the measured factor.**<br>Source: M1 exit criterion 5, existing roadmap; 2.81x measured at d47909de | planned | floor tooling | [evidence: the-sharded-gate](evidence.md#the-sharded-gate) |
+| **A fresh clone with the documented setup runs the supported suite without guessing which tests are silently missing.**<br>Source: M1 exit criterion 6, existing roadmap; met at b866b826 | shipped | floor tooling | [evidence: a-fresh-clone](evidence.md#a-fresh-clone) |
 
-</details>
+#### M2 · Admission evidence — planned (3 shipped · 6 open)
 
-<h3 class="roadmap-plan-heading" id="plan-m2"><span class="roadmap-plan-id">M2</span> Admission evidence <span class="roadmap-chip roadmap-chip--planned">planned</span> <span class="roadmap-plan-count">3 shipped · 6 open</span></h3>
-
-<details class="roadmap-details roadmap-plan-body" open markdown="1">
-<summary aria-label="Workstreams and exit criteria, 9 items"><span>Workstreams and exit criteria</span><span class="roadmap-meta">9 items</span></summary>
-
-<h4 class="roadmap-table-heading" id="plan-m2-workstreams">Workstreams</h4>
+**Workstreams**
 
 | Workstream | State | Owner | Evidence |
 |---|---|---|---|
-| **Per-capability readiness receipts**<br><span class="roadmap-exit">Exit: Every capability names its gate decision, the policy fact that decided it, and a remedy when denied.</span><br><span class="roadmap-source">Source: M2 workstream 1, existing roadmap; receipt shape recorded in TASKS.md</span> | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | engine governance | [TASKS](../trackers/TASKS.md) |
-| **Close the remaining pre-admission gates**<br><span class="roadmap-exit">Exit: Model invocation, repository mutation, process execution and network egress each have an admission decision or a named refusal.</span><br><span class="roadmap-source">Source: M2 workstream 2, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | engine governance | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
-| **Publish the method and limits of the safety and privacy controls**<br><span class="roadmap-exit">Exit: The detectors, redaction and Landlock boundary are documented with their limits.</span><br><span class="roadmap-source">Source: M2 workstream 3, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | engine safety | [evidence: guardian](evidence.md#guardian) |
-| **Release provenance and verification**<br><span class="roadmap-exit">Exit: Versioned metadata, checksums, attestations and a verification path ship; signing follows a reproducible build.</span><br><span class="roadmap-source">Source: M2 workstream 4, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | release | [evidence: product-preview-release](evidence.md#product-preview-release) |
-| **Independent security review**<br><span class="roadmap-exit">Exit: An independent review is commissioned, or its absence is stated without implying that CI is an audit.</span><br><span class="roadmap-source">Source: M2 workstream 5, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | maintainers | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
-{: .roadmap-table .roadmap-table--plan}
+| **Per-capability readiness receipts**<br>Exit: Every capability names its gate decision, the policy fact that decided it, and a remedy when denied.<br>Source: M2 workstream 1, existing roadmap; receipt shape recorded in TASKS.md | in progress | engine governance | [TASKS](../trackers/TASKS.md) |
+| **Close the remaining pre-admission gates**<br>Exit: Model invocation, repository mutation, process execution and network egress each have an admission decision or a named refusal.<br>Source: M2 workstream 2, existing roadmap | planned | engine governance | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
+| **Publish the method and limits of the safety and privacy controls**<br>Exit: The detectors, redaction and Landlock boundary are documented with their limits.<br>Source: M2 workstream 3, existing roadmap | planned | engine safety | [evidence: guardian](evidence.md#guardian) |
+| **Release provenance and verification**<br>Exit: Versioned metadata, checksums, attestations and a verification path ship; signing follows a reproducible build.<br>Source: M2 workstream 4, existing roadmap | in progress | release | [evidence: product-preview-release](evidence.md#product-preview-release) |
+| **Independent security review**<br>Exit: An independent review is commissioned, or its absence is stated without implying that CI is an audit.<br>Source: M2 workstream 5, existing roadmap | planned | maintainers | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
 
-<h4 class="roadmap-table-heading" id="plan-m2-exit-criteria">Exit criteria</h4>
+**Exit criteria**
 
 | Exit criterion | State | Owner | Evidence |
 |---|---|---|---|
-| **preflight names each capability and its state, with evidence and a remedy for anything denied.**<br><span class="roadmap-source">Source: M2 exit criterion 1, existing roadmap; receipt shape recorded in TASKS.md</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | engine governance | [TASKS](../trackers/TASKS.md) |
-| **No capability is described as admitted without a reproducible receipt.**<br><span class="roadmap-source">Source: M2 exit criterion 2, existing roadmap; only preflight is admitted</span> | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | engine governance | [TASKS](../trackers/TASKS.md) |
-| **A release can be verified from published assets and instructions.**<br><span class="roadmap-source">Source: M2 exit criterion 3, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | release | [evidence: product-preview-release](evidence.md#product-preview-release) |
-| **The project states exactly what has and has not been reviewed, without implying that CI is an audit.**<br><span class="roadmap-source">Source: M2 exit criterion 4, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | maintainers | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
-{: .roadmap-table .roadmap-table--plan}
+| **preflight names each capability and its state, with evidence and a remedy for anything denied.**<br>Source: M2 exit criterion 1, existing roadmap; receipt shape recorded in TASKS.md | shipped | engine governance | [TASKS](../trackers/TASKS.md) |
+| **No capability is described as admitted without a reproducible receipt.**<br>Source: M2 exit criterion 2, existing roadmap; only preflight is admitted | in progress | engine governance | [TASKS](../trackers/TASKS.md) |
+| **A release can be verified from published assets and instructions.**<br>Source: M2 exit criterion 3, existing roadmap | shipped | release | [evidence: product-preview-release](evidence.md#product-preview-release) |
+| **The project states exactly what has and has not been reviewed, without implying that CI is an audit.**<br>Source: M2 exit criterion 4, existing roadmap | shipped | maintainers | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
 
-</details>
+#### M3 · Product hardening — planned (2 shipped · 9 open)
 
-<h3 class="roadmap-plan-heading" id="plan-m3"><span class="roadmap-plan-id">M3</span> Product hardening <span class="roadmap-chip roadmap-chip--planned">planned</span> <span class="roadmap-plan-count">2 shipped · 9 open</span></h3>
-
-<details class="roadmap-details roadmap-plan-body" open markdown="1">
-<summary aria-label="Workstreams and exit criteria, 11 items"><span>Workstreams and exit criteria</span><span class="roadmap-meta">11 items</span></summary>
-
-<h4 class="roadmap-table-heading" id="plan-m3-workstreams">Workstreams</h4>
+**Workstreams**
 
 | Workstream | State | Owner | Evidence |
 |---|---|---|---|
-| **Backup and restore for the database and key home, with verification**<br><span class="roadmap-exit">Exit: One documented flow backs up and restores the database with its key material and proves each copy opens.</span><br><span class="roadmap-source">Source: M3 workstream 1, existing roadmap; task board done row</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | server database | [cli: db-backupts](../cli.md#db-backupts) |
-| **Provider conformance fixtures and clearer setup failures**<br><span class="roadmap-exit">Exit: The Responses path and a second provider shape are proved offline, with typed setup failures.</span><br><span class="roadmap-source">Source: M3 workstream 2, existing roadmap; a second fixture is closed in TASKS.md</span> | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | engine providers | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
-| **MCP coverage**<br><span class="roadmap-exit">Exit: The MCP transports and server lifecycle have conformance coverage and named prerequisites.</span><br><span class="roadmap-source">Source: M3 later list, existing roadmap; not one of the six workstreams</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | engine MCP | [extending](../extending.md) |
-| **Cross-platform path handling with an explicit Landlock refusal**<br><span class="roadmap-exit">Exit: Platform limits are stated before installation, and unsupported confinement refuses explicitly.</span><br><span class="roadmap-source">Source: M3 workstream 3, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | engine platform | [evidence: guardian](evidence.md#guardian) |
-| **Measured scale and performance envelope**<br><span class="roadmap-exit">Exit: Large repositories and concurrent runs have a measured envelope, and red budgets are tracked rather than called a pass.</span><br><span class="roadmap-source">Source: M3 workstream 4, existing roadmap; red LCP, long-task, API and long-chat budgets</span> | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | performance | [evidence: performance-probe](evidence.md#performance-probe) |
-| **Accessibility and responsive behavior as tested contracts**<br><span class="roadmap-exit">Exit: Accessibility and responsive behavior have tested contracts, not visual claims.</span><br><span class="roadmap-source">Source: M3 workstream 5, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | web | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
-| **A stable extension surface with compatibility notes**<br><span class="roadmap-exit">Exit: Extension points carry compatibility notes and a tested failure path.</span><br><span class="roadmap-source">Source: M3 workstream 6, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | engine extension | [extending](../extending.md) |
-{: .roadmap-table .roadmap-table--plan}
+| **Backup and restore for the database and key home, with verification**<br>Exit: One documented flow backs up and restores the database with its key material and proves each copy opens.<br>Source: M3 workstream 1, existing roadmap; task board done row | shipped | server database | [cli: db-backupts](../cli.md#db-backupts) |
+| **Provider conformance fixtures and clearer setup failures**<br>Exit: The Responses path and a second provider shape are proved offline, with typed setup failures.<br>Source: M3 workstream 2, existing roadmap; a second fixture is closed in TASKS.md | in progress | engine providers | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
+| **MCP coverage**<br>Exit: The MCP transports and server lifecycle have conformance coverage and named prerequisites.<br>Source: M3 later list, existing roadmap; not one of the six workstreams | planned | engine MCP | [extending](../extending.md) |
+| **Cross-platform path handling with an explicit Landlock refusal**<br>Exit: Platform limits are stated before installation, and unsupported confinement refuses explicitly.<br>Source: M3 workstream 3, existing roadmap | planned | engine platform | [evidence: guardian](evidence.md#guardian) |
+| **Measured scale and performance envelope**<br>Exit: Large repositories and concurrent runs have a measured envelope, and red budgets are tracked rather than called a pass.<br>Source: M3 workstream 4, existing roadmap; red LCP, long-task, API and long-chat budgets | in progress | performance | [evidence: performance-probe](evidence.md#performance-probe) |
+| **Accessibility and responsive behavior as tested contracts**<br>Exit: Accessibility and responsive behavior have tested contracts, not visual claims.<br>Source: M3 workstream 5, existing roadmap | planned | web | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
+| **A stable extension surface with compatibility notes**<br>Exit: Extension points carry compatibility notes and a tested failure path.<br>Source: M3 workstream 6, existing roadmap | planned | engine extension | [extending](../extending.md) |
 
-<h4 class="roadmap-table-heading" id="plan-m3-exit-criteria">Exit criteria</h4>
+**Exit criteria**
 
 | Exit criterion | State | Owner | Evidence |
 |---|---|---|---|
-| **Each capability has a documented failure path and a regression.**<br><span class="roadmap-source">Source: M3 exit criterion 1, existing roadmap; backup and restore carry the first regression</span> | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | product | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
-| **Backup and restore are one documented flow with a verification step.**<br><span class="roadmap-source">Source: M3 exit criterion 2, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | server database | [cli: db-backupts](../cli.md#db-backupts) |
-| **Platform limits are stated before installation.**<br><span class="roadmap-source">Source: M3 exit criterion 3, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | engine platform | [evidence: guardian](evidence.md#guardian) |
-| **Performance claims link to a method and a report.**<br><span class="roadmap-source">Source: M3 exit criterion 4, existing roadmap; the method and probe exist, the envelope does not</span> | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | performance | [evidence: performance-probe](evidence.md#performance-probe) |
-{: .roadmap-table .roadmap-table--plan}
+| **Each capability has a documented failure path and a regression.**<br>Source: M3 exit criterion 1, existing roadmap; backup and restore carry the first regression | in progress | product | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
+| **Backup and restore are one documented flow with a verification step.**<br>Source: M3 exit criterion 2, existing roadmap | shipped | server database | [cli: db-backupts](../cli.md#db-backupts) |
+| **Platform limits are stated before installation.**<br>Source: M3 exit criterion 3, existing roadmap | planned | engine platform | [evidence: guardian](evidence.md#guardian) |
+| **Performance claims link to a method and a report.**<br>Source: M3 exit criterion 4, existing roadmap; the method and probe exist, the envelope does not | in progress | performance | [evidence: performance-probe](evidence.md#performance-probe) |
 
-</details>
+#### M4 · Sustainable contribution — in progress (4 shipped · 5 open)
 
-<h3 class="roadmap-plan-heading" id="plan-m4"><span class="roadmap-plan-id">M4</span> Sustainable contribution <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> <span class="roadmap-plan-count">4 shipped · 5 open</span></h3>
-
-<details class="roadmap-details roadmap-plan-body" open markdown="1">
-<summary aria-label="Workstreams and exit criteria, 9 items"><span>Workstreams and exit criteria</span><span class="roadmap-meta">9 items</span></summary>
-
-<h4 class="roadmap-table-heading" id="plan-m4-workstreams">Workstreams</h4>
+**Workstreams**
 
 | Workstream | State | Owner | Evidence |
 |---|---|---|---|
-| **A contributor hub distinct from the product home**<br><span class="roadmap-exit">Exit: The floor has its own front door, separate from the product documentation mirror.</span><br><span class="roadmap-source">Source: M4 workstream 1, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | docs | [index](../index.md) |
-| **Issue lanes with evidence requirements and a named next action**<br><span class="roadmap-exit">Exit: Every open issue names the evidence it needs or the decision it waits on.</span><br><span class="roadmap-source">Source: M4 workstream 2, existing roadmap; lives on GitHub, not in this tree</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
-| **A first-patch path for docs, tests, guards, benchmarks and portability**<br><span class="roadmap-exit">Exit: Each contribution lane starts from a public command and a reviewable first step.</span><br><span class="roadmap-source">Source: M4 workstream 3, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | docs | [help](help.md) |
-| **Review expectations that reward reproduction and prevention**<br><span class="roadmap-exit">Exit: The review guide asks for the reproduction, the prevention guard and the evidence, not only a green run.</span><br><span class="roadmap-source">Source: M4 workstream 4, existing roadmap</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md) |
-| **A roadmap that records state and exit criteria instead of a wish list**<br><span class="roadmap-exit">Exit: Every planned-but-not-done item is rendered from its owner, and a guard refuses a stale status block.</span><br><span class="roadmap-source">Source: M4 workstream 5, existing roadmap; this change</span> | <span class="roadmap-chip roadmap-chip--shipped">shipped</span> | docs | [this page: workstreams-and-exit-criteria](#workstreams-and-exit-criteria) |
-{: .roadmap-table .roadmap-table--plan}
+| **A contributor hub distinct from the product home**<br>Exit: The floor has its own front door, separate from the product documentation mirror.<br>Source: M4 workstream 1, existing roadmap | shipped | docs | [index](../index.md) |
+| **Issue lanes with evidence requirements and a named next action**<br>Exit: Every open issue names the evidence it needs or the decision it waits on.<br>Source: M4 workstream 2, existing roadmap; lives on GitHub, not in this tree | planned | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
+| **A first-patch path for docs, tests, guards, benchmarks and portability**<br>Exit: Each contribution lane starts from a public command and a reviewable first step.<br>Source: M4 workstream 3, existing roadmap | shipped | docs | [help](help.md) |
+| **Review expectations that reward reproduction and prevention**<br>Exit: The review guide asks for the reproduction, the prevention guard and the evidence, not only a green run.<br>Source: M4 workstream 4, existing roadmap | shipped | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md) |
+| **A roadmap that records state and exit criteria instead of a wish list**<br>Exit: Every planned-but-not-done item is rendered from its owner, and a guard refuses a stale status block.<br>Source: M4 workstream 5, existing roadmap; this change | shipped | docs | [this page: workstreams-and-exit-criteria](#workstreams-and-exit-criteria) |
 
-<h4 class="roadmap-table-heading" id="plan-m4-exit-criteria">Exit criteria</h4>
+**Exit criteria**
 
 | Exit criterion | State | Owner | Evidence |
 |---|---|---|---|
-| **A new contributor can install, run the public gate, pick a labeled issue, and open a reviewable change using only public instructions.**<br><span class="roadmap-source">Source: M4 exit criterion 1, existing roadmap; install and run are proved, the labeled-issue path is not</span> | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | docs | [evidence: a-fresh-clone](evidence.md#a-fresh-clone) |
-| **Every open issue states what evidence is missing or what decision is needed.**<br><span class="roadmap-source">Source: M4 exit criterion 2, existing roadmap; judged on GitHub, not in this tree</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
-| **The roadmap and the issue labels agree about the current milestone.**<br><span class="roadmap-source">Source: M4 exit criterion 3, existing roadmap; judged on GitHub, not in this tree</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
-| **A documentation example is verified against the command output before it ships.**<br><span class="roadmap-source">Source: M4 exit criterion 4, existing roadmap; docs:links checks targets, not command output</span> | <span class="roadmap-chip roadmap-chip--in-progress">in progress</span> | docs | [evidence: docs-links](evidence.md#docs-links) |
-{: .roadmap-table .roadmap-table--plan}
-
-</details>
+| **A new contributor can install, run the public gate, pick a labeled issue, and open a reviewable change using only public instructions.**<br>Source: M4 exit criterion 1, existing roadmap; install and run are proved, the labeled-issue path is not | in progress | docs | [evidence: a-fresh-clone](evidence.md#a-fresh-clone) |
+| **Every open issue states what evidence is missing or what decision is needed.**<br>Source: M4 exit criterion 2, existing roadmap; judged on GitHub, not in this tree | planned | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
+| **The roadmap and the issue labels agree about the current milestone.**<br>Source: M4 exit criterion 3, existing roadmap; judged on GitHub, not in this tree | planned | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
+| **A documentation example is verified against the command output before it ships.**<br>Source: M4 exit criterion 4, existing roadmap; docs:links checks targets, not command output | in progress | docs | [evidence: docs-links](evidence.md#docs-links) |
 <!-- END GENERATED: roadmap workstreams and exit criteria -->
 
 ## Open work
@@ -952,107 +863,76 @@ Everything below is rendered from its owners: the open rows of [TASKS.md](../tra
 
 Every open row of [TASKS.md](../trackers/TASKS.md) appears here. A row leaves this table only when its tracker row closes; the state rule and exit criterion for each tracker section are declared in the ROADMAP-PLAN block.
 
-<section class="roadmap-group" markdown="1">
 #### Open
 
 | Task | State | Owner | Evidence |
 |---|---|---|---|
-| **Bring the supported suite back under the CPU-per-file cap**<br><span class="roadmap-exit">Exit: The row closes in TASKS.md with the reproduction and verification named in its text.</span> | <span class="roadmap-chip roadmap-chip--blocked">blocked</span><span class="roadmap-blocked-by">No clean judged run: 2 of 12 recorded; needs a 12-run idle campaign or an explicit policy decision.</span> | public floor | [evidence: the-supported-suite-on-one-host](evidence.md#the-supported-suite-on-one-host) |
-{: .roadmap-table .roadmap-table--tasks}
+| **Bring the supported suite back under the CPU-per-file cap**<br>Exit: The row closes in TASKS.md with the reproduction and verification named in its text. | blocked (blocked by: No clean judged run: 2 of 12 recorded; needs a 12-run idle campaign or an explicit policy decision.) | public floor | [evidence: the-supported-suite-on-one-host](evidence.md#the-supported-suite-on-one-host) |
 
-</section>
-
-<section class="roadmap-group" markdown="1">
 #### Flaky burn-down owners
 
-<details class="roadmap-details" markdown="1">
-<summary aria-label="Show the 9 rows"><span>Show the rows</span><span class="roadmap-meta">9</span></summary>
-
 | Task | State | Owner | Evidence |
 |---|---|---|---|
-| **FLAKY-PUBLIC-ENGINE-UNDIAGNOSED**<br><span class="roadmap-exit">Exit: Reproduce, fix, or explicitly retire the entry; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-ENGINE-UNLOGGED-RECORDS**<br><span class="roadmap-exit">Exit: Reproduce, fix, or explicitly retire the entry; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-ENGINE-GUARD-REDS-ON-ROUND-TREES**<br><span class="roadmap-exit">Exit: Reproduce, fix, or explicitly retire the entry; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-S1-B12-CONTROL**<br><span class="roadmap-exit">Exit: Reproduce, fix, or explicitly retire the entry; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-ENGINE-ONE-RUN-2026-10-09**<br><span class="roadmap-exit">Exit: Reproduce, fix, or explicitly retire the entry; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-ENGINE-INVENTORY-RACE**<br><span class="roadmap-exit">Exit: Reproduce, fix, or explicitly retire the entry; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-ENGINE-GATE-LOG-PASSWORD-TAIL**<br><span class="roadmap-exit">Exit: Reproduce, fix, or explicitly retire the entry; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-WEB-GUARD-REDS-ON-ROUND-TREES**<br><span class="roadmap-exit">Exit: Reproduce, fix, or explicitly retire the entry; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-WEB-WATCHDOG-C3**<br><span class="roadmap-exit">Exit: Reproduce, fix, or explicitly retire the entry; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-{: .roadmap-table .roadmap-table--tasks}
+| **FLAKY-PUBLIC-ENGINE-UNDIAGNOSED**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-PUBLIC-ENGINE-UNLOGGED-RECORDS**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-PUBLIC-ENGINE-GUARD-REDS-ON-ROUND-TREES**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-PUBLIC-S1-B12-CONTROL**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-PUBLIC-ENGINE-ONE-RUN-2026-10-09**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-PUBLIC-ENGINE-INVENTORY-RACE**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-PUBLIC-ENGINE-GATE-LOG-PASSWORD-TAIL**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-PUBLIC-WEB-GUARD-REDS-ON-ROUND-TREES**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-PUBLIC-WEB-WATCHDOG-C3**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
 
-</details>
-
-</section>
-
-<section class="roadmap-group" markdown="1">
 #### Private web lanes (retained as ordinary work)
 
-<details class="roadmap-details" markdown="1">
-<summary aria-label="Show the 15 rows"><span>Show the rows</span><span class="roadmap-meta">15</span></summary>
-
 | Task | State | Owner | Evidence |
 |---|---|---|---|
-| **FLAKY-CUSTODY-KEEPOUT-ESTALE**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-HELPERS-README-HARNESS-VIEW**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-ISOLATION-PIDFD**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PERF-GATE-STALE-REPORT**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-POPULATION-FLOOR-REDERIVED**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-RESOURCE-SAMPLER-TICK**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-VERDICT-CONFIG-RACE**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-WATCHDOG-C3**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-WEB-ARTIFACT-CENSUS**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-WEB-F5-LINK-RUN**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-WEB-PROXIMITY-ROUND-13-REGEX**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-WEB-STRAY-TREE-RUN**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-WEB-SUBSTITUTE-HOME**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-WEB-UNDIAGNOSED**<br><span class="roadmap-exit">Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes.</span> | <span class="roadmap-chip roadmap-chip--planned">planned</span> | private web floor | [TASKS](../trackers/TASKS.md) |
-{: .roadmap-table .roadmap-table--tasks}
-
-</details>
-
-</section>
+| **FLAKY-CUSTODY-KEEPOUT-ESTALE**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-HELPERS-README-HARNESS-VIEW**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-ISOLATION-PIDFD**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-PERF-GATE-STALE-REPORT**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-POPULATION-FLOOR-REDERIVED**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-RESOURCE-SAMPLER-TICK**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-VERDICT-CONFIG-RACE**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-WATCHDOG-C3**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-WEB-ARTIFACT-CENSUS**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-WEB-F5-LINK-RUN**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-WEB-PROXIMITY-ROUND-13-REGEX**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-WEB-STRAY-TREE-RUN**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-WEB-SUBSTITUTE-HOME**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
+| **FLAKY-WEB-UNDIAGNOSED**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 
 ### What the evidence does not prove
 
-Each row is a statement [the evidence page](evidence.md) explicitly refuses to make. The roadmap does not upgrade a non-proof into a plan; a proof becomes work only when the plan block names it.
-
-<details class="roadmap-details" markdown="1">
-<summary aria-label="Show the 20 non-proofs"><span>Show the non-proofs</span><span class="roadmap-meta">20</span></summary>
+The public evidence page names what its receipts do not establish. These statements are not coverage and not a pass.
 
 | Evidence area | Not proved |
 |---|---|
-| [Fresh clone gate](evidence.md#fresh-clone-gate) | the cockpit, the engine domain suites, the browser E2E suite, a live provider, a large repository, or the guardian. Those are separate gates. |
-| [Inventory check](evidence.md#inventory-check) | that any test passed, that the count is coverage, or that the private corpus is present. The corpus root the tests read is not published. |
-| [The supported suite on one host](evidence.md#the-supported-suite-on-one-host) | the four excluded suites, a 10x shard claim, an idle-host CPU verdict, or a fresh-clone run. |
-| [The sharded gate](evidence.md#the-sharded-gate) | a 10x factor, a clean same-commit single-host comparison for the speedup, or that branch protection makes the job a required check. The receipt's `testPhaseMs` is one measurement on the `ubuntu-24.04` class; the 2.81x figure at `d47909de` remains a historical comparison. |
-| [A fresh clone](evidence.md#a-fresh-clone) | the four excluded suites (two private-only guards, the performance regression gate, the WSL keep-out arm), an idle-host CPU verdict, or a 10x shard claim. |
-| [Performance probe](evidence.md#performance-probe) | This is one profile and one shard class on one audit date. It is not a cross-machine benchmark, a reproducible performance proof, or the full suite. |
-| [Guardian](evidence.md#guardian) | that the guardian is a VM, a network firewall, a seccomp profile, or a user-namespace boundary. A pass on one kernel is not a pass on every kernel. |
-| [Promotion state](evidence.md#promotion-state) | that a promotion is due, that the target gate passes, that the remote is reachable, or that the public branch matches the maintainer target. Use `npm run promote -- plan --diff` in a checkout with the source ref for a projected diff. Nothing there publishes. |
-| [CI evidence](evidence.md#ci-evidence) | that the full corpus-backed, live, or E2E suites ran. They do not run in that job. |
-| [Product preview release](evidence.md#product-preview-release) | who published the list, that the build is reproducible, that the assets are signed, or that the code is correct. A checksum is not a signature. |
-| [Product preview release](evidence.md#product-preview-release) | the source is correct or the build is reproducible. |
-| [Docs links](evidence.md#docs-links) | that the rendered Pages site has no broken links, or that an untracked page is deployed. |
-| [What none of this proves](evidence.md#what-none-of-this-proves) | **A green CI run is not correctness.** It proves the configured steps passed at one commit. |
-| [What none of this proves](evidence.md#what-none-of-this-proves) | **The focused probes are not the full suite.** The full suite still needs the complete corpus, a fresh performance report, Chromium, systemd, OpenSSL, and Landlock. The probes above cover the declared corpus root, the corpus readers, the scanner bait, the profile, and the profile regression gate, not the full inventory or the live provider suite. |
-| [What none of this proves](evidence.md#what-none-of-this-proves) | **A current inventory is not a passing suite.** It proves the inventory matches the tracked surface. |
-| [What none of this proves](evidence.md#what-none-of-this-proves) | **Guardian passes are not a universal sandbox proof.** A skip is not a pass, and one kernel is not every kernel. |
-| [What none of this proves](evidence.md#what-none-of-this-proves) | **A promotion refusal is not a failed release.** It can be the correct answer for a checkout that lacks the maintainer refs. |
-| [What none of this proves](evidence.md#what-none-of-this-proves) | **Checksums and attestations are not audits.** They bind bytes and build identity, not intent or correctness. |
-| [What none of this proves](evidence.md#what-none-of-this-proves) | **The docs link check is not a site crawl.** It does not see rendered Liquid links. |
-| [What none of this proves](evidence.md#what-none-of-this-proves) | **There has been no security audit.** No third-party review, penetration test, or certification exists. |
-{: .roadmap-table .roadmap-table--nonproofs}
-
-</details>
+| Fresh clone gate | [the cockpit, the engine domain suites, the browser E2E suite, a live provider, a large repository, or the guardian. Those are separate gates.](evidence.md#fresh-clone-gate) |
+| Inventory check | [that any test passed, that the count is coverage, or that the private corpus is present. The corpus root the tests read is not published.](evidence.md#inventory-check) |
+| The supported suite on one host | [the four excluded suites, a 10x shard claim, an idle-host CPU verdict, or a fresh-clone run.](evidence.md#the-supported-suite-on-one-host) |
+| The sharded gate | [a 10x factor, a clean same-commit single-host comparison for the speedup, or that branch protection makes the job a required check. The receipt's `testPhaseMs` is one measurement on the `ubuntu-24.04` class; the 2.81x figure at `d47909de` remains a historical comparison.](evidence.md#the-sharded-gate) |
+| A fresh clone | [the four excluded suites (two private-only guards, the performance regression gate, the WSL keep-out arm), an idle-host CPU verdict, or a 10x shard claim.](evidence.md#a-fresh-clone) |
+| Performance probe | [This is one profile and one shard class on one audit date. It is not a cross-machine benchmark, a reproducible performance proof, or the full suite.](evidence.md#performance-probe) |
+| Guardian | [that the guardian is a VM, a network firewall, a seccomp profile, or a user-namespace boundary. A pass on one kernel is not a pass on every kernel.](evidence.md#guardian) |
+| Promotion state | [that a promotion is due, that the target gate passes, that the remote is reachable, or that the public branch matches the maintainer target. Use `npm run promote -- plan --diff` in a checkout with the source ref for a projected diff. Nothing there publishes.](evidence.md#promotion-state) |
+| CI evidence | [that the full corpus-backed, live, or E2E suites ran. They do not run in that job.](evidence.md#ci-evidence) |
+| Product preview release | [who published the list, that the build is reproducible, that the assets are signed, or that the code is correct. A checksum is not a signature.](evidence.md#product-preview-release) |
+| Product preview release | [the source is correct or the build is reproducible.](evidence.md#product-preview-release) |
+| Docs links | [that the rendered Pages site has no broken links, or that an untracked page is deployed.](evidence.md#docs-links) |
+| What none of this proves | [**A green CI run is not correctness.** It proves the configured steps passed at one commit.](evidence.md#what-none-of-this-proves) |
+| What none of this proves | [**The focused probes are not the full suite.** The full suite still needs the complete corpus, a fresh performance report, Chromium, systemd, OpenSSL, and Landlock. The probes above cover the declared corpus root, the corpus readers, the scanner bait, the profile, and the profile regression gate, not the full inventory or the live provider suite.](evidence.md#what-none-of-this-proves) |
+| What none of this proves | [**A current inventory is not a passing suite.** It proves the inventory matches the tracked surface.](evidence.md#what-none-of-this-proves) |
+| What none of this proves | [**Guardian passes are not a universal sandbox proof.** A skip is not a pass, and one kernel is not every kernel.](evidence.md#what-none-of-this-proves) |
+| What none of this proves | [**A promotion refusal is not a failed release.** It can be the correct answer for a checkout that lacks the maintainer refs.](evidence.md#what-none-of-this-proves) |
+| What none of this proves | [**Checksums and attestations are not audits.** They bind bytes and build identity, not intent or correctness.](evidence.md#what-none-of-this-proves) |
+| What none of this proves | [**The docs link check is not a site crawl.** It does not see rendered Liquid links.](evidence.md#what-none-of-this-proves) |
+| What none of this proves | [**There has been no security audit.** No third-party review, penetration test, or certification exists.](evidence.md#what-none-of-this-proves) |
 
 ### Not planned
 
 Deliberate non-goals, kept here with their reason.
-
-<details class="roadmap-details" markdown="1">
-<summary aria-label="Show the 7 not-planned items"><span>Show the not-planned items</span><span class="roadmap-meta">7</span></summary>
 
 | Not planned | Why | Evidence |
 |---|---|---|
@@ -1063,9 +943,6 @@ Deliberate non-goals, kept here with their reason.
 | A benchmark number without its method. | Performance claims must link to a method and a report. | [evidence: performance-probe](evidence.md#performance-probe) |
 | A universal provider compatibility claim. | Provider conformance is proved per shape, not universally. | [extending](../extending.md) |
 | A release date. | This roadmap is a statement of intent, not a schedule. | [this page: snapshot](#snapshot) |
-{: .roadmap-table .roadmap-table--notplanned}
-
-</details>
 <!-- END GENERATED: roadmap open work -->
 
 ## How this roadmap changes
