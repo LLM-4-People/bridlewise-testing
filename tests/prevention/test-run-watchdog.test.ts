@@ -179,7 +179,12 @@ describe("1. the watchdog lives outside the runtime and kills on a STALL, never 
       });
       expect(supervisedCommandOutcome(run, "outer focused-wrapper fixture").kind).toBe("pass");
       expect(run.ending).toBe("exited");
-      expect(run.exitCode).toBe(straggler ? 1 : 0);
+      // 70 is the CLI process-fault policy's EX_SOFTWARE exit: this wrapper
+      // faulted closed. The fault's name and stack are written only to the
+      // output captured above, so they must ride the failure — the recorded
+      // FLAKY-WATCHDOG-C3 red was the bare `expected 70 to be +0` and named
+      // no fault, which is why it could not be closed.
+      expect(run.exitCode, `the focused wrapper exited ${String(run.exitCode)}; its own output:\n${output.join("")}`).toBe(straggler ? 1 : 0);
       expect(JSON.parse(readFileSync(invocationPath, "utf8"))).toEqual({ argv: ["vitest", "run", "focused-fixture.test.ts"], token });
       if (straggler) {
         expect(output.join("")).toMatch(/web test command did not complete normally/u);
