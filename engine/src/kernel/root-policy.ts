@@ -1323,6 +1323,14 @@ const ROOT_POLICY_VALUE = {
     specSchemaVersion: schemaId("self-protection-spec", 1),
     binaryRelativePath: "guardian/build/harness-landlock-guardian",
     binarySha256: "28ee831d1359c87d339f36899de33d5de9c246d1294f556430c3b6d1a30fb9c1",
+    /**
+     * The same guardian source built by the Ubuntu 24.04 gcc 14.2 package.
+     * The primary pin is the Debian 14.2 build used by the development host;
+     * both are exact bytes produced by a documented compiler, so the shard
+     * matrix can verify the binary on either supported toolchain without
+     * accepting an arbitrary local rebuild.
+     */
+    binarySha256Alternates: ["2e9e4eadb7806c49b7168e31780999f2769d285f91bd37615079b2628984a5fc"],
     bundleRelativePath: "dist/bundle.js",
     bundleSha256: "c2d96102bba96dd5926e1c7929628fd55c43570a3fc119159f879e6708dbe908",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",

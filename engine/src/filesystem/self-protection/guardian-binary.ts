@@ -149,7 +149,11 @@ export function verifyGuardianBinaryAvailability(
     return deepFreeze<GuardianBinaryAvailability>({ available: false, code: "binary_missing", fallbackAttempted: false });
   }
   const actualSha256 = fileSha256(binaryPath);
-  if (actualSha256 !== ROOT_POLICY.selfProtection.binarySha256) {
+  const acceptedBinaryHashes: readonly string[] = [
+    ROOT_POLICY.selfProtection.binarySha256,
+    ...ROOT_POLICY.selfProtection.binarySha256Alternates,
+  ];
+  if (!acceptedBinaryHashes.includes(actualSha256)) {
     return deepFreeze<GuardianBinaryAvailability>({ available: false, code: "binary_hash_mismatch", fallbackAttempted: false });
   }
   const tempDir = createOwnedTemporaryDirectory(tmpdir(), "harness-guardian-probe-");
