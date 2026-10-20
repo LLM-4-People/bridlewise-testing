@@ -14,7 +14,7 @@
  ],
  "replacement": {
   "contentManifestPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/content-manifest.json",
-  "contentManifestSha256": "52149559ff8b47b50bde90a78fc258477cce28e75ca74e457b96c5269237d0a7",
+  "contentManifestSha256": "bef1b490ecb0f35f6c2c3b0568bea06c2313d2fe63ebbdf030b99111e9c53164",
   "expandedRoot": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4",
   "selection": "runnerEntries",
   "expectedEntries": 10

@@ -38,10 +38,10 @@
     {
       "originalPath": "artifacts/raw/benchmark-results-project-fs.json",
       "searchablePath": "artifacts/raw/benchmark-results-project-fs.json",
-      "originalBytes": 360872,
-      "originalSha256": "73266ef585593f5abd89cfc106b28787888fd16c6a97179c6b1f3985703ba972",
-      "searchableBytes": 360872,
-      "searchableSha256": "73266ef585593f5abd89cfc106b28787888fd16c6a97179c6b1f3985703ba972",
+      "originalBytes": 360852,
+      "originalSha256": "1982dd1b944f1bb1b24d9fb0525aa3f57f5816ed9a928daba12512e931b0830b",
+      "searchableBytes": 360852,
+      "searchableSha256": "1982dd1b944f1bb1b24d9fb0525aa3f57f5816ed9a928daba12512e931b0830b",
       "reconstruction": "identity"
     },
     {
@@ -92,10 +92,10 @@
     {
       "originalPath": "docs/README.md",
       "searchablePath": "docs/README.md",
-      "originalBytes": 1627,
-      "originalSha256": "7dde8f65f90585724843eeb9f62c887114f6c7bafd877b6c9a2f1dd6b20c86bb",
-      "searchableBytes": 1627,
-      "searchableSha256": "7dde8f65f90585724843eeb9f62c887114f6c7bafd877b6c9a2f1dd6b20c86bb",
+      "originalBytes": 1626,
+      "originalSha256": "c0ce725a562e6ada85c326fbcb719af3caa714bbd7e4d47eb0a198a8ff909ae0",
+      "searchableBytes": 1626,
+      "searchableSha256": "c0ce725a562e6ada85c326fbcb719af3caa714bbd7e4d47eb0a198a8ff909ae0",
       "reconstruction": "identity"
     },
     {
@@ -193,10 +193,10 @@
     {
       "originalPath": "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/verify-artifacts.mjs",
       "searchablePath": "expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/verify-artifacts.mjs",
-      "originalBytes": 4533,
-      "originalSha256": "c009f0b3deaf8693cad9eb6226a79391b0c875fbb0fc05cc70c5d65adbe5b954",
-      "searchableBytes": 4533,
-      "searchableSha256": "c009f0b3deaf8693cad9eb6226a79391b0c875fbb0fc05cc70c5d65adbe5b954",
+      "originalBytes": 4532,
+      "originalSha256": "61658964fa1a39bdda28fb22817852aebb5cac291671365ba472a9a977a1f14a",
+      "searchableBytes": 4532,
+      "searchableSha256": "61658964fa1a39bdda28fb22817852aebb5cac291671365ba472a9a977a1f14a",
       "reconstruction": "identity"
     }
   ]
