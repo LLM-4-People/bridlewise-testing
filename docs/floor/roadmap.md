@@ -20,9 +20,9 @@ This is the engineering roadmap for the Bridlewise development floor: what shipp
 <!-- BEGIN GENERATED: roadmap summary, from this page's ROADMAP-PLAN block (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
 ### Where the floor stands
 
-**24 of 68 tracked items shipped (35%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it.
+**24 of 67 tracked items shipped (36%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it.
 
-24 shipped · 10 in progress · 33 planned · 1 blocked · 7 not planned.
+24 shipped · 10 in progress · 32 planned · 1 blocked · 7 not planned.
 
 ### Milestones
 
@@ -891,7 +891,6 @@ Every open row of [TASKS.md](../trackers/TASKS.md) appears here. A row leaves th
 |---|---|---|---|
 | **FLAKY-PERF-GATE-STALE-REPORT**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-POPULATION-FLOOR-REDERIVED**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-RESOURCE-SAMPLER-TICK**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-WATCHDOG-C3**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-WEB-ARTIFACT-CENSUS**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-WEB-F5-LINK-RUN**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
