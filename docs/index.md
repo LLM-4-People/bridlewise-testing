@@ -54,7 +54,7 @@ permalink: /
       <p class="feature-kicker">01 · Contribute</p>
       <h3>Make the floor stronger</h3>
       <p>Reproduce a failure, add a prevention guard, improve a benchmark, fix a flaky test, or make the docs match the command output. The issue labels name the evidence needed.</p>
-      <p><a href="{{ '/floor/help/' | relative_url }}">How to help</a> · <a href="https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md">Contributing</a> · <a href="https://github.com/LLM-4-People/bridlewise-testing/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22">Good first issues</a></p>
+      <p><a href="{{ '/floor/help/' | relative_url }}">How to help</a> · <a href="https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md">Contributing</a> · <a href="https://github.com/LLM-4-People/bridlewise-testing/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22">Good first issues</a> · <a href="https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/trackers/TASKS.md">Task board</a></p>
     </article>
     <article class="feature">
       <p class="feature-kicker">02 · Build</p>
