@@ -88,8 +88,8 @@
       "id": "actions/download-artifact",
       "kind": "github-action",
       "pinned": {
-        "commit": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
-        "version": "v4.3.0"
+        "commit": "9000827ccba6bdab643e8b6fd33ac0654aef8333",
+        "version": "v8.0.2"
       },
       "usedIn": [
         ".github/workflows/test-shards.yml"

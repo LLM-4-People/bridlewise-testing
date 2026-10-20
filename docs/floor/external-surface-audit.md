@@ -24,7 +24,7 @@ workflow file is itself a failure, not an unguarded corner.
 
 | Location | Defect | Fix |
 | --- | --- | --- |
-| `.github/workflows/test-shards.yml:156`, `:225`, `:231` | `actions/download-artifact@v4` was tag-pinned: no commit SHA and no version comment. | Resolved `v4` with `git ls-remote` at audit time to commit `d3f86a106a0bac45b974a628896c90dbdf5c8093` (`v4.3.0`); all three uses now carry the full SHA and `# v4.3.0`. |
+| `.github/workflows/test-shards.yml:156`, `:225`, `:231` | `actions/download-artifact@v4` was tag-pinned: no commit SHA and no version comment. | Resolved `v4` with `git ls-remote` at audit time to commit `d3f86a106a0bac45b974a628896c90dbdf5c8093` (`v4.3.0`); all three uses now carry the full SHA and `# v4.3.0`. Bumped on 2026-10-20 to `v8.0.2` (`9000827ccba6bdab643e8b6fd33ac0654aef8333`) because a CI annotation showed `v4.3.0` targets Node 20 and GitHub was FORCING it onto Node 24 — a runtime we did not pin, which is the third-party assumption this registry exists to remove. |
 | `.devcontainer/devcontainer.json:7` | The `common-utils` devcontainer feature was tag-pinned to the floating major tag `:2`, not a digest. | Resolved the `:2` manifest to `sha256:e76a6a8a35d1ad824daad1540725e0ec9f8ed2dc00d2850e990a9830013c7d08` (feature release 2.7.1); the reference is now `ghcr.io/devcontainers/features/common-utils@sha256:…`. |
 
 Both were live on the base commit. The guard was run before the fixes and
