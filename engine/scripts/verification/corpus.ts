@@ -313,7 +313,6 @@ function resolveRootOutsideRepository(repoRoot: string): string | null {
  * that carries it — a single "verification failed" hides which file drifted.
  */
 export function verifyCorpus(repoRoot: string, manifest: CorpusManifest): CorpusVerdict {
-  const problems: CorpusProblem[] = [];
   let root: string | null = null;
   try {
     root = resolveRootOutsideRepository(repoRoot);
@@ -323,6 +322,19 @@ export function verifyCorpus(repoRoot: string, manifest: CorpusManifest): Corpus
   if (root === null) {
     return { ok: false, root: null, problems: [{ path: CORPUS_ROOT, reason: `absent — run npm run corpus:fetch` }] };
   }
+  const problems = judgeCache(root, manifest);
+  return { ok: problems.length === 0, root, problems };
+}
+
+/**
+ * Judge one cache directory against the manifest. The root resolver decides
+ * WHICH directory is the corpus; this is the one verifier, shared by `verify`
+ * (over the declared root) and `fetch` (over the cache it is about to reuse).
+ * Two verifiers would drift, and fetch would judge a fresh clone by a link it
+ * has not created yet.
+ */
+function judgeCache(root: string, manifest: CorpusManifest): CorpusProblem[] {
+  const problems: CorpusProblem[] = [];
   const readme = join(root, "README.md");
   if (!existsSync(readme)) problems.push({ path: "README.md", reason: "the cache must carry its generated README" });
   for (const member of manifest.members) {
@@ -351,7 +363,7 @@ export function verifyCorpus(repoRoot: string, manifest: CorpusManifest): Corpus
       problems.push({ path: entry.path, reason: "size or sha256 mismatch" });
     }
   }
-  return { ok: problems.length === 0, root, problems };
+  return problems;
 }
 
 /** The generated README: provenance, the digest, and the removal path. */
@@ -407,12 +419,14 @@ export function fetchCorpus(manifest: CorpusManifest, options: { cacheDir?: stri
     refuse("corpus_cache_inside_tree", `cache ${cacheDir} must live outside the repository`);
   }
   if (existsSync(cacheDir)) {
-    const existing = verifyCorpus(repoRoot, manifest);
-    if (existing.ok && existing.root === realpathSync(cacheDir)) {
+    // Judge the cache itself, never the declared root: in a fresh clone the
+    // root is not linked yet, and the reused cache is the whole point.
+    const problems = judgeCache(cacheDir, manifest);
+    if (problems.length === 0) {
       log(`cache already verified: ${cacheDir}`);
       return cacheDir;
     }
-    refuse("corpus_cache_exists", `cache ${cacheDir} exists but does not verify; remove it yourself or pass --cache`);
+    refuse("corpus_cache_exists", `cache ${cacheDir} exists but does not verify (${problems[0]!.path}: ${problems[0]!.reason}); remove it yourself or pass --cache`);
   }
   const staging = `${cacheDir}.tmp-${process.pid}`;
   rmSync(staging, { recursive: true, force: true });

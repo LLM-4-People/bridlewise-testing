@@ -197,6 +197,21 @@ test("corpus: fetch materialises the pinned commit and link checks it out", () =
     assert.deepEqual(readFileSync(join(cache, "real-20", "member", "test", "index.html")), derivedBytes);
     assert.ok(existsSync(join(cache, "README.md")), "the cache carries its generated README");
 
+    // A fresh clone has no link yet: fetch must judge the CACHE it would
+    // reuse, never the declared root. Remove the upstream first, so a second
+    // materialisation is impossible and only reuse can answer.
+    rmSync(bare, { recursive: true, force: true });
+    rmSync(seed, { recursive: true, force: true });
+    const reused = fetchCorpus(manifest, { cacheDir: cache, repoRoot: repo, log: () => {} });
+    assert.equal(reused, cache, "a verified cache is reused without the upstream");
+    writeFileSync(join(cache, "member", "lib", "index.js"), "tampered\n");
+    assert.throws(
+      () => fetchCorpus(manifest, { cacheDir: cache, repoRoot: repo, log: () => {} }),
+      (error: unknown) => error instanceof CorpusError && error.code === "corpus_cache_exists",
+      "a cache that no longer matches the manifest is refused, not refetched over",
+    );
+    writeFileSync(join(cache, "member", "lib", "index.js"), bytes);
+
     const link = linkCorpus(repo, cache);
     assert.equal(link, join(repo, CORPUS_ROOT));
     const verdict = verifyCorpus(repo, manifest);
