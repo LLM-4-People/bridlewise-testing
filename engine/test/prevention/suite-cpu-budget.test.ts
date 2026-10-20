@@ -13,7 +13,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -22,6 +22,7 @@ import { createTempDir } from "../support/temp-dir.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createCanonicalNodeTestInventoryFixture } from "../support/test-inventory-fixture.ts";
 import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+import type { MetricEntry } from "../../src/shared/measurement-registry.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
@@ -691,4 +692,56 @@ test("THE BASELINE NEVER CLIMBS ON RUNS THAT FAILED (design HIGH 1): seven runs 
   // A row that recorded its own CPU outcome as failed never feeds, even when its reading is under today's cap.
   const failedOwn = run(990, { qualification: { schemaVersion: 1, invocationId: "qualification-00000000-0000-4000-8000-000000000000", treeId: "t", producer: "engine", producerComplete: true, outcomes: [{ gate: "cpu-per-test-file", kind: "fail", message: "over" }] } as never });
   assert.deepEqual(deriveRollingBaseline(budget, [failedOwn], 100, []).windowReadings, [], "its own recorded verdict is the word");
+});
+
+
+// ── THE MEASUREMENT REGISTRY'S ENGINE-SIDE COUNTERPART ───────────────────
+//
+// The registry is engine-owned (`src/shared/measurement-registry.ts`), so the
+// engine package must be able to assert its own half without going through the
+// web suite. This drives the same checked-in checker over the real tree and
+// plants the four clauses' violations in memory (never in a tracked source).
+test("measurement contract: the shared registry's producer, absence, gate and load clauses hold, and each plant is refused", async () => {
+  const {
+    loadMeasurementWorld,
+    validateMeasurementContract,
+    withSource,
+  } = await import("../../scripts/verification/measurement-contract.ts");
+  const { CPU_METRIC_PLACEHOLDERS, MEASUREMENT_REGISTRY } = await import("../../src/shared/measurement-registry.ts");
+  const root = resolve(import.meta.dirname, "../../..");
+  const world = loadMeasurementWorld(root);
+  const codes = (candidate = world, registry = MEASUREMENT_REGISTRY): readonly string[] =>
+    validateMeasurementContract(candidate, { registry }).failures.map((failure) => failure.code);
+
+  const clean = validateMeasurementContract(world);
+  assert.deepEqual(clean.failures, [], "the checked-in tree must satisfy the registry");
+  assert.ok(clean.checked.metrics >= 20, "a vacuous registry would pass trivially");
+  assert.equal(clean.checked.budgets, 13);
+  assert.equal(CPU_METRIC_PLACEHOLDERS.length, 1);
+  assert.equal(CPU_METRIC_PLACEHOLDERS[0]!.load.kind, "placeholder");
+
+  const duplicate = withSource(
+    world,
+    "engine/src/shared/plant-duplicate-derivation.ts",
+    "export function readPlantLoad(): number {\n  const loads = loadavg();\n  return loads[0] / cpuCount;\n}\n",
+  );
+  assert.ok(codes(duplicate).includes("duplicate-derivation"), "a second derivation of load-per-CPU must be refused");
+
+  const ambient = world.sources.get("engine/src/shared/ambient-load.ts");
+  assert.ok(ambient !== undefined);
+  const zeroed = ambient.replace(
+    "load1: toThousandths(load1 / cpuCount),",
+    "load1: toThousandths(load1 / cpuCount) || 0,",
+  );
+  assert.ok(codes(withSource(world, "engine/src/shared/ambient-load.ts", zeroed)).includes("zero-as-absent"), "zero-for-absent must be refused");
+
+  const history = world.sources.get("engine/src/shared/run-history.ts");
+  assert.ok(history !== undefined);
+  const gated = `${history}\nconst plantGate = { gate: "mystery-measurement", kind: "pass" };\n`;
+  assert.ok(codes(withSource(world, "engine/src/shared/run-history.ts", gated)).includes("unregistered-gate"), "an unregistered measured gate must be refused");
+
+  const agnostic: readonly MetricEntry[] = MEASUREMENT_REGISTRY.map((entry): MetricEntry => entry.name === "perf.profile.measuredSurfaceHash"
+    ? { ...entry, load: { kind: "agnostic", normalization: "", proof: "" } }
+    : entry);
+  assert.ok(codes(world, agnostic).includes("agnostic-without-normalization"), "agnostic without a normalisation must be refused");
 });

@@ -43,9 +43,9 @@ import {
   type SuiteCpuJudgment,
 } from "../../src/shared/budget-verdict.ts";
 import { readRunCpu, type RunCpu } from "../../src/shared/run-cpu.ts";
+import { readAmbientLoadPerCpu } from "../../src/shared/ambient-load.ts";
 import { finalizeQualifiedRun, qualificationInvocation, qualificationTerminal, runForInvocation, appendJudgedRun, readRepositoryHeadSha, readRunHistory, TEST_RUN_HISTORY_PATH } from "../../src/shared/run-history.ts";
 import { measuredTreeMark, provisionalFailureMark, mutationRunMark, readMeasuredTree } from "../../src/shared/tree-identity.ts";
-import { cpus, loadavg } from "node:os";
 import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { configuredRuntimeAdmission, withAdmittedNodeRuntime } from "../../src/runtime/admitted-node-runtime.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
@@ -377,14 +377,14 @@ export interface MeasuredRunBegin {
   /** Null when `/proc` could not be read — absence, never a fabricated zero. */
   readonly cpuBefore: RunCpu | null;
   readonly headSha: string | null;
-  readonly ambientLoadPerCpu: number;
-  /** The run-start snapshot's 5- and 15-minute legs — the saturation
-   *  ghost's witnesses, sampled by the same one read as the 1-minute
-   *  figure. Numbers, not nulls: `loadavg()` answers all three legs or
-   *  the runner treats 0 as the unreadable floor, exactly as the 1-minute
-   *  figure always has. */
-  readonly ambientLoad5PerCpu: number;
-  readonly ambientLoad15PerCpu: number;
+  /** Null when the load sample or the CPU count is unreadable — absence,
+   *  never a fabricated zero. The one producer is
+   *  `src/shared/ambient-load.ts::readAmbientLoadPerCpu`. */
+  readonly ambientLoadPerCpu: number | null;
+  /** The same one run-start sample's 5- and 15-minute legs, per CPU. Null
+   *  on the same unreadable conditions as the 1-minute figure. */
+  readonly ambientLoad5PerCpu: number | null;
+  readonly ambientLoad15PerCpu: number | null;
   readonly runStartMs: number;
 }
 
@@ -429,17 +429,21 @@ export function beginMeasuredRun(
   steps.pruneCache(root);
   const cpuBefore = steps.readCpuBaseline();
   const headSha = readRepositoryHeadSha(root);
-  const cpuCount = Math.max(1, cpus().length);
-  // ONE loadavg() read, all three legs: the 1-minute figure the provisional
-  // threshold consumes, and the 5-/15-minute legs that witness the
-  // saturation ghost the 1-minute figure decays away within minutes of a
-  // previous suite finishing.
-  const loads = loadavg();
-  const ambientLoadPerCpu = Number(((loads[0] ?? 0) / cpuCount).toFixed(3));
-  const ambientLoad5PerCpu = Number(((loads[1] ?? 0) / cpuCount).toFixed(3));
-  const ambientLoad15PerCpu = Number(((loads[2] ?? 0) / cpuCount).toFixed(3));
+  // ONE reading, all three legs, from the shared producer: the 1-minute
+  // figure is the covariate recorded beside the verdict, and the 5-/15-minute
+  // legs witness the saturation ghost that decays out of the 1-minute figure
+  // within minutes of a previous suite finishing. An unreadable sample is
+  // null — the verdict takes no ambient adjustment, never a fabricated zero.
+  const ambient = readAmbientLoadPerCpu();
   const runStartMs = steps.stampStart();
-  return { cpuBefore, headSha, ambientLoadPerCpu, ambientLoad5PerCpu, ambientLoad15PerCpu, runStartMs };
+  return {
+    cpuBefore,
+    headSha,
+    ambientLoadPerCpu: ambient.perCpu?.load1 ?? null,
+    ambientLoad5PerCpu: ambient.perCpu?.load5 ?? null,
+    ambientLoad15PerCpu: ambient.perCpu?.load15 ?? null,
+    runStartMs,
+  };
 }
 
 function pruneCompileCacheIfDeclared(root: string): void {

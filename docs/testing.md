@@ -70,6 +70,29 @@ Requirements beyond the product:
 
 The raw corpus and the performance report are deliberately not published. A fresh clone is two documented commands from the corpus-backed tests, and the runners refuse a missing prerequisite by name instead of silently skipping. The full engine suite still needs the other host requirements above.
 
+## The measurement registry
+
+Every signal the floor judges, records or quotes is declared once in
+`engine/src/shared/measurement-registry.ts`: its unit, its one producer
+(module and exported function), its consumers (gate, record, budget or doc),
+its absent semantics, its zero semantics and its load behaviour. The guard
+`tests/prevention/measurement-contract.test.ts`, driven by
+`engine/scripts/verification/measurement-contract.ts`, refuses a producer
+that does not exist or is derived twice, a zero used for an unreadable value,
+a gate or `webUi.performance` budget no entry maps, and an "agnostic" load
+claim with no normalisation step. A sensitive signal with no deferral bound
+is recorded as a finding, not softened.
+
+The registered non-CPU signals at the time of writing are the profile's
+measured-surface hash and instrument lock, each `webUi.performance` budget
+(the per-file collect and per-file occupancy costs, their total collect and
+total occupancy denominators, the shard weights and their measurement path
+(`testPhaseMs` and `testPhaseCpuMs` on the CI receipt), and the run-start
+ambient load the CPU verdict reads. The CPU metric itself is a clearly
+marked placeholder while its owner changes `run-cpu.ts` and
+`budget-verdict.ts`; its final fields and load declaration are not guessed
+here.
+
 ## Commands
 
 ### Root web suite

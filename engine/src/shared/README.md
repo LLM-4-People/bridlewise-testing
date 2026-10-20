@@ -72,9 +72,10 @@ The shared domain: the agnostic helpers every engine domain consumes, owned once
 The folder lives at `engine/src/shared/`.
 
 - `abort-signals.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/evaluation/scenario-runner.ts`, `engine/src/mcp/retry.ts`, `engine/src/mcp/transport/streamable-http.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/runtime/provider-adapter.ts` and 6 more.
+- `ambient-load.ts` is consumed by `engine/scripts/tooling/run-tests.ts`.
 - `backoff.ts` is consumed by `engine/src/mcp/retry.ts`, `engine/src/shared/llm/client.ts`.
 - `best-effort.ts` is consumed by `engine/scripts/tooling/compile-cache.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/filesystem-cache.ts`, `engine/src/agents/agent-runtime.ts`, `engine/src/agents/agent-state.ts` and 38 more.
-- `budget-verdict.ts` is consumed by `engine/scripts/tooling/run-diff.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-receipt.ts`, `engine/src/shared/run-history.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/workspace-manager.ts`.
+- `budget-verdict.ts` is consumed by `engine/scripts/tooling/run-diff.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-receipt.ts`, `engine/src/shared/run-history.ts`, `engine/src/shared/test-costs.ts`, `engine/src/workflow/promotion/context.ts` and 1 more.
 - `dependency-spans.ts` is consumed by `engine/src/memory/unified/unified-context-manager.ts`, `engine/src/shared/llm/response-transcript.ts`.
 - `dev-mode-env.ts` is consumed by `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-worker.ts`.
 - `fault-description.ts` is consumed by `engine/src/process/fault-policy.ts`, `engine/src/process/worker-bootstrap.ts`, `server/kernel/canonical.ts`.
@@ -84,6 +85,7 @@ The folder lives at `engine/src/shared/`.
 - `identity.ts` is consumed by `engine/src/kernel/config.ts`, `engine/src/kernel/preflight.ts`.
 - `json-pointer.ts` is consumed by `engine/src/kernel/protocol-projections.ts`, `engine/src/kernel/schema-subset.ts`, `engine/src/runtime/event-state.ts`.
 - `long-task-timing.ts` is consumed by `engine/src/tools/concurrent/long-task-runner.ts`.
+- `measurement-registry.ts` is consumed by `engine/scripts/verification/measurement-contract.ts`.
 - `module-location.ts` is consumed by `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/tooling/verification/slice-traces.ts`.
 - `numeric-helpers.ts` is consumed by `engine/src/awareness/delta.ts`, `engine/src/awareness/fisher-ranking.ts`, `engine/src/awareness/signals/architecture.ts`, `engine/src/awareness/signals/banach-contraction.ts`, `engine/src/awareness/signals/bell-clones.ts`, `engine/src/awareness/signals/benford.ts` and 42 more.
 - `outbound-http.ts` is consumed by `engine/src/evaluation/scenario-runner.ts`, `engine/src/mcp/transport/streamable-http.ts`, `engine/src/mcp/transport/websocket.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/provider-http.ts` and 2 more.
@@ -97,6 +99,7 @@ The folder lives at `engine/src/shared/`.
 - `source-structure.ts` is consumed by nothing yet.
 - `stats.ts` is consumed by `engine/src/awareness/fisher-ranking.ts`, `engine/src/evaluation/matrix-executor.ts`, `engine/src/shared/git-churn.ts`.
 - `string-values.ts` is consumed by `engine/src/privacy/responses-observation.ts`, `engine/src/privacy/responses-redaction.ts`, `engine/src/shared/llm/provider-observation.ts`.
+- `test-costs.ts` is consumed by nothing yet.
 - `tree-identity.ts` is consumed by `engine/scripts/tooling/run-tests.ts`.
 - `type-guards.ts` is consumed by `engine/scripts/tooling/run-tests.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/editor/edit-operations.ts`, `engine/src/extensions/extension-manifest.ts`, `engine/src/filesystem/durable-filesystem-internal.ts` and 26 more.
 

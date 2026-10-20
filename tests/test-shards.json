@@ -2,7 +2,7 @@
   "schemaVersion": "bridlewise-test-shard-manifest/v1",
   "measuredHeadSha": "f54df4a547cd5ff45f06e43617d4898fefd850b1",
   "measuredAt": "2026-10-20T17:56:30.903Z",
-  "weightSource": "vitest-json:endTime-startTime; 523 supported files from 10 green shard report(s) at f54df4a547cd5ff45f06e43617d4898fefd850b1 (ubuntu-24.04)",
+  "weightSource": "vitest-json:endTime-startTime; 523 supported files from 10 green shard report(s) at f54df4a547cd5ff45f06e43617d4898fefd850b1 (ubuntu-24.04); tests/prevention/measurement-contract.test.ts measured on its own on 2026-10-20 pending the full re-measurement",
   "files": [
     {
       "path": "tests/cockpit/a11y-hidden-focus-owner.test.ts",
@@ -1115,6 +1115,10 @@
     {
       "path": "tests/prevention/map-worker-nonblocking.test.ts",
       "weightMs": 9
+    },
+    {
+      "path": "tests/prevention/measurement-contract.test.ts",
+      "weightMs": 39623
     },
     {
       "path": "tests/prevention/memory-config-reader-paths.test.ts",

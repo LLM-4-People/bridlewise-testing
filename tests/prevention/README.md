@@ -115,6 +115,7 @@ The `tests/prevention/` folder of the development surface.
 - `liveness-stream-owner.test.ts` — @vitest-environment node.
 - `map-index-lifecycle.test.ts` — @vitest-environment node.
 - `map-worker-nonblocking.test.ts` — @vitest-environment node.
+- `measurement-contract.test.ts` — the metric registry guard: every judged/recorded/quoted signal has one producer, absent-not-zero semantics, a load declaration, and a mapped gate/budget/doc; plants prove each clause.
 - `memory-config-reader-paths.test.ts` — @vitest-environment node.
 - `memory-provenance.test.ts` — @vitest-environment node.
 - `memory-store-owner.test.ts` — @vitest-environment node.
