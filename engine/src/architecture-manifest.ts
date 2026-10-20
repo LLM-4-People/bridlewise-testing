@@ -866,7 +866,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "workflow-test-result-collector", path: "src/workflow/test-result-collector.ts",
       realm: "runtime", layer: "infrastructure", owner: "verification-workflow",
       publicApi: { exportCount: 48, namesSha256: "e58fbdd41a3f43e7e85d13d71626a5d360892037aaebbfada3695ee099cf5509" },
-      dependencies: ["node:fs","node:os","node:path","node:test","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/privacy/redaction-engine.ts","src/shared/best-effort.ts","src/shared/debug/debug-system.ts","src/workflow/test-inventory-binding.ts","src/workflow/workflow-config.ts","zod"],
+      dependencies: ["node:fs","node:os","node:path","node:test","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/kernel/config.ts","src/kernel/engine-root.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/privacy/redaction-engine.ts","src/shared/best-effort.ts","src/shared/debug/debug-system.ts","src/workflow/test-inventory-binding.ts","src/workflow/workflow-config.ts","zod"],
       executionBoundary: "effect-adapter", effects: ["filesystem-read", "filesystem-write", "process-status"],
       ports: { requires: [], provides: ["test-result-collection"] },
       responsibilities: ["structured-test-result-collection-replacing-grep-and-restart"],

@@ -10,6 +10,7 @@ import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { HarnessError, InputError, extractErrorSourceLocation } from "../kernel/errors.ts";
 import { bestEffort } from "../shared/best-effort.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
+import { engineRoot } from "../kernel/engine-root.ts";
 import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import type { TestExecutionConfig } from "../kernel/config-contracts.ts";
 import type { FailureStatement } from "../shared/run-history.ts";
@@ -265,11 +266,28 @@ export type CollectTestResultsOptions = Readonly<{
  * and `scripts/test-worker.ts` cannot drift. The pinned config snapshot is
  * repository-scoped: when `root` does not match the snapshot's
  * `repositoryRoot` (e.g. a temp dir in tests), the function returns `{}` so
- * a foreign config is never applied. A configuration the loader REFUSES
- * (an alternate `*.config.json` beside the real one, an unsafe link, a mode
- * or identity violation) propagates: it used to be caught here and answered
- * with the defaults, so a stray config document silently dropped every
- * declared concurrency, budget and pruning value from `npm test`.
+ * a foreign config is never applied.
+ *
+ * ── A FOREIGN ROOT IS ANSWERED WITHOUT BOOTSTRAPPING THE PINNED DOCUMENT ──
+ *
+ * Reading the document to answer a question about ANOTHER root made the
+ * answer depend on this checkout's config surface at that instant. Measured
+ * (2026-10-20): the web budget reporter's fixture drives record against a
+ * temporary repository, and a concurrent writer moved this checkout's
+ * `engine/` folder while such a drive was judging; the bootstrap refused
+ * (`config_parent_changed`) and the foreign-root question — whose answer is
+ * the defaults — failed with it, losing the judged row ("THE GATE COULD NOT
+ * RUN: Configuration parent identity changed", reproducible in CI on two
+ * consecutive runs). A caller naming a foreign root is not asking whether
+ * THIS tree's document is healthy, and there are no declared concurrency,
+ * budget or pruning values of ITS root to lose. So the comparison comes
+ * FIRST, and a foreign root costs no read at all.
+ *
+ * A configuration the loader REFUSES (an alternate `*.config.json` beside
+ * the real one, an unsafe link, a mode or identity violation) still
+ * propagates for THIS checkout's root: it used to be caught here and
+ * answered with the defaults, so a stray config document silently dropped
+ * every declared concurrency, budget and pruning value from `npm test`.
  */
 export function readTestExecutionConfig(root: string): Readonly<{
   concurrency?: ConcurrencyMode;
@@ -304,9 +322,10 @@ export function readTestExecutionConfig(root: string): Readonly<{
 }> {
   // The numeric defaults are ALWAYS present: they are the answer for a
   // foreign root and for keys the document leaves undeclared, and the
-  // snapshot OVERRIDES them. They are never the answer to a REFUSED snapshot:
-  // `loadPinnedConfigSnapshot` refusing is a finding the caller must see, so
-  // it propagates rather than degrading the run to values nobody chose.
+  // snapshot OVERRIDES them. For a root THIS checkout owns they are never
+  // the answer to a REFUSED snapshot: `loadPinnedConfigSnapshot` refusing is
+  // a finding the caller must see, so it propagates rather than degrading
+  // the run to values nobody chose.
   const defaults = {
     runtimeBudgetMs: DEFAULT_TEST_RUNTIME_BUDGET_MS,
     engineSuiteWatchdog: DEFAULT_ENGINE_SUITE_WATCHDOG,
@@ -314,6 +333,10 @@ export function readTestExecutionConfig(root: string): Readonly<{
     fullSuiteSerialPhaseConcurrency: DEFAULT_FULL_SUITE_SERIAL_PHASE_CONCURRENCY,
     fullSuiteInProcessSerialPhaseConcurrency: DEFAULT_FULL_SUITE_IN_PROCESS_SERIAL_PHASE_CONCURRENCY,
   };
+  // THE PINNED DOCUMENT ANSWERS ONLY FOR THE CHECKOUT IT IS PINNED TO (see
+  // the function's header): a foreign root must not pay for — or inherit a
+  // refusal from — a read whose value it can never apply.
+  if (resolve(root) !== resolve(engineRoot())) return deepFreeze(defaults);
   const snapshot = loadPinnedConfigSnapshot();
   if (resolve(snapshot.repositoryRoot) !== resolve(root)) return deepFreeze(defaults);
   const testExecution = snapshot.document.testExecution;
