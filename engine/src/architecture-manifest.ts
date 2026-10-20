@@ -1257,7 +1257,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "run-tests", path: "scripts/tooling/run-tests.ts", realm: "builder", layer: "verification", owner: "verification",
       publicApi: { exportCount: 14, namesSha256: "b30130d578bdd6f2f0703ff63c0809140ff6a5e235d02a2bf92bb8b899052982" },
-      dependencies: ["guardian/build.ts","node:child_process","node:fs","node:os","node:path","node:process","node:url","scripts/test-inventory.ts","scripts/tooling/compile-cache.ts","scripts/tooling/launcher-watch.ts","scripts/tooling/recorded-command.ts","scripts/tooling/test-execution.ts","scripts/tooling/test-receipt.ts","scripts/tooling/test-run-lock.ts","scripts/verification/required-fixture-roots.ts","scripts/verification/test-surface.ts","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/filesystem/temporary-root.ts","src/git/repository-ownership.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/runtime/admitted-node-runtime.ts","src/runtime/cli-debug.ts","src/shared/best-effort.ts","src/shared/budget-verdict.ts","src/shared/dev-mode-env.ts","src/shared/run-cpu.ts","src/shared/run-history.ts","src/shared/tree-identity.ts","src/shared/type-guards.ts","src/workflow/test-result-collector.ts"],
+      dependencies: ["guardian/build.ts","node:child_process","node:fs","node:path","node:process","node:url","scripts/test-inventory.ts","scripts/tooling/compile-cache.ts","scripts/tooling/launcher-watch.ts","scripts/tooling/recorded-command.ts","scripts/tooling/test-execution.ts","scripts/tooling/test-receipt.ts","scripts/tooling/test-run-lock.ts","scripts/verification/required-fixture-roots.ts","scripts/verification/test-surface.ts","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/filesystem/temporary-root.ts","src/git/repository-ownership.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/runtime/admitted-node-runtime.ts","src/runtime/cli-debug.ts","src/shared/ambient-load.ts","src/shared/best-effort.ts","src/shared/budget-verdict.ts","src/shared/dev-mode-env.ts","src/shared/run-cpu.ts","src/shared/run-history.ts","src/shared/tree-identity.ts","src/shared/type-guards.ts","src/workflow/test-result-collector.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
       effects: ["child-process", "filesystem-read", "filesystem-write", "process-status"],
       ports: { requires: ["parent-observed-command-execution", "test-execution-evidence"], provides: ["test-runner"] },
@@ -5734,6 +5734,26 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "scripts-verification-corpus", path: "scripts/verification/corpus.ts", realm: "builder", layer: "verification",
       owner: "verification-foundation", publicApi: { exportCount: 27, namesSha256: "021f0f367f3ccd2487064673c4e34477714a0eb0e86236d14140c3cec840773f" },
       dependencies: ["node:child_process","node:crypto","node:fs","node:os","node:path"],
+    }),
+    moduleContract({
+      id: "scripts-verification-measurement-contract", path: "scripts/verification/measurement-contract.ts", realm: "builder", layer: "verification",
+      owner: "verification-foundation", publicApi: { exportCount: 11, namesSha256: "834cb4ddd0fab7a121cade1ed423b59cee25453d2050d59d558619b44da4bb72" },
+      dependencies: ["node:fs","node:path","src/kernel/root-policy.ts","src/kernel/web-performance-budgets.ts","src/shared/measurement-registry.ts"],
+    }),
+    moduleContract({
+      id: "src-shared-ambient-load", path: "src/shared/ambient-load.ts", realm: "shared", layer: "domain",
+      owner: "shared-abort-signals", publicApi: { exportCount: 3, namesSha256: "e8d88bffbe48df16962971d1d58fe6f460ce0ce89379325ce1ea35d5a28901f7" },
+      dependencies: ["node:os"],
+    }),
+    moduleContract({
+      id: "src-shared-measurement-registry", path: "src/shared/measurement-registry.ts", realm: "shared", layer: "domain",
+      owner: "shared-abort-signals", publicApi: { exportCount: 13, namesSha256: "1e51a3fab33ca906a14faceaf90e3575b92b332213e52ffe1b8073fce6d7bfda" },
+      dependencies: [],
+    }),
+    moduleContract({
+      id: "src-shared-test-costs", path: "src/shared/test-costs.ts", realm: "shared", layer: "domain",
+      owner: "shared-abort-signals", publicApi: { exportCount: 9, namesSha256: "ad3bc2190af43122fcbfd058fa833ba484fbace3939a4d1b2983f74d2cb7c927" },
+      dependencies: [],
     }),
   ],
 });

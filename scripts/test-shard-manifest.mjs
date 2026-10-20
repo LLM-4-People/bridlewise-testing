@@ -211,6 +211,26 @@ function timestamp(value, subject) {
   return ms;
 }
 
+/**
+ * The ONE per-file shard weight definition: the JSON reporter's
+ * `endTime - startTime`, validated there and nowhere else. A second module
+ * subtracting those two fields is the duplicate derivation the measurement
+ * contract refuses (the registry names this function as the producer).
+ *
+ * Missing, non-numeric or inverted timestamps REFUSE the measurement; they
+ * never become a zero weight. A measured duration of 0 is honest (the file
+ * rounded to no elapsed milliseconds) and is floored to 1 only by
+ * `measureManifest`, which declares that floor in the registry.
+ */
+export function measuredFileDurationMs(result, subject) {
+  if (result === null || typeof result !== "object") fail(`${subject}: not an object`);
+  if (!Number.isFinite(result.startTime) || !Number.isFinite(result.endTime)) {
+    fail(`${subject}: no numeric startTime and endTime`);
+  }
+  if (result.endTime < result.startTime) fail(`${subject}: endTime is before startTime`);
+  return result.endTime - result.startTime;
+}
+
 function readMeasurementReport(repositoryRoot, reportPath, index, manifest) {
   const envelope = readJson(reportPath, `shard report ${index}`);
   if (envelope === null || typeof envelope !== "object" || Array.isArray(envelope)) {
@@ -245,13 +265,9 @@ function readMeasurementReport(repositoryRoot, reportPath, index, manifest) {
   const supported = manifest.files.map((file) => file.path);
   const entries = report.testResults.map((result, resultIndex) => {
     const subject = `shard report ${index} testResults[${resultIndex}]`;
-    if (result === null || typeof result !== "object") fail(`${subject}: not an object`);
+    const durationMs = measuredFileDurationMs(result, subject);
     const file = normalizeReportFile(repositoryRoot, result.name, subject, supported);
-    if (!Number.isFinite(result.startTime) || !Number.isFinite(result.endTime)) {
-      fail(`${subject}: no numeric startTime and endTime`);
-    }
-    if (result.endTime < result.startTime) fail(`${subject}: endTime is before startTime`);
-    return { file, durationMs: result.endTime - result.startTime };
+    return { file, durationMs };
   });
   return {
     shard: envelope.shard,

@@ -98,9 +98,10 @@ import { writeFileSync, mkdirSync, readdirSync, existsSync, statSync } from "nod
 import { dirname, join, relative } from "node:path";
 import { instrumentLockPath, instrumentLockStamp } from "../../engine/src/process/instrument-lock.ts";
 import { readTestExecutionConfig } from "../../engine/src/workflow/test-result-collector.ts";
-import { cpus, loadavg } from "node:os";
 import { BUDGET_SUMMARY_PATH, moduleCacheDirOf } from "../helpers/budget-paths.ts";
 import { readRunCpu } from "../../engine/src/shared/run-cpu.ts";
+import { readAmbientLoadPerCpu, type AmbientLoadReading } from "../../engine/src/shared/ambient-load.ts";
+import { readModuleDiagnostic, summarizeTestCosts, type CollectCost } from "../../engine/src/shared/test-costs.ts";
 import { failureDigest, failureIdentityFile, failureLocation, qualificationInvocation } from "../../engine/src/shared/run-history.ts";
 import {
   judgeRunCosts,
@@ -127,10 +128,7 @@ const SLOWEST_COLLECT_KEPT = 5;
 const SLOWEST_FILES_KEPT = 8;
 
 /** One file's invisible-to-the-scheduler cost. */
-export interface CollectCost {
-  readonly file: string;
-  readonly ms: number;
-}
+export type { CollectCost } from "../../engine/src/shared/test-costs.ts";
 
 /** The shape written to disk. Read by the budget test; keep them in step. */
 export interface BudgetSummary {
@@ -174,7 +172,7 @@ export interface BudgetSummary {
    * question "is one file eating a disproportionate part of the suite" has
    * the same answer whether the box was idle or not.
    */
-  readonly totalOccupancyMs: number;
+  readonly totalOccupancyMs: number | null;
   /**
    * Every file's `collectDuration` summed — the collect gate's denominator.
    *
@@ -184,7 +182,7 @@ export interface BudgetSummary {
    * with a cold module cache. Recording the total is what lets the same
    * question be asked as a share.
    */
-  readonly totalCollectMs: number;
+  readonly totalCollectMs: number | null;
   /**
    * Entries in vitest's transform cache when this reporter was initialised.
    *
@@ -256,9 +254,11 @@ export interface BudgetSummary {
    * "warm" verdict was about.
    */
   readonly moduleCacheDir: string;
-  /** Ambient load per CPU when the run STARTED (before the suite ramps up).
-   *  Recorded, not gated on — see the header. */
-  readonly load1PerCpuAtStart: number;
+  /** Ambient load per CPU when the run STARTED (before the suite ramps up),
+   *  or null when the sample was unreadable. Recorded, not gated on — see
+   *  the header. The one producer is
+   *  `engine/src/shared/ambient-load.ts::readAmbientLoadPerCpu`. */
+  readonly load1PerCpuAtStart: number | null;
   /**
    * The run-start snapshot's 5- and 15-minute legs, per CPU — recorded for
    * the same reason the 1-minute figure is: a number without its machine
@@ -268,9 +268,9 @@ export interface BudgetSummary {
    * the row a future investigation reads can say "launched into the ghost"
    * without anyone reconstructing the context from prose.
    */
-  readonly load5PerCpuAtStart: number;
-  readonly load15PerCpuAtStart: number;
-  readonly cpuCount: number;
+  readonly load5PerCpuAtStart: number | null;
+  readonly load15PerCpuAtStart: number | null;
+  readonly cpuCount: number | null;
   /**
    * CPU milliseconds the run consumed — this process plus every pool worker
    * it reaped. **This is the number the suite budget is judged on**, and the
@@ -505,51 +505,6 @@ function readOr<T>(read: () => T, fallback: T): T {
   }
 }
 
-/** A module's diagnostics, or null when vitest did not report any. */
-function diagnosticOf(mod: ModuleLike): Readonly<Record<string, unknown>> | null {
-  if (typeof mod.diagnostic !== "function") return null;
-  try {
-    return mod.diagnostic() ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function finiteAt(d: Readonly<Record<string, unknown>> | null, key: string): number | null {
-  const v = d?.[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-/**
- * Every field of vitest's own module diagnostics that measures time a worker
- * was occupied by this file.
- *
- * Named here, once, rather than summed inline at the call site: the total is
- * the number a per-file budget is judged against, and a field silently
- * dropped from the sum would lower every file's measured cost and quietly
- * vacate that budget.
- */
-const OCCUPANCY_FIELDS = [
-  "collectDuration",
-  "setupDuration",
-  "environmentSetupDuration",
-  "prepareDuration",
-  "duration",
-] as const;
-
-/** Everything the file cost a worker, or null when vitest reported nothing. */
-function totalMsOf(d: Readonly<Record<string, unknown>> | null): number | null {
-  let total = 0;
-  let any = false;
-  for (const field of OCCUPANCY_FIELDS) {
-    const ms = finiteAt(d, field);
-    if (ms === null) continue;
-    any = true;
-    total += ms;
-  }
-  return any ? total : null;
-}
-
 /**
  * How many entries vitest's transform cache held before this run started.
  *
@@ -670,9 +625,7 @@ export type ReporterHarness = Readonly<{
 
 export default class BudgetReporter {
   private startTime = 0;
-  private loadAtStart = 0;
-  private load5AtStart = 0;
-  private load15AtStart = 0;
+  private ambientAtStart: AmbientLoadReading | null = null;
   private cacheEntriesAtStart: number | null = null;
   /**
    * The cache directory THIS RUN uses, resolved from the run's own config.
@@ -744,14 +697,11 @@ export default class BudgetReporter {
     this.configuredShard = (ctx as VitestLike | undefined)?.config?.shard != null;
     // Read BEFORE the suite loads the box, so this is the ambient load the
     // run had to compete with rather than the load the run itself created.
-    // ONE read, all three legs: the 1-minute figure feeds the provisional
-    // threshold, and the 5-/15-minute figures record the saturation ghost
-    // the 1-minute leg decays away — three reads at three moments would be
-    // three different "run starts".
-    const loads = loadavg();
-    this.loadAtStart = loads[0] ?? 0;
-    this.load5AtStart = loads[1] ?? 0;
-    this.load15AtStart = loads[2] ?? 0;
+    // ONE reading, all three legs, through the shared producer: three reads
+    // at three moments would be three different "run starts", and a raw
+    // `loadavg()` divided by a local count would be a second derivation of
+    // the number the suite runner records.
+    this.ambientAtStart = readAmbientLoadPerCpu();
     this.cacheDir =
       this.cacheDirOverride ?? moduleCacheDirOf((ctx as VitestLike | undefined)?.config?.experimental);
     // Recorded for the pair, NOT because it can answer "was this run cold" on
@@ -812,40 +762,39 @@ export default class BudgetReporter {
   onTestRunEnd(testModules?: readonly ModuleLike[], unhandledErrors?: readonly ErrorLike[], reason?: "passed" | "failed" | "interrupted"): void {
     const wallClockMs = this.startTime > 0 ? Date.now() - this.startTime : 0;
     const modules = testModules ?? [];
-    const cpuCount = Math.max(1, cpus().length);
     // ONE walk: the written count and its newest-mtime witness must come
     // from the same pass, or the contradiction check compares two moments.
     const written =
       this.startTime > 0 ? cacheEntriesWrittenSince(this.cacheDir, this.startTime) : null;
 
-    const collects: CollectCost[] = [];
-    const totals: CollectCost[] = [];
-    for (const mod of modules) {
-      const diag = diagnosticOf(mod);
-      const moduleId = readOr(() => mod.moduleId, undefined);
-      const id = typeof moduleId === "string" ? moduleId : "<unknown>";
-      const file = relative(process.cwd(), id);
-      const collectMs = finiteAt(diag, "collectDuration");
-      if (collectMs !== null) collects.push({ file, ms: Math.round(collectMs) });
-      const totalMs = totalMsOf(diag);
-      if (totalMs !== null) totals.push({ file, ms: Math.round(totalMs) });
-    }
-    const totalOccupancyMs = Math.round(totals.reduce((sum, t) => sum + t.ms, 0));
-    collects.sort((a, b) => b.ms - a.ms);
-    totals.sort((a, b) => b.ms - a.ms);
+    // The per-file costs and both denominators come from the shared producer
+    // (`engine/src/shared/test-costs.ts`). This reporter stays a WRITER: a
+    // second reduction here would be a second derivation of numbers the
+    // run-cost gates judge.
+    const costs = summarizeTestCosts(
+      modules.map((mod) => {
+        const moduleId = readOr(() => mod.moduleId, undefined);
+        const id = typeof moduleId === "string" ? moduleId : "<unknown>";
+        return {
+          file: id === "<unknown>" ? id : relative(this.repositoryRoot, id) || id,
+          diagnostic: () => readModuleDiagnostic(mod),
+        };
+      }),
+      { slowestCollects: SLOWEST_COLLECT_KEPT, slowestFiles: SLOWEST_FILES_KEPT },
+    );
 
     const summary: BudgetSummary = {
       wallClockMs,
       timestamp: new Date().toISOString(),
       testModuleCount: modules.length,
-      slowestCollects: collects.slice(0, SLOWEST_COLLECT_KEPT),
-      slowestFiles: totals.slice(0, SLOWEST_FILES_KEPT),
-      totalOccupancyMs,
+      slowestCollects: costs.slowestCollects,
+      slowestFiles: costs.slowestFiles,
+      totalOccupancyMs: costs.totalOccupancyMs,
       // THE DENOMINATOR THE COLLECT GATE NEEDED AND DID NOT HAVE. Only the
       // five worst collects were written down, so the one number that makes a
       // worst-collect figure comparable across machines and loads — what every
       // OTHER file spent doing the same thing — did not exist on disk.
-      totalCollectMs: Math.round(collects.reduce((sum, c) => sum + c.ms, 0)),
+      totalCollectMs: costs.totalCollectMs,
       moduleCacheEntriesAtStart: this.cacheEntriesAtStart,
       // The OTHER end of the pair, read at the last moment the run still
       // exists. A reading taken at `onInit` instead would make start and end
@@ -863,10 +812,10 @@ export default class BudgetReporter {
       moduleCacheNewestEntryMtimeMs: written?.newestMtimeMs ?? null,
       runStartedAtMs: this.startTime > 0 ? this.startTime : null,
       moduleCacheDir: this.cacheDir,
-      load1PerCpuAtStart: Number((this.loadAtStart / cpuCount).toFixed(3)),
-      load5PerCpuAtStart: Number((this.load5AtStart / cpuCount).toFixed(3)),
-      load15PerCpuAtStart: Number((this.load15AtStart / cpuCount).toFixed(3)),
-      cpuCount,
+      load1PerCpuAtStart: this.ambientAtStart?.perCpu?.load1 ?? null,
+      load5PerCpuAtStart: this.ambientAtStart?.perCpu?.load5 ?? null,
+      load15PerCpuAtStart: this.ambientAtStart?.perCpu?.load15 ?? null,
+      cpuCount: this.ambientAtStart?.cpuCount ?? null,
       // Read HERE rather than at process exit: this is the last hook vitest
       // gives a reporter that still runs inside the run, and the pool workers
       // are reaped children by the time it fires. Absence stays absent — a
