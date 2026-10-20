@@ -812,7 +812,7 @@ Each row is a statement [the evidence page](evidence.md) explicitly refuses to m
 | Evidence area | Not proved |
 |---|---|
 | [Fresh clone gate](evidence.md#fresh-clone-gate) | the cockpit, the engine domain suites, the browser E2E suite, a live provider, a large repository, or the guardian. Those are separate gates. |
-| [Inventory check](evidence.md#inventory-check) | that any test passed, that the count is coverage, or that the private corpus is present. `engine/large-codebases` is not published. |
+| [Inventory check](evidence.md#inventory-check) | that any test passed, that the count is coverage, or that the private corpus is present. The corpus root the tests read is not published. |
 | [The supported suite on one host](evidence.md#the-supported-suite-on-one-host) | the four excluded suites, a 10x shard claim, an idle-host CPU verdict, or a fresh-clone run. |
 | [The sharded gate](evidence.md#the-sharded-gate) | a 10x factor, a clean same-commit single-host comparison for the speedup, or that branch protection makes the job a required check. The receipt's `testPhaseMs` is one measurement on the `ubuntu-24.04` class; the 2.81x figure at `d47909de` remains a historical comparison. |
 | [A fresh clone](evidence.md#a-fresh-clone) | the four excluded suites (two private-only guards, the performance regression gate, the WSL keep-out arm), an idle-host CPU verdict, or a 10x shard claim. |

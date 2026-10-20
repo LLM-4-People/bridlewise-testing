@@ -63,7 +63,7 @@ The claim is `"status":"current"`. It means the generated inventory and the disp
 
 What this proves: the inventory is not hand-edited drift, and every recognized test surface entry has a disposition.
 
-What it does not prove: that any test passed, that the count is coverage, or that the private corpus is present. `engine/large-codebases` is not published.
+What it does not prove: that any test passed, that the count is coverage, or that the private corpus is present. The corpus root the tests read is not published.
 
 ## The supported suite on one host
 

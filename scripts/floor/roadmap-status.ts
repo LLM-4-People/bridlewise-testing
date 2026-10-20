@@ -55,7 +55,7 @@ export const ROADMAP_BLOCKS = {
 } as const;
 
 export type RoadmapBlock = keyof typeof ROADMAP_BLOCKS;
-const BLOCK_ORDER: readonly RoadmapBlock[] = ["summary", "plan", "open"];
+const BLOCK_ORDER: readonly RoadmapBlock[] = Object.keys(ROADMAP_BLOCKS) as readonly RoadmapBlock[];
 const STATES = ["shipped", "in progress", "planned", "blocked", "not planned"] as const;
 export type RoadmapState = (typeof STATES)[number];
 const HORIZONS = ["now", "next", "later"] as const;
