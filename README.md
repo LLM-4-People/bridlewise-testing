@@ -12,9 +12,21 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Status: developer preview](https://img.shields.io/badge/status-developer%20preview-d9a84e.svg)](#status)
 
-## The docs site
+## Start here
 
-The testing repository publishes the complete product documentation at <https://llm-4-people.github.io/bridlewise-testing/>, plus the development floor at <https://llm-4-people.github.io/bridlewise-testing/floor/>. The floor carries a generated test atlas, a public status snapshot, the promotion contract, and the evidence commands. The mirror is assembled from the public product docs at build time. It is not a second copy in Git.
+| I want to | Go to |
+|---|---|
+| Help test, review, or improve the floor | [How to help](https://llm-4-people.github.io/bridlewise-testing/floor/help/) · [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Build on the harness | [Building on the harness](docs/extending.md) · [Architecture](https://llm-4-people.github.io/bridlewise/architecture/) |
+| See where the work is going | [Build roadmap](https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/) |
+| Verify a claim | [Floor evidence](https://llm-4-people.github.io/bridlewise-testing/floor/evidence/) · [Status](https://llm-4-people.github.io/bridlewise-testing/floor/status/) |
+| Use the product | [Product repository](https://github.com/LLM-4-People/bridlewise) · [Product docs](https://llm-4-people.github.io/bridlewise/) |
+
+## The site is a floor, not a product mirror
+
+The testing site at <https://llm-4-people.github.io/bridlewise-testing/> starts with a **contributor hub**, not a copy of the product home. The complete product documentation is still mirrored on the site, with a [product documentation entry point](https://llm-4-people.github.io/bridlewise-testing/product/). The product home remains at <https://llm-4-people.github.io/bridlewise/>.
+
+The development floor lives at <https://llm-4-people.github.io/bridlewise-testing/floor/>. It carries a generated test atlas, a public status snapshot, the promotion contract, the build roadmap, the contribution guide, and the evidence commands. The mirror is assembled from the public product docs at build time. It is not a second copy in Git.
 
 The floor site is a record, not a hosted test service. It does not run suites, hold a token in your browser, or turn an unknown into a pass.
 
@@ -42,6 +54,20 @@ The product repository is a **curated projection**: it contains what a user need
 - private fixtures and evidence are not published just to make a badge green.
 
 The projection is described in `promotion/testing-to-master.json`. It is maintainer tooling, not a public release process.
+
+## Roadmap
+
+The full [build roadmap](https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/) is milestone based, with exit criteria and help lanes. The short version:
+
+| Milestone | State | What must be true |
+|---|---|---|
+| M0 · Public floor online | Done | Both repositories, Pages, the public gate, failure reporting, promotion, and a prerelease are live. |
+| M1 · Reproducible, sharded floor | Active | The full suite runs on shards, merges into one receipt, and every canonical test file runs once. |
+| M2 · Admission evidence | Next | Readiness is reported per capability, with evidence and a remedy attached. |
+| M3 · Product hardening | Next | Backup and restore, provider coverage, portability, scale, and accessibility have tested failure paths. |
+| M4 · Sustainable contribution | Active | A new contributor can go from clone to a merged test or docs change using only public instructions. |
+
+No dates. A milestone closes when its exit criteria are reproducible, not when a badge changes.
 
 ## Quickstart
 
@@ -151,6 +177,9 @@ Model invocation, repository mutation, process execution, and network egress are
 
 | Document | What it covers |
 |---|---|
+| [Contributor hub](https://llm-4-people.github.io/bridlewise-testing/) | How to help, how to build on the harness, and the roadmap |
+| [How to help](https://llm-4-people.github.io/bridlewise-testing/floor/help/) | Contribution lanes, a first-hour path, and the review checklist |
+| [Build roadmap](https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/) | Milestones, workstreams, exit criteria, and help wanted |
 | [docs/testing.md](docs/testing.md) | The test map, prerequisites, commands, and how to add a test |
 | [docs/cli.md](docs/cli.md) | CLI, dev lifecycle, ledger inspection, database keys, guardian |
 | [docs/extending.md](docs/extending.md) | Blocks, tools, providers, MCP, embedding, quality packs |

@@ -57,12 +57,16 @@ The generators write public, redacted JSON. A missing file, an unknown schema, a
 | Understand how a test change becomes a product commit | [Promotion contract]({{ '/floor/promotion/' | relative_url }}) |
 | Inspect the test inventory, guards, or decisions | [Test atlas]({{ '/floor/atlas/' | relative_url }}) |
 | Read the current snapshot and its limits | [Floor status]({{ '/floor/status/' | relative_url }}) |
-| Read the product documentation | [Product docs]({{ '/' | relative_url }}) |
+| Help build or review the floor | [How to help]({{ '/floor/help/' | relative_url }}) |
+| See where the engineering work is going | [Build roadmap]({{ '/floor/roadmap/' | relative_url }}) |
+| Read the product documentation | [Product docs]({{ '/product/' | relative_url }}) |
 | Run the preview | [Quickstart]({{ '/quickstart/' | relative_url }}) |
 
-## The product docs are at the root
+## The front door is the floor
 
-The site build mirrors the product documentation at `{{ '/' | relative_url }}`. The root mirror and the floor pages are build targets. The floor pages are additive: they document the machinery behind the product. If a floor page and the product docs disagree about user-facing behavior, the source and the command output win. Report the drift rather than choosing the more convenient statement.
+The site root is the contributor hub: how to help, how to build on the harness, and where the work is going. The complete product documentation is still mirrored on this site, with a [product documentation entry point]({{ '/product/' | relative_url }}) and the original product page paths. The product home remains at <https://llm-4-people.github.io/bridlewise/>.
+
+The root hub and the floor pages are build targets. The floor pages are additive: they document the machinery behind the product. If a floor page and the product docs disagree about user-facing behavior, the source and the command output win. Report the drift rather than choosing the more convenient statement.
 
 ## When a public gate fails
 

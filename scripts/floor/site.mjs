@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { isFile } from "./files.mjs";
@@ -9,7 +9,11 @@ const REQUIRED_PRODUCT = [
   "index.md",
 ];
 const REQUIRED_FLOOR = [
+  "docs/index.md",
+  "docs/product.md",
   "docs/floor/index.md",
+  "docs/floor/help.md",
+  "docs/floor/roadmap.md",
   "docs/floor/atlas.md",
   "docs/floor/status.md",
   "docs/assets/floor/floor.css",
@@ -60,15 +64,23 @@ export function assembleFloorSite({ product, testing, out, baseurl = "/bridlewis
   copyTree(join(testingRoot, "docs/floor"), join(outRoot, "floor"), new Set(["data"]));
   copyTree(join(testingRoot, "docs/assets/floor"), join(outRoot, "assets/floor"), new Set());
 
+  // The testing site has its own front door. The product index is replaced by
+  // the contributor hub, and the product documentation gets a landing page at
+  // /product/. The rest of the product documentation stays at its original
+  // paths so the mirrored internal links keep working.
+  copyFileSync(join(testingRoot, "docs/index.md"), join(outRoot, "index.md"));
+  copyFileSync(join(testingRoot, "docs/product.md"), join(outRoot, "product.md"));
+
   const configPath = join(outRoot, "_config.yml");
   let config = readFileSync(configPath, "utf8");
   config = setYaml(config, "baseurl", baseurl);
+  config = setYaml(config, "testing_hub_url", "/");
   config = setYaml(config, "testing_floor_url", "/floor/");
-  config = setYaml(config, "floor_notice_url", "/floor/");
+  config = setYaml(config, "floor_notice_url", "/");
   config = setYaml(
     config,
     "floor_notice",
-    "This site mirrors the product documentation and adds the development-floor console, atlas, and status snapshot. The product site remains the public copy.",
+    "The contributor hub is at the site root. The complete product documentation is mirrored here. The product site remains the public copy.",
   );
   writeFileSync(configPath, config);
 

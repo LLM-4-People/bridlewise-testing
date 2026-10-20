@@ -45,7 +45,7 @@ test("the floor atlas reconciles its generated counts with tracked sources", () 
   assert.equal(serialized.includes(ROOT), false, "atlas must not leak an absolute checkout path");
 });
 
-test("the site assembly sets the testing baseurl and overlays the floor without touching product pages", () => {
+test("the site assembly gives the testing floor its own front door", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-floor-"));
   const product = join(work, "product");
   const out = join(work, "site");
@@ -78,10 +78,19 @@ test("the site assembly sets the testing baseurl and overlays the floor without 
 
     const config = readFileSync(join(out, "_config.yml"), "utf8");
     assert.match(config, /baseurl: "\/bridlewise-testing"/);
+    assert.match(config, /testing_hub_url: "\/"/);
     assert.match(config, /testing_floor_url: "\/floor\/"/);
+    assert.match(config, /floor_notice_url: "\/"/);
     assert.match(config, /floor_notice:/);
-    assert.equal(readFileSync(join(out, "index.md"), "utf8"), "---\nlayout: default\ntitle: Home\npermalink: /\n---\n\n# Home\n");
+    const hub = readFileSync(join(out, "index.md"), "utf8");
+    assert.match(hub, /title: "Build, test, and extend Bridlewise"/);
+    assert.match(hub, /permalink: \//);
+    assert.match(hub, /Build the harness/);
+    assert.notEqual(hub, "---\nlayout: default\ntitle: Home\npermalink: /\n---\n\n# Home\n");
+    assert.match(readFileSync(join(out, "product.md"), "utf8"), /Product documentation/);
     assert.ok(readFileSync(join(out, "floor/index.md"), "utf8").includes("The development floor"));
+    assert.ok(readFileSync(join(out, "floor/help.md"), "utf8").includes("How to help"));
+    assert.ok(readFileSync(join(out, "floor/roadmap.md"), "utf8").includes("Roadmap: build the floor"));
     assert.ok(readFileSync(join(out, "assets/floor/floor.css"), "utf8").includes("floor-table-wrap"));
     assert.ok(readFileSync(join(out, ".well-known/security.txt"), "utf8").includes("Contact:"));
     assert.equal(result.baseurl, "/bridlewise-testing");

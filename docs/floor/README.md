@@ -4,7 +4,7 @@ published: false
 
 # Floor content integration notes
 
-These drafts are content for the testing Pages site. They do not modify the product documentation. The site root mirrors the product docs; this folder adds `/floor/`.
+These drafts are content for the testing Pages site. They do not modify the product documentation. The site root is a contributor hub; the product docs are mirrored at their original paths with a landing page at `/product/`; this folder adds `/floor/`.
 
 This README is integration notes, not a site page. `published: false` keeps it out of the Jekyll output if it sits in the source tree.
 
@@ -12,7 +12,11 @@ This README is integration notes, not a site page. `published: false` keeps it o
 
 | File | Permalink | Purpose |
 |---|---|---|
+| `index.md` | `/` | Contributor hub, the testing site front door |
+| `product.md` | `/product/` | Product documentation entry point |
 | `floor/index.md` | `/floor/` | Floor landing page |
+| `floor/help.md` | `/floor/help/` | Contribution lanes and review checklist |
+| `floor/roadmap.md` | `/floor/roadmap/` | Milestones, workstreams, and exit criteria |
 | `floor/promotion.md` | `/floor/promotion/` | Projection and gate contract |
 | `floor/atlas.md` | `/floor/atlas/` | Generated test atlas and filter UI |
 | `floor/evidence.md` | `/floor/evidence/` | Rerunnable checks and non-proofs |
@@ -24,11 +28,12 @@ All published pages use `layout: default`, `title`, `description`, and `permalin
 ## Site assembly
 
 1. Mirror the product `docs/` tree at the testing site root without editing product page bodies.
-2. Set the testing site's own `_config.yml` `url`, `baseurl`, `title`, and `testing_url`. Do not inherit the product site's `baseurl`; `relative_url` must resolve under the testing Pages path. Keep `repository_url` at the product repository so mirrored product links still point to the product, and add a floor-specific variable if the testing repository needs its own link.
-3. Add these files under the testing site's `floor/` directory. Keep `/floor/` outside the mirror overwrite.
-4. Add a `Floor` link to the testing site navigation. In the testing copy, change the existing `Testing floor` footer link to `{{ '/floor/' | relative_url }}` and add a `Product docs` link to `{{ '/' | relative_url }}`.
-5. Keep the developer-preview warning in the layout. The floor pages repeat it but do not replace the site-wide banner.
-6. Do not add a separate layout or design-token system. Reuse the product `default` layout and styles. Add floor-only classes for the atlas and status controls if needed.
+2. Overlay the testing `docs/index.md` as the site root and `docs/product.md` as `/product/`. The product documentation keeps its original page paths so mirrored internal links still resolve.
+3. Set the testing site's own `_config.yml` `url`, `baseurl`, `title`, and `testing_url`. Set `testing_hub_url: "/"` and `testing_floor_url: "/floor/"`. Do not inherit the product site's `baseurl`; `relative_url` must resolve under the testing Pages path. Keep `repository_url` at the product repository so mirrored product links still point to the product.
+4. Add these files under the testing site's `floor/` directory. Keep `/floor/` outside the mirror overwrite.
+5. Add a `Build` link to the testing site navigation and a `Contributor hub` link to the footer when `testing_hub_url` is set. Keep the `Floor` link to `/floor/`.
+6. Keep the developer-preview warning in the layout. The floor pages repeat it but do not replace the site-wide banner.
+7. Do not add a separate layout or design-token system. Reuse the product `default` layout and styles. Add floor-only classes for the atlas and status controls if needed.
 
 ## Generated data
 
@@ -202,7 +207,7 @@ Behavior:
 ## Verification
 
 1. Build with the same Jekyll source the Pages workflow uses. Do not add a Gemfile only for these pages.
-2. Visit `/floor/`, `/floor/promotion/`, `/floor/atlas/`, `/floor/evidence/`, and `/floor/status/`.
+2. Visit `/`, `/product/`, `/floor/`, `/floor/help/`, `/floor/roadmap/`, `/floor/promotion/`, `/floor/atlas/`, `/floor/evidence/`, and `/floor/status/`.
 3. Test the atlas with valid data, no data, no filter matches, invalid JSON, a missing file, and an unknown schema.
 4. Test status with `github.available: true`, `false`, missing `promotion`, a stale `generatedAt`, and a missing file.
 5. Use keyboard only. Check focus, labels, `aria-live` counts, and the no-JavaScript fallback.
