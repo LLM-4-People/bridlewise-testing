@@ -20,9 +20,9 @@ This is the engineering roadmap for the Bridlewise development floor: what shipp
 <!-- BEGIN GENERATED: roadmap summary, from this page's ROADMAP-PLAN block (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
 ### Where the floor stands
 
-**24 of 66 tracked items shipped (36%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it.
+**24 of 65 tracked items shipped (37%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it.
 
-24 shipped · 10 in progress · 31 planned · 1 blocked · 7 not planned.
+24 shipped · 10 in progress · 30 planned · 1 blocked · 7 not planned.
 
 ### Milestones
 
@@ -893,7 +893,6 @@ Every open row of [TASKS.md](../trackers/TASKS.md) appears here. A row leaves th
 | **FLAKY-POPULATION-FLOOR-REDERIVED**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-WATCHDOG-C3**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-WEB-ARTIFACT-CENSUS**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-WEB-F5-LINK-RUN**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-WEB-GUARD-REDS-ON-ROUND-TREES**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-WEB-PROXIMITY-ROUND-13-REGEX**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-WEB-STRAY-TREE-RUN**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
