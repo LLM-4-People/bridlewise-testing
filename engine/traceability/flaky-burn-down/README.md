@@ -5,10 +5,13 @@ are a record of the private ledger that produced them, not a second test
 result.
 
 The public snapshot does not publish the private web run history. `web.json`
-therefore carries no entries here. The public task board keeps the owner lanes
-as ordinary work, but it does not claim that a private failure still exists.
-A fresh public checkout starts with an empty ledger, and an absent history can
-delay a red, never manufacture one.
+therefore carries only the suspects the public web ledger itself recorded; the
+private web lanes remain ordinary work on the task board and do not claim that
+a private failure still exists. The engine list keeps the private ledger's
+owned entries: the sanitized import carried the entries without their owner
+rows, so the public rows were added by the commit that re-owned them
+(`entryAddedWithOwner`). A fresh public checkout starts with an empty ledger,
+and an absent history can delay a red, never manufacture one.
 
 The list format and the owner rule are owned by
 `engine/src/workflow/flaky-burn-down.ts` and

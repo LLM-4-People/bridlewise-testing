@@ -3,91 +3,63 @@
   "entries": [
     {
       "identity": "test/repository-root-capability.test.ts::Linux test adapter is explicit, path-closed, and has typed unavailable outcomes",
-      "owner": "FLAKY-ENGINE-UNDIAGNOSED"
+      "owner": "FLAKY-PUBLIC-ENGINE-UNDIAGNOSED"
     },
     {
       "identity": "test/evaluation/matrix-executor.test.ts::evaluation/matrix-executor: tokens accumulate from run usage",
-      "owner": "FLAKY-ENGINE-UNLOGGED-RECORDS"
+      "owner": "FLAKY-PUBLIC-ENGINE-UNLOGGED-RECORDS"
     },
     {
       "identity": "test/mcp/transport.test.ts::streamable http: a server ping on the answer stream is answered and never resolves the client's request (H-1)",
-      "owner": "FLAKY-ENGINE-UNLOGGED-RECORDS"
-    },
-    {
-      "identity": "test/mcp/real-servers.test.ts::real (live, opt-in): context7 answers initialize + tools/list over Streamable HTTP (skipped)",
-      "owner": "FLAKY-ENGINE-LIVE-ARMS"
-    },
-    {
-      "identity": "test/mcp/real-servers.test.ts::real (live, opt-in): deepwiki /mcp answers initialize + tools/list over Streamable HTTP (skipped)",
-      "owner": "FLAKY-ENGINE-LIVE-ARMS"
-    },
-    {
-      "identity": "test/verification/recursive-test-inventory.test.ts::test discovery policy centrally binds recursive traversal and explicit execution inputs",
-      "owner": "FLAKY-ENGINE-GUARD-REDS-ON-ROUND-TREES"
+      "owner": "FLAKY-PUBLIC-ENGINE-UNLOGGED-RECORDS"
     },
     {
       "identity": "test/verification/test-surface-conservation.test.ts::conservation: a path in two buckets, and a path twice in one, are BOTH refused",
-      "owner": "FLAKY-ENGINE-GUARD-REDS-ON-ROUND-TREES"
+      "owner": "FLAKY-PUBLIC-ENGINE-GUARD-REDS-ON-ROUND-TREES"
     },
     {
       "identity": "test/verification/test-surface-conservation.test.ts::conservation: the live scope passes, and R-c refuses when one file changes bucket",
-      "owner": "FLAKY-ENGINE-GUARD-REDS-ON-ROUND-TREES"
+      "owner": "FLAKY-PUBLIC-ENGINE-GUARD-REDS-ON-ROUND-TREES"
     },
     {
       "identity": "test/workflow/harness-commands.test.ts::runHarnessCli: an unknown subcommand flag is rejected with actionable error context",
-      "owner": "FLAKY-ENGINE-GUARD-REDS-ON-ROUND-TREES"
+      "owner": "FLAKY-PUBLIC-ENGINE-GUARD-REDS-ON-ROUND-TREES"
     },
     {
       "identity": "test/s1-scenarios/b12.test.ts::S1-B12-CONTROL",
-      "owner": "FLAKY-S1-B12-CONTROL"
-    },
-    {
-      "identity": "test/candidate-format.test.ts::artifact admission reuses strict text decoding and retains archives only as rejected fixtures",
-      "owner": "FLAKY-ENGINE-ONE-RUN-2026-10-09"
+      "owner": "FLAKY-PUBLIC-S1-B12-CONTROL"
     },
     {
       "identity": "test/prevention/resolved-default-not-readable.test.ts::resolved defaults: a default its own module resolves is never exported",
-      "owner": "FLAKY-ENGINE-ONE-RUN-2026-10-09"
+      "owner": "FLAKY-PUBLIC-ENGINE-ONE-RUN-2026-10-09"
     },
     {
       "identity": "test/s1-scenarios/b02.test.ts::S1-B02-FAILURE",
-      "owner": "FLAKY-ENGINE-ONE-RUN-2026-10-09"
-    },
-    {
-      "identity": "test/s1-scenarios/b08.test.ts::S1-B08-CONTROL",
-      "owner": "FLAKY-ENGINE-ONE-RUN-2026-10-09"
+      "owner": "FLAKY-PUBLIC-ENGINE-ONE-RUN-2026-10-09"
     },
     {
       "identity": "test/s1-scenarios/b12.test.ts::S1-B12-FAILURE",
-      "owner": "FLAKY-ENGINE-ONE-RUN-2026-10-09"
+      "owner": "FLAKY-PUBLIC-ENGINE-ONE-RUN-2026-10-09"
     },
     {
       "identity": "test/s1-scenarios/b13.test.ts::S1-B13-HOSTILE-REAL",
-      "owner": "FLAKY-ENGINE-ONE-RUN-2026-10-09"
+      "owner": "FLAKY-PUBLIC-ENGINE-ONE-RUN-2026-10-09"
     },
     {
       "identity": "test/support/foundation-cascade-hostile-worker.test.ts::[FC-B001] pure modular boundary and single protocol ownership",
-      "owner": "FLAKY-ENGINE-ONE-RUN-2026-10-09"
+      "owner": "FLAKY-PUBLIC-ENGINE-ONE-RUN-2026-10-09"
     },
     {
       "identity": "test/workflow/atomic-write-consistency.test.ts::atomic-write-consistency: every src/workflow/*.ts writeFileSync call writes to an fd, never a path",
-      "owner": "FLAKY-ENGINE-ONE-RUN-2026-10-09"
+      "owner": "FLAKY-PUBLIC-ENGINE-ONE-RUN-2026-10-09"
     },
     {
       "identity": "test/verification/test-surface-conservation.test.ts::conservation: the identity is asserted by the production inventory door",
-      "owner": "FLAKY-ENGINE-INVENTORY-RACE"
-    },
-    {
-      "identity": "test/prevention/bundle-staleness.test.ts::BundleStaleness: rebuilding from current source reproduces the on-disk bundle byte for byte (no staleness)",
-      "owner": "FLAKY-ENGINE-DIRTY-DIAGNOSTIC-RUN"
-    },
-    {
-      "identity": "test/prevention/git-freshness.test.ts::the working tree matches the committed state (no stale index)",
-      "owner": "FLAKY-ENGINE-DIRTY-DIAGNOSTIC-RUN"
+      "owner": "FLAKY-PUBLIC-ENGINE-INVENTORY-RACE"
     },
     {
       "identity": "test/workflow/working-copy.test.ts::the gate log redacts across chunk boundaries: a line of nearly 64 KiB reaches the redaction WHOLE (`password=`, `password: `, `password = ` and a JSON password field each kept with its value), and a character split across two writes is kept whole",
-      "owner": "FLAKY-ENGINE-GATE-LOG-PASSWORD-TAIL"
+      "owner": "FLAKY-PUBLIC-ENGINE-GATE-LOG-PASSWORD-TAIL"
     }
   ]
 }

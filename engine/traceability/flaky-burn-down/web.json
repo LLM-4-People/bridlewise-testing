@@ -1,4 +1,17 @@
 {
   "schemaVersion": "bridlewise-flaky-burn-down/v1",
-  "entries": []
+  "entries": [
+    {
+      "identity": "tests/prevention/agent-docs-liveness.test.ts::the agent briefing names what exists > every link, path, npm script and node file in the briefing documents exists",
+      "owner": "FLAKY-PUBLIC-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/source-root-organization.test.ts::source-root organization — README freshness (deny-by-default) > engine/test/ each README names exactly the folder's real files",
+      "owner": "FLAKY-PUBLIC-WEB-GUARD-REDS-ON-ROUND-TREES"
+    },
+    {
+      "identity": "tests/prevention/test-run-watchdog.test.ts::1. the watchdog lives outside the runtime and kills on a STALL, never on a slow run > C3: actual focused wrapper refuses inner forced cleanup even when its outer command finishes normally",
+      "owner": "FLAKY-PUBLIC-WEB-WATCHDOG-C3"
+    }
+  ]
 }
