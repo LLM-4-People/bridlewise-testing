@@ -548,7 +548,15 @@ console.log(JSON.stringify({name:error?.name,code:error?.code}));`);
       "supervisor-resource-control", join(directory, "failed-receipt.json"), native, descendantPath], { timeoutMs: TEST_TIMEOUT_MS, killGraceMs: webSuiteKillGraceMs() });
     expect(child.error).toBeUndefined();
     expect(child.status).toBe(1);
-    expect(child.stderr).toContain("test supervisor owned children: Too many open files");
+    // After the fork the supervisor makes two allocations before the cleanup
+    // this arm plants: `/proc/<pid>/stat` (a failure there is tolerated) and
+    // the command's pidfd. The command lowers the supervisor's descriptor
+    // bound concurrently, so either allocation can be the one that hits
+    // EMFILE; both are post-launch, and both enter the same `fail()` cleanup.
+    // The invariant is the cleanup, not which allocation saw the bound first:
+    // a floor run named `pidfd_open`, not `owned children` (FLAKY-ISOLATION-PIDFD).
+    expect(child.stderr, "the refusal must name the post-launch descriptor exhaustion")
+      .toMatch(/^test supervisor (?:owned children|pidfd_open): Too many open files$/m);
     const commandPid = child.stderr.match(/test supervisor: owned command pid (\d+)/)?.[1];
     expect(commandPid, "the refusal must occur after an actual successful fork").toBeDefined();
     expect(child.supervision.reaped, "post-fork errors must not leave cleanup to the outer owner").toEqual([]);
