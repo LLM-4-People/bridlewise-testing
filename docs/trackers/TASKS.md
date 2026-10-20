@@ -4,16 +4,16 @@ This is the public task board for the Bridlewise development floor. It is a work
 
 ## Open
 
-- [ ] **Repair the public full-suite baseline** — close the remaining public-snapshot failures, or record each as a named exclusion with evidence.
-- [ ] **Activate the sharded full-suite gate** — run the canonical file set on disjoint shards, merge one receipt, and refuse a missing, duplicate, failed, or wrong-commit shard.
-- [ ] **Publish the corpus manifest** — add a pinned fetch step or a sanitized permissive subset without publishing the raw 4.1 GB cache.
-- [ ] **Make the performance report reproducible** — document the idle-host contract and judge a fresh profile in the suite.
-- [ ] **Split the slow rewind test** — bring each file under the per-file share budget without changing what it proves.
-- [ ] **Add per-capability admission receipts** — replace the single readiness boolean with named evidence and remedies.
-- [ ] **Document the backup and restore flow** — cover the database and the key home with a verification step.
-- [ ] **Add a second provider conformance fixture** — prove the Chat Completions shape without claiming universal compatibility.
-- [ ] **Make the testing hub discoverable from every surface** — keep the README, Pages hub, roadmap, and help paths in step.
-- [ ] **Verify the public floor on a fresh machine** — run the public gate and the focused corpus probe from a clean clone.
+- [ ] **Activate the sharded full-suite gate** — the manifest, plan, merge, and receipt contract are built and one manual ten-shard receipt is recorded at `d47909de`; the workflow is still `workflow_dispatch` only, so decide the automatic trigger and required check.
+- [ ] **Publish the corpus manifest** — no manifest or fetch step exists; `engine/scripts/verification/required-fixture-roots.ts` still tells a reader to copy or symlink the 4.1 GB cache from an existing checkout.
+- [ ] **Add per-capability admission receipts** — `preflight` names each capability with an allow or deny decision and a code, but carries no evidence path or remedy.
+- [ ] **Document the backup and restore flow** — no backup or restore procedure exists; the docs only advise keeping the database and key home backed up, and `db-archive` archives conversations rather than restoring them.
+- [ ] **Verify the public floor on a fresh machine** — the commands are documented, but no fresh-clone receipt is recorded and the evidence page still expects 18 public smoke tests (the suite is 28).
+- [ ] **Link the task board from the hub** — the README, Pages hub, and floor pages never link `docs/trackers/TASKS.md`; only `ALL-BUGS-AND-ISSUES.md` does.
+- [ ] **Publish the shard receipt artifact** — the ten-shard receipt at `d47909de` is recorded only in prose; no receipt JSON is in the tree, so the 8722-test and 2.81x numbers cannot be replayed without the workflow artifact.
+- [ ] **Re-measure the shard weights at the manifest's own head** — `measuredHeadSha` is `0ba57912`, but the exclusion set changed at `3788e202`, so the weights no longer describe the manifest's current file list.
+- [ ] **Give each shard exclusion evidence that resolves** — all four evidence fields point at `docs/floor/roadmap.md#M1`, an anchor the roadmap does not define and a section that does not name them.
+- [ ] **Reconcile the flaky burn-down list with the published memory** — the memory carries 22 engine entries and no web entries, while the `FLAKY-*` rows below own 0 entries; the engine guard reports the missing rows.
 
 ## Flaky burn-down owners
 
@@ -44,3 +44,8 @@ Each row owns one entry in the tracked flaky burn-down list. The owner is the ta
 - [x] **Anchoring the public ignore rules** — keep every pattern scoped to the place it names, and pass the floor guard.
 - [x] **Update the rewind provider stub** — read the Responses request shape and exercise the real context path.
 - [x] **Allow the public node:test suite in the source walks** — keep `.mjs` smoke files visible to the guards that judge the tree.
+- [x] **Repair the public full-suite baseline** — the 521-file supported set is green and the four remaining failures are named exclusions with a reason and evidence.
+- [x] **Split the slow rewind test** — four behavior files, each with a fresh harness, 44 tests in total, and the largest at 4.52% against the 5% per-file share cap.
+- [x] **Add a second provider conformance fixture** — the Chat Completions request and stream shapes are proved offline without a universal-compatibility claim.
+- [x] **Make the testing hub discoverable from every surface** — the README, Pages hub, roadmap, help, and product README are in step.
+- [x] **Make the performance report reproducible** — the idle-host contract is documented in the test map, and a fresh `2caada8f` profile was judged by the regression gate (36/36); the red LCP, long-task, API, and long-chat budgets belong to M3.

@@ -176,9 +176,9 @@ The manual workflow is `.github/workflows/test-shards.yml`; it is not a push tri
 
 | Horizon | Work | Milestone |
 |---|---|---|
-| Now | Shard the full suite and merge the receipt | M1 |
+| Now | Activate the shard gate and publish its receipt artifact | M1 |
 | Now | Publish the corpus manifest or a sanitized subset | M1 |
-| Now | Repair the public baseline reds and the slow-file budget | M1 |
+| Now | Reconcile the flaky burn-down list with the published memory | M1 |
 | Now | Keep the contributor hub and roadmap current | M4 |
 | Next | Per-capability admission receipts | M2 |
 | Next | Release provenance and verification | M2 |
