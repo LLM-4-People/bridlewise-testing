@@ -31,3 +31,40 @@ experimental developer preview and is not production ready.
 Read the complete diff. Check that every consumer was updated, that no dead
 code or duplicate owner remains, and that the change matches the roadmap's
 exit criteria. Keep the developer preview warning explicit in public prose.
+
+## Mandatory engineering rules
+
+These bind every change in this repository and everything built from it. This
+section is their single owner; the briefing and the agent rules point here
+rather than restating them.
+
+**Always.** Seek and follow DRY, KISS, YAGNI and the best coding practice.
+Create, edit and reuse shared functions, logic, tests and configurables, and
+build in blocks and modules. Refactor and clean up fully, then verify the parts
+are unified and work together. Delegate to agents so context stays small — one
+writer at a time, as many readers as you like in parallel. Research anything you
+are not certain of. Acknowledge, analyse, evaluate and act on every finding,
+reproducing it where possible: no assumptions, not even for low-impact
+findings. Keep one single source of truth for everything, implemented at the
+lowest chokepoint. Expose settings, signals, actions and customisation wherever
+the thing is built. Seek gaps and improvements in the workflows and in the app.
+Everything must be modular, resilient, reliable, agnostic, dynamic, efficient
+and performant. Write broad, deterministic, mechanical, dynamic and intelligent
+tests, and test improper and unexpected use as well as the expected path, so
+every finding is caught by a test next time. Keep the global vision, goals,
+expectations and results in view. Maintain real documentation and a record of
+progress and problems. Log debug, error and warning through one centralised
+logging system at the lowest chokepoint, and route everything through it. Reuse
+and improve the things used to build as well as the things built. Prefer
+background commands so work continues while they run.
+
+**Never.** Monolithic files, functions or logic. Static configurables inside
+the codebase. Band-aids or workarounds. Over-engineering unless it is required.
+Similar or duplicate logic, constants, variables or functions. External
+dependencies unless they are worth it. `pkill`/`kill`: use a script.
+
+**Triple check.** Repeat until a round comes back clean: eight check agents
+examine disjoint areas and report proven findings; one agent rechecks those
+findings and drops the unproven; one writer fixes what is confirmed; one agent
+rechecks the fixes. Then start again. Every finding carries its reproduction —
+a claim without one is not a finding.
