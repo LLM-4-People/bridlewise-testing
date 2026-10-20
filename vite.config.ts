@@ -197,7 +197,7 @@ export const BUILD_CONFIG: UserConfig = defineConfig({
      * the first version of this comment was.
      */
     watch: {
-      ignored: ["**/engine/**"],
+      ignored: ["**/engine/**", "**/.bridlewise/**", "**/test-results/**"],
     },
   },
   build: {

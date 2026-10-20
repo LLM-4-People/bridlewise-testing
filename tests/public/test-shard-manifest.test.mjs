@@ -110,6 +110,8 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
         shard: shard.index,
         vitestPath: raw,
         outPath: wrapped,
+        startedAt: shard.index === 1 ? 1_000 : 1_500,
+        finishedAt: shard.index === 1 ? 2_000 : 2_500,
       });
       reports.push(wrapped);
     }
@@ -126,6 +128,8 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
     assert.equal(receipt.manifestHash, plan.manifestHash);
     assert.equal(receipt.assignmentHash, plan.assignmentHash);
     assert.equal(receipt.fileCount, 2);
+    assert.equal(receipt.testPhaseMs, 1_500);
+    assert.equal(receipt.testPhaseCpuMs, 2_000);
 
     assert.throws(
       () => mergeShardReports({

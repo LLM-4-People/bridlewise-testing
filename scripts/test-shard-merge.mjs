@@ -86,7 +86,7 @@ function readPlan(path) {
   return plan;
 }
 
-function readShard(root, path, index, expected = undefined) {
+function readShard(root, path, index, expected = undefined, requireTiming = false) {
   const envelope = readJson(path, `shard ${index}`);
   if (envelope === null || typeof envelope !== "object") {
     fail(`shard ${index}: report is not an object`);
@@ -142,7 +142,19 @@ function readShard(root, path, index, expected = undefined) {
     fail(`shard ${index}: duplicate test file(s): ${[...new Set(duplicates)].join(", ")}`);
   }
   const totalTests = Number.isFinite(report.numTotalTests) ? report.numTotalTests : 0;
-  return { index, files: files.sort(), totalTests };
+  let timing;
+  if (wrapped && envelope.timing !== undefined) {
+    const candidate = envelope.timing;
+    const startedAt = Date.parse(String(candidate?.startedAt));
+    const finishedAt = Date.parse(String(candidate?.finishedAt));
+    const durationMs = Number(candidate?.durationMs);
+    if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || !Number.isFinite(durationMs) || finishedAt < startedAt || durationMs < 0) {
+      fail(`shard ${index}: timing is not a valid startedAt, finishedAt, and durationMs`);
+    }
+    timing = { startedAtMs: startedAt, finishedAtMs: finishedAt, durationMs };
+  }
+  if (requireTiming && timing === undefined) fail(`shard ${index}: no measured shard timing`);
+  return { index, files: files.sort(), totalTests, timing };
 }
 
 export function mergeShardReports({
@@ -152,6 +164,8 @@ export function mergeShardReports({
   expectedShards,
   headSha,
   planPath = undefined,
+  runnerClass = undefined,
+  requireTiming = false,
   outPath,
   now = new Date(),
 }) {
@@ -187,7 +201,7 @@ export function mergeShardReports({
       manifestHash: plan.manifestHash,
       assignmentHash: plan.assignmentHash,
       shardCount: plan.shardCount,
-    }));
+    }, requireTiming));
   const expected = new Set(manifest);
   const seen = new Map();
 
@@ -222,19 +236,35 @@ export function mergeShardReports({
   }
 
   const manifestHash = hashManifest(manifest);
+  const timings = shards.map((shard) => shard.timing);
+  const measuredTiming = timings.every((timing) => timing !== undefined);
+  const testPhaseMs = measuredTiming
+    ? Math.max(...timings.map((timing) => timing.finishedAtMs)) - Math.min(...timings.map((timing) => timing.startedAtMs))
+    : null;
+  const testPhaseCpuMs = measuredTiming
+    ? timings.reduce((sum, timing) => sum + timing.durationMs, 0)
+    : null;
   const receipt = {
     schemaVersion: RECEIPT_SCHEMA,
     generatedAt: now.toISOString(),
     headSha: headSha.toLowerCase(),
     shardCount: expectedShards,
+    ...(runnerClass === undefined ? {} : { runnerClass }),
     manifestHash,
     ...(plan === undefined ? {} : { assignmentHash: plan.assignmentHash }),
     fileCount: manifest.length,
     testCount: shards.reduce((sum, shard) => sum + shard.totalTests, 0),
+    testPhaseMs,
+    testPhaseCpuMs,
     shards: shards.map((shard) => ({
       index: shard.index,
       fileCount: shard.files.length,
       testCount: shard.totalTests,
+      ...(shard.timing === undefined ? {} : {
+        startedAt: new Date(shard.timing.startedAtMs).toISOString(),
+        finishedAt: new Date(shard.timing.finishedAtMs).toISOString(),
+        durationMs: shard.timing.durationMs,
+      }),
     })),
   };
 
@@ -251,6 +281,8 @@ function parseArgs(argv) {
     shardPaths: [],
     expectedShards: null,
     headSha: process.env.GITHUB_SHA ?? null,
+    runnerClass: undefined,
+    requireTiming: false,
     outPath: null,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -261,6 +293,8 @@ function parseArgs(argv) {
     else if (arg === "--shard") options.shardPaths.push(argv[++index]);
     else if (arg === "--expected-shards") options.expectedShards = Number(argv[++index]);
     else if (arg === "--head") options.headSha = argv[++index];
+    else if (arg === "--runner") options.runnerClass = argv[++index];
+    else if (arg === "--require-timing") options.requireTiming = true;
     else if (arg === "--out") options.outPath = argv[++index];
     else fail(`unknown argument: ${arg}`);
   }

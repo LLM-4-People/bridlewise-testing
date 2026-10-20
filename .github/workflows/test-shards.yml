@@ -153,6 +153,7 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
         run: |
+          echo "SHARD_STARTED_AT=$(date +%s%3N)" >> "$GITHUB_ENV"
           mapfile -t files < artifacts/files.txt
           node --experimental-strip-types scripts/run-tests.ts \
             --project=node --project=dom \
@@ -168,6 +169,8 @@ jobs:
             --plan artifacts/plan/plan.json \
             --vitest "$RUNNER_TEMP/shard-${{ matrix.shard }}.vitest.json" \
             --shard "${{ matrix.shard }}" \
+            --started-at "$SHARD_STARTED_AT" \
+            --finished-at "$(date +%s%3N)" \
             --out "artifacts/shard-${{ matrix.shard }}.json"
 
       - name: Upload the shard report
@@ -222,6 +225,8 @@ jobs:
             --plan artifacts/plan/plan.json \
             --expected-shards "$SHARDS" \
             --head "$GITHUB_SHA" \
+            --runner "${{ inputs.runner }}" \
+            --require-timing \
             --out test-shard-receipt.json \
             "${args[@]}"
 
@@ -239,6 +244,8 @@ jobs:
           if (receipt.shardCount !== Number(process.env.SHARDS)) fail("shardCount mismatch");
           if (receipt.manifestHash !== plan.manifestHash) fail("manifestHash mismatch");
           if (receipt.assignmentHash !== plan.assignmentHash) fail("assignmentHash mismatch");
+          if (!Number.isFinite(receipt.testPhaseMs) || receipt.testPhaseMs < 0) fail("testPhaseMs was not measured");
+          if (!Number.isFinite(receipt.testPhaseCpuMs) || receipt.testPhaseCpuMs < 0) fail("testPhaseCpuMs was not measured");
           const plannedFiles = plan.shards.reduce((count, shard) => count + shard.files.length, 0);
           if (receipt.fileCount !== plannedFiles) fail("fileCount mismatch");
           NODE

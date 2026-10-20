@@ -175,12 +175,23 @@ export function planShards({ root = process.cwd(), manifestPath, shardCount, hea
   return plan;
 }
 
-export function wrapShardReport({ root = process.cwd(), planPath, shard, vitestPath, outPath }) {
+function timestamp(value, subject) {
+  if (value === undefined || value === null) return undefined;
+  const ms = typeof value === "number" ? value : Date.parse(String(value));
+  if (!Number.isFinite(ms) || ms < 0) fail(`${subject} must be an epoch millisecond value or an ISO timestamp`);
+  return ms;
+}
+
+export function wrapShardReport({ root = process.cwd(), planPath, shard, vitestPath, outPath, startedAt, finishedAt }) {
   const repositoryRoot = resolve(root);
   const plan = readJson(planPath, "plan");
   if (plan.schemaVersion !== PLAN_SCHEMA) fail(`plan: expected schema ${PLAN_SCHEMA}`);
   if (!Number.isSafeInteger(shard) || shard < 1 || shard > plan.shardCount) fail("shard is outside the plan");
   const report = readJson(vitestPath, `vitest report for shard ${shard}`);
+  const startMs = timestamp(startedAt, "startedAt");
+  const finishMs = timestamp(finishedAt, "finishedAt");
+  if ((startMs === undefined) !== (finishMs === undefined)) fail("startedAt and finishedAt must be supplied together");
+  if (startMs !== undefined && finishMs !== undefined && finishMs < startMs) fail("finishedAt is before startedAt");
   const envelope = {
     schemaVersion: SHARD_REPORT_SCHEMA,
     headSha: plan.headSha,
@@ -188,6 +199,7 @@ export function wrapShardReport({ root = process.cwd(), planPath, shard, vitestP
     assignmentHash: plan.assignmentHash,
     shard,
     shardCount: plan.shardCount,
+    ...(startMs === undefined ? {} : { timing: { startedAt: new Date(startMs).toISOString(), finishedAt: new Date(finishMs).toISOString(), durationMs: finishMs - startMs } }),
     vitest: report,
   };
   mkdirSync(dirname(resolve(outPath)), { recursive: true });
@@ -208,6 +220,8 @@ function parseArgs(argv) {
     else if (arg === "--github-output") options.githubOutput = argv[++index];
     else if (arg === "--plan") options.planPath = argv[++index];
     else if (arg === "--shard") options.shard = Number(argv[++index]);
+    else if (arg === "--started-at") options.startedAt = argv[++index];
+    else if (arg === "--finished-at") options.finishedAt = argv[++index];
     else if (arg === "--vitest") options.vitestPath = argv[++index];
     else if (arg === "--out") options.outPath = argv[++index];
     else fail(`unknown argument: ${arg}`);
