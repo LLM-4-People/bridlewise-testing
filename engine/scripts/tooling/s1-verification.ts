@@ -594,6 +594,11 @@ function readExternalCommandSources(
 ): readonly ArchitectureSource[] {
   const entries: ArchitectureSource[] = [];
   for (const command of ARCHITECTURE_MANIFEST.externalCommands) {
+    // A source the public snapshot declares not-published is EXPECTED absent:
+    // the architecture verifier names that boundary itself. Only an
+    // unexpected source at the path is read, so it can be refused as an
+    // accidental publication (and hash-checked for a diagnostic receipt).
+    if (command.publication === "not-published" && !existsSync(join(root, command.path))) continue;
     try {
       const bytes = readSafeRepositoryFile(
         root,

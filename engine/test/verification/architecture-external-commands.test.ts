@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -19,6 +19,11 @@ import { sha256 } from "../../src/kernel/integrity.ts";
 // `externalCommandSources`) and assert its SHA-256 equals the manifest's
 // `sourceSha256`. Previously it only checked the *format* of `sourceSha256`,
 // so ~30 external Python/shell commands had unverified bindings.
+//
+// The same door now distinguishes a PUBLICATION boundary from a missing
+// source: a command declared `publication: "not-published"` is still refused
+// by name when absent, and refused again when its source unexpectedly
+// appears. Neither arm is a skip.
 
 const PYTHON_SOURCE = "import sys\nprint('hello')\n";
 const PYTHON_HASH = sha256(PYTHON_SOURCE);
@@ -32,6 +37,7 @@ function makeExternalCommand(overrides: Partial<ArchitectureExternalCommand> = {
     language: "python",
     owner: "test-qualification",
     path: "verification/benchmarks/test/command.py",
+    publication: "published",
     sourceSha256: PYTHON_HASH,
     ...overrides,
   };
@@ -96,6 +102,41 @@ test("architecture-external-commands: missing source file fails with source-miss
   );
 });
 
+test("architecture-external-commands: a not-published source is refused by name, not skipped", () => {
+  const command = makeExternalCommand({ publication: "not-published" });
+  const manifest = makeManifest([command]);
+  const absent = verifyArchitectureSources([], manifest, []);
+  assert.ok(
+    absent.violations.includes(`architecture-external-command-source-not-published:${command.path}`),
+    `the public boundary must be named, got: ${JSON.stringify(absent.violations)}`,
+  );
+  assert.equal(
+    absent.violations.some((violation) => violation.startsWith("architecture-external-command-source-missing:")),
+    false,
+    "an expected-absent not-published source is not a missing-source defect",
+  );
+  assert.equal(
+    absent.violations.some((violation) => violation.startsWith("architecture-external-command-source-hash-drift:")),
+    false,
+  );
+  assert.equal(absent.ok, false, "the guard must refuse, not certify the absent boundary");
+});
+
+test("architecture-external-commands: a not-published source that appears is refused as an unexpected publication", () => {
+  const command = makeExternalCommand({ publication: "not-published" });
+  const manifest = makeManifest([command]);
+  const present = verifyArchitectureSources([], manifest, [{ path: command.path, source: PYTHON_SOURCE }]);
+  assert.ok(
+    present.violations.includes(`architecture-external-command-source-unexpectedly-published:${command.path}`),
+    `an accidentally published source must be refused, got: ${JSON.stringify(present.violations)}`,
+  );
+  assert.equal(
+    present.violations.some((violation) => violation.startsWith("architecture-external-command-source-not-published:")),
+    false,
+  );
+  assert.equal(present.ok, false);
+});
+
 test("architecture-external-commands: omitted externalCommandSources skips content check (backward compat)", () => {
   const command = makeExternalCommand({ sourceSha256: sha256("wrong") });
   const manifest = makeManifest([command]);
@@ -121,6 +162,7 @@ test("architecture-external-commands: shell command hash verified", () => {
     language: "shell",
     owner: "test-qualification",
     path: "verification/benchmarks/test/command.sh",
+    publication: "published",
     sourceSha256: sha256(shellSource),
   };
   const manifest = makeManifest([shellCommand]);
@@ -136,12 +178,31 @@ test("architecture-external-commands: shell command hash verified", () => {
   assert.ok(drifted.violations.includes(`architecture-external-command-source-hash-drift:${shellCommand.path}`));
 });
 
-test("architecture-external-commands: real repository external commands all match manifest", () => {
+test("architecture-external-commands: real repository matches the manifest and its publication boundary", () => {
   const sources: ArchitectureSource[] = [];
+  const notPublished = ARCHITECTURE_MANIFEST.externalCommands.filter((command) => command.publication === "not-published");
   for (const command of ARCHITECTURE_MANIFEST.externalCommands) {
+    if (command.publication === "not-published") {
+      assert.equal(
+        existsSync(command.path),
+        false,
+        `the public snapshot must not carry the not-published source ${command.path}; a source that appears here is an accidental publication`,
+      );
+      continue;
+    }
     sources.push({ path: command.path, source: readFileSync(command.path, "utf8") });
   }
+  assert.ok(notPublished.length > 0, "the declared not-published set is empty — the boundary assertion would be vacuous");
   const result = verifyArchitectureSources([], ARCHITECTURE_MANIFEST, sources);
-  const hashViolations = result.violations.filter((v) => v.startsWith("architecture-external-command-source-"));
-  assert.deepEqual([...hashViolations], []);
+  const boundaryViolations = result.violations.filter((violation) =>
+    violation.startsWith("architecture-external-command-source-not-published:"));
+  assert.deepEqual(
+    boundaryViolations.toSorted(),
+    notPublished.map((command) => `architecture-external-command-source-not-published:${command.path}`).toSorted(),
+    "every declared not-published source must be named on every run",
+  );
+  const publishedViolations = result.violations.filter((violation) =>
+    violation.startsWith("architecture-external-command-source-") &&
+    !violation.startsWith("architecture-external-command-source-not-published:"));
+  assert.deepEqual([...publishedViolations], [], "every published source must match its manifest hash");
 });

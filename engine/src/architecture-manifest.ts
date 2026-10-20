@@ -73,6 +73,17 @@ export type ArchitectureExternalCommand = Readonly<{
   language: "python" | "shell";
   owner: string;
   path: string;
+  /**
+   * Whether the public snapshot carries this command's source.
+   *
+   * `"not-published"` is a REFUSAL, not an exemption: the public tree
+   * deliberately does not carry the private floor's historical OpenCode
+   * benchmark sources, so the architecture verifier reports
+   * `architecture-external-command-source-not-published:<path>` for the
+   * absent source and refuses again if one appears. A `"published"` command
+   * is hash-bound to its tracked bytes as before.
+   */
+  publication: "published" | "not-published";
   sourceSha256: string;
 }>;
 
@@ -157,7 +168,7 @@ function moduleContract(input: ModuleInput): ArchitectureModule {
   };
 }
 
-type ExternalCommandInput = Omit<ArchitectureExternalCommand, "disposition" | "exposure" | "language">;
+type ExternalCommandInput = Omit<ArchitectureExternalCommand, "disposition" | "exposure" | "language" | "publication">;
 
 function blockedPythonCommand(input: ExternalCommandInput): ArchitectureExternalCommand {
   return {
@@ -165,6 +176,23 @@ function blockedPythonCommand(input: ExternalCommandInput): ArchitectureExternal
     disposition: "blocked-unqualified",
     exposure: "verification-internal",
     language: "python",
+    publication: "published",
+  };
+}
+
+/**
+ * A declared external command whose source the PUBLIC SNAPSHOT deliberately
+ * does not carry. The architecture verifier still refuses it (named
+ * `architecture-external-command-source-not-published`) and refuses it again
+ * if the source appears; this is a boundary declaration, not a skip.
+ */
+function blockedNotPublishedPythonCommand(input: ExternalCommandInput): ArchitectureExternalCommand {
+  return {
+    ...input,
+    disposition: "blocked-unqualified",
+    exposure: "verification-internal",
+    language: "python",
+    publication: "not-published",
   };
 }
 
@@ -174,6 +202,7 @@ function blockedResearchShellCommand(input: ExternalCommandInput): ArchitectureE
     disposition: "blocked-unqualified",
     exposure: "research-only-non-model-facing",
     language: "shell",
+    publication: "published",
   };
 }
 
@@ -269,12 +298,21 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     ],
     safety: [],
   },
+  // THE PUBLIC SNAPSHOT PUBLISHES A SUBSET OF THE PRIVATE FLOOR'S EXTERNAL
+  // RESEARCH COMMANDS. `publication: "not-published"` declares a source this
+  // tree deliberately does not carry: the verifier still refuses it, by name,
+  // and refuses it again if the source appears (an accidental publication is
+  // a boundary breach, not a pass). The historical OpenCode benchmark sources
+  // were pruned deliberately at the public import; the code-intelligence and
+  // runtime sources below are published, and their three re-measured pins
+  // describe the public bytes after local home paths were sanitized to
+  // /home/example.
   externalCommands: [
     blockedPythonCommand({
       id: "code-intelligence-inspect-existing-baseline",
       path: "verification/benchmarks/code-intelligence/inspect_existing_baseline.py",
       owner: "code-intelligence-qualification", effects: ["filesystem-read", "process-status"],
-      sourceSha256: "82a0b875512947c3f53c500749724f703dc144bd52e59c79be94de7660e3bb4f",
+      sourceSha256: "478d81228488ade967f79d110b7b386af4f489b8f659919f72d86454b63f2279",
     }),
     blockedPythonCommand({
       id: "code-intelligence-mcp-probe", path: "verification/benchmarks/code-intelligence/mcp_probe.py",
@@ -302,7 +340,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       path: "verification/benchmarks/code-intelligence/tests/test_qualification.py",
       owner: "code-intelligence-qualification",
       effects: ["child-process", "cryptography", "filesystem-read", "filesystem-write", "git"],
-      sourceSha256: "e810455a8eb4daf70049883e429dd848eb8ed7d554171994991f23193d02ab36",
+      sourceSha256: "191b4eb3d930bdce16028a03439248c804c63b6799fbeb38bea96c9f58d6f1c5",
     }),
     blockedPythonCommand({
       id: "context-generate-scenarios", path: "verification/benchmarks/context/generate-scenarios.py",
@@ -336,79 +374,79 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       effects: ["child-process", "filesystem-read", "filesystem-write", "git"],
       sourceSha256: "be99b25c1455cb26c377e8b5b6e17676fd4a4519257894a155b39e29d6123cf5",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-conversation-build-manifest",
       path: "verification/benchmarks/historical-opencode/conversation-study/build_manifest.py",
       owner: "historical-conversation-study",
       effects: ["cryptography", "filesystem-read", "filesystem-write", "process-status"],
       sourceSha256: "230daf654a973ab310f07aeb5d7475b2b9b509dd7395329d0b4789f80ba69fba",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-conversation-build-work-units",
       path: "verification/benchmarks/historical-opencode/conversation-study/build_work_units.py",
       owner: "historical-conversation-study",
       effects: ["filesystem-read", "filesystem-write", "process-status"],
       sourceSha256: "056410719cf1772a89db678c21d0f73eb6e2fe0dd840f527d293f5d2d29f529d",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-conversation-review-digest",
       path: "verification/benchmarks/historical-opencode/conversation-study/review_digest.py",
       owner: "historical-conversation-study", effects: ["child-process", "process-status"],
       sourceSha256: "105d6881872d6b8a9b950549f58f2bdb4d43a587009daae2b79af01a40c71e92",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-conversation-validate-failures-agent-b",
       path: "verification/benchmarks/historical-opencode/conversation-study/validate_failures_agent_b.py",
       owner: "historical-conversation-study", effects: ["cryptography", "filesystem-read", "process-status"],
       sourceSha256: "b4543886622b27c1d5f5028e160d6e3e83dcb0d0b97b9651b58dd903d19a8d7d",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-editor-analyze-history",
       path: "verification/benchmarks/historical-opencode/editor-benchmark/analyze_history.py",
       owner: "historical-editor-benchmark",
       effects: ["cryptography", "filesystem-read", "filesystem-write", "process-status"],
       sourceSha256: "2efadd06b1c494aa6ca1f2761818526ba69ce2a6d966efe748b0f3f721f23ea4",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-editor-validate-artifacts",
       path: "verification/benchmarks/historical-opencode/editor-benchmark/validate_artifacts.py",
       owner: "historical-editor-benchmark", effects: ["filesystem-read", "process-status"],
       sourceSha256: "9f1fc90b0cdb4af4a6e5ea3a190531bb65b797e4f0d36f8380f42d47f6e5b4b0",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-production-integration-test-manifest",
       path: "verification/benchmarks/historical-opencode/production-methodology/v4.7.0/integration_test_manifest.py",
       owner: "historical-production-methodology", effects: ["filesystem-read", "process-status"],
       sourceSha256: "6463488a834820fbc2b3dbdbce9ae4920f7abf6632b10ec04f36d36ac8306fd1",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-read-only-generate-fixtures",
       path: "verification/benchmarks/historical-opencode/read-only-adapter/fixtures/generate_fixtures.py",
       owner: "historical-read-only-adapter",
       effects: ["filesystem-read", "filesystem-write", "process-status"],
       sourceSha256: "3534832ceade313ab7ac561d0e0ce893d06ecca07ea120ba37d1d4fecc0b1001",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-read-only-adapter-tests",
       path: "verification/benchmarks/historical-opencode/read-only-adapter/tests/test_adapter.py",
       owner: "historical-read-only-adapter", effects: ["cryptography", "filesystem-read", "filesystem-write"],
       sourceSha256: "5680c81960c3f34a09e8850996c042e11685884233c7e0132770eaea7cf832d5",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-sanitizer-analysis",
       path: "verification/benchmarks/historical-opencode/sanitizer/opencode_analysis.py",
       owner: "historical-sanitizer",
       effects: ["child-process", "cryptography", "filesystem-read", "filesystem-write", "git", "process-status"],
       sourceSha256: "c6ce9bebf5ef52bc647b1e74ca7d6140224d47a626b07a4d58cbd6b3b105c33c",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-sanitizer-tests",
       path: "verification/benchmarks/historical-opencode/sanitizer/test_v46.py",
       owner: "historical-sanitizer",
       effects: ["cryptography", "filesystem-read", "filesystem-write", "network"],
       sourceSha256: "7d1c789c0b7e794fd0d5f65216aeeaf7ad682d0b2f5e69744303654be40e7a19",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-sanitizer-acceptance-tests",
       path: "verification/benchmarks/historical-opencode/sanitizer/test_v46_acceptance.py",
       owner: "historical-sanitizer",
@@ -417,26 +455,26 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       ],
       sourceSha256: "61b8176f182ae3de95ca259307132ae747e2c4ca88de5dc01922a55c38cafdd4",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-sanitizer-lineage-tests",
       path: "verification/benchmarks/historical-opencode/sanitizer/test_v46_lineage_v467.py",
       owner: "historical-sanitizer", effects: [],
       sourceSha256: "96483c0a8569543cca3b4e64228a58a7569ef872f5b6cb157c0e515fd41a18b0",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-sanitizer-property-tests",
       path: "verification/benchmarks/historical-opencode/sanitizer/test_v46_properties.py",
       owner: "historical-sanitizer", effects: [],
       sourceSha256: "4dec25d344e81323c083c968ab42dbeb9db83d65c7a080906a3f8960bf1ec92a",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-sanitizer-public-verify",
       path: "verification/benchmarks/historical-opencode/sanitizer/v46_public_verify.py",
       owner: "historical-sanitizer",
       effects: ["cryptography", "filesystem-read", "filesystem-write", "process-status"],
       sourceSha256: "f1ed4ffbc0c088bdb005fbccb9194e8ddef901fe8a70313c2603882f70e4354b",
     }),
-    blockedPythonCommand({
+    blockedNotPublishedPythonCommand({
       id: "historical-sanitizer-test-manifest",
       path: "verification/benchmarks/historical-opencode/sanitizer/v46_test_manifest.py",
       owner: "historical-sanitizer", effects: ["filesystem-read", "process-status"],
@@ -449,7 +487,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       effects: [
         "child-process", "cryptography", "filesystem-read", "filesystem-write", "network", "process-status",
       ],
-      sourceSha256: "11864f28909be4d8b9f91fe035ad43e2350e89b95eb9031b930b3fb4044dc06d",
+      sourceSha256: "8d20dcf7a41dc4b936a0f256f8200b07d13700dfec779ca6bdc7b2a2b2c58924",
     }),
   ],
   findings: [{

@@ -276,6 +276,12 @@ export function isMovingProjectionDiagnostic(diagnostic: string): boolean {
 export function isUnavailableCapabilityDiagnostic(diagnostic: string): boolean {
   return diagnostic.startsWith("architecture-effect-owner:") ||
     diagnostic.startsWith("architecture-effect-unmodeled:") ||
+    // The public snapshot does not publish the private floor's historical
+    // OpenCode benchmark sources. The architecture verifier names that
+    // boundary on every run; it is an unavailable capability, not a defect
+    // the tree can fix by inventing sources. An unexpected source at one of
+    // those paths is NOT classified here, so it still reddens the control.
+    diagnostic.startsWith("architecture-external-command-source-not-published:") ||
     diagnostic.startsWith("governed-export-unmodeled:") ||
     diagnostic.startsWith("governed-sink-unmodeled:") ||
     diagnostic.startsWith("standalone-product-boundary-") ||

@@ -1036,8 +1036,15 @@ test("test discovery policy centrally binds recursive traversal and explicit exe
         // (2026-10-07), 14 -> 15: the live suite `live/mcp-servers.test.ts`.
         // RESTATED HERE TOO FOR THE HERMETIC GUARD BY SHAPE (2026-10-09), 15 ->
         // 16: the live provider smoke `live/provider-smoke.test.ts`.
-        count: 16,
-        sha256: "9aea26ca84622f3aa32bb029e722c7df81efe6729f55bc38926478cb71a2b48b",
+        // RESTATED HERE TOO FOR THE PUBLIC DEVELOPMENT FLOOR (2026-10-19),
+        // 16 -> 8: the public snapshot does not publish the eight historical
+        // OpenCode benchmark Python manifests/tests registered by the private
+        // floor; they were pruned deliberately with `harness sync --prune`,
+        // and the remaining non-canonical set is the public tree's actual set.
+        // This second copy is the mechanism working: `root-policy.ts` had
+        // already moved to 8 while this file kept 16, and the suite said so.
+        count: 8,
+        sha256: "8dcad5535d0b50a0f849d5dcc0e472afc8d8cb2f9d297e4cc749f28fa17f51d0",
       },
     },
     maximumDepth: 32,

@@ -1321,7 +1321,15 @@ function verifyExternalCommands(
     }
     if (verifyContent) {
       const source = sourceByPath.get(command.path);
-      if (source === undefined) {
+      if (command.publication === "not-published") {
+        // A DECLARED BOUNDARY, NOT A SKIP. The public snapshot does not carry
+        // this source, and the verifier still refuses: absence is named as
+        // not-published, while an unexpected source at the path is refused as
+        // a boundary breach rather than quietly hash-checked or ignored.
+        violations.push(source === undefined
+          ? `architecture-external-command-source-not-published:${command.path}`
+          : `architecture-external-command-source-unexpectedly-published:${command.path}`);
+      } else if (source === undefined) {
         violations.push(`architecture-external-command-source-missing:${command.path}`);
       } else if (sha256(source) !== command.sourceSha256) {
         violations.push(`architecture-external-command-source-hash-drift:${command.path}`);
