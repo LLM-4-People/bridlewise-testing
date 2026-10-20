@@ -92,10 +92,17 @@ describe("the source-side promotion guard", () => {
   test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: missing, different and inert script references cannot evade the document guard", (_name, loaded) => {
     const classification = classifyTree(tree, loaded.profile);
     const { texts } = deriveManifests(tree, loaded.profile, classification);
+    let checkedDocuments = 0;
     for (const [manifest, text] of texts) {
       const scripts = Object.keys((JSON.parse(text) as { scripts: Record<string, string> }).scripts);
       expect(scripts.length, `${manifest}: the passing control must exercise a real projected script`).toBeGreaterThan(0);
       const document = `${posix.dirname(manifest) === "." ? "" : `${posix.dirname(manifest)}/`}README.md`;
+      // A package with no shipped README has no document to plant into. The
+      // public testing README is deliberately not a companion of the product
+      // projection, so the root package exercises the no-document case while
+      // the engine package still proves the guard sees a real document.
+      if (!classification.projected.has(document)) continue;
+      checkedDocuments += 1;
       const planted = (body: string): readonly string[] => danglingScripts(overlay(tree, { [document]: body }), loaded)
         .filter((entry) => entry.startsWith(`${document}:`));
       expect(planted(`Run npm run ${scripts[0]}.`)).toEqual([]);
@@ -108,6 +115,7 @@ describe("the source-side promotion guard", () => {
       expect(planted("The development-only `missing-script` is historical.\nRun npm run missing-script."))
         .toEqual([`${document}: names \`npm run missing-script\`, which the derived ${manifest} does not carry`]);
     }
+    expect(checkedDocuments, "no shipped README was exercised — the document guard's universe collapsed").toBeGreaterThan(0);
   });
 
   test("every registry command is run by a workspace phase or a promotion profile (no dead command)", () => {

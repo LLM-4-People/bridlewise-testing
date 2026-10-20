@@ -16,10 +16,10 @@
  * missing report is not an empty shard. The caller must pass exactly the
  * expected number of reports or the merge fails.
  */
-import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { PLAN_SCHEMA, SHARD_REPORT_SCHEMA, manifestHash as hashManifest } from "./test-shard-manifest.mjs";
 
 export const RECEIPT_SCHEMA = "bridlewise-test-shard-receipt/v1";
 
@@ -65,8 +65,51 @@ function readManifest(root, path) {
   return unique;
 }
 
-function readShard(root, path, index) {
-  const report = readJson(path, `shard ${index}`);
+function readPlan(path) {
+  const plan = readJson(path, "plan");
+  if (plan === null || typeof plan !== "object") fail("plan: not an object");
+  if (plan.schemaVersion !== PLAN_SCHEMA) fail(`plan: expected schema ${PLAN_SCHEMA}`);
+  if (!Array.isArray(plan.shards) || plan.shards.length === 0) fail("plan: no shards");
+  if (!Number.isSafeInteger(plan.shardCount) || plan.shardCount !== plan.shards.length) {
+    fail("plan: shardCount does not match the shard list");
+  }
+  if (typeof plan.manifestHash !== "string" || !/^[0-9a-f]{64}$/i.test(plan.manifestHash)) {
+    fail("plan: manifestHash is missing");
+  }
+  if (typeof plan.assignmentHash !== "string" || !/^[0-9a-f]{64}$/i.test(plan.assignmentHash)) {
+    fail("plan: assignmentHash is missing");
+  }
+  if (typeof plan.headSha !== "string" || !/^[0-9a-f]{7,64}$/i.test(plan.headSha)) fail("plan: headSha is missing");
+  for (const [index, shard] of plan.shards.entries()) {
+    if (shard.index !== index + 1 || !Array.isArray(shard.files)) fail(`plan: shard ${index + 1} is malformed`);
+  }
+  return plan;
+}
+
+function readShard(root, path, index, expected = undefined) {
+  const envelope = readJson(path, `shard ${index}`);
+  if (envelope === null || typeof envelope !== "object") {
+    fail(`shard ${index}: report is not an object`);
+  }
+  const wrapped = envelope.schemaVersion === SHARD_REPORT_SCHEMA;
+  if (expected !== undefined && !wrapped) {
+    fail(`shard ${index}: report has no ${SHARD_REPORT_SCHEMA} provenance envelope`);
+  }
+  if (wrapped) {
+    if (envelope.shard !== index || envelope.shardCount !== expected?.shardCount) {
+      fail(`shard ${index}: shard identity or count does not match the plan`);
+    }
+    if (String(envelope.headSha).toLowerCase() !== expected?.headSha) {
+      fail(`shard ${index}: head ${String(envelope.headSha)} is not ${String(expected?.headSha)}`);
+    }
+    if (envelope.manifestHash !== expected?.manifestHash) {
+      fail(`shard ${index}: manifest hash does not match the plan`);
+    }
+    if (envelope.assignmentHash !== expected?.assignmentHash) {
+      fail(`shard ${index}: assignment hash does not match the plan`);
+    }
+  }
+  const report = wrapped ? envelope.vitest : envelope;
   if (report === null || typeof report !== "object") {
     fail(`shard ${index}: report is not an object`);
   }
@@ -78,6 +121,11 @@ function readShard(root, path, index) {
       `shard ${index}: ${String(report.numFailedTests)} failed test(s) and ` +
         `${String(report.numFailedTestSuites)} failed suite(s)`,
     );
+  }
+  const pending = Number(report.numPendingTests ?? 0);
+  const todo = Number(report.numTodoTests ?? 0);
+  if (pending !== 0 || todo !== 0) {
+    fail(`shard ${index}: ${String(pending)} skipped and ${String(todo)} todo test(s); a shard must run every selected test`);
   }
   const results = report.testResults;
   if (!Array.isArray(results)) {
@@ -103,6 +151,7 @@ export function mergeShardReports({
   shardPaths,
   expectedShards,
   headSha,
+  planPath = undefined,
   outPath,
   now = new Date(),
 }) {
@@ -121,7 +170,24 @@ export function mergeShardReports({
   }
 
   const manifest = readManifest(repositoryRoot, manifestPath);
-  const shards = shardPaths.map((path, index) => readShard(repositoryRoot, path, index + 1));
+  const plan = planPath === undefined ? undefined : readPlan(planPath);
+  if (plan !== undefined) {
+    if (plan.headSha.toLowerCase() !== headSha.toLowerCase()) {
+      fail(`plan: head ${plan.headSha} is not ${headSha}`);
+    }
+    if (plan.shardCount !== expectedShards) fail("plan: shard count does not match expectedShards");
+  }
+  const computedManifestHash = hashManifest(manifest);
+  if (plan !== undefined && plan.manifestHash !== computedManifestHash) {
+    fail("plan: manifest hash does not match the supplied manifest");
+  }
+  const shards = shardPaths.map((path, index) => readShard(repositoryRoot, path, index + 1,
+    plan === undefined ? undefined : {
+      headSha: plan.headSha.toLowerCase(),
+      manifestHash: plan.manifestHash,
+      assignmentHash: plan.assignmentHash,
+      shardCount: plan.shardCount,
+    }));
   const expected = new Set(manifest);
   const seen = new Map();
 
@@ -145,13 +211,24 @@ export function mergeShardReports({
     );
   }
 
-  const manifestHash = createHash("sha256").update(manifest.join("\n")).digest("hex");
+  if (plan !== undefined) {
+    for (const [index, planned] of plan.shards.entries()) {
+      const actual = shards[index].files;
+      const expectedFiles = [...planned.files].sort();
+      if (actual.join("\n") !== expectedFiles.join("\n")) {
+        fail(`shard ${index + 1}: files do not match the plan's exact assignment`);
+      }
+    }
+  }
+
+  const manifestHash = hashManifest(manifest);
   const receipt = {
     schemaVersion: RECEIPT_SCHEMA,
     generatedAt: now.toISOString(),
     headSha: headSha.toLowerCase(),
     shardCount: expectedShards,
     manifestHash,
+    ...(plan === undefined ? {} : { assignmentHash: plan.assignmentHash }),
     fileCount: manifest.length,
     testCount: shards.reduce((sum, shard) => sum + shard.totalTests, 0),
     shards: shards.map((shard) => ({
@@ -170,6 +247,7 @@ function parseArgs(argv) {
   const options = {
     root: process.cwd(),
     manifestPath: null,
+    planPath: null,
     shardPaths: [],
     expectedShards: null,
     headSha: process.env.GITHUB_SHA ?? null,
@@ -179,6 +257,7 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === "--root") options.root = argv[++index];
     else if (arg === "--manifest") options.manifestPath = argv[++index];
+    else if (arg === "--plan") options.planPath = argv[++index];
     else if (arg === "--shard") options.shardPaths.push(argv[++index]);
     else if (arg === "--expected-shards") options.expectedShards = Number(argv[++index]);
     else if (arg === "--head") options.headSha = argv[++index];

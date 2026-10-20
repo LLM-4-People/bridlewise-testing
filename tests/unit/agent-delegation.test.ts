@@ -52,6 +52,7 @@ import {
 } from "../../server/agent/agent-restrictions.ts";
 import type { AgentProfile } from "../../server/kernel/canonical.ts";
 import { SharedLLMClient } from "../../engine/src/shared/llm/client.ts";
+import { completedResponse } from "../helpers/provider-stream.ts";
 
 // ── The temp config + project root ──
 
@@ -105,7 +106,7 @@ const FULL_PROFILE: Record<string, unknown> = {
   model: "test-model",
   provider: "test-provider",
   systemPrompt: "You are a sub-agent.",
-  tools: [],
+  tools: "all",
   capabilities: ["read", "write", "execute"],
   writeSet: [],
   maxTurns: 4,
@@ -129,6 +130,7 @@ function stubLlmStream(script: StubScript) {
   return vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* () {
     yield { type: "content", text: script.answer } as const;
     yield { type: "usage", usage: { promptTokens: 10, completionTokens: 4, totalTokens: 14 } } as const;
+    yield completedResponse({ content: script.answer });
     yield { type: "finish", reason: "stop", truncated: false } as const;
   });
 }
@@ -427,11 +429,12 @@ describe("agent delegation: restriction sets narrow, never widen", () => {
     // request whose tools declare ONLY read — a write/execute tool in that
     // request is the restriction having been discarded (the inert shape).
     let offeredToolNames: string[] | undefined;
-    vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* (this: unknown, _messages: unknown, opts: unknown) {
-      const tools = (opts as { tools?: { function: { name: string } }[] }).tools;
-      offeredToolNames = (tools ?? []).map((t) => t.function.name);
+    vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* (this: unknown, source: unknown) {
+      const tools = (source as { tools?: { type: string; name?: string }[] }).tools;
+      offeredToolNames = (tools ?? []).filter((t) => t.type === "function").map((t) => t.name!);
       yield { type: "content", text: "done" } as never;
       yield { type: "usage", usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } } as never;
+      yield completedResponse({ content: "done" }) as never;
       yield { type: "finish", reason: "stop", truncated: false } as never;
     });
     const result = await executeToolCall(
@@ -469,22 +472,26 @@ describe("agent delegation: restriction sets narrow, never widen", () => {
     // choke point (a parallel or unconfined path would not produce it).
     const seenToolResults: string[] = [];
     let callCount = 0;
-    vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* (this: unknown, messages: unknown) {
+    vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* (this: unknown, source: unknown) {
       callCount += 1;
+      const input = (source as { input?: { type?: string; output?: unknown }[] }).input ?? [];
       if (callCount === 1) {
+        const args = JSON.stringify({ command: "cat", args: ["sub-marker.txt"] });
         yield { type: "tool_call_start", index: 0, id: "call-1", name: "execute_command" } as never;
-        yield { type: "tool_call_delta", index: 0, arguments: JSON.stringify({ command: "cat", args: ["sub-marker.txt"] }) } as never;
+        yield { type: "tool_call_delta", index: 0, arguments: args } as never;
+        yield completedResponse({ toolCalls: [{ id: "call-1", type: "function", function: { name: "execute_command", arguments: args } }] }) as never;
         yield { type: "finish", reason: "tool_calls", truncated: false } as never;
         return;
       }
-      // Second call: the messages now include the tool result. The client
-      // receives a branded `RedactedMessages` wrapper — read its `.messages`.
-      const list = (messages as { messages?: { role: string; content: string }[] }).messages ?? [];
-      for (const m of list) {
-        if (m.role === "tool") seenToolResults.push(m.content);
+      // Second call: the Responses input now carries the tool result as a
+      // function_call_output item. Read that canonical shape, not the old
+      // branded messages wrapper.
+      for (const item of input) {
+        if (item.type === "function_call_output") seenToolResults.push(String(item.output));
       }
       yield { type: "content", text: "read it" } as never;
       yield { type: "usage", usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } } as never;
+      yield completedResponse({ content: "read it" }) as never;
       yield { type: "finish", reason: "stop", truncated: false } as never;
     });
     const result = await executeToolCall(
@@ -525,11 +532,12 @@ describe("agent delegation: restriction sets narrow, never widen", () => {
     // so the read-only arm's absence is the restriction's doing, not a
     // registry that never had them (the witness must differ between arms).
     let offeredToolNames: string[] | undefined;
-    vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* (this: unknown, _messages: unknown, opts: unknown) {
-      const tools = (opts as { tools?: { function: { name: string } }[] }).tools;
-      offeredToolNames = (tools ?? []).map((t) => t.function.name);
+    vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* (this: unknown, source: unknown) {
+      const tools = (source as { tools?: { type: string; name?: string }[] }).tools;
+      offeredToolNames = (tools ?? []).filter((t) => t.type === "function").map((t) => t.name!);
       yield { type: "content", text: "done" } as never;
       yield { type: "usage", usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } } as never;
+      yield completedResponse({ content: "done" }) as never;
       yield { type: "finish", reason: "stop", truncated: false } as never;
     });
     const result = await executeToolCall(

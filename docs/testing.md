@@ -60,8 +60,8 @@ Requirements beyond the product:
 - Chromium for Playwright E2E: `npx playwright install --with-deps chromium`.
 - User systemd for the long-task-runner test.
 - `openssl` for the outbound-HTTP test.
-- The 4.1 GB external corpus at `engine/large-codebases` for the full engine suite.
-- `tests/performance/.report.json`, produced by `npm run perf:profile`, for the root performance-regression test.
+- The external 4.1 GB corpus, which is not published, for the full engine suite.
+- The generated performance profile produced by `npm run perf:profile` under `tests/performance` for the root performance-regression test.
 
 The corpus and the performance report are deliberately not published. A fresh clone therefore cannot run the full suites; the runners refuse with a named prerequisite instead of silently skipping.
 

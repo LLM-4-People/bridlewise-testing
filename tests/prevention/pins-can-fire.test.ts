@@ -49,7 +49,7 @@
  */
 import { describe, expect, test } from "vitest";
 
-import { read, relpath, stripCommentsOnly, walk } from "../helpers/source-scan";
+import { read, relpath, SOURCE_EXTS, stripCommentsOnly, walk } from "../helpers/source-scan";
 
 /** `test.fails(`, `it.fails(`, and the `.each`/`.concurrent` compositions. */
 const PIN = /\b(?:test|it)\s*\.\s*(?:concurrent\s*\.\s*)?fails\s*(?:\.\s*\w+\s*(?:`|\())?\s*\(/g;
@@ -84,7 +84,7 @@ export function callBody(source: string, from: number): string {
 type Pin = Readonly<{ file: string; line: number; body: string }>;
 
 function findPins(): { pins: Pin[]; filesScanned: number } {
-  const files = walk("tests");
+  const files = walk("tests", { exts: SOURCE_EXTS });
   const pins: Pin[] = [];
   for (const f of files) {
     const raw = read(f);

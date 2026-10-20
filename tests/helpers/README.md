@@ -32,6 +32,9 @@ The `tests/helpers/` folder of the development surface.
 - `playwright-liveness.ts` — tHE FOURTH DECLARATION CLASS: Playwright's `testDir` + `testMatch`. Three file-selecting declaration classes already refuse a dead member at their….
 - `prevention-dossier.ts` — tHE GUARD DOSSIER — one parser, one validator, shared by both prevention estates and both runners. ── What a dossier is….
 - `promotion-view.ts` — what this branch ships, as its promotion profiles declare it: the working tree classified by every profile (the projection `harness promote` runs), memoized per root — `ships(path)`, the shipped folders and root entries (product, derived), and the profiles' excluded trees; the one answer the guards ask about product (`declared-root-inventory`, `source-root-organization`, `no-hardcoded-truncation-slices`, `promotion-boundary`).
+- `provider-stream.ts` — a terminal native response for a hand-written provider stream stub, built from the canonical Responses fixtures so a test does not shape a second response format.
+- `rewind-provider-harness.ts` — the shared server, database, run, rewind and restore helpers for the split rewind suites.
+- `rewind-provider-state.ts` — the provider recorder shared by every split rewind suite's module mock.
 - `readme-consumers.ts` — gENERATE the README "what consumes it" section from the import graph. ── THE DEFECT THIS ENDS ────────────────────────────────────────────────── Each….
 - `run-source.ts` — tHE RUN PATH'S SOURCE, AS ONE SUBJECT. The run used to be one file. `GET /api/run/:runId/stream` was the executor, so `server/routes/run.ts`….
 - `hub-population.ts` — the canonical hub's decorated re-export population, derived from the hub's own `engineSpans(...)` destructures — the one scanner the hub-discipline guards and the engine-lane behavioural tests share.

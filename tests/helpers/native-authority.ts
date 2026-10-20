@@ -20,8 +20,8 @@ export function describeNativeAuthorityCeiling(toolName: string, grant: (tools: 
     for (const tools of [[], ["read_file"], "all"] as const) test(`native authority grant ${JSON.stringify(tools)}`, async () => {
       grant(tools);
       let offered: string[] | undefined;
-      vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* (request) {
-        const body = request.request as { tools?: { type: string; name?: string }[] };
+      vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* (source) {
+        const body = source as { tools?: { type: string; name?: string }[] };
         offered = (body.tools ?? []).filter(tool => tool.type === "function").map(tool => tool.name!);
         // The assertion observes admission, independently of the still-pending web native-output mapping.
         yield { type: "finish", reason: "error", truncated: false } as const;

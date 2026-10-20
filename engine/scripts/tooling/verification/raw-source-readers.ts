@@ -440,7 +440,10 @@ export type LegitimateRawReader =
   | "integration:test/workflow/working-copy.test.ts"
   | "web:tests/helpers/vm-isolation-witness.ts"
   | "web:tests/prevention/template-mode-lexing.test.ts"
-  | "web:tests/setup/source-tree-immutable.ts";
+  | "web:tests/setup/source-tree-immutable.ts"
+  | "web:scripts/check-docs-links.mjs"
+  | "web:scripts/check-secrets.mjs"
+  | "web:scripts/floor/site.mjs";
 
 /**
  * The readers that must have bytes, each with the reason WRITTEN DOWN.
@@ -450,6 +453,27 @@ export type LegitimateRawReader =
  * a reader who disagrees has something specific to disagree with.
  */
 export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
+  "web:scripts/check-docs-links.mjs": {
+    why:
+      "The subject is the bytes of Markdown documents, including fenced code " +
+      "and link targets, so a source view would blank the spans being checked. " +
+      "It enumerates the tracked tree and reads each document whole; the raw " +
+      "document is the input, not program text.",
+  },
+  "web:scripts/check-secrets.mjs": {
+    why:
+      "The scanner's subject is the exact bytes of tracked files plus the " +
+      "synthetic-fixture allowlist. A source view would blank or rewrite the " +
+      "credential-shaped strings it must detect, so the raw bytes are the " +
+      "correct input and the report names paths rather than code semantics.",
+  },
+  "web:scripts/floor/site.mjs": {
+    why:
+      "The site assembler copies product documentation, Markdown, CSS, and " +
+      "configuration byte for byte into the Pages source tree. A view would " +
+      "change the artifact it assembles, so it must read and write the same " +
+      "bytes the product repository ships.",
+  },
   "web:tests/helpers/vm-isolation-witness.ts": {
     why:
       "The population witness reproduces Vitest's first environment directive " +

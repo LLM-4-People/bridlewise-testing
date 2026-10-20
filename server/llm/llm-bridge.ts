@@ -383,6 +383,11 @@ export type StreamChatOptions = Readonly<{
    * route sends them to the client via a separate "metadata" SSE event
    * so the UI can show them in a collapsible "Headers" section. */
   onMetadata?: (meta: Readonly<{ headers?: Readonly<Record<string, string>>; model?: string }>) => void;
+  /** Receives the provider's terminal native response resource. The closed
+   * ModelEvent schema cannot carry it, but the engine's `ResponseTurn`
+   * requires it to settle a delegated sub-agent turn. This is evidence,
+   * not a second model event: the stream still yields its normal `finish`. */
+  onResponse?: (chunk: Extract<StreamChunk, { type: "response" }>) => void;
   /** Receives the LLM-input dedup summary when dedup is applied. The summary carries the total char reduction, removed
    * blocks/lines, and message count across all messages in this LLM call.
    * Called ONCE per `streamChat` invocation (after `buildNativeRequest`
@@ -889,6 +894,7 @@ export async function* streamChat(
             : { model: chunk.model },
         );
       }
+      if (chunk.type === "response") options.onResponse?.(chunk);
       const event = mapChunk(chunk, sequence, outputIndex);
       if (event !== undefined) {
         // Track tool calls for tool_call_done synthesis.

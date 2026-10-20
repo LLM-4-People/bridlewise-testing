@@ -44,6 +44,7 @@ import { getToolManifest } from "../../server/tools/tools-bridge.ts";
 import { releaseAgentBridge } from "../../server/agent/agent-runtime-bridge.ts";
 import { getTimelineStore } from "../../server/observability/timeline-bridge.ts";
 import { SharedLLMClient } from "../../engine/src/shared/llm/client.ts";
+import { completedResponse } from "../helpers/provider-stream.ts";
 import { resolveProviderCredential, type ProviderStore } from "../../server/llm/providers.ts";
 import { describeNativeAuthorityCeiling } from "../helpers/native-authority.ts";
 import { PROVIDER_FIXTURE_OWNER } from "../helpers/multi-user.ts";
@@ -102,7 +103,7 @@ const RESEARCHER_PROFILE: Record<string, unknown> = {
   model: "test-model",
   provider: "test-provider",
   systemPrompt: "You research.",
-  tools: [],
+  tools: "all",
   capabilities: ["read", "write", "execute"],
   writeSet: [],
   maxTurns: 4,
@@ -114,7 +115,7 @@ const WRITER_PROFILE: Record<string, unknown> = {
   model: "test-model",
   provider: "test-provider",
   systemPrompt: "You write.",
-  tools: [],
+  tools: "all",
   capabilities: ["read", "write"],
   writeSet: [],
   maxTurns: 4,
@@ -135,17 +136,21 @@ function stubOrchestratedLlm(
 ) {
   return vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* (
     this: unknown,
-    messages: unknown,
+    source: unknown,
   ) {
     // Identify which sub-agent this is by the task text in its user message.
-    // The branded wrapper carries `.messages`.
-    const list = (messages as { messages?: { role: string; content: string }[] }).messages ?? [];
-    const userText = list.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+    // The current bridge sends a Responses request; user text is an input item.
+    const input = (source as { input?: { type?: string; role?: string; content?: unknown }[] }).input ?? [];
+    const userText = input
+      .filter((item) => item.type === "message" && item.role === "user")
+      .map((item) => typeof item.content === "string" ? item.content : "")
+      .join("\n");
     const marker = Object.keys(answersByTaskMarker).find((k) => userText.includes(k));
     const answer = marker !== undefined ? answersByTaskMarker[marker]! : "unmarked-task";
     servedOrder.push(marker ?? "unmarked");
     yield { type: "content", text: answer } as const;
     yield { type: "usage", usage: { promptTokens: 10, completionTokens: 4, totalTokens: 14 } } as const;
+    yield completedResponse({ content: answer });
     yield { type: "finish", reason: "stop", truncated: false } as const;
   });
 }
@@ -366,16 +371,17 @@ describe("agent orchestration: per-task restrictions narrow, never widen", () =>
     const offeredByMarker: Record<string, string[]> = {};
     vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* (
       this: unknown,
-      messages: unknown,
-      opts: unknown,
+      source: unknown,
     ) {
-      const list = (messages as { messages?: { role: string; content: string }[] }).messages ?? [];
-      const userText = list.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+      const input = (source as { input?: { type?: string; role?: string; content?: unknown }[] }).input ?? [];
+      const userText = input.filter((item) => item.type === "message" && item.role === "user")
+        .map((item) => typeof item.content === "string" ? item.content : "").join("\n");
       const marker = userText.includes("locked-down") ? "locked-down" : "unmarked";
-      const tools = (opts as { tools?: { function: { name: string } }[] }).tools;
-      offeredByMarker[marker] = (tools ?? []).map((t) => t.function.name);
+      const tools = (source as { tools?: { type: string; name?: string }[] }).tools;
+      offeredByMarker[marker] = (tools ?? []).filter((t) => t.type === "function").map((t) => t.name!);
       yield { type: "content", text: "done" } as never;
       yield { type: "usage", usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } } as never;
+      yield completedResponse({ content: "done" }) as never;
       yield { type: "finish", reason: "stop", truncated: false } as never;
     });
     const result = await executeToolCall(
@@ -410,16 +416,17 @@ describe("agent orchestration: per-task restrictions narrow, never widen", () =>
     const offeredByMarker: Record<string, string[]> = {};
     vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* (
       this: unknown,
-      messages: unknown,
-      opts: unknown,
+      source: unknown,
     ) {
-      const list = (messages as { messages?: { role: string; content: string }[] }).messages ?? [];
-      const userText = list.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+      const input = (source as { input?: { type?: string; role?: string; content?: unknown }[] }).input ?? [];
+      const userText = input.filter((item) => item.type === "message" && item.role === "user")
+        .map((item) => typeof item.content === "string" ? item.content : "").join("\n");
       const marker = userText.includes("locked-task") ? "locked" : userText.includes("free-task") ? "free" : "unmarked";
-      const tools = (opts as { tools?: { function: { name: string } }[] }).tools;
-      offeredByMarker[marker] = (tools ?? []).map((t) => t.function.name);
+      const tools = (source as { tools?: { type: string; name?: string }[] }).tools;
+      offeredByMarker[marker] = (tools ?? []).filter((t) => t.type === "function").map((t) => t.name!);
       yield { type: "content", text: "done" } as never;
       yield { type: "usage", usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } } as never;
+      yield completedResponse({ content: "done" }) as never;
       yield { type: "finish", reason: "stop", truncated: false } as never;
     });
     const result = await executeToolCall(

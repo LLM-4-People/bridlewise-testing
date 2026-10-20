@@ -101,9 +101,7 @@
       "vitest.config.ts",
       "engine/tsconfig.tests.json"
     ],
-    "companions": [
-      "README.md"
-    ],
+    "companions": [],
     "spawnCalls": [
       {
         "callee": "runScriptSubprocess",

@@ -47,6 +47,13 @@ jobs:
       - name: Enforce the self-protection config mode
         run: chmod 600 engine/bridlewise.config.json
 
+      - name: Verify the shard manifest accounts for every live test file
+        run: |
+          npx vitest list --filesOnly --json > "$RUNNER_TEMP/live-manifest.json"
+          node scripts/test-shard-manifest.mjs verify \
+            --manifest tests/test-shards.json \
+            --live "$RUNNER_TEMP/live-manifest.json"
+
       - name: Typecheck web, server, templates, and tests
         run: npm run typecheck
 

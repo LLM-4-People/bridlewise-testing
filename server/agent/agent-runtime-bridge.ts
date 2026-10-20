@@ -103,6 +103,7 @@ import {
 import type { WebToolEntry } from "../tools/tools-bridge.ts";
 import type { ToolManifestEntry, ToolCapability } from "../kernel/canonical.ts";
 import type { ChatMessage } from "../kernel/canonical.ts";
+import type { StreamChunk } from "../../engine/src/shared/llm/client.ts";
 
 // The engine's `resolveRuntimeConfig` + provider/model resolvers are the
 // config-document answer to "which provider/model does this profile name".
@@ -205,7 +206,8 @@ export function createSubAgentAdapter(
       const { streamChat } = await import("../llm/llm-bridge.ts");
       const startedAt = performance.now();
       let sawError: string | null = null;
-      let sawFinish = false;
+      let finishReason: string | undefined;
+      let terminal: Extract<StreamChunk, { type: "response" }> | undefined;
       try {
         for await (const event of streamChat(prompt, {
           credential,
@@ -218,6 +220,12 @@ export function createSubAgentAdapter(
           ...(request.tools !== undefined && request.tools.length > 0
             ? { tools: request.tools, toolChoice: request.tool_choice ?? "auto" }
             : {}),
+          // The engine's ResponseTurn settles only when it has BOTH the
+          // streamed finish and the provider's native terminal resource.
+          // The closed ModelEvent schema cannot carry the latter, so the
+          // bridge hands it over out of band and this adapter forwards it
+          // before the single finish event below.
+          onResponse: (chunk) => { terminal = chunk; },
         })) {
           // ModelEvent → ChatStreamEvent. The bridge's `error` event carries
           // the provider's typed failure; surface it as a terminal finish
@@ -247,13 +255,11 @@ export function createSubAgentAdapter(
               });
               break;
             case "finish":
-              sawFinish = true;
-              yield Object.freeze({ type: "finish" as const, reason: event.reason });
+              finishReason = event.reason;
               break;
             case "error": {
               sawError = event.error.message;
-              sawFinish = true;
-              yield Object.freeze({ type: "finish" as const, reason: "error" });
+              finishReason = "error";
               break;
             }
             default:
@@ -264,9 +270,16 @@ export function createSubAgentAdapter(
         // A stream that ends with neither finish nor error is still settled;
         // the engine runtime reads "stop" as a completed turn, and a truncated
         // stream is the provider's answer, not a local silence to fill.
-        if (!sawFinish) {
-          yield Object.freeze({ type: "finish" as const, reason: "stop" });
+        if (terminal !== undefined) {
+          yield Object.freeze({
+            type: "response" as const,
+            response: terminal.response,
+            status: terminal.status,
+            ...(terminal.observation === undefined ? {} : { observation: terminal.observation }),
+            ...(terminal.failure === undefined ? {} : { failure: terminal.failure }),
+          });
         }
+        yield Object.freeze({ type: "finish" as const, reason: finishReason ?? "stop" });
         // Recorded through the same metrics owner the parent run uses — a
         // sub-agent's provider call is an `llm` effect with its real duration
         // and outcome, indistinguishable in the ledger from any other (which

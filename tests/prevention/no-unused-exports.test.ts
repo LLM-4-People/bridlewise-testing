@@ -24,7 +24,7 @@
 import { describe, test } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { extname, relative, sep } from "node:path";
-import { walk, buildTokenIndex, referencedElsewhere } from "../helpers/source-scan.ts";
+import { walk, buildTokenIndex, referencedElsewhere, SOURCE_EXTS } from "../helpers/source-scan.ts";
 
 import { modulePath } from "../helpers/module-resolver.ts";
 /** The repository root the corpus is gathered from. */
@@ -60,7 +60,7 @@ function exportedValueNames(src: string): string[] {
 describe("no unused value exports", () => {
   const searchFiles: string[] = [];
   for (const root of SEARCH_ROOTS) {
-    try { searchFiles.push(...walk(root)); } catch { /* root may not exist */ }
+    try { searchFiles.push(...walk(root, { exts: SOURCE_EXTS })); } catch { /* root may not exist */ }
   }
   // AND THE ROOT-LEVEL DECLARATIONS, which are four directory names away from
   // being invisible. `vitest.config.ts`, `svelte.config.ts` and both playwright
@@ -79,7 +79,7 @@ describe("no unused value exports", () => {
 
   const dead: { file: string; name: string }[] = [];
   for (const root of SCAN_ROOTS) {
-    for (const file of walk(root)) {
+    for (const file of walk(root, { exts: SOURCE_EXTS })) {
       const rel = relative(cwd, file).split(sep).join("/");
       if (HUB_REL.has(rel)) continue;
       if (extname(file) !== ".ts") continue;

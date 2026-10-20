@@ -525,49 +525,67 @@ describe("a run executes exactly once", () => {
     "TWO concurrent subscribers produce ONE execution and ONE provider POST",
     async () => {
       providerRequests = [];
-      const { status, runId } = await startRun("two subscribers");
-      expect(status).toBe(201);
-      expect(runId).not.toBe("");
+      const held = holdProvider("two subscribers");
+      let runId = "";
+      try {
+        const { status, runId: startedRunId } = await startRun("two subscribers");
+        runId = startedRunId;
+        expect(status).toBe(201);
+        expect(runId).not.toBe("");
 
-      const [a, b] = await Promise.all([
-        drainStream(`/api/run/${runId}/stream`, {}, 2500),
-        drainStream(`/api/run/${runId}/stream`, {}, 2500),
-      ]);
-      await runToCompletion(runId);
+        // Attach both subscribers BEFORE the provider can finish. Otherwise
+        // one drain may see only the live tail while the other replays the
+        // retained buffer, and the id-sequence equality below measures the
+        // observation windows rather than the run's single execution.
+        await held.ready();
+        const aPromise = drainStream(`/api/run/${runId}/stream`, {}, 2500);
+        const bPromise = drainStream(`/api/run/${runId}/stream`, {}, 2500);
+        const { runFeedState } = await import("../../server/run/run-feed.ts");
+        await vi.waitFor(
+          () => expect(runFeedState(runId)?.subscribers, "both subscribers attach before the provider finishes").toBe(2),
+          { timeout: 8_000, interval: 10 },
+        );
+        held.release();
+        const [a, b] = await Promise.all([aPromise, bPromise]);
+        await runToCompletion(runId);
 
-      expect(a.status).toBe(200);
-      expect(b.status).toBe(200);
+        expect(a.status).toBe(200);
+        expect(b.status).toBe(200);
 
-      // LIVENESS FIRST. Without this the assertions below pass at zero
-      // executions — a guard measuring a refusal, which is the failure this
-      // project keeps rediscovering.
-      const projection = projectionFor(runId);
-      expect(projection.assistantRows).toBeGreaterThanOrEqual(1);
-      expect(a.frames.length).toBeGreaterThan(0);
-      expect(b.frames.length).toBeGreaterThan(0);
+        // LIVENESS FIRST. Without this the assertions below pass at zero
+        // executions — a guard measuring a refusal, which is the failure this
+        // project keeps rediscovering.
+        const projection = projectionFor(runId);
+        expect(projection.assistantRows).toBeGreaterThanOrEqual(1);
+        expect(a.frames.length).toBeGreaterThan(0);
+        expect(b.frames.length).toBeGreaterThan(0);
 
-      // THE VERDICT: row counts, which only the executor writes.
-      expect(projection.assistantRows).toBe(1);
-      expect(projection.userRows).toBe(1);
-      expect(projection.claims).toBe(1);
+        // THE VERDICT: row counts, which only the executor writes.
+        expect(projection.assistantRows).toBe(1);
+        expect(projection.userRows).toBe(1);
+        expect(projection.claims).toBe(1);
 
-      const responses = providerRequests.filter((r) => r.path === "/v1/responses");
-      expect(responses.length).toBe(1);
+        const responses = providerRequests.filter((r) => r.path === "/v1/responses");
+        expect(responses.length).toBe(1);
 
-      // AND THE REASON THE VERDICT IS NOT FRAME COUNTS, asserted rather than
-      // asserted-about: both subscribers legitimately received the run's
-      // frames, so counting frames would red on correct behaviour.
-      const aIds = a.frames.filter((f) => f.id !== null).map((f) => f.id);
-      const bIds = b.frames.filter((f) => f.id !== null).map((f) => f.id);
-      expect(aIds.length).toBeGreaterThan(0);
-      expect(bIds).toEqual(aIds);
-      for (const stream of [a, b]) {
-        const models = stream.frames.filter((frame) => frame.event === "model").map((frame) => frame.data as { type: string; assistantMessageId?: string });
-        expect(models.some((frame) => frame.type === "start")).toBe(true);
-        for (const frame of models) {
-          expect(frame.assistantMessageId, "every model frame addresses its persisted assistant row").toEqual(expect.any(String));
-          expect(db.getMessage(frame.assistantMessageId!, ownerUserId)).toMatchObject({ role: "assistant", run_id: runId });
+        // AND THE REASON THE VERDICT IS NOT FRAME COUNTS, asserted rather than
+        // asserted-about: both subscribers legitimately received the run's
+        // frames, so counting frames would red on correct behaviour.
+        const aIds = a.frames.filter((f) => f.id !== null).map((f) => f.id);
+        const bIds = b.frames.filter((f) => f.id !== null).map((f) => f.id);
+        expect(aIds.length).toBeGreaterThan(0);
+        expect(bIds).toEqual(aIds);
+        for (const stream of [a, b]) {
+          const models = stream.frames.filter((frame) => frame.event === "model").map((frame) => frame.data as { type: string; assistantMessageId?: string });
+          expect(models.some((frame) => frame.type === "start")).toBe(true);
+          for (const frame of models) {
+            expect(frame.assistantMessageId, "every model frame addresses its persisted assistant row").toEqual(expect.any(String));
+            expect(db.getMessage(frame.assistantMessageId!, ownerUserId)).toMatchObject({ role: "assistant", run_id: runId });
+          }
         }
+      } finally {
+        held.dispose();
+        if (runId !== "") await runToCompletion(runId).catch(() => undefined);
       }
     },
     30_000,

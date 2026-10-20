@@ -170,7 +170,10 @@ The `tests/prevention/` folder of the development surface.
 - `redaction-reaches-provider.test.ts` — @vitest-environment node.
 - `removal-is-recorded.test.ts` — @vitest-environment node.
 - `resume-gap-heals-in-place.test.ts` — @vitest-environment node.
-- `rewind-reaches-provider.test.ts` — @vitest-environment node.
+- `rewind-reaches-provider.test.ts` — @vitest-environment node; the provider/context group of the split rewind suite.
+- `rewind-record-and-addressing.test.ts` — @vitest-environment node; recorded rewinds, page scoping, refusals, and hostile addressing.
+- `rewind-restore.test.ts` — @vitest-environment node; the restore core and the append-only lane's disjoint prefixes.
+- `rewind-restore-hostile.test.ts` — @vitest-environment node; restore refusals, cross-chat/user cases, and concurrent reversals.
 - `route-registry.test.ts` — @vitest-environment node.
 - `run-ends-are-announced.test.ts` — @vitest-environment node.
 - `run-executes-once.test.ts` — @vitest-environment node.
