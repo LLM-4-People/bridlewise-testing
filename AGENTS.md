@@ -31,6 +31,17 @@ tree into the separate product repository.
   corpus boundary.
 - Run the focused suite for the area you changed. A full-suite claim needs a
   fresh run; do not infer it from a subset.
+- Measurement contract, for every signal the floor judges, records or quotes:
+  it is DYNAMIC (computed from the run's own conditions, never a table of
+  per-machine constants), RESILIENT (absent, never zero, when a signal is
+  unreadable — and never silently substituted by a different quantity),
+  LOAD-AGNOSTIC or explicitly declaring its load sensitivity and deferring
+  when that bound is exceeded, and SINGLE-OWNER: computed once at the lowest
+  chokepoint that can see the raw facts, exposed through the shared signals,
+  settings and judgement layers, and read by every consumer from there. A
+  second derivation of the same number is a defect. Each clause needs a broad
+  mechanical guard, not a convention: a rule that only lives in prose is not a
+  rule.
 - Commit only after the focused checks pass, with one cohesive change and the
   verification you actually ran.
 - After every push, watch the CI run to completion (`gh run list`/`gh run view`)
