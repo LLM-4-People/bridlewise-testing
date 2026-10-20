@@ -114,9 +114,10 @@ The guardian tests exercise Landlock itself. An exit code of 3 (`landlock_unavai
 The manual workflow is `.github/workflows/test-shards.yml`. It is deliberately not a push or pull-request trigger, and it is not a required check while the supported baseline and the performance prerequisites are still being repaired. Choose the shard count and the runner label at dispatch time. The default ten shards on `ubuntu-24.04` do not prove a 10x test-phase speedup; that exit criterion needs a documented larger runner class and a measured receipt. The workflow records the receipt rather than inferring a factor from the number of jobs.
 
 ```bash
-npx vitest list --filesOnly --json > "$RUNNER_TEMP/live-manifest.json"
-node scripts/test-shard-manifest.mjs verify --manifest tests/test-shards.json --live "$RUNNER_TEMP/live-manifest.json"
-node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$GITHUB_SHA" --out-dir artifacts/plan
+mkdir -p .bridlewise/shard-plan
+npx vitest list --filesOnly --json > .bridlewise/shard-plan/live-manifest.json
+node scripts/test-shard-manifest.mjs verify --manifest tests/test-shards.json --live .bridlewise/shard-plan/live-manifest.json
+node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
 ```
 
 The merge contract and the manifest contract are covered by the public smoke suite. A shard run judges coverage, completion, and exact-commit provenance. It does not judge the full-run runtime budget, which needs a separate full-suite run; do not describe a shard receipt as that budget's verdict.

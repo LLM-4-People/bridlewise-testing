@@ -140,9 +140,10 @@ A fresh clone cannot run the full suites. The runners refuse with a named prereq
 The supported shard set is `tests/test-shards.json`. Verify it against the runner's own selection, then plan a manual shard run:
 
 ```bash
-npx vitest list --filesOnly --json > "$RUNNER_TEMP/live-manifest.json"
-node scripts/test-shard-manifest.mjs verify --manifest tests/test-shards.json --live "$RUNNER_TEMP/live-manifest.json"
-node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$GITHUB_SHA" --out-dir artifacts/plan
+mkdir -p .bridlewise/shard-plan
+npx vitest list --filesOnly --json > .bridlewise/shard-plan/live-manifest.json
+node scripts/test-shard-manifest.mjs verify --manifest tests/test-shards.json --live .bridlewise/shard-plan/live-manifest.json
+node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
 ```
 
 The manual workflow is `.github/workflows/test-shards.yml`. It is not a required gate yet. See [docs/testing.md](docs/testing.md) for the full matrix, the named exclusions, and the receipt contract.
