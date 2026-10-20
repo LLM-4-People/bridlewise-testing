@@ -20,9 +20,9 @@ This is the engineering roadmap for the Bridlewise development floor: what shipp
 <!-- BEGIN GENERATED: roadmap summary, from this page's ROADMAP-PLAN block (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
 ### Where the floor stands
 
-**24 of 72 tracked items shipped (33%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it.
+**24 of 71 tracked items shipped (34%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it.
 
-24 shipped · 10 in progress · 37 planned · 1 blocked · 7 not planned.
+24 shipped · 10 in progress · 36 planned · 1 blocked · 7 not planned.
 
 ### Milestones
 
@@ -889,7 +889,6 @@ Every open row of [TASKS.md](../trackers/TASKS.md) appears here. A row leaves th
 
 | Task | State | Owner | Evidence |
 |---|---|---|---|
-| **FLAKY-CUSTODY-KEEPOUT-ESTALE**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-HELPERS-README-HARNESS-VIEW**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-ISOLATION-PIDFD**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-PERF-GATE-STALE-REPORT**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
