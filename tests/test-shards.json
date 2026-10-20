@@ -2,7 +2,7 @@
   "schemaVersion": "bridlewise-test-shard-manifest/v1",
   "measuredHeadSha": "0ba57912b2280954e7444496c5bf961b2b805cfb",
   "measuredAt": "2026-10-20T07:21:38.472Z",
-  "weightSource": "vitest-json:endTime-startTime; supported 521-file run at 0ba57912, after the rewind split, timeout repairs, and provider terminal-response fix; tests/unit/database-backup.test.ts measured on its own at 400a130a on 2026-10-20 pending the full re-measurement",
+  "weightSource": "vitest-json:endTime-startTime; supported 521-file run at 0ba57912, after the rewind split, timeout repairs, and provider terminal-response fix; tests/unit/database-backup.test.ts measured on its own at 400a130a on 2026-10-20 pending the full re-measurement; tests/prevention/roadmap-status-owner.test.ts measured on its own on 2026-10-20 pending the full re-measurement",
   "files": [
     {
       "path": "tests/cockpit/a11y-hidden-focus-owner.test.ts",
@@ -1355,6 +1355,10 @@
     {
       "path": "tests/prevention/rewind-restore.test.ts",
       "weightMs": 31086
+    },
+    {
+      "path": "tests/prevention/roadmap-status-owner.test.ts",
+      "weightMs": 21
     },
     {
       "path": "tests/prevention/route-registry.test.ts",

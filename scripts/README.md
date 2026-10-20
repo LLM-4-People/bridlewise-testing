@@ -56,6 +56,15 @@ ships into the client bundle or the server runtime.
 
 - `harness-root/` — the integration merge and bootstrap tooling at the
   harness root.
+- `floor/` — the testing-site toolchain. `site.mjs` assembles the Jekyll
+  source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
+  and `files.mjs`/`github.mjs` share the filesystem and GitHub reads.
+  `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
+  blocks: it renders them from the page's `ROADMAP-PLAN` block, the open rows
+  of `docs/trackers/TASKS.md`, and the non-proofs in
+  `docs/floor/evidence.md`. Run `npm run docs:roadmap` to regenerate;
+  `npm run docs:roadmap -- --check` is the read-only form, and
+  `tests/prevention/roadmap-status-owner.test.ts` refuses drift.
 
 ## Where it lives and what consumes it
 
