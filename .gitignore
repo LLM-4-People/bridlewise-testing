@@ -41,7 +41,7 @@
 # Dependencies and build output. Every-depth on purpose: npm creates nested
 # `node_modules`, and build output lands beside whatever produced it.
 **/node_modules/
-node_modules
+**/node_modules
 **/dist/
 **/*.tsbuildinfo
 
@@ -271,33 +271,30 @@ node_modules
 **/*.swp
 
 # Public-repository secret hygiene (added for the public snapshot)
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-*.p12
-*.pfx
-id_rsa*
-id_ed25519*
-.npmrc
-.netrc
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/id_rsa*
+**/id_ed25519*
+**/.npmrc
+**/.netrc
 **/.code-harness*
-.bridlewise/
 **/.bridlewise/
-*.db
-*.db-*
-*.sqlite
-*.sqlite3
-*.log
-*.tsbuildinfo
-test-results/
-playwright-report/
-coverage/
-.impeccable/
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite3
+/test-results/
+/playwright-report/
+/coverage/
+/.impeccable/
 
 # Generated docs site and floor data
 docs/_site/
 docs/.jekyll-cache/
-.site/
+/.site/
 docs/floor/data/

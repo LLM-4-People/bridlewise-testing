@@ -44,7 +44,6 @@
 import { describe, test, expect, beforeAll, afterAll, vi } from "vitest";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
-import { writeFileSync } from "node:fs";
 
 // ── The provider seam ───────────────────────────────────────────────────────
 // `vi.hoisted` so the recorder exists before the mock factory runs.
@@ -62,16 +61,17 @@ vi.mock("../../engine/src/shared/llm/client.ts", () => {
       redacted: unknown,
       _options: Readonly<{ model?: string }> = {},
     ): AsyncGenerator<Readonly<Record<string, unknown>>, void, unknown> {
-      // THE MEASUREMENT POINT. This is the conversation the model is actually
-      // shown. The real client's doors take the branded `RedactedMessages`
-      // and serialise its `.messages` onto the wire, so that inner array is
-      // what is captured — whole (role + content) rather than summarised, so
-      // a test can assert both what IS there and what is NOT.
+      // THE MEASUREMENT POINT. The bridge passes a Responses request whose
+      // conversation is in `input`, as a list of typed items. Capture only the
+      // message items, whole (role + content) rather than summarised, so a
+      // test can assert both what IS there and what is NOT.
+      const request = redacted as {
+        input?: Array<{ type?: string; role?: string; content?: string }>;
+      };
       provider.requests.push(
-        ((redacted as { messages: Array<{ role: string; content?: string }> }).messages).map((m) => ({
-          role: m.role,
-          content: m.content ?? "",
-        })),
+        (request.input ?? [])
+          .filter((item) => item.type === "message")
+          .map((item) => ({ role: item.role ?? "", content: item.content ?? "" })),
       );
       yield { type: "content", text: provider.reply };
       yield { type: "finish", reason: "stop", truncated: false };
@@ -82,11 +82,6 @@ vi.mock("../../engine/src/shared/llm/client.ts", () => {
 
 import { createTempDir } from "../helpers/temp-dir.ts";
 
-const ENV_ROOT = createTempDir("ch-rewind-env-");
-const LLM_CONFIG_PATH = join(ENV_ROOT, "llm-api-config.json");
-writeFileSync(LLM_CONFIG_PATH, JSON.stringify({ baseUrl: "http://127.0.0.1:1/v1", apiKey: "test-key" }));
-process.env.HARNESS_LLM_CONFIG_PATH = LLM_CONFIG_PATH;
-process.env.HARNESS_WEB_DEFAULT_MODEL = "rewind-test-model";
 // Every case here drives several REAL runs through the REAL router, and the
 // default bucket is 60 requests/minute per session — the whole file shares one
 // session, so the limiter starts refusing partway through and a test would
