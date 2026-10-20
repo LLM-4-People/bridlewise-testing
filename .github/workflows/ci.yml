@@ -77,3 +77,10 @@ jobs:
 
       - name: Test guardian
         run: make -C engine/guardian test
+
+  shards:
+    name: Full suite shards
+    uses: ./.github/workflows/test-shards.yml
+    with:
+      shards: "10"
+      runner: ubuntu-24.04

@@ -9,8 +9,9 @@
  *   - every shard report names the files it actually ran;
  *   - the union must equal the manifest, with no missing file, no duplicate
  *     file, no file from outside the root, and no failed shard;
- *   - the receipt records relative paths only, the shard count, the test count,
- *     and a hash of the manifest it judged.
+ *   - the receipt records relative paths only, the shard count, the test
+ *     counts, a hash of the manifest it judged, and the named exclusions with
+ *     their evidence anchors from the checked-in manifest.
  *
  * A shard report with zero files is valid only when the manifest is empty. A
  * missing report is not an empty shard. The caller must pass exactly the
@@ -19,7 +20,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { PLAN_SCHEMA, SHARD_REPORT_SCHEMA, manifestHash as hashManifest } from "./test-shard-manifest.mjs";
+import {
+  PLAN_SCHEMA,
+  SHARD_REPORT_SCHEMA,
+  manifestHash as hashManifest,
+  readManifest as readSourceManifest,
+} from "./test-shard-manifest.mjs";
 
 export const RECEIPT_SCHEMA = "bridlewise-test-shard-receipt/v1";
 
@@ -116,16 +122,20 @@ function readShard(root, path, index, expected = undefined, requireTiming = fals
   if (report.success !== true) {
     fail(`shard ${index}: vitest reported success=false`);
   }
-  if (report.numFailedTests !== 0 || report.numFailedTestSuites !== 0) {
+  const failedTests = Number(report.numFailedTests ?? 0);
+  const pendingTests = Number(report.numPendingTests ?? 0);
+  const todoTests = Number(report.numTodoTests ?? 0);
+  if (failedTests !== 0 || report.numFailedTestSuites !== 0) {
     fail(
-      `shard ${index}: ${String(report.numFailedTests)} failed test(s) and ` +
+      `shard ${index}: ${String(failedTests)} failed test(s) and ` +
         `${String(report.numFailedTestSuites)} failed suite(s)`,
     );
   }
-  const pending = Number(report.numPendingTests ?? 0);
-  const todo = Number(report.numTodoTests ?? 0);
-  if (pending !== 0 || todo !== 0) {
-    fail(`shard ${index}: ${String(pending)} skipped and ${String(todo)} todo test(s); a shard must run every selected test`);
+  if (pendingTests !== 0 || todoTests !== 0) {
+    fail(
+      `shard ${index}: ${String(pendingTests)} skipped and ` +
+        `${String(todoTests)} todo test(s); a shard must run every selected test`,
+    );
   }
   const results = report.testResults;
   if (!Array.isArray(results)) {
@@ -142,6 +152,17 @@ function readShard(root, path, index, expected = undefined, requireTiming = fals
     fail(`shard ${index}: duplicate test file(s): ${[...new Set(duplicates)].join(", ")}`);
   }
   const totalTests = Number.isFinite(report.numTotalTests) ? report.numTotalTests : 0;
+  const declaredPassed = Number(report.numPassedTests);
+  const passedTests = Number.isFinite(declaredPassed)
+    ? declaredPassed
+    : totalTests - failedTests - pendingTests - todoTests;
+  if (passedTests < 0 || passedTests + failedTests + pendingTests + todoTests !== totalTests) {
+    fail(
+      `shard ${index}: test counts do not add up (${String(passedTests)} passed, ` +
+        `${String(failedTests)} failed, ${String(pendingTests)} skipped, ` +
+        `${String(todoTests)} todo, ${String(totalTests)} total)`,
+    );
+  }
   let timing;
   if (wrapped && envelope.timing !== undefined) {
     const candidate = envelope.timing;
@@ -154,7 +175,7 @@ function readShard(root, path, index, expected = undefined, requireTiming = fals
     timing = { startedAtMs: startedAt, finishedAtMs: finishedAt, durationMs };
   }
   if (requireTiming && timing === undefined) fail(`shard ${index}: no measured shard timing`);
-  return { index, files: files.sort(), totalTests, timing };
+  return { index, files: files.sort(), totalTests, passedTests, failedTests, skippedTests: pendingTests + todoTests, timing };
 }
 
 export function mergeShardReports({
@@ -164,6 +185,7 @@ export function mergeShardReports({
   expectedShards,
   headSha,
   planPath = undefined,
+  manifestSourcePath = undefined,
   runnerClass = undefined,
   requireTiming = false,
   outPath,
@@ -184,7 +206,7 @@ export function mergeShardReports({
   }
 
   const manifest = readManifest(repositoryRoot, manifestPath);
-  const plan = planPath === undefined ? undefined : readPlan(planPath);
+  const plan = planPath == null ? undefined : readPlan(planPath);
   if (plan !== undefined) {
     if (plan.headSha.toLowerCase() !== headSha.toLowerCase()) {
       fail(`plan: head ${plan.headSha} is not ${headSha}`);
@@ -194,6 +216,20 @@ export function mergeShardReports({
   const computedManifestHash = hashManifest(manifest);
   if (plan !== undefined && plan.manifestHash !== computedManifestHash) {
     fail("plan: manifest hash does not match the supplied manifest");
+  }
+  const manifestSource = manifestSourcePath == null
+    ? undefined
+    : readSourceManifest(repositoryRoot, manifestSourcePath);
+  if (manifestSource !== undefined) {
+    if (manifestSource.hash !== computedManifestHash) {
+      fail("manifest source: hash does not match the supplied manifest");
+    }
+    if (plan !== undefined && plan.manifestHash !== manifestSource.hash) {
+      fail("manifest source: hash does not match the plan");
+    }
+    if (manifestSource.files.length !== manifest.length) {
+      fail("manifest source: supported file count does not match the supplied manifest");
+    }
   }
   const shards = shardPaths.map((path, index) => readShard(repositoryRoot, path, index + 1,
     plan === undefined ? undefined : {
@@ -254,12 +290,22 @@ export function mergeShardReports({
     ...(plan === undefined ? {} : { assignmentHash: plan.assignmentHash }),
     fileCount: manifest.length,
     testCount: shards.reduce((sum, shard) => sum + shard.totalTests, 0),
+    passedTests: shards.reduce((sum, shard) => sum + shard.passedTests, 0),
+    failedTests: shards.reduce((sum, shard) => sum + shard.failedTests, 0),
+    skippedTests: shards.reduce((sum, shard) => sum + shard.skippedTests, 0),
+    ...(manifestSource === undefined ? {} : {
+      excludedFileCount: manifestSource.excluded.length,
+      exclusions: manifestSource.excluded,
+    }),
     testPhaseMs,
     testPhaseCpuMs,
     shards: shards.map((shard) => ({
       index: shard.index,
       fileCount: shard.files.length,
       testCount: shard.totalTests,
+      passedTests: shard.passedTests,
+      failedTests: shard.failedTests,
+      skippedTests: shard.skippedTests,
       ...(shard.timing === undefined ? {} : {
         startedAt: new Date(shard.timing.startedAtMs).toISOString(),
         finishedAt: new Date(shard.timing.finishedAtMs).toISOString(),
@@ -278,6 +324,7 @@ function parseArgs(argv) {
     root: process.cwd(),
     manifestPath: null,
     planPath: null,
+    manifestSourcePath: null,
     shardPaths: [],
     expectedShards: null,
     headSha: process.env.GITHUB_SHA ?? null,
@@ -290,6 +337,7 @@ function parseArgs(argv) {
     if (arg === "--root") options.root = argv[++index];
     else if (arg === "--manifest") options.manifestPath = argv[++index];
     else if (arg === "--plan") options.planPath = argv[++index];
+    else if (arg === "--manifest-source") options.manifestSourcePath = argv[++index];
     else if (arg === "--shard") options.shardPaths.push(argv[++index]);
     else if (arg === "--expected-shards") options.expectedShards = Number(argv[++index]);
     else if (arg === "--head") options.headSha = argv[++index];
@@ -299,6 +347,7 @@ function parseArgs(argv) {
     else fail(`unknown argument: ${arg}`);
   }
   if (!options.manifestPath) fail("--manifest is required");
+  if (!options.manifestSourcePath) fail("--manifest-source is required");
   if (!options.outPath) fail("--out is required");
   return options;
 }
@@ -310,6 +359,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.stdout.write(
       `shard merge: ${String(receipt.shardCount)} shard(s), ` +
         `${String(receipt.fileCount)} file(s), ${String(receipt.testCount)} test(s), ` +
+        `${String(receipt.excludedFileCount)} exclusion(s), ` +
         `manifest ${receipt.manifestHash.slice(0, 12)}\n`,
     );
   } catch (error) {

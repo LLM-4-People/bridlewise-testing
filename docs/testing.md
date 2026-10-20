@@ -147,9 +147,11 @@ The guardian tests exercise Landlock itself. An exit code of 3 (`landlock_unavai
 
 `tests/test-shards.json` is the supported-suite manifest. Its file list comes from `vitest list --filesOnly --json`, not from a second glob. It currently accounts for 521 supported files and names four exclusions with a reason and evidence: the private cutover graph tool, the private frozen-record population, the generated performance report consumed by the performance regression gate, and the WSL-host keep-out arm that requires a mounted Windows profile. A live file that is neither supported nor excluded fails verification.
 
-`scripts/test-shard-manifest.mjs` owns the manifest hash, the deterministic weighted assignment, and the shard report envelope. `scripts/test-shard-merge.mjs` accepts only envelopes that name the same head commit, manifest hash, assignment hash, shard count, and exact file assignment. It refuses a missing shard, a duplicate file, a failed or skipped test, a file outside the checkout, and a report from another commit. One receipt records the exact commit, shard count, runner class, file and test counts, manifest hash, assignment hash, measured test-phase wall time, and summed shard duration.
+`scripts/test-shard-manifest.mjs` owns the manifest hash, the deterministic weighted assignment, and the shard report envelope. `scripts/test-shard-merge.mjs` accepts only envelopes that name the same head commit, manifest hash, assignment hash, shard count, and exact file assignment. It refuses a missing shard, a duplicate file, a failed or skipped test, a file outside the checkout, and a report from another commit. One receipt records the exact commit, shard count, runner class, manifest hash, assignment hash, per-shard file, test, pass/fail/skipped counts and timings, the excluded files with their reason and evidence anchor, the measured test-phase wall time, and summed shard duration.
 
-The manual workflow is `.github/workflows/test-shards.yml`. It is deliberately not a push or pull-request trigger, and it is not a required check while the supported baseline and the performance prerequisites are still being repaired. Choose the shard count and the runner label at dispatch time. The first green ten-shard receipt at `d47909de` on `ubuntu-24.04` measured `testPhaseMs` 86708, `testPhaseCpuMs` 636835, 521 files, and 8722 tests. Against the 244017ms single-host supported run that is 2.81x, not 10x. The 10x exit criterion needs a documented larger runner class; the workflow records the receipt rather than inferring a factor from the number of jobs.
+The shard gate is `.github/workflows/test-shards.yml`, called as the `shards` job in `.github/workflows/ci.yml` on every push and pull request to `main`. It is also dispatchable with a chosen shard count and runner label. The merge job is the gate: a failed shard, a missing report, a duplicate file, a failed or skipped test, an unexpected file, or a report from another commit refuses the receipt and fails the run. The union of the shard reports must equal the manifest exactly once, so a missing shard cannot look like a smaller green suite. The merge job uploads `test-shard-receipt` (JSON); the artifact names the manifest digest, the shard indexes and timings, the pass/fail counts, and the four exclusions with their evidence anchors. Making the job a required check is a branch-protection setting, not a workflow property.
+
+The first green ten-shard receipt at `d47909de` on `ubuntu-24.04` measured `testPhaseMs` 86708, `testPhaseCpuMs` 636835, 521 files, and 8722 tests. Against the 244017ms single-host supported run that is 2.81x, not 10x. The CI gate uses the same ten-shard `ubuntu-24.04` plan; the 10x exit criterion still needs a documented larger runner class. The receipt records the measured factor rather than inferring it from the number of jobs.
 
 ```bash
 mkdir -p .bridlewise/shard-plan
@@ -158,7 +160,26 @@ node scripts/test-shard-manifest.mjs verify --manifest tests/test-shards.json --
 node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
 ```
 
-The merge contract and the manifest contract are covered by the public smoke suite. A shard run judges coverage, completion, and exact-commit provenance. It does not judge the full-run runtime budget, which needs a separate full-suite run; do not describe a shard receipt as that budget's verdict.
+Run each planned shard's files through `scripts/run-tests.ts`, wrap the JSON report with `test-shard-manifest.mjs wrap`, and merge every wrapped report:
+
+```bash
+args=()
+for index in $(seq 1 10); do
+  args+=(--shard ".bridlewise/shard-plan/reports/shard-${index}.json")
+done
+node scripts/test-shard-merge.mjs \
+  --manifest .bridlewise/shard-plan/plan/manifest.json \
+  --manifest-source tests/test-shards.json \
+  --plan .bridlewise/shard-plan/plan/plan.json \
+  --expected-shards 10 \
+  --head "$(git rev-parse HEAD)" \
+  --runner local \
+  --require-timing \
+  --out .bridlewise/shard-plan/receipt.json \
+  "${args[@]}"
+```
+
+The merge contract and the manifest contract are covered by the public smoke suite. The local sample in [the evidence page](floor/evidence.md#the-sharded-gate) is a two-shard subset, not a supported-set receipt. A shard run judges coverage, completion, and exact-commit provenance. It does not judge the full-run runtime budget, which needs a separate full-suite run; do not describe a shard receipt as that budget's verdict.
 
 ## Test map
 
@@ -211,7 +232,7 @@ test("a blank query is refused, not broadened", () => {
 
 The product repository runs Node 24, two `npm ci` installs, both typechecks, the secret scan, the public smoke tests, the cockpit build, the engine bundle, and the guardian build/test on every push and pull request.
 
-The testing repository runs both typechecks, the secret scan, the public smoke suite, the cockpit and engine builds, and the guardian build/test. It does not run the full prevention guards, the corpus-backed suite, or the E2E suite. Those remain documented manual or nightly work until the corpus can be published reproducibly.
+The testing repository runs both typechecks, the secret scan, the public smoke suite, the cockpit and engine builds, the guardian build/test, and the supported file set on ten disjoint shards. It does not run the corpus-backed engine suite, the four named shard exclusions, or the E2E suite. Those remain documented manual or nightly work until their prerequisites can be published reproducibly.
 
 ## Flakiness
 

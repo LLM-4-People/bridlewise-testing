@@ -51,11 +51,76 @@ test("the shard merge accepts a complete disjoint manifest", () => {
     assert.equal(receipt.testCount, 5);
     assert.equal(receipt.shardCount, 2);
     assert.match(receipt.manifestHash, /^[0-9a-f]{64}$/);
+    assert.equal(receipt.passedTests, 5);
+    assert.equal(receipt.failedTests, 0);
+    assert.equal(receipt.skippedTests, 0);
     assert.deepEqual(receipt.shards, [
-      { index: 1, fileCount: 1, testCount: 2 },
-      { index: 2, fileCount: 1, testCount: 3 },
+      { index: 1, fileCount: 1, testCount: 2, passedTests: 2, failedTests: 0, skippedTests: 0 },
+      { index: 2, fileCount: 1, testCount: 3, passedTests: 3, failedTests: 0, skippedTests: 0 },
     ]);
     assert.equal(JSON.stringify(receipt).includes(work), false, "receipt must not leak the absolute root");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("the receipt names the manifest exclusions and their evidence anchors", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-exclusions-"));
+  try {
+    const a = join(work, "tests/a.test.ts");
+    const manifest = join(work, "manifest.json");
+    const source = join(work, "source.json");
+    const report = join(work, "shard-1.json");
+    const out = join(work, "receipt.json");
+    writeJson(manifest, [{ file: a }]);
+    writeJson(source, {
+      schemaVersion: "bridlewise-test-shard-manifest/v1",
+      measuredHeadSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
+      measuredAt: "2026-01-01T00:00:00.000Z",
+      files: [{ path: "tests/a.test.ts", weightMs: 1 }],
+      excluded: [
+        { path: "tests/private.test.ts", reason: "not published", evidence: "docs/floor/roadmap.md#snapshot" },
+      ],
+    });
+    writeJson(report, shardReport([a], { tests: 4 }));
+
+    const receipt = mergeShardReports({
+      root: work,
+      manifestPath: manifest,
+      manifestSourcePath: source,
+      shardPaths: [report],
+      expectedShards: 1,
+      headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
+      outPath: out,
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    assert.equal(receipt.excludedFileCount, 1);
+    assert.deepEqual(receipt.exclusions, [
+      { path: "tests/private.test.ts", reason: "not published", evidence: "docs/floor/roadmap.md#snapshot" },
+    ]);
+    assert.equal(receipt.passedTests, 4);
+
+    const mismatched = join(work, "mismatched.json");
+    writeJson(mismatched, {
+      schemaVersion: "bridlewise-test-shard-manifest/v1",
+      measuredHeadSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
+      measuredAt: "2026-01-01T00:00:00.000Z",
+      files: [{ path: "tests/other.test.ts", weightMs: 1 }],
+      excluded: [],
+    });
+    assert.throws(
+      () => mergeShardReports({
+        root: work,
+        manifestPath: manifest,
+        manifestSourcePath: mismatched,
+        shardPaths: [report],
+        expectedShards: 1,
+        headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
+        outPath: join(work, "refused.json"),
+      }),
+      /manifest source: hash does not match/,
+    );
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

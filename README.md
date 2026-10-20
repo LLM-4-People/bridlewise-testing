@@ -139,7 +139,7 @@ A fresh clone cannot run the full suites. The runners refuse with a named prereq
 - **`openssl`** — used by the outbound-HTTP test.
 - **Landlock** — the guardian tests skip the kernel path with exit 3 when the host does not expose it. A skip is not a pass.
 
-The supported shard set is `tests/test-shards.json`. Verify it against the runner's own selection, then plan a manual shard run:
+The supported shard set is `tests/test-shards.json`. Verify it against the runner's own selection, then plan the shards:
 
 ```bash
 mkdir -p .bridlewise/shard-plan
@@ -148,7 +148,7 @@ node scripts/test-shard-manifest.mjs verify --manifest tests/test-shards.json --
 node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
 ```
 
-The manual workflow is `.github/workflows/test-shards.yml`. It is not a required gate yet. See [docs/testing.md](docs/testing.md) for the full matrix, the named exclusions, and the receipt contract.
+The shard workflow is `.github/workflows/test-shards.yml`; CI calls it as the `shards` job on pushes and pull requests to `main`, and it remains dispatchable. Making it a required check is a branch-protection setting. See [docs/testing.md](docs/testing.md) for the full matrix, the named exclusions, and the receipt contract.
 
 ## CLI tools
 

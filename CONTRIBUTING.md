@@ -33,7 +33,7 @@ make -C engine/guardian test
 
 See [docs/testing.md](docs/testing.md) for the full suite and its prerequisites. The 4.1 GB corpus and the performance report are not published, so a fresh clone cannot run every suite.
 
-The supported shard set lives in `tests/test-shards.json`. The manual shard workflow is `.github/workflows/test-shards.yml`; it is not a required check. Use `scripts/test-shard-manifest.mjs` to verify the manifest before planning shards. A shard receipt proves coverage and exact-commit provenance, not the full-run runtime budget.
+The supported shard set lives in `tests/test-shards.json`. The shard workflow is `.github/workflows/test-shards.yml`; CI calls it as the `shards` job on pushes and pull requests to `main`, and it remains dispatchable. Making it a required check is a branch-protection setting. Use `scripts/test-shard-manifest.mjs` to verify the manifest before planning shards. A shard receipt proves coverage and exact-commit provenance, not the full-run runtime budget.
 
 ## What makes a good change
 

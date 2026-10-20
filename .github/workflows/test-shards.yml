@@ -1,10 +1,22 @@
-name: Full suite shards (manual)
+name: Full suite shards
 
-# The matrix is intentionally manual only. Do not add push or pull_request
-# triggers until a full supported-suite run is green and the measured receipt
-# is recorded in the roadmap. A red baseline must not be hidden behind a green
-# shard merge or a required check.
+# This workflow is the one shard runner. It is called as a CI job from ci.yml
+# on every push and pull request, and it remains dispatchable on its own. The
+# merge job is the gate: it refuses a missing, duplicate, failed, skipped,
+# unexpected, or wrong-commit shard, and it writes the receipt artifact.
 on:
+  workflow_call:
+    inputs:
+      shards:
+        description: Number of disjoint shards
+        required: false
+        default: "10"
+        type: string
+      runner:
+        description: Runner label. Use a larger runner class for the 10x test-phase target.
+        required: false
+        default: ubuntu-24.04
+        type: string
   workflow_dispatch:
     inputs:
       shards:
@@ -232,6 +244,7 @@ jobs:
           done
           node scripts/test-shard-merge.mjs \
             --manifest "$RUNNER_TEMP/shard-plan/manifest.json" \
+            --manifest-source tests/test-shards.json \
             --plan "$RUNNER_TEMP/shard-plan/plan.json" \
             --expected-shards "$SHARDS" \
             --head "$GITHUB_SHA" \
@@ -248,6 +261,7 @@ jobs:
           const fs = require("node:fs");
           const receipt = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/test-shard-receipt.json`, "utf8"));
           const plan = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/shard-plan/plan.json`, "utf8"));
+          const source = JSON.parse(fs.readFileSync("tests/test-shards.json", "utf8"));
           const fail = (message) => {
             console.error(`receipt refused: ${message}`);
             process.exit(1);
@@ -260,6 +274,21 @@ jobs:
           if (!Number.isFinite(receipt.testPhaseCpuMs) || receipt.testPhaseCpuMs < 0) fail("testPhaseCpuMs was not measured");
           const plannedFiles = plan.shards.reduce((count, shard) => count + shard.files.length, 0);
           if (receipt.fileCount !== plannedFiles) fail("fileCount mismatch");
+          const plannedSet = new Set(plan.shards.flatMap((shard) => shard.files));
+          if (plannedSet.size !== plannedFiles) fail("the plan repeats a file");
+          if (receipt.passedTests !== receipt.testCount) fail("passedTests does not equal testCount");
+          if (receipt.failedTests !== 0) fail("failedTests is not zero");
+          if (receipt.skippedTests !== 0) fail("skippedTests is not zero");
+          if (receipt.excludedFileCount !== source.excluded.length) {
+            fail(`excludedFileCount ${receipt.excludedFileCount} !== ${source.excluded.length}`);
+          }
+          if (!Array.isArray(receipt.exclusions)) fail("exclusions are missing");
+          for (const exclusion of source.excluded) {
+            const named = receipt.exclusions.find((entry) => entry.path === exclusion.path);
+            if (!named) fail(`excluded file is missing from the receipt: ${exclusion.path}`);
+            if (named.reason !== exclusion.reason) fail(`exclusion reason changed: ${exclusion.path}`);
+            if (named.evidence !== exclusion.evidence) fail(`exclusion evidence changed: ${exclusion.path}`);
+          }
           NODE
 
       - name: Upload the receipt

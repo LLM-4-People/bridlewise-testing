@@ -85,6 +85,57 @@ What this proves: the supported file set runs to completion on this host with no
 
 What it does not prove: the four excluded suites, a 10x shard claim, an idle-host CPU verdict, or a fresh-clone run.
 
+## The sharded gate
+
+The CI gate is `.github/workflows/test-shards.yml`, called as the `shards` job by `.github/workflows/ci.yml` on every push and pull request to `main`. The manual dispatch path remains. The merge job refuses a failed shard or a union of shard reports that is not the manifest exactly once, then uploads `test-shard-receipt`. The receipt names the manifest digest, the shard indexes and timings, the pass/fail counts, and the four exclusions with their evidence anchors.
+
+On 2026-10-20 the local manifest and plan checks passed at `c3349a33`:
+
+```text
+shard manifest: 521 supported, 4 excluded, 525 live, e553d052b256
+shard plan: 10 shard(s), e553d052b256
+assignment 62374d29ac19e613b4c32eec23343a817862e17445c5d1cfce0ad149bd11d45e
+```
+
+The full ten-shard run was **not** run locally: the host load was 21 to 26 on 12 cores, and the idle-host rule in this page applies to a full measurement. Instead, two shards of a twelve-file subset were run through the same runner and merge path. Shard 1 ran 7 files and 15 tests in 11.431 s; shard 2 ran 5 files and 38 tests in 7.869 s. The merged receipt named 12 files, 53 tests, 53 passed, 0 failed, 0 skipped, manifest hash `585307ad590f68ad4a39438bd44cfed5b8568e400e4c47dd6cf62421189d2a55`, and all four exclusions. This is a mechanism sample, not a supported-set receipt.
+
+Receipt shape from that sample (abridged):
+
+```json
+{
+  "schemaVersion": "bridlewise-test-shard-receipt/v1",
+  "headSha": "c3349a33afe138097e252ee4076e8ecf5e13267a",
+  "shardCount": 2,
+  "runnerClass": "local",
+  "manifestHash": "585307ad590f68ad4a39438bd44cfed5b8568e400e4c47dd6cf62421189d2a55",
+  "fileCount": 12,
+  "testCount": 53,
+  "passedTests": 53,
+  "failedTests": 0,
+  "skippedTests": 0,
+  "excludedFileCount": 4,
+  "exclusions": [
+    {
+      "path": "tests/performance/regression.test.ts",
+      "reason": "requires the generated tests/performance report from an idle-host profile; the report is not published and cannot be produced on every shard",
+      "evidence": "docs/floor/roadmap.md#snapshot · public baseline audit"
+    }
+  ],
+  "testPhaseMs": 34624,
+  "testPhaseCpuMs": 19300,
+  "shards": [
+    { "index": 1, "fileCount": 7, "testCount": 15, "passedTests": 15, "failedTests": 0, "skippedTests": 0, "durationMs": 11431 },
+    { "index": 2, "fileCount": 5, "testCount": 38, "passedTests": 38, "failedTests": 0, "skippedTests": 0, "durationMs": 7869 }
+  ]
+}
+```
+
+The refusal arms were driven directly: merging one report while expecting two refused with `expected 2 shard report(s), received 1`; a union missing one planned file refused with `missing 1 manifest file(s): tests/prevention/no-unused-exports.test.ts`; and a report with `success=false` refused with `shard 2: vitest reported success=false`.
+
+What this proves: the checked-in manifest verifies against the live `vitest list`, the deterministic plan is reproducible, the selected files run through the watchdog, and the merge emits one receipt with the exclusion evidence and the required counts and timings. The CI caller and the artifact upload are wired to the same workflow.
+
+What it does not prove: a full 521-file sharded run on CI, the ten-shard timing, the 10x target, or that branch protection makes the job a required check. Those need a green GitHub run and the recorded artifact.
+
 ## A fresh clone
 
 On 2026-10-20 a clean clone at `b866b826` was put through the documented path (in `/home/jadorais/fresh-floor`): `npm ci` in both trees, `npm run bootstrap:hooks`, `chmod 600 engine/bridlewise.config.json`, `make -C engine/guardian all`, `npm --prefix engine run build:bundle`, and `npm run corpus:fetch`.

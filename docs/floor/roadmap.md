@@ -21,7 +21,7 @@ This is the engineering roadmap for the Bridlewise development floor. It is a st
 |---|---|
 | Latest prerelease | `v0.0.3-preview`, published through the promotion gate with a receipt and checksums |
 | Public gate | Green on both repositories at the recorded commits |
-| Public smoke suites | Product `11/11`, testing `28/28` |
+| Public smoke suites | Product `11/11`, testing `29/29` |
 | Full suite | **Supported set green, complete tree still gated.** At the 2026-10-20 audit the 521-file supported set passed 8722 tests with 0 skipped, and a clean clone at `b866b826` reproduced it with the documented setup (8720 passed, 2 expected, 0 failed). Four named exclusions remain: two private-only guards, the performance regression gate, and the WSL-host keep-out arm. The raw corpus and the performance report are not published; the pinned subset is fetched with `npm run corpus:fetch` |
 | Full-suite time | The 10-shard `ubuntu-24.04` receipt at `d47909de` measured `testPhaseMs` 86.7s and `testPhaseCpuMs` 636.8s: 2.81x the 244.0s single-host supported run. The 10x line is not met on this runner class |
 | Readiness | Pre-admission. `preflight` reports `harnessReady: false` |
@@ -71,17 +71,18 @@ A milestone is not "done" because a page says so. It is done when the exit crite
 **Workstreams:**
 
 1. **Shard the full suite.** `tests/test-shards.json` is the supported set, derived from `vitest list --filesOnly --json` and accounting for every live file. `scripts/test-shard-manifest.mjs` verifies drift, assigns deterministic weighted shards, and wraps every report with its head commit and manifest hash. A matrix of runners runs disjoint shards.
-2. **One qualification receipt.** Each shard records its tree, file manifest, results, and timing. The merge job writes one receipt with the shard count, the exact commit, the manifest and assignment hashes, and the measured test-phase wall clock. It refuses missing, duplicate, failed, skipped, unexpected, or wrong-commit shards.
+2. **One qualification receipt.** Each shard records its tree, file manifest, results, and timing. The merge job writes one receipt with the shard count, the exact commit, the manifest and assignment hashes, the per-shard pass/fail/skipped counts and timings, the excluded files with their evidence anchors, and the measured test-phase wall clock. It refuses missing, duplicate, failed, skipped, unexpected, or wrong-commit shards.
 3. **Reproducible fixtures.** `engine/test/fixtures/corpus-manifest.json` pins the three members the public tests read (lodash, express, babel/traverse) by upstream commit, licence, and the size and sha256 of every file; `npm run corpus:fetch` materialises exactly those files outside the checkout and links the corpus root the tests read, and `npm run corpus:verify` judges the cache against the manifest. The raw cache is not published: it carries mixed licenses, nested histories, duplicate checkouts, and credential-shaped fixtures.
 4. **Reproducible performance report.** `npm run perf:profile` is a documented prerequisite step with an idle-host contract, and the root performance-regression gate judges the report in the suite. The supported shard set excludes that gate because a shard runner does not produce the report. The 2026-10-20 probe at `2caada8f` passed the gate and recorded red LCP, worst-long-task, API and long-chat budgets; those reds belong to the M3 performance envelope, not to a missing report.
 5. **Repair the baseline reds.** Restore or explicitly exclude missing public fixtures, fix the public-snapshot guards that disagree with the public test layout, and split any file that exceeds the per-file share budget. The rewind suite is now four behavior files, each with a fresh harness. The merged gate must not hide a red shard.
 
-The manual workflow is `.github/workflows/test-shards.yml`; it is not a push trigger and not a required check. The ten-shard default on standard runners is a reproducibility path, not a claim of 10x. The workflow accepts a runner label so the measured 10x target can be attempted on a documented larger class.
+The shard gate is `.github/workflows/test-shards.yml`, called as the `shards` job from `.github/workflows/ci.yml` on every push and pull request to `main`, and still dispatchable on its own. The merge job fails the run when a shard fails or when the union of the shard reports does not equal the manifest exactly once, and it uploads `test-shard-receipt` as the receipt artifact. The ten-shard default on standard runners is a reproducibility path, not a claim of 10x. The workflow accepts a runner label so the measured 10x target can be attempted on a documented larger class. Making the job a required check is a branch-protection setting, not a workflow property.
 
 **Exit criteria:**
 
-- A `workflow_dispatch` full-suite workflow runs the supported file set on shards and merges the results.
+- A push and pull-request CI job calls the shard workflow, which runs the supported file set on disjoint shards and merges the results; the workflow remains dispatchable on its own.
 - The merge refuses a missing shard, a duplicate file, a skipped file, a failed result, a dirty tree, or a shard from another commit.
+- The merge job uploads one receipt artifact naming the manifest digest, the shard indexes and timings, the pass/fail counts, and the excluded files with their evidence anchors.
 - One receipt records the exact commit, shard count, runner class, total test-phase time, and any unsupported suite with its named prerequisite.
 - The full-suite test phase is at least 10x faster than the single-runner baseline on the documented runner class. The receipt records the measured factor. At the 2026-10-20 audit the 10-shard standard-runner class measured 2.81x, so this line remains open.
 - A fresh clone with the documented setup runs the supported suite without guessing which tests are silently missing. Met at `b866b826`; the clean-clone receipt is on [the evidence page](evidence.md).
@@ -176,7 +177,7 @@ The manual workflow is `.github/workflows/test-shards.yml`; it is not a push tri
 
 | Horizon | Work | Milestone |
 |---|---|---|
-| Now | Activate the shard gate and publish its receipt artifact | M1 |
+| Now | Re-measure the shard weights at the manifest's own head | M1 |
 | Now | Publish the corpus manifest or a sanitized subset | M1 |
 | Now | Reconcile the flaky burn-down list with the published memory | M1 |
 | Now | Keep the contributor hub and roadmap current | M4 |

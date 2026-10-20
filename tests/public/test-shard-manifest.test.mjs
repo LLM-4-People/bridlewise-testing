@@ -118,6 +118,7 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
     const receipt = mergeShardReports({
       root: work,
       manifestPath: join(planDir, "manifest.json"),
+      manifestSourcePath: manifest,
       planPath: join(planDir, "plan.json"),
       shardPaths: reports,
       expectedShards: 2,
@@ -128,6 +129,9 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
     assert.equal(receipt.manifestHash, plan.manifestHash);
     assert.equal(receipt.assignmentHash, plan.assignmentHash);
     assert.equal(receipt.fileCount, 2);
+    assert.equal(receipt.excludedFileCount, 0);
+    assert.deepEqual(receipt.exclusions, []);
+    assert.equal(receipt.passedTests, 2);
     assert.equal(receipt.testPhaseMs, 1_500);
     assert.equal(receipt.testPhaseCpuMs, 2_000);
 
