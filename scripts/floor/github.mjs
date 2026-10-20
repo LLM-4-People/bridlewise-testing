@@ -25,9 +25,16 @@ export async function requestJson(path, { token = null, fetchImpl = fetch, timeo
   return response.json();
 }
 
-export async function listRuns(repository, token = null, { fetchImpl = fetch } = {}) {
+export async function listRuns(
+  repository,
+  token = null,
+  { fetchImpl = fetch, headSha = null } = {},
+) {
+  const query = headSha
+    ? `?head_sha=${encodeURIComponent(headSha)}&per_page=100`
+    : "?per_page=100";
   const data = await requestJson(
-    `/repos/${repository}/actions/runs?per_page=100`,
+    `/repos/${repository}/actions/runs${query}`,
     { token, fetchImpl },
   );
   return (data.workflow_runs ?? []).map((run) => ({

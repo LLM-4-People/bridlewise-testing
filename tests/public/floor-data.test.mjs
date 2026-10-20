@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { buildAtlas } from "../../scripts/floor/atlas.mjs";
 import { assembleFloorSite } from "../../scripts/floor/site.mjs";
 import { buildStatus } from "../../scripts/floor/status.mjs";
+import { buildPromotionReceipt } from "../../scripts/promotion-gate.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -105,4 +106,51 @@ test("the floor status never turns missing API data into a pass", async () => {
   assert.ok(status.checks.every((check) => check.status === "unknown"));
   assert.equal(status.checks.find((check) => check.id === "testing.code_scanning").status, "unknown");
   assert.equal(status.promotion.lastRun, null);
+});
+
+test("the promotion gate asks GitHub for runs at the requested commit", async () => {
+  const sha = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
+  const requested = [];
+  const workflowRuns = ["CI", "CodeQL", "Docs links", "Secret scan"].map((name, index) => ({
+    id: index + 1,
+    name,
+    path: `.github/workflows/${name.toLowerCase().replaceAll(" ", "-")}.yml`,
+    event: "push",
+    status: "completed",
+    conclusion: "success",
+    head_sha: sha,
+    head_branch: "main",
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:01:00Z",
+    html_url: `https://github.com/LLM-4-People/bridlewise/actions/runs/${index + 1}`,
+  }));
+  const response = (body) => ({
+    ok: true,
+    status: 200,
+    json: async () => body,
+    text: async () => "",
+  });
+  const fetchImpl = async (url) => {
+    requested.push(String(url));
+    if (String(url).includes("/actions/runs")) {
+      return response({ workflow_runs: workflowRuns });
+    }
+    return response([]);
+  };
+
+  const receipt = await buildPromotionReceipt({
+    product: "LLM-4-People/bridlewise",
+    sha,
+    tag: "dry-run",
+    token: "test-token",
+    fetchImpl,
+    now: new Date("2026-01-01T00:02:00.000Z"),
+  });
+
+  assert.equal(receipt.verdict, "pass");
+  assert.deepEqual(receipt.blockers, []);
+  assert.ok(
+    requested.some((url) => url.includes("/actions/runs?head_sha=") && url.includes(sha)),
+    "the run lookup must include the requested commit",
+  );
 });

@@ -109,7 +109,7 @@ export async function buildPromotionReceipt({
   fetchImpl = fetch,
   now = new Date(),
 }) {
-  const runs = await listRuns(product, token, { fetchImpl });
+  const runs = await listRuns(product, token, { fetchImpl, headSha: sha });
   const latest = latestByWorkflow(runs);
   const checks = REQUIRED_WORKFLOWS.map((definition) =>
     checkFromRun(definition, latest.get(definition.workflow), sha),
