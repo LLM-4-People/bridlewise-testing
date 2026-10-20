@@ -55,6 +55,9 @@ jobs:
       - name: Install engine dependencies
         run: npm --prefix engine ci --no-audit --no-fund
 
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
       - name: Require the exact commit and a clean tracked tree
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
