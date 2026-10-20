@@ -56,6 +56,7 @@ The `tests/unit/` folder of the development surface.
 - `harness-config.test.ts` — @vitest-environment node.
 - `harvested-fixes-adversarial.test.ts` — @vitest-environment node.
 - `landlock-project-refusal.test.ts` — @vitest-environment node.
+- `landlock-wsl-host.test.ts` — @vitest-environment node; the WSL host requirement for the Windows profile and 8.3 short-name keep-out arms.
 - `database-exposure.test.ts` — the `database.*` signals serve the kept-copy count and the newest verified pre-upgrade copy, read live.
 - `db-field-binding-v20.test.ts` — migration 20 frozen (golden binding bytes), idempotent, refusing a bound+unbound mix; no migration imports the live list; no writer moves a parent.
 - `db-key-rotation.test.ts` — `npm run db-key`: relocate a legacy key into the key home with proof, scan for legacy keys, re-key a database off the adopted fixed salt.

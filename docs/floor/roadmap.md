@@ -22,7 +22,7 @@ This is the engineering roadmap for the Bridlewise development floor. It is a st
 | Latest prerelease | `v0.0.3-preview`, published through the promotion gate with a receipt and checksums |
 | Public gate | Green on both repositories at the recorded commits |
 | Public smoke suites | Product `11/11`, testing `28/28` |
-| Full suite | **Supported set green, complete tree still gated.** At the 2026-10-20 audit the 521-file supported set passed 8724 tests with 0 skipped. Three named exclusions remain: two private-only guards and the performance regression gate. The external corpus and performance report are not published |
+| Full suite | **Supported set green, complete tree still gated.** At the 2026-10-20 audit the 521-file supported set passed 8724 tests with 0 skipped. Four named exclusions remain: two private-only guards, the performance regression gate, and the WSL-host keep-out arm. The external corpus and performance report are not published |
 | Full-suite time | The supported 521-file run took 244s on the 12-core test host. No shard speedup is claimed until a receipt from the manual workflow records the runner class and measured test phase |
 | Readiness | Pre-admission. `preflight` reports `harnessReady: false` |
 | Security review | None |

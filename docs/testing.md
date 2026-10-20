@@ -107,7 +107,7 @@ The guardian tests exercise Landlock itself. An exit code of 3 (`landlock_unavai
 
 ## Sharding
 
-`tests/test-shards.json` is the supported-suite manifest. Its file list comes from `vitest list --filesOnly --json`, not from a second glob. It currently accounts for 521 supported files and names three exclusions with a reason and evidence: the private cutover graph tool, the private frozen-record population, and the generated performance report consumed by the performance regression gate. A live file that is neither supported nor excluded fails verification.
+`tests/test-shards.json` is the supported-suite manifest. Its file list comes from `vitest list --filesOnly --json`, not from a second glob. It currently accounts for 521 supported files and names four exclusions with a reason and evidence: the private cutover graph tool, the private frozen-record population, the generated performance report consumed by the performance regression gate, and the WSL-host keep-out arm that requires a mounted Windows profile. A live file that is neither supported nor excluded fails verification.
 
 `scripts/test-shard-manifest.mjs` owns the manifest hash, the deterministic weighted assignment, and the shard report envelope. `scripts/test-shard-merge.mjs` accepts only envelopes that name the same head commit, manifest hash, assignment hash, shard count, and exact file assignment. It refuses a missing shard, a duplicate file, a failed or skipped test, a file outside the checkout, and a report from another commit. One receipt records the exact commit, shard count, runner class, file and test counts, manifest hash, assignment hash, measured test-phase wall time, and summed shard duration.
 
