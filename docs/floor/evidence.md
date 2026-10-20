@@ -132,9 +132,11 @@ Receipt shape from that sample (abridged):
 
 The refusal arms were driven directly: merging one report while expecting two refused with `expected 2 shard report(s), received 1`; a union missing one planned file refused with `missing 1 manifest file(s): tests/prevention/no-unused-exports.test.ts`; and a report with `success=false` refused with `shard 2: vitest reported success=false`.
 
-What this proves: the checked-in manifest verifies against the live `vitest list`, the deterministic plan is reproducible, the selected files run through the watchdog, and the merge emits one receipt with the exclusion evidence and the required counts and timings. The CI caller and the artifact upload are wired to the same workflow.
+On 2026-10-20, CI run [`39439338300`](https://github.com/LLM-4-People/bridlewise-testing/actions/runs/39439338300) at `3b4db454` carried the full set through that gate on a push, not a dispatch: `Typecheck, public tests, build`, `Plan the supported file set`, all ten shard jobs, and `Merge one qualification receipt` succeeded. The merge job uploaded the `test-shard-receipt` artifact, and the downloaded receipt names `headSha` `3b4db4548f8a20520bf0bf44640f4cf49dbbdb61`, ten `ubuntu-24.04` shards, manifest `e553d052b256` and assignment `62374d29…`, 521 files and 8722 tests (8722 passed, 0 failed, 0 skipped), the four exclusions with their evidence anchors, and `testPhaseMs` 88000 with `testPhaseCpuMs` 692556. This is the supported-set receipt as a CI artifact, not prose.
 
-What it does not prove: a full 521-file sharded run on CI, the ten-shard timing, the 10x target, or that branch protection makes the job a required check. Those need a green GitHub run and the recorded artifact.
+What this proves: the checked-in manifest verifies against the live `vitest list`, the deterministic plan is reproducible, the selected files run through the watchdog, and the merge emits one receipt with the exclusion evidence and the required counts and timings. The CI caller is wired to the same workflow, and run `39439338300` exercised it end to end on a push: the matrix and the union enforcement operate in CI, and the qualification receipt is a recorded artifact rather than a narrative.
+
+What it does not prove: a 10x factor, a clean same-commit single-host comparison for the speedup, or that branch protection makes the job a required check. The receipt's `testPhaseMs` is one measurement on the `ubuntu-24.04` class; the 2.81x figure at `d47909de` remains a historical comparison.
 
 ## A fresh clone
 
