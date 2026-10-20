@@ -719,8 +719,15 @@ function mirrorOrchestratedAgentsIntoRun(
       taskId: taskKey,
       attemptId: mirrorId,
     });
-    const turnCount = typeof result.turns === "number" ? result.turns : 0;
     const totalTokens = typeof result.totalTokens === "number" ? result.totalTokens : 0;
+    // A measured token total with no turn count is still evidence. Record one
+    // summary turn so the pane does not show "0 tokens" for a run that spent
+    // real tokens; only a result with neither a turn count nor usage records
+    // no turn. The turn count is the real count when the orchestration
+    // reports one.
+    const turnCount = typeof result.turns === "number" && result.turns > 0
+      ? result.turns
+      : totalTokens > 0 ? 1 : 0;
     // Record the measured usage so the pane's turn/token counts are real
     // (read from the orchestration's result), not a hardcoded zero standing
     // in for a quantity we have. The store accumulates per recorded turn, so

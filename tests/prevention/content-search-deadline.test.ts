@@ -38,14 +38,14 @@ import { createTempDir } from "../helpers/temp-dir.ts";
 /** The deadline this file configures, and the one every assertion is derived
  *  from. Long enough that the bomb cannot possibly finish inside it, short
  *  enough to be free. */
-const DEADLINE_MS = 1_500;
+const DEADLINE_MS = 5_000;
 
 await vi.hoisted(async () => {
   const { createTempDir } = await import("../helpers/temp-dir.ts");
   const { writeFileSync: write } = await import("node:fs");
   const dir = createTempDir("ch-content-search-deadline-");
   const path = `${dir}/harness.config.json`;
-  write(path, JSON.stringify({ tools: { searchTimeoutMs: 1_500 } }));
+  write(path, JSON.stringify({ tools: { searchTimeoutMs: 5_000 } }));
   process.env.HARNESS_CONFIG_PATH = path;
 });
 

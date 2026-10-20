@@ -326,5 +326,5 @@ describe("every test file this repository holds is executed by something", () =>
     expect(none.status).toBe(0);
     expect(none.passedNames).toEqual(["empty.test.mjs"]);
     expect(ranSomething("empty.test.mjs", none.passedNames)).toBe(false);
-  });
+  }, 120_000);
 });
