@@ -5,6 +5,7 @@ The `engine/test/verification/` folder of the development surface.
 ## What each file does
 
 - `architecture-external-commands.test.ts` — the `architecture-external-commands.test` module.
+- `corpus-manifest.test.ts` — the corpus manifest's validation (hash, path, upstream, licence refused by name), a drift report that names the file, a real fetch over a local bare repo, and the relink rule.
 - `hash-binding-registry.test.ts` — the `hash-binding-registry.test` module.
 - `ratchet.test.ts` — the one shrink-only ratchet (scripts/verification/ratchet.ts): every baseline entry carries a reason, the committed baseline is read from git HEAD, and the real commit guard refuses a staged baseline that grew.
 - `recursive-test-inventory.test.ts` — the `recursive-test-inventory.test` module.

@@ -61,7 +61,7 @@ Requirements beyond the product:
 - Chromium for Playwright E2E: `npx playwright install --with-deps chromium`.
 - User systemd for the long-task-runner test.
 - `openssl` for the outbound-HTTP test.
-- The pinned corpus subset for the engine tests that read real code: `npm run corpus:fetch` materialises only the files those tests read (lodash, express, babel/traverse) from their upstream commits and links `engine/large-codebases`. The raw 4.1 GB cache is not published; `npm run corpus:verify` judges the subset against `engine/test/fixtures/corpus-manifest.json`.
+- The pinned corpus subset for the engine tests that read real code: `npm run corpus:fetch` materialises only the files those tests read (lodash, express, babel/traverse) from their upstream commits and links the corpus root the tests read. The raw 4.1 GB cache is not published; `npm run corpus:verify` judges the subset against `engine/test/fixtures/corpus-manifest.json`.
 - The generated performance profile produced by `npm run perf:profile` under `tests/performance` for the root performance-regression test.
 
 The raw corpus and the performance report are deliberately not published. A fresh clone is two documented commands from the corpus-backed tests, and the runners refuse a missing prerequisite by name instead of silently skipping. The full engine suite still needs the other host requirements above.
@@ -78,13 +78,13 @@ npm run test:watch
 npm run test:raw         # vitest under the harness slot
 npm run test:e2e         # Playwright
 npm run test:all         # root suite + Playwright
-npm run perf:profile     # writes tests/performance/.report.json
+npm run perf:profile     # writes the gitignored report
 node --experimental-strip-types bench/run.ts
 ```
 
 ### The performance profile (idle-host contract)
 
-`npm run perf:profile` writes `tests/performance/.report.json`, the artifact the root
+`npm run perf:profile` writes the gitignored report under `tests/performance`, the artifact the root
 performance-regression gate (`tests/performance/regression.test.ts`) judges. A profile is a
 measurement, not a smoke test, so the conditions under which it is taken are part of the
 result:
