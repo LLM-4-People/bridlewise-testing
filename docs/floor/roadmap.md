@@ -57,6 +57,7 @@ Every tracked workstream or exit criterion, ordered by horizon. The plan below c
 | later | **Accessibility and responsive behavior as tested contracts** | [M3](#m3--product-hardening) | planned | web | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
 | later | **A stable extension surface with compatibility notes** | [M3](#m3--product-hardening) | planned | engine extension | [extending](../extending.md) |
 | later | **Issue lanes with evidence requirements and a named next action** | [M4](#m4--sustainable-contribution) | planned | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
+
 <!-- END GENERATED: roadmap summary -->
 
 ## Status legend
@@ -852,6 +853,7 @@ Each milestone group names its workstreams and exit criteria with the owner, sta
 | **Every open issue states what evidence is missing or what decision is needed.**<br>Source: M4 exit criterion 2, existing roadmap; judged on GitHub, not in this tree | planned | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
 | **The roadmap and the issue labels agree about the current milestone.**<br>Source: M4 exit criterion 3, existing roadmap; judged on GitHub, not in this tree | planned | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
 | **A documentation example is verified against the command output before it ships.**<br>Source: M4 exit criterion 4, existing roadmap; docs:links checks targets, not command output | in progress | docs | [evidence: docs-links](evidence.md#docs-links) |
+
 <!-- END GENERATED: roadmap workstreams and exit criteria -->
 
 ## Open work
@@ -943,6 +945,7 @@ Deliberate non-goals, kept here with their reason.
 | A benchmark number without its method. | Performance claims must link to a method and a report. | [evidence: performance-probe](evidence.md#performance-probe) |
 | A universal provider compatibility claim. | Provider conformance is proved per shape, not universally. | [extending](../extending.md) |
 | A release date. | This roadmap is a statement of intent, not a schedule. | [this page: snapshot](#snapshot) |
+
 <!-- END GENERATED: roadmap open work -->
 
 ## How this roadmap changes

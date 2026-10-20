@@ -56,4 +56,15 @@ test("the built site passes the design coverage guard", (t) => {
   assert.ok(result.pages >= 150, `expected the full site, found ${result.pages} pages`);
   assert.equal(result.missing.size, 0, `unstyled content classes: ${[...result.missing.keys()].join(", ")}`);
   assert.equal(result.unused.size, 0, `unused floor.css rules: ${[...result.unused.keys()].join(", ")}`);
+
+  const roadmap = readFileSync(join(built, "floor/roadmap/index.html"), "utf8");
+  assert.doesNotMatch(roadmap, /<p>\|\s/u, "every generated Markdown table must render as a table, not paragraph text");
+  const focusStart = roadmap.indexOf('id="now--next--later"');
+  assert.ok(focusStart > 0, "the Now / next / later heading must exist");
+  const focus = roadmap.slice(focusStart);
+  const tableStart = focus.indexOf("<table>");
+  const tableEnd = focus.indexOf("</table>");
+  assert.ok(tableStart >= 0 && tableEnd > tableStart, "the Now / next / later section must contain a table");
+  const table = focus.slice(tableStart, tableEnd);
+  assert.equal((table.match(/<th>/gu) ?? []).length, 6, "the Now / next / later table must have six columns");
 });

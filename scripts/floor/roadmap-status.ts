@@ -426,7 +426,7 @@ export function renderRoadmapPage(pageText: string, sources: RoadmapSources): st
     const pattern = new RegExp(`${escapeRegExp(spec.begin)}[\\s\\S]*?${escapeRegExp(spec.end)}`, "gu");
     const matches = [...next.matchAll(new RegExp(pattern.source, "gu"))];
     if (matches.length !== 1) fail(`the page must carry exactly one "${block}" generated block; found ${matches.length}`);
-    next = next.replace(pattern, `${spec.begin}\n${bodies[block]}\n${spec.end}`);
+    next = next.replace(pattern, `${spec.begin}\n${bodies[block].replace(/\n+$/u, "")}\n\n${spec.end}`);
   }
   return next;
 }
