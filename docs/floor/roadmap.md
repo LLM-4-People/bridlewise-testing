@@ -20,9 +20,9 @@ This is the engineering roadmap for the Bridlewise development floor: what shipp
 <!-- BEGIN GENERATED: roadmap summary, from this page's ROADMAP-PLAN block (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
 ### Where the floor stands
 
-**24 of 59 tracked items shipped (41%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it.
+**24 of 55 tracked items shipped (44%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. 7 not-planned statements sit outside it.
 
-24 shipped · 10 in progress · 24 planned · 1 blocked · 7 not planned.
+24 shipped · 10 in progress · 20 planned · 1 blocked · 7 not planned.
 
 ### Milestones
 
@@ -879,9 +879,6 @@ Every open row of [TASKS.md](../trackers/TASKS.md) appears here. A row leaves th
 | **FLAKY-PUBLIC-ENGINE-UNLOGGED-RECORDS**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-PUBLIC-ENGINE-GUARD-REDS-ON-ROUND-TREES**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-PUBLIC-S1-B12-CONTROL**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-ENGINE-ONE-RUN-2026-10-09**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-ENGINE-INVENTORY-RACE**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-ENGINE-GATE-LOG-PASSWORD-TAIL**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-PUBLIC-WEB-GUARD-REDS-ON-ROUND-TREES**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-PUBLIC-WEB-WATCHDOG-C3**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
 
@@ -890,7 +887,6 @@ Every open row of [TASKS.md](../trackers/TASKS.md) appears here. A row leaves th
 | Task | State | Owner | Evidence |
 |---|---|---|---|
 | **FLAKY-PERF-GATE-STALE-REPORT**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-WATCHDOG-C3**<br>Exit: Reproduce the recorded flake, fix its owner, or retire the entry with evidence; the row closes. | planned | private web floor | [TASKS](../trackers/TASKS.md) |
 
 ### What the evidence does not prove
 
