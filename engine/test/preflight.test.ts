@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createPreflightContext, isIssuedPreflightContext } from "../src/kernel/preflight.ts";
-import { ROOT_POLICY_HASH } from "../src/kernel/root-policy.ts";
+import { ROOT_POLICY, ROOT_POLICY_HASH } from "../src/kernel/root-policy.ts";
 import { runCli } from "../src/cli.ts";
 
 // createPreflightContext binds the real pinned repo and authenticates the
@@ -73,6 +73,29 @@ test("preflight: capabilities are enumerated with no effect authorization", () =
   for (const cap of ctx.receipt.capabilities) {
     assert.ok(cap.decision === "allow" || cap.decision === "deny");
     assert.equal(cap.effectAuthorized, false);
+  }
+});
+
+test("preflight: each capability receipt names its covering policy fact and a remedy when denied", () => {
+  ctx = createPreflightContext();
+  const policyNames = Object.keys(ROOT_POLICY.capabilities) as Array<keyof typeof ROOT_POLICY.capabilities>;
+  assert.deepEqual(
+    ctx.receipt.capabilities.map((entry) => entry.capability).toSorted(),
+    [...policyNames].toSorted(),
+  );
+  for (const entry of ctx.receipt.capabilities) {
+    assert.equal(entry.evidence.path, "engine/src/kernel/root-policy.ts");
+    assert.equal(entry.evidence.field, `capabilities.${entry.capability}`);
+    // The named field is the decision's covering fact: it resolves to the same
+    // answer the receipt reports (and the receipt's rootPolicyHash covers it).
+    assert.equal(entry.decision === "allow", ROOT_POLICY.capabilities[entry.capability]);
+    if (entry.decision === "deny") {
+      assert.equal(typeof entry.remedy, "string");
+      assert.ok(entry.remedy?.includes(`capabilities.${entry.capability}`));
+      assert.match(entry.remedy ?? "", /governance gate/u);
+    } else {
+      assert.equal(entry.remedy, null);
+    }
   }
 });
 

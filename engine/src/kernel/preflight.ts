@@ -60,6 +60,17 @@ export type CapabilityDecision = Readonly<{
   decision: "allow" | "deny";
   effectAuthorized: false;
   code: string;
+  /**
+   * THE COVERING FACT: the root-policy field the decision is read from, named
+   * repository-relatively and covered by the receipt's `rootPolicyHash`. An
+   * entry never carries an admission claim without the field that decided it.
+   */
+  evidence: Readonly<{
+    path: string;
+    field: string;
+  }>;
+  /** What would change a denial; null when the capability is already admitted. */
+  remedy: string | null;
 }>;
 
 export type PreflightIntegrityReceipt = Readonly<{
@@ -381,6 +392,8 @@ function projectReceipt(binding: RootBinding): ProjectReceiptBinding {
   });
 }
 
+const CAPABILITY_EVIDENCE_PATH = "engine/src/kernel/root-policy.ts";
+
 function capabilityDecisions(): readonly CapabilityDecision[] {
   return (Object.entries(ROOT_POLICY.capabilities) as Array<
     [keyof typeof ROOT_POLICY.capabilities, boolean]
@@ -389,5 +402,12 @@ function capabilityDecisions(): readonly CapabilityDecision[] {
     decision: enabled ? "allow" : "deny",
     effectAuthorized: false,
     code: enabled ? "integrity_preflight_only" : "s1_effects_disabled",
+    evidence: {
+      path: CAPABILITY_EVIDENCE_PATH,
+      field: `capabilities.${capability}`,
+    },
+    remedy: enabled
+      ? null
+      : `The root policy records capabilities.${capability} as false, so the S1 stage denies the effect. The remedy is to close this capability's governance gate with a reproducible receipt before the policy can admit it.`,
   }));
 }
