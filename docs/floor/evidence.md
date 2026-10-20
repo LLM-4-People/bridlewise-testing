@@ -90,6 +90,19 @@ unlink engine/large-codebases
 
 On 2026-10-20, on the public tree at `856f101`, this probe passed 73 engine tests and 5 Vitest tests. It proves the declared root, the corpus readers, the worker pool, and the scanner bait work on that machine. It is not the full suite. The performance report, the live provider consent, the Chromium E2E suite, and the full inventory did not run.
 
+### Performance probe
+
+On 2026-10-20, on the public tree at `d00de81`, the profile and its regression gate ran on this host with a private `TMPDIR` outside `/tmp`:
+
+```bash
+npm run perf:profile
+./node_modules/.bin/vitest run tests/performance/regression.test.ts
+```
+
+Result: the profile passed 3 of 3 tests and the regression gate passed 36 of 36. The report carried `instrumentLock: "held"`, its measured surface hash matched the tree, and the run was clean. The report and `.run.json` are gitignored and were not published.
+
+This is one profile on one host. It is not a cross-machine benchmark, a reproducible performance proof, or the full suite.
+
 ## Guardian
 
 ```bash
@@ -270,7 +283,7 @@ What it does not prove: that the rendered Pages site has no broken links, or tha
 ## What none of this proves
 
 - **A green CI run is not correctness.** It proves the configured steps passed at one commit.
-- **The public smoke suite is not the floor.** The full suite needs the corpus, the performance report, Chromium, systemd, OpenSSL, and Landlock.
+- **The focused probes are not the full suite.** The full suite still needs the complete corpus, a fresh performance report, Chromium, systemd, OpenSSL, and Landlock. The probes above cover the declared corpus root, the corpus readers, the scanner bait, the profile, and the profile regression gate, not the full inventory or the live provider suite.
 - **A current inventory is not a passing suite.** It proves the inventory matches the tracked surface.
 - **Guardian passes are not a universal sandbox proof.** A skip is not a pass, and one kernel is not every kernel.
 - **A promotion refusal is not a failed release.** It can be the correct answer for a checkout that lacks the maintainer refs.
