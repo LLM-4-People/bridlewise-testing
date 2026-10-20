@@ -1,0 +1,101 @@
+name: Docs site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      product_ref:
+        description: Product docs revision to mirror
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build docs and floor
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pages: read
+      actions: read
+      security-events: read
+      vulnerability-alerts: read
+    steps:
+      - name: Check out testing floor
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Check out product docs
+        id: product
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: LLM-4-People/bridlewise
+          ref: ${{ inputs.product_ref || 'main' }}
+          path: product
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24.20.0
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+
+      - name: Assemble the mirror and floor
+        run: |
+          node scripts/assemble-floor-site.mjs \
+            --product product/docs \
+            --testing . \
+            --out .site \
+            --baseurl "${{ steps.pages.outputs.base_path }}"
+
+      - name: Generate floor data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/build-floor-data.mjs \
+            --testing . \
+            --product product \
+            --out .site/floor/data
+
+      - name: Build with Jekyll
+        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
+        with:
+          source: ./.site
+          destination: ./_site
+          build_revision: ${{ steps.product.outputs.commit }}
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: ./_site
+          include-hidden-files: true
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event.repository.visibility == 'public'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+      actions: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

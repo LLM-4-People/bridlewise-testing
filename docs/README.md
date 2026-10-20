@@ -19,7 +19,8 @@ This is the curated documentation set of the Bridlewise development floor. It is
 
 | Collection | Contents |
 |---|---|
-| [decisions/](decisions/) | 135 decision records, one file per rule, with status and implementation state |
+| [decisions/](decisions/) | 134 decision records, one file per rule, with status and implementation state |
+| [floor/](floor/) | The generated development-floor site: atlas, status, promotion contract, and evidence |
 | [design/](design/) | Selected cockpit, performance, structure, and guard-universe essays |
 | [Product architecture](https://llm-4-people.github.io/bridlewise/architecture/) | The public architecture page |
 

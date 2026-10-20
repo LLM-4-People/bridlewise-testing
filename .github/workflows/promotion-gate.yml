@@ -1,0 +1,87 @@
+name: Promotion gate
+
+on:
+  workflow_call:
+    inputs:
+      product_repo:
+        description: Product repository
+        required: true
+        type: string
+      product_sha:
+        description: Product commit to verify
+        required: true
+        type: string
+      product_tag:
+        description: Product tag or release label
+        required: true
+        type: string
+      testing_sha:
+        description: Testing-floor commit that owns this gate
+        required: true
+        type: string
+    outputs:
+      verdict:
+        description: pass or blocked
+        value: ${{ jobs.gate.outputs.verdict }}
+
+permissions:
+  contents: read
+  actions: read
+  security-events: read
+  vulnerability-alerts: read
+
+jobs:
+  gate:
+    name: Verify product and testing evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      verdict: ${{ steps.gate.outputs.verdict }}
+    steps:
+      - name: Check out the testing floor
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: LLM-4-People/bridlewise-testing
+          ref: ${{ inputs.testing_sha }}
+          path: testing
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: |
+            testing/package-lock.json
+            testing/engine/package-lock.json
+
+      - name: Install the public test dependencies
+        working-directory: testing
+        run: |
+          npm ci --no-audit --no-fund --ignore-scripts
+          npm --prefix engine ci --no-audit --no-fund --ignore-scripts
+
+      - name: Run the public testing-floor suite
+        working-directory: testing
+        run: npm run test:public
+
+      - name: Evaluate the product gates
+        id: gate
+        working-directory: testing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/promotion-gate.mjs \
+            --product "${{ inputs.product_repo }}" \
+            --sha "${{ inputs.product_sha }}" \
+            --tag "${{ inputs.product_tag }}" \
+            --out promotion-receipt.json
+          echo "verdict=$(node -e 'process.stdout.write(require("./promotion-receipt.json").verdict)')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the promotion receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: promotion-receipt
+          path: testing/promotion-receipt.json
+          if-no-files-found: warn

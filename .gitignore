@@ -295,3 +295,9 @@ test-results/
 playwright-report/
 coverage/
 .impeccable/
+
+# Generated docs site and floor data
+docs/_site/
+docs/.jekyll-cache/
+.site/
+docs/floor/data/

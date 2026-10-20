@@ -1,0 +1,99 @@
+name: Report workflow failure
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+jobs:
+  report:
+    name: Open or close the failure issue
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_NAME: ${{ github.event.workflow_run.name }}
+      RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+      EVENT: ${{ github.event.workflow_run.event }}
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+    steps:
+      - name: Report failure or recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUN_CONCLUSION" != "failure" ] && [ "$RUN_CONCLUSION" != "success" ]; then
+            echo "No issue action for conclusion: $RUN_CONCLUSION"
+            exit 0
+          fi
+
+          if [ -n "${PR_NUMBER:-}" ]; then
+            target="PR #${PR_NUMBER}"
+          elif [ -n "${HEAD_BRANCH:-}" ]; then
+            target="branch ${HEAD_BRANCH}"
+          else
+            target="commit ${HEAD_SHA:0:7}"
+          fi
+          title="Workflow failure: ${RUN_NAME} on ${target}"
+
+          gh label create ci-failure \
+            --color B60205 \
+            --description "Automated report for a failed workflow" \
+            >/dev/null 2>&1 || true
+
+          existing="$(gh issue list \
+            --state open \
+            --label ci-failure \
+            --limit 100 \
+            --json number,title \
+            --jq --arg title "$title" '.[] | select(.title == $title) | .number' \
+            | head -n 1)"
+
+          if [ "$RUN_CONCLUSION" = "success" ]; then
+            if [ -z "$existing" ]; then
+              echo "No open failure issue for: $title"
+              exit 0
+            fi
+            gh issue comment "$existing" --body "Recovered by ${RUN_URL} at ${HEAD_SHA}."
+            gh issue close "$existing"
+            echo "Closed issue #${existing}"
+            exit 0
+          fi
+
+          jobs="$(gh api \
+            "repos/${GH_REPO}/actions/runs/${RUN_ID}/jobs?filter=latest" \
+            --jq '[.jobs[] | select(.conclusion == "failure") | .name] | join(", ")')"
+          if [ -z "$jobs" ]; then
+            jobs="No failed job name was returned by the API."
+          fi
+
+          body="$(printf '%s\n' \
+            '## Failed workflow' \
+            '' \
+            "- Workflow: ${RUN_NAME}" \
+            "- Repository: ${GH_REPO}" \
+            "- Scope: ${target}" \
+            "- Commit: ${HEAD_SHA}" \
+            "- Event: ${EVENT}" \
+            "- Run: ${RUN_URL}" \
+            "- Failed jobs: ${jobs}" \
+            '' \
+            'This issue is opened by the reusable failure reporter. It closes automatically when the same workflow succeeds for the same branch or pull request.')"
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Another failure was recorded: ${RUN_URL}"
+            echo "Updated issue #${existing}"
+          else
+            url="$(gh issue create \
+              --title "$title" \
+              --body "$body" \
+              --label ci-failure)"
+            echo "Opened issue ${url}"
+          fi

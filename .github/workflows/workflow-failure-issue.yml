@@ -1,0 +1,26 @@
+name: Report workflow failure
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+      - CodeQL
+      - Docs links
+      - Secret scan
+      - Docs site
+      - Dependency review
+      - OpenSSF Scorecard
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+jobs:
+  report:
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    uses: ./.github/workflows/reusable-workflow-failure.yml

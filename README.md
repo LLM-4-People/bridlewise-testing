@@ -3,13 +3,20 @@
 **The development floor for [Bridlewise](https://github.com/LLM-4-People/bridlewise): tests, prevention guards, benchmarks, design decisions, and verification machinery.**
 
 <p align="center">
-  <img src="docs/assets/dev-floor.png" alt="The Bridlewise development floor: tests, prevention guards, benchmarks, and 135 decision records. Developer preview; not a product." width="100%">
+  <img src="docs/assets/dev-floor.png" alt="The Bridlewise development floor: tests, prevention guards, benchmarks, and 134 decision records. Developer preview; not a product." width="100%">
 </p>
 
 [![CI](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml)
+[![Docs and floor](https://img.shields.io/badge/docs-development%20floor-8fd3ff.svg)](https://llm-4-people.github.io/bridlewise-testing/floor/)
 [![Secret scan](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml/badge.svg?branch=main)](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Status: developer preview](https://img.shields.io/badge/status-developer%20preview-d9a84e.svg)](#status)
+
+## The docs site
+
+The testing repository publishes the complete product documentation at <https://llm-4-people.github.io/bridlewise-testing/>, plus the development floor at <https://llm-4-people.github.io/bridlewise-testing/floor/>. The floor carries a generated test atlas, a public status snapshot, the promotion contract, and the evidence commands. The mirror is assembled from the public product docs at build time. It is not a second copy in Git.
+
+The floor site is a record, not a hosted test service. It does not run suites, hold a token in your browser, or turn an unknown into a pass.
 
 > [!WARNING]
 > **This is not a product, and it is not production-ready.** Bridlewise is an experimental developer preview. Do not use it — or anything built from this repository — with sensitive, proprietary, regulated, or production codebases. Expect breaking changes, incomplete security guarantees, and data loss. Run it on disposable copies only.
@@ -21,7 +28,7 @@ This is the **development floor** from which the Bridlewise product is projected
 - unit, integration, prevention, cockpit, performance, and end-to-end tests;
 - engine domain tests for the editor, intelligence, memory, privacy, safety, timeline, workflow, MCP, and quality packs;
 - benchmarks for concurrency, storage, the ledger, payloads, redaction, and the write path;
-- 135 decision records and a curated set of design and architecture essays;
+- 134 decision records and a curated set of design and architecture essays;
 - the test inventory, frozen records, verification tooling, and the guardian tests.
 
 The product repository — cockpit, loopback server, engine, guardian, shared contracts, and public docs — is [`LLM-4-People/bridlewise`](https://github.com/LLM-4-People/bridlewise).
@@ -148,7 +155,8 @@ Model invocation, repository mutation, process execution, and network egress are
 | [docs/cli.md](docs/cli.md) | CLI, dev lifecycle, ledger inspection, database keys, guardian |
 | [docs/extending.md](docs/extending.md) | Blocks, tools, providers, MCP, embedding, quality packs |
 | [docs/shipping.md](docs/shipping.md) | Build outputs, verification, release assets, rollback |
-| [docs/decisions/](docs/decisions/) | 135 decision records |
+| [docs/decisions/](docs/decisions/) | 134 decision records |
+| [docs/floor/](docs/floor/) | Source pages for the generated development-floor site |
 | [docs/design/](docs/design/) | Selected cockpit, performance, and structure essays |
 | [https://llm-4-people.github.io/bridlewise/architecture/](https://llm-4-people.github.io/bridlewise/architecture/) | Architecture and migration design records |
 
