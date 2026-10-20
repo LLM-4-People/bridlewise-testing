@@ -53,7 +53,7 @@ jobs:
             --label ci-failure \
             --limit 100 \
             --json number,title \
-            --jq --arg title "$title" '.[] | select(.title == $title) | .number' \
+            | jq -r --arg title "$title" '.[] | select(.title == $title) | .number' \
             | head -n 1)"
 
           if [ "$RUN_CONCLUSION" = "success" ]; then

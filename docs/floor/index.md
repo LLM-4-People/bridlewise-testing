@@ -37,7 +37,7 @@ The floor is not the product, a staging environment, a hosted service, or a supp
 | What runs at each layer? | [Testing docs]({{ '/testing/' | relative_url }}) | The test map, prerequisites, commands, and known gaps | That a fresh clone can run the full suite |
 | What ships in a release? | [Shipping docs]({{ '/shipping/' | relative_url }}) | Build outputs, verification steps, release assets, and rollback | A production endorsement |
 | Can I rerun a claim? | [Evidence commands]({{ '/floor/evidence/' | relative_url }}) | Commands, expected output shapes, and explicit non-proofs | Anything the command did not observe |
-| Did a public workflow fail? | [Failure reports](https://github.com/LLM-4-People/bridlewise-testing/issues?q=is%3Aissue+label%3Aci-failure) | One issue per workflow and branch or pull request, with the run link and failed jobs | The diagnosis, the fix, or a guarantee that the failure is covered |
+| Did a public workflow fail? | [Testing failure reports](https://github.com/LLM-4-People/bridlewise-testing/issues?q=is%3Aissue+label%3Aci-failure) and [product failure reports](https://github.com/LLM-4-People/bridlewise/issues?q=is%3Aissue+label%3Aci-failure) | One issue per workflow and branch or pull request, with the run link and failed jobs | The diagnosis, the fix, or a guarantee that the failure is covered |
 
 ## The floor console and the test atlas
 
