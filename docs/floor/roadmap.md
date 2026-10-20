@@ -21,7 +21,7 @@ This is the engineering roadmap for the Bridlewise development floor. It is a st
 |---|---|
 | Latest prerelease | `v0.0.3-preview`, published through the promotion gate with a receipt and checksums |
 | Public gate | Green on both repositories at the recorded commits |
-| Public smoke suites | Product `11/11`, testing `22/22` |
+| Public smoke suites | Product `11/11`, testing `28/28` |
 | Full suite | **Not reproducible from a fresh clone.** At the 2026-10-20 audit the public snapshot had 31 failing tests across 14 files. The external corpus and performance report are not published |
 | Full-suite time | The 521-file web suite takes roughly 170 to 200s on a 12-core host, already at about 94% of that host's physical floor |
 | Readiness | Pre-admission. `preflight` reports `harnessReady: false` |

@@ -156,3 +156,29 @@ test("the shard merge refuses a failed shard or a file outside the root", () => 
     rmSync(work, { recursive: true, force: true });
   }
 });
+test("the shard merge refuses skipped or todo tests", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-skipped-"));
+  try {
+    const a = join(work, "tests/a.test.ts");
+    const manifest = join(work, "manifest.json");
+    const report = join(work, "shard-1.json");
+    writeJson(manifest, [{ file: a }]);
+    writeJson(report, {
+      ...shardReport([a]),
+      numPendingTests: 1,
+    });
+    assert.throws(
+      () => mergeShardReports({
+        root: work,
+        manifestPath: manifest,
+        shardPaths: [report],
+        expectedShards: 1,
+        headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
+        outPath: join(work, "receipt.json"),
+      }),
+      /skipped and 0 todo test/,
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
