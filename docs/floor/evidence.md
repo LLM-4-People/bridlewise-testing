@@ -34,8 +34,8 @@ Expected:
 
 ```text
 secret scan: clean (201 synthetic fixture reference(s) allowlisted)
-ℹ tests 13
-ℹ pass 13
+ℹ tests 17
+ℹ pass 17
 ℹ fail 0
 ```
 
@@ -63,6 +63,12 @@ The claim is `"status":"current"`. It means the generated inventory and the disp
 What this proves: the inventory is not hand-edited drift, and every recognized test surface entry has a disposition.
 
 What it does not prove: that any test passed, that the count is coverage, or that the private corpus is present. `engine/large-codebases` is not published.
+
+## Corpus boundary
+
+The 4.1 GB `engine/large-codebases` fixture root is not published. It is an assembled cache of dozens of public upstream checkouts. The cache carries mixed licenses, duplicate trees, nested Git histories, and test-only key, certificate, and environment fixtures. Publishing the cache as another public repository would redistribute third-party code under incompatible terms and would preserve historical material that a current-tree scan does not clear. The floor does not do that. The [third-party notices](https://github.com/LLM-4-People/bridlewise-testing/blob/main/THIRD_PARTY_NOTICES.md) record the boundary.
+
+To reproduce a corpus-backed test, supply the root from upstream at the revisions you record. Most of the cache is not read by the default suite, and the cache alone is not enough for the full suite. The performance report, Chromium, systemd, OpenSSL, Landlock, and the live provider consent remain separate prerequisites.
 
 ## Guardian
 
@@ -243,7 +249,7 @@ What it does not prove: that the rendered Pages site has no broken links, or tha
 ## What none of this proves
 
 - **A green CI run is not correctness.** It proves the configured steps passed at one commit.
-- **Thirteen public tests are not the floor.** The full suite needs the corpus, the performance report, Chromium, systemd, OpenSSL, and Landlock.
+- **The public smoke suite is not the floor.** The full suite needs the corpus, the performance report, Chromium, systemd, OpenSSL, and Landlock.
 - **A current inventory is not a passing suite.** It proves the inventory matches the tracked surface.
 - **Guardian passes are not a universal sandbox proof.** A skip is not a pass, and one kernel is not every kernel.
 - **A promotion refusal is not a failed release.** It can be the correct answer for a checkout that lacks the maintainer refs.
