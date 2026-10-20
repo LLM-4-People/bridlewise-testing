@@ -5,7 +5,10 @@
  * A test that tests the tests. Verifies the test suite's own conventions
  * so they cannot silently rot:
  *   1. SUFFIX: every test file under tests/ ends in `.test.ts` (vitest) or
- *      `.spec.ts` (Playwright). No `.test.js`/`.test.mts`/`.spec.tsx` drift.
+ *      `.spec.ts` (Playwright). The public smoke suite under `tests/public/`
+ *      is the one explicit exception: it uses `.test.mjs` because it runs on
+ *      `node:test`, not Vitest. No other `.test.js`/`.test.mts`/`.spec.tsx`
+ *      drift.
  *   2. LOCATION: every test file lives in a SUBDIRECTORY of tests/ (not in
  *      the tests/ root), so the directory tree stays organized.
  *   3. VITEST COVERAGE: every `.test.ts` matches a vitest `include` glob
@@ -203,10 +206,21 @@ describe("test naming + directory structure (mechanical enforcement — test qua
   });
 
   test("1. SUFFIX: every test file under tests/ ends in `.test.ts` or `.spec.ts`", () => {
-    const bad = ALL_TEST_FILES.filter((p) => !p.endsWith(".test.ts") && !p.endsWith(".spec.ts"));
+    const bad = ALL_TEST_FILES.filter(
+      (p) =>
+        !p.endsWith(".test.ts") &&
+        !p.endsWith(".spec.ts") &&
+        !(p.startsWith("tests/public/") && p.endsWith(".test.mjs")),
+    );
     expect(
       bad,
-      bad.map((p) => `${p}: test file must end in .test.ts (vitest) or .spec.ts (playwright)`).join("\n"),
+      bad
+        .map(
+          (p) =>
+            `${p}: test file must end in .test.ts (vitest) or .spec.ts (playwright); ` +
+            "only tests/public/*.test.mjs may use node:test",
+        )
+        .join("\n"),
     ).toEqual([]);
   });
 

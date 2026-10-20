@@ -51,7 +51,7 @@ import { qualificationInvocation, supervisedCommandOutcome, QUALIFICATION_INVOCA
 import { allProcessIds, commandLineOf, isProcessAlive, parentOf } from "../../engine/src/process/process-facts.ts";
 import { readSourceView, sourceViewOf, type SourceView } from "../../engine/scripts/verification/source-view.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
-import { walk, relpath } from "../helpers/source-scan.ts";
+import { walk, relpath, SOURCE_EXTS } from "../helpers/source-scan.ts";
 
 const WATCHDOG: SuiteWatchdog = { stallTimeoutMs: 1_500, hardCeilingMs: 60_000, killGraceMs: 500 };
 const quiet = { write: () => undefined, watchIntervalMs: 100 } as const;
@@ -347,7 +347,7 @@ export function findMutableBoundLoops(view: SourceView): string[] {
 describe("5. no test contains an unbounded loop with a mutable bound", () => {
   test("every test file is clean", () => {
     const offenders: string[] = [];
-    for (const file of walk("tests")) {
+    for (const file of walk("tests", { exts: SOURCE_EXTS })) {
       if (!file.endsWith(".ts")) continue;
       const found = findMutableBoundLoops(readSourceView(file));
       for (const f of found) offenders.push(`${relpath(file)}: ${f}`);

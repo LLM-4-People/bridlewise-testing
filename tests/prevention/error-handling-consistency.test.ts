@@ -49,7 +49,7 @@
 import { describe, test, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
-import { walk } from "../helpers/source-scan.ts";
+import { walk, SOURCE_EXTS } from "../helpers/source-scan.ts";
 import { parseErrorClassStatusCode, scanDynamicErrorCodeFallbacks, scanThrownErrorCodes, findUnmapped500DefaultCodes, isInsideStringOrComment } from "../helpers/error-scan.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
 import { writeFileSync } from "node:fs";
@@ -124,7 +124,7 @@ function findBareThrowAssertions(file: string): { line: number; snippet: string 
 describe("error-handling consistency — (E1) no bare throw assertions in tests", () => {
   const findings: { file: string; line: number; snippet: string }[] = [];
   for (const root of TEST_ROOTS) {
-    for (const file of walk(root)) {
+    for (const file of walk(root, { exts: SOURCE_EXTS })) {
       for (const f of findBareThrowAssertions(file)) {
         findings.push({ file: relative(process.cwd(), file), line: f.line, snippet: f.snippet });
       }
@@ -147,7 +147,7 @@ describe("error-handling consistency — (E2) no throw new Error in source", () 
   const findings: { file: string; line: number; text: string }[] = [];
   const re = /\bthrow\s+new\s+Error\s*\(/g;
   for (const root of SOURCE_ROOTS) {
-    for (const file of walk(root)) {
+    for (const file of walk(root, { exts: SOURCE_EXTS })) {
       const raw = readFileSync(file, "utf-8");
       const lines = raw.split("\n");
       re.lastIndex = 0;

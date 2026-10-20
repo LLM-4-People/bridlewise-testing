@@ -309,10 +309,15 @@ describe("walk() refuses a universe smaller than the git index", () => {
     const tracked = gitTrackedPaths(process.cwd());
     for (const root of ["src", "server", "shared", "tests"]) {
       const expected = [...tracked].filter(
-        (p) => p.startsWith(`${root}/`) && (p.endsWith(".ts") || p.endsWith(".svelte")),
+        (p) => p.startsWith(`${root}/`) && SOURCE_EXTS.includes(extname(p)),
       );
       expect(expected.length).toBeGreaterThan(0);
-      const walked = walk(root);
+      // The public smoke tests are `.mjs` files run by node:test. The default
+      // `.ts`/`.svelte` walk under-covers `tests/` on this checkout, so the
+      // live-population arm names the declared source extension set. The
+      // separate arm below proves that the default refuses rather than
+      // silently omitting those files.
+      const walked = walk(root, { exts: SOURCE_EXTS });
       expect(walked.length).toBeGreaterThanOrEqual(expected.length);
     }
   });
