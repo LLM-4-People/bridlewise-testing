@@ -46,7 +46,8 @@
     "check:secrets": "node scripts/check-secrets.mjs",
     "verify:public": "npm run typecheck && npm run check:secrets && npm run test:public",
     "docs:links": "node scripts/check-docs-links.mjs",
-    "docs:roadmap": "node --experimental-strip-types scripts/floor/roadmap-status.ts"
+    "docs:roadmap": "node --experimental-strip-types scripts/floor/roadmap-status.ts",
+    "design:coverage": "node scripts/floor/design-coverage.mjs --site .site/_site"
   },
   "dependencies": {
     "nanostores": "^1.4.1",

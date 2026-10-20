@@ -511,17 +511,48 @@ function cell(value: string): string {
   return normalizeProse(value).replace(/\|/gu, "\\|");
 }
 
+function html(value: string): string {
+  return value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;");
+}
+
 function link(evidence: string): string {
   if (/^https?:\/\//u.test(evidence)) return `[GitHub](${evidence})`;
   const hash = evidence.indexOf("#");
   const pathPart = hash === -1 ? evidence : evidence.slice(0, hash);
   const anchor = hash === -1 ? "" : evidence.slice(hash + 1);
-  const label = pathPart.length === 0 ? "this page" : basename(pathPart);
+  const label = pathPart.length === 0 ? "this page" : basename(pathPart).replace(/\.md$/u, "");
   return anchor.length === 0 ? `[${label}](${evidence})` : `[${label}: ${anchor}](${evidence})`;
 }
 
-function stateCell(state: RoadmapState, blockedBy?: string): string {
-  return blockedBy === undefined ? `**${state}**` : `**blocked** — ${cell(blockedBy)}`;
+function stateSlug(state: RoadmapState): string {
+  return state.replace(/\s+/gu, "-");
+}
+
+function stateChip(state: RoadmapState, blockedBy?: string): string {
+  const chip = `<span class="roadmap-chip roadmap-chip--${stateSlug(state)}">${state}</span>`;
+  if (blockedBy === undefined) return chip;
+  return `${chip}<span class="roadmap-blocked-by">${html(normalizeProse(blockedBy))}</span>`;
+}
+
+function countChip(state: RoadmapState, count: number): string {
+  return `<span class="roadmap-chip roadmap-chip--${stateSlug(state)} roadmap-count"><strong>${count}</strong> ${state}</span>`;
+}
+
+function table(headers: readonly string[], rows: readonly (readonly string[])[], modifier: string): string {
+  return [
+    `| ${headers.join(" | ")} |`,
+    `|${headers.map(() => "---").join("|")}|`,
+    ...rows.map((row) => `| ${row.join(" | ")} |`),
+    `{: .roadmap-table .${modifier}}`,
+  ].join("\n");
+}
+
+function milestoneAnchor(milestone: Milestone): string {
+  return headingSlug(`${milestone.id} · ${milestone.title}`);
+}
+
+function milestoneLink(milestone: Milestone): string {
+  return `[${milestone.id}](#${milestoneAnchor(milestone)})`;
 }
 
 function countState(items: readonly { state: RoadmapState }[], state: RoadmapState): number {
@@ -533,66 +564,139 @@ function horizonOrder(horizon: Horizon): number {
 }
 
 function renderSummary(plan: RoadmapPlan, tasks: readonly OpenTask[]): string {
-  const tracked: readonly { state: RoadmapState }[] = [
-    ...plan.workstreams,
-    ...plan.exitCriteria,
-    ...tasks,
-    ...plan.notPlanned.map(() => ({ state: "not planned" as const })),
-  ];
+  const tracked: readonly { state: RoadmapState }[] = [...plan.workstreams, ...plan.exitCriteria, ...tasks];
+  const total = tracked.length;
+  const shipped = countState(tracked, "shipped");
+  const inProgress = countState(tracked, "in progress");
+  const planned = countState(tracked, "planned");
+  const blocked = countState(tracked, "blocked");
+  const notPlanned = plan.notPlanned.length;
+  const percent = total === 0 ? 0 : Math.round((shipped / total) * 100);
   const lines: string[] = [];
   lines.push("### Where the floor stands");
   lines.push("");
-  lines.push("Counts cover the workstreams and exit criteria in this plan, the open rows of [TASKS.md](../trackers/TASKS.md), and the not-planned list. Milestones are not counted as items.");
+  lines.push(
+    `<p class="roadmap-lede"><strong>${shipped} of ${total} tracked items shipped (${percent}%).</strong> The tracked total covers workstreams, exit criteria, and open TASKS.md rows. ${notPlanned} not-planned statements sit outside it and appear only in the count chips.</p>`,
+  );
   lines.push("");
-  lines.push("| State | Items |");
-  lines.push("|---|---:|");
-  for (const state of STATES) lines.push(`| **${state}** | ${countState(tracked, state)} |`);
+  lines.push('<div class="roadmap-progress" role="group" aria-label="Roadmap status counts">');
+  lines.push('<div class="roadmap-count-row">');
+  for (const state of STATES) {
+    const count = state === "not planned" ? notPlanned : countState(tracked, state);
+    lines.push(countChip(state, count));
+  }
+  lines.push("</div>");
+  const meterLabel = `Progress: ${shipped} of ${total} tracked items shipped (${percent}%). ${inProgress} in progress, ${planned} planned, ${blocked} blocked. ${notPlanned} not planned are outside the tracked total.`;
+  lines.push(`<div class="roadmap-meter" role="img" aria-label="${meterLabel}">`);
+  for (const [state, count] of [
+    ["shipped", shipped],
+    ["in progress", inProgress],
+    ["planned", planned],
+    ["blocked", blocked],
+  ] as const) {
+    if (count > 0) lines.push(`<span class="roadmap-meter-segment" data-state="${stateSlug(state)}" style="flex: ${count} 1 0"></span>`);
+  }
+  lines.push("</div>");
+  lines.push("</div>");
   lines.push("");
   lines.push("### Milestones");
   lines.push("");
   lines.push("A milestone's state is its focus state; the item states are below. Shipped and open counts cover the workstreams and exit criteria assigned to it.");
   lines.push("");
-  lines.push("| Milestone | State | Shipped items | Open items |");
-  lines.push("|---|---|---:|---:|");
+  lines.push('<nav class="roadmap-milestones" aria-label="Milestones">');
   for (const milestone of plan.milestones) {
     const items = [...plan.workstreams, ...plan.exitCriteria].filter((item) => item.milestone === milestone.id);
     const open = items.filter((item) => isOpen(item.state)).length;
-    lines.push(`| ${cell(milestone.id)} · ${cell(milestone.title)} | **${milestone.state}** | ${items.length - open} | ${open} |`);
+    const done = countState(items, "shipped");
+    lines.push(`<a class="roadmap-milestone" href="#${milestoneAnchor(milestone)}">`);
+    lines.push(`<span class="roadmap-milestone-top"><span class="roadmap-milestone-id">${milestone.id}</span>${stateChip(milestone.state)}</span>`);
+    lines.push(`<span class="roadmap-milestone-title">${html(milestone.title)}</span>`);
+    lines.push(`<span class="roadmap-milestone-meta">${done} shipped · ${open} open</span>`);
+    lines.push("</a>");
   }
+  lines.push("</nav>");
+  lines.push("");
+  lines.push('<nav class="roadmap-toc" aria-label="Plan sections">');
+  lines.push('<span class="roadmap-toc-label">Plan</span>');
+  for (const milestone of plan.milestones) lines.push(`<a href="#plan-${milestone.id.toLowerCase()}">${milestone.id}</a>`);
+  lines.push("</nav>");
   lines.push("");
   lines.push("### Now / next / later");
   lines.push("");
   lines.push("This is the focus order, not the complete list; every open item appears in [the workstreams and exit criteria](#workstreams-and-exit-criteria) below.");
   lines.push("");
-  lines.push("| Horizon | Kind | Work | Milestone | State | Owner | Exit criterion | Evidence |");
-  lines.push("|---|---|---|---|---|---|---|---|");
+  const byId = new Map(plan.milestones.map((milestone) => [milestone.id, milestone]));
   const focused = [
     ...plan.workstreams.map((item) => ({ item, kind: "workstream" })),
     ...plan.exitCriteria.map((item) => ({ item, kind: "exit criterion" })),
   ].filter(({ item }) => item.horizon !== undefined);
   focused.sort((left, right) => horizonOrder(left.item.horizon!) - horizonOrder(right.item.horizon!));
-  for (const { item, kind } of focused) {
-    lines.push(`| **${item.horizon}** | ${kind} | ${cell(item.title)} | ${cell(item.milestone)} | ${stateCell(item.state, item.blockedBy)} | ${cell(item.owner)} | ${cell(item.exit)} | ${link(item.evidence)} |`);
-  }
+  const rows = focused.map(({ item, kind }) => [
+    `<span class="roadmap-horizon" data-horizon="${item.horizon!}">${item.horizon!}</span>`,
+    `<span class="roadmap-kind">${kind}</span> **${cell(item.title)}**`,
+    milestoneLink(byId.get(item.milestone)!),
+    stateChip(item.state, item.blockedBy),
+    cell(item.owner),
+    link(item.evidence),
+  ]);
+  lines.push(table(["Horizon", "Work", "Milestone", "State", "Owner", "Evidence"], rows, "roadmap-table--focus"));
   return lines.join("\n");
 }
 
 function renderPlan(plan: RoadmapPlan): string {
   const lines: string[] = [];
-  lines.push("### Workstreams");
+  lines.push("### Milestone plan");
   lines.push("");
-  lines.push("| Milestone | Workstream | State | Owner | Exit criterion | Evidence | Source |");
-  lines.push("|---|---|---|---|---|---|---|");
-  for (const item of plan.workstreams) {
-    lines.push(`| ${cell(item.milestone)} | ${cell(item.title)} | ${stateCell(item.state, item.blockedBy)} | ${cell(item.owner)} | ${cell(item.exit)} | ${link(item.evidence)} | ${cell(item.source)} |`);
-  }
+  lines.push("Each milestone group is one disclosure. The jump links below open the plan section for that milestone; every row names its owner, state, exit criterion, evidence, and source.");
   lines.push("");
-  lines.push("### Exit criteria");
-  lines.push("");
-  lines.push("| Milestone | Criterion | State | Owner | Evidence | Source |");
-  lines.push("|---|---|---|---|---|---|");
-  for (const item of plan.exitCriteria) {
-    lines.push(`| ${cell(item.milestone)} | ${cell(item.exit)} | ${stateCell(item.state, item.blockedBy)} | ${cell(item.owner)} | ${link(item.evidence)} | ${cell(item.source)} |`);
+  lines.push('<nav class="roadmap-toc" aria-label="Workstreams by milestone">');
+  lines.push('<span class="roadmap-toc-label">Jump to</span>');
+  for (const milestone of plan.milestones) lines.push(`<a href="#plan-${milestone.id.toLowerCase()}">${milestone.id}</a>`);
+  lines.push("</nav>");
+  for (const milestone of plan.milestones) {
+    const items = [...plan.workstreams, ...plan.exitCriteria].filter((item) => item.milestone === milestone.id);
+    const open = items.filter((item) => isOpen(item.state)).length;
+    const done = countState(items, "shipped");
+    const workstreams = plan.workstreams.filter((item) => item.milestone === milestone.id);
+    const exits = plan.exitCriteria.filter((item) => item.milestone === milestone.id);
+    const slug = milestone.id.toLowerCase();
+    lines.push("");
+    lines.push(
+      `<h3 class="roadmap-plan-heading" id="plan-${slug}"><span class="roadmap-plan-id">${milestone.id}</span> ${html(milestone.title)} ${stateChip(milestone.state)} <span class="roadmap-plan-count">${done} shipped · ${open} open</span></h3>`,
+    );
+    lines.push("");
+    lines.push('<details class="roadmap-details roadmap-plan-body" open markdown="1">');
+    lines.push(`<summary aria-label="Workstreams and exit criteria, ${items.length} items"><span>Workstreams and exit criteria</span><span class="roadmap-meta">${items.length} items</span></summary>`);
+    lines.push("");
+    lines.push(`<h4 class="roadmap-table-heading" id="plan-${slug}-workstreams">Workstreams</h4>`);
+    lines.push("");
+    if (workstreams.length === 0) {
+      lines.push("No workstream is recorded.");
+    } else {
+      const rows = workstreams.map((item) => [
+        `**${cell(item.title)}**<br><span class="roadmap-exit">Exit: ${cell(item.exit)}</span><br><span class="roadmap-source">Source: ${cell(item.source)}</span>`,
+        stateChip(item.state, item.blockedBy),
+        cell(item.owner),
+        link(item.evidence),
+      ]);
+      lines.push(table(["Workstream", "State", "Owner", "Evidence"], rows, "roadmap-table--plan"));
+    }
+    lines.push("");
+    lines.push(`<h4 class="roadmap-table-heading" id="plan-${slug}-exit-criteria">Exit criteria</h4>`);
+    lines.push("");
+    if (exits.length === 0) {
+      lines.push("No exit criterion is recorded.");
+    } else {
+      const rows = exits.map((item) => [
+        `**${cell(item.exit)}**<br><span class="roadmap-source">Source: ${cell(item.source)}</span>`,
+        stateChip(item.state, item.blockedBy),
+        cell(item.owner),
+        link(item.evidence),
+      ]);
+      lines.push(table(["Exit criterion", "State", "Owner", "Evidence"], rows, "roadmap-table--plan"));
+    }
+    lines.push("");
+    lines.push("</details>");
   }
   return lines.join("\n");
 }
@@ -606,13 +710,28 @@ function renderOpenWork(plan: RoadmapPlan, tasks: readonly OpenTask[], nonProofs
   for (const section of sections) {
     const sectionTasks = tasks.filter((task) => task.section === section);
     lines.push("");
+    lines.push('<section class="roadmap-group" markdown="1">');
     lines.push(`#### ${section}`);
     lines.push("");
-    lines.push("| Task | State | Owner | Exit criterion | Evidence |");
-    lines.push("|---|---|---|---|---|");
-    for (const task of sectionTasks) {
-      lines.push(`| ${cell(task.row.id)} | ${stateCell(task.state, task.blockedBy)} | ${cell(task.owner)} | ${cell(task.exit)} | ${link(task.evidence)} |`);
+    const rows = sectionTasks.map((task) => [
+      `**${cell(task.row.id)}**<br><span class="roadmap-exit">Exit: ${cell(task.exit)}</span>`,
+      stateChip(task.state, task.blockedBy),
+      cell(task.owner),
+      link(task.evidence),
+    ]);
+    const body = table(["Task", "State", "Owner", "Evidence"], rows, "roadmap-table--tasks");
+    if (sectionTasks.length > 3) {
+      lines.push('<details class="roadmap-details" markdown="1">');
+      lines.push(`<summary aria-label="Show the ${sectionTasks.length} rows"><span>Show the rows</span><span class="roadmap-meta">${sectionTasks.length}</span></summary>`);
+      lines.push("");
+      lines.push(body);
+      lines.push("");
+      lines.push("</details>");
+    } else {
+      lines.push(body);
     }
+    lines.push("");
+    lines.push("</section>");
   }
   if (tasks.length === 0) {
     lines.push("");
@@ -623,19 +742,33 @@ function renderOpenWork(plan: RoadmapPlan, tasks: readonly OpenTask[], nonProofs
   lines.push("");
   lines.push("Each row is a statement [the evidence page](evidence.md) explicitly refuses to make. The roadmap does not upgrade a non-proof into a plan; a proof becomes work only when the plan block names it.");
   lines.push("");
-  lines.push("| Evidence area | Not proved |");
-  lines.push("|---|---|");
-  for (const nonProof of nonProofs) {
-    lines.push(`| [${cell(nonProof.area)}](evidence.md#${nonProof.anchor}) | ${cell(nonProof.text)} |`);
+  lines.push('<details class="roadmap-details" markdown="1">');
+  lines.push(`<summary aria-label="Show the ${nonProofs.length} non-proofs"><span>Show the non-proofs</span><span class="roadmap-meta">${nonProofs.length}</span></summary>`);
+  lines.push("");
+  if (nonProofs.length === 0) {
+    lines.push("No non-proof is recorded.");
+  } else {
+    const rows = nonProofs.map((nonProof) => [`[${cell(nonProof.area)}](evidence.md#${nonProof.anchor})`, cell(nonProof.text)]);
+    lines.push(table(["Evidence area", "Not proved"], rows, "roadmap-table--nonproofs"));
   }
+  lines.push("");
+  lines.push("</details>");
   lines.push("");
   lines.push("### Not planned");
   lines.push("");
-  lines.push("| Not planned | Why | Evidence |");
-  lines.push("|---|---|---|");
-  for (const entry of plan.notPlanned) {
-    lines.push(`| ${cell(entry.statement)} | ${cell(entry.reason)} | ${link(entry.evidence)} |`);
+  lines.push("Deliberate non-goals, kept here with their reason.");
+  lines.push("");
+  lines.push('<details class="roadmap-details" markdown="1">');
+  lines.push(`<summary aria-label="Show the ${plan.notPlanned.length} not-planned items"><span>Show the not-planned items</span><span class="roadmap-meta">${plan.notPlanned.length}</span></summary>`);
+  lines.push("");
+  if (plan.notPlanned.length === 0) {
+    lines.push("No not-planned statement is recorded.");
+  } else {
+    const rows = plan.notPlanned.map((entry) => [cell(entry.statement), cell(entry.reason), link(entry.evidence)]);
+    lines.push(table(["Not planned", "Why", "Evidence"], rows, "roadmap-table--notplanned"));
   }
+  lines.push("");
+  lines.push("</details>");
   return lines.join("\n");
 }
 

@@ -65,7 +65,18 @@ test("the site assembly gives the testing floor its own front door", () => {
         "",
       ].join("\n"),
     );
-    writeFileSync(join(product, "_layouts/default.html"), "<!doctype html><html><body>{{ content }}</body></html>\n");
+    writeFileSync(
+      join(product, "_layouts/default.html"),
+      [
+        "<!doctype html><html><head>",
+        "  {% if page.floor_assets %}",
+        "  <link rel=\"stylesheet\" href=\"{{ '/assets/floor/floor.css' | relative_url }}\">",
+        "  {% endif %}",
+        "  {% if page.floor_assets %}<script src=\"{{ '/assets/floor/floor.js' | relative_url }}\" defer></script>{% endif %}",
+        "</head><body>{{ content }}</body></html>",
+        "",
+      ].join("\n"),
+    );
     writeFileSync(join(product, "index.md"), "---\nlayout: default\ntitle: Home\npermalink: /\n---\n\n# Home\n");
     writeFileSync(join(product, ".well-known/security.txt"), "Contact: https://example.test/security\n");
 
@@ -78,6 +89,10 @@ test("the site assembly gives the testing floor its own front door", () => {
 
     const config = readFileSync(join(out, "_config.yml"), "utf8");
     assert.match(config, /baseurl: "\/bridlewise-testing"/);
+    const layout = readFileSync(join(out, "_layouts/default.html"), "utf8");
+    assert.match(layout, /assets\/floor\/floor\.css/u);
+    assert.match(layout, /assets\/floor\/floor\.js/u);
+    assert.doesNotMatch(layout, /page\.floor_assets/u, "the assembled shell must load the shared layer unconditionally");
     assert.match(config, /testing_hub_url: "\/"/);
     assert.match(config, /testing_floor_url: "\/floor\/"/);
     assert.match(config, /floor_notice_url: "\/"/);

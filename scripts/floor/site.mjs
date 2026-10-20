@@ -64,6 +64,29 @@ export function assembleFloorSite({ product, testing, out, baseurl = "/bridlewis
   copyTree(join(testingRoot, "docs/floor"), join(outRoot, "floor"), new Set(["data"]));
   copyTree(join(testingRoot, "docs/assets/floor"), join(outRoot, "assets/floor"), new Set());
 
+  // One shell, one design layer. The product layout conditionally loaded the
+  // floor stylesheet per page; the assembled site always loads it, so no page
+  // can opt out of the shared component rules and tokens.
+  const layoutPath = join(outRoot, "_layouts/default.html");
+  let layout = readFileSync(layoutPath, "utf8");
+  const conditionalCss = `{% if page.floor_assets %}
+  <link rel="stylesheet" href="{{ '/assets/floor/floor.css' | relative_url }}">
+  {% endif %}`;
+  const sharedCss = `<link rel="stylesheet" href="{{ '/assets/floor/floor.css' | relative_url }}">`;
+  if (layout.includes(conditionalCss)) {
+    layout = layout.replace(conditionalCss, sharedCss);
+  } else if (!layout.includes("/assets/floor/floor.css")) {
+    fail("the product shell has no shared floor stylesheet hook");
+  }
+  const conditionalJs = `{% if page.floor_assets %}<script src="{{ '/assets/floor/floor.js' | relative_url }}" defer></script>{% endif %}`;
+  const sharedJs = `<script src="{{ '/assets/floor/floor.js' | relative_url }}" defer></script>`;
+  if (layout.includes(conditionalJs)) {
+    layout = layout.replace(conditionalJs, sharedJs);
+  } else if (!layout.includes("/assets/floor/floor.js")) {
+    fail("the product shell has no shared floor script hook");
+  }
+  writeFileSync(layoutPath, layout);
+
   // The testing site has its own front door. The product index is replaced by
   // the contributor hub, and the product documentation gets a landing page at
   // /product/. The rest of the product documentation stays at its original
