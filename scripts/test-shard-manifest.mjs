@@ -177,7 +177,8 @@ export function planShards({ root = process.cwd(), manifestPath, shardCount, hea
 
 function timestamp(value, subject) {
   if (value === undefined || value === null) return undefined;
-  const ms = typeof value === "number" ? value : Date.parse(String(value));
+  const numeric = typeof value === "number" || /^\d+$/.test(String(value));
+  const ms = numeric ? Number(value) : Date.parse(String(value));
   if (!Number.isFinite(ms) || ms < 0) fail(`${subject} must be an epoch millisecond value or an ISO timestamp`);
   return ms;
 }

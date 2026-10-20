@@ -110,8 +110,8 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
         shard: shard.index,
         vitestPath: raw,
         outPath: wrapped,
-        startedAt: shard.index === 1 ? 1_000 : 1_500,
-        finishedAt: shard.index === 1 ? 2_000 : 2_500,
+        startedAt: shard.index === 1 ? "1000" : "1500",
+        finishedAt: shard.index === 1 ? "2000" : "2500",
       });
       reports.push(wrapped);
     }

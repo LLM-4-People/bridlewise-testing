@@ -79,14 +79,14 @@ jobs:
             --manifest tests/test-shards.json \
             --shards "${{ inputs.shards }}" \
             --head "$GITHUB_SHA" \
-            --out-dir artifacts/plan \
+            --out-dir "$RUNNER_TEMP/shard-plan" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Upload the plan
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: test-shard-plan
-          path: artifacts/plan
+          path: ${{ runner.temp }}/shard-plan
           if-no-files-found: error
 
   shard:
@@ -120,12 +120,17 @@ jobs:
       - name: Install engine dependencies
         run: npm --prefix engine ci --no-audit --no-fund
 
+      - name: Install the pinned compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14
+
       - name: Install hooks and build the confinement supervisor
         run: |
           npm run bootstrap:hooks
           chmod 600 engine/bridlewise.config.json
           npm --prefix engine run build:bundle
-          make -C engine/guardian all
+          CC=gcc-14 make -C engine/guardian all
 
       - name: Require the exact commit and a clean tracked tree
         run: |
@@ -136,7 +141,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: test-shard-plan
-          path: artifacts/plan
+          path: ${{ runner.temp }}/shard-plan
 
       - name: Select this shard's exact files
         env:
@@ -144,10 +149,10 @@ jobs:
         run: |
           node -e '
             const fs = require("node:fs");
-            const plan = JSON.parse(fs.readFileSync("artifacts/plan/plan.json", "utf8"));
+            const plan = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/shard-plan/plan.json`, "utf8"));
             const shard = plan.shards.find((entry) => entry.index === Number(process.env.SHARD));
             if (!shard) throw new Error(`no shard ${process.env.SHARD} in the plan`);
-            fs.writeFileSync("artifacts/files.txt", shard.files.join("\n") + "\n");
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/shard-files.txt`, shard.files.join("\n") + "\n");
           '
 
       - name: Run the shard through the watchdog
@@ -155,7 +160,7 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           echo "SHARD_STARTED_AT=$(date +%s%3N)" >> "$GITHUB_ENV"
-          mapfile -t files < artifacts/files.txt
+          mapfile -t files < "$RUNNER_TEMP/shard-files.txt"
           node --experimental-strip-types scripts/run-tests.ts \
             --project=node --project=dom \
             --reporter=default \
@@ -166,20 +171,21 @@ jobs:
       - name: Wrap the report with exact-commit provenance
         if: always()
         run: |
+          mkdir -p "$RUNNER_TEMP/shard-reports"
           node scripts/test-shard-manifest.mjs wrap \
-            --plan artifacts/plan/plan.json \
+            --plan "$RUNNER_TEMP/shard-plan/plan.json" \
             --vitest "$RUNNER_TEMP/shard-${{ matrix.shard }}.vitest.json" \
             --shard "${{ matrix.shard }}" \
             --started-at "$SHARD_STARTED_AT" \
             --finished-at "$(date +%s%3N)" \
-            --out "artifacts/shard-${{ matrix.shard }}.json"
+            --out "$RUNNER_TEMP/shard-reports/shard-${{ matrix.shard }}.json"
 
       - name: Upload the shard report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: test-shard-report-${{ matrix.shard }}
-          path: artifacts/shard-${{ matrix.shard }}.json
+          path: ${{ runner.temp }}/shard-reports/shard-${{ matrix.shard }}.json
           if-no-files-found: error
 
   merge:
@@ -204,13 +210,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: test-shard-plan
-          path: artifacts/plan
+          path: ${{ runner.temp }}/shard-plan
 
       - name: Download every shard report
         uses: actions/download-artifact@v4
         with:
           pattern: test-shard-report-*
-          path: artifacts/shards
+          path: ${{ runner.temp }}/shard-reports
           merge-multiple: true
 
       - name: Merge and refuse missing, duplicate, failed, or wrong-commit shards
@@ -219,24 +225,24 @@ jobs:
         run: |
           args=()
           for index in $(seq 1 "$SHARDS"); do
-            args+=(--shard "artifacts/shards/shard-${index}.json")
+            args+=(--shard "$RUNNER_TEMP/shard-reports/shard-${index}.json")
           done
           node scripts/test-shard-merge.mjs \
-            --manifest artifacts/plan/manifest.json \
-            --plan artifacts/plan/plan.json \
+            --manifest "$RUNNER_TEMP/shard-plan/manifest.json" \
+            --plan "$RUNNER_TEMP/shard-plan/plan.json" \
             --expected-shards "$SHARDS" \
             --head "$GITHUB_SHA" \
             --runner "${{ inputs.runner }}" \
             --require-timing \
-            --out test-shard-receipt.json \
+            --out "$RUNNER_TEMP/test-shard-receipt.json" \
             "${args[@]}"
 
       - name: Require the receipt to name this exact commit and plan
         run: |
           node - <<'NODE'
           const fs = require("node:fs");
-          const receipt = JSON.parse(fs.readFileSync("test-shard-receipt.json", "utf8"));
-          const plan = JSON.parse(fs.readFileSync("artifacts/plan/plan.json", "utf8"));
+          const receipt = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/test-shard-receipt.json`, "utf8"));
+          const plan = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/shard-plan/plan.json`, "utf8"));
           const fail = (message) => {
             console.error(`receipt refused: ${message}`);
             process.exit(1);
@@ -256,5 +262,5 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: test-shard-receipt
-          path: test-shard-receipt.json
+          path: ${{ runner.temp }}/test-shard-receipt.json
           if-no-files-found: error
