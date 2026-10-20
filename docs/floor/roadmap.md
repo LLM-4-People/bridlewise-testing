@@ -20,7 +20,7 @@ This is the engineering roadmap for the Bridlewise development floor. It is a st
 |---|---|
 | Latest prerelease | `v0.0.3-preview`, published through the promotion gate with a receipt and checksums |
 | Public gate | Green on both repositories at the recorded commits |
-| Public smoke suites | Product `11/11`, testing `18/18` |
+| Public smoke suites | Product `11/11`, testing `22/22` |
 | Full suite | **Not reproducible from a fresh clone.** The public snapshot has baseline reds, and the external corpus and performance report are not published |
 | Full-suite time | The 521-file web suite takes about 168s on a 12-core host, already at about 94% of that host's physical floor |
 | Readiness | Pre-admission. `preflight` reports `harnessReady: false` |
@@ -74,6 +74,8 @@ A milestone is not "done" because a page says so. It is done when the exit crite
 3. **Reproducible fixtures.** Publish a pinned corpus manifest and fetch script, or a small sanitized permissive subset. Do not publish the raw cache with mixed licenses, nested histories, duplicate checkouts, and credential-shaped fixtures.
 4. **Reproducible performance report.** Make `npm run perf:profile` a documented prerequisite step with an idle-host contract, and judge the report in the suite instead of relying on a stale artifact.
 5. **Repair the baseline reds.** Restore or explicitly exclude missing public fixtures, fix the public-snapshot guards that disagree with the public test layout, and split any file that exceeds the per-file share budget. The merged gate must not hide a red shard.
+
+The merge contract is implemented in `scripts/test-shard-merge.mjs` and covered by the public smoke suite. It refuses a missing file, a duplicate file, a failed shard, an unexpected file, or a path outside the checkout. The CI shard workflow is not enabled as a required gate yet: the public full-suite baseline is red and several suites need external prerequisites. Enabling a red matrix as a gate would hide failures, not remove them.
 
 **Exit criteria:**
 

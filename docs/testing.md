@@ -105,6 +105,12 @@ make -C engine/guardian test_process_supervisor
 
 The guardian tests exercise Landlock itself. An exit code of 3 (`landlock_unavailable`) is a skip, not a pass; the Node-side tests cover the refusal path with a mock.
 
+## Sharding
+
+The full web suite can be divided with Vitest's `--shard=<index>/<count>`. A green shard is not evidence about the full suite until the shards cover the canonical file list exactly once. The merge contract in `scripts/test-shard-merge.mjs` takes the `vitest list --filesOnly --json` manifest and the per-shard JSON reports, then refuses a missing file, a duplicate file, a failed shard, an unexpected file, or a path outside the checkout. It writes one receipt with relative paths, the shard count, the test count, and a manifest hash.
+
+The merge contract is covered by the public smoke suite. A shard workflow is not enabled as a required gate yet because the public full-suite baseline is red and several suites need external prerequisites. The receipt is the unit to judge when that gate is activated.
+
 ## Test map
 
 | Path | Subject |
