@@ -14,7 +14,7 @@ The atlas is a map of what the floor recognizes. It lists test surface files and
 > [!WARNING]
 > Bridlewise is an experimental developer preview. The atlas is an inventory of verification work, not a coverage certificate and not a production guarantee.
 
-**Build target.** This page loads `atlas.json` generated from the floor tree. The generator, filter script, and table styles are integration work. Until a valid snapshot is deployed, the page shows its unavailable state. The generated file is the only data source. It carries no private fixture names, local paths, or credentials. The page does not infer tests from filenames at runtime.
+**Generated data.** This page loads `atlas.json`, generated from the tracked floor tree at build time. The generator, filter script, and table styles are part of this repository. The generated file is the only data source. It carries no private fixture names, local paths, or credentials. The page does not infer tests from filenames at runtime.
 
 ## Browse the atlas
 
@@ -137,7 +137,7 @@ The atlas is a map of what the floor recognizes. It lists test surface files and
 
 | Kind | Source | What the row means | What it does not mean |
 |---|---|---|---|
-| Test surface | `engine/traceability/s1-test-inventory.json` and `test-surface-dispositions.json` | A file is recognized as a test surface entry, bound to a source hash, and given one disposition. The test count is the number of test names bound to that file. | That the file ran, passed, or applies to your checkout |
+| Test surface | `engine/traceability/s1-test-inventory.json`, `test-surface-dispositions.json`, and the web test tree | A file is recognized as a test surface entry and given one disposition. For engine inventory entries, the test count is the number of test names bound to that file. Web files outside that inventory are marked `not-inventoried`. | That the file ran, passed, or applies to your checkout |
 | Prevention guard | `tests/prevention/` headers | A guard declares a failure class, a plant, the driven behavior, and a liveness check. | That the guard is live on the current build or that its plant still exists |
 | Decision record | `docs/decisions/*.md` front matter | A rule or decision has an id, a group, a status, and an implementation state. Paths in `acted_in` cite where it was carried out. | That the implementation is correct, complete, or still in force |
 
@@ -166,6 +166,7 @@ The category is assigned by the generator from the path and the test surface. Th
 | `qualified-external-oracle` | A live provider or MCP test, run only with explicit consent and credentials | It is not part of the hermetic run |
 | `pending-external-qualification` | Recognized but not yet qualified | It blocks a full-repository test claim |
 | `non-test-fixture` | A recognized source that is not a test | It contributes no test count |
+| `not-inventoried` | A web test file exists outside the engine inventory | It is listed for inspection and does not contribute an inventoried test count |
 | `unknown` | The generator could not classify the entry | It is treated as blocking, never as a pass |
 
 A missing disposition is not a default pass. The generator maps an unrecognized entry to `unknown` and the atlas marks it.

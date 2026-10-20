@@ -14,7 +14,7 @@ This page shows the last generated snapshot of the floor and its promotion pair.
 > [!WARNING]
 > A status page is not an audit. Bridlewise is an experimental developer preview, not production-ready and not safe for sensitive code. An unknown or stale field is not a pass.
 
-**Build target.** This page loads `status.json`. The generator and the page script are integration work. Until a valid snapshot is deployed, the page shows its unavailable state. The page never invents a run, a commit, or a green result.
+**Generated data.** This page loads `status.json`, generated from the tracked floor and public GitHub state at build time. The generator, page script, and fallback states are part of this repository. Until a valid snapshot is deployed, the page shows its unavailable state. The page never invents a run, a commit, or a green result.
 
 ## Read the snapshot
 

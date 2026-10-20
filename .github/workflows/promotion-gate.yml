@@ -19,6 +19,11 @@ on:
         description: Testing-floor commit that owns this gate
         required: true
         type: string
+      wait_seconds:
+        description: Wait for required product runs to finish at the commit
+        required: false
+        default: 0
+        type: number
     outputs:
       verdict:
         description: pass or blocked
@@ -79,6 +84,7 @@ jobs:
             --product "${{ inputs.product_repo }}" \
             --sha "${{ inputs.product_sha }}" \
             --tag "${{ inputs.product_tag }}" \
+            --wait-seconds "${{ inputs.wait_seconds }}" \
             --out promotion-receipt.json
           echo "verdict=$(node -e 'process.stdout.write(require("./promotion-receipt.json").verdict)')" >> "$GITHUB_OUTPUT"
 

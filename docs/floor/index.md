@@ -41,7 +41,7 @@ The floor is not the product, a staging environment, a hosted service, or a supp
 
 ## The floor console and the test atlas
 
-Both pages are build targets for this site. They read generated JSON. Neither calls GitHub from your browser, and neither becomes a second source of truth.
+Both pages are generated at build time from tracked data. They read generated JSON. Neither calls GitHub from your browser, and neither becomes a second source of truth.
 
 **Floor console.** The [status page]({{ '/floor/status/' | relative_url }}) shows the last generated snapshot: source commit, promotion state, gate results, and the latest public CI runs. It is live only in the sense that it displays a generated snapshot. It does not stream, it may lag the source, it does not reduce the floor to one green badge, and it renders unknown when data is missing.
 

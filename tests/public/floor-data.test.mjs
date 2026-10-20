@@ -154,3 +154,62 @@ test("the promotion gate asks GitHub for runs at the requested commit", async ()
     "the run lookup must include the requested commit",
   );
 });
+
+test("the promotion gate waits for a run that is still in progress", async () => {
+  const sha = "0123456789abcdef0123456789abcdef01234567";
+  let runCalls = 0;
+  let sleeps = 0;
+  const response = (body) => ({
+    ok: true,
+    status: 200,
+    json: async () => body,
+    text: async () => "",
+  });
+  const run = (status, conclusion) => ({
+    id: 1,
+    name: "CI",
+    path: ".github/workflows/ci.yml",
+    event: "push",
+    status,
+    conclusion,
+    head_sha: sha,
+    head_branch: "main",
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:01:00Z",
+    html_url: "https://github.com/LLM-4-People/bridlewise/actions/runs/1",
+  });
+  const names = ["CI", "CodeQL", "Docs links", "Secret scan"];
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/actions/runs")) {
+      runCalls += 1;
+      if (runCalls === 1) {
+        return response({
+          workflow_runs: names.map((name) =>
+            name === "CI" ? { ...run("in_progress", null), name } : { ...run("completed", "success"), name },
+          ),
+        });
+      }
+      return response({
+        workflow_runs: names.map((name) => ({ ...run("completed", "success"), name })),
+      });
+    }
+    return response([]);
+  };
+
+  const receipt = await buildPromotionReceipt({
+    product: "LLM-4-People/bridlewise",
+    sha,
+    tag: "dry-run",
+    token: "test-token",
+    fetchImpl,
+    now: new Date("2026-01-01T00:02:00.000Z"),
+    waitSeconds: 5,
+    sleepImpl: async () => {
+      sleeps += 1;
+    },
+  });
+
+  assert.equal(receipt.verdict, "pass");
+  assert.equal(runCalls, 2);
+  assert.equal(sleeps, 1);
+});

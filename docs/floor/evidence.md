@@ -34,8 +34,8 @@ Expected:
 
 ```text
 secret scan: clean (201 synthetic fixture reference(s) allowlisted)
-ℹ tests 17
-ℹ pass 17
+ℹ tests 18
+ℹ pass 18
 ℹ fail 0
 ```
 

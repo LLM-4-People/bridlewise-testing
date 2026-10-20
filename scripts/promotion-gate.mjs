@@ -21,6 +21,7 @@ function parseArgs(argv) {
     tag: null,
     out: "promotion-receipt.json",
     token: process.env.GH_TOKEN || null,
+    waitSeconds: 0,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -29,10 +30,14 @@ function parseArgs(argv) {
     else if (arg === "--tag") out.tag = argv[++index];
     else if (arg === "--out") out.out = argv[++index];
     else if (arg === "--token") out.token = argv[++index];
+    else if (arg === "--wait-seconds") out.waitSeconds = Number(argv[++index]);
     else throw new Error(`Unknown argument: ${arg}`);
   }
   if (!out.sha) throw new Error("--sha is required");
   if (!out.token) throw new Error("GH_TOKEN or --token is required");
+  if (!Number.isFinite(out.waitSeconds) || out.waitSeconds < 0) {
+    throw new Error("--wait-seconds must be a non-negative number");
+  }
   return out;
 }
 
@@ -101,6 +106,32 @@ async function alerts(repository, kind, token, fetchImpl) {
   }
 }
 
+function defaultSleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function runsAtCommit({
+  product,
+  sha,
+  token,
+  fetchImpl,
+  waitSeconds,
+  sleepImpl,
+}) {
+  const deadline = Date.now() + waitSeconds * 1000;
+  let runs = await listRuns(product, token, { fetchImpl, headSha: sha });
+  while (true) {
+    const latest = latestByWorkflow(runs);
+    const pending = REQUIRED_WORKFLOWS.some((definition) => {
+      const run = latest.get(definition.workflow);
+      return !run || run.headSha !== sha || run.status !== "completed";
+    });
+    if (!pending || Date.now() >= deadline) return runs;
+    await sleepImpl(15000);
+    runs = await listRuns(product, token, { fetchImpl, headSha: sha });
+  }
+}
+
 export async function buildPromotionReceipt({
   product,
   sha,
@@ -108,8 +139,17 @@ export async function buildPromotionReceipt({
   token,
   fetchImpl = fetch,
   now = new Date(),
+  waitSeconds = 0,
+  sleepImpl = defaultSleep,
 }) {
-  const runs = await listRuns(product, token, { fetchImpl, headSha: sha });
+  const runs = await runsAtCommit({
+    product,
+    sha,
+    token,
+    fetchImpl,
+    waitSeconds,
+    sleepImpl,
+  });
   const latest = latestByWorkflow(runs);
   const checks = REQUIRED_WORKFLOWS.map((definition) =>
     checkFromRun(definition, latest.get(definition.workflow), sha),
