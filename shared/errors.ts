@@ -435,6 +435,8 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   db_archive_unwritten: 500,
   db_archive_unverified: 500,
   db_archive_removal_mismatch: 500,
+  db_restore_manifest_invalid: 500,
+  db_restore_rollback_failed: 500,
   db_purge_not_trashed: 409,
   db_purge_incomplete: 409,
   db_purge_triggers_missing: 500,

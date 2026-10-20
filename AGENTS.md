@@ -33,6 +33,11 @@ tree into the separate product repository.
   fresh run; do not infer it from a subset.
 - Commit only after the focused checks pass, with one cohesive change and the
   verification you actually ran.
+- After every push, watch the CI run to completion (`gh run list`/`gh run view`)
+  and fix any failure it reports before doing anything else. A green local run
+  is not a green pull request: the sharded gate, the docs guards and the secret
+  scan can fail on a tree that passed locally, and an un watched red is an
+  unfinished change.
 
 ## Commands
 
