@@ -430,6 +430,7 @@ export interface MigrationDebt {
 const TASK_102: MigrationDebt = { kind: "unmigrated-scanner", task: "#102" };
 
 export type LegitimateRawReader =
+  | "web:scripts/floor/design-coverage.mjs"
   | "integration:scripts/verification/consumer-plants.ts"
   | "integration:src/git/working-copy.ts"
   | "integration:test/git/flake-reproduction.test.ts"
@@ -453,6 +454,13 @@ export type LegitimateRawReader =
  * a reader who disagrees has something specific to disagree with.
  */
 export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
+  "web:scripts/floor/design-coverage.mjs": {
+    why:
+      "The subject is the published site — built HTML pages and the stylesheets they "
+      + "load — not repository source. Class coverage is a property of the literal "
+      + "class attributes and CSS selectors as emitted, so the comparison needs those "
+      + "bytes; a parsed source view cannot answer it.",
+  },
   "web:scripts/check-docs-links.mjs": {
     why:
       "The subject is the bytes of Markdown documents, including fenced code " +
