@@ -16,7 +16,10 @@
  * `await initTreeSitterBackend([languageId])` to have been awaited
  * for the file's language. If the language is not ready, it THROWS
  * (`tree_sitter_language_not_initialized`) — an unready parser cannot
- * succeed as an empty map.
+ * succeed as an empty map. If parsing fails, it THROWS
+ * (`tree_sitter_parse_failed`, backend error carried as `cause`) — a
+ * broken parser is not "no symbols found". Only a successfully parsed
+ * file with no definition nodes returns an empty symbol list.
  *
  * Imports for non-JS/TS languages are extracted by the companion
  * `multi-import-extractor.ts` (regex-based, language-specific patterns for
@@ -35,9 +38,12 @@ import {
 } from "./language-registry.ts";
 import {
   isLanguageReady,
+  isTreeSitterParseError,
   parseSync,
   TREE_SITTER_LANGUAGE_NOT_INITIALIZED,
+  TreeSitterParseError,
   type TreeSitterNode,
+  type TreeSitterParseHandle,
 } from "./tree-sitter-backend.ts";
 import type { ExtractionResult } from "./symbol-extractor.ts";
 import type {
@@ -48,7 +54,7 @@ import type {
 } from "./intelligence-types.ts";
 import { extractMultiLanguageImports } from "./multi-import-extractor.ts";
 import { handleError } from "../shared/debug/debug-system.ts";
-import { InputError } from "../kernel/errors.ts";
+import { extractErrorMessage, InputError } from "../kernel/errors.ts";
 
 /** Walk a tree-sitter tree and emit `SymbolInfo` for each definition node. */
 export function extractSymbolsTreeSitter(filePath: string, source: string): ExtractionResult {
@@ -65,15 +71,24 @@ export function extractSymbolsTreeSitter(filePath: string, source: string): Extr
       TREE_SITTER_LANGUAGE_NOT_INITIALIZED,
     );
   }
-  let handle;
+  let handle: TreeSitterParseHandle;
   try {
     handle = parseSync(spec.id, source);
-  } catch (e) {
-    handleError(e, { module: "intelligence-tree-sitter-extractor", operation: "parseSync" });
-    return emptyResult(source);
-  }
-  if (handle === null) {
-    return emptyResult(source);
+  } catch (error) {
+    handleError(error, { module: "intelligence-tree-sitter-extractor", operation: "parseSync" });
+    // A parser failure is a REFUSAL, not an empty extraction. The backend
+    // error is carried as `cause` (one level down for a backend
+    // TreeSitterParseError, which carries the raw throw); the file is named
+    // here because the backend only knows the language.
+    const backendCause = isTreeSitterParseError(error)
+      ? (error as TreeSitterParseError).cause
+      : error;
+    const detail = backendCause === null ? extractErrorMessage(error) : extractErrorMessage(backendCause);
+    throw new TreeSitterParseError(
+      `tree-sitter parse failed for '${filePath}' (language '${spec.id}'): ${detail}`,
+      { language: spec.id, file: filePath },
+      error,
+    );
   }
   try {
     const symbols = collectDefinitions(handle.root, spec, filePath);

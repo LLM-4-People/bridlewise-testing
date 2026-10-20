@@ -3614,7 +3614,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-intelligence-tree-sitter-backend", path: "src/intelligence/tree-sitter-backend.ts", realm: "runtime", layer: "domain",
-      owner: "intelligence", publicApi: { exportCount: 9, namesSha256: "88cd9aef37da738b6bbe0864ff8c92996bc04aba7b27668b4eccc9e8cb6ee842" },
+      owner: "intelligence", publicApi: { exportCount: 11, namesSha256: "3e662cd54dfa6ad8c4aee8c55fd0d26327374d4b94ed93703b6ce6303970e9f2" },
       dependencies: ["node:fs","node:fs/promises","node:path","node:url","src/intelligence/language-registry.ts","src/kernel/errors.ts","src/shared/best-effort.ts","web-tree-sitter"],
     }),
     moduleContract({

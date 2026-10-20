@@ -147,6 +147,8 @@ export async function createLanguageAgnosticSyntaxValidatorRegistry(): Promise<S
 function validateTreeSitter(spec: LanguageSpec, content: string): SyntaxValidationResult {
   let handle;
   try {
+    // A failed parse is a typed refusal now; it is reported below as an
+    // invalid result, never as a valid empty tree.
     handle = parseSync(spec.id, content);
   } catch (error) {
     return deepFreeze({
@@ -158,19 +160,6 @@ function validateTreeSitter(spec: LanguageSpec, content: string): SyntaxValidati
         column: 0,
         message: extractErrorMessage(error),
         code: "syntax_tree_sitter_parse_failed",
-      })],
-    });
-  }
-  if (handle === null) {
-    return deepFreeze({
-      valid: false,
-      language: spec.id,
-      diagnostics: [deepFreeze({
-        severity: "error" as const,
-        line: 0,
-        column: 0,
-        message: "tree-sitter returned no parse tree",
-        code: "syntax_tree_sitter_no_tree",
       })],
     });
   }

@@ -7,7 +7,7 @@ import test from "node:test";
 
 import { readFileSync } from "node:fs";
 
-import { InputError } from "../../src/kernel/errors.ts";
+import { HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { extractSymbols } from "../../src/intelligence/symbol-extractor.ts";
 import { tokenizeWithPositions } from "../../src/intelligence/js-tokenizer.ts";
 import { generateRepositoryMap, type RepositoryReaderPort } from "../../src/intelligence/repository-map.ts";
@@ -106,4 +106,80 @@ test("python extract uses tree-sitter through the same extractSymbols door", asy
   assert.equal(isLanguageReady("python"), true);
   const result = extractSymbols("mod.py", "def greet(name):\n    return name\n");
   assert.ok(result.symbols.some((s) => s.name === "greet" && s.kind === "function"));
+});
+
+test("a parsed file with no definitions still returns an empty extraction", async () => {
+  await initTreeSitterBackend(["javascript"]);
+  // The file WAS parsed and measured: zero symbols is a real zero here,
+  // unlike the parse-failure refusal below.
+  const result = extractSymbolsTreeSitter("comments.js", "// only a comment\n");
+  assert.equal(result.symbols.length, 0);
+  assert.equal(result.imports.length, 0);
+  assert.equal(result.lineCount, 2, "the measured line count must survive an empty symbol list");
+});
+
+test("a failing tree-sitter parse is a typed refusal, never an empty extraction", async () => {
+  // Plant: a grammar object from an incompatible runtime. The real backend's
+  // setLanguage rejects it inside `parseSync` — the backend `:258` throw
+  // point named in the defect, now covered by the parse guard — so
+  // `parseSync` throws without any production test seam. A thrown parse must
+  // NOT become `emptyResult`: "not measured" is not "measured zero".
+  const web = await import("web-tree-sitter");
+  const Parser = web.default as unknown as { init(): Promise<void>; Language: unknown };
+  await Parser.init();
+  const realLanguage = Parser.Language;
+  class UnusableLanguage {
+    static async load(): Promise<unknown> {
+      return Object.freeze({ unusable: true });
+    }
+  }
+  Parser.Language = UnusableLanguage;
+  try {
+    await initTreeSitterBackend(["go"]);
+    let result: { symbols: readonly unknown[]; lineCount: number } | null = null;
+    let thrown: unknown = null;
+    try {
+      result = extractSymbolsTreeSitter("probe.go", "package main\nfunc F() {}\n");
+    } catch (error) {
+      thrown = error;
+    }
+    assert.ok(
+      thrown !== null,
+      `a failed parse must refuse; the extractor returned ${result?.symbols.length ?? 0} symbols (lineCount ${result?.lineCount ?? 0})`,
+    );
+    assert.ok(thrown instanceof HarnessError, "the refusal must be a typed HarnessError");
+    assert.equal((thrown as HarnessError).code, "tree_sitter_parse_failed");
+    assert.match((thrown as Error).message, /probe\.go/u);
+    assert.match((thrown as Error).message, /'go'/u);
+    const cause = (thrown as { cause?: unknown }).cause;
+    assert.ok(cause instanceof Error, "the backend error must be carried as `cause`");
+    assert.match((cause as Error).message, /Argument must be a Language/u);
+
+    // The refusal travels through the public door and the repository map:
+    // neither may turn a failed parse into a zero-symbol module.
+    assert.throws(
+      () => extractSymbols("probe.go", "package main\nfunc F() {}\n"),
+      (err: unknown) => err instanceof HarnessError && err.code === "tree_sitter_parse_failed",
+      "extractSymbols must propagate the parse refusal",
+    );
+    const goFile: FileInfo = Object.freeze({
+      path: "probe.go",
+      extension: ".go",
+      sizeBytes: 26,
+      contentHash: "x",
+      lineCount: 3,
+      isSource: true,
+    });
+    const reader: RepositoryReaderPort = {
+      listFiles: () => [goFile],
+      readFile: () => ({ content: "package main\nfunc F() {}\n", sizeBytes: 26, contentHash: "x" }),
+    };
+    assert.throws(
+      () => generateRepositoryMap(".", { reader }),
+      (err: unknown) => err instanceof HarnessError && err.code === "tree_sitter_parse_failed",
+      "generateRepositoryMap must refuse, not skip the file",
+    );
+  } finally {
+    Parser.Language = realLanguage;
+  }
 });

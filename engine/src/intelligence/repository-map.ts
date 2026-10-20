@@ -20,6 +20,7 @@ import { runIsolatedProcess, type FarmFileResult } from "./process-farm.ts";
 import {
   assertTreeSitterLanguagesReady,
   initTreeSitterForExtract,
+  isTreeSitterParseError,
   isTreeSitterUnreadyError,
   TREE_SITTER_LANGUAGE_NOT_INITIALIZED,
 } from "./tree-sitter-backend.ts";
@@ -365,7 +366,10 @@ export function generateRepositoryMap(
           extraction = extractSymbols(file.path, fileData.content);
         } catch (e) {
           handleError(e, { module: "intelligence-repository-map", operation: "extractSymbols" });
-          if (isTreeSitterUnreadyError(e)) throw e;
+          // A parser refusal is not a skipped file: the map would claim the
+          // module has zero symbols when it was never measured. Unready and
+          // parse-failed are both refusals of the whole walk.
+          if (isTreeSitterUnreadyError(e) || isTreeSitterParseError(e)) throw e;
           continue;
         }
         options.onFileParsed?.(file.path);

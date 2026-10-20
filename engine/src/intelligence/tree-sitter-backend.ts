@@ -28,7 +28,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { HarnessError, InputError } from "../kernel/errors.ts";
+import { extractErrorMessage, HarnessError, InputError } from "../kernel/errors.ts";
 import { bestEffortAsync } from "../shared/best-effort.ts";
 import { getTreeSitterLanguages, LANGUAGE_SPECS as LANGUAGE_SPECS_INTERNAL } from "./language-registry.ts";
 
@@ -38,6 +38,35 @@ export const TREE_SITTER_LANGUAGE_NOT_INITIALIZED = "tree_sitter_language_not_in
 // that needs it reaches it through this module's own errors), so it stays
 // module-private rather than a dead cross-file export.
 const TREE_SITTER_BACKEND_NOT_INITIALIZED = "tree_sitter_backend_not_initialized";
+// The parse-failure code is the stable refusal identity (it appears on
+// `error.code` and in persisted farm results); no other production module
+// re-spells it — callers use `isTreeSitterParseError` below.
+const TREE_SITTER_PARSE_FAILED = "tree_sitter_parse_failed";
+
+/**
+ * A loaded grammar failed to parse a source. This is a REFUSAL, not an empty
+ * result: the file was not measured, so a caller must not record zero
+ * symbols for it. `cause` carries the backend error (a WASM trap, a grammar
+ * rejected by `setLanguage`, or a missing tree) so the failure stays
+ * diagnosable.
+ */
+export class TreeSitterParseError extends HarnessError {
+  override readonly cause: unknown;
+
+  constructor(
+    message: string,
+    safeDetails: Readonly<Record<string, string | number | boolean>>,
+    cause: unknown,
+  ) {
+    super(message, TREE_SITTER_PARSE_FAILED, false, safeDetails);
+    this.cause = cause;
+  }
+}
+
+/** True when the error is the typed parse refusal (never a zero-symbol map). */
+export function isTreeSitterParseError(error: unknown): boolean {
+  return error instanceof HarnessError && error.code === TREE_SITTER_PARSE_FAILED;
+}
 
 export type TreeSitterNode = Readonly<{
   type: string;
@@ -235,8 +264,14 @@ export async function initTreeSitterForExtract(languageIds?: readonly string[]):
   assertTreeSitterLanguagesReady(requested);
 }
 
-/** Sync parse — requires `await initTreeSitterBackend([languageId])` first. */
-export function parseSync(languageId: string, source: string): TreeSitterParseHandle | null {
+/** Sync parse — requires `await initTreeSitterBackend([languageId])` first.
+ *
+ * A parser failure THROWS a typed {@link TreeSitterParseError}; it never
+ * returns `null`/an empty tree. Callers that want a soft result must catch
+ * and decide explicitly — the backend does not turn "not measured" into a
+ * value that reads like "measured zero".
+ */
+export function parseSync(languageId: string, source: string): TreeSitterParseHandle {
   const language = _languages.get(languageId);
   if (language === undefined) {
     throw new InputError(
@@ -255,18 +290,31 @@ export function parseSync(languageId: string, source: string): TreeSitterParseHa
     }
     _parser = new _parserCtor();
   }
-  _parser.setLanguage(language);
   let tree: TreeRoot | null;
   try {
+    // `setLanguage` is inside the guard too: a grammar this runtime cannot
+    // accept fails HERE (the observed `_ is not a function`/incompatible
+    // Language throw), not only in `parse`.
+    _parser.setLanguage(language);
     tree = _parser.parse(source);
   } catch (error) {
     // A WASM trap (memory access out of bounds / stack overflow) corrupts
     // the shared parser instance: every subsequent parse would also fail.
     // Null it so the next call rebuilds from the cached constructor.
     _parser = null;
-    throw error;
+    throw new TreeSitterParseError(
+      `tree-sitter parse failed for language '${languageId}': ${extractErrorMessage(error)}`,
+      { language: languageId },
+      error,
+    );
   }
-  if (tree === null) return null;
+  if (tree === null) {
+    throw new TreeSitterParseError(
+      `tree-sitter parse failed for language '${languageId}': the backend returned no parse tree`,
+      { language: languageId },
+      null,
+    );
+  }
   const root = tree.rootNode;
   // Return a handle that keeps the tree alive until the caller is done
   // walking. The node is only valid while the tree is alive; freeing
