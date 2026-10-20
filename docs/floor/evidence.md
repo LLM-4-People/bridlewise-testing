@@ -93,7 +93,7 @@ On 2026-10-20, on the public tree at `856f101`, this probe passed 73 engine test
 
 ### Performance probe
 
-On 2026-10-20, on the public tree at `d00de81`, the profile and its regression gate ran on this host with a private `TMPDIR` outside `/tmp`:
+On 2026-10-20, on the public tree at `0ba57912`, the profile and its regression gate ran on this host with a private `TMPDIR` outside `/tmp`:
 
 ```bash
 npm run perf:profile
@@ -101,6 +101,8 @@ npm run perf:profile
 ```
 
 Result: the profile passed 3 of 3 tests and the regression gate passed 36 of 36. The report carried `instrumentLock: "held"`, its measured surface hash matched the tree, and the run was clean. The report and `.run.json` are gitignored and were not published.
+
+The measured tab switches were 85.8 to 111.1ms against a 200ms budget. The measured in-session API maximum was 3314ms during the 10k-project phase, and the isolated route maximum was 1208ms against a 250ms budget. The long-chat render was 2081ms against a 2000ms budget. The API and long-chat budgets are red. The supported shard set does not judge them, and this page does not call the profile a pass. Later test timeout and manifest edits happened after this report, so it is not a current-tree verdict.
 
 This is one profile on one host. It is not a cross-machine benchmark, a reproducible performance proof, or the full suite.
 
