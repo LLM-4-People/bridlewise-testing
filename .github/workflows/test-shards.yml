@@ -12,7 +12,7 @@ on:
         required: true
         default: "10"
         type: choice
-        options: ["4", "8", "10", "12", "16"]
+        options: ["1", "4", "8", "10", "12", "16"]
       runner:
         description: Runner label. Use a larger runner class for the 10x test-phase target.
         required: true
@@ -131,6 +131,9 @@ jobs:
           chmod 600 engine/bridlewise.config.json
           npm --prefix engine run build:bundle
           CC=gcc-14 make -C engine/guardian all
+
+      - name: Record the guardian binary digest
+        run: sha256sum engine/guardian/build/harness-landlock-guardian
 
       - name: Require the exact commit and a clean tracked tree
         run: |
