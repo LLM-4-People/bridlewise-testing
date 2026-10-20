@@ -263,7 +263,13 @@ describe("web-UI test-runtime budget", () => {
   test(BUDGET_POPULATION_ARM, () => {
     if ("missing" in cpuBudget) throw new Error(`the CPU budget is not declared: ${cpuBudget.missing}`);
     const population = judgePopulationDrift(
-      cpuBudget,
+      {
+        derivedAtTestFileCount:
+          cpuBudget.derivedAtTestFileCount ??
+          ("phase" in cpuBudget ? cpuBudget.legacy?.derivedAtTestFileCount : undefined) ??
+          0,
+        maxPopulationDriftFraction: cpuBudget.maxPopulationDriftFraction,
+      },
       discovered,
       "testExecution.webUiSuiteCpuBudget",
     );
@@ -332,57 +338,95 @@ describe("web-UI test-runtime budget", () => {
     ).toMatch(/return configured;/u);
   });
 
-  test("the budget's floor is a positive finite number of milliseconds per test file", () => {
+  test("the calibrated-work declaration names its unit and its validity bounds", () => {
     if ("missing" in cpuBudget) throw new Error(`the CPU budget is not declared: ${cpuBudget.missing}`);
-    expect(Number.isFinite(cpuBudget.baselineFloorMsPerTestFile)).toBe(true);
-    expect(cpuBudget.baselineFloorMsPerTestFile).toBeGreaterThan(0);
+    // THE UNIT IS PART OF THE BUDGET. A reading in one metric is never
+    // compared with a declaration in another; the reporter produces this one.
+    expect(cpuBudget.metric).toBe("calibrated-work/v1");
+    // The run's own witnesses, bounded: past either the gate DEFERS.
+    expect(cpuBudget.calibrationDriftMaxFraction).toBeGreaterThan(0);
+    expect(cpuBudget.calibrationDriftMaxFraction).toBeLessThanOrEqual(0.3);
+    // The recorded 5-minute load the residual was measured through. Above
+    // the measured maximum (1.066/cpu), below the deep-saturation incident
+    // (~1.5/cpu) the bound deliberately leaves out.
+    expect(cpuBudget.validThroughLoad5PerCpu).toBeGreaterThan(1.648);
+    expect(cpuBudget.validThroughLoad5PerCpu).toBeLessThan(2);
     // A drift tolerance at or above the 4.2% growth (433 → 451) that carried
     // the previous cap past its own derivation would admit that same defect.
     expect(cpuBudget.maxPopulationDriftFraction).toBeGreaterThan(0);
     expect(cpuBudget.maxPopulationDriftFraction).toBeLessThan(0.042);
   });
 
-  test("the budget's floor is the recorded derivation's own value, with the population it was derived against", () => {
+  test("the migration state is DECLARED, and the retired floor is recorded incomparable rather than converted", () => {
     if ("missing" in cpuBudget) throw new Error(`the CPU budget is not declared: ${cpuBudget.missing}`);
-    // The floor is the ONE hand-number the rolling declaration keeps, and it
-    // is only honest while it sits at the measured center of the clean
-    // window it was re-derived from — the 2026-10-10 re-derivation at 521
-    // files, written by the measuring tool: 1926 = the median of the 12-run
-    // ambient-adjusted clean window (1891.4-1970.2, spread 2.32% within the
-    // declared 2.6%), recorded beside the declaration in the config
-    // contract (the 2026-09-04 1614 at 485 before it). The pin
-    // asserts the VALUE, never the re-imported constant, so it is
-    // severance-proof in BOTH directions: a floor planted back at the
-    // stale 1614 re-opens the population gap the re-derivation closed, and
-    // a floor dropped absurdly low un-anchors the baseline — a lucky quiet
-    // stretch could then pull it down silently, the exact loosening the
-    // floor exists to refuse. Either edit must red here and force the
-    // re-derivation ritual: config + contract record + this pin, together.
-    expect(cpuBudget.baselineFloorMsPerTestFile).toBe(1926);
-    // The population moves with the floor or not at all — the pair is the
-    // derivation's own record, the count the window's settled readings were
-    // judged against.
-    expect(cpuBudget.derivedAtTestFileCount).toBe(521);
+    if ("phase" in cpuBudget) {
+      // ACCUMULATION: no cap exists, and none is guessed. The retired
+      // declaration is a RECORD, not a conversion.
+      expect(cpuBudget.phase).toBe("accumulation");
+      expect(cpuBudget.minimumJudgedRuns).toBeGreaterThanOrEqual(5);
+      const legacy = cpuBudget.legacy;
+      expect(legacy, "the retired raw-CPU floor must be recorded, not deleted").toBeDefined();
+      expect(legacy?.metric).toBe("raw-cpu-ms/v0");
+      expect(legacy?.baselineFloorMsPerTestFile).toBe(1926);
+      expect(legacy?.derivedAtTestFileCount).toBe(521);
+      expect(legacy?.incomparable).toBe(true);
+      // NOTHING RESCALED IT: the new unit's floor is absent until the new
+      // window is derived. A number here would be a conversion nobody made.
+      expect("baselineFloorUnitsPerTestFile" in cpuBudget).toBe(false);
+    } else {
+      // ROLLING: the derived shape. Its floor is in the declared unit and
+      // its population moves with it or not at all.
+      expect(cpuBudget.baselineFloorUnitsPerTestFile).toBeGreaterThan(0);
+      expect(cpuBudget.derivedAtTestFileCount).toBeGreaterThan(0);
+      expect("legacy" in cpuBudget).toBe(false);
+    }
   });
 
-  test("the feed spread and the rolling window are declared inside the ranges their derivations allow, and no streak count is", () => {
+  test("the phase's own knobs are declared inside the ranges their derivations allow, and no streak count is", () => {
     if ("missing" in cpuBudget) throw new Error(`the CPU budget is not declared: ${cpuBudget.missing}`);
-    // The feed spread is a MEASUREMENT (the same-tree run-to-run spread), not
-    // a knob: it decides only which ledger readings feed the rolling baseline
-    // and the measuring tool's window, and anything at or above 0.08 would
-    // let the +6–9% whole-band excursion feed the baseline. It never widens a
-    // verdict: one judged run over the cap fails (UR-24-BUDGETS).
-    expect(cpuBudget.sameTreeSpreadFraction).toBeGreaterThan(0);
-    expect(cpuBudget.sameTreeSpreadFraction).toBeLessThan(0.08);
     // NO STREAK: the three-consecutive-runs count is deleted, from the parsed
     // budget and from the declaration it was read from.
     expect("overCapRunsBeforeRed" in cpuBudget).toBe(false);
-    // The rolling window: at least 2 (a one-run median is just the last
-    // reading — the window would be vacuous), never more than the ledger's
-    // own depth (a window the ledger cannot fill would pin the baseline to
-    // the floor forever, which is the hand-set cap wearing a derived name).
-    expect(cpuBudget.baselineWindowRuns).toBeGreaterThanOrEqual(2);
-    expect(cpuBudget.baselineWindowRuns).toBeLessThanOrEqual(HISTORY_KEPT);
+    if ("phase" in cpuBudget) {
+      // Accumulation has no feed spread and no window yet: both are
+      // ROLLING declarations, and inventing them now would be a cap
+      // before the evidence.
+      expect("sameTreeSpreadFraction" in cpuBudget).toBe(false);
+      expect("baselineWindowRuns" in cpuBudget).toBe(false);
+      expect(Number.isInteger(cpuBudget.minimumJudgedRuns)).toBe(true);
+      expect(cpuBudget.minimumJudgedRuns).toBeLessThanOrEqual(50);
+    } else {
+      // The feed spread is a MEASUREMENT (the same-tree run-to-run spread),
+      // not a knob: it decides only which ledger readings feed the rolling
+      // baseline and the measuring tool's window, and anything at or above
+      // 0.08 would let the +6–9% whole-band excursion feed the baseline. It
+      // never widens a verdict: one judged run over the cap fails.
+      expect(cpuBudget.sameTreeSpreadFraction).toBeGreaterThan(0);
+      expect(cpuBudget.sameTreeSpreadFraction).toBeLessThan(0.08);
+      // The rolling window: at least 2 (a one-run median is just the last
+      // reading — the window would be vacuous), never more than the ledger's
+      // own depth.
+      expect(cpuBudget.baselineWindowRuns).toBeGreaterThanOrEqual(2);
+      expect(cpuBudget.baselineWindowRuns).toBeLessThanOrEqual(HISTORY_KEPT);
+    }
+  });
+
+  test("the calibrated metric RETIRES the ambient envelope instead of paying the load effect twice", () => {
+    if ("missing" in cpuBudget) throw new Error(`the CPU budget is not declared: ${cpuBudget.missing}`);
+    if ("phase" in cpuBudget) {
+      // The calibration already absorbs the load effect; an ambient
+      // envelope on top would double-pay it. The accumulation declaration
+      // carries no slope, and the metric's validity bound is the only
+      // load-sensitive declaration.
+      expect("ambientInflationSlopePerCpu" in cpuBudget).toBe(false);
+      expect("ambientInflationCapFraction" in cpuBudget).toBe(false);
+    } else {
+      // A rolling declaration in the calibrated metric must declare a ZERO
+      // slope (no double-pay); the cap may also be zero.
+      expect(cpuBudget.ambientInflationSlopePerCpu).toBe(0);
+      expect(cpuBudget.ambientInflationCapFraction).toBeGreaterThanOrEqual(0);
+      expect(cpuBudget.ambientInflationCapFraction).toBeLessThan(0.21);
+    }
   });
 
   test("the coverage floor is a real floor, not a formality", () => {
@@ -421,40 +465,4 @@ describe("web-UI test-runtime budget", () => {
     expect(COLD_MODULE_CACHE_FRACTION).toBeLessThan(COLDEST_MEASURED);
   });
 
-  test("the ambient-inflation envelope sits inside the gaps its derivation was measured against", () => {
-    // Same shape as the cold-cache fraction: a declared envelope bounded
-    // by nothing is one silent edit away from 0.001 (busy readings judged
-    // as regressions — the gate vacated in the tight direction, the very
-    // defect the quiet-ambient deferral was) or 100 (every reading inside
-    // any ambient — the gate vacated in the loose direction, no teeth at
-    // any load). The bounds are the measurements the envelope sits
-    // between, pinned as VALUES read from the config (never re-imported
-    // constants):
-    //
-    //   eight burners on twelve cores (2026-09-03)   +2.6% CPU @ amb5 ~0.67
-    //   the ledger's busy cohort (2026-09-04)        +2.0-5.5% @ amb5 0.557-1.263
-    //   the stacked-saturation anchor (2026-09-03)  +7.7% @ amb5 ~1.0-1.5
-    //   the deep-saturation incident (2026-09-01)   +21% @ recorded 1-minute 0.88-1.66
-    if ("missing" in cpuBudget) throw new Error(`the CPU budget is not declared: ${cpuBudget.missing}`);
-    const slope = cpuBudget.ambientInflationSlopePerCpu;
-    const cap = cpuBudget.ambientInflationCapFraction;
-    // ABOVE the burner anchor: a clean run under exactly the acceptance
-    // load (eight hogs, amb5 ~0.67) must be inside the allowance the slope
-    // pays at that ambient, or the gate reds the honest box.
-    expect(slope * 0.67, "the slope must cover the 8-burner measurement (+2.6% CPU at amb5 ~0.67)").toBeGreaterThanOrEqual(0.026);
-    // ABOVE the cohort's worst realized pair: +5.5% at amb5 1.263.
-    expect(slope * 1.263, "the slope must cover the ledger's worst busy pair (+5.5% at amb5 1.263)").toBeGreaterThanOrEqual(0.055);
-    // BELOW a slope that would hide a spread-sized regression at an
-    // ordinary busy ambient: at amb5 1.0 the allowance must stay under
-    // three spreads, or co-resident gates could hide real steps.
-    expect(slope).toBeLessThan(0.08);
-    // THE CAP binds in the saturation range only (a cap at or below the
-    // slope's one-ambient product is a dead field), and it stays BELOW the
-    // deep-saturation incident: covering the +21% would pay 4× the
-    // reliable cohort's worst realized inflation at the same recorded
-    // ambient and empty the teeth exactly where stacked gates make
-    // regressions likely.
-    expect(cap, "the cap must bind in the saturation range — a cap below one ambient's slope product never caps anything").toBeGreaterThan(slope);
-    expect(cap, "the cap must stay below the +21% deep-saturation incident the envelope deliberately leaves beyond").toBeLessThan(0.21);
-  });
 });

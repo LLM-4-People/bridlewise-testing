@@ -696,9 +696,9 @@ The machine-readable owner of this section is the ROADMAP-PLAN block immediately
     }
   },
   "taskOverrides": {
-    "Bring the supported suite back under the CPU-per-file cap": {
+    "Bring the supported suite under the calibrated-work cap": {
       "state": "blocked",
-      "blockedBy": "No clean judged run: 2 of 12 recorded; needs a 12-run idle campaign or an explicit policy decision.",
+      "blockedBy": "No clean judged run in calibrated-work/v1: 0 of 12 recorded; the retired raw-CPU window is incomparable, so the cap is derived from new runs alone.",
       "evidence": "evidence.md#the-supported-suite-on-one-host"
     }
   },
@@ -869,7 +869,7 @@ Every open row of [TASKS.md](../trackers/TASKS.md) appears here. A row leaves th
 
 | Task | State | Owner | Evidence |
 |---|---|---|---|
-| **Bring the supported suite back under the CPU-per-file cap**<br>Exit: The row closes in TASKS.md with the reproduction and verification named in its text. | blocked (blocked by: No clean judged run: 2 of 12 recorded; needs a 12-run idle campaign or an explicit policy decision.) | public floor | [evidence: the-supported-suite-on-one-host](evidence.md#the-supported-suite-on-one-host) |
+| **Bring the supported suite under the calibrated-work cap**<br>Exit: The row closes in TASKS.md with the reproduction and verification named in its text. | blocked (blocked by: No clean judged run in calibrated-work/v1: 0 of 12 recorded; the retired raw-CPU window is incomparable, so the cap is derived from new runs alone.) | public floor | [evidence: the-supported-suite-on-one-host](evidence.md#the-supported-suite-on-one-host) |
 
 #### Flaky burn-down owners
 
@@ -896,7 +896,7 @@ The public evidence page names what its receipts do not establish. These stateme
 |---|---|
 | Fresh clone gate | [the cockpit, the engine domain suites, the browser E2E suite, a live provider, a large repository, or the guardian. Those are separate gates.](evidence.md#fresh-clone-gate) |
 | Inventory check | [that any test passed, that the count is coverage, or that the private corpus is present. The corpus root the tests read is not published.](evidence.md#inventory-check) |
-| The supported suite on one host | [the four excluded suites, a 10x shard claim, an idle-host CPU verdict, or a fresh-clone run.](evidence.md#the-supported-suite-on-one-host) |
+| Why the unit changed | [the four excluded suites, a 10x shard claim, an idle-host CPU verdict, or a fresh-clone run.](evidence.md#why-the-unit-changed) |
 | The sharded gate | [a 10x factor, a clean same-commit single-host comparison for the speedup, or that branch protection makes the job a required check. The receipt's `testPhaseMs` is one measurement on the `ubuntu-24.04` class; the 2.81x figure at `d47909de` remains a historical comparison.](evidence.md#the-sharded-gate) |
 | A fresh clone | [the four excluded suites (two private-only guards, the performance regression gate, the WSL keep-out arm), an idle-host CPU verdict, or a 10x shard claim.](evidence.md#a-fresh-clone) |
 | Performance probe | [This is one profile and one shard class on one audit date. It is not a cross-machine benchmark, a reproducible performance proof, or the full suite.](evidence.md#performance-probe) |

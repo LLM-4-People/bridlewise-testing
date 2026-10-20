@@ -42,7 +42,7 @@ import {
   type GateOutcome,
   type SuiteCpuJudgment,
 } from "../../src/shared/budget-verdict.ts";
-import { readRunCpu, type RunCpu } from "../../src/shared/run-cpu.ts";
+import { computeRunWork, measureCalibration, readRunCpu, type CalibrationReading, type RunCpu } from "../../src/shared/run-cpu.ts";
 import { finalizeQualifiedRun, qualificationInvocation, qualificationTerminal, runForInvocation, appendJudgedRun, readRepositoryHeadSha, readRunHistory, TEST_RUN_HISTORY_PATH } from "../../src/shared/run-history.ts";
 import { measuredTreeMark, provisionalFailureMark, mutationRunMark, readMeasuredTree } from "../../src/shared/tree-identity.ts";
 import { cpus, loadavg } from "node:os";
@@ -241,7 +241,7 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     // NOR MOVES THE REPOSITORY (round 14): the checkout's HEAD and the branch it names, before and after; a test whose
     // git command fell through to the real checkout (a commit, a reset, a checkout) is named and fails the run.
     const refsAtStart = repositoryRefIdentity(root);
-    const { cpuBefore, headSha, ambientLoadPerCpu, ambientLoad5PerCpu, ambientLoad15PerCpu, runStartMs } =
+    const { cpuBefore, calibrationBefore, headSha, ambientLoadPerCpu, ambientLoad5PerCpu, ambientLoad15PerCpu, runStartMs } =
       beginMeasuredRun(fileURLToPath(new URL("../../", import.meta.url)));
     // THE RUN NEVER OUTLIVES ITS LAUNCHER. A SIGTERM to the `npm test` wrapper
     // left this runner orphaned: it finished the whole suite and recorded a
@@ -276,6 +276,8 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     const mutation = mutationRunMark();
     const wallClockMs = Date.now() - runStartMs;
     const cpuAfter = readRunCpu();
+    // AFTER the CPU snapshot: the calibration's own CPU is not the suite's.
+    const calibrationAfter = measureCalibration();
     // The tree this run measured (its like-for-like key: a commit of exactly
     // this tree finds the run, wherever it was taken) — only when it is still
     // the tree the run started on; read after the CPU so its git work is not
@@ -342,6 +344,8 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
       wallClockMs,
       cpuBefore,
       cpuAfter,
+      calibrationBefore,
+      calibrationAfter,
       failures: recordedFailures,
       failureDigests: recordedDigests,
       failureLocations: recordedLocations,
@@ -376,6 +380,8 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
 export interface MeasuredRunBegin {
   /** Null when `/proc` could not be read — absence, never a fabricated zero. */
   readonly cpuBefore: RunCpu | null;
+  /** The calibration taken BEFORE the CPU baseline, so its cost is not the suite's. */
+  readonly calibrationBefore: CalibrationReading | null;
   readonly headSha: string | null;
   readonly ambientLoadPerCpu: number;
   /** The run-start snapshot's 5- and 15-minute legs — the saturation
@@ -393,6 +399,7 @@ export interface MeasuredRunBegin {
 export interface MeasuredRunBeginSteps {
   readonly pruneCache: (root: string) => void;
   readonly readCpuBaseline: () => RunCpu | null;
+  readonly measureCalibration: () => CalibrationReading | null;
   readonly stampStart: () => number;
 }
 
@@ -423,10 +430,14 @@ export function beginMeasuredRun(
   steps: MeasuredRunBeginSteps = {
     pruneCache: pruneCompileCacheIfDeclared,
     readCpuBaseline: readRunCpu,
+    measureCalibration,
     stampStart: Date.now,
   },
 ): MeasuredRunBegin {
   steps.pruneCache(root);
+  // BEFORE the CPU baseline: the calibration's own CPU must not sit inside
+  // the window the suite's cost is measured over.
+  const calibrationBefore = steps.measureCalibration();
   const cpuBefore = steps.readCpuBaseline();
   const headSha = readRepositoryHeadSha(root);
   const cpuCount = Math.max(1, cpus().length);
@@ -439,7 +450,7 @@ export function beginMeasuredRun(
   const ambientLoad5PerCpu = Number(((loads[1] ?? 0) / cpuCount).toFixed(3));
   const ambientLoad15PerCpu = Number(((loads[2] ?? 0) / cpuCount).toFixed(3));
   const runStartMs = steps.stampStart();
-  return { cpuBefore, headSha, ambientLoadPerCpu, ambientLoad5PerCpu, ambientLoad15PerCpu, runStartMs };
+  return { cpuBefore, calibrationBefore, headSha, ambientLoadPerCpu, ambientLoad5PerCpu, ambientLoad15PerCpu, runStartMs };
 }
 
 function pruneCompileCacheIfDeclared(root: string): void {
@@ -502,6 +513,8 @@ export function judgeSuiteRunCost(run: Readonly<{
   wallClockMs: number;
   cpuBefore: RunCpu | null;
   cpuAfter: RunCpu | null;
+  calibrationBefore: CalibrationReading | null;
+  calibrationAfter: CalibrationReading | null;
   failures: readonly string[];
   failureDigests: Readonly<Record<string, string>>;
   failureLocations: Readonly<Record<string, string>>;
@@ -526,6 +539,15 @@ export function judgeSuiteRunCost(run: Readonly<{
     // executed file set IS this set. Counted from the artifact, with its
     // source named, rather than recalled from prose.
     const testFileCount = inventoryTestFileCount(run.root);
+    // THE ONE COMPUTATION of the load-agnostic metric — the signal owner's,
+    // not this runner's. Null (absent) when the CPU, the calibration or the
+    // population is missing; the verdict refuses rather than substituting
+    // raw CPU.
+    const work = computeRunWork(
+      cpuMs,
+      { atStart: run.calibrationBefore, atEnd: run.calibrationAfter },
+      testFileCount ?? 0,
+    );
     // AN UNSLOTTED MEASUREMENT IS REFUSED, NEVER JUDGED: without the host's
     // instrument lock another writer's heavy run may have shared the cores, so the
     // figure says nothing about this tree (src/process/instrument-lock.ts).
@@ -560,7 +582,11 @@ export function judgeSuiteRunCost(run: Readonly<{
     const historyPath = resolve(run.root, TEST_RUN_HISTORY_PATH);
     const judgment: SuiteCpuJudgment = judgeSuiteCpu(
       {
-        cpuMs,
+        workUnitsPerTestFile: work?.workUnitsPerTestFile ?? null,
+        workMetric: work?.metric ?? null,
+        rawCpuMsPerTestFile: work?.rawCpuMsPerTestFile ?? null,
+        calibrationMs: work?.calibrationMs ?? null,
+        calibrationDriftFraction: work?.calibrationDriftFraction ?? null,
         testFileCount,
         wallClockMs: run.wallClockMs,
         timestamp: new Date().toISOString(),
@@ -579,7 +605,8 @@ export function judgeSuiteRunCost(run: Readonly<{
     // so a moved number is visible whether or not any gate colours.
     process.stdout.write(
       `[suite-budget] this run: cpu ${cpuMs === null ? "unreadable" : `${(cpuMs / 1000).toFixed(1)}s`} ` +
-        `over ${testFileCount === null ? "unknown" : String(testFileCount)} test files · ` +
+        `over ${testFileCount === null ? "unknown" : String(testFileCount)} test files ` +
+        `(${work === null ? "calibrated work unreadable — not substituted with raw CPU" : `${work.workUnitsPerTestFile.toFixed(3)} calibration units/file, metric ${work.metric}, raw ${work.rawCpuMsPerTestFile.toFixed(1)} ms/file provenance`}) · ` +
         `wall clock ${(run.wallClockMs / 1000).toFixed(2)}s (reported, not judged) · ` +
         `compile cache ${scan === null ? "not observable" : `${String(scan.entries)} entries, ${String(scan.writtenSince)} written during the run`}\n`,
     );

@@ -4647,13 +4647,13 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-shared-budget-verdict", path: "src/shared/budget-verdict.ts", realm: "shared", layer: "domain",
-      owner: "shared-abort-signals", publicApi: { exportCount: 34, namesSha256: "e636272b6aaf7f91d74313bed2d8c194f1342ee1c60dc8f7dd22c171a9756d35" },
+      owner: "shared-abort-signals", publicApi: { exportCount: 35, namesSha256: "2c053a58d484d10101bc614c1b7e7ecf7095308bc5122ad094e526bba2a276d8" },
       dependencies: [],
     }),
     moduleContract({
       id: "src-shared-run-cpu", path: "src/shared/run-cpu.ts", realm: "shared", layer: "domain",
-      owner: "shared-abort-signals", publicApi: { exportCount: 2, namesSha256: "4346de8d3994cb79310b70b0795c412d8adac2268b155e8847846278c5aa3501" },
-      dependencies: ["src/process/process-facts.ts"],
+      owner: "shared-abort-signals", publicApi: { exportCount: 9, namesSha256: "3c0db60443d533707d96239f5f3d09f1cdfa3a4f8d2b83df6afeeb2e993e850f" },
+      dependencies: ["node:child_process","src/process/process-facts.ts"],
     }),
     moduleContract({
       id: "src-shared-run-history", path: "src/shared/run-history.ts", realm: "shared", layer: "domain",

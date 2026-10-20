@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "b5faf98c8c89443ce417cdaacdecc2d1704d1b8368c22d3001c629af3a72f80c",
+      sourceSha256: "1b79c760d1c54bbf56286c35b950e774055eb273fa36a564abf25cb574a4de57",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -1332,7 +1332,7 @@ const ROOT_POLICY_VALUE = {
      */
     binarySha256Alternates: ["2e9e4eadb7806c49b7168e31780999f2769d285f91bd37615079b2628984a5fc"],
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "d56549e169aa9b273bd057c5e13aa4ff7404ae9dadd85b80264d25d53d0de859",
+    bundleSha256: "22385e2aa5e2226c9ee2491eeeec567185eadd2011566e7256407cd83e6efc56",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
@@ -2189,7 +2189,7 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "a04ae150b576b53fa16c1430c27afbec5fdedf1c2cfcd82b79811fa06f6cb274",
+    testInventoryHash: "fc8808837a3b84b17ffc5a4c5f5ecd674ce7074fdb30346a2d95414def6253a7",
     testSurfaceDispositionBinding: {
       fileSha256: "aa7cffb0cb54b3954acbd416af3ddfb8c37163e80578c9b0184923cc2539f071",
       identityHash: "d8b242e1f67273f74b804a9824b8e8a74302aeefbfecb9ecb5afd53da3b5816e",
@@ -2598,9 +2598,9 @@ const ROOT_POLICY_VALUE = {
        * an unslotted one fails. Any other budget gate fails outright.
        */
       budgets: {
-        engine: { "cpu-per-test-file": { budget: "testExecution.integrationSuiteCpuBudget", field: "cpuMsPerTestFile" } },
+        engine: { "cpu-per-test-file": { budget: "testExecution.integrationSuiteCpuBudget", field: "workUnitsPerTestFile" } },
         web: {
-          "cpu-per-test-file": { budget: "testExecution.webUiSuiteCpuBudget", field: "cpuMsPerTestFile" },
+          "cpu-per-test-file": { budget: "testExecution.webUiSuiteCpuBudget", field: "workUnitsPerTestFile" },
           // Each perf budget: its value is the profile report's measurement, recorded in the row (`field` is a dotted path).
           ...Object.fromEntries(Object.keys(WEB_PERFORMANCE_BUDGET_KINDS).map((name) => [
             `${WEB_PERFORMANCE_GATE_PREFIX}${name}`,

@@ -387,10 +387,29 @@ export type BudgetVerdict =
        *  — see the header for the measurements that rule it out as a gate. */
       readonly wallClockMs: number;
       /** The run's CPU cost: the reporter's process plus every reaped pool
-       *  worker. This is what the suite budget judges. */
+       *  worker. RECORDED, not judged — the judged figure is the calibrated
+       *  work below. */
       readonly runCpuMs: number;
-      /** `runCpuMs / testModuleCount` — the figure the budget bounds. */
-      readonly cpuMsPerTestFile: number;
+      /**
+       * THE JUDGED FIGURE: the suite's CPU in calibration units, per test
+       * file (`workUnitsPerTestFile`), computed ONCE by
+       * `engine/src/shared/run-cpu.ts` `computeRunWork` and read here. A
+       * second derivation of this number is a defect.
+       */
+      readonly workUnitsPerTestFile: number;
+      /** The metric the reading was taken under (`calibrated-work/v1`). */
+      readonly workMetric: string;
+      /** Suite CPU in calibration units (the per-file figure's numerator). */
+      readonly workUnits: number;
+      /** The run's calibration unit: the mean of its start and end readings, in CPU ms. */
+      readonly calibrationMs: number;
+      readonly calibrationStartMs: number;
+      readonly calibrationEndMs: number;
+      /** |end − start| / mean — the run's own stationarity witness. */
+      readonly calibrationDriftFraction: number;
+      readonly calibrationWorkload: string;
+      /** Raw CPU per test file — provenance only, never judged. */
+      readonly rawCpuMsPerTestFile: number;
       readonly testModuleCount: number;
       readonly slowestCollects: readonly CollectCost[];
       /** Every file's `collectDuration` summed — reported for diagnosis. */
@@ -509,8 +528,53 @@ export function judgeRuntimeBudget(summary: unknown, opts: JudgeOptions): Budget
     return {
       kind: "unmeasurable",
       why:
-        "the summary carries no positive runCpuMs — the run's CPU cost is what this " +
-        "budget bounds, and it was not recorded. One full run re-arms it.",
+        "the summary carries no positive runCpuMs — the run's CPU cost is what the " +
+        "calibrated work is measured from, and it was not recorded. One full run re-arms it.",
+    };
+  }
+
+  // ── THE JUDGED FIGURE: CALIBRATED WORK, READ ONCE ──────────────────────
+  //
+  // The suite's load-agnostic cost is computed by the signal owner
+  // (`engine/src/shared/run-cpu.ts` `computeRunWork`) and written into the
+  // summary. THIS MODULE READS IT; it never divides the raw CPU by the test
+  // count or by a calibration. That is the single-owner rule: a second
+  // derivation is the defect the metric exists to end.
+  //
+  // A summary without these fields is a run whose calibration could not be
+  // read. The answer is ABSENT, never the raw CPU: the two are different
+  // units, and substituting one for the other would quietly change what the
+  // budget bounds exactly when the instrument is broken.
+  const workMetric = typeof rec.workMetric === "string" && rec.workMetric.length > 0 ? rec.workMetric : null;
+  const workUnitsPerTestFile = finiteNumber(rec.workUnitsPerTestFile);
+  const workUnits = finiteNumber(rec.workUnits);
+  const rawCpuMsPerTestFile = finiteNumber(rec.rawCpuMsPerTestFile);
+  const calibrationMs = finiteNumber(rec.calibrationMs);
+  const calibrationStartMs = finiteNumber(rec.calibrationStartMs);
+  const calibrationEndMs = finiteNumber(rec.calibrationEndMs);
+  const calibrationDriftFraction = finiteNumber(rec.calibrationDriftFraction);
+  const calibrationWorkload = typeof rec.calibrationWorkload === "string" && rec.calibrationWorkload.length > 0
+    ? rec.calibrationWorkload
+    : null;
+  if (
+    workMetric === null ||
+    workUnitsPerTestFile === null || workUnitsPerTestFile <= 0 ||
+    workUnits === null || workUnits <= 0 ||
+    rawCpuMsPerTestFile === null || rawCpuMsPerTestFile <= 0 ||
+    calibrationMs === null || calibrationMs <= 0 ||
+    calibrationStartMs === null || calibrationStartMs <= 0 ||
+    calibrationEndMs === null || calibrationEndMs <= 0 ||
+    calibrationDriftFraction === null || calibrationDriftFraction < 0 ||
+    calibrationWorkload === null
+  ) {
+    return {
+      kind: "unmeasurable",
+      why:
+        "the summary carries no complete calibrated-work reading (workUnitsPerTestFile, " +
+        "workMetric, workUnits, rawCpuMsPerTestFile and the calibration start/end/drift/" +
+        "workload witness). The suite's cost is judged in calibration units, and raw CPU " +
+        "time is a different quantity that is NEVER substituted for an absent calibration. " +
+        "One full run with the current reporter re-arms this gate.",
     };
   }
 
@@ -655,7 +719,15 @@ export function judgeRuntimeBudget(summary: unknown, opts: JudgeOptions): Budget
     kind: "measured",
     wallClockMs,
     runCpuMs,
-    cpuMsPerTestFile: runCpuMs / testModuleCount,
+    workUnitsPerTestFile,
+    workMetric,
+    workUnits,
+    calibrationMs,
+    calibrationStartMs,
+    calibrationEndMs,
+    calibrationDriftFraction,
+    calibrationWorkload,
+    rawCpuMsPerTestFile,
     testModuleCount,
     slowestCollects,
     totalCollectMs: finiteNumber(rec.totalCollectMs) ?? 0,
@@ -718,7 +790,29 @@ export type RunQualification = Readonly<{
 export type JudgedRunRecord = {
   readonly qualification?: RunQualification;
   readonly timestamp: string | null;
+  /**
+   * RAW CPU per test file — PROVENANCE, and the LEGACY judged reading.
+   *
+   * Rows written before the calibrated metric carry this and nothing else;
+   * they are real judged runs of their era, but their unit (`raw-cpu-ms/v0`)
+   * is not the unit the gate judges today, so they are INCOMPARABLE: the
+   * baseline's eligibility rule excludes a row whose `metric` is absent or
+   * differs. New rows still carry this beside the calibrated reading, so a
+   * reader can see the raw cost without it ever feeding a verdict.
+   */
   readonly cpuMsPerTestFile: number;
+  /**
+   * THE JUDGED READING under the calibrated metric: calibration units per
+   * test file, computed once by `run-cpu.ts` `computeRunWork`. Absent on
+   * legacy rows, which is exactly why they cannot feed the window.
+   */
+  readonly workUnitsPerTestFile?: number;
+  /** The metric `workUnitsPerTestFile` was measured under (`calibrated-work/v1`). */
+  readonly metric?: string;
+  /** The run's calibration unit (mean of its start/end readings), in CPU ms. */
+  readonly calibrationMs?: number;
+  /** The run's calibration stationarity witness. */
+  readonly calibrationDriftFraction?: number;
   readonly testModuleCount: number;
   /**
    * TREE IDENTITY — the repository's own HEAD commit when the run was
@@ -841,8 +935,16 @@ export type JudgedRunRecord = {
   readonly mutation?: boolean;
 };
 
+/**
+ * The two shapes a suite's CPU budget may take: a ROLLING cap derived from
+ * the ledger's clean window, or an ACCUMULATION phase that records judged
+ * runs until a cap can be derived. Both declare the metric they are in, so a
+ * run measured in another unit can never be compared against them.
+ */
+export type CpuBudgetDeclaration = RollingCpuBudget | AccumulatingCpuBudget;
+
 export interface RunCostInputs {
-  readonly cpuBudget: RollingCpuBudget | Missing;
+  readonly cpuBudget: CpuBudgetDeclaration | Missing;
   readonly fileShareMax: number | Missing;
   /** Previously JUDGED full runs, oldest first (append order). */
   readonly priorRuns: readonly JudgedRunRecord[];
@@ -919,13 +1021,18 @@ export interface RunCostInputs {
  */
 export interface RollingCpuBudget {
   /**
+   * The unit the budget is declared in. A run whose summary carries a
+   * different metric is REFUSED, never compared across units; legacy rows
+   * (no metric) never feed the window. `calibrated-work/v1` is the only
+   * metric this tree declares today.
+   */
+  readonly metric: string;
+  /**
    * The recorded floor: the baseline is never derived below this number
    * without an explicit, measured re-derivation recorded beside the
-   * declaration. Seeded from the last hand derivation of the quiet center
-   * (1615, derived 2026-09-04: median 1610.0 plus the measured quiet
-   * excursion 4.6 over four settled-launch same-sha quiet judged runs).
+   * declaration, in the declared metric's units.
    */
-  readonly baselineFloorMsPerTestFile: number;
+  readonly baselineFloorUnitsPerTestFile: number;
   readonly derivedAtTestFileCount: number;
   readonly maxPopulationDriftFraction: number;
   /**
@@ -950,15 +1057,33 @@ export interface RollingCpuBudget {
    */
   readonly ambientInflationSlopePerCpu: number;
   readonly ambientInflationCapFraction: number;
+  /**
+   * THE METRIC'S DECLARED VALIDITY BOUNDS — the run's own witnesses that it
+   * was measured under the conditions the metric was calibrated through.
+   *
+   * `calibrationDriftMaxFraction`: how far the run's start and end
+   * calibration readings may disagree before the machine's speed moved too
+   * much for their mean to represent the run. The calibrated-work experiment
+   * measured 1.5-6.1% drift across five real-suite runs; a drift past this
+   * bound means the run spanned conditions the metric did not measure as
+   * stationary, and the judgement layer DEFERS rather than judging.
+   *
+   * `validThroughLoad5PerCpu`: the highest recorded 5-minute ambient load
+   * (per CPU) the metric's residual was measured through. Past it the metric
+   * is unmeasured, and the gate defers. Both are DECLARED, measured numbers,
+   * not defaults.
+   */
+  readonly calibrationDriftMaxFraction: number;
+  readonly validThroughLoad5PerCpu: number;
 }
 
 /** What the rolling derivation found, with its own evidence attached. */
 export interface BaselineDerivation {
   /** The cap in force: max(floor, median of the clean window). */
-  readonly baselineMsPerTestFile: number;
-  readonly floorMsPerTestFile: number;
+  readonly baselineUnitsPerTestFile: number;
+  readonly floorUnitsPerTestFile: number;
   /** The clean window's median, or null when the ledger holds no clean run. */
-  readonly medianMsPerTestFile: number | null;
+  readonly medianUnitsPerTestFile: number | null;
   /** The clean window's readings, oldest first — the evidence the cap is made of. */
   readonly windowReadings: readonly number[];
   /** The declared K, restated so every disclosure names it. */
@@ -976,7 +1101,7 @@ export interface BaselineDerivation {
 
 /** What {@link measureBudgetFloor} found: a measured floor, or why the ledger cannot give one yet. */
 export type BudgetFloorMeasurement =
-  | Readonly<{ status: "measured"; floorMsPerTestFile: number; derivedAtTestFileCount: number; readings: readonly number[]; windowRuns: number }>
+  | Readonly<{ status: "measured"; floorUnitsPerTestFile: number; derivedAtTestFileCount: number; readings: readonly number[]; windowRuns: number }>
   | Readonly<{ status: "unmeasurable"; reason: string; eligibleRuns: number; windowRuns: number; derivedAtTestFileCount: number }>;
 
 /**
@@ -1011,7 +1136,7 @@ export function measureBudgetFloor(
   }
   return {
     status: "measured",
-    floorMsPerTestFile: Math.ceil(suiteCpuMedian(readings)),
+    floorUnitsPerTestFile: Math.ceil(suiteCpuMedian(readings)),
     derivedAtTestFileCount: currentTestModuleCount,
     readings,
     windowRuns: budget.baselineWindowRuns,
@@ -1066,12 +1191,20 @@ function eligibleBudgetRows(
   budgetFailureIdentities: readonly string[],
 ): readonly Readonly<{ row: JudgedRunRecord; reading: number }>[] {
   return priorRuns.flatMap((r) => {
+    // A ROW MEASURED IN ANOTHER UNIT IS NOT COMPARABLE, and there is no
+    // conversion: a legacy row (`metric` absent, raw CPU ms) and a row from
+    // an older metric are excluded here rather than rescaled. This is the
+    // migration's whole guard — the old floor stays recorded, the old rows
+    // stay readable, and neither feeds the new window.
+    if (r.metric !== budget.metric) return [];
+    const reading = r.workUnitsPerTestFile;
+    if (reading === undefined || !Number.isFinite(reading) || reading <= 0) return [];
     // Only a reading taken inside the host's one instrument lock feeds a baseline: an unslotted row, or a legacy row with no stamp, may have shared the cores (D-17, design M-B).
     if (r.mutation === true || r.heavySlot !== "held") return [];
     const populationDrift = Math.abs(r.testModuleCount - currentTestModuleCount) / currentTestModuleCount;
     if (!(populationDrift <= budget.maxPopulationDriftFraction)) return [];
     if ((r.failures ?? []).some((f) => disqualifiesReading(f, budgetFailureIdentities))) return [];
-    return [{ row: r, reading: r.cpuMsPerTestFile / (1 + ambientInflationFraction(r.ambientLoad5PerCpu, budget)) }];
+    return [{ row: r, reading: reading / (1 + ambientInflationFraction(r.ambientLoad5PerCpu, budget)) }];
   });
 }
 
@@ -1125,7 +1258,7 @@ export function deriveRollingBaseline(
   currentTestModuleCount: number,
   budgetFailureIdentities: readonly string[],
 ): BaselineDerivation {
-  const floor = budget.baselineFloorMsPerTestFile;
+  const floor = budget.baselineFloorUnitsPerTestFile;
   // Each eligible reading is judged against the cap in force at its own moment
   // (the floor when no clean row precedes it, else the median of the clean
   // rows that do): a row whose own CPU outcome failed — recorded, or over that
@@ -1141,9 +1274,9 @@ export function deriveRollingBaseline(
   const median = window.length > 0 ? suiteCpuMedian(window) : null;
   const baseline = median === null ? floor : Math.max(floor, median);
   return {
-    baselineMsPerTestFile: baseline,
-    floorMsPerTestFile: floor,
-    medianMsPerTestFile: median,
+    baselineUnitsPerTestFile: baseline,
+    floorUnitsPerTestFile: floor,
+    medianUnitsPerTestFile: median,
     windowReadings: window,
     windowRuns: budget.baselineWindowRuns,
     floorBound: median !== null && median < floor,
@@ -1156,7 +1289,7 @@ export function deriveRollingBaseline(
 
 /** The clean window's readings as one readable list, for the disclosures. */
 function formatReadings(readings: readonly number[]): string {
-  return readings.map((r) => r.toFixed(1)).join(", ");
+  return readings.map((r) => r.toFixed(3)).join(", ");
 }
 
 /** The derivation's core sentence — shared by the standing line and the note. */
@@ -1164,19 +1297,19 @@ function baselineCore(d: BaselineDerivation): string {
   if (d.windowReadings.length === 0) {
     return (
       `the cold start — the ledger holds no clean judged run yet, so the declared ` +
-      `floor ${d.floorMsPerTestFile.toFixed(1)} ms/file is the baseline`
+      `floor ${d.floorUnitsPerTestFile.toFixed(3)} calibration units/file is the baseline`
     );
   }
   const floorLeg = d.floorBound
-    ? `, held at the declared floor ${d.floorMsPerTestFile.toFixed(1)} (the median sat below it)`
-    : `, above the declared floor ${d.floorMsPerTestFile.toFixed(1)}`;
+    ? `, held at the declared floor ${d.floorUnitsPerTestFile.toFixed(3)} calibration units/file (the median sat below it)`
+    : `, above the declared floor ${d.floorUnitsPerTestFile.toFixed(3)} calibration units/file`;
   const staleLeg = d.floorStaleBeyondSpread
     ? ` — the floor is STALE-LOOSE: the clean median sits more than the same-tree spread below it, so the gate is looser than the tree it bounds; re-derive the floor from the measured clean window and record the derivation beside the declaration`
     : "";
   return (
     `the median of the last ${String(d.windowReadings.length)} clean judged run(s) in the ` +
     `${String(d.windowRuns)}-run window (${formatReadings(d.windowReadings)}) = ` +
-    `${d.medianMsPerTestFile === null ? "—" : d.medianMsPerTestFile.toFixed(1)}` +
+    `${d.medianUnitsPerTestFile === null ? "—" : d.medianUnitsPerTestFile.toFixed(3)} calibration units/file` +
     floorLeg +
     staleLeg
   );
@@ -1193,7 +1326,7 @@ function baselineCore(d: BaselineDerivation): string {
  */
 export function baselineLine(d: BaselineDerivation): string {
   return (
-    `[runtime-budget] baseline: ${d.baselineMsPerTestFile.toFixed(1)} ms/file — ` +
+    `[runtime-budget] baseline: ${d.baselineUnitsPerTestFile.toFixed(3)} calibration units/file — ` +
     `${baselineCore(d)}; window readings are ambient-adjusted (each at its own recorded 5-minute load)`
   );
 }
@@ -1218,7 +1351,7 @@ export function baselineNote(
       : ` No ambient adjustment was earned (the 5-minute load leg recorded ` +
         `${typeof ambientLoad5PerCpu === "number" ? ambientLoad5PerCpu.toFixed(3) : "no"} /cpu).`;
   return (
-    ` Judged against the rolling baseline ${d.baselineMsPerTestFile.toFixed(1)} ms/file — ` +
+    ` Judged against the rolling baseline ${d.baselineUnitsPerTestFile.toFixed(3)} calibration units/file — ` +
     `${baselineCore(d)}.${adjustmentLeg}`
   );
 }
@@ -1263,7 +1396,10 @@ function ageOf(timestamp: string | null): string {
 export function provenanceLine(v: Extract<BudgetVerdict, { kind: "measured" }>): string {
   return (
     `[runtime-budget] this run: cpu ${(v.runCpuMs / 1000).toFixed(1)}s over ` +
-    `${String(v.testModuleCount)} test files = ${v.cpuMsPerTestFile.toFixed(1)} ms/file · ` +
+    `${String(v.testModuleCount)} test files = ${v.workUnitsPerTestFile.toFixed(3)} ` +
+    `calibration units/file (metric ${v.workMetric}; raw ${v.rawCpuMsPerTestFile.toFixed(1)} ms/file, ` +
+    `not judged; unit ${v.calibrationMs.toFixed(1)} ms/chunk of ${v.calibrationWorkload}) · ` +
+    `calibration drift ${(v.calibrationDriftFraction * 100).toFixed(1)}% · ` +
     `wall clock ${(v.wallClockMs / 1000).toFixed(2)}s (reported, not judged) · pool occupancy ` +
     `${(v.totalOccupancyMs / 1000).toFixed(1)}s · worst collect ` +
     `${(v.worstCollectShare * 100).toFixed(1)}% of wall · ambient load ` +
@@ -1324,6 +1460,59 @@ export function judgeRunCosts(
 }
 
 /**
+ * The run's own witnesses that the calibrated metric is being read in the
+ * conditions it was calibrated through. Returns the refusal in plain words,
+ * or null when the reading is valid. This is the "declares its load
+ * sensitivity and defers past the bound" half of the measurement contract:
+ * the metric is not silently judged outside the regime where its residual
+ * was measured.
+ */
+function metricValidityRefusal(
+  reading: Readonly<{
+    workMetric: string;
+    calibrationDriftFraction: number;
+    load5PerCpuAtStart: number;
+  }>,
+  budget: Pick<DeclaredCpuBudget, "metric" | "calibrationDriftMaxFraction" | "validThroughLoad5PerCpu">,
+  suiteLabel: string,
+): string | null {
+  if (reading.workMetric !== budget.metric) {
+    return (
+      `this run was measured under metric ${reading.workMetric}, but the ${suiteLabel} budget ` +
+      `declares ${budget.metric}. Those are different units: the reading is REFUSED rather ` +
+      `than compared across a unit change. Re-declare the budget in the run's metric, or run ` +
+      `the suite with a reporter that produces the declared one.`
+    );
+  }
+  if (reading.load5PerCpuAtStart < 0) {
+    return (
+      `the run recorded no 5-minute ambient load, so the calibrated metric's declared ` +
+      `validity bound (${budget.validThroughLoad5PerCpu.toFixed(2)}/cpu) cannot be checked. ` +
+      `An unreadable condition is not a clean one: this run is NOT JUDGED.`
+    );
+  }
+  if (reading.load5PerCpuAtStart > budget.validThroughLoad5PerCpu) {
+    return (
+      `the run's recorded 5-minute ambient load was ${reading.load5PerCpuAtStart.toFixed(3)}/cpu, ` +
+      `past the ${budget.validThroughLoad5PerCpu.toFixed(2)}/cpu bound through which the ` +
+      `calibrated metric's residual was measured. Past that bound the residual is UNMEASURED, ` +
+      `so this run is NOT JUDGED (a deferral, not a pass and not a fail). Nothing waits for a ` +
+      `quieter box: the next run inside the bound is judged on its own numbers.`
+    );
+  }
+  if (reading.calibrationDriftFraction > budget.calibrationDriftMaxFraction) {
+    return (
+      `the run's own calibration readings disagree by ` +
+      `${(reading.calibrationDriftFraction * 100).toFixed(1)}% from start to end, over the ` +
+      `declared ${(budget.calibrationDriftMaxFraction * 100).toFixed(1)}% stationarity bound. ` +
+      `The machine's speed moved across the measured window, so the mean of the two readings ` +
+      `is not this run's unit; the run is NOT JUDGED (a deferral, not a pass and not a fail).`
+    );
+  }
+  return null;
+}
+
+/**
  * The web door's CPU gate: derive the rolling baseline from the ledger, hand
  * the SAME one-run cap the static door uses the effective baseline, and carry
  * the derivation's note on every outcome. One cap, two declaration shapes —
@@ -1336,6 +1525,7 @@ function rollingCpuGate(
   const gate = "cpu-per-test-file";
   const budget = inputs.cpuBudget;
   if ("missing" in budget) return { gate, kind: "not-judged", message: budget.missing };
+  if ("phase" in budget) return accumulatingCpuGate(v, inputs, budget);
   const derivation = deriveRollingBaseline(
     budget,
     inputs.priorRuns,
@@ -1343,9 +1533,12 @@ function rollingCpuGate(
     inputs.budgetFailureIdentities,
   );
   const effective: DeclaredCpuBudget = {
-    msPerTestFile: derivation.baselineMsPerTestFile,
+    metric: budget.metric,
+    unitsPerTestFile: derivation.baselineUnitsPerTestFile,
     derivedAtTestFileCount: budget.derivedAtTestFileCount,
     maxPopulationDriftFraction: budget.maxPopulationDriftFraction,
+    calibrationDriftMaxFraction: budget.calibrationDriftMaxFraction,
+    validThroughLoad5PerCpu: budget.validThroughLoad5PerCpu,
     ambientInflationSlopePerCpu: budget.ambientInflationSlopePerCpu,
     ambientInflationCapFraction: budget.ambientInflationCapFraction,
   };
@@ -1360,17 +1553,94 @@ function rollingCpuGate(
   };
 }
 
+/** The rows that may count toward an accumulation window: same metric, same
+ *  population, in the instrument lock, not a mutation run, no disqualifying
+ *  gate failure. Legacy-unit rows never count. */
+function accumulatingRows(
+  budget: AccumulatingCpuBudget,
+  priorRuns: readonly JudgedRunRecord[],
+  currentTestModuleCount: number,
+  budgetFailureIdentities: readonly string[],
+): readonly JudgedRunRecord[] {
+  return priorRuns.filter((r) => {
+    if (r.metric !== budget.metric || r.workUnitsPerTestFile === undefined) return false;
+    if (r.mutation === true || r.heavySlot !== "held") return false;
+    const drift = Math.abs(r.testModuleCount - currentTestModuleCount) / currentTestModuleCount;
+    if (!(drift <= budget.maxPopulationDriftFraction)) return false;
+    return !(r.failures ?? []).some((f) => disqualifiesReading(f, budgetFailureIdentities));
+  });
+}
+
+/**
+ * The ACCUMULATION door: no cap exists yet, and none is guessed. The gate
+ * still refuses outside the metric's declared validity bounds, and it says
+ * exactly how many new-unit runs the window holds and what the retired
+ * legacy declaration was — marked INCOMPARABLE, never rescaled. This is the
+ * migration state of a budget whose unit changed.
+ */
+function accumulatingCpuGate(
+  v: Extract<BudgetVerdict, { kind: "measured" }>,
+  inputs: RunCostInputs,
+  budget: AccumulatingCpuBudget,
+): GateOutcome {
+  const gate = "cpu-per-test-file";
+  const refusal = metricValidityRefusal(v, budget, inputs.suiteLabel);
+  if (refusal !== null) return { gate, kind: "not-judged", message: refusal };
+  const prior = accumulatingRows(
+    budget,
+    inputs.priorRuns,
+    v.testModuleCount,
+    inputs.budgetFailureIdentities,
+  );
+  // This run is appended after the verdict; it is the next row of the window.
+  const recorded = prior.length + 1;
+  const legacy = budget.legacy;
+  const legacyLeg = legacy === undefined
+    ? " This suite declared no earlier floor."
+    : ` The retired floor ${legacy.baselineFloorMsPerTestFile.toFixed(1)} ms/file at ` +
+      `${String(legacy.derivedAtTestFileCount)} files was measured under ${legacy.metric}, ` +
+      `a DIFFERENT unit: it is recorded but INCOMPARABLE, not rescaled, and none of its rows ` +
+      `enters this window.`;
+  if (recorded < budget.minimumJudgedRuns) {
+    return {
+      gate,
+      kind: "not-judged",
+      message:
+        `the budget's metric is ${budget.metric} and it is in its ACCUMULATION phase: ` +
+        `${String(recorded)} of the ${String(budget.minimumJudgedRuns)} clean judged full runs ` +
+        `needed to derive a cap at this population are recorded (this run is one of them). ` +
+        `No cap is in force because no cap has been derived; the gate does not judge a number ` +
+        `nobody measured.${legacyLeg} Run the full suite ` +
+        `${String(budget.minimumJudgedRuns - recorded)} more time(s), then derive the floor ` +
+        `with its measuring tool.`,
+    };
+  }
+  return {
+    gate,
+    kind: "not-judged",
+    message:
+      `the accumulation window now holds ${String(recorded)} clean judged runs under ` +
+      `${budget.metric} at this population — enough to derive the cap. This run is not ` +
+      `judged by a number nobody derived.${legacyLeg} Replace the accumulation declaration ` +
+      `with the rolling shape, setting baselineFloorUnitsPerTestFile to this window's clean ` +
+      `median (the measuring tool's rule, D-17; later floors go through ` +
+      `npm run budget:measure -- --write), and record the derivation beside the declaration.`,
+  };
+}
+
 /**
  * THE ONE CPU DECISION, shared by both suites' gates: ONE judged run against
  * the cap in force (UR-24-BUDGETS; the user's decision of 2026-10-07: no
  * forgiveness). A run over the cap FAILS that run: there is no streak, no
- * "recorded, not red" band and no re-run. The one allowance left is the
- * stated ambient adjustment (AMBIENT-ALLOWANCE-REMOVE owns its removal),
- * printed numerically on every verdict.
+ * "recorded, not red" band and no re-run.
  */
-function cpuCap(current: JudgedRunRecord, budget: DeclaredCpuBudget): Readonly<{ pass: boolean; cap: number }> {
-  const cap = budget.msPerTestFile * (1 + ambientInflationFraction(current.ambientLoad5PerCpu, budget));
-  return { pass: current.cpuMsPerTestFile <= cap, cap };
+function cpuCap(
+  reading: number,
+  ambientLoad5PerCpu: number,
+  budget: DeclaredCpuBudget,
+): Readonly<{ pass: boolean; cap: number }> {
+  const cap = budget.unitsPerTestFile * (1 + ambientInflationFraction(ambientLoad5PerCpu, budget));
+  return { pass: reading <= cap, cap };
 }
 
 /**
@@ -1391,32 +1661,35 @@ function cpuGate(
 ): GateOutcome {
   const gate = "cpu-per-test-file";
   if ("missing" in budget) return { gate, kind: "not-judged", message: budget.missing };
-  const current: JudgedRunRecord = {
-    timestamp: v.summaryTimestamp,
-    cpuMsPerTestFile: v.cpuMsPerTestFile,
-    testModuleCount: v.testModuleCount,
-    ...(v.load5PerCpuAtStart >= 0 ? { ambientLoad5PerCpu: v.load5PerCpuAtStart } : {}),
-  };
-  const { pass, cap } = cpuCap(current, budget);
+  const refusal = metricValidityRefusal(v, budget, suiteLabel);
+  if (refusal !== null) return { gate, kind: "not-judged", message: refusal };
+  const { pass, cap } = cpuCap(v.workUnitsPerTestFile, v.load5PerCpuAtStart, budget);
   const inflation = ambientInflationFraction(v.load5PerCpuAtStart, budget);
   const arithmetic =
     inflation > 0
-      ? ` = baseline ${budget.msPerTestFile.toFixed(1)} × ${(1 + inflation).toFixed(3)} ambient ` +
+      ? ` = baseline ${budget.unitsPerTestFile.toFixed(3)} × ${(1 + inflation).toFixed(3)} ambient ` +
         `adjustment (5-minute load ${v.load5PerCpuAtStart.toFixed(3)}/cpu × the declared envelope)`
       : ` (no ambient adjustment earned: 5-minute load ` +
         `${v.load5PerCpuAtStart >= 0 ? v.load5PerCpuAtStart.toFixed(3) : "not recorded"}/cpu)`;
   const allowance = ambientAllowanceStatement(budget, inflation);
+  const rawLeg =
+    `raw CPU ${v.rawCpuMsPerTestFile.toFixed(1)} ms/file (provenance, not judged), ` +
+    `calibration unit ${v.calibrationMs.toFixed(1)} ms/chunk, drift ` +
+    `${(v.calibrationDriftFraction * 100).toFixed(1)}%`;
   if (pass) {
     return {
       gate,
       kind: "pass",
-      message: `${v.cpuMsPerTestFile.toFixed(1)} ms/file within ${cap.toFixed(1)}${arithmetic}${allowance}`,
+      message:
+        `${v.workUnitsPerTestFile.toFixed(3)} calibration units/file within ${cap.toFixed(3)} ` +
+        `(metric ${v.workMetric}; ${rawLeg})${arithmetic}${allowance}`,
     };
   }
   const failMessage =
-    `The ${suiteLabel} suite cost ${v.cpuMsPerTestFile.toFixed(1)} ms of CPU per test file in ` +
-    `THIS run — over the ${cap.toFixed(1)} ms/file cap in force${arithmetic}${allowance}. One ` +
-    `judged run over the cap is the verdict: no streak, no band, no re-run.\n\n` +
+    `The ${suiteLabel} suite cost ${v.workUnitsPerTestFile.toFixed(3)} calibration units per ` +
+    `test file in THIS run — over the ${cap.toFixed(3)} cap in force (metric ${v.workMetric}; ` +
+    `${rawLeg})${arithmetic}${allowance}. One judged run over the cap is the verdict: no ` +
+    `streak, no band, no re-run.\n\n` +
     `That run (${ageOf(v.summaryTimestamp)}): ${(v.runCpuMs / 1000).toFixed(1)}s of CPU across ` +
     `${String(v.testModuleCount)} test files, wall clock ` +
     `${(v.wallClockMs / 1000).toFixed(2)}s (reported, not judged), pool occupancy ` +
@@ -1512,9 +1785,17 @@ function perFileShareGate(
 
 /** What the config declares: a number, and the population it was measured on. */
 export interface DeclaredCpuBudget {
-  readonly msPerTestFile: number;
+  /** The static/derived shape's discriminant; a rolling declaration omits it. */
+  readonly phase?: "derived";
+  /** The unit the cap is declared in. A run measured under another unit is refused. */
+  readonly metric: string;
+  readonly unitsPerTestFile: number;
   readonly derivedAtTestFileCount: number;
   readonly maxPopulationDriftFraction: number;
+  /** The run's own calibration drift bound; past it the gate defers. */
+  readonly calibrationDriftMaxFraction: number;
+  /** The recorded 5-minute load (per CPU) the metric's residual was measured through. */
+  readonly validThroughLoad5PerCpu: number;
   /**
    * The ambient-inflation envelope — see `ambientInflationFraction`. The cap
    * scales by the adjustment the run's recorded 5-minute ambient leg earns,
@@ -1575,9 +1856,9 @@ export function judgePopulationDrift(
       `to survive. A threshold is meaningless without the population it bounds: this one ` +
       `now governs a suite it never measured. Re-base ${configKey}.derivedAtTestFileCount ` +
       `on the current tree, AND re-derive the budget's hand-maintained number beside it — ` +
-      `${configKey}.baselineFloorMsPerTestFile under the rolling declaration (judge it ` +
+      `${configKey}.baselineFloorUnitsPerTestFile under the rolling declaration (judge it ` +
       `against the ledger's own clean window at the new population), or ` +
-      `${configKey}.msPerTestFile under a static one — with the derivation recorded beside ` +
+      `${configKey}.unitsPerTestFile under a static one — with the derivation recorded beside ` +
       `the declaration. Do not simply move derivedAtTestFileCount — that restates the ` +
       `population without re-deriving the number, which is the defect itself.`,
   };
@@ -1606,11 +1887,37 @@ export function judgePopulationDrift(
  */
 export interface AccumulatingCpuBudget {
   readonly phase: "accumulation";
+  /** The unit the accumulated readings are in. Rows under another unit (or
+   *  none) never count toward this window. */
+  readonly metric: string;
   /** Judged runs the ledger must hold before the cap is derived. */
   readonly minimumJudgedRuns: number;
   /** Population validation for ledger entries during accumulation — the same
    *  role the rolling budget's field of this name plays in its eligibility rule. */
   readonly maxPopulationDriftFraction: number;
+  /** The population the window is being filled at; the drift guard's base.
+   *  Optional: a suite whose accumulation was never tied to a declared
+   *  population (the integration suite) omits it; the web declaration states
+   *  the population the legacy floor was measured at. */
+  readonly derivedAtTestFileCount?: number | undefined;
+  /** See `RollingCpuBudget.calibrationDriftMaxFraction`. */
+  readonly calibrationDriftMaxFraction: number;
+  /** See `RollingCpuBudget.validThroughLoad5PerCpu`. */
+  readonly validThroughLoad5PerCpu: number;
+  /**
+   * THE INCOMPARABLE LEGACY DECLARATION — recorded, never rescaled. A
+   * budget migrated across units carries the old floor and its population
+   * here, with the unit it was measured in, so a reader can see what was
+   * retired and why no row of it feeds the new window. Optional: a suite
+   * that never declared a floor (the integration suite) has no legacy leg.
+   */
+  readonly legacy?: Readonly<{
+    readonly metric: string;
+    readonly baselineFloorMsPerTestFile: number;
+    readonly derivedAtTestFileCount: number;
+    /** Always true: the declaration is a record, not a conversion. */
+    readonly incomparable: boolean;
+  }> | undefined;
 }
 
 /** The compile-cache warmth reading the integration runner takes — the same
@@ -1627,9 +1934,21 @@ export interface CacheWarmthReading {
 }
 
 export interface SuiteCpuEvidence {
-  /** CPU the run consumed (runner self + reaped worker subtree), or null
-   *  when it could not be measured — absence, never zero. */
-  readonly cpuMs: number | null;
+  /**
+   * THE JUDGED FIGURE: the run's cost in calibration units per test file,
+   * computed ONCE by `run-cpu.ts` `computeRunWork` and read here. Null when
+   * the calibration could not be measured — absence, never a zero, and never
+   * raw CPU substituted for it.
+   */
+  readonly workUnitsPerTestFile: number | null;
+  /** The metric the reading was taken under; compared with the declaration. */
+  readonly workMetric: string | null;
+  /** Raw CPU per test file — provenance only, never judged. */
+  readonly rawCpuMsPerTestFile: number | null;
+  /** The run's calibration unit (mean of its start/end readings), in CPU ms. */
+  readonly calibrationMs: number | null;
+  /** The run's own stationarity witness. */
+  readonly calibrationDriftFraction: number | null;
   /** Test FILES the run covered — the population the budget is per. */
   readonly testFileCount: number | null;
   /** Recorded and REPORTED, never judged — see the module header. */
@@ -1689,12 +2008,26 @@ export function judgeSuiteCpu(
     judgedRecord: null,
   });
 
-  // ABSENCE, NEVER ZERO — on both required readings.
-  if (evidence.cpuMs === null || evidence.cpuMs <= 0) {
+  // ABSENCE, NEVER ZERO — on the calibrated reading and its witness. Raw CPU
+  // is a different quantity and is NEVER substituted: a run with no
+  // calibration is not judged in milliseconds.
+  if (evidence.workUnitsPerTestFile === null || evidence.workUnitsPerTestFile <= 0) {
     return refuse(
-      "the run's CPU cost could not be read (no positive reading from the runner's " +
-        "process accounting), and CPU is what this budget bounds. Absence is not a zero " +
-        "and a zero is not a pass.",
+      "the run's calibrated work could not be measured (no positive " +
+        "workUnitsPerTestFile from the run's own calibration signal), and calibrated work " +
+        "is what this budget bounds. Raw CPU time is a different unit and is NOT " +
+        "substituted. One full run with the current runner re-arms this gate.",
+    );
+  }
+  if (
+    evidence.workMetric === null ||
+    evidence.rawCpuMsPerTestFile === null || evidence.rawCpuMsPerTestFile <= 0 ||
+    evidence.calibrationMs === null || evidence.calibrationMs <= 0 ||
+    evidence.calibrationDriftFraction === null || evidence.calibrationDriftFraction < 0
+  ) {
+    return refuse(
+      "the run's calibrated-work reading is missing its metric, raw-CPU provenance, " +
+        "calibration unit or drift witness. A reading without its witness is not judged.",
     );
   }
   if (evidence.testFileCount === null || evidence.testFileCount <= 0) {
@@ -1742,7 +2075,13 @@ export function judgeSuiteCpu(
 
   const judgedRecord: JudgedRunRecord = {
     timestamp: evidence.timestamp,
-    cpuMsPerTestFile: evidence.cpuMs / evidence.testFileCount,
+    // Raw provenance beside the judged reading: new rows carry both, so a
+    // reader can see the raw cost without it ever feeding a verdict.
+    cpuMsPerTestFile: evidence.rawCpuMsPerTestFile,
+    workUnitsPerTestFile: evidence.workUnitsPerTestFile,
+    metric: evidence.workMetric,
+    calibrationMs: evidence.calibrationMs,
+    calibrationDriftFraction: evidence.calibrationDriftFraction,
     testModuleCount: evidence.testFileCount,
     // Present only when the runner could read them — an unreadable identity
     // or condition is ABSENT in the record, never a fabricated placeholder.
@@ -1770,17 +2109,35 @@ export function judgeSuiteCpu(
     };
   }
 
-  if ("phase" in declaration) {
+  const refused = metricValidityRefusal(
+    {
+      workMetric: evidence.workMetric,
+      calibrationDriftFraction: evidence.calibrationDriftFraction,
+      load5PerCpuAtStart: evidence.ambientLoad5PerCpu ?? -1,
+    },
+    declaration,
+    suiteLabel,
+  );
+  if (refused !== null) {
+    return { outcome: { gate, kind: "not-judged", message: refused }, judgedRecord };
+  }
+
+  if (declaration.phase === "accumulation") {
     // ACCUMULATION. Ledger entries are population-validated exactly as the
     // rolling baseline validates them: an entry from a different population is
     // not evidence toward this derivation.
     const valid = priorRuns.filter(
       (r) =>
+        r.metric === declaration.metric &&
+        r.workUnitsPerTestFile !== undefined &&
         Math.abs(r.testModuleCount - judgedRecord.testModuleCount) /
           judgedRecord.testModuleCount <=
         declaration.maxPopulationDriftFraction,
     );
-    const samples = [...valid.map((r) => r.cpuMsPerTestFile), judgedRecord.cpuMsPerTestFile];
+    const samples = [
+      ...valid.map((r) => r.workUnitsPerTestFile!),
+      judgedRecord.workUnitsPerTestFile!,
+    ];
     const have = samples.length;
     const need = declaration.minimumJudgedRuns;
     // SAME-TREE means SAME COMMIT: how many of the counted samples share
@@ -1806,7 +2163,7 @@ export function judgeSuiteCpu(
           kind: "not-judged",
           message:
             `accumulation phase — judged run ${String(have)} of ${String(need)} recorded ` +
-            `(this run: ${judgedRecord.cpuMsPerTestFile.toFixed(1)} ms/file over ` +
+            `(this run: ${judgedRecord.workUnitsPerTestFile!.toFixed(3)} calibration units/file over ` +
             `${String(judgedRecord.testModuleCount)} test files). No cap is in force yet ` +
             `and none is guessed: the cap is DERIVED from the ledger's clean median, with no ` +
             `headroom, once ${String(need)} judged runs exist, and the derivation is recorded ` +
@@ -1824,12 +2181,12 @@ export function judgeSuiteCpu(
         message:
           `accumulation complete — the ledger holds ${String(have)} judged runs ` +
           `(>= ${String(need)}). Derive the cap now, from the ledger, not from taste: ` +
-          `median ${med.toFixed(1)} ms/file, measured same-tree spread ±` +
+          `median ${med.toFixed(3)} calibration units/file, measured same-tree spread ±` +
           `${(spread * 100).toFixed(1)}% (max |run − median| / median — computed over ALL ` +
           `counted samples; recompute both over the same-sha same-condition subset before ` +
           `deriving). Replace the ` +
           `accumulation declaration at ${configKey} in bridlewise.config.json with the ` +
-          `rolling shape: baselineFloorMsPerTestFile (the clean median, no headroom: one ` +
+          `rolling shape: baselineFloorUnitsPerTestFile (the clean median, no headroom: one ` +
           `judged run over the cap fails), derivedAtTestFileCount ` +
           `(${String(judgedRecord.testModuleCount)}), maxPopulationDriftFraction, ` +
           `sameTreeSpreadFraction and baselineWindowRuns — and ` +
@@ -1849,7 +2206,11 @@ export function judgeSuiteCpu(
     return { outcome: { gate, kind: "not-judged", message: drift.why }, judgedRecord };
   }
 
-  const { pass, cap } = cpuCap(judgedRecord, declaration);
+  const { pass, cap } = cpuCap(
+    evidence.workUnitsPerTestFile,
+    evidence.ambientLoad5PerCpu ?? -1,
+    declaration,
+  );
   const wallNote =
     evidence.wallClockMs !== null
       ? ` Wall clock ${(evidence.wallClockMs / 1000).toFixed(2)}s (reported, not judged).`
@@ -1857,7 +2218,7 @@ export function judgeSuiteCpu(
   const inflation = ambientInflationFraction(evidence.ambientLoad5PerCpu, declaration);
   const arithmetic =
     inflation > 0
-      ? ` = baseline ${declaration.msPerTestFile.toFixed(1)} × ${(1 + inflation).toFixed(3)} ` +
+      ? ` = baseline ${declaration.unitsPerTestFile.toFixed(3)} × ${(1 + inflation).toFixed(3)} ` +
         `ambient adjustment (5-minute load ` +
         `${evidence.ambientLoad5PerCpu !== null ? evidence.ambientLoad5PerCpu.toFixed(3) : "?"}/cpu × ` +
         `the declared envelope)`
@@ -1870,7 +2231,8 @@ export function judgeSuiteCpu(
         gate,
         kind: "pass",
         message:
-          `${judgedRecord.cpuMsPerTestFile.toFixed(1)} ms/file within ${cap.toFixed(1)}` +
+          `${judgedRecord.workUnitsPerTestFile!.toFixed(3)} calibration units/file within ` +
+          `${cap.toFixed(3)}` +
           `${arithmetic}${allowance}.${wallNote}`,
       },
       judgedRecord,
@@ -1881,10 +2243,12 @@ export function judgeSuiteCpu(
       gate,
       kind: "fail",
       message:
-        `The ${suiteLabel} suite cost ${judgedRecord.cpuMsPerTestFile.toFixed(1)} ms of CPU per ` +
-        `test file in THIS run — over the ${cap.toFixed(1)} ms/file cap in force${arithmetic}${allowance}. ` +
+        `The ${suiteLabel} suite cost ${judgedRecord.workUnitsPerTestFile!.toFixed(3)} ` +
+        `calibration units per test file in THIS run — over the ${cap.toFixed(3)} cap in force ` +
+        `(metric ${judgedRecord.metric}; raw ${judgedRecord.cpuMsPerTestFile.toFixed(1)} ms/file, ` +
+        `provenance)${arithmetic}${allowance}. ` +
         `One judged run over the cap is the verdict: no streak, no band, no re-run.\n\n` +
-        `THIS RUN: ${((evidence.cpuMs ?? 0) / 1000).toFixed(1)}s of CPU across ` +
+        `THIS RUN: ${((evidence.rawCpuMsPerTestFile ?? 0) * evidence.testFileCount / 1000).toFixed(1)}s of CPU across ` +
         `${String(judgedRecord.testModuleCount)} test files.${wallNote}\n\n` +
         `Fix the regression — do not raise the budget to meet it (a budget changes only through ` +
         `its measuring tool, D-17).`,

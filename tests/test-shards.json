@@ -1457,6 +1457,10 @@
       "weightMs": 22641
     },
     {
+      "path": "tests/prevention/suite-work-metric-owner.test.ts",
+      "weightMs": 600
+    },
+    {
       "path": "tests/prevention/svelte-css-scope-probe.test.ts",
       "weightMs": 11
     },
@@ -2101,22 +2105,22 @@
     {
       "path": "tests/prevention/cutover-graph-receipt-owner.test.ts",
       "reason": "private-only cutover graph generator and consumers are not published in the public snapshot",
-      "evidence": "docs/floor/roadmap.md#snapshot · public baseline audit"
+      "evidence": "docs/floor/roadmap.md#snapshot \u00b7 public baseline audit"
     },
     {
       "path": "tests/prevention/frozen-record-not-a-second-owner.test.ts",
       "reason": "the private frozen archives are not published; the public snapshot has no frozen record population to judge",
-      "evidence": "docs/floor/roadmap.md#snapshot · public baseline audit"
+      "evidence": "docs/floor/roadmap.md#snapshot \u00b7 public baseline audit"
     },
     {
       "path": "tests/performance/regression.test.ts",
       "reason": "requires the generated tests/performance report from an idle-host profile; the report is not published and cannot be produced on every shard",
-      "evidence": "docs/floor/roadmap.md#snapshot · public baseline audit"
+      "evidence": "docs/floor/roadmap.md#snapshot \u00b7 public baseline audit"
     },
     {
       "path": "tests/unit/landlock-wsl-host.test.ts",
       "reason": "requires a WSL host with a mounted Windows profile, including a credential store with its 8.3 short name; the standard Ubuntu shard runner does not provide that host",
-      "evidence": "docs/floor/roadmap.md#snapshot · public baseline audit"
+      "evidence": "docs/floor/roadmap.md#snapshot \u00b7 public baseline audit"
     }
   ]
 }

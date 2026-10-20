@@ -100,7 +100,13 @@ import { instrumentLockPath, instrumentLockStamp } from "../../engine/src/proces
 import { readTestExecutionConfig } from "../../engine/src/workflow/test-result-collector.ts";
 import { cpus, loadavg } from "node:os";
 import { BUDGET_SUMMARY_PATH, moduleCacheDirOf } from "../helpers/budget-paths.ts";
-import { readRunCpu } from "../../engine/src/shared/run-cpu.ts";
+import {
+  computeRunWork,
+  measureCalibration,
+  readRunCpu,
+  type CalibrationReading,
+  type RunCpu,
+} from "../../engine/src/shared/run-cpu.ts";
 import { failureDigest, failureIdentityFile, failureLocation, qualificationInvocation } from "../../engine/src/shared/run-history.ts";
 import {
   judgeRunCosts,
@@ -295,6 +301,21 @@ export interface BudgetSummary {
    * That is the whole reason this field exists.
    */
   readonly runCpuMs: number | null;
+  /**
+   * THE JUDGED FIGURE: the suite's CPU in calibration units per test file,
+   * computed ONCE by `run-cpu.ts` `computeRunWork` and read by the verdict.
+   * Null when the run's calibration could not be measured — absence, never a
+   * raw-CPU substitute.
+   */
+  readonly workUnitsPerTestFile: number | null;
+  readonly workMetric: string | null;
+  readonly workUnits: number | null;
+  readonly rawCpuMsPerTestFile: number | null;
+  readonly calibrationMs: number | null;
+  readonly calibrationStartMs: number | null;
+  readonly calibrationEndMs: number | null;
+  readonly calibrationDriftFraction: number | null;
+  readonly calibrationWorkload: string | null;
 }
 
 /** Structural input to `onTestRunEnd`, also supplied by reporter fixtures.
@@ -663,6 +684,14 @@ export type ReporterHarness = Readonly<{
   readonly instrumentLockPath: string;
   /** The profile report the performance budgets are judged from — production: the one path the profile step writes. */
   readonly performanceReportPath: string;
+  /**
+   * The run's calibration signal. Required (all-or-none harness) so a
+   * reporter fixture never spawns the real benchmark: the signal is injected,
+   * not bypassed, and the production default is `measureCalibration`.
+   */
+  readonly readCalibration: () => CalibrationReading | null;
+  /** The run's CPU snapshots. Injected so a fixture never measures the real process. */
+  readonly readCpu: () => RunCpu | null;
   readonly out: (chunk: string) => void;
   readonly err: (chunk: string) => void;
   readonly setExitCode: (code: number) => void;
@@ -671,6 +700,12 @@ export type ReporterHarness = Readonly<{
 export default class BudgetReporter {
   private startTime = 0;
   private loadAtStart = 0;
+  /** The CPU snapshot AFTER the start calibration: the suite's window opens here. */
+  private cpuAtStart: RunCpu | null = null;
+  /** The start calibration reading (taken before the CPU snapshot, so its cost is not the suite's). */
+  private calibrationAtStart: CalibrationReading | null = null;
+  private readonly readCalibration: () => CalibrationReading | null;
+  private readonly readCpu: () => RunCpu | null;
   private load5AtStart = 0;
   private load15AtStart = 0;
   private cacheEntriesAtStart: number | null = null;
@@ -733,12 +768,18 @@ export default class BudgetReporter {
     this.repositoryRoot = harness?.repositoryRoot ?? process.cwd();
     this.instrumentLockPathOverride = harness?.instrumentLockPath;
     this.performanceReportPath = harness?.performanceReportPath ?? REPORT_PATH;
+    this.readCalibration = harness?.readCalibration ?? measureCalibration;
+    this.readCpu = harness?.readCpu ?? readRunCpu;
     this.out = harness?.out ?? ((chunk) => void process.stdout.write(chunk));
     this.err = harness?.err ?? ((chunk) => void process.stderr.write(chunk));
     this.fail = harness?.setExitCode ?? ((code) => void (process.exitCode = code));
   }
 
   onInit(ctx?: unknown): void {
+    // BEFORE the start stamp and the CPU snapshot: the calibration's own CPU
+    // and wall time sit outside the suite's window. A missing reading is
+    // carried as null and the metric is ABSENT — never raw CPU.
+    this.calibrationAtStart = this.readCalibration();
     this.startTime = Date.now();
     this.expectedModules = undefined;
     this.configuredShard = (ctx as VitestLike | undefined)?.config?.shard != null;
@@ -762,6 +803,9 @@ export default class BudgetReporter {
     // when the end's read finds it unchanged.
     this.treeAtStart = readMeasuredTree(this.repositoryRoot);
     this.invocationId = qualificationInvocation(process.env);
+    // LAST in `onInit`: the suite's CPU window opens after every pre-run
+    // measurement, so none of this setup is charged to the suite.
+    this.cpuAtStart = this.readCpu();
   }
 
   /** The public start hook precedes sharding. Task IDs bind verbatim module paths;
@@ -813,6 +857,20 @@ export default class BudgetReporter {
     const wallClockMs = this.startTime > 0 ? Date.now() - this.startTime : 0;
     const modules = testModules ?? [];
     const cpuCount = Math.max(1, cpus().length);
+    // CLOSE THE MEASURED WINDOW BEFORE THE END CALIBRATION: the CPU snapshot
+    // is the suite's; the calibration that follows it is the unit, and its
+    // own CPU must not be charged to the subject.
+    const cpuAtEnd = this.readCpu();
+    const calibrationAtEnd = this.readCalibration();
+    const runCpuMs =
+      this.cpuAtStart !== null && cpuAtEnd !== null
+        ? cpuAtEnd.totalCpuMs - this.cpuAtStart.totalCpuMs
+        : null;
+    const runWork = computeRunWork(
+      runCpuMs,
+      { atStart: this.calibrationAtStart, atEnd: calibrationAtEnd },
+      modules.length,
+    );
     // ONE walk: the written count and its newest-mtime witness must come
     // from the same pass, or the contradiction check compares two moments.
     const written =
@@ -869,9 +927,23 @@ export default class BudgetReporter {
       cpuCount,
       // Read HERE rather than at process exit: this is the last hook vitest
       // gives a reporter that still runs inside the run, and the pool workers
-      // are reaped children by the time it fires. Absence stays absent — a
-      // missing CPU reading must not become a zero.
-      runCpuMs: readRunCpu()?.totalCpuMs ?? null,
+      // are reaped children by the time it fires. The figure is a DELTA
+      // between snapshots taken after the start calibration and before the
+      // end one, so neither calibration is charged to the suite. Absence
+      // stays absent — a missing CPU reading must not become a zero.
+      runCpuMs,
+      // THE ONE JUDGED FIGURE, computed by the signal owner and read by the
+      // verdict. Null (absent) when either calibration is missing; the verdict
+      // refuses rather than falling back to raw CPU.
+      workUnitsPerTestFile: runWork?.workUnitsPerTestFile ?? null,
+      workMetric: runWork?.metric ?? null,
+      workUnits: runWork?.workUnits ?? null,
+      rawCpuMsPerTestFile: runWork?.rawCpuMsPerTestFile ?? null,
+      calibrationMs: runWork?.calibrationMs ?? null,
+      calibrationStartMs: this.calibrationAtStart?.cpuMs ?? null,
+      calibrationEndMs: calibrationAtEnd?.cpuMs ?? null,
+      calibrationDriftFraction: runWork?.calibrationDriftFraction ?? null,
+      calibrationWorkload: runWork?.calibrationWorkload ?? null,
     };
 
     let summaryWriteFailed = false;
@@ -960,7 +1032,7 @@ export default class BudgetReporter {
       // what floor. A baseline that moved and said nothing would be the
       // silent climb the feed filter's construction exists to prevent.
       const derivation =
-        verdict.kind === "measured" && !("missing" in budget)
+        verdict.kind === "measured" && !("missing" in budget) && !("phase" in budget)
           ? deriveRollingBaseline(
               budget,
               priorRuns,
@@ -1025,7 +1097,13 @@ export default class BudgetReporter {
             producer: "web" as const, producerComplete: recorded.complete, outcomes,
           } }),
           timestamp: verdict.summaryTimestamp,
-          cpuMsPerTestFile: verdict.cpuMsPerTestFile,
+          // RAW provenance and the JUDGED reading, both from the one
+          // computation in run-cpu.ts. A legacy row has only the first.
+          cpuMsPerTestFile: verdict.rawCpuMsPerTestFile,
+          workUnitsPerTestFile: verdict.workUnitsPerTestFile,
+          metric: verdict.workMetric,
+          calibrationMs: verdict.calibrationMs,
+          calibrationDriftFraction: verdict.calibrationDriftFraction,
           testModuleCount: verdict.testModuleCount,
           ...(headSha !== null ? { headSha } : {}),
           ambientLoadPerCpu: verdict.load1PerCpuAtStart,
@@ -1056,7 +1134,7 @@ export default class BudgetReporter {
           // from the ledger on every read; this field is the row's own
           // record of what judged it, never an input.
           ...(derivation !== null
-            ? { baselineMsPerTestFile: derivation.baselineMsPerTestFile }
+            ? { baselineUnitsPerTestFile: derivation.baselineUnitsPerTestFile }
             : {}),
           ...provisionalFailureMark(this.repositoryRoot),
           // The tree this run measured: the like-for-like key a later commit
