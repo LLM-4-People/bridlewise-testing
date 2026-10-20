@@ -5,7 +5,6 @@ This is the public task board for the Bridlewise development floor. It is a work
 ## Open
 
 - [ ] **Activate the sharded full-suite gate** — the manifest, plan, merge, and receipt contract are built and one manual ten-shard receipt is recorded at `d47909de`; the workflow is still `workflow_dispatch` only, so decide the automatic trigger and required check.
-- [ ] **Publish the corpus manifest** — no manifest or fetch step exists; `engine/scripts/verification/required-fixture-roots.ts` still tells a reader to copy or symlink the 4.1 GB cache from an existing checkout.
 - [ ] **Add per-capability admission receipts** — `preflight` names each capability with an allow or deny decision and a code, but carries no evidence path or remedy.
 - [ ] **Document the backup and restore flow** — no backup or restore procedure exists; the docs only advise keeping the database and key home backed up, and `db-archive` archives conversations rather than restoring them.
 - [ ] **Verify the public floor on a fresh machine** — the commands are documented, but no fresh-clone receipt is recorded and the evidence page still expects 18 public smoke tests (the suite is 28).
@@ -49,3 +48,4 @@ Each row owns one entry in the tracked flaky burn-down list. The owner is the ta
 - [x] **Add a second provider conformance fixture** — the Chat Completions request and stream shapes are proved offline without a universal-compatibility claim.
 - [x] **Make the testing hub discoverable from every surface** — the README, Pages hub, roadmap, help, and product README are in step.
 - [x] **Make the performance report reproducible** — the idle-host contract is documented in the test map, and a fresh `2caada8f` profile was judged by the regression gate (36/36); the red LCP, long-task, API, and long-chat budgets belong to M3.
+- [x] **Publish the corpus manifest** — `engine/test/fixtures/corpus-manifest.json` pins lodash, express and babel/traverse by commit and file hash (99 files); `npm run corpus:fetch` materialises them from upstream and links the cache, `npm run corpus:verify` judges it, and the focused probe passes 80 engine and 12 Vitest tests.

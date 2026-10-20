@@ -492,7 +492,7 @@ test("hallucination-benchmark: halluc real-codebase: build semantic index from b
   const fs = await import("node:fs");
   const path = await import("node:path");
   const babelRoot = "./large-codebases/babel/packages/babel-traverse/src";
-  requireHost(fs.existsSync(babelRoot), `the large-codebases corpus at ${babelRoot} (the checkout setup links engine/large-codebases)`);
+  requireHost(fs.existsSync(babelRoot), `the large-codebases corpus at ${babelRoot} (run "npm run corpus:fetch" to link the pinned subset)`);
   const files: { p: string; content: string }[] = [];
   function walk(dir: string): void {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

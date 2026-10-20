@@ -39,7 +39,7 @@ The suite uses Node's built-in test runner and covers:
 Run the whole public gate with:
 
 ```bash
-npm run verify     # typecheck + secret scan + public tests + build
+npm run verify:public   # typecheck + secret scan + public tests
 ```
 
 ## Development-floor setup
@@ -51,6 +51,7 @@ npm ci
 npm --prefix engine ci
 npm run bootstrap:hooks
 chmod 600 engine/bridlewise.config.json
+npm run corpus:fetch      # optional: the pinned subset for the corpus-backed tests
 ```
 
 Requirements beyond the product:
@@ -60,10 +61,10 @@ Requirements beyond the product:
 - Chromium for Playwright E2E: `npx playwright install --with-deps chromium`.
 - User systemd for the long-task-runner test.
 - `openssl` for the outbound-HTTP test.
-- The external 4.1 GB corpus, which is not published, for the full engine suite.
+- The pinned corpus subset for the engine tests that read real code: `npm run corpus:fetch` materialises only the files those tests read (lodash, express, babel/traverse) from their upstream commits and links `engine/large-codebases`. The raw 4.1 GB cache is not published; `npm run corpus:verify` judges the subset against `engine/test/fixtures/corpus-manifest.json`.
 - The generated performance profile produced by `npm run perf:profile` under `tests/performance` for the root performance-regression test.
 
-The corpus and the performance report are deliberately not published. A fresh clone therefore cannot run the full suites; the runners refuse with a named prerequisite instead of silently skipping.
+The raw corpus and the performance report are deliberately not published. A fresh clone is two documented commands from the corpus-backed tests, and the runners refuse a missing prerequisite by name instead of silently skipping. The full engine suite still needs the other host requirements above.
 
 ## Commands
 

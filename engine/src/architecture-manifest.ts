@@ -5692,5 +5692,10 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       owner: "architecture", publicApi: { exportCount: 3, namesSha256: "420b51dd6d29bbc97c77a370994d411c602a2b702125936e76854baa4057ff19" },
       dependencies: [],
     }),
+    moduleContract({
+      id: "scripts-verification-corpus", path: "scripts/verification/corpus.ts", realm: "builder", layer: "verification",
+      owner: "verification-foundation", publicApi: { exportCount: 27, namesSha256: "021f0f367f3ccd2487064673c4e34477714a0eb0e86236d14140c3cec840773f" },
+      dependencies: ["node:child_process","node:crypto","node:fs","node:os","node:path"],
+    }),
   ],
 });

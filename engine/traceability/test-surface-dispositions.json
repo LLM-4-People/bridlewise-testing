@@ -3685,6 +3685,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/verification/corpus-manifest.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/verification/hash-binding-registry.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4157,5 +4165,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "829628de3563cbe296af9eb6ca070a3cf167f5e05b748d799fe26904b08f1124"
+  "integrityHash": "d8b242e1f67273f74b804a9824b8e8a74302aeefbfecb9ecb5afd53da3b5816e"
 }

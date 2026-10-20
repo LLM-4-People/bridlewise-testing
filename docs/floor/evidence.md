@@ -69,27 +69,24 @@ What it does not prove: that any test passed, that the count is coverage, or tha
 
 The 4.1 GB `engine/large-codebases` fixture root is not published. It is an assembled cache of dozens of public upstream checkouts. The cache carries mixed licenses, duplicate trees, nested Git histories, and test-only key, certificate, and environment fixtures. Publishing the cache as another public repository would redistribute third-party code under incompatible terms and would preserve historical material that a current-tree scan does not clear. The floor does not do that. The [third-party notices](https://github.com/LLM-4-People/bridlewise-testing/blob/main/THIRD_PARTY_NOTICES.md) record the boundary.
 
-To reproduce a corpus-backed test, supply the root from upstream at the revisions you record. Most of the cache is not read by the default suite, and the cache alone is not enough for the full suite. The performance report, Chromium, systemd, OpenSSL, Landlock, and the live provider consent remain separate prerequisites.
-
-### Focused corpus probe
-
-A local probe can exercise the declared root without publishing the corpus. Set `CORPUS_ROOT` to a private checkout, create the ignored symlink, and run the tests that read it:
+To reproduce a corpus-backed test without publishing the cache, fetch the pinned subset. `engine/test/fixtures/corpus-manifest.json` names the three members the public tests read (lodash, express, babel/traverse), their upstream commits, licences, and the size and sha256 of every file. The fetch materialises only those files outside the checkout and links the result at `engine/large-codebases`:
 
 ```bash
-ln -s "$CORPUS_ROOT" engine/large-codebases
+npm run corpus:fetch     # materialise the pinned subset and link it
+npm run corpus:verify    # judge every size and hash against the manifest
 cd engine
 node --experimental-strip-types --test --test-concurrency=1 \
   test/aux/awareness.test.ts \
   test/aux/quality.test.ts \
   test/tools/concurrent/worker-pool.test.ts \
   test/safety/hallucination-benchmark.test.ts \
-  test/verification/required-fixture-roots.test.ts
+  test/verification/required-fixture-roots.test.ts \
+  test/verification/corpus-manifest.test.ts
 cd ..
 ./node_modules/.bin/vitest run tests/prevention/dev-server-scanner-exclusion.test.ts
-unlink engine/large-codebases
 ```
 
-On 2026-10-20, on the public tree at `856f101`, this probe passed 73 engine tests and 5 Vitest tests. It proves the declared root, the corpus readers, the worker pool, and the scanner bait work on that machine. It is not the full suite. The performance report, the live provider consent, the Chromium E2E suite, and the full inventory did not run.
+On 2026-10-20, on the public tree at `2caada8f`, the pinned subset (manifest digest `58b5aeb696ea…`, 99 files, 1.6 MB) was fetched and verified from the three upstream commits, and the focused probe passed **80 engine tests** (including the eight `corpus-manifest` arms) and **12 Vitest tests**. The earlier manual probe at `856f101` passed 73 engine tests and 5 Vitest tests. The pinned subset is the reproducible replacement for that manual copy: most of the cache is not read by the default suite, and the cache alone is not enough for the full suite. The performance report, Chromium, systemd, OpenSSL, Landlock, and the live provider consent remain separate prerequisites.
 
 ### Performance probe
 

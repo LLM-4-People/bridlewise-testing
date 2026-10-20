@@ -2189,10 +2189,10 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "f642780a6b5e89bd5a74c690a495c444a1b841ff469e8f2bbd16c1c6c88c2d21",
+    testInventoryHash: "d710b90cfc90bf7b6945584f81dd97dc3881100290d62b050540c988e923ff29",
     testSurfaceDispositionBinding: {
-      fileSha256: "fdaaa89957aa5011c85c90099a16d3276d30abe40a98f1f3c9d0717afa74a909",
-      identityHash: "829628de3563cbe296af9eb6ca070a3cf167f5e05b748d799fe26904b08f1124",
+      fileSha256: "aa7cffb0cb54b3954acbd416af3ddfb8c37163e80578c9b0184923cc2539f071",
+      identityHash: "d8b242e1f67273f74b804a9824b8e8a74302aeefbfecb9ecb5afd53da3b5816e",
     },
     testDiscovery: {
       inventoryScope: {

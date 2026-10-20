@@ -1,0 +1,537 @@
+{
+  "schemaVersion": "bridlewise-corpus-manifest/v1",
+  "generatorRevision": "corpus-ts-1",
+  "root": "engine/large-codebases",
+  "members": [
+    {
+      "name": "lodash",
+      "upstream": "https://github.com/lodash/lodash.git",
+      "commit": "a666ba591064c8011988275790ad7d625279f09c",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "lib/common/file.js",
+          "sizeBytes": 2140,
+          "sha256": "e03cf14aa453a333e7eb060fd37fad7fc63c10bdf9d0d27217477f203167071b"
+        },
+        {
+          "path": "lib/common/mapping.js",
+          "sizeBytes": 238,
+          "sha256": "d55f36ce3aa745bd2b292479e34a33bd11e325c9588b915c7126d08ca7af8ad9"
+        },
+        {
+          "path": "lib/common/minify.js",
+          "sizeBytes": 1282,
+          "sha256": "7f058cff5ec10302e17b0556e17c981296b418c1068a419fec0d04d45833cebe"
+        },
+        {
+          "path": "lib/common/uglify.options.js",
+          "sizeBytes": 534,
+          "sha256": "c7a16e477657bde47f804727cbabb0c7ed77e2cf1216dc5cd5928776e9145ad5"
+        },
+        {
+          "path": "lib/common/util.js",
+          "sizeBytes": 886,
+          "sha256": "e1e5535c004814656b1a099dd7b31b433383462bca3316d35c04fb6e2c6a0680"
+        },
+        {
+          "path": "lib/fp/build-dist.js",
+          "sizeBytes": 1312,
+          "sha256": "3dd628f495e7f7698342e8dccd4039632c16779c90953f397dc4005a39753cfc"
+        },
+        {
+          "path": "lib/fp/build-doc.js",
+          "sizeBytes": 2029,
+          "sha256": "e0230226c410fb4938ef81fb8d422662b70f7253d3537415e35bdf68e12b7363"
+        },
+        {
+          "path": "lib/fp/build-modules.js",
+          "sizeBytes": 3640,
+          "sha256": "83c204a07d6d96fd2beccfb8bb248bad939f5f5226271d8485dc1d6b346b62aa"
+        },
+        {
+          "path": "lib/main/build-dist.js",
+          "sizeBytes": 734,
+          "sha256": "9808266c3b67044879c9c73045c3bc6efea70d8398e13e8c3d93f0dbbbe5eec5"
+        },
+        {
+          "path": "lib/main/build-doc.js",
+          "sizeBytes": 2312,
+          "sha256": "66bdc4f6d9e1f109e0a39ac6c4d9d2d956bbbda0308bd16a5d76b1b384392768"
+        },
+        {
+          "path": "lib/main/build-modules.js",
+          "sizeBytes": 895,
+          "sha256": "21f041a3ef67dd5ddf55b33d96d8859b33c79dd89e7dde1ae72d3e1cca72d712"
+        },
+        {
+          "path": "lib/main/build-site.js",
+          "sizeBytes": 6554,
+          "sha256": "0850e7367697129b86a852ea113524e9b4491ac88bbbe60e8f2ca60c29ce0317"
+        },
+        {
+          "path": "lodash.js",
+          "sizeBytes": 545953,
+          "sha256": "9bd765def21a6704a6d7e54ecf76004811ba7df19b387b60e04740785794e376"
+        },
+        {
+          "path": "package.json",
+          "sizeBytes": 1984,
+          "sha256": "d419382a9fa895e5da1e5146419f9fbc8fd8f579726052a479a010e3a2a5067a"
+        }
+      ]
+    },
+    {
+      "name": "express",
+      "upstream": "https://github.com/expressjs/express.git",
+      "commit": "ae6dd37680e3a00618d6c8a3e522f0ee4eeba1a4",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "examples/auth/index.js",
+          "sizeBytes": 3570,
+          "sha256": "4acca9f794d50f57c41967b471031f7410cc61a2b979c86ad0f264567f06e69b"
+        },
+        {
+          "path": "examples/content-negotiation/db.js",
+          "sizeBytes": 146,
+          "sha256": "508014d6735d509d7943753343b8351a989df0dd56dda025257da686d23a0175"
+        },
+        {
+          "path": "examples/content-negotiation/index.js",
+          "sizeBytes": 1003,
+          "sha256": "fadf6827e28bcb0271c03bb8059a67d2dca3d051f4243f6bd507ee036612a3b7"
+        },
+        {
+          "path": "examples/content-negotiation/users.js",
+          "sizeBytes": 382,
+          "sha256": "9943db10754f61f8cee9488649e73b9a244a7f940ff0c3596af97924bcfcd234"
+        },
+        {
+          "path": "examples/cookie-sessions/index.js",
+          "sizeBytes": 551,
+          "sha256": "4db8212bfb73efd9294673bf1699d4f7c649da9355c0651f43ae39febb19d318"
+        },
+        {
+          "path": "examples/cookies/index.js",
+          "sizeBytes": 1311,
+          "sha256": "d91ed906721c1ad0ee2743ea9fcdd41c37bbf07f1474b6970841cc0254f8a160"
+        },
+        {
+          "path": "examples/downloads/index.js",
+          "sizeBytes": 1193,
+          "sha256": "0b826b327815c7deacc109b1445a9ec7ea06b4e3ea9ed5dce7af3b0f108714d0"
+        },
+        {
+          "path": "examples/ejs/index.js",
+          "sizeBytes": 1331,
+          "sha256": "48d2ca08efdcfb2a5917de7ce2299a2f223ea67855d09cf7e67c5b87cc8ec371"
+        },
+        {
+          "path": "examples/error-pages/index.js",
+          "sizeBytes": 2665,
+          "sha256": "af04ae3ba25a70070f350c08a154086da232afe2a68a4bb1f5229d37d059e674"
+        },
+        {
+          "path": "examples/error/index.js",
+          "sizeBytes": 1333,
+          "sha256": "a82e4d69a686e9ebc5802d45a6491d7365d5f79185d82ddf871489cfdb56fbdb"
+        },
+        {
+          "path": "examples/hello-world/index.js",
+          "sizeBytes": 269,
+          "sha256": "ab0bb8d99209070fa5ad9f6f37a05730bbf6388ff512954d251d30eff4946686"
+        },
+        {
+          "path": "examples/markdown/index.js",
+          "sizeBytes": 1025,
+          "sha256": "3a2005b5bc1ea0393783c1a97da58dc81c751e0f5a6dc301cc84ba0c061500ff"
+        },
+        {
+          "path": "examples/multi-router/controllers/api_v1.js",
+          "sizeBytes": 272,
+          "sha256": "7220ce1de1ad06db1879030a1037f201dbc0d4c4ce58bd47273acd50b7480abe"
+        },
+        {
+          "path": "examples/multi-router/controllers/api_v2.js",
+          "sizeBytes": 272,
+          "sha256": "0bc369adc101e2e301406a7860cff8059a1025adc85d05ee2a160e468af136bb"
+        },
+        {
+          "path": "examples/multi-router/index.js",
+          "sizeBytes": 387,
+          "sha256": "2dd63ace2545575c3349d61b6c2660c46336de29290b5d20da0088f30a67cb55"
+        },
+        {
+          "path": "examples/mvc/controllers/main/index.js",
+          "sizeBytes": 79,
+          "sha256": "f63daa739fe403d291c501a410d8dc8a123e47da575739fe74a71cc17c3839c7"
+        },
+        {
+          "path": "examples/mvc/controllers/pet/index.js",
+          "sizeBytes": 599,
+          "sha256": "f4798e50906220321f0a0d7a0c97532802903c1089b4dba8228ec4e0364d177c"
+        },
+        {
+          "path": "examples/mvc/controllers/user-pet/index.js",
+          "sizeBytes": 468,
+          "sha256": "397ff04667f5c7e564b1e6a55e5e9245761051565afa2f869bb6560deb2fd125"
+        },
+        {
+          "path": "examples/mvc/controllers/user/index.js",
+          "sizeBytes": 872,
+          "sha256": "e652877886cf7ebec51ebee25e84178a39e45ca5af0fadc36a558994d0e8aafb"
+        },
+        {
+          "path": "examples/mvc/db.js",
+          "sizeBytes": 420,
+          "sha256": "7b8c2e632192310a3bdee3cc22238bfc41d6fea7d7195d2e8a3fb0e9d891ab12"
+        },
+        {
+          "path": "examples/mvc/index.js",
+          "sizeBytes": 2320,
+          "sha256": "7ee423b13b0661c6a3f02534e79529b305ac52d6448f0aaf66b97650b9c22b18"
+        },
+        {
+          "path": "examples/mvc/lib/boot.js",
+          "sizeBytes": 2263,
+          "sha256": "fd7eb252663f1c365606b180aad645b9b65632070d1f07824e3fca22640bd068"
+        },
+        {
+          "path": "examples/online/index.js",
+          "sizeBytes": 1024,
+          "sha256": "2e952f14143390d6cc41055a8fe0852b275fa36fecacb02adb03e151795735b1"
+        },
+        {
+          "path": "examples/params/index.js",
+          "sizeBytes": 1353,
+          "sha256": "f381d9199eace049b8048d03362010765cf17374a72c2c6656e2757236c9b301"
+        },
+        {
+          "path": "examples/resource/index.js",
+          "sizeBytes": 2295,
+          "sha256": "df0a7101b8e7624a134a4c660be2e8c26450579b0bce1ce725f0a47662bd8c3c"
+        },
+        {
+          "path": "examples/route-map/index.js",
+          "sizeBytes": 1419,
+          "sha256": "4b921380a34e14e3da551e74520e3807a068fefd7adf2013df5caf5fc8b7a0f4"
+        },
+        {
+          "path": "examples/route-middleware/index.js",
+          "sizeBytes": 2399,
+          "sha256": "8bbd84ce25e3be1e943d83d2dfe4a8fddc99358c0b7dc454a4df39b7597c26bb"
+        },
+        {
+          "path": "examples/route-separation/index.js",
+          "sizeBytes": 1136,
+          "sha256": "65c2270263e0c0bc1725c0a17232ea7359b52e3edb868d64557a7ded87c56669"
+        },
+        {
+          "path": "examples/route-separation/post.js",
+          "sizeBytes": 292,
+          "sha256": "74b691649f50f97ad163c55f5517e1a9d6d856cf51f0c1641ecf81634ddaac82"
+        },
+        {
+          "path": "examples/route-separation/site.js",
+          "sizeBytes": 115,
+          "sha256": "14ebdee9f54233ecc523f9bf21eeacaf11fee66c9940c4d89893dcb2f80558e2"
+        },
+        {
+          "path": "examples/route-separation/user.js",
+          "sizeBytes": 1006,
+          "sha256": "c02d2ef35011297a2cc459052acaece64b00ae826afeff551bf49d65872b83a4"
+        },
+        {
+          "path": "examples/search/index.js",
+          "sizeBytes": 1577,
+          "sha256": "4fc4dfd87b9b0ef4757b12d3a16ac8fbb54277252e92f4c27dafc9522536a56e"
+        },
+        {
+          "path": "examples/search/public/client.js",
+          "sizeBytes": 390,
+          "sha256": "611bead77cfe54a99e75c38604c3428ddb4afa11271706f8d6e30929edf44b4f"
+        },
+        {
+          "path": "examples/session/index.js",
+          "sizeBytes": 844,
+          "sha256": "62dd5bf84224c3e6a1437f20833c4b8bfb7c9f73b0f142abeaac4af17149614f"
+        },
+        {
+          "path": "examples/session/redis.js",
+          "sizeBytes": 957,
+          "sha256": "c882d4d0e3abe61b9bd64570f9157cbd5ff1c35ba3bf2825076a50ec633945ba"
+        },
+        {
+          "path": "examples/static-files/index.js",
+          "sizeBytes": 1363,
+          "sha256": "63605ce73f514c145edbf390d4401111e905e7b205a9531149fd39915ada6d91"
+        },
+        {
+          "path": "examples/static-files/public/js/app.js",
+          "sizeBytes": 7,
+          "sha256": "927f76991b9dc34bfd8103c005e69357979099983b82570946b9af76382ec177"
+        },
+        {
+          "path": "examples/vhost/index.js",
+          "sizeBytes": 1037,
+          "sha256": "57dc34057c96830eba5318c8705dd8b77b42dc3fe4c6b7805a97222cabf756b2"
+        },
+        {
+          "path": "examples/view-constructor/github-view.js",
+          "sizeBytes": 1069,
+          "sha256": "936416302ea3d704cc603f63787ec3121204b3720153fcb2a99e5ec151432a2e"
+        },
+        {
+          "path": "examples/view-constructor/index.js",
+          "sizeBytes": 1167,
+          "sha256": "eaeb509d4eb6afec5585f341315d7db08bfbd548db58ad09ee047e6cdbe0fd40"
+        },
+        {
+          "path": "examples/view-locals/index.js",
+          "sizeBytes": 3127,
+          "sha256": "a49cdf21100cb68afec4020e12715b329fc34c4ee4c1f259ff3102e684e8cfb9"
+        },
+        {
+          "path": "examples/view-locals/user.js",
+          "sizeBytes": 730,
+          "sha256": "e2aceca879f0a5bdf0107056f5c6c3f7fcd1f12b48700332242f38b977ae454a"
+        },
+        {
+          "path": "examples/web-service/index.js",
+          "sizeBytes": 3044,
+          "sha256": "726532ea16b88e64d1c492f1cd058ffeba04121887c866ab8257f318fd7ba101"
+        },
+        {
+          "path": "index.js",
+          "sizeBytes": 224,
+          "sha256": "4d2f5afc192178c5b0dc418d2da5826d52a8b6998771b011aede7fdba9118140"
+        },
+        {
+          "path": "lib/application.js",
+          "sizeBytes": 13953,
+          "sha256": "6d7e08355025786982d17042fc0355b6a5e9339545dc27e2782b3aaa28a7bc04"
+        },
+        {
+          "path": "lib/express.js",
+          "sizeBytes": 1636,
+          "sha256": "4f35e8273a5e78c35e778d14e4a8c80a81ca3e1fc8047dc87d2077b860404572"
+        },
+        {
+          "path": "lib/request.js",
+          "sizeBytes": 12282,
+          "sha256": "43f31d579af68cceab547849dad40726cbd570e16f4c3f447c238c3e8c7048c8"
+        },
+        {
+          "path": "lib/response.js",
+          "sizeBytes": 25146,
+          "sha256": "d7e13d0392b0aee5eb6d614e35cb0548314a54f9b4470b183ebeabe969a1a2b1"
+        },
+        {
+          "path": "lib/utils.js",
+          "sizeBytes": 5293,
+          "sha256": "4bd3bf9c911e086d1911954708de7a6c384ed924360e3fd1d4a43c98bd68b112"
+        },
+        {
+          "path": "lib/view.js",
+          "sizeBytes": 3809,
+          "sha256": "74f4171b66263e22481820bc5975708f7dd8a61484f570aac7c5b4ab77ecbd79"
+        },
+        {
+          "path": "package.json",
+          "sizeBytes": 2731,
+          "sha256": "01f5d42cf38cc1118cd9c1259b0d246f5414ae883f8e1c7c3ee55f984fb31a4f"
+        }
+      ]
+    },
+    {
+      "name": "babel",
+      "upstream": "https://github.com/babel/babel.git",
+      "commit": "57585c01be14c0e4ce3b330ff4b24239763d6d51",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "eslint.config.ts",
+          "sizeBytes": 12088,
+          "sha256": "d88bb1d894db85c6a068190490a3727c2d2e70e9f740fe8a789684d62d12740a"
+        },
+        {
+          "path": "package.json",
+          "sizeBytes": 5662,
+          "sha256": "8e930fee6a0e5ddcf7a210f6eafac5ce249db9110574969f87846758127f435c"
+        },
+        {
+          "path": "packages/babel-traverse/src/cache.ts",
+          "sizeBytes": 894,
+          "sha256": "8754fbf1fe1502899e9f6b47a28b0c0005905dab838d41053bf90cbd7e0b3d88"
+        },
+        {
+          "path": "packages/babel-traverse/src/context.ts",
+          "sizeBytes": 733,
+          "sha256": "0d706d254594e0b93c11cbda12ea160fa6a120d5751cfaf9c3ba119876ae7814"
+        },
+        {
+          "path": "packages/babel-traverse/src/generated/visitor-types.d.ts",
+          "sizeBytes": 31917,
+          "sha256": "272e382b9d39e6294620a7a3546280cbc8d15fdd7e1d11c69b62a3b787b1866f"
+        },
+        {
+          "path": "packages/babel-traverse/src/hub.ts",
+          "sizeBytes": 609,
+          "sha256": "c5da194c5b2e533019d1073b68cf1e40f6f1bc140de7a36462cfd316b8958f66"
+        },
+        {
+          "path": "packages/babel-traverse/src/index.ts",
+          "sizeBytes": 3973,
+          "sha256": "e4ea328308b60d8662c040d5c47e7294e38b85c6bc89c3e0198af6d34b48e53d"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/ancestry.ts",
+          "sizeBytes": 6136,
+          "sha256": "19d8390cedefe9526e3f0827830084b9814310b7425f753729daf9997b6982d5"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/comments.ts",
+          "sizeBytes": 1818,
+          "sha256": "ac2328802ecef84c1d7ef5b3a361b285cf1ec88b9a7063ba1b179f504059158b"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/context.ts",
+          "sizeBytes": 8032,
+          "sha256": "3ff2c0ca1747053cc0bf57ed59acd6061b54f506886b88dd99fd0dc56a870541"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/conversion.ts",
+          "sizeBytes": 30349,
+          "sha256": "3b770df8c75f12024b63a8d00abf38baf1f269a68f2cbd219526fed47fca8647"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/evaluation.ts",
+          "sizeBytes": 15223,
+          "sha256": "1153cf899cbfbee4b4f433313093272e3c5caef182bd9084ad7d067258a8d29d"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/family.ts",
+          "sizeBytes": 19304,
+          "sha256": "32117a106b06b7eede4db4b79ff16daa97ab94c67b948b0a757973fb760d5b6e"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/generated/asserts.d.ts",
+          "sizeBytes": 43569,
+          "sha256": "c17953e9b1748a81bde8073e6d17807995d238f13c6cd8aba2c9927cfeab2dcb"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/generated/validators.d.ts",
+          "sizeBytes": 79800,
+          "sha256": "c664040bed6b2285cbfde2d078a11e5443967971c36ddb057b424866ee769c1b"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/index.ts",
+          "sizeBytes": 13885,
+          "sha256": "f7edf7ad34645e1856ecf6923218c695f601cca405a1b1feb7827ea9b63e51e0"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/inference/index.ts",
+          "sizeBytes": 5038,
+          "sha256": "39a681f49eb1abd989449b83dd1f37a0a482e2185801f0cac356c95b83236f5c"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/inference/inferer-reference.ts",
+          "sizeBytes": 7220,
+          "sha256": "c7c5e96da1ab5f81ad7b5398f8d624dded33724dbd28a296d3fea2146823216f"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/inference/inferers.ts",
+          "sizeBytes": 6592,
+          "sha256": "af8d9fdc035fb196ebfe7702e54a83d91959d417b933a098619e6abea06b9dc4"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/inference/util.ts",
+          "sizeBytes": 417,
+          "sha256": "3beb6fcd460b7deb3595337a8a0965a2192e85e8148fcad1ae10e39138a32d3a"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/introspection.ts",
+          "sizeBytes": 18052,
+          "sha256": "abbbfc26254330570418461a2c3683ac5c7ad937e93ee4e672b4f959eb2edf69"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/lib/removal-hooks.ts",
+          "sizeBytes": 2662,
+          "sha256": "9150d940b1c4ddc2dca7fdb154849e3fa5bb1def97df1abc387d9940edeeed92"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/lib/virtual-types-validator.ts",
+          "sizeBytes": 6016,
+          "sha256": "97e620b47eb9049a282a24a7d5cfddd50517cb788cb343edb37dbfd80df8b4c7"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/lib/virtual-types.ts",
+          "sizeBytes": 2397,
+          "sha256": "171347bbbd0b89e1cda6a0f2e04f627b28171e6c72e814a0222a478dee729a99"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/modification.ts",
+          "sizeBytes": 12751,
+          "sha256": "e095ca5e985d5bb0e2ee712a886c1a642712e6bd0cfc826ad53b2e1a12a51549"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/removal.ts",
+          "sizeBytes": 1967,
+          "sha256": "3c00d340228d6b480005a0e38edb8741933da9afac3c9d8e5198d9fbd05f0423"
+        },
+        {
+          "path": "packages/babel-traverse/src/path/replacement.ts",
+          "sizeBytes": 12500,
+          "sha256": "8d66dfbd1614bddc2d7719c29a2c2fb3b3618de2e49e43022739347edd44b4f1"
+        },
+        {
+          "path": "packages/babel-traverse/src/scope/binding.ts",
+          "sizeBytes": 3062,
+          "sha256": "370f6266e61d747d491b0ea16d2fcf79ee8b80e992c15cc9ff2bd69ea5db603d"
+        },
+        {
+          "path": "packages/babel-traverse/src/scope/index.ts",
+          "sizeBytes": 37919,
+          "sha256": "192cd18b3dfac7b9403f2934c74cd49046d41fa81d27189a4d599dbabcd37a41"
+        },
+        {
+          "path": "packages/babel-traverse/src/scope/lib/renamer.ts",
+          "sizeBytes": 5539,
+          "sha256": "ee5eb107308671dc6119e64814a9d624daa6e4634a1e75edf9211a1c73e0fc66"
+        },
+        {
+          "path": "packages/babel-traverse/src/scope/traverseForScope.ts",
+          "sizeBytes": 2010,
+          "sha256": "89f09a1c9b1cebc55ad5af36ef07e0d3df237720583a7d519584658186448f7f"
+        },
+        {
+          "path": "packages/babel-traverse/src/traverse-node.ts",
+          "sizeBytes": 5151,
+          "sha256": "b3a8b2b825f4d785f2d8695bfe6a64d6538dee44279af6acacbde7563b373981"
+        },
+        {
+          "path": "packages/babel-traverse/src/types.ts",
+          "sizeBytes": 3538,
+          "sha256": "ae864d2f7f0d01c9edcb4b8e909783390cb77ff1b6991322e045fe9b4564bafb"
+        },
+        {
+          "path": "packages/babel-traverse/src/visitors.ts",
+          "sizeBytes": 13431,
+          "sha256": "03af8e12bb689a0289f61b1089d85aec36502bf04de2cb974e579ef2d4d5052f"
+        }
+      ]
+    }
+  ],
+  "derived": [
+    {
+      "path": "real-20/lodash/test/index.html",
+      "member": "lodash",
+      "source": "test/index.html",
+      "sizeBytes": 11064,
+      "sha256": "236377c7fbe93e376e334f340f1c3178a7b5d18489f0df3703158d5be719e257"
+    }
+  ],
+  "notIncluded": "The other members of the private 4.1 GB cache (real-20, typescript, multi-lang, sympy, zod and the rest) are not read by the public tests and are not published; this manifest pins only lodash, express and babel/traverse.",
+  "manifestSha256": "58b5aeb696ea01d01e75ba47c40cc3c169e9e300e470256e64d0f6e9bf8d3537"
+}

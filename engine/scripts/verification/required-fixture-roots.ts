@@ -56,8 +56,9 @@ export const REQUIRED_FIXTURE_ROOTS: readonly RequiredFixtureRoot[] = Object.fre
       "the real-scale corpora the concurrency, parser and walker tests measure against — " +
       "without them those tests cannot answer, and some wait rather than fail",
     provenance:
-      "vendored, gitignored (~4.1 GB). Copy or symlink the directory from an existing " +
-      "checkout; it is not fetched by install and no clone will produce it.",
+      "vendored, gitignored (~4.1 GB). The public path is `npm run corpus:fetch`: it materialises the " +
+      "pinned subset in `engine/test/fixtures/corpus-manifest.json` outside the tree and links it here. " +
+      "A full private copy can also be symlinked instead.",
     readme: "large-codebases/README.md",
   }),
 ]);

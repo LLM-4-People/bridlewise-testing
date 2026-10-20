@@ -81,6 +81,7 @@ The folder lives at `engine/scripts/verification/`.
 - `candidate-format.ts` is consumed by `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/repository-git.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-execution.ts`, `engine/scripts/tooling/verification/artifact-admission.ts`, `engine/scripts/tooling/verification/rejected-binary-fixture.ts` and 1 more.
 - `catch-blocks.ts` is consumed by `engine/scripts/verification/ratchet-baselines.ts`.
 - `consumer-plants.ts` is consumed by nothing yet.
+- `corpus.ts` is consumed by nothing yet.
 - `decision-index.ts` is consumed by nothing yet.
 - `declared-universe.ts` is consumed by nothing yet.
 - `effect-surface.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`.
