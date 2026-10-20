@@ -11,8 +11,9 @@ permalink: /floor/help/
 
 The development floor is where Bridlewise is tested, challenged, and made reproducible. You do not need to be a maintainer to help. You do need to bring evidence, keep the scope small, and leave the record clearer than you found it.
 
-> [!WARNING]
-> Do not use Bridlewise on sensitive, proprietary, regulated, or production codebases. Run it on disposable copies. Never include real credentials, private source, personal data, or local database contents in an issue, fixture, screenshot, or pull request.
+<div class="callout-warning" role="note">
+<p><strong>Developer preview.</strong> Do not use Bridlewise on sensitive, proprietary, regulated, or production codebases. Run it on disposable copies. Never include real credentials, private source, personal data, or local database contents in an issue, fixture, screenshot, or pull request.</p>
+</div>
 
 ## Pick a lane
 

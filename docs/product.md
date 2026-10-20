@@ -13,8 +13,9 @@ This site mirrors the complete product documentation for [Bridlewise](https://gi
 
 Use this page when you want to understand or run the product. Use the [development floor]({{ '/floor/' | relative_url }}) when you want to test, extend, review, or reproduce it.
 
-> [!WARNING]
-> Bridlewise is an experimental developer preview. It is not production-ready, and it is not safe for sensitive, proprietary, regulated, or production code. Read [Security and limits]({{ '/security/' | relative_url }}) before running anything important.
+<div class="callout-warning" role="note">
+<p>Bridlewise is an experimental developer preview. It is not production-ready, and it is not safe for sensitive, proprietary, regulated, or production code. Read [Security and limits]({{ '/security/' | relative_url }}) before running anything important.</p>
+</div>
 
 ## Start here
 

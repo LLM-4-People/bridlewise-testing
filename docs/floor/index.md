@@ -11,8 +11,9 @@ permalink: /floor/
 
 The floor is the repository where Bridlewise is verified before a change reaches the product. It carries the full test tree, prevention guards, benchmark harness, decision records, traceability artifacts, and the promotion profile. The product repository is a curated projection of this tree.
 
-> [!WARNING]
-> Bridlewise is an experimental developer preview. It is not production-ready and it is not safe for sensitive, proprietary, regulated, or production code. The floor records verification work about Bridlewise. It does not turn Bridlewise into a supported product.
+<div class="callout-warning" role="note">
+<p>Bridlewise is an experimental developer preview. It is not production-ready and it is not safe for sensitive, proprietary, regulated, or production code. The floor records verification work about Bridlewise. It does not turn Bridlewise into a supported product.</p>
+</div>
 
 ## Two repositories, one direction
 

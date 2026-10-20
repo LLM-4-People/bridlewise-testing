@@ -19,8 +19,9 @@ permalink: /
   <p class="hero-note">Node 24 · Linux first · public gate green · full suite incomplete · not production-ready</p>
 </section>
 
-> [!WARNING]
-> Bridlewise is an experimental developer preview. It is not production-ready, and it is not safe for sensitive, proprietary, regulated, or production code. The floor records verification work about Bridlewise. It does not turn Bridlewise into a supported product.
+<div class="callout-warning" role="note">
+<p>Bridlewise is an experimental developer preview. It is not production-ready, and it is not safe for sensitive, proprietary, regulated, or production code. The floor records verification work about Bridlewise. It does not turn Bridlewise into a supported product.</p>
+</div>
 
 <section class="section">
   <div class="section-head">

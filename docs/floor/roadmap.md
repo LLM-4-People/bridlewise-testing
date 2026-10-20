@@ -11,8 +11,9 @@ permalink: /floor/roadmap/
 
 This is the engineering roadmap for the Bridlewise development floor. It is a statement of intent with exit criteria, not a release schedule. There are no dates and no promise that a milestone closes on a particular version.
 
-> [!WARNING]
-> Bridlewise is an experimental developer preview. It is not production-ready and it is not safe for sensitive, proprietary, regulated, or production code. A roadmap item is not a security review, a support commitment, or permission to use the preview on code you cannot lose.
+<div class="callout-warning" role="note">
+<p>Bridlewise is an experimental developer preview. It is not production-ready and it is not safe for sensitive, proprietary, regulated, or production code. A roadmap item is not a security review, a support commitment, or permission to use the preview on code you cannot lose.</p>
+</div>
 
 ## Snapshot
 

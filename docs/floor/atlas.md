@@ -11,8 +11,9 @@ permalink: /floor/atlas/
 
 The atlas is a map of what the floor recognizes. It lists test surface files and their dispositions, prevention guards and their declared scope, and decision records with their state. A row records existence and classification. It does not record a passing run.
 
-> [!WARNING]
-> Bridlewise is an experimental developer preview. The atlas is an inventory of verification work, not a coverage certificate and not a production guarantee.
+<div class="callout-warning" role="note">
+<p>Bridlewise is an experimental developer preview. The atlas is an inventory of verification work, not a coverage certificate and not a production guarantee.</p>
+</div>
 
 **Generated data.** This page loads `atlas.json`, generated from the tracked floor tree at build time. The generator, filter script, and table styles are part of this repository. The generated file is the only data source. It carries no private fixture names, local paths, or credentials. The page does not infer tests from filenames at runtime.
 

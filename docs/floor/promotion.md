@@ -11,8 +11,9 @@ permalink: /floor/promotion/
 
 This is the contract between the two repositories. `bridlewise-testing` holds the source, tests, and evidence. `bridlewise` receives the projection. A change reaches the product branch through that projection, not a merge. The source tree is `testing`. The target tree is built from a declared profile. The same profile and the same gate run for every promotion, and a refusal stops publication.
 
-> [!WARNING]
-> This contract governs a developer preview. It does not make the preview production-ready, audited, or safe for sensitive code. The product branch is still pre-admission.
+<div class="callout-warning" role="note">
+<p>This contract governs a developer preview. It does not make the preview production-ready, audited, or safe for sensitive code. The product branch is still pre-admission.</p>
+</div>
 
 ## The rule
 

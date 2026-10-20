@@ -11,8 +11,9 @@ permalink: /floor/evidence/
 
 Every claim on this floor should have a command. These commands check the published snapshot on a disposable clone. None needs a provider key, a database key, or a real credential. The `gh` commands require an authenticated GitHub CLI session; the local commands do not.
 
-> [!WARNING]
-> Bridlewise is an experimental developer preview. A passing command is evidence about the surface it exercised, not a production guarantee. Do not run the preview against sensitive or production code.
+<div class="callout-warning" role="note">
+<p>Bridlewise is an experimental developer preview. A passing command is evidence about the surface it exercised, not a production guarantee. Do not run the preview against sensitive or production code.</p>
+</div>
 
 Expected outputs below are shapes from the 2026-10-19 public snapshot. Counts and hashes move. Read the command, the exit status, and the field that carries the claim, not only the last line.
 

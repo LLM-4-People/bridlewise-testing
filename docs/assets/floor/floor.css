@@ -1,5 +1,22 @@
 /* Development-floor pages. These rules reuse the product logbook tokens. */
 
+.callout-warning {
+  margin: 28px 0;
+  padding: 18px 20px;
+  border-left: 3px solid var(--warn);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--warn) 8%, var(--surface)), var(--surface) 70%);
+  color: var(--ink-2);
+}
+
+.callout-warning p {
+  margin: 0;
+}
+
+.callout-warning a {
+  color: var(--beam);
+}
+
 .floor .floor-hero {
   padding-block: 42px 28px;
   border-bottom: 1px solid var(--line);

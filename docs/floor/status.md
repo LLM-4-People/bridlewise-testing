@@ -11,8 +11,9 @@ permalink: /floor/status/
 
 This page shows the last generated snapshot of the floor and its promotion pair. The snapshot is generated at build or publication time. It does not stream, poll GitHub from your browser, hold a token, or guarantee that it is newer than the source.
 
-> [!WARNING]
-> A status page is not an audit. Bridlewise is an experimental developer preview, not production-ready and not safe for sensitive code. An unknown or stale field is not a pass.
+<div class="callout-warning" role="note">
+<p>A status page is not an audit. Bridlewise is an experimental developer preview, not production-ready and not safe for sensitive code. An unknown or stale field is not a pass.</p>
+</div>
 
 **Generated data.** This page loads `status.json`, generated from the tracked floor and public GitHub state at build time. The generator, page script, and fallback states are part of this repository. Until a valid snapshot is deployed, the page shows its unavailable state. The page never invents a run, a commit, or a green result.
 
