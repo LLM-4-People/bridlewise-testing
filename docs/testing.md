@@ -52,11 +52,11 @@ npm --prefix engine ci
 npm run bootstrap:hooks
 chmod 600 engine/bridlewise.config.json
 make -C engine/guardian all            # the Landlock guardian and its test payload
-npm --prefix engine run build:bundle   # engine/dist/bundle.js, pinned by self-protection
+npm --prefix engine run build:bundle   # the engine bundle, pinned by self-protection
 npm run corpus:fetch                   # optional: the pinned subset for the corpus-backed tests
 ```
 
-A clone that skips the two build steps still passes the public smoke suite, but the supported full suite reports named refusals: confinement tests report the guardian binary missing, and the self-protection guard reports `engine/dist/bundle.js` absent. Neither is a skip.
+A clone that skips the two build steps still passes the public smoke suite, but the supported full suite reports named refusals: confinement tests report the guardian binary missing, and the self-protection guard reports the engine bundle absent. Neither is a skip.
 
 Requirements beyond the product:
 
