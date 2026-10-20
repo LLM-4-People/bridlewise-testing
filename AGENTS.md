@@ -36,8 +36,13 @@ tree into the separate product repository.
 - After every push, watch the CI run to completion (`gh run list`/`gh run view`)
   and fix any failure it reports before doing anything else. A green local run
   is not a green pull request: the sharded gate, the docs guards and the secret
-  scan can fail on a tree that passed locally, and an un watched red is an
-  unfinished change.
+  scan can fail on a tree that passed locally, and an unwatched red is an
+  unfinished change. The workflow is grouped on the ref with
+  `cancel-in-progress: true`, so a second push or a re-run cancels the run in
+  flight: watch a run rather than trigger beside it. When you do supersede a
+  run on purpose, cancel the older one by hand — while the newer run is still
+  `pending` it does not displace the in-progress one, and both sit in the same
+  group looking stuck.
 
 ## Commands
 
