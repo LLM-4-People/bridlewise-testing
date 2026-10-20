@@ -241,6 +241,8 @@ jobs:
             "${args[@]}"
 
       - name: Require the receipt to name this exact commit and plan
+        env:
+          SHARDS: ${{ inputs.shards }}
         run: |
           node - <<'NODE'
           const fs = require("node:fs");
