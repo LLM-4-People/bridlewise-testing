@@ -84,9 +84,9 @@ const repositoryUrl = (facts: CommunityFacts): string => `https://github.com/${f
 const advisoryUrl = (facts: CommunityFacts): string => `${repositoryUrl(facts)}/security/advisories/new`;
 const categoryUrl = (facts: CommunityFacts, slug: string): string => `${repositoryUrl(facts)}/discussions/new?category=${slug}`;
 
-/** A Markdown table cell: pipes escaped and line breaks folded, so a source string never breaks the table. */
+/** A Markdown table cell: a backslash and a pipe escaped in one pass and line breaks folded, so a source string never breaks the table. */
 function cell(text: string): string {
-  return text.replace(/\|/gu, "\\|").replace(/\s*\n\s*/gu, " ");
+  return text.replace(/[\\|]/gu, (character) => `\\${character}`).replace(/\s*\n\s*/gu, " ");
 }
 
 /** Every slot a template may name, rendered from the facts. */
