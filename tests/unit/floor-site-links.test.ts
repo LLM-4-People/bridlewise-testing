@@ -284,6 +284,9 @@ describe("E. Jekyll needs front matter to publish a copied page", () => {
     expect(text.startsWith("---\nlayout: default\n")).toBe(true);
     expect(text).toContain("permalink: /trackers/TASKS/");
     expect(text.startsWith("---\nlayout: default\n")).toBe(true);
+    expect(text, "a published page carries the same chrome as the floor pages").toContain(
+      "floor_assets: true\npage_class: article\n",
+    );
     expect(text).toContain("# Public floor tasks");
     expect(readFileSync(join(outRoot, "trackers/README.md"), "utf8")).toBe(
       "---\npublished: false\n---\n\n# Notes\n",
@@ -296,8 +299,13 @@ describe("E. Jekyll needs front matter to publish a copied page", () => {
     write(outRoot, "floor/roadmap.md", "# Build roadmap\n");
     materializeLegacyRedirects({ outRoot, baseurl: "/bridlewise-testing" });
     const tracker = readFileSync(join(outRoot, "floor/trackers/TASKS.md/index.html"), "utf8");
-    expect(tracker).toContain('http-equiv="refresh" content="0; url=/bridlewise-testing/trackers/TASKS/"');
-    expect(tracker).toContain('<link rel="canonical" href="/bridlewise-testing/trackers/TASKS/">');
+    // A real page through the site layout, not a bare HTML fragment: an old
+    // link must not land on an unstyled line.
+    expect(tracker.startsWith("---\nlayout: default\n")).toBe(true);
+    expect(tracker).toContain("floor_assets: true");
+    expect(tracker).toContain('class="callout-warning"');
+    expect(tracker).toContain('location.replace("/bridlewise-testing/trackers/TASKS/")');
+    expect(tracker).toContain('<a href="/bridlewise-testing/trackers/TASKS/">');
     // A copied file already sits at /floor/roadmap.md; the alias must not try
     // to take its name (the source keeps answering that spelling).
     expect(existsSync(join(outRoot, "floor/roadmap.md"))).toBe(true);

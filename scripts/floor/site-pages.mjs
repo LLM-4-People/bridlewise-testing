@@ -312,9 +312,12 @@ export function materializePageFrontMatter({ outRoot, fallbackPages = [] }) {
     const heading = /^#\s+(.+?)\s*$/mu.exec(text)?.[1]?.replace(/[*_`]/gu, "");
     const title = heading ?? docsPath.split("/").pop().replace(/\.md$/u, "");
     const permalink = prettyPermalink(docsPath);
+    // Same chrome as the hand-written floor pages: the layout, the shared
+    // stylesheet hook, and the article page class. Without these a copied
+    // tracker rendered as unstyled body text.
     writeFileSync(
       file,
-      `---\nlayout: default\ntitle: ${JSON.stringify(title)}\npermalink: ${permalink}\n---\n\n${text}`,
+      `---\nlayout: default\nfloor_assets: true\npage_class: article\ntitle: ${JSON.stringify(title)}\npermalink: ${permalink}\n---\n\n${text}`,
     );
     added += 1;
   }
@@ -350,12 +353,19 @@ export function materializeLegacyRedirects({ outRoot, baseurl = "", fallbackPage
       // name and does not need to.
       if (existsSync(directory) && !statSync(directory).isDirectory()) continue;
       mkdirSync(directory, { recursive: true });
+      const base = permalink.replace(/\/$/u, "").split("/").pop() ?? "page";
+      // A REAL page, not a bare HTML fragment: the same layout, chrome and
+      // stylesheet as every other page, so an old link lands on something that
+      // looks like the site instead of an unstyled line. The redirect runs as
+      // a script (this build has no redirect plugin); a reader without it gets
+      // the visible link below.
       writeFileSync(
         join(directory, "index.html"),
-        `<!doctype html>\n<meta charset="utf-8">\n<title>Moved</title>\n` +
-          `<link rel="canonical" href="${target}">\n` +
-          `<meta http-equiv="refresh" content="0; url=${target}">\n` +
-          `<p>This page moved to <a href="${target}">${target}</a>.</p>\n`,
+        `---\nlayout: default\nfloor_assets: true\npage_class: article\ntitle: ${JSON.stringify(`Moved: ${base}`)}\n---\n\n` +
+          `<div class="callout-warning" role="status">\n` +
+          `  <p>This page moved to <a href="${target}">${target}</a>.</p>\n` +
+          `</div>\n` +
+          `<script>location.replace(${JSON.stringify(target)});</script>\n`,
       );
       written += 1;
     }
