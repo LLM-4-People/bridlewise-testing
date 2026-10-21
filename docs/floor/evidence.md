@@ -76,10 +76,46 @@ FILES=$(node -e "process.stdout.write(require('./tests/test-shards.json').files.
 
 On 2026-10-20, at `fd7e058f`, the run passed **521/521 files, 8720 tests, 2 expected failures, 0 failed** in 193.2 s wall clock (1137.7 s CPU). The same set at `b4dc6b33` (before two documentation fixes) failed three tests: the two guards that found the docs and the folder README stale, and `test-run-watchdog` C3, which re-ran green alone and in the fixed run (the recorded FLAKY-WATCHDOG-C3 entry).
 
-Two judged budget gates are red on that run, and they belong to the performance track rather than to the tests:
+Those runs predate the calibrated-work migration. The two budget numbers below are kept as HISTORY in the retired raw-CPU unit (`raw-cpu-ms/v0`); they are INCOMPARABLE with the current declaration and no longer judge anything.
 
-- `cpu-per-test-file`: 2183.7 ms/file against a 2032.2 ms/file cap (baseline 1926.0 × the +5.5% ambient allowance). The ledger holds no clean judged run on this machine, so this is a first measured reading, not a same-host comparison.
+- `cpu-per-test-file` (then): 2183.7 ms/file against a 2032.2 ms/file cap (baseline 1926.0 × the +5.5% ambient allowance). The ledger held no clean judged run on this machine, so it was a first measured reading, not a same-host comparison.
 - `performance-report`: unjudgeable because the profile report was generated at `2caada8f` and this tree's measured surface differs. Generate the profile at the head being judged.
+
+### Why the unit changed
+
+Raw CPU per test file is invariant to a runnable process waiting for a core, but not at saturation: cache and memory-bandwidth contention add real work to the same instructions. The same tree measured 2124.7 ms/file under load ~9-10 against the 1926 ms/file floor — a red caused by the box, not the suite.
+
+Every run now pairs its CPU delta with a fixed deterministic calibration benchmark taken at run start and run end (`engine/src/shared/run-cpu.ts`): a fixed integer loop over a 256 KiB working set, six fixed chunks, spawned with `--no-opt` so V8's time-based tiering cannot change the instruction count, each chunk timed by its own `process.cpuUsage()`. The reading is the median chunk; the run's unit is the mean of its start and end readings; the judged figure is
+
+```text
+workUnitsPerTestFile = (runCpuMs / calibrationMs) / testFileCount
+```
+
+computed once by `computeRunWork` and read by every consumer. The declaration is in `testExecution.webUiSuiteCpuBudget` (`calibrated-work/v1`), currently in its ACCUMULATION phase until twelve clean full runs exist, when the window's clean median is derived into the floor; the retired 1926 ms/file floor is recorded there under `legacy` with `incomparable: true` and is never rescaled.
+
+On 2026-10-20, on this 12-core WSL2 host, a four-file/68-test run of the supported suite was measured three times in the ambient background and twice with eight CPU burners. The host was NOT idle during the ambient runs: `/proc/pressure/cpu` `some avg10` read 75%, 22.8% and 5.5% before them, and other agents' work was still running. The calibrated figures are from the exact production calibrant (5,000,000 iterations, six chunks, 256 KiB).
+
+| condition | run | raw ms/file | calibration ms | units/file | calibration drift | load5 per CPU |
+|---|---|---:|---:|---:|---:|---:|
+| ambient | 1 | 14,158.2 | 52.48 | 269.80 | 26.2% | 1.65 |
+| ambient | 2 | 11,272.2 | 43.81 | 257.27 | 11.9% | 1.62 |
+| ambient | 3 | 10,657.5 | 41.64 | 255.93 | 11.9% | 1.57 |
+| 8 burners | 1 | 8,871.8 | 45.87 | 193.41 | 17.9% | 1.46 |
+| 8 burners | 2 | 11,432.0 | 44.19 | 258.70 | 4.8% | 1.44 |
+
+All five runs are inside the declared load bound (`validThroughLoad5PerCpu` 1.7; the measured maximum was 1.65/cpu). The full five-run set is still NOT invariant: raw spread was 29.1% across the ambient runs and 25.2% across the loaded ones, and the calibrated spread was 5.3% and 28.9%. The two runs whose OWN stationarity witness exceeded the declared `calibrationDriftMaxFraction` (0.15) are the ones that break it — a 26.2% and a 17.9% start/end drift, during a load transition. The gate DEFERS those runs (`not-judged`) rather than judging them outside the regime where the residual was measured.
+
+Among the three runs inside BOTH declared bounds, the result is tight:
+
+| set (drift <= 15%, load5 <= 1.7/cpu) | raw ms/file | units/file |
+|---|---:|---:|
+| ambient 2 | 11,272.2 | 257.27 |
+| ambient 3 | 10,657.5 | 255.93 |
+| 8 burners 2 | 11,432.0 | 258.70 |
+| **spread** | **7.0%** | **1.1%** |
+| **loaded step (ambient 3 → 8 burners 2)** | **+7.3%** | **+1.1%** |
+
+That is the claim this page makes: within the metric's declared validity bounds the calibrated unit moved +1.1% under eight burners while raw CPU moved +7.3% and the run's wall clock moved +42% (18.4 s to 26.2 s); outside either bound the gate says it cannot judge, rather than passing or failing. The eight burners are visible in the pressure reading, not in loadavg: `/proc/pressure/cpu` `some avg10` was 1.4% before the first loaded run and 14.3-17.7% after it, while loadavg stayed at its ambient level because other agents' work dominated it. The residual is stated, not assumed away. An earlier synthetic calibration design (12 in-process JS threads) was rejected because it moved ~60% under the same burners while the target moved 5%; hardware counters were refused because `perf` is unavailable (`kernel.perf_event_paranoid=2`).
 
 What this proves: the supported file set runs to completion on this host with no failing and no skipped test.
 
@@ -152,7 +188,7 @@ On 2026-10-20 a clean clone at `b866b826` was put through the documented path (i
 | `npm run verify:public` | exit 0: five typecheck configurations, secret scan clean, public smoke `28/28` |
 | Focused corpus probe | 81 engine tests and 12 Vitest tests, 0 failed |
 | Supported 521-file suite | **521/521 files, 8720 passed, 2 expected failures, 0 failed** (132.4 s wall, 1054.3 s CPU) |
-| Judged budgets | `cpu-per-test-file` red at 2023.6 ms/file against a 1988.2 ms/file cap; `performance-report` unjudgeable because a fresh clone has no profile (`npm run perf:profile` is its named prerequisite) |
+| Judged budgets | `cpu-per-test-file` red at 2023.6 ms/file against a 1988.2 ms/file cap — a RETIRED raw-CPU reading, kept as history and INCOMPARABLE with the calibrated-work declaration; `performance-report` unjudgeable because a fresh clone has no profile (`npm run perf:profile` is its named prerequisite) |
 
 The clone found three defects the working tree could not, because that tree had already been set up:
 

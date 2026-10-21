@@ -48,14 +48,21 @@ const LABEL = "integration";
 const KEY = "testExecution.integrationSuiteCpuBudget";
 
 const ACCUMULATING: AccumulatingCpuBudget = {
+  metric: "calibrated-work/v1",
   phase: "accumulation",
   minimumJudgedRuns: 5,
   maxPopulationDriftFraction: 0.03,
+  calibrationDriftMaxFraction: 0.15,
+  validThroughLoad5PerCpu: 1.25,
 };
 
-const DERIVED: DeclaredCpuBudget = {
-  msPerTestFile: 1_000,
+const DERIVED: DeclaredCpuBudget & { readonly phase: "derived" } = {
+  phase: "derived",
+  metric: "calibrated-work/v1",
+  unitsPerTestFile: 1_000,
   derivedAtTestFileCount: FILES,
+  calibrationDriftMaxFraction: 0.15,
+  validThroughLoad5PerCpu: 1.25,
   maxPopulationDriftFraction: 0.03,
   // The same proportions as the deployed web declaration, so the ambient
   // arms below exercise the arithmetic the live gate runs.
@@ -63,10 +70,15 @@ const DERIVED: DeclaredCpuBudget = {
   ambientInflationCapFraction: 0.12,
 };
 /** A warm, complete, judgeable run at the given per-file CPU cost. */
-function evidence(over: Partial<SuiteCpuEvidence> = {}, msPerFile = 900): SuiteCpuEvidence {
+function evidence(over: Partial<SuiteCpuEvidence> = {}, unitsPerFile = 900): SuiteCpuEvidence {
+  const testFileCount = over.testFileCount ?? FILES;
   return {
-    cpuMs: msPerFile * FILES,
-    testFileCount: FILES,
+    workUnitsPerTestFile: unitsPerFile,
+    workMetric: "calibrated-work/v1",
+    rawCpuMsPerTestFile: unitsPerFile,
+    calibrationMs: 100,
+    calibrationDriftFraction: 0.02,
+    testFileCount,
     wallClockMs: 105_000,
     timestamp: "2026-07-30T18:00:00.000Z",
     warmth: {
@@ -79,28 +91,38 @@ function evidence(over: Partial<SuiteCpuEvidence> = {}, msPerFile = 900): SuiteC
     // recording pass them explicitly.
     headSha: null,
     ambientLoadPerCpu: null,
-    ambientLoad5PerCpu: null,
+    // Zero is a recorded, valid condition (no ambient adjustment earned);
+    // the tests that assert an UNREADABLE leg pass null explicitly.
+    ambientLoad5PerCpu: 0,
     ambientLoad15PerCpu: null,
     ...over,
   };
 }
 
 /** A prior JUDGED run, population defaulting to the current one's. */
-function ranAt(cpuMsPerTestFile: number, testModuleCount = FILES, when = "2026-07-30T17:00:00.000Z"): JudgedRunRecord {
-  return { timestamp: when, cpuMsPerTestFile, testModuleCount };
+function ranAt(unitsPerTestFile: number, testModuleCount = FILES, when = "2026-07-30T17:00:00.000Z"): JudgedRunRecord {
+  return {
+    timestamp: when,
+    cpuMsPerTestFile: unitsPerTestFile,
+    workUnitsPerTestFile: unitsPerTestFile,
+    metric: "calibrated-work/v1",
+    calibrationMs: 1,
+    calibrationDriftFraction: 0.02,
+    testModuleCount,
+  };
 }
 
 // ── Refusals are three-valued and never a pass ────────────────────────────
 
 test("suite-cpu: an unreadable CPU is NOT JUDGED, never zero and never a pass", () => {
-  const { outcome, judgedRecord } = judgeSuiteCpu(evidence({ cpuMs: null }), DERIVED, [], LABEL, KEY);
+  const { outcome, judgedRecord } = judgeSuiteCpu(evidence({ workUnitsPerTestFile: null }), DERIVED, [], LABEL, KEY);
   assert.equal(outcome.kind, "not-judged");
-  assert.match(outcome.message, /CPU cost could not be read/);
+  assert.match(outcome.message, /calibrated work could not be measured/);
   assert.equal(judgedRecord, null, "a refused run must not enter the ledger");
 });
 
 test("suite-cpu: a zero CPU reading is refused — the most permissive number there is", () => {
-  const { outcome } = judgeSuiteCpu(evidence({ cpuMs: 0 }), DERIVED, [], LABEL, KEY);
+  const { outcome } = judgeSuiteCpu(evidence({ workUnitsPerTestFile: 0 }), DERIVED, [], LABEL, KEY);
   assert.equal(outcome.kind, "not-judged");
 });
 
@@ -208,7 +230,7 @@ test("suite-cpu: ACCUMULATION is not-judged with the run counted, and the record
   const { outcome, judgedRecord } = judgeSuiteCpu(evidence(), ACCUMULATING, [ranAt(910), ranAt(905)], LABEL, KEY);
   assert.equal(outcome.kind, "not-judged", "no cap exists during accumulation, and none is guessed");
   assert.match(outcome.message, /run 3 of 5/);
-  assert.match(outcome.message, /900\.0 ms\/file/);
+  assert.match(outcome.message, /900\.000 calibration units\/file/);
   assert.ok(judgedRecord !== null);
   assert.equal(judgedRecord.cpuMsPerTestFile, 900);
   assert.equal(judgedRecord.testModuleCount, FILES);
@@ -219,7 +241,7 @@ test("suite-cpu: accumulation COMPLETE prints the derivation — median and spre
   const { outcome } = judgeSuiteCpu(evidence({}, 920), ACCUMULATING, prior, LABEL, KEY);
   assert.equal(outcome.kind, "not-judged", "deriving is a config edit somebody signs, never a self-adopted number");
   // Samples: 900, 910, 950, 1000, 920 → median 920; spread max |x−920|/920 = 80/920.
-  assert.match(outcome.message, /median 920\.0 ms\/file/);
+  assert.match(outcome.message, /median 920\.000 calibration units\/file/);
   assert.match(outcome.message, new RegExp(`±${((80 / 920) * 100).toFixed(1)}%`));
   assert.match(outcome.message, /bridlewise\.config\.json/);
 });
@@ -280,8 +302,8 @@ test("suite-cpu: A CLEAN RUN AT A BUSY AMBIENT JUDGES CLEAN — the adjustment d
     KEY,
   );
   assert.equal(outcome.kind, "pass");
-  assert.match(outcome.message, /1030\.0 ms\/file within 1040\.0/);
-  assert.match(outcome.message, /baseline 1000\.0 × 1\.040 ambient adjustment/);
+  assert.match(outcome.message, /1030\.000 calibration units\/file within 1040\.000/);
+  assert.match(outcome.message, /baseline 1000\.000 × 1\.040 ambient adjustment/);
   assert.match(outcome.message, /0\.800\/cpu/);
   // The allowance in force is SAID, numerically, until AMBIENT-ALLOWANCE-REMOVE lands: no pass reads as a strict one.
   assert.match(outcome.message, /\[ambient allowance in force until AMBIENT-ALLOWANCE-REMOVE: \+5\.0% per unit of 5-minute load per CPU, capped at \+\d+\.\d%; this verdict: \+4\.0%\]/);
@@ -300,12 +322,15 @@ test("suite-cpu: THE TEETH HOLD UNDER LOAD — one regressed reading at a busy a
   // At amb5 0.8 the cap is 1,040: a 1,050 reading fails in its one run.
   const { outcome } = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: 0.8 }, 1_050), DERIVED, [], LABEL, KEY);
   assert.equal(outcome.kind, "fail");
-  assert.match(outcome.message, /cap in force = baseline 1000\.0 × 1\.040/);
+  assert.match(outcome.message, /cap in force \(metric calibrated-work\/v1; raw .* = baseline 1000\.000 × 1\.040/);
   assert.match(outcome.message, /do not raise the budget/);
-  // At an ambient whose adjustment is capped (3.0/cpu × 0.05 = 15% > the
-  // 12% cap) the cap is 1,120: 1,121 fails.
+  // PAST THE METRIC'S VALIDITY BOUND THE GATE DEFERS. At 3.0/cpu the
+  // calibrated metric's residual was never measured (bound 1.25), so the
+  // run is NOT JUDGED — not failed, not passed. This is the honest half of
+  // "load-agnostic or declare its sensitivity and defer past the bound".
   const saturated = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: 3.0 }, 1_121), DERIVED, [], LABEL, KEY);
-  assert.equal(saturated.outcome.kind, "fail");
+  assert.equal(saturated.outcome.kind, "not-judged");
+  assert.match(saturated.outcome.message, /past the 1\.25\/cpu bound/);
   // The helper's own bounds, spelled at its boundary: absence and
   // non-positive readings adjust nothing, the slope scales until the cap.
   assert.equal(ambientInflationFraction(undefined, DERIVED), 0);
@@ -317,7 +342,7 @@ test("suite-cpu: THE TEETH HOLD UNDER LOAD — one regressed reading at a busy a
 });
 
 test("suite-cpu: POPULATION DRIFT past the declared tolerance refuses to judge and prescribes the re-derivation at the right key", () => {
-  const { outcome, judgedRecord } = judgeSuiteCpu(evidence({ testFileCount: 760, cpuMs: 900 * 760 }), DERIVED, [], LABEL, KEY);
+  const { outcome, judgedRecord } = judgeSuiteCpu(evidence({ testFileCount: 760 }), DERIVED, [], LABEL, KEY);
   assert.equal(outcome.kind, "not-judged");
   assert.match(outcome.message, /grown/);
   assert.match(outcome.message, new RegExp(KEY.replace(/\./g, "\\.")));
@@ -430,7 +455,10 @@ test("suite-cpu ledger: a missing or corrupt ledger is EMPTY — it can delay a 
   writeFileSync(path, "{not json");
   assert.deepEqual(readRunHistory(path), []);
   appendJudgedRun({ ...ranAt(950) }, path);
-  assert.deepEqual(readRunHistory(path).map((r) => r.cpuMsPerTestFile), [950]);
+  assert.deepEqual(readRunHistory(path).map((r) => r.cpuMsPerTestFile), [950],
+    "the legacy provenance field still round-trips");
+  assert.deepEqual(readRunHistory(path).map((r) => r.workUnitsPerTestFile), [950],
+    "and the judged reading round-trips its calibrated unit");
 });
 
 // ── Tree identity + measurement condition in the ledger ──────────────────
@@ -467,7 +495,7 @@ test("suite-cpu identity: a judged record carries headSha and ambientLoadPerCpu 
   // "quiet" 1-minute contexts at 15-minute averages of 2.4-4.1).
   assert.equal(withIdentity.judgedRecord.ambientLoad5PerCpu, 0.4);
   assert.equal(withIdentity.judgedRecord.ambientLoad15PerCpu, 3.1);
-  const withoutIdentity = judgeSuiteCpu(evidence(), ACCUMULATING, [], LABEL, KEY);
+  const withoutIdentity = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: null }), ACCUMULATING, [], LABEL, KEY);
   assert.ok(withoutIdentity.judgedRecord !== null);
   assert.ok(!("headSha" in withoutIdentity.judgedRecord), "an unreadable sha is ABSENT, never a placeholder");
   assert.ok(!("ambientLoadPerCpu" in withoutIdentity.judgedRecord), "an unreadable load is ABSENT, never a zero");
@@ -530,7 +558,7 @@ test("suite-cpu prescription: the accumulation messages demand same-sha same-con
   assert.match(complete.outcome.message, /same-sha same-condition subset/u,
     "the derivation prescription must demand the subset before a cap is set");
   // The prescription names the rolling shape and no headroom — the deleted band never comes back as advice.
-  assert.match(complete.outcome.message, /rolling shape: baselineFloorMsPerTestFile \(the clean median, no headroom/u);
+  assert.match(complete.outcome.message, /rolling shape: baselineFloorUnitsPerTestFile \(the clean median, no headroom/u);
   assert.doesNotMatch(`${midway.outcome.message}\n${complete.outcome.message}`, /plus recorded headroom|median and measured spread/u);
 });
 
@@ -552,9 +580,10 @@ test("beginMeasuredRun takes prune, then the CPU baseline, then the start-stamp 
   const out = beginMeasuredRun(process.cwd(), {
     pruneCache: () => { order.push("prune"); },
     readCpuBaseline: () => { order.push("cpu-baseline"); return baseline; },
+    measureCalibration: () => { order.push("calibration"); return { cpuMs: 100, chunks: [100, 100, 100], workload: "int-mem-l2/v1", chunkIterations: 5_000_000 }; },
     stampStart: () => { order.push("start-stamp"); return STAMP; },
   });
-  assert.deepEqual(order, ["prune", "cpu-baseline", "start-stamp"],
+  assert.deepEqual(order, ["prune", "calibration", "cpu-baseline", "start-stamp"],
     "the pre-run measurements must run in exactly this order — the warmth walk and the CPU delta both depend on it");
   // LIVENESS AGAINST THE INERT SHAPE: the returned values must BE the
   // injected steps' answers, not parallel reads the function made itself —
@@ -565,10 +594,13 @@ test("beginMeasuredRun takes prune, then the CPU baseline, then the start-stamp 
 });
 
 test("runCli calls beginMeasuredRun and does not re-inline the sequence it extracts", () => {
-  const src = readFileSync(join(process.cwd(), "scripts", "tooling", "run-tests.ts"), "utf8");
+  // Resolved from THIS file, not the process's cwd: the canonical invocation
+  // (`node --test engine/test/prevention/suite-cpu-budget.test.ts`) runs from
+  // the repository root, where `scripts/tooling/run-tests.ts` does not exist.
+  const src = readFileSync(join(import.meta.dirname, "..", "..", "scripts", "tooling", "run-tests.ts"), "utf8");
   // The derivation is PRESENT on the runner's path...
   const cliStart = src.indexOf("async function runCli");
-  assert.ok(cliStart >= 0, "runCli must exist in scripts/run-tests.ts");
+  assert.ok(cliStart >= 0, "runCli must exist in engine/scripts/tooling/run-tests.ts");
   const cliBody = src.slice(cliStart, src.indexOf("\nasync function", cliStart + 1));
   assert.match(cliBody, /beginMeasuredRun\(/u,
     "runCli must take its pre-run measurements through beginMeasuredRun — that function is where the order is guaranteed");
@@ -635,7 +667,9 @@ test("suite-cpu: actual adapter preserves its one-run red beside an owned test f
           'assert.equal(compileCacheDirInUse(), null);',
           'const treeId = readMeasuredTree(process.cwd()); assert.notEqual(treeId, null);',
           `const gateExitCode = judgeSuiteRunCost({ root: process.cwd(), runStartMs: Date.now(), wallClockMs: 1,`,
-          `cpuBefore: { totalCpuMs: 0, childCpuMs: 0 }, cpuAfter: { totalCpuMs: ${red ? 2_000 : 900}, childCpuMs: 0 },`,
+          `cpuBefore: { totalCpuMs: 0, childCpuMs: 0 }, cpuAfter: { totalCpuMs: ${red ? 2_000 : 900}, childCpuMs: 0 },
+          calibrationBefore: { cpuMs: 1, chunks: [1, 1, 1], workload: "int-mem-l2/v1", chunkIterations: 5000000 },
+          calibrationAfter: { cpuMs: 1, chunks: [1, 1, 1], workload: "int-mem-l2/v1", chunkIterations: 5000000 },`,
           'failures: ["owned fixture failure"], failureDigests: {}, failureLocations: {}, invocationId: qualificationInvocation(process.env),',
           'producer: { complete: true, outcomes: [{ gate: "engine-results", kind: "pass", message: "complete typed fixture with one owned test failure" }] },',
           'headSha: readRepositoryHeadSha(process.cwd()), ambientLoadPerCpu: 0, ambientLoad5PerCpu: 0, ambientLoad15PerCpu: 0,',
@@ -678,14 +712,17 @@ test("suite-cpu: actual adapter preserves its one-run red beside an owned test f
 
 test("THE BASELINE NEVER CLIMBS ON RUNS THAT FAILED (design HIGH 1): seven runs 2.5% over the cap fed the old fold through the spread and lifted the cap until the eighth passed; a row feeds only if its own CPU outcome passed", () => {
   const budget: RollingCpuBudget = {
-    baselineFloorMsPerTestFile: 1_000, derivedAtTestFileCount: 100, maxPopulationDriftFraction: 0.05, sameTreeSpreadFraction: 0.026,
+    metric: "calibrated-work/v1",
+    calibrationDriftMaxFraction: 0.15,
+    validThroughLoad5PerCpu: 1.25,
+    baselineFloorUnitsPerTestFile: 1_000, derivedAtTestFileCount: 100, maxPopulationDriftFraction: 0.05, sameTreeSpreadFraction: 0.026,
     baselineWindowRuns: 12, ambientInflationSlopePerCpu: 0, ambientInflationCapFraction: 0,
   };
-  const run = (cpu: number, over: Partial<JudgedRunRecord> = {}): JudgedRunRecord => ({ timestamp: "2026-10-11T00:00:00.000Z", cpuMsPerTestFile: cpu, testModuleCount: 100, heavySlot: "held", ...over });
+  const run = (cpu: number, over: Partial<JudgedRunRecord> = {}): JudgedRunRecord => ({ timestamp: "2026-10-11T00:00:00.000Z", cpuMsPerTestFile: cpu, workUnitsPerTestFile: cpu, metric: "calibrated-work/v1", calibrationMs: 1, calibrationDriftFraction: 0.02, testModuleCount: 100, heavySlot: "held", ...over });
   // The same +2.5% regression, run after run: each is over the 1000 cap, so none feeds, and the cap stays 1000.
   const regressed = Array.from({ length: 40 }, () => run(1_025));
   const derived = deriveRollingBaseline(budget, regressed, 100, []);
-  assert.equal(derived.baselineMsPerTestFile, 1_000, "forty failing runs move nothing");
+  assert.equal(derived.baselineUnitsPerTestFile, 1_000, "forty failing runs move nothing");
   assert.deepEqual(derived.windowReadings, []);
   // Passing runs feed (at or under the cap in force), and the baseline is never lifted above the floor by them.
   assert.deepEqual(deriveRollingBaseline(budget, [run(990), run(1_000), run(995)], 100, []).windowReadings, [990, 1_000, 995]);

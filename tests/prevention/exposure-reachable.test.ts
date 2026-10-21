@@ -1272,7 +1272,12 @@ describe("exposure is declared and reachable", () => {
       // reproduction door's α (`flakeReproduction.significance`) added. 30 → 32:
       // the instruments heavy by kind (`instrumentLock.wholeInstruments`)
       // and the deterministic shims (`flakeReproduction.deterministicShims`).
-      testExecution: 32,
+      // 32 → 26: `webUiSuiteCpuBudget` became a phase-dependent UNION
+      // (accumulation | rolling). The census walks `strictObject` shapes; a
+      // union is ONE declared leaf to it, so its branch leaves are not
+      // counted here — the budget's own tests assert the branches' required
+      // fields and the signals read them directly.
+      testExecution: 26,
       // 1 → 3: the ONE command runner's errored-class retries (PROMO-1).
       harness: 3,
       evaluation: 2,
@@ -1302,7 +1307,7 @@ describe("exposure is declared and reachable", () => {
       sectionCounts[section] = declared.size - before;
     }
     expect(sectionCounts, "each section must declare exactly its measured leaves — a new leaf reds its own section here").toEqual(expectedSectionCounts);
-    expect(declared.size, "the class's twelve sections declare seventy-six leaves in total").toBe(76);
+    expect(declared.size, "the class's twelve sections declare seventy leaves in total").toBe(70);
 
     // The class's rows live in THREE modules (testExecution,
     // harnessCommands, agents) spanning FIVE sections — the census binds
@@ -1381,7 +1386,10 @@ describe("exposure is declared and reachable", () => {
       });
     plant({
       webUiSuiteCpuBudget: {
-        baselineFloorMsPerTestFile: 1616,
+        metric: "calibrated-work/v1",
+        calibrationDriftMaxFraction: 0.15,
+        validThroughLoad5PerCpu: 1.25,
+        baselineFloorUnitsPerTestFile: 1616,
         derivedAtTestFileCount: 481,
         maxPopulationDriftFraction: 0.031,
         sameTreeSpreadFraction: 0.027,
@@ -1408,7 +1416,7 @@ describe("exposure is declared and reachable", () => {
     expectSignal("testExecution.flakeReproductionShims", "deterministic shims: engine/test/support/planted-shim.ts");
     expectSignal(
       "testExecution.webSuiteCpuCap",
-      "1616 ms of CPU per test file — the cap, the recorded floor; re-derived only by its measuring tool",
+      "1616 calibration units of work per test file (calibrated-work/v1) — the cap",
     );
     expectSignal("testExecution.webSuiteBaselineWindow", "the stale-floor check reads the median of the last 13 clean judged runs");
     expectSignal("testExecution.webSuiteCpuPopulation", "measured against 481 test files");
@@ -1433,12 +1441,17 @@ describe("exposure is declared and reachable", () => {
     plant({
       integrationSuiteCpuBudget: {
         phase: "derived",
-        msPerTestFile: 1500,
+        metric: "calibrated-work/v1",
+        calibrationDriftMaxFraction: 0.15,
+        validThroughLoad5PerCpu: 1.25,
+        unitsPerTestFile: 1500,
         derivedAtTestFileCount: 480,
         maxPopulationDriftFraction: 0.03,
+        ambientInflationSlopePerCpu: 0,
+        ambientInflationCapFraction: 0,
       },
     });
-    expectSignal("testExecution.integrationSuiteBudgetPhase", "derived — 1500 ms of CPU per test file over 480 files");
+    expectSignal("testExecution.integrationSuiteBudgetPhase", "derived — 1500 calibration units of work per test file over 480 files");
     // And the honest absence: these leaves are default-less BY DESIGN, so a
     // document without them must state the refusal in words, never invent
     // a number.
@@ -1475,6 +1488,8 @@ describe("exposure is declared and reachable", () => {
       "testExecution.compileCachePruning.timeBudgetMs": DEFAULTLESS_BOUND,
       "evaluation.maxOutputTokens":
         "the wiring gap: the matrix generator accepts an output-token knob, but no production path forwards the document's evaluation.maxOutputTokens into it (the evaluation CLI builds its matrix config without the field — engine/src/evaluation/cli.ts:173-174), so a settings row would read as saved and do nothing",
+      "testExecution.webUiSuiteCpuBudget":
+        "a PHASE-DEPENDENT UNION (accumulation | rolling) that the census walks as one leaf; its branch leaves are read by the budget's leaf signals (metric, floor, window, population, drift, spread, slopes), but the union itself must not be a writable row — a settings write would have to choose the phase and rewrite every branch field at once, which is the measuring tool's job, not a settings-cookie write",
       "qualityPacks.enabled":
         "the quality-pack registry factory reads the enabled-packs list (engine/src/runtime/quality-tools.ts:93), but no production path constructs it with the document's section — AND the leaf is an array of pack ids the settings sheet refuses by design, so both the wiring and the multi-select door must land before any row",
       "agents.profiles":
@@ -1562,7 +1577,13 @@ describe("exposure is declared and reachable", () => {
     // row declaring "milliseconds" makes the room speak a duration for a
     // count. The unit is pinned as the literal word, per row, the same
     // severance-proof shape as the default.
-    expect(rowsByPath.size, "the class serves exactly its sixteen disposed rows (71 leaves minus 17 read-only budget leaves minus 38 filed)").toBe(declared.size - readOnlyBudgets.length - Object.keys(filed).length);
+    // PINNED as the measured count: the census walks the phase-dependent
+    // `webUiSuiteCpuBudget` union as ONE leaf, so the leaves it used to
+    // contribute individually are no longer in `declared` and a subtraction
+    // from that set would promise a partition it no longer has. The loops
+    // above already assert every declared leaf is a row, a signal or filed,
+    // and that a filed leaf is never served; this pin is the row count.
+    expect(rowsByPath.size, "the class serves exactly its sixteen disposed rows").toBe(16);
     const expectedRows: ReadonlyArray<readonly [string, "immediate" | "next-run", unknown, string | undefined]> = [
       ["testExecution.runtimeBudgetMs", "next-run", 120000, "milliseconds"],
       ["testExecution.serialPhaseConcurrency", "next-run", 2, "lanes"],

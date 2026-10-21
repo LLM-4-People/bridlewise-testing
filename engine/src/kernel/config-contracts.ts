@@ -1275,6 +1275,61 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     message: "killGraceMs must be below stallTimeoutMs (a stop's grace may not outlast the silence it answers)",
     path: ["killGraceMs"],
   });
+  // ── THE CPU BUDGET'S SHAPES, BOTH DECLARED ─────────────────────────────
+  //
+  // The unit is named in the declaration because it changed: the old budget
+  // was raw CPU milliseconds per file (`raw-cpu-ms/v0`); the judged budget is
+  // calibrated work (`calibrated-work/v1`, engine/src/shared/run-cpu.ts).
+  // A run measured under one unit is never compared with a declaration in the
+  // other. The two run-owned witnesses bound the metric's validity: the
+  // start/end calibration drift and the recorded 5-minute ambient load. Past
+  // either bound the gate DEFERS (not-judged), never fails and never passes.
+  const cpuBudgetValidityFields = {
+    metric: z.string().min(1).max(120),
+    calibrationDriftMaxFraction: z.number().positive().lt(1),
+    validThroughLoad5PerCpu: z.number().positive().max(100),
+  } as const;
+  const accumulatingCpuBudgetSchema = z.strictObject({
+    ...cpuBudgetValidityFields,
+    phase: z.literal("accumulation"),
+    minimumJudgedRuns: z.number().int().min(2).max(50),
+    maxPopulationDriftFraction: z.number().positive().lt(1),
+    derivedAtTestFileCount: z.number().int().positive().max(100000).optional(),
+    // The retired declaration, recorded and marked incomparable — never
+    // rescaled into the new unit and never eligible for the new window.
+    legacy: z.strictObject({
+      metric: z.string().min(1).max(120),
+      baselineFloorMsPerTestFile: z.number().positive().max(600000),
+      derivedAtTestFileCount: z.number().int().positive().max(100000),
+      incomparable: z.literal(true),
+    }).optional(),
+  });
+  // The INTEGRATION suite's derived shape: a cap declared directly (it has
+  // no rolling floor; `judgeSuiteCpu` judges each run against this number).
+  const staticCpuBudgetSchema = z.strictObject({
+    ...cpuBudgetValidityFields,
+    phase: z.literal("derived"),
+    unitsPerTestFile: z.number().positive().max(600000),
+    derivedAtTestFileCount: z.number().int().positive().max(100000),
+    maxPopulationDriftFraction: z.number().positive().lt(1),
+    ambientInflationSlopePerCpu: z.number().min(0).lt(1),
+    ambientInflationCapFraction: z.number().min(0).lt(1),
+  });
+  const rollingCpuBudgetSchema = z.strictObject({
+    ...cpuBudgetValidityFields,
+    baselineFloorUnitsPerTestFile: z.number().positive().max(600000),
+    derivedAtTestFileCount: z.number().int().positive().max(100000),
+    maxPopulationDriftFraction: z.number().positive().lt(1),
+    sameTreeSpreadFraction: z.number().positive().lt(1),
+    baselineWindowRuns: z.number().int().min(2).max(HISTORY_KEPT),
+    // ZERO IS A LEGAL SLOPE NOW, and it is the value the calibrated metric
+    // declares: the ambient adjustment would double-pay a load effect the
+    // calibration already absorbs. The fields stay in the shape so a future
+    // re-derivation can state a non-zero residual without a schema change.
+    ambientInflationSlopePerCpu: z.number().min(0).lt(1),
+    ambientInflationCapFraction: z.number().min(0).lt(1),
+  });
+
   const testExecutionConfigSchema = z.strictObject({
     concurrency: z.union([
       z.literal("auto"),
@@ -1342,261 +1397,79 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
       timeBudgetMs: z.number().int().positive().max(600_000),
     }).optional(),
     integrationSuiteCpuBudget: z.union([
-      z.strictObject({
-        phase: z.literal("accumulation"),
-        minimumJudgedRuns: z.number().int().min(2).max(50),
-        maxPopulationDriftFraction: z.number().positive().lt(1),
-      }),
-      z.strictObject({
-        msPerTestFile: z.number().positive().max(600000),
-        derivedAtTestFileCount: z.number().int().positive().max(100000),
-        maxPopulationDriftFraction: z.number().positive().lt(1),
-        ambientInflationSlopePerCpu: z.number().positive().lt(1),
-        ambientInflationCapFraction: z.number().positive().lt(1),
-      }),
+      accumulatingCpuBudgetSchema,
+      staticCpuBudgetSchema,
     ]).optional(),
-    // What the web-UI suite may COST, per test file, in CPU milliseconds —
-    // DERIVED AT READ TIME from the run-history ledger, never hand-set, and
-    // anchored by a recorded floor this object declares.
+    // WHAT THE WEB-UI SUITE MAY COST, PER TEST FILE, IN CALIBRATED WORK.
     //
-    // It replaces an absolute wall-clock cap, and the replacement was forced
-    // by measurement rather than preference. That cap was derived against a
-    // 433-file suite, was still being enforced after the suite reached 451,
-    // and had drifted inside the run-to-run noise of a tree nobody had
-    // changed. Normalising by the recorded ambient load does not repair it:
-    // `loadavg()[0]` is a decaying one-minute average sampled before the run
-    // starts, so a genuinely loaded run (8 burners on 12 cores) and an idle
-    // run immediately after a previous suite both record ~0.6/cpu while
-    // finishing 25 seconds apart. Wall-clock occupancy is no better — it IS
-    // wall time and inflated 71% under those burners.
+    // ── THE UNIT MIGRATED, AND THE OLD NUMBER IS NOT CONVERTED ────────────
     //
-    // CPU does not — under MILD contention: the same unchanged tree measured
-    // 377.3 s of CPU idle and 387.2 s under the burners, +2.6%, while its
-    // wall clock moved +73%. Contention makes a process wait for a core; it
-    // does not make it execute more instructions. But that invariance does
-    // not survive saturation — cache thrashing, memory-bandwidth contention
-    // and scheduling pressure add real work to the same instructions (a
-    // measured +21% on one unchanged tree at 1.33/cpu recorded ambient) —
-    // so the budget bounds the WORK the suite asks for, which is the thing
-    // a regression actually changes, and every line scales by the
-    // ambient-inflation envelope declared below: the measured inflation of
-    // sustained ambient load, paid for by the adjustment, never a deferral.
-    // Nothing anywhere waits for a quiet box.
+    // This budget used to bound RAW CPU milliseconds per test file. That
+    // number is invariant to a runnable process WAITING for a core but not at
+    // saturation: cache and memory-bandwidth contention add real work to the
+    // same instructions. On this host the same tree measured 2124.7 ms/file
+    // under load ~9-10 against the recorded 1926 ms/file floor (+10.3%), so
+    // the gate reddened because the box was busy.
     //
-    // PER TEST FILE, and the population is declared alongside: a total is
-    // what silently stopped meaning anything when the suite grew, and a
-    // per-file figure that never states the tree it was measured on would
-    // eventually go the same way. A drift past
-    // `maxPopulationDriftFraction` refuses until the floor is re-judged
-    // and the count re-based. The unnoticed drift was 433 → 451, +4.2%, so
-    // a tolerance at or above that would admit the very defect this exists
-    // to prevent.
+    // THE SIGNAL. Every run pairs its CPU delta with a fixed deterministic
+    // calibration benchmark taken at run start and run end, in a child of the
+    // measuring process (`engine/src/shared/run-cpu.ts`): a fixed integer
+    // loop over a 256 KiB working set, six fixed chunks, spawned with
+    // --no-opt so V8's time-based tiering cannot change the instruction
+    // count, each chunk timed by its own process.cpuUsage(). The reading is
+    // the MEDIAN chunk; the run's unit is the mean of its start and end
+    // readings; the judged figure is
     //
-    // THE ROLLING BASELINE — the cap is the declared FLOOR: a judged run
-    // feeds the window only when its own CPU outcome passed (at or below the
-    // cap in force at its moment), so the window's median never rises above
-    // the floor. Growth is NOT absorbed: a grown suite fails the cap until
-    // the measuring tool re-derives the floor (`npm run budget:measure`,
-    // D-17), the derivation recorded beside this declaration. The window is
-    // the stale-floor disclosure's sample (a clean median more than the
-    // spread below the floor is said on every run).
-    // The derivation, its anti-normalization construction and its
-    // disclosure are documented at the owner:
-    // `src/shared/budget-verdict.ts`, `deriveRollingBaseline`.
+    //     workUnitsPerTestFile = (runCpuMs / calibrationMs) / testFileCount
     //
-    // THE FLOOR (`baselineFloorMsPerTestFile`) — the one hand-number left,
-    // and the anchor for the one direction a rolling window cannot be
-    // trusted with: the baseline NEVER DROPS below the floor without an
-    // explicit measured re-derivation recorded beside this declaration, so
-    // a lucky quiet stretch (a fast box band moving the window's median —
-    // measured twice on this box: the whole band moved +6-9% for
-    // byte-identical trees, uncorrelated with recorded ambient) cannot
-    // silently loosen the gate. Its derivation is recorded here, newest
-    // first:
+    // — computed ONCE in run-cpu.ts `computeRunWork`, read by the verdict
+    // (`budget-verdict.ts`), recorded by the reporter and the engine runner,
+    // and quoted by the pages. A second division of the run's CPU is a defect.
     //
-    // 1926 at 521 files (2026-10-10, LAND-OC-FIX round 12, written by the
-    // measuring tool `npm run budget:measure -- --write`, D-17): the suite
-    // had grown from 485 to 521 files (+7.4%, past the 3% drift), so the
-    // population arm demanded the re-derivation. Twelve full web runs in the
-    // host lock, in the coordinator's quiet window, each started once the
-    // 1-minute load had decayed to <= 1.5 (12:25Z-13:33Z; 5-minute load
-    // 0.06-0.43/CPU): raw 1919.2-2003.4 ms/file; the tool's window (each
-    // reading ambient-adjusted at its own 5-minute leg, as the verdict still
-    // adjusts until AMBIENT-ALLOWANCE-REMOVE) 1891.4-1970.2, median 1925.4,
-    // spread max |reading - median| / median 2.32% (the high reading, run 3)
-    // — inside the 2.6% `sameTreeSpreadFraction`. Floor 1926 = the window's
-    // median at the declaration's granularity. An earlier batch the same
-    // morning (back to back, no cooling: each run paid for the last) spread
-    // 2.70% and wrote nothing.
+    // THE PROFILE WAS CHOSEN BY MEASUREMENT. On a real 4-file subset (68
+    // tests) of this suite, interleaved 3 ambient + 2 under eight
+    // memory-streaming burners, on this 12-core host, the 256 KiB profile
+    // moved +3.9% while raw CPU moved +46.6%:
     //
-    // 1614 (2026-09-04, the STALE-LOOSE re-derivation the baseline line
-    // itself demanded on every run — the downward anchor, applied in the
-    // rolling design's own recorded remedy): the 1665 floor held the
-    // baseline up long after the clean window refilled with
-    // post-convergence readings, and the standing line said so on every
-    // run ("the floor is STALE-LOOSE: the clean median sits more than the
-    // same-tree spread below it … re-derive the floor from the measured
-    // clean window"). Re-derived from the LIVE ledger's own 12-run clean
-    // window (every reading ambient-adjusted at its own recorded 5-minute
-    // leg, exactly as the machinery feeds it): 1587.2, 1591.4, 1565.8,
-    // 1612.1, 1613.9, 1600.7, 1564.0, 1554.3, 1590.0, 1595.1, 1577.6,
-    // 1586.1 — median 1588.6, observed quiet maximum 1613.9, measured
-    // quiet excursion 25.3. Floor 1614 = the ceiling of the observed quiet
-    // maximum at the declaration's granularity — the same
-    // median-plus-excursion shape as the 1665, 1615 and 1564 derivations
-    // below, nothing more, applied DOWNWARD this time: the floor exists to
-    // anchor the one direction a rolling window cannot be trusted with (a
-    // lucky quiet stretch pulling the baseline down), not to ratchet the
-    // tree up, so a floor re-derived at the measured center lets the
-    // baseline follow the median down through real improvement while the
-    // GROWTH direction stays the median's own (a regression beyond the
-    // spread still never feeds, and (since round 12) fails its own run
-    // against the unchanged baseline — the anti-normalization construction
-    // is untouched).
-    // Population 485, the count the window's settled readings were judged
-    // against (the window's four oldest rows are 480-file runs inside the
-    // declared drift tolerance). The day's excluded tails (the 1735.3
-    // streak row) stay excluded by the feed filter — beyond the adjusted
-    // allowance of the baseline in force, exactly as designed. The
-    // allowance at the new floor: 1614 × 1.026 = 1656.0 — the band (now
-    // only the feed filter's boundary) narrows with the floor, the teeth sharpen, they do not weaken; the
-    // median sits 1.58% under the new floor, inside the 2.6% spread, so
-    // the floor binds WITHOUT the STALE-LOOSE note: the honest anchor
-    // state, holding against quiet stretches while the window's own noise
-    // band contains the gap.
+    //   condition   raw ms/file                 calibrated units/file
+    //   ambient     12579.5  11035.5  10619.0   305.9  267.2  241.6
+    //   loaded      16907.0  16540.2            280.6  283.9
+    //   step        +46.6%                      +3.9%
     //
-    // 1665 (2026-09-04, the rolling-baseline round's cold-start re-derivation
-    // — the measured step absorption, from the LEDGER's own recorded
-    // evidence, no fresh series): the tree's quiet center moved past the
-    // 1615 seed in the hours after the round-69 convergence — the rounds
-    // 63-69 tranche growth the chain-watch recorded round by round (the
-    // margin 113 → 46 → 0.3 → over), arriving on the post-convergence tree
-    // as two independent quiet readings of 1661.5 (ambient 0.094/cpu) and
-    // 1663.0 (ambient 0.233/cpu). Floor 1665 = the ceiling of the observed
-    // quiet maximum (1663.0) at the declaration's granularity — the same
-    // median-plus-excursion shape as the 1564 and 1615 derivations below,
-    // nothing more. The day's band tail (1736.3-1936.7, a uniform +6-12%
-    // phase inflation measured between two runs of one byte-identical
-    // tree — import 191.2 → 215.0 s, setup 45.0 → 49.4 s, tests 502.1 →
-    // 559.8 s; the occupancy floors at baseline within jitter) is EXCLUDED
-    // from the derivation (the box, not the tree) and stays beyond the new
-    // allowance (1665 × 1.026 = 1708.0), where it warns and arms exactly as
-    // the mechanism prescribes. THE COLD-START LAG, disclosed: the clean
-    // window still holds the pre-growth era's readings (median 1537.3), so
-    // the floor binds and the STALE-LOOSE note fires on every run until
-    // the window refills with readings at the current center — the note's
-    // state is true and said, never silent, and its remedy is already
-    // paid. From this edit the median owns the number: continuous growth
-    // rolls, and only a step beyond the noise band demands this ritual
-    // again.
+    // An L3 working set over-corrected (a 3-5× inflation against the same
+    // burners) and a register-only workload was unstable; the 256 KiB profile
+    // is the one whose sensitivity matched the subject's. The residual is
+    // NOT assumed away: it is bounded by the run's own witnesses, and the
+    // gate DEFERS outside those bounds. `calibrationDriftMaxFraction` is the
+    // measured stationarity bound (0.15 against a measured 1.5-11.9% across
+    // the real-suite runs, with 17.9-26.2% transition runs left outside it);
+    // `validThroughLoad5PerCpu` is the recorded 5-minute ambient load the
+    // residual was measured through (1.7 against a measured maximum of
+    // 1.648/cpu; all five runs of the 2026-10-20 experiment were measured
+    // there, three inside the drift bound). Past either bound the run is
+    // NOT JUDGED — a deferral, never a pass and never a fail.
     //
-    // 1615 (2026-09-04, the budget-drift investigation — the floor's SEED,
-    // kept verbatim as the record of the derivation the rolling world
-    // inherited): the suite grew past the 2026-09-03 declaration —
-    // 8031 → 8059 tests over the same 480 files, the growth distributed
-    // across new arms and per-fork import evaluation (no single mover: no
-    // occupancy floor gained beyond run-to-run jitter, the largest move
-    // +2.4%; the tests phase +47-75 s and the import phase +11-24 s
-    // against the 2026-09-03 aggregates) — and the quiet center followed it
-    // past the then-cap. Four fresh same-sha settled-launch quiet judged
-    // runs on the settled box read 1593.0, 1608.5, 1611.5, 1614.6 ms/file
-    // (recorded ambients 0.056-0.132/cpu, transform cache warm, 0 written
-    // in every run), median 1610.0, observed quiet maximum 1614.6. Floor
-    // 1615 = the ceiling of the observed quiet maximum = median 1610.0 +
-    // the measured quiet excursion 4.6; population declared 480, the count
-    // the readings were judged against. Not a raise by fiat and not
-    // "today's reading rounded up": the number carries exactly the
-    // headroom the quiet tree was measured to need, nothing more. When
-    // the floor is provably STALE-HIGH (the clean median sits more than
-    // the spread below it), the run's baseline line says so on every run
-    // and demands this re-derivation — the never-silent principle, both
-    // directions.
+    // THE MIGRATION, RECORDED THROUGH THE OWNER (D-17). The old declaration
+    // was 1926 ms/file at 521 test files (derived 2026-10-10 by
+    // `npm run budget:measure -- --write` from twelve quiet runs, raw
+    // 1919.2-2003.4, median 1925.4). It was measured with NO calibration
+    // reading, so its unit cannot be converted into the new one: the two
+    // ledger rows it produced (2124.7 and 2183.7 ms/file) carry no metric and
+    // are INCOMPARABLE. The old floor is recorded under `legacy` below with
+    // `incomparable: true`; the declaration is in ACCUMULATION until twelve
+    // clean full runs under calibrated-work/v1 exist, at which point the
+    // window's clean median is derived into the new floor by the measuring
+    // tool's rule and recorded beside the declaration. Nothing rescales the
+    // old number, and no legacy row feeds the new window
+    // (`budget-verdict.ts` `eligibleBudgetRows`).
     //
-    // THE WINDOW (`baselineWindowRuns`) — 12: the same sample size the
-    // 2026-09-04 hand derivation used and the measuring tool derives from;
-    // the stale-floor disclosure's sample. It never moves the cap.
-    //
-    // `sameTreeSpreadFraction` — the measured run-to-run spread of an
-    // UNCHANGED tree: how far below the floor the clean median may sit
-    // before the floor is reported stale, and the measuring tool's outlier
-    // line. It never widens a verdict. Derivation (2026-09-04, same investigation): the
-    // population's observed maximum is 1655.7 ms/file — the 2026-09-03
-    // saturation-era tail, recorded at the quietest ambients of its day
-    // and reproduced by eight stacked saturations taking a byte-unchanged
-    // tree 1509.1 → 1625.6 (the whole band moving +6-9% uncorrelated with
-    // recorded load); the post-2026-09-03 window carries the same
-    // mechanism's quieter tail (1646.0). That maximum sits 2.52% over the
-    // 1615 center, and the spread must classify it as noise or the
-    // unchanged tree's own measured tail is taken for a regression — 0.026 is the
-    // smallest three-decimal declaration that does. It has ONE role: the
-    // boundary a ledger reading must sit at or under to feed the baseline
-    // window and the measuring tool's window (D-17). It never widens a
-    // verdict: one judged run over the cap fails.
-    //
-    // NO STREAK AND NO BAND (UR-24-BUDGETS, 2026-10-08): one judged run over
-    // the cap fails that run. The "recorded, not red" band and the
-    // three-consecutive-runs streak (`overCapRunsBeforeRed`) were the rerun
-    // forgiveness the user deleted on 2026-10-07; both are gone.
-    //
-    // THE AMBIENT-INFLATION ENVELOPE (`ambientInflationSlopePerCpu` +
-    // `ambientInflationCapFraction`) — the mechanism that ended the
-    // quiet-ambient dependency: every reading is judged against a baseline
-    // scaled by the CPU inflation its OWN recorded 5-minute ambient load
-    // explains, so a clean run at a busy ambient judges clean and a
-    // regressed run at a busy ambient judges regressed, at ANY ambient,
-    // with nothing anywhere waiting for a quiet box (the user's standing
-    // directive, 2026-09-04: the box is never idle; the machinery must
-    // measure and judge at whatever ambient holds).
-    //
-    // WHY THE 5-MINUTE LEG IS THE COVARIATE (2026-09-04, the round-70
-    // calibration): regressing the web ledger's own 55 recorded rows of
-    // cpuMsPerTestFile against the recorded 1-minute leg gives r = 0.172 —
-    // the 1-minute decaying average is sampled before launch and measures
-    // the minute BEFORE the run (the 04:11-04:15 cohort recorded 1.32-1.94
-    // /cpu while reading the quiet centre, 1595-1605 ms/file), and the whole
-    // 1736-1936 inflation cohort of the same day sat at recorded-QUIET
-    // 1-minute ambients (0.069-0.148/cpu). The 5-minute leg is the one the
-    // single-suite ghost cannot inflate (one 80s suite at load ~10 on 12
-    // cores leaves it at ~0.2/cpu), so a recorded amb5 is sustained load,
-    // not the previous run's echo.
-    //
-    // THE SLOPE, 0.05/cpu — the envelope through the reliable measured
-    // pairs, nothing fitted by taste:
-    //   - eight CPU burners on twelve cores, whole run, 2026-09-03:
-    //     +2.6% CPU at a 5-minute ambient of ~0.5-0.67/cpu → the allowance
-    //     at 0.67 is +3.4%;
-    //   - the web ledger's own 2026-09-04 12:18-12:23 cohort, four runs at
-    //     amb5 0.557-1.263 against their quiet same-sha neighbour 1661.5:
-    //     +2.0% to +5.5% (worst pair +5.5% at amb5 1.092 → the allowance is
-    //     +5.5%), mean ≈ +3.9%.
-    // The slope covers both anchors with margin and covers nothing the
-    // record does not show.
-    //
-    // THE CAP, 0.12 — the bound on the whole adjustment, so the gate may
-    // never loosen by more than 12% for ambient reasons and the teeth hold
-    // at every ambient. Anchored on the 2026-09-03 stacked-saturation
-    // measurement (eight stacked saturations took a byte-unchanged tree
-    // 1509.1 → 1625.6, +7.7%) plus the same-tree spread riding on top:
-    // everything the reliable record shows at ANY sustained ambient
-    // (7.7% + 2.6% = 10.3%) sits inside the capped line (12% + 2.6% =
-    // 14.9%). The 2026-09-01 incident (+21% on an unchanged tree at
-    // recorded 1-minute ambients 0.88-1.66/cpu, load average 18 at peak) is
-    // deliberately BEYOND the envelope: covering it would require an
-    // allowance 4× the reliable cohort's worst realized inflation at the
-    // same recorded ambient, emptying the teeth exactly where stacked gates
-    // make regressions likely. Such readings warn (run n of k, printed with
-    // the capped arithmetic) and a sustained beyond-envelope stretch reds —
-    // the gate refusing to loosen itself into blindness is the honest
-    // verdict at an ambient its measured envelope cannot speak to.
-    webUiSuiteCpuBudget: z.strictObject({
-      baselineFloorMsPerTestFile: z.number().positive().max(600000),
-      derivedAtTestFileCount: z.number().int().positive().max(100000),
-      maxPopulationDriftFraction: z.number().positive().lt(1),
-      sameTreeSpreadFraction: z.number().positive().lt(1),
-      baselineWindowRuns: z.number().int().min(2).max(HISTORY_KEPT),
-      ambientInflationSlopePerCpu: z.number().positive().lt(1),
-      ambientInflationCapFraction: z.number().positive().lt(1),
-    }).optional(),
+    // THE AMBIENT ENVELOPE IS RETIRED (slope 0 in the rolling shape): the
+    // calibration already absorbs the load effect, so paying the old envelope
+    // on top would double-count it. The fields remain for a future residual.
+    webUiSuiteCpuBudget: z.union([
+      accumulatingCpuBudgetSchema,
+      rollingCpuBudgetSchema,
+    ]).optional(),
     // The largest share of the whole pool's worker time one test FILE may
     // occupy. A SHARE rather than a duration because contention is real and
     // uninteresting: the same tree measured minutes apart moves by tens of

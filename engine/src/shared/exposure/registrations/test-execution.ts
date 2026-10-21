@@ -190,12 +190,17 @@ export function registerTestExecutionExposure(): void {
       "The web-UI suite's CPU cap: the recorded floor itself. Only a run that passed its own cap feeds the rolling window, so the window's median never rises above the floor; a grown or slower suite fails the cap until the measuring tool re-derives the floor (npm run budget:measure). Every judgement line scales by the measured ambient-inflation envelope (see the ambient signals). Shown read-only: a settings write that loosened it would silently weaken what a green run means.",
     type: "string",
     value: () => {
-      const floor = readBudgetNumber(`${BUDGET_PATH}.baselineFloorMsPerTestFile`);
-      const window = readBudgetNumber(`${BUDGET_PATH}.baselineWindowRuns`);
+      const metric = readConfigCustomization(`${BUDGET_PATH}.metric`);
+      const floor = readBudgetNumber(`${BUDGET_PATH}.baselineFloorUnitsPerTestFile`);
+      const minimum = readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`);
+      if (typeof metric === "string" && minimum !== undefined && floor === undefined) {
+        return (
+          `no cap yet — ${metric} ACCUMULATION (${String(minimum)} clean judged full runs ` +
+          `needed); the retired raw-CPU floor is recorded but incomparable`
+        );
+      }
       if (floor === undefined) return NOT_DECLARED;
-      return window === undefined
-        ? `${floor} ms of CPU per test file — the cap, the recorded floor (the stale-floor window is not declared)`
-        : `${floor} ms of CPU per test file — the cap, the recorded floor; re-derived only by its measuring tool`;
+      return `${floor} calibration units of work per test file (${typeof metric === "string" ? metric : "metric undeclared"}) — the cap`;
     },
   });
   registerSignal({
@@ -207,7 +212,13 @@ export function registerTestExecutionExposure(): void {
     type: "string",
     value: () => {
       const window = readBudgetNumber(`${BUDGET_PATH}.baselineWindowRuns`);
-      return window === undefined ? NOT_DECLARED : `the stale-floor check reads the median of the last ${String(window)} clean judged runs`;
+      if (window !== undefined) {
+        return `the stale-floor check reads the median of the last ${String(window)} clean judged runs`;
+      }
+      const minimum = readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`);
+      return minimum === undefined
+        ? NOT_DECLARED
+        : `no window yet — the metric is in accumulation (${String(minimum)} clean judged full runs needed before a cap is derived)`;
     },
   });
   registerSignal({
@@ -243,7 +254,10 @@ export function registerTestExecutionExposure(): void {
     type: "string",
     value: () => {
       const spread = readBudgetNumber(`${BUDGET_PATH}.sameTreeSpreadFraction`);
-      return spread === undefined ? NOT_DECLARED : `${asPercent(spread)} same-tree spread decides which runs feed the baseline`;
+      if (spread !== undefined) return `${asPercent(spread)} same-tree spread decides which runs feed the baseline`;
+      return readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`) === undefined
+        ? NOT_DECLARED
+        : "no feed spread yet — no baseline is being derived while the metric accumulates";
     },
   });
   registerSignal({
@@ -255,9 +269,12 @@ export function registerTestExecutionExposure(): void {
     type: "string",
     value: () => {
       const slope = readBudgetNumber(`${BUDGET_PATH}.ambientInflationSlopePerCpu`);
-      return slope === undefined
+      if (slope !== undefined) {
+        return `the gate pays ${(slope * 100).toFixed(1)}% more allowance per unit of recorded 5-minute ambient load per CPU`;
+      }
+      return readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`) === undefined
         ? NOT_DECLARED
-        : `the gate pays ${(slope * 100).toFixed(1)}% more allowance per unit of recorded 5-minute ambient load per CPU`;
+        : "no ambient allowance is paid — the calibrated metric normalises the run's own work instead";
     },
   });
   registerSignal({
@@ -269,9 +286,10 @@ export function registerTestExecutionExposure(): void {
     type: "string",
     value: () => {
       const cap = readBudgetNumber(`${BUDGET_PATH}.ambientInflationCapFraction`);
-      return cap === undefined
+      if (cap !== undefined) return `the ambient allowance is capped at ${(cap * 100).toFixed(1)}% of the baseline`;
+      return readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`) === undefined
         ? NOT_DECLARED
-        : `the ambient allowance is capped at ${(cap * 100).toFixed(1)}% of the baseline`;
+        : "no ambient allowance is paid — the calibrated metric normalises the run's own work instead";
     },
   });
   registerSignal({
@@ -459,7 +477,7 @@ export function registerTestExecutionExposure(): void {
         return `accumulation — at least ${String(record.minimumJudgedRuns)} judged runs before the cap is derived`;
       }
       if (record.phase === "derived") {
-        return `derived — ${String(record.msPerTestFile)} ms of CPU per test file over ${String(record.derivedAtTestFileCount)} files`;
+        return `derived — ${String(record.unitsPerTestFile)} calibration units of work per test file over ${String(record.derivedAtTestFileCount)} files`;
       }
       return NOT_DECLARED;
     },

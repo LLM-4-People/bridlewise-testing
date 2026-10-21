@@ -35,7 +35,7 @@ import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
 
 import { createTempGitRepo } from "../helpers/temp-git-repo.ts";
 import BudgetReporter, { cacheEntriesWrittenSince, failuresOf, MODULE_FAILURE_ROW } from "../reporters/budget-reporter.ts";
-import { fullRunModuleCount } from "../helpers/budget-config.ts";
+import { fullRunModuleCount, readCpuBudget } from "../helpers/budget-config.ts";
 
 import {
   judgeRuntimeBudget,
@@ -57,7 +57,7 @@ import { appendJudgedRun, HISTORY_KEPT, readRunHistory } from "../helpers/budget
 import { currentQualificationOutcome, finalizeQualifiedRun, runForInvocation } from "../../engine/src/shared/run-history.ts";
 import type { RunQualificationTerminal } from "../../engine/src/shared/budget-verdict.ts";
 import { readTrackedTreeDirty } from "../../engine/src/shared/tree-identity.ts";
-import { readRunCpu } from "../../engine/src/shared/run-cpu.ts";
+import { readRunCpu, type CalibrationReading } from "../../engine/src/shared/run-cpu.ts";
 import { measureWebBudget } from "../../scripts/testing/measure-web-budget.ts";
 import { engineConfigDocumentPath } from "../../engine/src/kernel/config.ts";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
@@ -71,7 +71,20 @@ const OPTS = { fullRunModuleCount: FULL };
 
 /** A well-formed summary of a full, cheap, WARM run: the cache existed at
  *  start, grew by a handful of entries, and almost nothing was written. */
+const FIXED_CALIBRATION_MS = 1;
+let fakeCpuMs = 0;
+const FIXED_CPU = () => ({ totalCpuMs: (fakeCpuMs += 100_000), childCpuMs: 0 });
+const FIXED_CALIBRATION = (): CalibrationReading => ({
+  cpuMs: FIXED_CALIBRATION_MS,
+  chunks: [1, 1, 1, 1, 1, 1],
+  workload: "int-mem-l2/v1",
+  chunkIterations: 5_000_000,
+});
+
 function goodSummary(over: Record<string, unknown> = {}): Record<string, unknown> {
+  const runCpuMs = typeof over.runCpuMs === "number" ? over.runCpuMs : 330_000;
+  const testModuleCount = typeof over.testModuleCount === "number" ? over.testModuleCount : FULL;
+  const calibrationMs = typeof over.calibrationMs === "number" ? over.calibrationMs : FIXED_CALIBRATION_MS;
   return {
     wallClockMs: 28_240,
     timestamp: "2026-07-27T11:28:41.813Z",
@@ -86,8 +99,21 @@ function goodSummary(over: Record<string, unknown> = {}): Record<string, unknown
     ],
     totalOccupancyMs: 300_000,
     load1PerCpuAtStart: 0.01,
+    load5PerCpuAtStart: 0,
+    load15PerCpuAtStart: 0,
     cpuCount: 12,
-    runCpuMs: 330_000,
+    runCpuMs,
+    // THE JUDGED READING, derived from this fixture's own runCpuMs and unit
+    // exactly as `computeRunWork` derives it: one computation, read here.
+    workMetric: "calibrated-work/v1",
+    workUnits: runCpuMs / calibrationMs,
+    workUnitsPerTestFile: runCpuMs / calibrationMs / testModuleCount,
+    rawCpuMsPerTestFile: runCpuMs / testModuleCount,
+    calibrationMs,
+    calibrationStartMs: calibrationMs * 1.01,
+    calibrationEndMs: calibrationMs * 0.99,
+    calibrationDriftFraction: 0.02,
+    calibrationWorkload: "int-mem-l2/v1",
     moduleCacheEntriesAtStart: 4_180,
     moduleCacheEntriesAtEnd: 4_211,
     moduleCacheEntriesWrittenDuringRun: 31,
@@ -186,11 +212,12 @@ describe("a summary that IS evidence is judged", () => {
     // The whole repair in one assertion: what comes out is the run's WORK per
     // test file. A wall clock reaching this number would mean the gate had
     // quietly gone back to judging duration.
-    const v = judgeRuntimeBudget(goodSummary({ runCpuMs: 417_000 }), OPTS);
+    const v = judgeRuntimeBudget(goodSummary({ runCpuMs: 417_000, calibrationMs: 100 }), OPTS);
     expect(v.kind).toBe("measured");
     if (v.kind !== "measured") return;
-    expect(v.cpuMsPerTestFile).toBe(1_000);
-    expect(v.cpuMsPerTestFile).not.toBe(v.wallClockMs);
+    expect(v.workUnitsPerTestFile).toBe(10);
+    expect(v.rawCpuMsPerTestFile).toBe(1_000);
+    expect(v.workUnitsPerTestFile).not.toBe(v.wallClockMs);
   });
 
   test("A BUSY MACHINE DOES NOT MOVE THE JUDGED FIGURE — the wall clock alone moves", () => {
@@ -199,11 +226,13 @@ describe("a summary that IS evidence is judged", () => {
     // occupancy +71%, CPU +2.6%. If someone ever re-points the verdict at
     // wallClockMs or at totalOccupancyMs, this is the test that reds.
     const idle = judgeRuntimeBudget(
-      goodSummary({ wallClockMs: 35_304, totalOccupancyMs: 325_892, runCpuMs: 377_316 }),
+      goodSummary({ wallClockMs: 35_304, totalOccupancyMs: 325_892, runCpuMs: 377_316, calibrationMs: 100 }),
       OPTS,
     );
+    // Raw CPU +46.6% under contention; the calibration moved with it, so the
+    // judged figure is flat. This is the INVARIANCE the metric exists for.
     const contended = judgeRuntimeBudget(
-      goodSummary({ wallClockMs: 61_144, totalOccupancyMs: 562_633, runCpuMs: 387_186 }),
+      goodSummary({ wallClockMs: 61_144, totalOccupancyMs: 562_633, runCpuMs: 553_100, calibrationMs: 146.6 }),
       OPTS,
     );
     expect(idle.kind).toBe("measured");
@@ -213,11 +242,13 @@ describe("a summary that IS evidence is judged", () => {
     if (contended.totalOccupancyMs === null || idle.totalOccupancyMs === null) throw new Error("both readings recorded a pool total");
     const wallGrowth = contended.wallClockMs / idle.wallClockMs - 1;
     const occupancyGrowth = contended.totalOccupancyMs / idle.totalOccupancyMs - 1;
-    const judgedGrowth = contended.cpuMsPerTestFile / idle.cpuMsPerTestFile - 1;
+    const rawGrowth = contended.rawCpuMsPerTestFile / idle.rawCpuMsPerTestFile - 1;
+    const judgedGrowth = contended.workUnitsPerTestFile / idle.workUnitsPerTestFile - 1;
     expect(wallGrowth).toBeGreaterThan(0.7);
     expect(occupancyGrowth).toBeGreaterThan(0.7);
     // An order of magnitude less sensitive to the machine than either of the
     // two quantities a previous version of this gate reached for.
+    expect(rawGrowth).toBeGreaterThan(0.4);
     expect(judgedGrowth).toBeLessThan(0.05);
   });
 
@@ -227,7 +258,7 @@ describe("a summary that IS evidence is judged", () => {
     const v = judgeRuntimeBudget(goodSummary({ runCpuMs: 9_900_000 }), OPTS);
     expect(v.kind).toBe("measured");
     if (v.kind !== "measured") return;
-    expect(v.cpuMsPerTestFile).toBeGreaterThan(20_000);
+    expect(v.rawCpuMsPerTestFile).toBeGreaterThan(20_000);
   });
 
   test("a heavy ambient load does NOT excuse an expensive run", () => {
@@ -512,7 +543,10 @@ describe("a summary that IS evidence is judged", () => {
 
 describe("the run's own costs are judged, and a refusal is not a pass", () => {
   const BUDGET: RollingCpuBudget = {
-    baselineFloorMsPerTestFile: 1_000,
+    metric: "calibrated-work/v1",
+    calibrationDriftMaxFraction: 0.15,
+    validThroughLoad5PerCpu: 1.25,
+    baselineFloorUnitsPerTestFile: 1_000,
     derivedAtTestFileCount: FULL,
     maxPopulationDriftFraction: 0.03,
     // The baseline DERIVES from the ledger (never below the floor), and
@@ -542,7 +576,12 @@ describe("the run's own costs are judged, and a refusal is not a pass", () => {
   const ranAt = (cpuMsPerTestFile: number, when = "2026-07-30T10:00:00.000Z") => ({
     timestamp: when,
     cpuMsPerTestFile,
+    workUnitsPerTestFile: cpuMsPerTestFile,
+    metric: "calibrated-work/v1",
+    calibrationMs: 1,
+    calibrationDriftFraction: 0.02,
     testModuleCount: FULL,
+    heavySlot: "held" as const,
   });
   /** A summary whose judged figure lands at exactly `msPerFile`. */
   const summaryAt = (msPerFile: number) => goodSummary({ runCpuMs: msPerFile * FULL });
@@ -638,10 +677,10 @@ describe("the run's own costs are judged, and a refusal is not a pass", () => {
     const busy = judgeRunCosts(judgeRuntimeBudget(atAmb5(0.8, 1_030), OPTS), INPUTS);
     const cpu = busy.find((o) => o.gate === "cpu-per-test-file")!;
     expect(cpu.kind).toBe("pass");
-    expect(cpu.message).toContain("1030.0 ms/file within 1040.0");
-    expect(cpu.message).toContain("baseline 1000.0 × 1.040 ambient adjustment");
+    expect(cpu.message).toContain("1030.000 calibration units/file within 1040.000");
+    expect(cpu.message).toContain("baseline 1000.000 × 1.040 ambient adjustment");
     expect(cpu.message).toContain("0.800/cpu");
-    expect(cpu.message).toContain("rolling baseline 1000.0");
+    expect(cpu.message).toContain("rolling baseline 1000.000");
     expect(cpu.message).toContain("ambient adjustment this run earned");
     // The counterfactual in the same arm: the IDENTICAL reading at a quiet
     // ambient FAILS — the adjustment moved the line, and it is stated.
@@ -660,20 +699,27 @@ describe("the run's own costs are judged, and a refusal is not a pass", () => {
       const cpu = out.find((o) => o.gate === "cpu-per-test-file")!;
       expect(cpu.kind).toBe("fail");
       expect(cpu.message).toContain("do not raise the budget");
-      expect(cpu.message).toContain("cap in force = baseline 1000.0 × 1.040 ambient adjustment");
+      expect(cpu.message).toContain("baseline 1000.000 × 1.040 ambient adjustment");
       expect(cpu.message).toContain("1050.0");
     }
   });
 
-  test("THE CAP — no ambient empties the teeth: beyond-envelope saturation still fails, never defers", () => {
-    // At amb5 3.0 the raw adjustment (3.0 × 0.05 = 15%) is capped at 12%:
-    // the cap is 1,120. 1,121 fails; 1,120 passes.
+  test("THE CAP — inside the metric's validity bound a saturated run still fails; past it the gate DEFERS, never passes", () => {
+    // At amb5 1.2 the adjustment is +6%: the cap is 1,060. 1,061 fails;
+    // 1,060 passes. The teeth do not come out at high ambient.
+    expect(ambientInflationFraction(1.2, BUDGET)).toBeCloseTo(0.06, 10);
+    const busy = judgeRunCosts(judgeRuntimeBudget(atAmb5(1.2, 1_061), OPTS), INPUTS);
+    const busyCpu = busy.find((o) => o.gate === "cpu-per-test-file")!;
+    expect(busyCpu.kind).toBe("fail");
+    expect(busyCpu.message).toContain("1060.000");
+    expect(gate(judgeRunCosts(judgeRuntimeBudget(atAmb5(1.2, 1_060), OPTS), INPUTS), "cpu-per-test-file")).toBe("pass");
+    // PAST THE BOUND the residual is UNMEASURED: a 3.0/cpu ambient is not a
+    // reason to pass OR to fail. The gate says so and defers.
     expect(ambientInflationFraction(3.0, BUDGET)).toBe(0.12);
     const saturated = judgeRunCosts(judgeRuntimeBudget(atAmb5(3.0, 1_121), OPTS), INPUTS);
     const cpu = saturated.find((o) => o.gate === "cpu-per-test-file")!;
-    expect(cpu.kind).toBe("fail");
-    expect(cpu.message).toContain("1120.0");
-    expect(gate(judgeRunCosts(judgeRuntimeBudget(atAmb5(3.0, 1_120), OPTS), INPUTS), "cpu-per-test-file")).toBe("pass");
+    expect(cpu.kind).toBe("not-judged");
+    expect(cpu.message).toContain("past the 1.25/cpu bound");
     // And the helper's own bounds: absence, garbage and non-positive
     // readings adjust nothing — a missing covariate must never loosen a
     // line (deny-by-default).
@@ -700,9 +746,9 @@ describe("the run's own costs are judged, and a refusal is not a pass", () => {
     const cpu = ghost.find((o) => o.gate === "cpu-per-test-file")!;
     const cpuTwin = twin.find((o) => o.gate === "cpu-per-test-file")!;
     expect(cpu.kind).toBe(cpuTwin.kind);
-    const cap = (1_000 * (1 + ambientInflationFraction(0.15, BUDGET))).toFixed(1);
-    expect(cpu.message).toContain(`over the ${cap} ms/file cap in force`);
-    expect(cpuTwin.message).toContain(`over the ${cap} ms/file cap in force`);
+    const cap = (1_000 * (1 + ambientInflationFraction(0.15, BUDGET))).toFixed(3);
+    expect(cpu.message).toContain(`over the ${cap} cap in force`);
+    expect(cpuTwin.message).toContain(`over the ${cap} cap in force`);
     expect(cpu.message).toContain("× 1.008 ambient adjustment");
     expect(cpuTwin.message).toContain("× 1.008 ambient adjustment");
     expect(cpu.message).not.toContain("× 1.016");
@@ -712,7 +758,8 @@ describe("the run's own costs are judged, and a refusal is not a pass", () => {
     const s = goodSummary({ runCpuMs: 1_060 * FULL });
     delete s.load5PerCpuAtStart;
     const noLeg = judgeRunCosts(judgeRuntimeBudget(s, OPTS), INPUTS);
-    expect(noLeg.find((o) => o.gate === "cpu-per-test-file")!.kind).toBe("fail");
+    expect(noLeg.find((o) => o.gate === "cpu-per-test-file")!.kind).toBe("not-judged");
+    expect(noLeg.find((o) => o.gate === "cpu-per-test-file")!.message).toContain("no 5-minute ambient load");
   });
 
   test("THE 23.9s-of-330s FILE — one file eating 7.2% of the pool FAILS", () => {
@@ -763,7 +810,10 @@ describe("the run's own costs are judged, and a refusal is not a pass", () => {
 describe("the measuring tool's arithmetic (D-17): the floor from the ledger's own clean runs of the current population", () => {
   const IDENTITIES = ["tests/prevention/web-ui-runtime-budget.test.ts::"];
   const declared: RollingCpuBudget = {
-    baselineFloorMsPerTestFile: 1_000,
+    metric: "calibrated-work/v1",
+    calibrationDriftMaxFraction: 0.15,
+    validThroughLoad5PerCpu: 1.25,
+    baselineFloorUnitsPerTestFile: 1_000,
     derivedAtTestFileCount: 400,
     maxPopulationDriftFraction: 0.03,
     sameTreeSpreadFraction: 0.047,
@@ -772,7 +822,17 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
     ambientInflationCapFraction: 0.12,
   };
   // Every row is stamped as measured inside the host's instrument lock: only such a reading feeds (D-17, design M-B).
-  const row = (cpuMsPerTestFile: number, over: Record<string, unknown> = {}) => ({ timestamp: "t", cpuMsPerTestFile, testModuleCount: FULL, heavySlot: "held" as const, ...over });
+  const row = (cpuMsPerTestFile: number, over: Record<string, unknown> = {}) => ({
+    timestamp: "t",
+    cpuMsPerTestFile,
+    workUnitsPerTestFile: cpuMsPerTestFile,
+    metric: "calibrated-work/v1",
+    calibrationMs: 1,
+    calibrationDriftFraction: 0.02,
+    testModuleCount: FULL,
+    heavySlot: "held" as const,
+    ...over,
+  });
 
   test("the median of the last window of eligible readings, ambient-adjusted, at the CURRENT population; ineligible rows and OUTLIERS never count — the same rows the rolling baseline feeds on (WF-1b3b design M5)", () => {
     const rows = [
@@ -792,26 +852,26 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
     if (measured.status !== "measured") return;
     expect(measured.derivedAtTestFileCount).toBe(FULL);
     expect(measured.readings).toEqual([2_000, 2_100, 2_200, 2_300 / 1.05]);
-    expect(measured.floorMsPerTestFile).toBe(Math.ceil((2_100 + 2_300 / 1.05) / 2));
+    expect(measured.floorUnitsPerTestFile).toBe(Math.ceil((2_100 + 2_300 / 1.05) / 2));
     // The rolling baseline feeds on the same eligible rows, but only those whose OWN CPU outcome passed (at or under
     // the cap in force at their moment): 2,200 and 2,190.5 were over the 2,150 cap, so they feed nothing (design HIGH 1).
-    expect(deriveRollingBaseline({ ...declared, baselineFloorMsPerTestFile: 2_150 }, rows, FULL, IDENTITIES).windowReadings).toEqual([2_000, 2_100]);
+    expect(deriveRollingBaseline({ ...declared, baselineFloorUnitsPerTestFile: 2_150 }, rows, FULL, IDENTITIES).windowReadings).toEqual([2_000, 2_100]);
   });
 
   test("ONLY A READING TAKEN INSIDE THE LOCK FEEDS: an unslotted row and a legacy row with no stamp never reach the tool's window or the rolling baseline (D-17, design M-B)", () => {
-    const unstamped = (cpu: number) => ({ timestamp: "t", cpuMsPerTestFile: cpu, testModuleCount: FULL });
+    const unstamped = (cpu: number) => ({ timestamp: "t", cpuMsPerTestFile: cpu, workUnitsPerTestFile: cpu, metric: "calibrated-work/v1", calibrationMs: 1, testModuleCount: FULL });
     for (const outside of [
       Array.from({ length: 4 }, (_, i) => unstamped(2_000 + i)),
       Array.from({ length: 4 }, (_, i) => row(2_000 + i, { heavySlot: "unslotted" })),
     ]) {
       expect(measureBudgetFloor(declared, outside, FULL, IDENTITIES)).toMatchObject({ status: "unmeasurable", eligibleRuns: 0 });
-      expect(deriveRollingBaseline({ ...declared, baselineFloorMsPerTestFile: 2_000 }, outside, FULL, IDENTITIES).windowReadings).toEqual([]);
+      expect(deriveRollingBaseline({ ...declared, baselineFloorUnitsPerTestFile: 2_000 }, outside, FULL, IDENTITIES).windowReadings).toEqual([]);
     }
     // The same readings, stamped, feed both.
     const held = Array.from({ length: 4 }, (_, i) => row(2_000 + i));
     expect(measureBudgetFloor(declared, held, FULL, IDENTITIES)).toMatchObject({ status: "measured", readings: [2_000, 2_001, 2_002, 2_003] });
     // …and the rolling baseline feeds only the stamped run that passed its own 2,000 cap (2,001 and above failed theirs).
-    expect(deriveRollingBaseline({ ...declared, baselineFloorMsPerTestFile: 2_000 }, held, FULL, IDENTITIES).windowReadings).toEqual([2_000]);
+    expect(deriveRollingBaseline({ ...declared, baselineFloorUnitsPerTestFile: 2_000 }, held, FULL, IDENTITIES).windowReadings).toEqual([2_000]);
   });
 
   test("a run failing ONLY the gate's population arm is eligible — the failure a re-measurement clears; any other face of the gate still disqualifies its run", () => {
@@ -827,30 +887,59 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
       expect(measureBudgetFloor(declared, grown.map((r) => ({ ...r, failures })), FULL, IDENTITIES), JSON.stringify(failures)).toMatchObject({ status: "unmeasurable", eligibleRuns: 0 });
     }
     // The rolling baseline: the same eligibility rule, then only the runs that passed their own cap (2,150 failed 2,100).
-    expect(deriveRollingBaseline({ ...declared, baselineFloorMsPerTestFile: 2_100 }, grown, FULL, IDENTITIES).windowReadings).toEqual([2_000, 2_050, 2_100]);
+    expect(deriveRollingBaseline({ ...declared, baselineFloorUnitsPerTestFile: 2_100 }, grown, FULL, IDENTITIES).windowReadings).toEqual([2_000, 2_050, 2_100]);
   });
 
-  test("the TOOL (npm run budget:measure) reads the declared budget and the ledger; too few runs is unmeasurable and writes nothing", () => {
+  test("the TOOL refuses to convert a RETIRED floor: an accumulation declaration is reported as migrating, not measured", () => {
     const ledger = join(createTempDir("web-budget-measure-"), "run-history.json");
     writeFileSync(ledger, JSON.stringify({ runs: [row(2_000)] }));
     const report = measureWebBudget(false, ledger);
-    expect(report.status).toBe("unmeasurable");
+    expect(report.status).toBe("migrating");
     expect(report.measurement.status).toBe("unmeasurable");
-    expect(report.declared.floorMsPerTestFile).toBeGreaterThan(0);
+    if (report.measurement.status !== "unmeasurable") return;
+    expect(report.measurement.reason).toContain("ACCUMULATION");
+    // The retired floor is NAMED and marked incomparable — never rescaled.
+    expect(report.measurement.reason).toContain("1926.0 ms/file");
+    expect(report.measurement.reason).toContain("INCOMPARABLE");
+    expect(report.declared.floorUnitsPerTestFile).toBeNull();
+    expect(report.declared.derivedAtTestFileCount).toBe(521);
   });
 
   test("the TOOL writes only the document it measured: a HARNESS_CONFIG_PATH elsewhere is refused before any write (WF-1b3b design LOW 12)", () => {
     const engineDocument = engineConfigDocumentPath();
     const engineBytes = readFileSync(engineDocument);
     const elsewhere = join(createTempDir("web-budget-elsewhere-"), "bridlewise.config.json");
-    expect(atomicWriteFile(elsewhere, engineBytes, { createMode: 0o600 }).success).toBe(true);
+    // A ROLLING declaration, so the tool reaches its write path: the live
+    // declaration is in accumulation, which writes nothing by design.
+    const fixture = JSON.parse(engineBytes.toString()) as { testExecution: Record<string, unknown> };
+    fixture.testExecution.webUiSuiteCpuBudget = {
+      metric: "calibrated-work/v1",
+      baselineFloorUnitsPerTestFile: 1_000,
+      derivedAtTestFileCount: 417,
+      maxPopulationDriftFraction: 0.03,
+      sameTreeSpreadFraction: 0.047,
+      baselineWindowRuns: 12,
+      ambientInflationSlopePerCpu: 0,
+      ambientInflationCapFraction: 0,
+      calibrationDriftMaxFraction: 0.15,
+      validThroughLoad5PerCpu: 1.25,
+    };
+    expect(atomicWriteFile(elsewhere, JSON.stringify(fixture), { createMode: 0o600 }).success).toBe(true);
     const previous = process.env["HARNESS_CONFIG_PATH"];
     process.env["HARNESS_CONFIG_PATH"] = elsewhere;
     resetServerConfig();
     try {
       const declaredWindow = 64;
       const ledger = join(createTempDir("web-budget-mismatch-"), "run-history.json");
-      writeFileSync(ledger, JSON.stringify({ runs: Array.from({ length: declaredWindow }, (_, index) => ({ timestamp: `t${String(index)}`, cpuMsPerTestFile: 1_234_567, testModuleCount: fullRunModuleCount(), heavySlot: "held" })) }));
+      writeFileSync(ledger, JSON.stringify({ runs: Array.from({ length: declaredWindow }, (_, index) => ({
+        timestamp: `t${String(index)}`,
+        cpuMsPerTestFile: 1_234_567,
+        workUnitsPerTestFile: 1_234_567,
+        metric: "calibrated-work/v1",
+        calibrationMs: 1,
+        testModuleCount: fullRunModuleCount(),
+        heavySlot: "held",
+      })) }));
       expect(() => measureWebBudget(true, ledger)).toThrow(expect.objectContaining({ code: "web_budget_document_mismatch" }));
       expect(readFileSync(engineDocument).equals(engineBytes), "the engine's document was written").toBe(true);
     } finally {
@@ -869,7 +958,10 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
 describe("the rolling baseline — the cap derived from the ledger's own clean history", () => {
   const IDENTITIES = ["tests/prevention/web-ui-runtime-budget.test.ts::"];
   const budget = (over: Partial<RollingCpuBudget> = {}): RollingCpuBudget => ({
-    baselineFloorMsPerTestFile: 1_000,
+    metric: "calibrated-work/v1",
+    calibrationDriftMaxFraction: 0.15,
+    validThroughLoad5PerCpu: 1.25,
+    baselineFloorUnitsPerTestFile: 1_000,
     derivedAtTestFileCount: FULL,
     maxPopulationDriftFraction: 0.03,
     sameTreeSpreadFraction: 0.047,
@@ -882,6 +974,10 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
   const ranAt = (cpuMsPerTestFile: number, over: Record<string, unknown> = {}) => ({
     timestamp: "2026-07-30T10:00:00.000Z",
     cpuMsPerTestFile,
+    workUnitsPerTestFile: cpuMsPerTestFile,
+    metric: "calibrated-work/v1",
+    calibrationMs: 1,
+    calibrationDriftFraction: 0.02,
     testModuleCount: FULL,
     heavySlot: "held" as const,
     ...over,
@@ -904,10 +1000,10 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     // caught step cannot also move the cap that caught it.
     const cleanHistory = Array.from({ length: 12 }, (_, i) => ranAt(940 + i));
     const before = deriveRollingBaseline(budget(), cleanHistory, FULL, IDENTITIES);
-    expect(before.baselineMsPerTestFile).toBe(1_000); // the floor held it
+    expect(before.baselineUnitsPerTestFile).toBe(1_000); // the floor held it
     const regressed = [...cleanHistory, ranAt(1_100), ranAt(1_120)];
     const after = deriveRollingBaseline(budget(), regressed, FULL, IDENTITIES);
-    expect(after.baselineMsPerTestFile).toBe(before.baselineMsPerTestFile);
+    expect(after.baselineUnitsPerTestFile).toBe(before.baselineUnitsPerTestFile);
     expect(after.windowReadings).not.toContain(1_100);
     expect(after.windowReadings).not.toContain(1_120);
     const out = costs(budget(), regressed, 1_110);
@@ -917,7 +1013,7 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     expect(cpu.message).toContain("no streak, no band, no re-run");
     // …and the red names the baseline it fired against, so a reader sees
     // the cap did not move.
-    expect(cpu.message).toContain("rolling baseline 1000.0");
+    expect(cpu.message).toContain("rolling baseline 1000.000");
     // …AND THE SAME PROOF AT A BUSY AMBIENT: the regression is recorded at
     // amb5 0.8 (its readings earning the +4% adjustment), and the clean
     // history behind it is quiet. The regressed readings sit beyond the
@@ -931,7 +1027,7 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
       ranAt(1_160, { ambientLoad5PerCpu: 0.8 }),
     ];
     const busyAfter = deriveRollingBaseline(budget(), busyRegressed, FULL, IDENTITIES);
-    expect(busyAfter.baselineMsPerTestFile).toBe(before.baselineMsPerTestFile);
+    expect(busyAfter.baselineUnitsPerTestFile).toBe(before.baselineUnitsPerTestFile);
     expect(busyAfter.windowReadings).not.toContain(1_140 / 1.04);
     expect(busyAfter.windowReadings).not.toContain(1_160 / 1.04);
     const busyOut = costs(budget(), busyRegressed, 1_150);
@@ -939,7 +1035,7 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     // and 1,150 fails against the UNCHANGED baseline, exactly as at quiet.
     const busyCpu = busyOut.find((o) => o.gate === "cpu-per-test-file")!;
     expect(busyCpu.kind).toBe("fail");
-    expect(busyCpu.message).toContain("rolling baseline 1000.0");
+    expect(busyCpu.message).toContain("rolling baseline 1000.000");
   });
 
   test("(b) GROWTH IS NOT ABSORBED BY THE FOLD — readings rising past the cap fail and feed nothing; only the measuring tool moves the floor (design HIGH 1, D-17)", () => {
@@ -947,11 +1043,11 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     // baseline in force: the old fold fed them and the baseline followed the growth, a climb on failing runs. Now a
     // reading over the cap in force failed its own run and feeds nothing: the window stays empty, the baseline stays
     // the floor, and a run at the grown center FAILS until the floor is re-derived by its tool.
-    const b = budget({ baselineFloorMsPerTestFile: 900 });
+    const b = budget({ baselineFloorUnitsPerTestFile: 900 });
     const rows = Array.from({ length: 24 }, (_, i) => ranAt(905 + 5 * i, { timestamp: `2026-08-01T0${String(i % 10)}:00:00.000Z` }));
     const d = deriveRollingBaseline(b, rows, FULL, IDENTITIES);
     expect(d.windowReadings).toEqual([]);
-    expect(d.baselineMsPerTestFile).toBe(900);
+    expect(d.baselineUnitsPerTestFile).toBe(900);
     const grown = costs(b, rows, 1_000);
     const cpu = grown.find((o) => o.gate === "cpu-per-test-file")!;
     expect(cpu.kind).toBe("fail");
@@ -966,15 +1062,15 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     // the box cannot loosen the gate and arm reds when the band returns.
     const rows = Array.from({ length: 12 }, (_, i) => ranAt(940 + i));
     const d = deriveRollingBaseline(budget(), rows, FULL, IDENTITIES);
-    expect(d.medianMsPerTestFile).toBeLessThan(1_000);
+    expect(d.medianUnitsPerTestFile).toBeLessThan(1_000);
     expect(d.floorBound).toBe(true);
-    expect(d.baselineMsPerTestFile).toBe(1_000);
+    expect(d.baselineUnitsPerTestFile).toBe(1_000);
   });
 
   test("(d) THE COLD START — an empty ledger judges against the recorded floor", () => {
     const d = deriveRollingBaseline(budget(), [], FULL, IDENTITIES);
-    expect(d.baselineMsPerTestFile).toBe(1_000);
-    expect(d.medianMsPerTestFile).toBeNull();
+    expect(d.baselineUnitsPerTestFile).toBe(1_000);
+    expect(d.medianUnitsPerTestFile).toBeNull();
     expect(d.windowReadings).toEqual([]);
     expect(baselineLine(d)).toContain("cold start");
     // The gate judges a first run against the floor exactly: under it
@@ -1002,13 +1098,13 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     const withRows = deriveRollingBaseline(budget(), [...clean, ...budgetFailed], FULL, IDENTITIES);
     expect(withRows.windowReadings).toHaveLength(12);
     expect(withRows.windowReadings).not.toContain(900);
-    expect(withRows.medianMsPerTestFile).toBe(945.5);
+    expect(withRows.medianUnitsPerTestFile).toBe(945.5);
     // THE COUNTERFACTUAL — the filter is load-bearing: with no identities
     // declared, the same rows feed, evict the clean window, and move the
     // median to their own level.
     const counterfactual = deriveRollingBaseline(budget(), [...clean, ...budgetFailed], FULL, []);
     expect(counterfactual.windowReadings).toContain(900);
-    expect(counterfactual.medianMsPerTestFile).toBe(900);
+    expect(counterfactual.medianUnitsPerTestFile).toBe(900);
     // A deliberate mutation-verification row at a within-allowance reading
     // never feeds: its reading measured a tree the operator deliberately
     // broke.
@@ -1049,17 +1145,17 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     const rows = Array.from({ length: 12 }, (_, i) => ranAt(940 + i));
     const d = deriveRollingBaseline(budget(), rows, FULL, IDENTITIES);
     const line = baselineLine(d);
-    expect(line).toContain("[runtime-budget] baseline: 1000.0 ms/file");
+    expect(line).toContain("[runtime-budget] baseline: 1000.000 calibration units/file");
     expect(line).toContain("12-run window");
     expect(line).toContain("945.5"); // the median, named
-    expect(line).toContain("held at the declared floor 1000.0"); // the floor, named
+    expect(line).toContain("held at the declared floor 1000.000"); // the floor, named
     expect(line).toContain("940.0"); // a window reading, named — the evidence
     // The note rides every cpu outcome, pass included: an operator reading
     // any verdict line can see which baseline judged the run and how it
     // was derived.
     const pass = costs(budget(), rows, 990).find((o) => o.gate === "cpu-per-test-file")!;
     expect(pass.kind).toBe("pass");
-    expect(pass.message).toContain("rolling baseline 1000.0");
+    expect(pass.message).toContain("rolling baseline 1000.000");
     expect(pass.message).toContain("12-run window");
     expect(baselineNote(d, 0, 0.05)).toContain("945.5");
     // The standing line says the window's readings are ambient-adjusted
@@ -1126,9 +1222,9 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     // inflation cancels), beside the six quiet 950s.
     const near = (x: number) => Math.abs(x - 950) < 0.01;
     expect(d.windowReadings.every(near)).toBe(true);
-    expect(d.medianMsPerTestFile).toBeLessThan(951);
+    expect(d.medianUnitsPerTestFile).toBeLessThan(951);
     expect(d.floorBound).toBe(true); // 950 < the 1,000 floor: the floor holds
-    expect(d.baselineMsPerTestFile).toBe(1_000);
+    expect(d.baselineUnitsPerTestFile).toBe(1_000);
     // And the gate over that window: a busy reading carrying exactly the
     // envelope's inflation (1,000 × 1.05 = 1,050 at amb5 1.0) judges a
     // PASS with the arithmetic on the line — the acceptance scenario,
@@ -1146,7 +1242,7 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     );
     const plantedCpu = planted.find((o) => o.gate === "cpu-per-test-file")!;
     expect(plantedCpu.kind).toBe("pass");
-    expect(plantedCpu.message).toContain("1050.0 ms/file within 1050.0");
+    expect(plantedCpu.message).toContain("1050.000 calibration units/file within 1050.000");
     expect(plantedCpu.message).toContain("× 1.050 ambient adjustment");
   });
 });
@@ -1372,7 +1468,10 @@ describe("per-file occupancy — the share, and the denominator it needs", () =>
 describe("the budget names the population it bounds", () => {
   const WEB_KEY = "testExecution.webUiSuiteCpuBudget";
   const declared: DeclaredCpuBudget = {
-    msPerTestFile: 900,
+    metric: "calibrated-work/v1",
+    unitsPerTestFile: 9,
+    calibrationDriftMaxFraction: 0.15,
+    validThroughLoad5PerCpu: 1.25,
     derivedAtTestFileCount: 451,
     maxPopulationDriftFraction: 0.03,
     ambientInflationSlopePerCpu: 0.05,
@@ -1790,7 +1889,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
         }
         const output: string[] = [];
         const exits: number[] = [];
-        const reporter = new BudgetReporter({
+        const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU,
           summaryPath: cause === "summary-write" ? dir : join(dir, "summary.json"), historyPath, cacheDir, repositoryRoot: reporterRepository(),
           out: (line) => { output.push(line); }, err: (line) => { output.push(line); },
           instrumentLockPath: heldInstrumentLock(), performanceReportPath: passingProfileReport(), setExitCode: (code) => { exits.push(code); },
@@ -1966,6 +2065,8 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
       historyPath,
       cacheDir,
       repositoryRoot: reporterRepository(),
+      readCalibration: FIXED_CALIBRATION,
+      readCpu: FIXED_CPU,
       out: (chunk: string) => void printed.push(chunk),
       err: (chunk: string) => void printed.push(chunk),
       instrumentLockPath: heldInstrumentLock(), performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: (code: number) => void exitCodes.push(code),
@@ -2029,12 +2130,22 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
     // judged by, with the derivation's evidence — a reporter that derived
     // the cap and said nothing would be the silent-climb shape the whole
     // disclosure exists to prevent, and every unit arm would stay green.
-    expect(
-      captured,
-      "the judged run printed no baseline line — the rolling baseline judged the run without " +
-        "being said",
-    ).toContain("[runtime-budget] baseline:");
-    expect(captured).toContain("clean judged run");
+    const declaredBudget = readCpuBudget();
+    if (!("missing" in declaredBudget) && "phase" in declaredBudget) {
+      // ACCUMULATION: there is no derived baseline to print, and the run
+      // says so by NOT claiming one. The provenance line names the metric
+      // and the unit, which is what a reader needs while the window fills.
+      expect(captured).toContain("[runtime-budget] this run:");
+      expect(captured).toContain("calibration units/file");
+      expect(captured).not.toContain("[runtime-budget] baseline:");
+    } else {
+      expect(
+        captured,
+        "the judged run printed no baseline line — the rolling baseline judged the run without " +
+          "being said",
+      ).toContain("[runtime-budget] baseline:");
+      expect(captured).toContain("clean judged run");
+    }
 
     // …and the real run's exit code was never this fixture's to touch.
     expect(process.exitCode).toBe(exitBefore);
@@ -2055,7 +2166,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
     const report = join(dir, "report.json");
     writeFileSync(report, JSON.stringify(plantedReport({ treeIdentity: { headSha: "0".repeat(40), dirty: false, measuredSurfaceHash: readMeasuredSurfaceHash(reporterRepository()) } })));
     const exits: number[] = [];
-    const reporter = new BudgetReporter({
+    const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU,
       summaryPath: join(dir, "summary.json"), historyPath: join(dir, "history.json"), cacheDir, repositoryRoot: reporterRepository(),
       out: () => undefined, err: () => undefined, instrumentLockPath: heldInstrumentLock(), performanceReportPath: report, setExitCode: (code) => { exits.push(code); },
     });
@@ -2115,6 +2226,8 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
       historyPath,
       cacheDir,
       repositoryRoot: reporterRepository(),
+      readCalibration: FIXED_CALIBRATION,
+      readCpu: FIXED_CPU,
       out: () => undefined,
       err: () => undefined,
       instrumentLockPath: heldInstrumentLock(), performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: () => undefined,
@@ -2144,7 +2257,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
       moduleId: `tests/fake/${String(i)}.test.ts`,
       diagnostic: () => ({ collectDuration: 0, duration: 1 }),
     }));
-    const reporter = new BudgetReporter({
+    const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU,
       summaryPath: join(dir, "summary.json"), historyPath, cacheDir: dir, repositoryRoot: reporterRepository(),
       instrumentLockPath: join(dir, "no-holder.lock"), performanceReportPath: ABSENT_PROFILE_REPORT, out: () => undefined, err: (chunk) => { errors.push(chunk); }, setExitCode: (code) => { exits.push(code); },
     });
@@ -2181,7 +2294,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
         utimesSync(p, past, past);
       }
       const modules = fakeModules(full);
-      const reporter = new BudgetReporter({
+      const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU,
         summaryPath: join(dir, "summary.json"), historyPath, cacheDir, repositoryRoot: repository.dir,
         out: () => undefined, err: () => undefined, instrumentLockPath: heldInstrumentLock(), performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: () => undefined,
       });
@@ -2222,7 +2335,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
     for (const [index, input] of inputs.entries()) {
       const historyPath = join(dir, `history-${String(index)}.json`);
       const exits: number[] = [];
-      const reporter = new BudgetReporter({ summaryPath: join(dir, "summary.json"), historyPath, cacheDir, repositoryRoot: reporterRepository(),
+      const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU, summaryPath: join(dir, "summary.json"), historyPath, cacheDir, repositoryRoot: reporterRepository(),
         out: () => undefined, err: () => undefined, instrumentLockPath: heldInstrumentLock(), performanceReportPath: passingProfileReport(), setExitCode: (code) => { exits.push(code); } });
       // Cross the actual external boundary deliberately. Passed cases with
       // valid earlier retry diagnostics stay passed and do not become rows.
@@ -2263,7 +2376,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
         utimesSync(entry, past, past);
       }
       const exits: number[] = [];
-      const reporter = new BudgetReporter({ summaryPath: join(dir, "summary.json"), historyPath, cacheDir, repositoryRoot: reporterRepository(),
+      const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU, summaryPath: join(dir, "summary.json"), historyPath, cacheDir, repositoryRoot: reporterRepository(),
         out: () => undefined, err: () => undefined, instrumentLockPath: heldInstrumentLock(), performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: (code) => { exits.push(code); } });
       const modules = fakeModules(full).map((module, index) => ({ ...module,
         state: () => index === 0 ? "failed" : "passed",

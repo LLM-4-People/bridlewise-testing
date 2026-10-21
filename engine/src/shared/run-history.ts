@@ -346,6 +346,15 @@ function judgedRows(entries: readonly Record<string, unknown>[]): JudgedRunRecor
     const cpuMsPerTestFile = finiteNumber(e.cpuMsPerTestFile);
     const testModuleCount = finiteNumber(e.testModuleCount);
     if (cpuMsPerTestFile === null || testModuleCount === null) continue;
+    // THE JUDGED READING AND ITS UNIT — optional by design: a row written
+    // before the calibrated metric existed has neither, and it stays a valid
+    // RAW row. It is INCOMPARABLE with the new unit, which is exactly what
+    // its absence says; no reader may rescue it by assuming the raw number
+    // was calibrated.
+    const workUnitsPerTestFile = finiteNumber(e.workUnitsPerTestFile);
+    const metric = typeof e.metric === "string" && e.metric.length > 0 ? e.metric : undefined;
+    const calibrationMs = finiteNumber(e.calibrationMs);
+    const calibrationDriftFraction = finiteNumber(e.calibrationDriftFraction);
     // Tree identity + measurement condition, OPTIONAL BY DESIGN: entries
     // written before these fields exist stay valid, and a malformed value is
     // treated as absent rather than poisoning the entry — the same
@@ -387,6 +396,10 @@ function judgedRows(entries: readonly Record<string, unknown>[]): JudgedRunRecor
       timestamp: typeof e.timestamp === "string" ? e.timestamp : null,
       cpuMsPerTestFile,
       testModuleCount,
+      ...(workUnitsPerTestFile !== null ? { workUnitsPerTestFile } : {}),
+      ...(metric !== undefined ? { metric } : {}),
+      ...(calibrationMs !== null ? { calibrationMs } : {}),
+      ...(calibrationDriftFraction !== null ? { calibrationDriftFraction } : {}),
       ...(qualification === undefined ? {} : { qualification }),
       ...(headSha !== undefined ? { headSha } : {}),
       ...(treeId !== undefined ? { treeId } : {}),

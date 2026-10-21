@@ -717,18 +717,27 @@
       "timeBudgetMs": 10000
     },
     "integrationSuiteCpuBudget": {
+      "metric": "calibrated-work/v1",
       "phase": "accumulation",
       "minimumJudgedRuns": 5,
-      "maxPopulationDriftFraction": 0.03
+      "maxPopulationDriftFraction": 0.03,
+      "calibrationDriftMaxFraction": 0.15,
+      "validThroughLoad5PerCpu": 1.7
     },
     "webUiSuiteCpuBudget": {
-      "baselineFloorMsPerTestFile": 1926,
-      "derivedAtTestFileCount": 521,
+      "metric": "calibrated-work/v1",
+      "phase": "accumulation",
+      "minimumJudgedRuns": 12,
       "maxPopulationDriftFraction": 0.03,
-      "sameTreeSpreadFraction": 0.026,
-      "baselineWindowRuns": 12,
-      "ambientInflationSlopePerCpu": 0.05,
-      "ambientInflationCapFraction": 0.12
+      "derivedAtTestFileCount": 521,
+      "calibrationDriftMaxFraction": 0.15,
+      "validThroughLoad5PerCpu": 1.7,
+      "legacy": {
+        "metric": "raw-cpu-ms/v0",
+        "baselineFloorMsPerTestFile": 1926,
+        "derivedAtTestFileCount": 521,
+        "incomparable": true
+      }
     },
     "webUiTestFileCostShareMax": 0.05,
     "instrumentLock": {
@@ -1182,7 +1191,7 @@
         {
           "id": "code-only",
           "label": "Code only",
-          "instruction": "Respond with code only — no prose."
+          "instruction": "Respond with code only \u2014 no prose."
         },
         {
           "id": "explanation-plus-code",

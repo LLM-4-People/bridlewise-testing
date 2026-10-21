@@ -49,7 +49,7 @@ test("test-runtime budget: the integration CPU budget is DECLARED in the config"
       "There is no default and no fallback — a budget nobody chose is not a budget — so an " +
       "undeclared budget is a defect in the TREE, and this test is where it reds.",
   );
-  if ("phase" in declared) {
+  if (declared.phase === "accumulation") {
     // ACCUMULATION: no cap yet, and none guessed. The bounds are the ones
     // the mechanism's own derivation needs.
     assert.equal(declared.phase, "accumulation");
@@ -66,7 +66,7 @@ test("test-runtime budget: the integration CPU budget is DECLARED in the config"
   }
   // DERIVED: the same ranges the web declaration is held to, for the same
   // measured reasons (see webUiSuiteCpuBudget's schema comment).
-  assert.ok(Number.isFinite(declared.msPerTestFile) && declared.msPerTestFile > 0);
+  assert.ok(Number.isFinite(declared.unitsPerTestFile) && declared.unitsPerTestFile > 0);
   assert.ok(Number.isInteger(declared.derivedAtTestFileCount) && declared.derivedAtTestFileCount > 0);
   assert.ok(declared.maxPopulationDriftFraction > 0 && declared.maxPopulationDriftFraction < 0.042);
   assert.ok(!("overCapRunsBeforeRed" in declared) && !("sameTreeSpreadFraction" in declared), "no streak and no band: one judged run over the cap fails (UR-24-BUDGETS)");

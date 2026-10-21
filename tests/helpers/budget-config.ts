@@ -19,10 +19,11 @@ import { TEST_INCLUDE } from "../test-include.ts";
 // TYPE ONLY — the shape belongs to the decision module that judges it, and a
 // second declaration here would be a second source of truth for the field
 // names the config schema requires. Erased at runtime, so this costs nothing.
-import type { RollingCpuBudget } from "./budget-verdict.ts";
+import type { AccumulatingCpuBudget, CpuBudgetDeclaration, RollingCpuBudget } from "./budget-verdict.ts";
+import { SUITE_WORK_METRIC } from "../../engine/src/shared/run-cpu.ts";
 import type { SuiteWatchdog } from "../../engine/src/workflow/workflow-config.ts";
 
-export type { RollingCpuBudget };
+export type { AccumulatingCpuBudget, CpuBudgetDeclaration, RollingCpuBudget };
 
 /**
  * Where an operator sets these, named once so every message can point at it.
@@ -52,6 +53,11 @@ function positiveFinite(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
 }
 
+/** A finite number at or above zero — the ambient envelope's slopes may be 0. */
+function nonNegativeFinite(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+}
+
 /**
  * The declared rolling budget, or the plain-words reason it cannot be read.
  *
@@ -63,45 +69,138 @@ function positiveFinite(v: unknown): number | null {
  * configuration is a first-class state here: the gate fails, says what is
  * absent, and says where to put it.
  */
-export function readCpuBudget(): RollingCpuBudget | { readonly missing: string } {
+export function readCpuBudget(): CpuBudgetDeclaration | { readonly missing: string } {
   const section = testExecutionSection();
   const declared = section.webUiSuiteCpuBudget;
   if (typeof declared !== "object" || declared === null) {
     return {
       missing:
         `webUiSuiteCpuBudget is not set under ${CONFIG_SITE}. This gate bounds what the ` +
-        `web-UI suite may cost in CPU milliseconds per test file, and it has no default: ` +
-        `a budget nobody chose is not a budget. Declare the rolling baseline's recorded ` +
-        `floor (baselineFloorMsPerTestFile) and window (baselineWindowRuns) beside the ` +
-        `population, drift tolerance and feed spread — the cap itself is ` +
-        `derived from the run-history ledger at read time.`,
+        `web-UI suite may cost per test file in CALIBRATED WORK (${SUITE_WORK_METRIC}), and ` +
+        `it has no default: a budget nobody chose is not a budget. Declare either the ` +
+        `accumulation phase (metric, minimumJudgedRuns, maxPopulationDriftFraction, ` +
+        `derivedAtTestFileCount, calibrationDriftMaxFraction, validThroughLoad5PerCpu) or ` +
+        `the rolling shape (baselineFloorUnitsPerTestFile, baselineWindowRuns, ` +
+        `sameTreeSpreadFraction beside the same fields).`,
     };
   }
   const rec = declared as Record<string, unknown>;
-  const baselineFloorMsPerTestFile = positiveFinite(rec.baselineFloorMsPerTestFile);
-  const derivedAtTestFileCount = positiveFinite(rec.derivedAtTestFileCount);
-  const maxPopulationDriftFraction = positiveFinite(rec.maxPopulationDriftFraction);
-  const sameTreeSpreadFraction = positiveFinite(rec.sameTreeSpreadFraction);
-  const baselineWindowRuns = positiveFinite(rec.baselineWindowRuns);
-  const ambientInflationSlopePerCpu = positiveFinite(rec.ambientInflationSlopePerCpu);
-  const ambientInflationCapFraction = positiveFinite(rec.ambientInflationCapFraction);
-  if (baselineFloorMsPerTestFile === null || derivedAtTestFileCount === null) {
+  const metric = rec.metric;
+  if (typeof metric !== "string" || metric.length === 0) {
     return {
       missing:
-        `webUiSuiteCpuBudget under ${CONFIG_SITE} must carry BOTH a positive ` +
-        `baselineFloorMsPerTestFile (the recorded floor the rolling baseline never drops ` +
-        `below without a measured re-derivation) and the positive derivedAtTestFileCount ` +
-        `it was measured against. A threshold without its population keeps its authority ` +
-        `and loses its meaning, which is how the wall-clock cap this replaced came to ` +
-        `govern a suite it had never measured.`,
+        `webUiSuiteCpuBudget.metric under ${CONFIG_SITE} is not declared. The unit is part ` +
+        `of the budget: a reading measured under one metric is never compared with a ` +
+        `declaration in another, and this tree's metric is ${SUITE_WORK_METRIC}.`,
     };
   }
+  if (metric !== SUITE_WORK_METRIC) {
+    return {
+      missing:
+        `webUiSuiteCpuBudget.metric under ${CONFIG_SITE} is ${metric}, but the reporter and ` +
+        `the verdict judge ${SUITE_WORK_METRIC}. A budget declared in another unit would ` +
+        `compare two different quantities; re-declare it in the metric the run produces.`,
+    };
+  }
+  const calibrationDriftMaxFraction = positiveFinite(rec.calibrationDriftMaxFraction);
+  const validThroughLoad5PerCpu = positiveFinite(rec.validThroughLoad5PerCpu);
+  if (
+    calibrationDriftMaxFraction === null || calibrationDriftMaxFraction >= 1 ||
+    validThroughLoad5PerCpu === null
+  ) {
+    return {
+      missing:
+        `webUiSuiteCpuBudget under ${CONFIG_SITE} must declare its metric's validity ` +
+        `bounds: calibrationDriftMaxFraction (a fraction above 0 and below 1 — how far the ` +
+        `run's start and end calibration may disagree before the mean is not its unit) and ` +
+        `validThroughLoad5PerCpu (the recorded 5-minute ambient load, per CPU, through ` +
+        `which the calibrated metric's residual was measured). Outside either bound the ` +
+        `gate DEFERS; without them it would silently judge outside its measured regime.`,
+    };
+  }
+  const maxPopulationDriftFraction = positiveFinite(rec.maxPopulationDriftFraction);
   if (maxPopulationDriftFraction === null || maxPopulationDriftFraction >= 1) {
     return {
       missing:
         `webUiSuiteCpuBudget.maxPopulationDriftFraction under ${CONFIG_SITE} must be a ` +
         `fraction above 0 and below 1 — how far the suite may grow or shrink before the ` +
         `budget must be re-derived on the tree as it now is.`,
+    };
+  }
+  const derivedAtTestFileCount = positiveFinite(rec.derivedAtTestFileCount);
+  if (derivedAtTestFileCount === null) {
+    return {
+      missing:
+        `webUiSuiteCpuBudget.derivedAtTestFileCount under ${CONFIG_SITE} must be the ` +
+        `positive population this declaration was measured against. A threshold without ` +
+        `its population keeps its authority and loses its meaning.`,
+    };
+  }
+  if (rec.phase === "accumulation") {
+    const minimumJudgedRuns = positiveFinite(rec.minimumJudgedRuns);
+    if (minimumJudgedRuns === null || !Number.isInteger(minimumJudgedRuns)) {
+      return {
+        missing:
+          `webUiSuiteCpuBudget.minimumJudgedRuns under ${CONFIG_SITE} must be a positive ` +
+          `integer — how many clean judged full runs in the new metric the ledger must hold ` +
+          `before the cap is derived. A cap invented before the evidence exists is a ` +
+          `default nobody owns.`,
+      };
+    }
+    const legacy = rec.legacy;
+    let legacyValue: AccumulatingCpuBudget["legacy"];
+    if (legacy !== undefined) {
+      if (typeof legacy !== "object" || legacy === null) {
+        return { missing: `webUiSuiteCpuBudget.legacy under ${CONFIG_SITE} must be an object when present.` };
+      }
+      const l = legacy as Record<string, unknown>;
+      const legacyMetric = l.metric;
+      const legacyFloor = positiveFinite(l.baselineFloorMsPerTestFile);
+      const legacyPopulation = positiveFinite(l.derivedAtTestFileCount);
+      if (
+        typeof legacyMetric !== "string" || legacyMetric.length === 0 ||
+        legacyFloor === null || legacyPopulation === null ||
+        l.incomparable !== true
+      ) {
+        return {
+          missing:
+            `webUiSuiteCpuBudget.legacy under ${CONFIG_SITE} must record the retired ` +
+            `declaration HONESTLY: { metric, baselineFloorMsPerTestFile, ` +
+            `derivedAtTestFileCount, incomparable: true }. It is a record, not a conversion.`,
+        };
+      }
+      legacyValue = {
+        metric: legacyMetric,
+        baselineFloorMsPerTestFile: legacyFloor,
+        derivedAtTestFileCount: legacyPopulation,
+        incomparable: true,
+      };
+    }
+    return {
+      phase: "accumulation",
+      metric,
+      minimumJudgedRuns,
+      maxPopulationDriftFraction,
+      derivedAtTestFileCount,
+      calibrationDriftMaxFraction,
+      validThroughLoad5PerCpu,
+      ...(legacyValue === undefined ? {} : { legacy: legacyValue }),
+    };
+  }
+  // THE ROLLING SHAPE. Zero is a legal ambient slope now: the calibrated
+  // metric already owns the load normalisation, so a non-zero slope would
+  // double-pay the same effect.
+  const baselineFloorUnitsPerTestFile = positiveFinite(rec.baselineFloorUnitsPerTestFile);
+  const sameTreeSpreadFraction = positiveFinite(rec.sameTreeSpreadFraction);
+  const baselineWindowRuns = positiveFinite(rec.baselineWindowRuns);
+  const ambientInflationSlopePerCpu = nonNegativeFinite(rec.ambientInflationSlopePerCpu);
+  const ambientInflationCapFraction = nonNegativeFinite(rec.ambientInflationCapFraction);
+  if (baselineFloorUnitsPerTestFile === null) {
+    return {
+      missing:
+        `webUiSuiteCpuBudget.baselineFloorUnitsPerTestFile under ${CONFIG_SITE} must be a ` +
+        `positive number in the declared metric's units (${metric}) — the recorded floor ` +
+        `the rolling baseline never drops below without a measured re-derivation.`,
     };
   }
   if (sameTreeSpreadFraction === null || sameTreeSpreadFraction >= 1) {
@@ -123,31 +222,30 @@ export function readCpuBudget(): RollingCpuBudget | { readonly missing: string }
     };
   }
   if (
-    ambientInflationSlopePerCpu === null ||
-    ambientInflationSlopePerCpu >= 1 ||
-    ambientInflationCapFraction === null ||
-    ambientInflationCapFraction >= 1
+    ambientInflationSlopePerCpu === null || ambientInflationSlopePerCpu >= 1 ||
+    ambientInflationCapFraction === null || ambientInflationCapFraction >= 1
   ) {
     return {
       missing:
         `webUiSuiteCpuBudget.ambientInflationSlopePerCpu and ambientInflationCapFraction ` +
-        `under ${CONFIG_SITE} must both be positive fractions below 1 — the measured ` +
-        `CPU-inflation envelope of the recorded 5-minute ambient load (the slope, per ` +
-        `cpu) and the bound on the whole adjustment (the cap). The cap scales by this ` +
-        `envelope (stated on every verdict until AMBIENT-ALLOWANCE-REMOVE), so a clean run ` +
-        `at a busy ambient judges clean and a regressed one fails, at ANY ambient — without it ` +
-        `the gate is back to either demanding a quiet box or pretending load moves ` +
-        `nothing.`,
+        `under ${CONFIG_SITE} must be fractions from 0 up to (but below) 1 — the measured ` +
+        `CPU-inflation envelope of the recorded 5-minute ambient load, and the bound on the ` +
+        `whole adjustment. ZERO IS LEGAL AND IS THE DECLARED VALUE for the calibrated ` +
+        `metric: the calibration already absorbs the load effect, so a non-zero slope would ` +
+        `double-pay it.`,
     };
   }
   return {
-    baselineFloorMsPerTestFile,
+    metric,
+    baselineFloorUnitsPerTestFile,
     derivedAtTestFileCount,
     maxPopulationDriftFraction,
     sameTreeSpreadFraction,
     baselineWindowRuns,
     ambientInflationSlopePerCpu,
     ambientInflationCapFraction,
+    calibrationDriftMaxFraction,
+    validThroughLoad5PerCpu,
   };
 }
 

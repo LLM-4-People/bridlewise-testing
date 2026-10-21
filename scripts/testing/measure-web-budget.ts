@@ -5,15 +5,23 @@
  *   npm run budget:measure -- --write    # record the measured floor and its population in the settings document
  *
  * The web suite's CPU budget floor (`testExecution.webUiSuiteCpuBudget.
- * baselineFloorMsPerTestFile`, with the population it was derived at,
- * `derivedAtTestFileCount`) is a MEASURED value: this tool is its one
- * writer, from the judged runs the suite's own reporter records in its
- * ledger (`.bridlewise/web-test-results/run-history.json`). The arithmetic is
- * the budget owner's (`measureBudgetFloor`, engine/src/shared/budget-verdict.ts):
+ * baselineFloorUnitsPerTestFile`, in the declared `calibrated-work/v1` unit,
+ * with the population it was derived at, `derivedAtTestFileCount`) is a
+ * MEASURED value: this tool is its one writer, from the judged runs the
+ * suite's own reporter records in its ledger
+ * (`.bridlewise/web-test-results/run-history.json`). The arithmetic is the
+ * budget owner's (`measureBudgetFloor`, engine/src/shared/budget-verdict.ts):
  * the ambient-adjusted median of the last `baselineWindowRuns` clean judged
  * full runs of the population as it is now. Fewer such runs is
  * `unmeasurable`: reported with the count, never guessed, never tuned — a
  * budget judged under load is re-measured when the runs exist, not edited.
+ *
+ * A DECLARATION IN THE NEW METRIC'S ACCUMULATION PHASE HAS NO FLOOR TO
+ * MEASURE YET. This tool reports `migrating` and writes nothing: the retired
+ * raw-CPU floor has no calibration reading, so no arithmetic turns it into
+ * calibrated work, and the new floor is derived later from the new-metric
+ * rows alone. That is the honest state of a unit migration, not a failure to
+ * measure.
  *
  * The write goes through the engine's one config-path writer (the config
  * write lock and the whole-document schema gate), so the document stays the
@@ -32,25 +40,67 @@ import { serverConfig } from "../../server/kernel/config.ts";
 
 /** The settings paths this tool owns. */
 export const WEB_BUDGET_FLOOR_PATHS = Object.freeze({
-  floor: "testExecution.webUiSuiteCpuBudget.baselineFloorMsPerTestFile",
+  floor: "testExecution.webUiSuiteCpuBudget.baselineFloorUnitsPerTestFile",
   population: "testExecution.webUiSuiteCpuBudget.derivedAtTestFileCount",
 });
 
 export type WebBudgetReport = Readonly<{
   measurement: BudgetFloorMeasurement;
-  declared: Readonly<{ floorMsPerTestFile: number; derivedAtTestFileCount: number }>;
-  /** current: the declared floor is the measured one; drifted: a write would change it; unmeasurable: the ledger cannot say yet; written: --write recorded it. */
-  status: "current" | "drifted" | "unmeasurable" | "written";
+  declared: Readonly<{ floorUnitsPerTestFile: number | null; derivedAtTestFileCount: number }>;
+  /** current: the declared floor is the measured one; drifted: a write would change it; unmeasurable: the ledger cannot say yet; written: --write recorded it; migrating: the declaration is in the new metric's accumulation phase. */
+  status: "current" | "drifted" | "unmeasurable" | "written" | "migrating";
 }>;
 
-/** Measure the floor from the ledger (`ledgerPath`: the web ledger by default); with `write`, record it. */
+/**
+ * Measure the floor from the ledger (`ledgerPath`: the web ledger by default);
+ * with `write`, record it.
+ *
+ * A DECLARATION IN ACCUMULATION HAS NO FLOOR TO MEASURE YET, and this tool
+ * refuses rather than converting the retired one. The old 1926 ms/file floor
+ * was measured in raw CPU milliseconds with no calibration reading; the new
+ * unit is calibrated work, and there is no arithmetic that carries one into
+ * the other. The retired declaration is recorded under `legacy` in the
+ * settings document, marked incomparable; the new floor is derived from the
+ * new-metric rows alone once the window is full.
+ */
 export function measureWebBudget(write: boolean, ledgerPath?: string): WebBudgetReport {
   const budget = readCpuBudget();
   if ("missing" in budget) throw new InputError(budget.missing, "web_budget_undeclared");
+  if ("phase" in budget) {
+    // NO floor in the new unit: the legacy figure is named in the reason,
+    // never placed in the declared slot where a reader could take it for
+    // calibrated work.
+    const declared = {
+      floorUnitsPerTestFile: null,
+      derivedAtTestFileCount: budget.derivedAtTestFileCount ?? budget.legacy?.derivedAtTestFileCount ?? 0,
+    };
+    const legacy = budget.legacy;
+    const measurement: BudgetFloorMeasurement = {
+      status: "unmeasurable",
+      reason:
+        `the web suite's CPU budget is in the ${budget.metric} ACCUMULATION phase: ` +
+        `${String(budget.minimumJudgedRuns)} clean judged full runs in that metric are needed ` +
+        `before a floor can be derived.` +
+        (legacy === undefined
+          ? " No earlier floor is recorded."
+          : ` The retired ${legacy.baselineFloorMsPerTestFile.toFixed(1)} ms/file floor at ` +
+            `${String(legacy.derivedAtTestFileCount)} files was measured under ${legacy.metric} ` +
+            `and is INCOMPARABLE — recorded, never rescaled, and its rows never feed the new ` +
+            `window.`) +
+        " Run the full suite, then derive the floor with --write once the window is full.",
+      eligibleRuns: 0,
+      windowRuns: budget.minimumJudgedRuns,
+      derivedAtTestFileCount: declared.derivedAtTestFileCount,
+    };
+    return Object.freeze({ measurement, declared, status: "migrating" });
+  }
+  const declared = {
+    floorUnitsPerTestFile: budget.baselineFloorUnitsPerTestFile,
+    derivedAtTestFileCount: budget.derivedAtTestFileCount,
+  };
   const measurement = measureBudgetFloor(budget, ledgerPath === undefined ? readRunHistory() : readRunHistory(ledgerPath), fullRunModuleCount(), WEB_BUDGET_FAILURE_IDENTITIES);
-  const declared = { floorMsPerTestFile: budget.baselineFloorMsPerTestFile, derivedAtTestFileCount: budget.derivedAtTestFileCount };
   if (measurement.status === "unmeasurable") return Object.freeze({ measurement, declared, status: "unmeasurable" });
-  const current = measurement.floorMsPerTestFile === declared.floorMsPerTestFile && measurement.derivedAtTestFileCount === declared.derivedAtTestFileCount;
+  const current = measurement.floorUnitsPerTestFile === declared.floorUnitsPerTestFile && measurement.derivedAtTestFileCount === declared.derivedAtTestFileCount;
   if (current || !write) return Object.freeze({ measurement, declared, status: current ? "current" : "drifted" });
   // The document measured is the one written (WF-1b3b design LOW 12): the
   // budget was read from the web server's settings document, which
@@ -60,7 +110,7 @@ export function measureWebBudget(write: boolean, ledgerPath?: string): WebBudget
     throw new InputError(`the budget was read from ${serverConfig.harnessConfigPath} but would be written to ${store.configFilePath}; unset HARNESS_CONFIG_PATH or point it at the engine's document`, "web_budget_document_mismatch");
   }
   installCustomizationConfigStore(store);
-  writeConfigCustomization(WEB_BUDGET_FLOOR_PATHS.floor, measurement.floorMsPerTestFile);
+  writeConfigCustomization(WEB_BUDGET_FLOOR_PATHS.floor, measurement.floorUnitsPerTestFile);
   writeConfigCustomization(WEB_BUDGET_FLOOR_PATHS.population, measurement.derivedAtTestFileCount);
   return Object.freeze({ measurement, declared, status: "written" });
 }

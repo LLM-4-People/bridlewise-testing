@@ -201,6 +201,7 @@ The `tests/prevention/` folder of the development surface.
 - `stripper-path-required.test.ts` — @vitest-environment node.
 - `stripper-view-owner.test.ts` — @vitest-environment node.
 - `subprocess-confinement-owner.test.ts` — @vitest-environment node.
+- `suite-work-metric-owner.test.ts` — the calibrated-work metric has one owner and one computation; raw CPU is never judged or substituted, the validity bounds defer, and a second division or a rescaled legacy floor reds.
 - `sweep-cache-evidence.test.ts` — the moved-aside cache sweep matches every spelling measured on disk (`.experimental-vitest-cache.<label>`, `.evc.`) and never the live cache.
 - `svelte-css-scope-probe.test.ts` — @vitest-environment node.
 - `svelte-effect-self-loop.test.ts` — @vitest-environment node.
