@@ -715,4 +715,15 @@ export type RecycledFile = Readonly<{
   projectRoot: string;
   wasDirectory: boolean;
   deletedAt: number;
+  /**
+   * The user who deleted the file, stamped at the delete choke point (null
+   * for entries written before the stamp existed, and for internal deletes
+   * that carry no user gate). The listing filters on it: a recycle entry is
+   * USER DATA, and its owner is not derivable from its path (two accounts can
+   * hold one folder).
+   */
+  deletedByUserId: string | null;
+  /** The project ROW that produced the entry (null for legacy/internal
+   * records). Ownership is by row id, not by path, for the same reason. */
+  projectId: string | null;
 }>;

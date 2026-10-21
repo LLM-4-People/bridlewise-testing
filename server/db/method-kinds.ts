@@ -31,8 +31,10 @@ export const DB_READ_METHODS = [
   // projects
   "listProjects",
   "getProject",
+  "getProjectIncludingTrash",
   "projectBelongsToUser",
   "getProjectByPath",
+  "projectAtPath",
   "projectPathBelongsToUser",
   // ownership probes
   "chatBelongsToUser",

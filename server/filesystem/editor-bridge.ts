@@ -27,7 +27,7 @@ import {
   effectiveProjectRoot,
   type FsGate,
 } from "./fs-gate.ts";
-import { ValidationError } from "../kernel/errors.ts";
+import { ForbiddenError, ValidationError } from "../kernel/errors.ts";
 import { readFileText } from "./file-read.ts";
 import { webWarn } from "../observability/debug-bridge.ts";
 import { movePath } from "../../engine/src/filesystem/move-path.ts";
@@ -185,14 +185,30 @@ function countLines(content: string): number {
  * there — a cross-user filesystem leak.
  */
 function resolveAndCheckGate(filePath: string, projectRoot?: string, gate?: FsGate): string {
+  return resolveAndCheckGateWithProject(filePath, projectRoot, gate).abs;
+}
+
+/**
+ * The same gate+resolve, also answering the ownership DECISION it made.
+ *
+ * Most callers only need the path; the recycle bridge also needs the project
+ * ROW at that decision so it can stamp the producing project id into the
+ * recycle record. Returning both from one gate call keeps the assertion in
+ * one place (a second, separately-spelled check would be the duplicate logic
+ * this helper exists to prevent) and keeps the decision the exact one the
+ * gate resolved for this request.
+ */
+function resolveAndCheckGateWithProject(
+  filePath: string,
+  projectRoot?: string,
+  gate?: FsGate,
+): Readonly<{ abs: string; project: ReturnType<typeof assertProjectPathOwnership> | null }> {
   // Through the fs-gate owner, not a second `?? serverConfig.projectRoot`:
   // the gate primes exactly this expression, so the string gated here is the
   // string the request resolved.
   const root = effectiveProjectRoot(projectRoot);
-  if (gate !== undefined) {
-    assertProjectPathOwnership(root, gate);
-  }
-  return resolveWithinProject(filePath, root);
+  const project = gate === undefined ? null : assertProjectPathOwnership(root, gate);
+  return { abs: resolveWithinProject(filePath, root), project };
 }
 
 // ── File-effect recording (the ledger's file lane) ──
@@ -716,11 +732,17 @@ export type FileDeleteResult = Readonly<{
 
 export type { RecycledFile } from "../../shared/wire-types.ts";
 
+/** How a restore disposed of the recycle slot AFTER the bytes landed. */
+export type RecycleSlotCleanup = "removed" | "retained";
+
 export type FileRestoreResult = Readonly<{
   path: string;
   relativePath: string;
   wasDirectory: boolean;
   recycleId: string;
+  /** "retained" means the bytes are restored but the empty slot could not be
+   * removed yet; a retry finds the commit marker and answers idempotently. */
+  cleanup: RecycleSlotCleanup;
 }>;
 
 const RECYCLE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
@@ -754,6 +776,19 @@ function readRecycleMeta(id: string): RecycledFile {
   ) {
     throw new ValidationError("That recycle entry is unreadable", "recycle_corrupt");
   }
+  // The owner stamp is OPTIONAL for one reason only: a record written before
+  // it existed. A present-but-wrong type is corrupt, not legacy. A record
+  // without the stamp is never listed and never restored through a gate
+  // (below) — inventing an owner from its path would restore the disclosure
+  // the stamp exists to end.
+  const deletedByUserId = rec["deletedByUserId"] ?? null;
+  const projectId = rec["projectId"] ?? null;
+  if (
+    (deletedByUserId !== null && typeof deletedByUserId !== "string") ||
+    (projectId !== null && typeof projectId !== "string")
+  ) {
+    throw new ValidationError("That recycle entry is unreadable", "recycle_corrupt");
+  }
   return {
     id: rec["id"],
     name: rec["name"],
@@ -762,6 +797,8 @@ function readRecycleMeta(id: string): RecycledFile {
     projectRoot: rec["projectRoot"],
     wasDirectory: rec["wasDirectory"],
     deletedAt: rec["deletedAt"],
+    deletedByUserId,
+    projectId,
   };
 }
 
@@ -772,7 +809,12 @@ function readRecycleMeta(id: string): RecycledFile {
  */
 export function deleteFile(filePath: string, projectRoot?: string, gate?: FsGate): FileDeleteResult {
   const root = resolve(projectRoot ?? serverConfig.projectRoot);
-  const abs = resolveAndCheckGate(filePath, projectRoot, gate);
+  // THE RECYCLE RECORD IS STAMPED AT THE DELETE CHOKE POINT. The gate already
+  // resolved which user and which project ROW own this path; carrying that
+  // decision into the record is what lets the listing and restore answer by
+  // identity instead of by path. A delete with no gate is an internal write
+  // (no acting user), so it stamps null and is never listed for a user.
+  const { abs, project } = resolveAndCheckGateWithProject(filePath, projectRoot, gate);
   // The root itself (or anything holding it), by identity — never a spelling.
   if (identityOverlapIndex().atOrUnder(resolveLocation(root, "the project root"), resolveLocation(abs, "the file to delete"))) {
     throw new ValidationError(
@@ -798,6 +840,8 @@ export function deleteFile(filePath: string, projectRoot?: string, gate?: FsGate
     projectRoot: root,
     wasDirectory,
     deletedAt: Date.now(),
+    deletedByUserId: gate?.userId ?? null,
+    projectId: project?.id ?? null,
   };
   writeFileSync(join(dest, "meta.json"), `${JSON.stringify(meta)}\n`, "utf8");
   mkdirSync(dirname(payload), { recursive: true });
@@ -846,44 +890,175 @@ export function listRecycledFiles(): readonly RecycledFile[] {
 }
 
 /**
+ * The commit marker a restore writes after the payload has landed.
+ *
+ * It exists so a payload-less slot is answerable: a cleanup that failed once
+ * leaves the slot behind, and the retry reads this instead of reporting the
+ * entry "gone" for a file that is already back on disk. It is written AFTER
+ * the move, so its presence means "the move returned success", never "a move
+ * was attempted".
+ */
+const RESTORE_MARKER = "restored.json";
+
+type RestoreMarker = Readonly<{
+  recycleId: string;
+  restoredPath: string;
+  relativePath: string;
+  wasDirectory: boolean;
+  restoredAt: number;
+}>;
+
+function readRestoreMarker(slotDir: string, recycleId: string): RestoreMarker | null {
+  const path = join(slotDir, RESTORE_MARKER);
+  if (!existsSync(path)) return null;
+  try {
+    const raw: unknown = JSON.parse(readFileText(path));
+    if (raw === null || typeof raw !== "object") return null;
+    const rec = raw as Record<string, unknown>;
+    if (
+      rec["recycleId"] !== recycleId ||
+      typeof rec["restoredPath"] !== "string" ||
+      typeof rec["relativePath"] !== "string" ||
+      typeof rec["wasDirectory"] !== "boolean" ||
+      typeof rec["restoredAt"] !== "number"
+    ) {
+      return null;
+    }
+    return {
+      recycleId,
+      restoredPath: rec["restoredPath"],
+      relativePath: rec["relativePath"],
+      wasDirectory: rec["wasDirectory"],
+      restoredAt: rec["restoredAt"],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** How a restore removes its slot. Swappable ONLY so a test can prove a
+ * cleanup failure cannot fail a restore whose bytes have landed. Null means
+ * the real filesystem removal. */
+type RecycleSlotRemover = (slotDir: string) => void;
+let recycleSlotRemover: RecycleSlotRemover | null = null;
+
+/** Install a slot remover (a test seam), or null to restore the real one. */
+export function installRecycleSlotRemover(remover: RecycleSlotRemover | null): void {
+  recycleSlotRemover = remover;
+}
+
+/**
  * Restore a recycled file to its original path. Refuses if that path is
- * occupied. Gates the destination as a project write.
+ * occupied. Gates the destination as a project write, and asserts the
+ * stamped owner identity BEFORE the path gate.
+ *
+ * THE MOVE IS THE COMMIT POINT. Once the payload has landed, no cleanup or
+ * bookkeeping failure can turn the request into a 500: the slot removal is
+ * best-effort and typed, and a retry for a payload-less slot reads the commit
+ * marker and answers the restored path idempotently.
  */
 export function restoreFile(recycleId: string, gate?: FsGate): FileRestoreResult {
   const meta = readRecycleMeta(recycleId);
-  const payload = join(recycleRoot(), recycleId, "payload");
-  if (!existsSync(payload)) {
-    throw new ValidationError("That recycle entry has no file to restore", "recycle_not_found");
+  const slotDir = join(recycleRoot(), recycleId);
+  const payload = join(slotDir, "payload");
+  // ── OWNERSHIP BEFORE THE PATH GATE ──
+  // The stamped identity is the authority. A gate that merely CLAIMS this
+  // path (the state the path-only gate used to confuse for ownership) cannot
+  // restore another user's entry, and a legacy record with no stamp is not
+  // guessed from its path.
+  if (gate !== undefined) {
+    const project = gate.decisions.get(meta.projectRoot) ?? null;
+    if (
+      meta.deletedByUserId === null ||
+      meta.deletedByUserId !== gate.userId ||
+      meta.projectId === null ||
+      project === null ||
+      project.id !== meta.projectId
+    ) {
+      throw new ForbiddenError(
+        "That recycled file belongs to another account and cannot be restored here.",
+        "recycle_not_owned",
+      );
+    }
   }
   const dest = resolveAndCheckGate(meta.originalPath, meta.projectRoot, gate);
-  if (existsSync(dest)) {
-    throw new ValidationError(
-      `Something already lives at ${meta.relativePath} — restore refused rather than overwrite`,
-      "restore_occupied",
-    );
-  }
-  mkdirSync(dirname(dest), { recursive: true });
-  try {
-    movePath(payload, dest);
-  } catch (err) {
-    if (err instanceof ValidationError && err.code === "move_did_not_land") {
-      throw new ValidationError("Restore copy did not land — recycle left in place", "recycle_copy_failed");
+  let outcome: Omit<FileRestoreResult, "cleanup">;
+  if (!existsSync(payload)) {
+    // A payload-less slot is either the retry after a committed restore
+    // (marker present, file on disk) or an entry with nothing to restore.
+    const marker = readRestoreMarker(slotDir, recycleId);
+    if (marker === null || marker.recycleId !== recycleId || marker.restoredPath !== dest || !existsSync(dest)) {
+      throw new ValidationError("That recycle entry has no file to restore", "recycle_not_found");
     }
-    throw err;
+    outcome = {
+      path: marker.restoredPath,
+      relativePath: marker.relativePath,
+      wasDirectory: marker.wasDirectory,
+      recycleId,
+    };
+  } else {
+    if (existsSync(dest)) {
+      throw new ValidationError(
+        `Something already lives at ${meta.relativePath} — restore refused rather than overwrite`,
+        "restore_occupied",
+      );
+    }
+    mkdirSync(dirname(dest), { recursive: true });
+    try {
+      movePath(payload, dest);
+    } catch (err) {
+      if (err instanceof ValidationError && err.code === "move_did_not_land") {
+        throw new ValidationError("Restore copy did not land — recycle left in place", "recycle_copy_failed");
+      }
+      throw err;
+    }
+    // ── COMMITTED: the bytes are home ──
+    // From here on nothing may fail the request. The marker is best-effort
+    // (its absence only costs the idempotent retry), and the slot removal is
+    // best-effort and typed (a failed removal is reported as "retained").
+    try {
+      writeFileSync(
+        join(slotDir, RESTORE_MARKER),
+        `${JSON.stringify({ recycleId, restoredPath: dest, relativePath: meta.relativePath, wasDirectory: meta.wasDirectory, restoredAt: Date.now() })}\n`,
+        "utf8",
+      );
+    } catch (err) {
+      webWarn("editor-bridge", "restore marker not written; slot stays unmarked", () => ({
+        slot: slotDir,
+        restore: dest,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    }
+    const restored = preimageOf(dest);
+    recordFileEffect({
+      path: dest,
+      operation: meta.wasDirectory ? "mkdir" : "write",
+      preimageDigest: EMPTY_CONTENT_DIGEST,
+      postimageDigest: restored === null ? EMPTY_CONTENT_DIGEST : sha256(restored),
+    });
+    notifyProjectWrite(meta.projectRoot, dest);
+    outcome = {
+      path: dest,
+      relativePath: meta.relativePath,
+      wasDirectory: meta.wasDirectory,
+      recycleId,
+    };
   }
-  rmSync(join(recycleRoot(), recycleId), { recursive: true });
-  const restored = preimageOf(dest);
-  recordFileEffect({
-    path: dest,
-    operation: meta.wasDirectory ? "mkdir" : "write",
-    preimageDigest: EMPTY_CONTENT_DIGEST,
-    postimageDigest: restored === null ? EMPTY_CONTENT_DIGEST : sha256(restored),
-  });
-  notifyProjectWrite(meta.projectRoot, dest);
-  return {
-    path: dest,
-    relativePath: meta.relativePath,
-    wasDirectory: meta.wasDirectory,
-    recycleId,
-  };
+  let cleanup: RecycleSlotCleanup;
+  try {
+    if (recycleSlotRemover === null) {
+      rmSync(slotDir, { recursive: true, force: true });
+    } else {
+      recycleSlotRemover(slotDir);
+    }
+    cleanup = "removed";
+  } catch (err) {
+    webWarn("editor-bridge", "recycle slot cleanup failed after the restore committed", () => ({
+      recycleId,
+      slot: slotDir,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    cleanup = "retained";
+  }
+  return { ...outcome, cleanup };
 }

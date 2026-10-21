@@ -514,6 +514,9 @@ export class AsyncDbClient {
   getProject(id: string, userId: string): Promise<ProjectRow | null> {
     return this.call("getProject", id, userId);
   }
+  getProjectIncludingTrash(id: string, userId: string): Promise<ProjectRow | null> {
+    return this.call("getProjectIncludingTrash", id, userId);
+  }
   createProject(input: ProjectCreateDbInput, userId: string): Promise<ProjectRow> {
     return this.call("createProject", input, userId);
   }
@@ -543,6 +546,9 @@ export class AsyncDbClient {
   }
   getProjectByPath(path: string, userId: string): Promise<ProjectRow | null> {
     return this.call("getProjectByPath", path, userId);
+  }
+  projectAtPath(path: string): Promise<Readonly<{ id: string; userId: string }> | null> {
+    return this.call("projectAtPath", path);
   }
   projectPathBelongsToUser(path: string, userId: string): Promise<boolean> {
     return this.call("projectPathBelongsToUser", path, userId);

@@ -293,6 +293,12 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   project_path_not_directory: 404,
   project_path_inaccessible: 404,
   project_path_invalid: 404,
+  // A project path this user wants to register is already registered by
+  // ANOTHER account (routes/projects.ts). 409: the request is well-formed and
+  // the folder exists, but the ownership record conflicts. Two users on one
+  // path is what made the path-keyed recycle bin disclose another user's
+  // file, so it is refused at its source rather than tolerated.
+  project_path_taken: 409,
   // The copy half of a cross-device move did not land — a server I/O fault,
   // with the original reported left in place (atomic-write.ts movePath).
   move_did_not_land: 500,
@@ -300,6 +306,12 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   // entry is NotFound semantics — the client asked for a resource that no
   // longer exists, so 404 like the project_path_* family.
   recycle_not_found: 404,
+  // The recycle entry exists but was produced by another user / another
+  // project row (editor-bridge.ts restoreFile's stamped-identity assertion,
+  // defense in depth behind the route's own owner filter). 403 like the
+  // project_path_not_owned family: the caller asked for a resource that is
+  // not theirs.
+  recycle_not_owned: 403,
   // The stored trash record itself is unreadable — server-held state gone
   // bad, not a client mistake. An explicit 500 over the class default:
   // loud by intent, not silent by omission.
@@ -760,6 +772,11 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   forbidden_config_path: 403,        // ForbiddenError
   git_not_run: 503,                  // ServiceUnavailableError
   git_read_unavailable: 503,         // ServiceUnavailableError
+  // git RAN and exited non-zero on a read the caller needs (git-ops-bridge
+  // working-tree status). A different fact from "git was not run": the
+  // repository probe confirmed a work tree, so the honest answer is "the
+  // measurement failed", never a zeroed clean tree.
+  git_read_failed: 503,              // ServiceUnavailableError
   incomplete_process_capture: 503,   // ServiceUnavailableError
   self_protection_scratch_not_a_directory: 503, // ServiceUnavailableError
   mcp_server_unknown: 404,           // NotFoundError

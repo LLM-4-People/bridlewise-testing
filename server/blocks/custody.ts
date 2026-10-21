@@ -52,7 +52,7 @@ import { z } from "zod";
 import type { TimelineFileEffectFacts, TimelineFileEffectFactsFilter } from "../kernel/canonical.ts";
 import { identityOverlapIndex, resolveLocation } from "../kernel/canonical.ts";
 import { BadRequestError, NotFoundError } from "../kernel/errors.ts";
-import { gitTextOrRefuse, isGitRepo } from "../intelligence/git-bridge.ts";
+import { gitRead, gitTextOrRefuse, isGitRepo, raiseIfNotRun } from "../intelligence/git-bridge.ts";
 import { getGitStatus, getLog, type GitLogEntry } from "../intelligence/git-ops-bridge.ts";
 import { assertProjectPathOwnership, makeFsGate, type FsGate } from "../filesystem/fs-gate.ts";
 import { GIT_COMMIT_TIME_RESOLUTION_MS, serverConfig } from "../kernel/config.ts";
@@ -147,11 +147,16 @@ export type SavedWork = Readonly<{
   message: string;
   author: string;
   when: string;
-  /** Measured from the commit's own numstat. */
-  files: number;
-  insertions: number;
-  deletions: number;
-  filePaths: readonly string[];
+  /** Measured from the commit's own numstat, or null when the scan for this
+   * page FAILED — an unmeasured count is absent, never zero. */
+  files: number | null;
+  insertions: number | null;
+  deletions: number | null;
+  /** The commit's file paths, or null when the scan produced no file list. */
+  filePaths: readonly string[] | null;
+  /** Present exactly when the page's numstat scan failed: why no per-commit
+   * counts exist. */
+  countsAbsentReason?: string;
   conversation:
     | Readonly<{
         chatId: string;
@@ -455,7 +460,16 @@ export function joinHistory(
     files: readonly Readonly<{ path: string; insertions: number; deletions: number }>[];
   }>[],
   resolveRun: AttributionResolver,
+  options: Readonly<{ countsAbsentReason?: string }> = {},
 ): readonly SavedWork[] {
+  /**
+   * A FAILED SCAN IS NOT AN EMPTY ONE. When the one numstat invocation for
+   * the page failed, no commit's file list was measured — so every count and
+   * the conversation join are ABSENT with this reason, never a page of
+   * measured zeros and never the "an absence, not a guess" sentence that is
+   * reserved for a join that really ran and really found nothing.
+   */
+  const countsAbsentReason = options.countsAbsentReason ?? null;
   const allPaths = new Set<string>();
   for (const c of commits) for (const f of c.files) allPaths.add(resolve(repoPath, f.path));
   const paths = [...allPaths].slice(0, CUSTODY_MAX_FILES);
@@ -484,6 +498,24 @@ export function joinHistory(
   }
 
   return commits.map((c, commitIndex): SavedWork => {
+    if (countsAbsentReason !== null) {
+      return Object.freeze({
+        hash: c.entry.hash,
+        shortHash: c.entry.shortHash,
+        message: c.entry.message,
+        author: c.entry.author,
+        when: c.entry.date,
+        files: null,
+        insertions: null,
+        deletions: null,
+        filePaths: null,
+        countsAbsentReason,
+        conversation: null,
+        derivation:
+          `could not read which files this save changed — ${countsAbsentReason}; ` +
+          "its file counts and conversation join are absent, not zero",
+      });
+    }
     const commitMs = Date.parse(c.entry.date);
     /**
      * THE END OF THE COMMIT'S OWN INSTANT — compared at the resolution the
@@ -695,19 +727,50 @@ export type GitRunner = (args: readonly string[]) => string | null;
  * Getting this scan OFF the event loop is the facade's work. Making it two
  * spawns instead of twenty-four is this one's.
  */
+export type CommitFilesScan = Readonly<{
+  /** Per-hash numstat files. Every requested hash has an entry; an empty
+   * list from a scan that RAN is a measured "no numstat" (a merge, or a hash
+   * git did not answer for), never a stand-in for a failed scan. */
+  filesByHash: ReadonlyMap<string, readonly Readonly<{ path: string; insertions: number; deletions: number }>[]>;
+  /** Null when the scan RAN. A sentence naming the failed invocation when it
+   * did not — the page then serves no counts rather than zeros. */
+  absentReason: string | null;
+}>;
+
+const COMMIT_FILES_UNAVAILABLE =
+  "git could not read the changed files for these saves, so their file counts are absent";
+
 export function commitFilesByHash(
   repoPath: string,
   hashes: readonly string[],
-  run: GitRunner = (args) => gitTextOrRefuse(repoPath, args, "the saved history"),
-): ReadonlyMap<string, readonly Readonly<{ path: string; insertions: number; deletions: number }>[]> {
-  const out = new Map<string, readonly Readonly<{ path: string; insertions: number; deletions: number }>[]>();
-  for (const hash of hashes) out.set(hash, []);
-  if (hashes.length === 0) return out;
+  run?: GitRunner,
+): CommitFilesScan {
+  const filesByHash = new Map<string, readonly Readonly<{ path: string; insertions: number; deletions: number }>[]>();
+  for (const hash of hashes) filesByHash.set(hash, []);
+  if (hashes.length === 0) return { filesByHash, absentReason: null };
   // `--no-walk` takes the listed commits themselves rather than their
   // ancestry, so the answer is exactly the page `getLog` returned — a
   // `-N` window could drift from it whenever the history is not linear.
-  const raw = run(["log", "--no-walk", "--numstat", "--format=%x1e%H", ...hashes]);
-  if (raw === null) return out;
+  const args = ["log", "--no-walk", "--numstat", "--format=%x1e%H", ...hashes];
+  let raw: string | null;
+  let absentReason: string | null = null;
+  if (run !== undefined) {
+    raw = run(args);
+    if (raw === null) absentReason = COMMIT_FILES_UNAVAILABLE;
+  } else {
+    // The default runner keeps git's own words for a ran-and-failed read;
+    // `gitTextOrRefuse` would collapse that into `null` (the same shape as a
+    // measured empty), which is how the failed scan used to become zeros.
+    const read = gitRead(repoPath, args);
+    raiseIfNotRun(read, "the changed files of these saves");
+    if (read.kind === "ran") {
+      raw = read.stdout;
+    } else {
+      raw = null;
+      absentReason = `git could not read the changed files for these saves (it ran and failed: ${read.reason})`;
+    }
+  }
+  if (raw === null) return { filesByHash, absentReason };
   // The RS is written as an escape, not as a literal control character: an
   // invisible byte in source is a delimiter nobody can review.
   const RECORD_SEPARATOR = "\u001e";
@@ -715,10 +778,10 @@ export function commitFilesByHash(
     if (record.trim().length === 0) continue;
     const newline = record.indexOf("\n");
     const hash = (newline === -1 ? record : record.slice(0, newline)).trim();
-    if (!out.has(hash)) continue;
-    out.set(hash, newline === -1 ? [] : parseNumstat(record.slice(newline + 1)));
+    if (!filesByHash.has(hash)) continue;
+    filesByHash.set(hash, newline === -1 ? [] : parseNumstat(record.slice(newline + 1)));
   }
-  return out;
+  return { filesByHash, absentReason: null };
 }
 
 /** Whether fetched remote branches exist (read-only probe — `git remote`
@@ -926,16 +989,20 @@ export function defineCustodyBlocks(db: AsyncDbClient): void {
               "custody_keep_failed",
             );
           }
-          const committed = commitFilesByHash(repoPath, [tip]).get(tip) ?? [];
+          const scan = commitFilesByHash(repoPath, [tip]);
+          const committed = scan.filesByHash.get(tip) ?? [];
           const after = changedPathSet(repoPath, gate);
           return Object.freeze({
             kept: true as const,
             hash: tip,
             shortHash: tip.slice(0, serverConfig.gitShortHashLength),
             message: input.message,
-            files: Object.freeze(committed.map((f) => f.path)),
-            insertions: committed.reduce((n, f) => n + f.insertions, 0),
-            deletions: committed.reduce((n, f) => n + f.deletions, 0),
+            // The save is real even if its numstat read failed; the counts are
+            // then absent (never fabricated as 0) and say why.
+            files: scan.absentReason === null ? Object.freeze(committed.map((f) => f.path)) : null,
+            insertions: scan.absentReason === null ? committed.reduce((n, f) => n + f.insertions, 0) : null,
+            deletions: scan.absentReason === null ? committed.reduce((n, f) => n + f.deletions, 0) : null,
+            ...(scan.absentReason !== null ? { countsAbsentReason: scan.absentReason } : {}),
             /** Files still carrying changes afterwards (e.g. edited during
              * the save) — honest, usually empty. */
             stillChanged: Object.freeze(files.filter((f) => after.has(f))),
@@ -1040,16 +1107,19 @@ export function defineCustodyBlocks(db: AsyncDbClient): void {
         // ONE git call for the whole page — see `commitFilesByHash`. This was
         // one `git show` per commit, so the default read spawned ~24 blocking
         // subprocesses in sequence.
-        const filesByHash = commitFilesByHash(repoPath, log.map((e) => e.hash));
+        const scan = commitFilesByHash(repoPath, log.map((e) => e.hash));
         const withFiles = log.map((entry) => ({
           entry,
-          files: filesByHash.get(entry.hash) ?? [],
+          files: scan.filesByHash.get(entry.hash) ?? [],
         }));
         const commits = joinHistory(
           liveCustodyPort(),
           repoPath,
           withFiles,
           await attributionResolverFor(db, userId, input.projectId),
+          // A failed scan is stated ONCE for the page and carried by every
+          // commit it left unmeasured — never rendered as 0 files / ±0.
+          scan.absentReason === null ? {} : { countsAbsentReason: scan.absentReason },
         );
         return Object.freeze({
           repository: true,

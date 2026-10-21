@@ -83,7 +83,7 @@ describe("custody history: one git invocation for a whole page of commits", () =
       ["ccc", "-\t-\tlogo.png"], // binary: real change, no line counts
     ]);
     const git = fakeGit(per);
-    const out = commitFilesByHash("/repo", ["aaa", "bbb", "ccc"], git.run);
+    const out = commitFilesByHash("/repo", ["aaa", "bbb", "ccc"], git.run).filesByHash;
     expect(out.get("aaa")).toEqual([
       { path: "src/a.ts", insertions: 3, deletions: 1 },
       { path: "src/b.ts", insertions: 0, deletions: 7 },
@@ -96,14 +96,14 @@ describe("custody history: one git invocation for a whole page of commits", () =
 
   test("A3 a commit with no numstat (a merge) is an empty list, not a guess", () => {
     const git = fakeGit(new Map([["merge1", ""], ["aaa", "1\t0\tx.ts"]]));
-    const out = commitFilesByHash("/repo", ["merge1", "aaa"], git.run);
+    const out = commitFilesByHash("/repo", ["merge1", "aaa"], git.run).filesByHash;
     expect(out.get("merge1")).toEqual([]);
     expect(out.get("aaa")).toEqual([{ path: "x.ts", insertions: 1, deletions: 0 }]);
   });
 
   test("A4 a hash git does not answer for keeps its stated empty entry", () => {
     const git = fakeGit(new Map([["aaa", "1\t0\tx.ts"]]));
-    const out = commitFilesByHash("/repo", ["aaa", "unknown"], git.run);
+    const out = commitFilesByHash("/repo", ["aaa", "unknown"], git.run).filesByHash;
     expect(
       out.has("unknown"),
       "a commit dropped from the map would render as a save with no files at all, " +
@@ -114,7 +114,7 @@ describe("custody history: one git invocation for a whole page of commits", () =
 
   test("A5 no commits means no invocation", () => {
     const git = fakeGit(new Map());
-    expect(commitFilesByHash("/repo", [], git.run).size).toBe(0);
+    expect(commitFilesByHash("/repo", [], git.run).filesByHash.size).toBe(0);
     expect(git.calls).toHaveLength(0);
   });
 
@@ -125,7 +125,11 @@ describe("custody history: one git invocation for a whole page of commits", () =
       return null;
     });
     expect(calls).toHaveLength(1);
-    expect(out.get("aaa")).toEqual([]);
-    expect(out.get("bbb")).toEqual([]);
+    expect(out.filesByHash.get("aaa")).toEqual([]);
+    expect(out.filesByHash.get("bbb")).toEqual([]);
+    expect(
+      out.absentReason,
+      "a failed scan states why the whole page has no counts; empty lists alone read as measured zeros",
+    ).toMatch(/could not read/i);
   });
 });

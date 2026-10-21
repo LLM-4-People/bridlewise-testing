@@ -35,9 +35,9 @@ import {
   imageMediaType,
   type FileReadResult,
 } from "../filesystem/editor-bridge.ts";
-import { BadRequestError, NotFoundError } from "../kernel/errors.ts";
+import { BadRequestError, ForbiddenError, NotFoundError } from "../kernel/errors.ts";
 import { requireUserContext } from "../auth/user-context.ts";
-import { makeFsGate, effectiveProjectRoot, assertProjectPathOwnership } from "../filesystem/fs-gate.ts";
+import { makeFsGate, effectiveProjectRoot, assertProjectPathOwnership, type FsGate } from "../filesystem/fs-gate.ts";
 import { MAX_FILE_CONTENT_LENGTH } from "../../shared/constants.ts";
 import type { AsyncDbClient } from "../db/async-client.ts";
 
@@ -246,21 +246,48 @@ export function registerEditorRoutes(router: Router, db: AsyncDbClient): void {
       assertProjectPathOwnership(effectiveProjectRoot(requestedRoot), requestedGate);
     }
     const [live, trash] = await Promise.all([db.listProjects(user.userId), db.listTrash(user.userId)]);
-    const roots = new Set(
-      [...live, ...trash.projects].map((p) => resolve(p.path)),
+    // OWNERSHIP BY IDENTITY, NOT BY PATH. An entry carries the user who
+    // deleted it and the project ROW that produced it; both must be the
+    // caller's. Trashed projects are included because the file was the
+    // owner's when it was deleted and the project row is still theirs. A
+    // path-keyed filter (the pre-fix shape) listed another user's file
+    // whenever two accounts held one folder, and a legacy record with no
+    // stamp is deliberately invisible rather than guessed from its path.
+    const ownedProjectIds = new Set([...live, ...trash.projects].map((p) => p.id));
+    const files = listRecycledFiles().filter(
+      (f) => f.deletedByUserId === user.userId && f.projectId !== null && ownedProjectIds.has(f.projectId),
     );
-    const files = listRecycledFiles().filter((f) => roots.has(resolve(f.projectRoot)));
     sendJson(ctx.res, { files });
   });
 
   router.post("/api/editor/restore", async (ctx) => {
     const user = await requireUserContext(ctx, db);
     const body = assertValidBody(RESTORE_SCHEMA, ctx.body, "invalid_restore_body");
-    const listed = listRecycledFiles().find((f) => f.id === body.id);
+    // The caller's OWN entry, by stamp. Another user's id is indistinguishable
+    // from a gone one (404), never a 403 that confirms it exists.
+    const listed = listRecycledFiles().find(
+      (f) => f.id === body.id && f.deletedByUserId === user.userId,
+    );
     if (listed === undefined) {
       throw new NotFoundError("That recycle entry is gone", "recycle_not_found");
     }
-    const gate = await makeFsGate(user.userId, db, listed.projectRoot);
+    // ONE TRASHED-INCLUSIVE PROBE, BY ROW ID. `makeFsGate` resolves ownership
+    // by PATH through the live-project listing, so a project the owner has
+    // binned is invisible to it — the listing above includes that project,
+    // and restore must answer with the same ownership fact. The row id is the
+    // authority; a legacy entry with no row id is refused rather than guessed
+    // from its path.
+    const project = listed.projectId === null ? null : await db.getProjectIncludingTrash(listed.projectId, user.userId);
+    if (
+      project === null ||
+      resolve(project.path) !== resolve(listed.projectRoot)
+    ) {
+      throw new ForbiddenError(
+        "That recycled file belongs to a project this account no longer holds.",
+        "recycle_not_owned",
+      );
+    }
+    const gate: FsGate = { userId: user.userId, decisions: new Map([[listed.projectRoot, project]]) };
     const result = restoreFile(body.id, gate);
     sendJson(ctx.res, result);
   });

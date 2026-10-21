@@ -39,6 +39,7 @@ The `tests/unit/` folder of the development surface.
 - `context-trimming.test.ts` — @vitest-environment node.
 - `coverage-blocks-real-ledger.test.ts` — @vitest-environment node.
 - `cross-user-path-access.test.ts` — @vitest-environment node.
+- `custody-blocks-http.test.ts` — cUSTODY READ FAILURES, AT THE HANDLER — never rendered as measured zeros. Two round-5 findings, both reproduced through the real block read route against a real git repository.
 - `custody-blocks-real-ledger.test.ts` — @vitest-environment node.
 - `custody-history-one-spawn.test.ts` — @vitest-environment node.
 - `custody-see-what-changed.test.ts` — @vitest-environment node.
@@ -47,6 +48,7 @@ The `tests/unit/` folder of the development surface.
 - `dependency-path.test.ts` — @vitest-environment node.
 - `error-messages.test.ts` — the `error-messages.test` module.
 - `editor-blocks.test.ts` — @vitest-environment node.
+- `editor-recycle-http.test.ts` — tHE FILE RECYCLE BIN AT ITS AUTHORIZATION CHOKE POINT — over the real router. Round-5 findings (all three reproduced through real HTTP + the real bridge).
 - `errors.test.ts` — @vitest-environment node.
 - `codebase-file-retrieval.test.ts` — @vitest-environment node.
 - `tool-execution-root-scoping.test.ts` — the `tool-execution-root-scoping.test` module.

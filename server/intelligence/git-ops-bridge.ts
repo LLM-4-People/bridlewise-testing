@@ -8,7 +8,7 @@
 import { gitRead, gitTextOrRefuse, isGitRepo, raiseIfNotRun } from "./git-bridge.ts";
 import { assertProjectPathOwnership, type FsGate } from "../filesystem/fs-gate.ts";
 import { serverConfig } from "../kernel/config.ts";
-import { BadRequestError } from "../kernel/errors.ts";
+import { BadRequestError, ServiceUnavailableError } from "../kernel/errors.ts";
 
 export type GitBranch = Readonly<{
   name: string;
@@ -323,33 +323,51 @@ export function getGitStatus(repoPath: string, gate?: FsGate, options?: Readonly
     if (status.kind === "failed") {
       const probe = await gitRead(repoPath, ["rev-parse", "--is-inside-work-tree"], [], options);
       raiseIfNotRun(probe, "repository status");
-      if (probe.kind !== "ran" || probe.stdout !== "true") return gitStatusFromReads(null, null, false);
+      // The probe is the difference: a folder that is not a work tree is an
+      // honest `repository:false`; a folder that IS one but whose status git
+      // could not produce is a FAILED MEASUREMENT, not a clean tree.
+      if (probe.kind !== "ran" || probe.stdout !== "true") return gitStatusFromReads("", null, false);
+      throw new ServiceUnavailableError(
+        `The working tree status could not be read: git ran and failed (${status.reason}), ` +
+          "and the folder is a work tree, so the changes it holds were not measured. " +
+          "Refusing to report the tree as clean.",
+        "git_read_failed",
+      );
     }
     const head = await gitTextOrRefuse(repoPath, ["rev-parse", "HEAD"], "current save", [], options);
-    return gitStatusFromReads(status.kind === "ran" ? status.stdout : null, head?.trim() ?? null);
+    return gitStatusFromReads(status.stdout, head?.trim() ?? null);
   })();
-  if (!isGitRepo(repoPath)) return gitStatusFromReads(null, null, false);
+  if (!isGitRepo(repoPath)) return gitStatusFromReads("", null, false);
+  // `readText` is `gitTextOrRefuse`: a refusal already raised; `null` here
+  // means git RAN and reported failure. The repository probe above proved
+  // this is a work tree, so reporting zeros would call a dirty tree clean.
+  const porcelain = readText(repoPath, ["status", "-b", "--porcelain=v1", "--untracked-files=all"], "working tree status");
+  if (porcelain === null) {
+    throw new ServiceUnavailableError(
+      "The working tree status could not be read: git ran and failed, and the folder is a work tree, " +
+        "so the changes it holds were not measured. Refusing to report the tree as clean.",
+      "git_read_failed",
+    );
+  }
   return gitStatusFromReads(
-    readText(repoPath, ["status", "-b", "--porcelain=v1", "--untracked-files=all"], "working tree status"),
+    porcelain,
     readText(repoPath, ["rev-parse", "HEAD"], "current save")?.trim() ?? null,
   );
 }
 
-/** Decode the existing v1 measurement identically for sync and async readers. */
-function gitStatusFromReads(porcelain: string | null, head: string | null, repository = true): GitStatus {
+/** Decode the existing v1 measurement identically for sync and async readers.
+ * `porcelain` is the output of a status read that RAN (possibly empty when a
+ * repository has no changes and no branch header); "did not run / failed" is
+ * answered before this decoder, never folded into an empty string. */
+function gitStatusFromReads(porcelain: string, head: string | null, repository = true): GitStatus {
   if (!repository) return { repository: false, branch: null, head: null, dirtyFiles: 0, stagedFiles: 0, untrackedFiles: 0, entries: [] };
   let branch: string | null = null;
-  if (porcelain !== null) {
-    const firstLine = porcelain.split("\n")[0] ?? "";
-    if (firstLine.startsWith("## ")) {
-      const rest = firstLine.slice(3);
-      const tok = rest.split(/\s|\.\.\./)[0] ?? "";
-      // "HEAD (no branch)" → detached; tok would be "HEAD".
-      branch = tok === "HEAD" ? null : (tok.length > 0 ? tok : null);
-    }
-  }
-  if (porcelain === null) {
-    return { repository: true, branch, head, dirtyFiles: 0, stagedFiles: 0, untrackedFiles: 0, entries: [] };
+  const firstLine = porcelain.split("\n")[0] ?? "";
+  if (firstLine.startsWith("## ")) {
+    const rest = firstLine.slice(3);
+    const tok = rest.split(/\s|\.\.\./)[0] ?? "";
+    // "HEAD (no branch)" → detached; tok would be "HEAD".
+    branch = tok === "HEAD" ? null : (tok.length > 0 ? tok : null);
   }
   let stagedFiles = 0;
   let untrackedFiles = 0;

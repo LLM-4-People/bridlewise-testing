@@ -1075,6 +1075,51 @@ export class DbClient {
     return row ? parseProjectRow(row, this.crypto, userId) : null;
   }
 
+  /**
+   * Get a project by id INCLUDING a trashed row, scoped to the caller.
+   *
+   * The live accessor above hides a binned project on purpose. One verb needs
+   * the row anyway: restoring a file the owner deleted from their own project
+   * before binning it. Its ownership is a row fact, not a listing fact — a
+   * trashed project is still the caller's project, and answering
+   * `project_path_not_owned` for it would be a false access-control claim.
+   * The name says so, so callers that want the live list cannot reach this
+   * one by accident.
+   */
+  getProjectIncludingTrash(id: string, userId: string): ProjectRow | null {
+    const row = this.#statement`SELECT * FROM projects WHERE id = ? AND user_id = ?`
+      .get(id, userId) as Record<string, unknown> | undefined;
+    return row ? parseProjectRow(row, this.crypto, userId) : null;
+  }
+
+  /**
+   * The project registered at `path` by ANY user, as the minimal ownership
+   * fact (`{ id, userId }`), or null when no user holds it.
+   *
+   * The path is encrypted per owning user, so no SQL equality can answer
+   * this; each row is opened under its own `user_id`. It returns only the
+   * two identifiers — never the other user's name or decrypted path — so a
+   * caller that must refuse a cross-user path cannot leak the row it found.
+   * The create and re-link doors use it to refuse a folder another account
+   * already registered: two users on one path is what made a path-keyed
+   * recycle listing disclose and restore another user's bytes.
+   */
+  projectAtPath(path: string): Readonly<{ id: string; userId: string }> | null {
+    const resolved = normalizePath(path);
+    const rows = this.#statement`SELECT id, user_id, path FROM projects`
+      .all() as ReadonlyArray<Record<string, unknown>>;
+    for (const row of rows) {
+      const owner = typeof row["user_id"] === "string" ? row["user_id"] : null;
+      if (owner === null) continue;
+      const open = openRow(this.crypto, "projects", row, owner);
+      const stored = open["path"];
+      if (typeof stored === "string" && normalizePath(stored) === resolved) {
+        return Object.freeze({ id: String(row["id"]), userId: owner });
+      }
+    }
+    return null;
+  }
+
   createProject(input: ProjectCreateDbInput, userId: string): ProjectRow {
     if (typeof userId !== "string" || userId.length === 0) {
       throw new ValidationError("createProject requires a non-empty userId (the owning user).", "invalid_user_id");

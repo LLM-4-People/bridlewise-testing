@@ -29,6 +29,7 @@ import { readFileRaw } from "../filesystem/editor-bridge.ts";
 import type { AsyncDbClient } from "../db/async-client.ts";
 import { makeFsGate, assertProjectPathOwnership } from "../filesystem/fs-gate.ts";
 import { defineBlock, type BlockHandlerContext } from "./define.ts";
+import { ValidationError } from "../kernel/errors.ts";
 
 const ProjectFileScope = z.strictObject({
   /** The project root (absolute path on the server's host). */
@@ -135,8 +136,17 @@ export function defineEditorBlocks(db: AsyncDbClient): void {
           let content: string;
           try {
             content = readFileRaw(join(input.path, input.file), input.path, gate).content;
-          } catch {
-            return { ok: false, strategy: null, expectedPostimageHash: null, postimageBytes: null, reason: "file_not_found", detail: `The file "${input.file}" does not exist in this project.` };
+          } catch (err) {
+            // ONLY the typed "this file is absent" answer is a preview
+            // refusal. A traversal (403), a not-a-file (400), an encoding or
+            // I/O failure are different facts and must reach the router —
+            // the old bare catch laundered all of them into a 200
+            // "file does not exist", hiding an access refusal as a missing
+            // file and a real read fault as an absence.
+            if (err instanceof ValidationError && err.code === "file_not_found") {
+              return { ok: false, strategy: null, expectedPostimageHash: null, postimageBytes: null, reason: "file_not_found", detail: `The file "${input.file}" does not exist in this project.` };
+            }
+            throw err;
           }
           const resolved = resolvePreimageToRange(content, input.oldString, {
             healCascadeEnabled: editorState.healCascadeEnabled,

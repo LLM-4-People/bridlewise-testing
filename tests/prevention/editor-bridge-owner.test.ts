@@ -56,6 +56,7 @@ import {
   deleteFile,
   listRecycledFiles,
   restoreFile,
+  installRecycleSlotRemover,
 } from "../../server/filesystem/editor-bridge.ts";
 import {
   assertProjectPathOwnership,
@@ -127,6 +128,7 @@ let db: DbClient;
 let userA: { userId: string };
 let userB: { userId: string };
 let projectAPath: string;
+let projectAId: string;
 let gateA: FsGate;
 let gateB: FsGate;
 
@@ -138,7 +140,7 @@ beforeAll(async () => {
   projectAPath = join(tmpRoot, "alice-project");
   mkdirSync(projectAPath, { recursive: true });
   writeFileSync(join(projectAPath, "a.ts"), "export const x = 1;\n");
-  db.createProject({ name: "A-project", path: projectAPath }, userA.userId);
+  projectAId = db.createProject({ name: "A-project", path: projectAPath }, userA.userId).id;
   const adb = AsyncDbClient.inline(db);
   gateA = await makeFsGate(userA.userId, adb, projectAPath);
   gateB = await makeFsGate(userB.userId, adb, projectAPath);
@@ -509,6 +511,61 @@ describe("D. behavioral: bridge raw primitives enforce fs-gate", () => {
     expect(readFileSync(gone, "utf8")).toBe(contents);
     expect(restored.recycleId).toBe(result.recycleId);
     expect(listRecycledFiles().some((f) => f.id === result.recycleId)).toBe(false);
+  });
+
+  test("the recycle record carries the deleting user and project row, and restore asserts them before the path gate", () => {
+    createFile("stamped-owner.ts", "stamped\n", projectAPath, gateA);
+    const result = deleteFile("stamped-owner.ts", projectAPath, gateA);
+    const record = listRecycledFiles().find((f) => f.id === result.recycleId);
+    expect(record, "the deleted entry must be listed while it is still in the bin").toBeDefined();
+    expect(record!.deletedByUserId, "the deleting user is stamped at delete").toBe(userA.userId);
+    expect(record!.projectId, "the producing project row is stamped at delete").toBe(projectAId);
+
+    // A gate that CLAIMS this path for B — the path gate alone would admit it,
+    // so the refusal below proves the stamped identity is asserted first.
+    const claimedByB: FsGate = {
+      userId: userB.userId,
+      decisions: new Map([[projectAPath, db.getProject(projectAId, userA.userId)!]]),
+    };
+    expect(
+      () => restoreFile(result.recycleId, claimedByB),
+      "another user's gate must not restore this entry even when it claims the path",
+    ).toThrow(ForbiddenError);
+    expect(existsSync(join(projectAPath, "stamped-owner.ts"))).toBe(false);
+    // The owner's own gate still restores it.
+    expect(restoreFile(result.recycleId, gateA).path).toBe(join(projectAPath, "stamped-owner.ts"));
+  });
+
+  test("a failed slot cleanup is not a failed restore, and a payload-less retry answers idempotently", () => {
+    const contents = "cleanup-failure\n";
+    createFile("cleanup-failure.ts", contents, projectAPath, gateA);
+    const result = deleteFile("cleanup-failure.ts", projectAPath, gateA);
+
+    installRecycleSlotRemover(() => {
+      throw new Error("injected recycle-slot cleanup failure");
+    });
+    try {
+      // The move is the commit point: cleanup never turns it into a 500.
+      const restored = restoreFile(result.recycleId, gateA);
+      expect(restored.path).toBe(join(projectAPath, "cleanup-failure.ts"));
+      expect(restored.cleanup, "the failed cleanup is reported, not hidden").toBe("retained");
+      expect(readFileSync(restored.path, "utf8")).toBe(contents);
+
+      // The slot survives (payload-less). A retry must answer the restored
+      // path idempotently instead of 404 "gone".
+      const retried = restoreFile(result.recycleId, gateA);
+      expect(retried.path).toBe(restored.path);
+      expect(retried.cleanup).toBe("retained");
+      expect(readFileSync(restored.path, "utf8")).toBe(contents);
+    } finally {
+      installRecycleSlotRemover(null);
+    }
+
+    // With cleanup working again, the retry removes the marker slot.
+    const final = restoreFile(result.recycleId, gateA);
+    expect(final.cleanup).toBe("removed");
+    expect(listRecycledFiles().some((f) => f.id === result.recycleId)).toBe(false);
+    expect(() => restoreFile(result.recycleId, gateA)).toThrow(ValidationError);
   });
 });
 

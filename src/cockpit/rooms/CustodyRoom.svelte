@@ -311,9 +311,13 @@
               <li class="commit">
                 <span class="mark">{commit.shortHash}</span>
                 <span class="message trunc">{commit.message}</span>
-                <span class="counts">{countsLine(commit.insertions, commit.deletions)}</span>
+                <span class="counts" title={commit.countsAbsentReason ?? ""}
+                  >{commit.countsAbsentReason !== undefined ? "not counted" : countsLine(commit.insertions, commit.deletions)}</span
+                >
                 <span class="when">{whenOf(commit.when)}</span>
-                {#if commit.conversation !== null}
+                {#if commit.countsAbsentReason !== undefined}
+                  <span class="nochat" title={commit.derivation}>not joined — no file list</span>
+                {:else if commit.conversation !== null}
                   {@const conv = commit.conversation}
                   <button
                     class="verb plain chat"

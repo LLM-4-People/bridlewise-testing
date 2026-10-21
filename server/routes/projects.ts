@@ -22,7 +22,7 @@ import type { AsyncDbClient } from "../db/async-client.ts";
 import { chatToView, projectToView } from "./views.ts";
 import { serverConfig } from "../kernel/config.ts";
 import { requireUserContext } from "../auth/user-context.ts";
-import { NotFoundError, BadRequestError } from "../kernel/errors.ts";
+import { NotFoundError, BadRequestError, ConflictError } from "../kernel/errors.ts";
 import { isWithinAllowedRoots, makeFsGate, projectFolderPresence, projectRootRefusals } from "../filesystem/fs-gate.ts";
 // The harness owns every question about where a path really points.
 import { resolveLocation } from "../kernel/canonical.ts";
@@ -111,6 +111,19 @@ export function registerProjectRoutes(router: Router, db: AsyncDbClient): void {
     if (!pathCheck.valid) {
       throw new BadRequestError(pathCheck.error, "invalid_path");
     }
+    // ONE FOLDER, ONE ACCOUNT. Two users registering the same path made every
+    // path-keyed answer ambiguous — the recycle bin used to list and restore
+    // by path, so the second registration was the whole cross-user exploit.
+    // The recycle records are keyed by owner now; refusing the duplicate here
+    // removes the ambiguity at its source (the PATCH door below applies the
+    // same rule, so a re-link cannot create one either).
+    const registered = await db.projectAtPath(pathCheck.resolved);
+    if (registered !== null && registered.userId !== user.userId) {
+      throw new ConflictError(
+        `The folder '${pathCheck.resolved}' is already registered as a project by another account. Choose a folder of your own.`,
+        "project_path_taken",
+      );
+    }
     const row = await db.createProject({ name: input.name, path: pathCheck.resolved }, user.userId);
     const indexGate = await makeFsGate(user.userId, db, pathCheck.resolved);
     beginIndexingIfConfigured(pathCheck.resolved, indexGate);
@@ -154,6 +167,13 @@ export function registerProjectRoutes(router: Router, db: AsyncDbClient): void {
             ? `There is no folder at '${pathCheck.resolved}' on this machine.`
             : `The folder at '${pathCheck.resolved}' is not readable.`,
           "invalid_path",
+        );
+      }
+      const registered = await db.projectAtPath(pathCheck.resolved);
+      if (registered !== null && registered.userId !== user.userId && registered.id !== id) {
+        throw new ConflictError(
+          `The folder '${pathCheck.resolved}' is already registered as a project by another account. Choose a folder of your own.`,
+          "project_path_taken",
         );
       }
       resolvedPath = pathCheck.resolved;

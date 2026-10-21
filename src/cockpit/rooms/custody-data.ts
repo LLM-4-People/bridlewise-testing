@@ -69,10 +69,13 @@ export type SavedWorkWire = Readonly<{
   message: string;
   author: string;
   when: string;
-  files: number;
-  insertions: number;
-  deletions: number;
-  filePaths: readonly string[];
+  /** Null when the page's numstat scan failed — an unmeasured count is
+   * absent, never zero. */
+  files: number | null;
+  insertions: number | null;
+  deletions: number | null;
+  filePaths: readonly string[] | null;
+  countsAbsentReason?: string;
   conversation: Readonly<{
     chatId: string;
     chatTitle: string;

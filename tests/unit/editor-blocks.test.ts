@@ -16,7 +16,7 @@
  *   5. Rollback honestly reports "nothing to restore" when no snapshot exists.
  */
 import { describe, test, expect, beforeAll, afterAll } from "vitest";
-import { writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { startHttpTestServer, type HttpTestServer } from "../helpers/http-server.ts";
@@ -117,6 +117,37 @@ describe("editor blocks over real HTTP", () => {
     });
     // The fs-gate denies the un-owned path; the router maps the refusal.
     expect([400, 403, 404]).toContain(res.status);
+  });
+
+  test("a preview of a path outside the project is refused as a traversal, never laundered into file_not_found", async () => {
+    const res = await call(user, "/api/b/editor.preview/preview", {
+      method: "POST",
+      body: { path: projectRoot, file: "../../etc/passwd", oldString: "root", newString: "x" },
+    });
+    // A traversal is an access refusal, not a missing file. The old catch-all
+    // absorbed PathTraversalError and answered 200 reason=file_not_found.
+    expect(res.status).toBe(403);
+  });
+
+  test("a preview of a directory is refused as not-a-file, never laundered into file_not_found", async () => {
+    mkdirSync(join(projectRoot, "folder"));
+    const res = await call(user, "/api/b/editor.preview/preview", {
+      method: "POST",
+      body: { path: projectRoot, file: "folder", oldString: "x", newString: "y" },
+    });
+    // A directory inside the project is not a missing file: the typed
+    // not_a_file refusal must reach the router.
+    expect(res.status).toBe(400);
+  });
+
+  test("a missing file still answers the structured file_not_found preview", async () => {
+    const res = await call(user, "/api/b/editor.preview/preview", {
+      method: "POST",
+      body: { path: projectRoot, file: "absent.ts", oldString: "x", newString: "y" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data!.ok).toBe(false);
+    expect(res.body.data!.reason).toBe("file_not_found");
   });
 
   test("rollback with no retained snapshot honestly reports nothing restored", async () => {
