@@ -14,7 +14,7 @@
     },
     {
       "path": "apps/door.json",
-      "sha256": "7d20d9076b252368e1a11f96f80648230839091dfa12d33c417de5884bf3737f",
+      "sha256": "d09ae10e47494fae24b2f0429f1524da354de48ec2bc5583da2d95d5e2a07281",
       "owner": "engine/src/workflow/forge/generated-files.ts"
     },
     {

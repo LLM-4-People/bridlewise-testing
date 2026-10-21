@@ -41,7 +41,7 @@ import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.t
 import { storeAppKey } from "./app-keys.ts";
 import { ForgeError, isForgeError } from "./codes.ts";
 import { anonymousCredential } from "./credentials.ts";
-import { FORGE_DISCUSSION_CATEGORIES } from "./discussion-categories.ts";
+import type { DiscussionCategory } from "../community/sources.ts";
 import { repositoriesOfKinds, trunkRepository, type ForgeSettings } from "./forge-config.ts";
 import { appManifest, appsPageOrigin } from "./generated-files.ts";
 import { FORGE_LOG_CATEGORY, githubClient } from "./github.ts";
@@ -60,6 +60,8 @@ export type AppsPageOptions = Readonly<{
   cli: MaintainerCli;
   /** The port to bind (a test passes 0 for any free port; production: `forge.appsPage.port`). */
   port: number;
+  /** The Discussion categories to create by hand (the community intake owns them: `docs/community/intake.json`). */
+  discussionCategories: readonly DiscussionCategory[];
 }>;
 
 export type AppsPage = Readonly<{
@@ -185,7 +187,7 @@ export async function serveAppsPage(options: AppsPageOptions): Promise<AppsPage>
       error: lastError,
       installationsUrl: `${web}/organizations/${settings.organization}/settings/installations`,
       discussionsUrl: `${web}/${trunk}/discussions/categories`,
-      categories: FORGE_DISCUSSION_CATEGORIES,
+      categories: options.discussionCategories.map((category) => ({ name: category.name, format: category.format, purpose: category.use })),
       legacyApps: settings.appsPage.legacyApps,
       apps: FORGE_APP_ROLES.map((role) => {
         const app = FORGE_APPS[role];

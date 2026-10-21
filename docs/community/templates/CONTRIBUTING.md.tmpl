@@ -1,0 +1,123 @@
+# Contributing to Bridlewise
+
+Bridlewise is built in the open: the harness, its tests, its guards and its
+decision records live in [{{repository}}]({{repositoryUrl}}). People and agents
+contribute through the same door: the same pull request flow, the same checks
+and the same independent review.
+
+> [!WARNING]
+> Bridlewise is an experimental developer preview. Do not use it on sensitive,
+> proprietary, regulated or production codebases; run it against disposable
+> copies. Never include real credentials, private source, personal data or local
+> database contents in an issue, fixture, screenshot or pull request.
+
+## Ways to help
+
+- **Report a problem** through an issue form (listed below); each asks only what
+  a triager needs.
+- **Ask, propose or show** in [Discussions]({{repositoryUrl}}/discussions) (see
+  [SUPPORT.md](SUPPORT.md) for the categories).
+- **Pick up work** labelled `good first issue` or `help wanted`. Each names its
+  files, the test that should pass and the commands to run.
+- **Review** an open pull request. A reviewer's approval counts as independent
+  verification (see [GOVERNANCE.md](GOVERNANCE.md)).
+
+The issue forms:
+
+{{issueForms}}
+
+## Setup
+
+Requirements: Linux, Node `{{nodeRange}}`, npm, Git, `{{compiler}}` (the
+guardian's pinned compiler; on Debian or Ubuntu install it with
+`sudo apt-get install -y {{compiler}}`), and optionally Playwright Chromium for
+the browser tests.
+
+```bash
+git clone {{repositoryUrl}}.git
+cd {{repositoryName}}
+npm ci
+npm --prefix engine ci
+npm run bootstrap:hooks
+chmod 600 engine/bridlewise.config.json
+make -C engine/guardian all
+npm --prefix engine run build:bundle
+```
+
+Before you open a pull request, run the local gate:
+
+```bash
+cd engine && node src/cli.ts harness check
+```
+
+[docs/testing.md](docs/testing.md) owns the suites, their prerequisites and what
+CI runs.
+
+## What makes a good change
+
+The [mandatory engineering rules](docs/process/AGENTS.md#mandatory-engineering-rules)
+and the [evidence bar](docs/process/AGENTS.md#evidence) bind every change; the
+[agent process](docs/process/AGENTS.md#what-we-will-not-accept) owns what the
+project will not accept. This page keeps the contribution mechanics around them.
+
+- Validate at trust boundaries: paths, schema fields, finite numbers, uniqueness and cross-field invariants.
+- Make multi-step state changes atomic, and give background work ownership, cancellation, timeout and shutdown.
+- Update the docs when a command, route, config key or user-visible behavior changes.
+- Generated files (hashes, pins, inventories, these community files) come from
+  `cd engine && node src/cli.ts harness sync`, never from a hand edit.
+
+## Test conventions
+
+Where a test goes, which runner it uses and how it stays deterministic are
+owned by [Adding a test](docs/testing.md#adding-a-test). Whether a reproduced
+bug's test must fail before the fix is part of the [evidence
+bar](docs/process/AGENTS.md#evidence).
+
+## Commit and pull request style
+
+- **Sign off every commit** with the [Developer Certificate of
+  Origin](https://developercertificate.org/): `git commit -s` adds
+  `Signed-off-by: Your Name <you@example.com>`, matching the commit's author. To
+  fix a pull request that lacks it, run `git rebase --signoff main` and push
+  again. Commits made in GitHub's web editor are signed off by GitHub.
+- **Sign your commits** (SSH signing is three lines):
+  `git config gpg.format ssh`,
+  `git config user.signingkey ~/.ssh/id_ed25519.pub`,
+  `git config commit.gpgsign true`, then add the key to GitHub as a signing key.
+- Conventional prefixes: `feat:`, `fix:`, `docs:`, `test:`, `ci:`, `refactor:`, `chore:`.
+- One logical change per pull request. Describe what changed, how it was
+  verified and what could not be verified.
+- Link the relevant decision record or design document when the change is
+  architectural.
+- By submitting a contribution, you agree that it is licensed under AGPL-3.0-only.
+
+## How your pull request lands
+
+1. Fork the repository and open a pull request against `main`. `main` takes
+   pull requests only: nobody pushes to it directly, maintainers included.
+2. CI runs on the `pull_request` event with a read-only token and no secrets,
+   for every author alike. A first-time contributor's first run waits for a
+   maintainer's one-time approval; after that, CI runs on every push.
+3. Someone other than the author verifies the change before it lands (see
+   [GOVERNANCE.md](GOVERNANCE.md) for whose approval counts).
+4. It lands as a merge commit once the required checks and the review are
+   green; the issues it resolves close when it lands.
+
+## AI-assisted contributions
+
+AI-assisted work is welcome. You remain responsible for the result. Disclose
+material assistance, verify every claim, and do not paste unreviewed generated
+code into safety, privacy, auth or persistence paths. The project's own agents
+work the same way: their pull requests explain themselves, and they answer
+review comments in the thread.
+
+## Review
+
+Review applies the [evidence bar](docs/process/AGENTS.md#evidence) through the
+[reviewer role](docs/process/ROLES.md#reviewer). A green CI run is necessary but
+not sufficient: changes that make the preview look more complete than it is may
+be declined.
+
+## Code of conduct
+
+Participation is covered by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).

@@ -13,6 +13,7 @@ import { admitHarnessKeyHome } from "../../filesystem/self-protection/key-home.t
 import { loadPinnedConfigSnapshot } from "../../kernel/config.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { wrapResult, type CommandAnswer } from "../command-result.ts";
+import { readIntake } from "../community/sources.ts";
 import { trackedTop } from "../evidence-store.ts";
 import { FORGE_APP_ROLES, FORGE_APPS } from "./app-registry.ts";
 import { serveAppsPage } from "./apps-page.ts";
@@ -43,7 +44,7 @@ function appsManifests(root: string, rest: readonly string[]): CommandAnswer {
 }
 
 /** `harness forge apps create`: preflight, then the page until Done. */
-async function appsCreate(rest: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer> {
+async function appsCreate(root: string, rest: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer> {
   if (rest.length > 0) usage();
   const settings = configuredForge();
   const cli = maintainerCli(settings.webUrl, settings.request.timeoutMs);
@@ -56,7 +57,8 @@ async function appsCreate(rest: readonly string[], onProgress: (line: string) =>
       throw new ForgeError("forge_environment_missing", `The environment '${custody.environment}' of ${trunk} does not exist; the ${role} App's key goes there.`, { environment: custody.environment, repository: trunk });
     }
   }
-  const page = await serveAppsPage({ settings, endpoint: forgeEndpoint(settings), keyHome: admitHarnessKeyHome([]), cli, port: settings.appsPage.port });
+  const { discussionCategories } = readIntake(trackedTop(root));
+  const page = await serveAppsPage({ settings, endpoint: forgeEndpoint(settings), keyHome: admitHarnessKeyHome([]), cli, port: settings.appsPage.port, discussionCategories });
   onProgress(`Open ${page.url} in your browser (Session 1). The page stays up until you press Done there.`);
   const summary = await page.done;
   return { result: wrapResult("forge", deepFreeze({ verb: "apps create", ...summary }), { status: summary.pending.length === 0 ? "pass" : "fail" }) };
@@ -66,6 +68,6 @@ async function appsCreate(rest: readonly string[], onProgress: (line: string) =>
 export async function runForgeCli(root: string, argv: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer> {
   const [group, verb, ...rest] = argv;
   if (group === "apps" && verb === "manifests") return appsManifests(root, rest);
-  if (group === "apps" && verb === "create") return appsCreate(rest, onProgress);
+  if (group === "apps" && verb === "create") return appsCreate(root, rest, onProgress);
   return usage();
 }

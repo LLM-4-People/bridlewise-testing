@@ -9,12 +9,13 @@
   },
   "redirect_url": "http://127.0.0.1:47811/callback",
   "default_permissions": {
-    "actions": "read",
+    "actions": "write",
     "attestations": "write",
     "checks": "write",
     "contents": "read",
     "metadata": "read",
     "pull_requests": "read",
+    "secret_scanning_alerts": "read",
     "statuses": "write"
   },
   "default_events": [],

@@ -19,11 +19,15 @@ import { FORGE_APP_ROLES, FORGE_APPS } from "../../src/workflow/forge/app-regist
 import { keyHomeCustody } from "../../src/workflow/forge/app-keys.ts";
 import { serveAppsPage } from "../../src/workflow/forge/apps-page.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
-import { FORGE_DISCUSSION_CATEGORIES } from "../../src/workflow/forge/discussion-categories.ts";
+import { readIntake } from "../../src/workflow/community/sources.ts";
+import { trackedTop } from "../../src/workflow/evidence-store.ts";
 import { FORGE_CONFIG_SCHEMA, forgeEndpoint, repositoriesOfKinds, type ForgeSettings } from "../../src/workflow/forge/forge-config.ts";
 import { appManifest, forgeGeneratedFiles, syncForgeFiles } from "../../src/workflow/forge/generated-files.ts";
 import { maintainerCli, type MaintainerCli, type MaintainerCliRun } from "../../src/workflow/forge/maintainer-cli.ts";
 import { fakeGithub } from "./fake-github.ts";
+
+/** The repository's own community intake: the one table of the Discussion categories. */
+const CATEGORIES = readIntake(trackedTop(join(import.meta.dirname, "..", ".."))).discussionCategories;
 
 const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
   organization: "LLM-4-People",
@@ -178,7 +182,7 @@ test("the Apps page: create → convert → the key where the registry says → 
   const gh = recordingGh();
   const cli: MaintainerCli = maintainerCli("https://github.com", 5_000, gh.run);
   const keyHome = admitHarnessKeyHome([]);
-  const page = await serveAppsPage({ settings: SETTINGS, endpoint: fake.endpoint(), keyHome, cli, port: 0 });
+  const page = await serveAppsPage({ settings: SETTINGS, endpoint: fake.endpoint(), keyHome, cli, port: 0, discussionCategories: CATEGORIES });
   try {
     const origin = new URL(page.url).origin;
     const first = await call(page.url);
@@ -189,7 +193,8 @@ test("the Apps page: create → convert → the key where the registry says → 
     assert.equal(first.headers["cache-control"], "no-store");
     let data = pageData(first.body);
     assert.equal(data.apps.length, 4);
-    assert.equal(data.categories.length, FORGE_DISCUSSION_CATEGORIES.length);
+    assert.equal(data.categories.length, CATEGORIES.length);
+    assert.ok(CATEGORIES.length > 0);
     for (const app of data.apps) {
       assert.match(app.createUrl!, /^https:\/\/github\.com\/organizations\/LLM-4-People\/settings\/apps\/new\?state=[0-9a-f]{48}$/u);
       assert.deepEqual(JSON.parse(app.manifest!), appManifest(app.role as "agent", SETTINGS));
@@ -238,10 +243,10 @@ test("the Apps page: create → convert → the key where the registry says → 
 
 test("the Apps page refuses a port it cannot bind, typed", async () => {
   const fake = fakeGithub();
-  const page = await serveAppsPage({ settings: SETTINGS, endpoint: fake.endpoint(), keyHome: admitHarnessKeyHome([]), cli: maintainerCli("https://github.com", 5_000, recordingGh().run), port: 0 });
+  const page = await serveAppsPage({ settings: SETTINGS, endpoint: fake.endpoint(), keyHome: admitHarnessKeyHome([]), cli: maintainerCli("https://github.com", 5_000, recordingGh().run), port: 0, discussionCategories: CATEGORIES });
   try {
     const port = Number(new URL(page.url).port);
-    await assert.rejects(serveAppsPage({ settings: SETTINGS, endpoint: fake.endpoint(), keyHome: admitHarnessKeyHome([]), cli: maintainerCli("https://github.com", 5_000, recordingGh().run), port }),
+    await assert.rejects(serveAppsPage({ settings: SETTINGS, endpoint: fake.endpoint(), keyHome: admitHarnessKeyHome([]), cli: maintainerCli("https://github.com", 5_000, recordingGh().run), port, discussionCategories: CATEGORIES }),
       (error: unknown) => isForgeError(error, "forge_apps_page_unavailable"));
   } finally {
     await page.close();
