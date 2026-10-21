@@ -6,6 +6,7 @@ title: Add per-capability admission receipts
 state: closed
 resolution: completed
 lane: floor
+parent: M2-RECEIPTS
 opened: 2026-10-20
 closed: 2026-10-20
 ---
