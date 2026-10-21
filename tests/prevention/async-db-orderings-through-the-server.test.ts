@@ -43,7 +43,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 
 import { DbClient } from "../../server/db/client.ts";
 import { createSessionToken, hashSessionToken } from "../../server/auth/auth.ts";
@@ -59,6 +59,7 @@ let projectId = "";
 let userId = "";
 let chatId = "";
 let stagingDir = "";
+let projectDir = "";
 
 type Res = Readonly<{ status: number; body: unknown }>;
 
@@ -101,7 +102,11 @@ beforeAll(async () => {
   const user = seed.createUser("e2e-orderings", "not-a-real-hash");
   const token = createSessionToken();
   seed.createAuthSession(hashSessionToken(token), user.id, "e2e-session");
-  const project = seed.createProject({ name: "e2e", path: stagingDir }, user.id);
+  // The project folder is SEPARATE from the state folder: a project that
+  // contains the server's databases is refused as containing harness state.
+  projectDir = join(stagingDir, "project");
+  mkdirSync(projectDir, { recursive: true });
+  const project = seed.createProject({ name: "e2e", path: projectDir }, user.id);
   const chat = seed.createChat({ project_id: project.id, title: "orderings" }, user.id);
   userId = user.id;
   projectId = project.id;
@@ -121,7 +126,9 @@ beforeAll(async () => {
       HARNESS_WEB_HOST: "127.0.0.1",
       HARNESS_WEB_DB_PATH: dbPath,
       HARNESS_WEB_TIMELINE_DB_PATH: join(stagingDir, "timeline.db"),
-      HARNESS_WEB_PROJECT_ROOT: stagingDir,
+      // The harness root is the REPOSITORY (as in production), never the
+      // fixture's project folder: a project inside the harness root is refused.
+      HARNESS_WEB_PROJECT_ROOT: REPO_ROOT,
       HARNESS_WEB_RATE_LIMIT: "10000",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -300,7 +307,7 @@ describe("W3 through the server — the ledger keeps one writer and its causalit
     const write = await req("PUT", "/api/editor/write", {
       path: "ledger-probe.txt",
       content: `recorded at ${Date.now()}\n`,
-      root: stagingDir,
+      root: projectDir,
     });
     expect(write.status, JSON.stringify(write.body)).toBe(200);
 

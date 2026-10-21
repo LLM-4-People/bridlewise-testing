@@ -206,6 +206,7 @@ export const {
   // refuses on — asking it here rather than re-deriving it is what keeps the
   // two from disagreeing about whether a rule has left the project.
   resolveLocation,
+  sameLocation,
   identityOverlapIndex,
   createPathLocator,
   staysWithinRegion,

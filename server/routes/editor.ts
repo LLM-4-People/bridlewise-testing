@@ -44,7 +44,7 @@ import {
   gateProjectRow,
   type FsGate,
 } from "../filesystem/fs-gate.ts";
-import { resolveLocation } from "../kernel/canonical.ts";
+import { resolveLocation, sameLocation } from "../kernel/canonical.ts";
 import { MAX_FILE_CONTENT_LENGTH } from "../../shared/constants.ts";
 import type { AsyncDbClient } from "../db/async-client.ts";
 
@@ -314,7 +314,7 @@ export function registerEditorRoutes(router: Router, db: AsyncDbClient): void {
         "recycle_project_moved",
       );
     }
-    if (recordLocation !== projectLocation) {
+    if (!sameLocation(recordLocation, projectLocation)) {
       throw new ConflictError(
         wireMessage("recycle_project_moved"),
         "recycle_project_moved",

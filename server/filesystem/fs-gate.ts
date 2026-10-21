@@ -60,7 +60,7 @@ import { resolve, isAbsolute, dirname } from "node:path";
 import { statSync } from "node:fs";
 // The harness owns every question about where a path really points; asking it
 // here is what keeps this gate and the sandbox from disagreeing about a link.
-import { ROOT_POLICY, resolveLocation, pathHasSecondName, identityOverlapIndex, type KeepOutQuestions, type KeepOutVerdict } from "../kernel/canonical.ts";
+import { ROOT_POLICY, resolveLocation, sameLocation, pathHasSecondName, identityOverlapIndex, type KeepOutQuestions, type KeepOutVerdict } from "../kernel/canonical.ts";
 import { serverKeepOutPolicy } from "../safety/host-facts.ts";
 
 import { ForbiddenError, PathTraversalError, BadRequestError, WebError, ProjectPathError, wireMessage } from "../kernel/errors.ts";
@@ -584,13 +584,13 @@ async function decisionForPath(
   // resolved location; if resolving it now answers somewhere else, a link
   // appeared (or changed) after the row was written and this spelling no
   // longer names the place the user registered.
-  let storedLocation: string;
+  let storedLocation: ReturnType<typeof resolveLocation>;
   try {
     storedLocation = resolveLocation(owned.path, "the project's stored path");
   } catch {
     return null;
   }
-  if (storedLocation !== location) return null;
+  if (!sameLocation(storedLocation, location)) return null;
   // The owner-scoped probe and the location-wide probe must name the SAME row:
   // a duplicate row at one location is legacy state, and the first
   // registration owns the answer.
@@ -696,7 +696,8 @@ export async function makeFsGateForRow(
       try {
         const location = resolveLocation(resolve(path), "a gated project path");
         if (
-          location === rowLocation &&
+          rowLocation !== null &&
+          sameLocation(location, rowLocation) &&
           isWithinAllowedRoots(location) &&
           refusals(location) === null
         ) {

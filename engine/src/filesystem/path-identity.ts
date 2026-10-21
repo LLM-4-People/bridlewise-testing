@@ -69,6 +69,16 @@ const MAX_PATH_SEGMENTS = 2048;
  * legitimately name something not created yet; the missing tail is re-joined
  * afterwards and cannot contain a link, because it does not exist.
  */
+/**
+ * Whether two resolved locations name the SAME place. A location is already
+ * the canonical identity (device + inode + resolved spelling), so comparing
+ * the values is the identity check — never the request's spelling. Owner of
+ * that decision, so callers do not hand-roll `locationA === locationB`.
+ */
+export function sameLocation(a: string, b: string): boolean {
+  return a === b;
+}
+
 export function resolveLocation(raw: string, what: string = "path"): ResolvedAbsolutePath {
   if (typeof raw !== "string" || raw.length === 0) {
     throw new InputError(`${what} must be a non-empty string`, "path_not_absolute");

@@ -12,7 +12,6 @@ import {
   existsSync,
   mkdirSync,
   rmSync,
-  renameSync,
   openSync,
   readSync,
   closeSync,
@@ -38,7 +37,7 @@ import { getTimelineRecorder } from "../observability/timeline-bridge.ts";
 import { sha256 } from "../kernel/digest.ts";
 // Raw uniqueness through the canonical owner (effect ids and recycle-dir ids
 // stay bare UUIDs — the owner's randomUuid, never a direct node:crypto import).
-import { identityOverlapIndex, randomUuid, resolveLocation } from "../kernel/canonical.ts";
+import { identityOverlapIndex, randomUuid, resolveLocation, sameLocation } from "../kernel/canonical.ts";
 import type { RecycledFile } from "../../shared/wire-types.ts";
 
 // After a successful project write, the intelligence map can rebuild.
@@ -1018,7 +1017,7 @@ function removeRecycleSlot(slotDir: string): void {
   const markerBytes = existsSync(markerPath) ? readFileSync(markerPath) : null;
   const pending = `${slotDir}.pending-delete-${randomUuid()}`;
   // Throws (with the slot still intact) when the recycle root is not writable.
-  renameSync(slotDir, pending);
+  movePath(slotDir, pending);
   try {
     rmSync(pending, { recursive: true, force: true });
     // The slot is the harness's own recycle state, not user code, but the
@@ -1036,8 +1035,8 @@ function removeRecycleSlot(slotDir: string): void {
   } catch (err) {
     try {
       mkdirSync(slotDir, { recursive: true });
-      if (metaBytes !== null) writeFileSync(metaPath, metaBytes);
-      if (markerBytes !== null) writeFileSync(markerPath, markerBytes);
+      if (metaBytes !== null) atomicWriteFile(metaPath, metaBytes);
+      if (markerBytes !== null) atomicWriteFile(markerPath, markerBytes);
     } catch (restoreErr) {
       webWarn("editor-bridge", "recycle slot cleanup failed and its record could not be restored", () => ({
         slot: slotDir,
@@ -1107,10 +1106,10 @@ export function restoreFile(recycleId: string, gate?: FsGate): FileRestoreResult
     } catch {
       throw new ConflictError(wireMessage("recycle_project_moved"), "recycle_project_moved");
     }
-    if (rootLocation !== rowLocation) {
+    if (!sameLocation(rootLocation, rowLocation)) {
       throw new ConflictError(wireMessage("recycle_project_moved"), "recycle_project_moved");
     }
-    if (meta.projectLocation !== null && meta.projectLocation !== rootLocation) {
+    if (meta.projectLocation !== null && !sameLocation(meta.projectLocation, rootLocation)) {
       throw new ConflictError(wireMessage("recycle_project_moved"), "recycle_project_moved");
     }
   }

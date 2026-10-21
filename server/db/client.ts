@@ -1,4 +1,4 @@
-import { checkpointSqlite, establishWalJournal, recordFieldsBound, resolveLocation, type AdmittedKeyHome, guarded } from "../kernel/canonical.ts";
+import { checkpointSqlite, establishWalJournal, recordFieldsBound, resolveLocation, sameLocation, type AdmittedKeyHome, guarded } from "../kernel/canonical.ts";
 /**
  * Thin SQLite DB client wrapping `node:sqlite` for the web-slice
  * projection. CRUD methods for each table; inputs are Zod-validated and
@@ -1146,7 +1146,7 @@ export class DbClient {
         if (!(error instanceof InputError)) throw error;
         continue;
       }
-      if (storedLocation === location) {
+      if (sameLocation(storedLocation, location)) {
         return Object.freeze({ id: String(row["id"]), userId: owner });
       }
     }

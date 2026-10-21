@@ -101,6 +101,7 @@ export {
 
 export {
   resolveLocation,
+  sameLocation,
   identityOverlapIndex,
   createPathLocator,
   assertResolvesWithinRegion,
