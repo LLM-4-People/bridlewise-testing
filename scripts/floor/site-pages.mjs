@@ -277,6 +277,21 @@ export function materializeFloorFallbacks({ outRoot, productRoot, testingRoot })
  * A page that already has front matter is left alone (it may carry a permalink
  * the plan read, or `published: false`).
  */
+/**
+ * Legacy URL shapes that must keep working: links written before the trackers
+ * moved out of `floor/` still say `floor/trackers/TASKS.md`, and GitHub-style
+ * readers append `.md`. Each alias is a redirect, never a second page.
+ */
+export function legacyAliasesFor(docsPath, permalink) {
+  const base = docsPath.split("/").pop().replace(/\.md$/u, "");
+  const aliases = new Set([`${permalink.replace(/\/$/u, "")}.md`]);
+  if (docsPath.startsWith("docs/trackers/")) {
+    aliases.add(`/floor/trackers/${base}.md`);
+    aliases.add(`/floor/trackers/${base}/`);
+  }
+  return [...aliases].filter((alias) => alias !== permalink);
+}
+
 export function materializePageFrontMatter({ outRoot, fallbackPages = [] }) {
   const pages = [];
   for (const { docsRoot, siteRoot } of FLOOR_COPY_ROOTS) {
@@ -296,9 +311,12 @@ export function materializePageFrontMatter({ outRoot, fallbackPages = [] }) {
     if (text.startsWith("---\n") || text.startsWith("---\r\n")) continue;
     const heading = /^#\s+(.+?)\s*$/mu.exec(text)?.[1]?.replace(/[*_`]/gu, "");
     const title = heading ?? docsPath.split("/").pop().replace(/\.md$/u, "");
+    const permalink = prettyPermalink(docsPath);
+    const aliases = legacyAliasesFor(docsPath, permalink);
+    const redirects = aliases.length === 0 ? "" : `redirect_from:\n${aliases.map((alias) => `  - ${alias}`).join("\n")}\n`;
     writeFileSync(
       file,
-      `---\nlayout: default\ntitle: ${JSON.stringify(title)}\npermalink: ${prettyPermalink(docsPath)}\n---\n\n${text}`,
+      `---\nlayout: default\ntitle: ${JSON.stringify(title)}\npermalink: ${permalink}\n${redirects}---\n\n${text}`,
     );
     added += 1;
   }

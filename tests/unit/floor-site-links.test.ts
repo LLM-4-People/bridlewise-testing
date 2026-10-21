@@ -283,6 +283,9 @@ describe("E. Jekyll needs front matter to publish a copied page", () => {
     const text = readFileSync(join(outRoot, "trackers/TASKS.md"), "utf8");
     expect(text.startsWith("---\nlayout: default\n")).toBe(true);
     expect(text).toContain("permalink: /trackers/TASKS/");
+    expect(text, "an old floor/trackers URL must redirect, not 404").toContain(
+      "redirect_from:\n  - /trackers/TASKS.md\n  - /floor/trackers/TASKS.md\n  - /floor/trackers/TASKS/",
+    );
     expect(text).toContain("# Public floor tasks");
     expect(readFileSync(join(outRoot, "trackers/README.md"), "utf8")).toBe(
       "---\npublished: false\n---\n\n# Notes\n",
