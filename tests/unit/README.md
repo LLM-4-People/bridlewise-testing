@@ -94,6 +94,11 @@ The `tests/unit/` folder of the development surface.
 - `repository-map-worker.test.ts` — @vitest-environment node.
 - `resource-sampler.test.ts` — @vitest-environment node.
 - `router.test.ts` — @vitest-environment node.
+- `error-body-taxonomy.test.ts` — the response body forwards a code and message only for
+  errors the shared taxonomy declares; an OS error keeps its detail in the log and the wire
+  gets the fixed body.
+- `config-route-refusals.test.ts` — `PUT /api/config` answers the designed 403 for a
+  prototype-pollution path segment and leaves the file untouched.
 - `routes-schema.test.ts` — @vitest-environment node.
 - `routes.test.ts` — @vitest-environment node.
 - `run-pane.test.ts` — @vitest-environment node.
