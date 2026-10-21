@@ -19,12 +19,16 @@ import {
   globMatchCounts,
   patternLivenessFailure,
 } from "./engine/scripts/verification/pattern-liveness.ts";
+import {
+  DEV_CLIENT_PORT,
+  devApiPortFromEnv,
+} from "./shared/dev-ports.ts";
 
-// Align with the server config owner (server/config.ts reads HARNESS_WEB_PORT,
-// default 5174). The dev proxy must target the port the API server actually
-// binds to — previously this read the undocumented HARNESS_API_PORT, which
-// drifted from the server when an operator set HARNESS_WEB_PORT.
-const HARNESS_WEB_PORT = Number(process.env.HARNESS_WEB_PORT ?? 5174);
+// The dev proxy must target the port the API server actually binds to.
+// `HARNESS_WEB_PORT` is the server's own knob (server/kernel/config.ts owns
+// the strict parse); `shared/dev-ports.ts` owns the default and the coercion
+// this pre-server config can use. No port literal belongs here.
+const HARNESS_WEB_PORT = devApiPortFromEnv(process.env);
 
 /**
  * THE DEP-SCANNER'S ENTRY UNIVERSE — the SECOND door into the tree, with its
@@ -110,7 +114,7 @@ export const BUILD_CONFIG: UserConfig = defineConfig({
   },
   server: {
     host: "127.0.0.1",
-    port: 5173,
+    port: DEV_CLIENT_PORT,
     strictPort: true,
     proxy: {
       "/api": {

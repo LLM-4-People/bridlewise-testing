@@ -12,7 +12,8 @@ import { withRecordingContext } from "../../engine/src/timeline/recording-contex
 import { sha256 } from "../../engine/src/kernel/integrity.ts";
 import { TRACE_ID_HEADER } from "../../shared/constants.ts";
 import { defineSpectrumBlocks, SWEEP_CATEGORIES, type SpectrumRead } from "../../server/blocks/spectrum.ts";
-import { mountBlockRoutes } from "../../server/blocks/define.ts";
+import { defineArmBlocks } from "../../server/blocks/arm.ts";
+import { clearBlocks, mountBlockRoutes } from "../../server/blocks/define.ts";
 import { blockReadPath } from "../../shared/block-contract.ts";
 import { TIMELINE_QUERY_LIMIT } from "../../shared/constants.ts";
 
@@ -66,7 +67,11 @@ beforeAll(async () => {
       // The OTHER door a client-supplied trace id reaches: the sweep.spectrum
       // block's trace scope, mounted beside the route so the block handler's
       // shared ownership boundary is pinned in the same harness, not implied by it.
+      // arm.flags is the ranged-read block the round-4 epoch finding names; it
+      // is mounted here too so the shared `until` owner is driven over HTTP.
+      clearBlocks();
       defineSpectrumBlocks(adb);
+      defineArmBlocks(adb);
       mountBlockRoutes(router);
     },
   });
@@ -187,6 +192,45 @@ describe("timeline route: query + event detail endpoints", () => {
   test("POST /api/timeline/query rejects invalid body with 400", async () => {
     const { status } = await req("POST", "/api/timeline/query", { limit: -1 });
     expect(status).toBe(400);
+  });
+
+  // A bound the route did not UNDERSTAND is a refusal, never an empty page.
+  // The cursor was already validated by the query owner; these bounds were
+  // passed through, so a non-decimal sequence reached `BigInt` (a 500) and a
+  // wall time no `Date` can parse compared lexicographically and answered
+  // "no rows" — a confident emptiness for an input the server never read.
+  test("a malformed sequence bound is a typed 400, not a 500", async () => {
+    for (const body of [{ fromSequence: "not-a-sequence" }, { toSequence: "1e3" }]) {
+      const { status, json } = await req("POST", "/api/timeline/query", body);
+      expect(status, JSON.stringify(body)).toBe(400);
+      expect(json).toMatchObject({ error: "timeline_query_sequence_invalid" });
+    }
+  });
+
+  test("a sequence bound past the ledger ceiling is refused, not handed to SQLite", async () => {
+    const { status, json } = await req("POST", "/api/timeline/query", {
+      fromSequence: "9223372036854775808",
+    });
+    expect(status).toBe(400);
+    expect(json).toMatchObject({ error: "timeline_query_sequence_invalid" });
+  });
+
+  test("an unparseable wall-time bound is a typed 400, never an empty page", async () => {
+    for (const body of [{ fromWallTime: "yesterday" }, { toWallTime: "2026-13-45T99:00:00Z" }]) {
+      const { status, json } = await req("POST", "/api/timeline/query", body);
+      expect(status, JSON.stringify(body)).toBe(400);
+      expect(json).toMatchObject({ error: "timeline_query_wall_time_invalid" });
+    }
+  });
+
+  test("valid sequence and wall-time bounds still answer", async () => {
+    const valid = await req("POST", "/api/timeline/query", {
+      fromSequence: "0",
+      toSequence: "9223372036854775807",
+      fromWallTime: "2026-01-01T00:00:00.000Z",
+      toWallTime: "2026-12-31T23:59:59.999Z",
+    });
+    expect(valid.status).toBe(200);
   });
 
   test("GET /api/timeline/events/:eventId returns 404 for unknown event", async () => {
@@ -473,5 +517,61 @@ describe("timeline authorization across users, pagination and ledgers", () => {
       expected[0] = 2; expected[1] = 1; expected[SWEEP_CATEGORIES.length * 2] = 1;
       expect(cells).toEqual(expected);
     }
+  });
+});
+
+// THE RANGED READ'S `until` IS AN EPOCH, AND AN EPOCH HAS A `Date` RANGE.
+// `arm.flags` and `sweep.spectrum` both did `new Date(until).toISOString()`
+// inside their handler, so a merely-parsed number past ±8.64e15 reached
+// RangeError and answered 500. The range belongs to the ONE schema
+// declaration every ranged block consumes; these arms drive both blocks at
+// the range's own ends so the refusal is a typed 4xx, not a crash.
+describe("ranged block reads refuse epochs outside the Date range", () => {
+  const DATE_MAX_MS = 8_640_000_000_000_000;
+
+  test("arm.flags refuses one past the Date range with a typed 4xx", async () => {
+    const response = await jsonRequest(
+      srv.baseUrl,
+      `${blockReadPath("arm.flags")}?until=${DATE_MAX_MS + 1}`,
+      { cookie: authCookie },
+    );
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: "invalid_block_input" });
+  });
+
+  test("sweep.spectrum refuses one past the Date range with a typed 4xx", async () => {
+    const project = srv.db.createProject({ name: "epoch-bound", path: "/tmp/epoch-bound" }, userId);
+    const query = new URLSearchParams({
+      scope: "project",
+      projectId: project.id,
+      until: String(DATE_MAX_MS + 1),
+    });
+    const response = await jsonRequest(
+      srv.baseUrl,
+      `${blockReadPath("sweep.spectrum")}?${query}`,
+      { cookie: authCookie },
+    );
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: "invalid_block_input" });
+  });
+
+  test("both blocks accept the Date range's own maximum epoch", async () => {
+    const project = srv.db.createProject({ name: "epoch-max", path: "/tmp/epoch-max" }, userId);
+    const arm = await jsonRequest(
+      srv.baseUrl,
+      `${blockReadPath("arm.flags")}?until=${DATE_MAX_MS}`,
+      { cookie: authCookie },
+    );
+    expect(arm.status).toBe(200);
+    const spectrum = await jsonRequest(
+      srv.baseUrl,
+      `${blockReadPath("sweep.spectrum")}?${new URLSearchParams({
+        scope: "project",
+        projectId: project.id,
+        until: String(DATE_MAX_MS),
+      })}`,
+      { cookie: authCookie },
+    );
+    expect(spectrum.status).toBe(200);
   });
 });

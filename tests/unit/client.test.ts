@@ -11,12 +11,20 @@ import {
   cancelRun,
   diagnoseLivenessConnection,
   getGitStatus,
+  getMetrics,
   steerCurrentRun,
   loadChatHistory,
   hydrateChatFromHistory,
   type ChatHistoryPageView,
   type StreamHandlers,
 } from "../../src/client";
+import {
+  resetMetrics,
+  setSystemMetrics,
+  setTokenThroughput,
+  systemMetrics,
+  tokenThroughput,
+} from "../../src/state/metrics";
 import {
   API_IDENTITY_HEADER,
   API_IDENTITY_VALUE,
@@ -2567,5 +2575,35 @@ describe("client: diagnoseLivenessConnection — why the stream would not open",
       calls[0]!.init.signal?.aborted,
       "the probe response must be released the moment its headers arrive",
     ).toBe(true);
+  });
+});
+
+describe("client: one metrics poll, one complete record", () => {
+  test("a response that omits the system/token halves records them absent, never the previous poll", async () => {
+    resetMetrics();
+    // A real previous poll left both halves in the stores. The next response
+    // carries neither field; the old caller passed `undefined` through and
+    // the record either kept these values or crashed reading `.capturedAt`.
+    setSystemMetrics({
+      capturedAt: "previous", processUptimeMs: 1, osUptimeMs: 1, cpuCount: 1, loadAverage1m: 0.1,
+      memory: { rss: 1, heapUsed: 2, heapTotal: 3, external: 0, arrayBuffers: 0, systemFree: 0, systemTotal: 0 },
+      eventLoop: { utilization: 0.1, delayMin: 0, delayMax: 0, delayMean: 0, delayStddev: 0 },
+    });
+    setTokenThroughput({ inputTokens: 1, outputTokens: 2, totalTokens: 3, tokensPerSecond: 4 });
+    mockFetchOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        snapshot: {
+          snapshotId: "after-absent", entryCount: 0, totalCallCount: 1,
+          totalErrorCount: 0, totalCancellationCount: 0, entries: [],
+        },
+      }),
+    });
+
+    await getMetrics();
+
+    expect(systemMetrics.get()).toBeNull();
+    expect(tokenThroughput.get()).toBeNull();
   });
 });

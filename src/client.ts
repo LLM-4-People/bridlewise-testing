@@ -1065,16 +1065,25 @@ export async function loadMoreTimeline(): Promise<TimelineEventSummariesResult |
 /** Combined metrics response from GET /api/metrics. */
 export type CombinedMetricsView = Readonly<{
   snapshot: MetricsSnapshot;
-  system: SystemMetrics;
-  tokens: TokenThroughput;
+  /** Null when this response carried no system reading (absence, never the
+   * previous poll's value and never `undefined`). */
+  system: SystemMetrics | null;
+  /** Null when this response carried no token accumulator. */
+  tokens: TokenThroughput | null;
 }>;
 
 export async function getMetrics(): Promise<MetricsSnapshot> {
   const data = await fetchJson<CombinedMetricsView>("/metrics");
   // ONE poll, ONE record: the snapshot, system reading, throughput and the
   // history point all come from this response, never from the stores the
-  // previous poll left behind.
-  recordMetricsPoll({ snapshot: data.snapshot, system: data.system, tokens: data.tokens });
+  // previous poll left behind. The `?? null` is the RESPONSE's absence made
+  // explicit: a missing field is `undefined` at this boundary, and the
+  // record owns the null contract.
+  recordMetricsPoll({
+    snapshot: data.snapshot,
+    system: data.system ?? null,
+    tokens: data.tokens ?? null,
+  });
   return data.snapshot;
 }
 

@@ -137,6 +137,29 @@ test("the shard merge accepts a complete disjoint manifest", () => {
   }
 });
 
+test("a plan that lies about its assignment hash is refused before any report is accepted", () => {
+  // The envelope copies `plan.assignmentHash`, so a plan whose hash does not
+  // describe its own `shards` made every report agree with a false claim.
+  // The merge recomputes the assignment from the plan it read and refuses
+  // the disagreement — the receipt can no longer name an assignment nobody
+  // produced.
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-merge-lie-"));
+  try {
+    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"], { shardCount: 2 });
+    const first = writeWrapped(work, fixture, 1);
+    const second = writeWrapped(work, fixture, 2);
+    const lying = JSON.parse(readFileSync(fixture.planPath, "utf8"));
+    lying.assignmentHash = "f".repeat(64);
+    writeJson(fixture.planPath, lying);
+    assert.throws(
+      () => merge(work, fixture, [first, second]),
+      /assignmentHash does not match the plan's shard assignment/u,
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
 test("the receipt names the manifest exclusions and their evidence anchors", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-exclusions-"));
   try {

@@ -71,9 +71,13 @@ import { ASK_PREFILL } from "../computer/ask.ts";
  * client/transport failures — hence a cockpit-native type rather than
  * `ClientError`. Sibling of the Switch's `SwitchHonestyViolation`. */
 export class InstrumentHonestyViolation extends Error {
-  constructor(message: string) {
+  /** A stable spelling for callers that must tell one refusal from another. */
+  readonly code: string;
+
+  constructor(message: string, code = "instrument_honesty_violation") {
     super(message);
     this.name = "InstrumentHonestyViolation";
+    this.code = code;
   }
 }
 
@@ -466,6 +470,26 @@ export function isPinnedMonitor(v: unknown): v is PinnedMonitor {
   if (v === null || typeof v !== "object") return false;
   const m = v as Readonly<Record<string, unknown>>;
   return typeof m["signalId"] === "string" && typeof m["pinnedAt"] === "number";
+}
+
+/**
+ * One horizon slot per signal. A structurally valid blob can still repeat an
+ * id (an older tab, a hand-edited entry, a displace that targeted nothing);
+ * the HORIZON's keyed each then throws `each_key_duplicate` at render time,
+ * which is the wrong place to discover a storage defect. Refused as a typed
+ * error naming the id, before the set reaches an atom or a renderer.
+ */
+export function assertUniquePinnedMonitors(pinned: readonly PinnedMonitor[]): void {
+  const seen = new Set<string>();
+  for (const monitor of pinned) {
+    if (seen.has(monitor.signalId)) {
+      throw new InstrumentHonestyViolation(
+        `pinned monitors contain "${monitor.signalId}" more than once — one horizon slot per signal (§8.2)`,
+        "pinned_monitor_duplicate",
+      );
+    }
+    seen.add(monitor.signalId);
+  }
 }
 
 // ── Honest counts for the room's header line ──────────────────────────────

@@ -377,3 +377,44 @@ test('a newer diagnostic draft removes the earlier confirmed-list success', asyn
   expect(container.querySelector('[data-field="diagnostic-modes-note"]')).toBeNull();
   expect(saveDiagnosticModes).toHaveBeenCalledTimes(1);
 });
+
+test('a save whose completion cannot re-read the list is never called Saved', async () => {
+  const container = await renderSection();
+  await fireEvent.click(container.querySelector('[data-diagnostic-mode="cpu"] [role="switch"]')!);
+  vi.mocked(readDiagnosticModes).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+  await fireEvent.click(saveVerb(container));
+  await waitFor(() => {
+    const note = container.querySelector('[data-field="diagnostic-modes-note"]');
+    expect(note?.textContent).toMatch(/could not be re-read|may be stale/u);
+    expect(note?.textContent ?? '').not.toContain('Saved');
+  });
+  expect(saveVerb(container).disabled, 'the list is stale, so Save is not offered').toBe(true);
+});
+
+test('a failed re-read says so and disables Save over the stale list', async () => {
+  const unbind = bindShellVisibility();
+  try {
+    const container = await renderSection();
+    // A reader has a real draft; the reveal's re-read then fails, so the
+    // rows on screen are the PREVIOUS read's answer.
+    await fireEvent.click(container.querySelector('[data-diagnostic-mode="cpu"] [role="switch"]')!);
+    expect(container.textContent).toContain('Unsaved changes');
+    vi.mocked(readDiagnosticModes).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    setVisibleRoom('instruments');
+    await Promise.resolve();
+    setVisibleRoom('settings');
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-field="diagnostic-modes-failure"]')?.textContent,
+      ).toMatch(/could not be re-read|Failed to fetch/u),
+    );
+    const save = saveVerb(container);
+    expect(save.disabled, 'Save must be disabled while the list is stale').toBe(true);
+    await fireEvent.click(save);
+    expect(saveDiagnosticModes).not.toHaveBeenCalled();
+    // A confirmation for a list this mode did not re-read is not presented.
+    expect(container.querySelector('[data-field="diagnostic-modes-note"]')?.textContent ?? '').not.toContain('Saved');
+  } finally {
+    unbind();
+  }
+});

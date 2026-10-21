@@ -27,6 +27,8 @@ two cannot drift.
   the client.
 - `constants.ts` — the shared protocol and schema constants consumed by more
   than one module.
+- `dev-ports.ts` — the dev workflow's two ports, declared once for the Vite
+  dev server, the API config owner, and the test floor's freshness preflight.
 - `provenance.ts` — the provenance contract: the shape of "where did this
   value come from".
 - `when-eval.ts` — the when-clause evaluator: the declarative visibility
@@ -50,6 +52,7 @@ The folder lives at `shared/`.
 - `arm-vocabulary.ts` is consumed by `server/blocks/arm.ts`, `src/cockpit/sweep/arm-fire.ts`, `src/cockpit/sweep/arm-palette.ts`.
 - `block-contract.ts` is consumed by `server/blocks/define.ts`, `src/cockpit/computer/commands.ts`, `src/cockpit/rooms/instruments-data.ts`, `src/cockpit/settings/settings-data.ts`, `src/data/broker.ts`.
 - `constants.ts` is consumed by `engine/src/performance/diagnostic-modes.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/ledger-dig.ts`, `engine/src/timeline/timeline-recorder.ts`, `engine/src/timeline/timeline-store.ts`, `engine/src/timeline/timeline-types.ts` and 39 more.
+- `dev-ports.ts` is consumed by `server/kernel/config.ts`.
 - `errors.ts` is consumed by `server/blocks/define.ts`, `server/kernel/errors.ts`, `server/router/sse.ts`, `server/run/run-executor.ts`, `src/client.ts`, `src/data/absence.ts` and 2 more.
 - `event-types.ts` is consumed by `server/db/schema.ts`, `server/run/run-executor.ts`, `server/safety/safety-bridge.ts`, `src/client.ts`, `src/cockpit/flow/ingest.ts`, `src/cockpit/flow/types.ts` and 2 more.
 - `html-preview.ts` is consumed by `src/state/web-ui-config.ts`.

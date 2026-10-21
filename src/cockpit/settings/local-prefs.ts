@@ -416,9 +416,15 @@ export function setLocalPref(id: string, value: string): void {
   }
   if (decl.kind === "number") {
     const num = parsedNumber(row, value);
+    const previous = decl.atom.get();
     decl.atom.set(num);
     applyTokenOverride(decl.cssVar, decl.cssUnit, num, decl.defaultValue);
-    persistSet(decl.storageKey, String(num));
+    if (!storeConfirmed(decl.storageKey, String(num))) {
+      decl.atom.set(previous);
+      applyTokenOverride(decl.cssVar, decl.cssUnit, previous, decl.defaultValue);
+      bumpLocal();
+      throw storageRefusal(id);
+    }
     bumpLocal();
     return;
   }
@@ -429,10 +435,33 @@ export function setLocalPref(id: string, value: string): void {
         `(${(row.options ?? []).map((o) => o.words).join(" · ")}). refused unchanged`,
     );
   }
+  const previous = decl.atom.get();
   decl.atom.set(value);
   decl.apply(value);
-  persistSet(decl.storageKey, value);
+  if (!storeConfirmed(decl.storageKey, value)) {
+    // The write reported nothing (persistence swallows quota/private-mode
+    // failures). Applying it anyway made the sheet say "Saved" over a value
+    // that existed only in memory. The read-back is the evidence; a refusal
+    // reverts the paint and reaches the sheet as a typed failure.
+    decl.atom.set(previous);
+    decl.apply(previous);
+    bumpLocal();
+    throw storageRefusal(id);
+  }
   bumpLocal();
+}
+
+/** Write through the persistence owner and confirm the value it kept. */
+function storeConfirmed(storageKey: string, value: string): boolean {
+  persistSet(storageKey, value);
+  return persistGet(storageKey) === value;
+}
+
+function storageRefusal(settingId: string): ClientError {
+  return new ClientError(
+    "storage_refused",
+    `this browser refused to store the "${settingId}" preference; the previous value is kept`,
+  );
 }
 
 /** Restore + apply the kept preferences. Runs at module load; exported so

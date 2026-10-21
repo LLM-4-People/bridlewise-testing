@@ -216,24 +216,35 @@ export type MetricsPoll = Readonly<{
  * display fallback.
  */
 export function recordMetricsPoll(poll: MetricsPoll): void {
+  // ABSENCE IS A VALUE FOR THIS POLL. A response that omits a half (or sends
+  // null) means this poll measured nothing for it — the previous poll's
+  // reading must be cleared, not kept, and a missing field must never reach
+  // the store as `undefined`. Normalizing once here makes the three writes
+  // and the history point describe the SAME response.
+  const system = poll.system ?? null;
+  const tokens = poll.tokens ?? null;
   const prevSnapshot = metricsSnapshot.get();
   const prevSystem = systemMetrics.get();
   const prevTokens = tokenThroughput.get();
   const snapshotChanged = prevSnapshot === null || !snapshotIdentical(prevSnapshot, poll.snapshot);
-  const systemChanged = prevSystem === null || (poll.system !== null && !systemMetricsIdentical(prevSystem, poll.system));
-  const tokensChanged = prevTokens === null || (poll.tokens !== null && !throughputIdentical(prevTokens, poll.tokens));
+  const systemChanged = system === null
+    ? prevSystem !== null
+    : prevSystem === null || !systemMetricsIdentical(prevSystem, system);
+  const tokensChanged = tokens === null
+    ? prevTokens !== null
+    : prevTokens === null || !throughputIdentical(prevTokens, tokens);
   if (!snapshotChanged && !systemChanged && !tokensChanged) return;
   if (snapshotChanged) metricsSnapshot.set(poll.snapshot);
-  if (poll.system !== null && systemChanged) systemMetrics.set(poll.system);
-  if (poll.tokens !== null && tokensChanged) tokenThroughput.set(poll.tokens);
+  if (systemChanged) systemMetrics.set(system);
+  if (tokensChanged) tokenThroughput.set(tokens);
   appendHistoryPoint({
     at: Date.now(),
-    tokensPerSecond: poll.tokens?.tokensPerSecond ?? null,
+    tokensPerSecond: tokens?.tokensPerSecond ?? null,
     totalCalls: poll.snapshot.totalCallCount,
     totalErrors: poll.snapshot.totalErrorCount,
-    loadAverage1m: poll.system?.loadAverage1m ?? null,
-    heapUsed: poll.system?.memory.heapUsed ?? null,
-    eventLoopUtil: poll.system?.eventLoop.utilization ?? null,
+    loadAverage1m: system?.loadAverage1m ?? null,
+    heapUsed: system?.memory.heapUsed ?? null,
+    eventLoopUtil: system?.eventLoop.utilization ?? null,
   });
 }
 
@@ -246,14 +257,25 @@ export function setMetrics(snapshot: MetricsSnapshot): void {
   metricsSnapshot.set(snapshot);
 }
 
-export function setSystemMetrics(metrics: SystemMetrics): void {
+/** Hydrate or clear the system half. `null` is absence (no reading in the
+ * poll), a value the store can hold; only an identical value is skipped. */
+export function setSystemMetrics(metrics: SystemMetrics | null): void {
   const prev = systemMetrics.get();
+  if (metrics === null) {
+    if (prev !== null) systemMetrics.set(null);
+    return;
+  }
   if (prev !== null && systemMetricsIdentical(prev, metrics)) return;
   systemMetrics.set(metrics);
 }
 
-export function setTokenThroughput(throughput: TokenThroughput): void {
+/** Hydrate or clear the token half; see `setSystemMetrics`. */
+export function setTokenThroughput(throughput: TokenThroughput | null): void {
   const prev = tokenThroughput.get();
+  if (throughput === null) {
+    if (prev !== null) tokenThroughput.set(null);
+    return;
+  }
   if (prev !== null && throughputIdentical(prev, throughput)) return;
   tokenThroughput.set(throughput);
 }

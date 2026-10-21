@@ -669,9 +669,24 @@ export function applyCheckoutFiles(
       steps.push(step(`link ${link}`, "pass", "absent in the source checkout; nothing to link"));
       continue;
     }
-    if (lstatSync(target, { throwIfNoEntry: false }) === undefined) {
+    const targetStats = lstatSync(target, { throwIfNoEntry: false });
+    if (targetStats === undefined) {
       mkdirSync(dirname(target), { recursive: true });
       symlinkSync(sourceStats.isSymbolicLink() ? readlinkSync(source) : resolve(source), target);
+    } else if (!targetStats.isSymbolicLink()) {
+      // The declared link was ASSUMED to be a symlink: a regular file at the
+      // target escaped `readlinkSync` as a raw EINVAL with no path and no
+      // remedy. Refuse with the path and the actual type; never replace a
+      // file the operator put there.
+      const kind = targetStats.isDirectory()
+        ? "a directory"
+        : targetStats.isFile() ? "a regular file" : "a special file";
+      throw new InputError(
+        `the declared link "${link}" already exists at ${target} as ${kind}, not a symlink; ` +
+          "remove it or change workspaceIsolation.links",
+        "checkout_link_target_conflict",
+        { path: relative(checkoutRoot, target), kind },
+      );
     }
     steps.push(step(`link ${link}`, "pass", `-> ${readlinkSync(target)}`));
   }

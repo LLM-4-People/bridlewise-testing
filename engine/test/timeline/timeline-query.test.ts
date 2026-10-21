@@ -463,6 +463,36 @@ test("timeline-query: invalid offset is rejected", () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("timeline-query: invalid sequence bounds are rejected before the store sees them", () => {
+  const dir = mkTempDir("tl-query-test-");
+  try {
+    const { query, store } = mkQuery(dir);
+    for (const bounds of [{ fromSequence: "not-a-sequence" }, { toSequence: "1e3" }, { fromSequence: "9223372036854775808" }]) {
+      assert.throws(
+        () => query.all(bounds),
+        (error: unknown) => (error as { code?: string }).code === "timeline_query_sequence_invalid",
+        JSON.stringify(bounds),
+      );
+    }
+    store.close();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("timeline-query: an unparseable wall-time bound is rejected, never answered as an empty page", () => {
+  const dir = mkTempDir("tl-query-test-");
+  try {
+    const { query, store } = mkQuery(dir);
+    for (const bounds of [{ fromWallTime: "yesterday" }, { toWallTime: "2026-01-01" }]) {
+      assert.throws(
+        () => query.all(bounds),
+        (error: unknown) => (error as { code?: string }).code === "timeline_query_wall_time_invalid",
+        JSON.stringify(bounds),
+      );
+    }
+    store.close();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("timeline-query: combined filters (runId + eventType)", () => {
   const dir = mkTempDir("tl-query-test-");
   try {

@@ -40,7 +40,27 @@ import type { QueryOptions } from "../kernel/canonical.ts";
 import { requireUserContext } from "../auth/user-context.ts";
 import { BadRequestError } from "../kernel/errors.ts";
 import { resolveTimelineScope } from "../observability/timeline-scope.ts";
+import { DECIMAL_SEQUENCE_PATTERN } from "../../engine/src/timeline/ledger-primitives.ts";
 import { TIMELINE_QUERY_LIMIT } from "../../shared/constants.ts";
+
+/** The query owner's typed refusals about a bound it could not understand. */
+const TIMELINE_QUERY_INPUT_ERROR_CODES: readonly string[] = [
+  "timeline_query_sequence_invalid",
+  "timeline_query_wall_time_invalid",
+];
+
+/**
+ * The engine's `InputError` is typed by its `code`, not by the server's
+ * `WebError` hierarchy (the engine stays transport-free). Read the code
+ * structurally so the contract survives module copies and realms.
+ */
+function queryRefusalCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  const code: unknown = error.code;
+  return typeof code === "string" && TIMELINE_QUERY_INPUT_ERROR_CODES.includes(code)
+    ? code
+    : undefined;
+}
 
 // ── Input validation ──
 
@@ -72,7 +92,7 @@ const TIMELINE_QUERY_SCHEMA = z.strictObject({
   // sequence: a canonical non-negative decimal with no leading zeros, matching
   // the ledger's own DECIMAL_SEQUENCE_PATTERN so a malformed cursor is
   // rejected at the trust boundary rather than deeper in the store.
-  cursor: z.string().regex(/^(?:0|[1-9][0-9]*)$/u).optional(),
+  cursor: z.string().regex(DECIMAL_SEQUENCE_PATTERN).optional(),
 });
 
 // ── Route registration ──
@@ -113,7 +133,22 @@ export function registerTimelineRoutes(router: Router, db: AsyncDbClient): void 
     // (the two batched attachment SELECTs, the nested objects, and every
     // attachment string walked by the egress redaction pass) while carrying
     // bytes no consumer reads.
-    const result = getTimelineQuery().eventSummaries(bounded);
+    // THE QUERY OWNER VALIDATES ITS OWN BOUNDS. A sequence or wall-time
+    // bound the query service does not understand is the caller's error, so
+    // its typed `InputError` crosses this route as a 400 — never as the 500
+    // a raw `BigInt`/SQLite failure produced, and never as the empty page a
+    // lexicographic comparison of an unparseable wall time returned.
+    let result: ReturnType<ReturnType<typeof getTimelineQuery>["eventSummaries"]>;
+    try {
+      result = getTimelineQuery().eventSummaries(bounded);
+    } catch (error) {
+      const refusal = queryRefusalCode(error);
+      if (refusal !== undefined) {
+        const message = error instanceof Error ? error.message : "Timeline query bound is invalid";
+        throw new BadRequestError(message, refusal);
+      }
+      throw error;
+    }
     sendJson(ctx.res, result);
   });
 

@@ -1,7 +1,7 @@
 import { InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { DEFAULT_TIMELINE_QUERY_ASCENDING } from "../kernel/config-contracts.ts";
-import { DECIMAL_SEQUENCE_PATTERN } from "./ledger-primitives.ts";
+import { DECIMAL_SEQUENCE_PATTERN, MAXIMUM_SEQUENCE } from "./ledger-primitives.ts";
 import type {
   EventLedgerStoragePort,
   TimelineEdgeRecord,
@@ -255,6 +255,34 @@ function exec(store: EventLedgerStoragePort, options: QueryOptions | undefined):
   });
 }
 
+/**
+ * A wall-time bound is the ledger's own stored form: the recorder writes
+ * `Date.prototype.toISOString()` (UTC, millisecond precision, uppercase
+ * `Z`), and the store compares the strings. Accepting a looser ISO form is
+ * not harmless — `"2026-01-01T00:00:00Z"` sorts before every `.000Z` row and
+ * silently answers an empty page — so the bound is parsed AND round-tripped:
+ * a shape no stored row can equal is a refusal, not an empty result.
+ */
+const CANONICAL_WALL_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+
+function sequenceBound(value: unknown, field: "fromSequence" | "toSequence"): string {
+  if (typeof value !== "string" || !DECIMAL_SEQUENCE_PATTERN.test(value) || BigInt(value) > MAXIMUM_SEQUENCE) {
+    throw new InputError(`Timeline query ${field} is invalid`, "timeline_query_sequence_invalid");
+  }
+  return value;
+}
+
+function wallTimeBound(value: unknown, field: "fromWallTime" | "toWallTime"): string {
+  if (typeof value !== "string" || !CANONICAL_WALL_TIME_PATTERN.test(value)) {
+    throw new InputError(`Timeline query ${field} is not a canonical ISO-8601 instant`, "timeline_query_wall_time_invalid");
+  }
+  const epochMs = Date.parse(value);
+  if (!Number.isFinite(epochMs) || new Date(epochMs).toISOString() !== value) {
+    throw new InputError(`Timeline query ${field} is not a canonical ISO-8601 instant`, "timeline_query_wall_time_invalid");
+  }
+  return value;
+}
+
 function buildFilter(options: QueryOptions | undefined): MutableFilter {
   const filter: MutableFilter = {};
   if (options !== undefined) {
@@ -268,10 +296,10 @@ function buildFilter(options: QueryOptions | undefined): MutableFilter {
     if (options.recordKind !== undefined) filter.recordKind = options.recordKind;
     if (options.effectId !== undefined) filter.effectId = options.effectId;
     if (options.traceId !== undefined) filter.traceId = options.traceId;
-    if (options.fromSequence !== undefined) filter.fromSequence = options.fromSequence;
-    if (options.toSequence !== undefined) filter.toSequence = options.toSequence;
-    if (options.fromWallTime !== undefined) filter.fromWallTime = options.fromWallTime;
-    if (options.toWallTime !== undefined) filter.toWallTime = options.toWallTime;
+    if (options.fromSequence !== undefined) filter.fromSequence = sequenceBound(options.fromSequence, "fromSequence");
+    if (options.toSequence !== undefined) filter.toSequence = sequenceBound(options.toSequence, "toSequence");
+    if (options.fromWallTime !== undefined) filter.fromWallTime = wallTimeBound(options.fromWallTime, "fromWallTime");
+    if (options.toWallTime !== undefined) filter.toWallTime = wallTimeBound(options.toWallTime, "toWallTime");
     if (options.ascending !== undefined) filter.ascending = options.ascending;
     if (options.cursor !== undefined) {
       // Deny-by-default: a cursor is a ledger sequence, nothing else. A

@@ -35,6 +35,7 @@
 import { atom } from "nanostores";
 
 import { getUiSchemaValues } from "../../client.ts";
+import { clientWarn } from "../../client-debug.ts";
 import { persistGet, persistSet } from "../../state/persistence.ts";
 import { onForeignWrite } from "../../state/cross-tab.ts";
 import { uiSchema, uiSchemaValues } from "../../state/schema-store.ts";
@@ -49,6 +50,7 @@ import {
 } from "./instruments-config.ts";
 import {
   MAX_PINNED,
+  assertUniquePinnedMonitors,
   formatMeasuredValue,
   isPinnedMonitor,
   pushPoint,
@@ -195,13 +197,20 @@ export function feedRunning(): boolean {
 export function loadPinnedFromStorage(): readonly PinnedMonitor[] {
   const raw = persistGet(MONITORS_STORAGE_KEY);
   if (raw === null) return [];
+  let list: readonly PinnedMonitor[];
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isPinnedMonitor).slice(0, MAX_PINNED);
+    list = parsed.filter(isPinnedMonitor).slice(0, MAX_PINNED);
   } catch {
     return [];
   }
+  // A structurally valid entry is not a valid SET: repeated ids reached the
+  // HORIZON's keyed each as `each_key_duplicate`. The refusal is outside the
+  // JSON catch above so it is not mistaken for corruption and silently
+  // degraded to "no pins" — it names the id and the caller decides.
+  assertUniquePinnedMonitors(list);
+  return list;
 }
 
 /**
@@ -239,7 +248,34 @@ function savePinned(list: readonly PinnedMonitor[]): void {
     persistGet(MONITORS_STORAGE_KEY) === json ? null : "this browser refused to store them";
 }
 
-pinnedMonitors.set(loadPinnedFromStorage());
+/**
+ * THE ONE WRITE DOOR for the pin set: validate the SET before the atom (a
+ * duplicate is refused while the previous set still stands), then persist.
+ * `pinMonitor` cannot create a duplicate (it asks `pinOutcome` first), but
+ * `displaceMonitor` maps in place and a no-op displacement can — the
+ * storage-time refusal is what keeps the HORIZON's keys unique whatever the
+ * caller does.
+ */
+function commitPinned(next: readonly PinnedMonitor[]): void {
+  assertUniquePinnedMonitors(next);
+  pinnedMonitors.set(next);
+  savePinned(next);
+  syncMonitorHold(next);
+}
+
+/** The boot read, refused without taking the room down: a storage defect
+ * degrades to no pins and SAYS why (the mirror of a refused write). */
+function restorePinnedMonitors(): readonly PinnedMonitor[] {
+  try {
+    return loadPinnedFromStorage();
+  } catch (error) {
+    storageDegradedReason = error instanceof Error ? error.message : String(error);
+    clientWarn("instruments", "stored pinned monitors refused:", error);
+    return [];
+  }
+}
+
+pinnedMonitors.set(restorePinnedMonitors());
 
 /**
  * Cross-tab: THE HORIZON IS THE SAME HORIZON IN EVERY TAB.
@@ -268,7 +304,17 @@ pinnedMonitors.set(loadPinnedFromStorage());
  * Nothing polls for nobody, in either direction.
  */
 onForeignWrite(MONITORS_STORAGE_KEY, () => {
-  const next = loadPinnedFromStorage();
+  let next: readonly PinnedMonitor[];
+  try {
+    next = loadPinnedFromStorage();
+  } catch (error) {
+    // Another tab (or an older build) wrote a set this tab refuses. The
+    // previous set stands — adopting a duplicate would crash the HORIZON —
+    // and the degradation is named instead of silently replacing the pins.
+    storageDegradedReason = error instanceof Error ? error.message : String(error);
+    clientWarn("instruments", "foreign pinned monitors refused:", error);
+    return;
+  }
   pinnedMonitors.set(next);
   syncMonitorHold(next);
 });
@@ -293,19 +339,13 @@ export function pinMonitor(signalId: string): PinOutcome {
   const list = pinnedMonitors.get();
   const outcome = pinOutcome(list, signalId);
   if (outcome === "pinned") {
-    const next = [...list, { signalId, pinnedAt: Date.now() }];
-    pinnedMonitors.set(next);
-    savePinned(next);
-    syncMonitorHold(next);
+    commitPinned([...list, { signalId, pinnedAt: Date.now() }]);
   }
   return outcome;
 }
 
 export function unpinMonitor(signalId: string): void {
-  const next = pinnedMonitors.get().filter((m) => m.signalId !== signalId);
-  pinnedMonitors.set(next);
-  savePinned(next);
-  syncMonitorHold(next);
+  commitPinned(pinnedMonitors.get().filter((m) => m.signalId !== signalId));
 }
 
 /** Resolve a "full" pin: replace `displaceId` with `signalId`, in place. */
@@ -313,9 +353,7 @@ export function displaceMonitor(displaceId: string, signalId: string): void {
   const next = pinnedMonitors
     .get()
     .map((m) => (m.signalId === displaceId ? { signalId, pinnedAt: Date.now() } : m));
-  pinnedMonitors.set(next);
-  savePinned(next);
-  syncMonitorHold(next);
+  commitPinned(next);
 }
 
 // ── HORIZON projection (§1.4 — monitors are references) ───────────────────

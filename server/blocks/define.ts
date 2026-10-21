@@ -72,6 +72,7 @@ import {
   withSpan,
 } from "../kernel/canonical.ts";
 import { BadRequestError, ConflictError, WebError } from "../kernel/errors.ts";
+import { MAXIMUM_DATE_EPOCH_MS } from "../kernel/config.ts";
 import type { RouteContext, Router } from "../router/router.ts";
 import { sendJson } from "../router/router.ts";
 
@@ -96,8 +97,19 @@ export type BlockHandlerContext = Readonly<{
  * bound is a time comparison; the comparison does not care about the
  * fraction, so the schema accepts any positive epoch-ms number. Garbage
  * still refuses (coerce), and the read stays an INCLUSIVE upper bound.
+ *
+ * THE EPOCH MUST BE A `Date` THE READ CAN CONVERT. Adopters turn the bound
+ * into an ISO wall time with `new Date(until).toISOString()`, and a number
+ * past ±8.64e15 (the `Date` range) makes that throw `RangeError: Invalid
+ * time value` INSIDE the handler — a 500 for a client's number. The range
+ * lives in the server config owner next to the other limits, and this ONE
+ * parameter applies it, so every adopter inherits the refusal instead of
+ * each remembering to range-check the bound it was handed.
  */
-export const RANGED_UNTIL_PARAM = z.coerce.number().positive();
+export const RANGED_UNTIL_PARAM = z.coerce
+  .number()
+  .positive()
+  .max(MAXIMUM_DATE_EPOCH_MS, "until is outside the Date range");
 
 
 /** A block's read side: validated input → output. */

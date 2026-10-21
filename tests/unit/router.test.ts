@@ -242,6 +242,10 @@ describe("every request is answered at the one dispatch boundary (wf1b-design H1
   async function boundaryServer(): Promise<{ server: Server; port: number }> {
     const router = createRouter({ db: memAdb, isPublicPath: () => true });
     router.get("/api/items/:id", (ctx) => { sendJson(ctx.res, { id: ctx.params["id"] }); });
+    // A MATCHED handler that answers nothing. Before the fix the dispatch
+    // resolved with the response untouched, so the socket stayed open until
+    // the client gave up: a route that exists and silently says nothing.
+    router.get("/api/noop", () => {});
     router.get("/api/hostile", () => {
       // An error nothing can describe: reading its status throws. It must be
       // a TYPED error — the router now trusts only the typed hierarchy, so a
@@ -291,6 +295,21 @@ describe("every request is answered at the one dispatch boundary (wf1b-design H1
       expect(hostile.status).toBe(503);
       expect(JSON.parse(hostile.body)).toEqual({ error: "service_unavailable", message: "The server could not prepare a safe description of this error." });
       expect(egressFailureCounts().lastResortResponses).toBe(before + 1);
+      expect(unanswered, "dispatch rejected: the socket would never have been answered").toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("a matched handler that writes no response is answered with the fixed internal-error body", async () => {
+    const { server, port } = await boundaryServer();
+    try {
+      const response = await raw(port, "/api/noop", `127.0.0.1:${String(port)}`);
+      expect(response.status).toBe(500);
+      expect(JSON.parse(response.body)).toEqual({
+        error: "internal_error",
+        message: "Internal error. See the local log for details.",
+      });
       expect(unanswered, "dispatch rejected: the socket would never have been answered").toEqual([]);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));

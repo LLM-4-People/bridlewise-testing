@@ -32,6 +32,7 @@ import {
 } from "../../src/cockpit/rooms/instruments-config.ts";
 import { setUiSchema, setUiSchemaValues, resetUiSchema } from "../../src/state/schema-store.ts";
 import { persistGet, persistSet } from "../../src/state/persistence.ts";
+import { InstrumentHonestyViolation } from "../../src/cockpit/rooms/instruments-data.ts";
 import type { ShellApi } from "../../src/cockpit/shell/contract.ts";
 import type { UiSchema } from "../../shared/ui-schema.ts";
 
@@ -279,5 +280,36 @@ describe("monitors — references with a real asOf, ≤4, persisted", () => {
       "context.utilization",
       "tools.callCount",
     ]);
+  });
+
+  test("a stored set with a repeated signalId is refused by name, never rendered twice", () => {
+    // The blob is structurally valid (every entry passes `isPinnedMonitor`),
+    // so the old load accepted it and the HORIZON's keyed each threw
+    // `each_key_duplicate`. The storage owner refuses it as a typed error
+    // that names the id instead of handing the duplicate to the renderer.
+    persistSet(
+      MONITORS_STORAGE_KEY,
+      JSON.stringify([
+        { signalId: "context.utilization", pinnedAt: 1 },
+        { signalId: "context.utilization", pinnedAt: 2 },
+      ]),
+    );
+    expect(() => loadPinnedFromStorage()).toThrow(InstrumentHonestyViolation);
+    expect(() => loadPinnedFromStorage()).toThrow(/context\.utilization/u);
+  });
+
+  test("a legitimate re-add of the same signal keeps one pin, not two", () => {
+    expect(pinMonitor("context.utilization")).toBe("pinned");
+    expect(pinMonitor("context.utilization")).toBe("already");
+    expect(pinnedMonitors.get().map((m) => m.signalId)).toEqual(["context.utilization"]);
+    expect(JSON.parse(persistGet(MONITORS_STORAGE_KEY)!).map((m: { signalId: string }) => m.signalId))
+      .toEqual(["context.utilization"]);
+  });
+
+  test("displacing one pin with a signal already pinned is refused at the storage door", () => {
+    pinMonitor("context.utilization");
+    pinMonitor("tools.callCount");
+    expect(() => displaceMonitor("tools.callCount", "context.utilization"))
+      .toThrow(/context\.utilization/u);
   });
 });

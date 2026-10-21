@@ -14,6 +14,8 @@
 import { describe, expect, test } from "vitest";
 
 import { devServerFreshnessRefusal, devServerPorts } from "../setup/dev-server-freshness.ts";
+import { serverConfig } from "../../server/kernel/config.ts";
+import { DEV_API_PORT, DEV_CLIENT_PORT, devApiPortFromEnv } from "../../shared/dev-ports.ts";
 import { parseListeningSockets, parseStatLine, STAT_FIELD } from "../../engine/src/process/process-facts.ts";
 
 describe("parseListeningSockets", () => {
@@ -81,9 +83,18 @@ describe("devServerFreshnessRefusal", () => {
 });
 
 describe("devServerPorts", () => {
-  test("the API port follows HARNESS_WEB_PORT, and a malformed override falls back rather than judging nothing", () => {
-    expect(devServerPorts({} as NodeJS.ProcessEnv)).toEqual({ vite: 5173, api: 5174 });
-    expect(devServerPorts({ HARNESS_WEB_PORT: "5999" } as NodeJS.ProcessEnv).api).toBe(5999);
-    expect(devServerPorts({ HARNESS_WEB_PORT: "not-a-port" } as NodeJS.ProcessEnv).api).toBe(5174);
+  test("the preflight reads the one dev-port declaration and the server's resolved port", () => {
+    // This test used to PIN the duplicate literals ({vite: 5173, api: 5174})
+    // that lived in this setup file beside vite.config.ts. Those copies are
+    // gone: the client port comes from shared/dev-ports.ts and the API port
+    // from the server config owner, so this assertion compares the preflight
+    // with the owners rather than blessing a second declaration.
+    expect(devServerPorts()).toEqual({ vite: DEV_CLIENT_PORT, api: serverConfig.port });
+  });
+
+  test("the API override follows HARNESS_WEB_PORT; a malformed value falls back rather than judging nothing", () => {
+    expect(devApiPortFromEnv({})).toBe(DEV_API_PORT);
+    expect(devApiPortFromEnv({ HARNESS_WEB_PORT: "5999" })).toBe(5999);
+    expect(devApiPortFromEnv({ HARNESS_WEB_PORT: "not-a-port" })).toBe(DEV_API_PORT);
   });
 });

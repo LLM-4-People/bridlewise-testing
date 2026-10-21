@@ -1025,6 +1025,31 @@ describe("cockpit-local preferences — device-side, applied immediately", () =>
     expect(posted.length).toBe(0);
   });
 
+  test("a storage write the device refuses is surfaced; the previous value stands", async () => {
+    // `persistSet` reports a refused write to the log and returns normally.
+    // The local setter used to apply the atom + root attribute first and
+    // never read back, so the sheet said "Saved" over a value that was only
+    // in memory and would vanish on reload. The write path now confirms the
+    // read-back, reverts on refusal, and hands the sheet a typed failure.
+    const { findByText, container } = render(SettingSheet, { settingId: "cockpit.density" });
+    expect(await findByText("Density")).toBeTruthy();
+    expect(localValue("cockpit.density")).toBe("work");
+    const refused = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("the bucket is full", "QuotaExceededError");
+    });
+    try {
+      await fireEvent.click(await findByText("Scan"));
+      await waitFor(() =>
+        expect(container.querySelector(".failure")?.textContent).toMatch(/refused to store|could not be stored/u),
+      );
+      expect(localValue("cockpit.density")).toBe("work");
+      expect(document.documentElement.dataset.density).toBe("work");
+      expect(container.querySelector(".saved-line")).toBeNull();
+    } finally {
+      refused.mockRestore();
+    }
+  });
+
   test("a local number saves through the same door and remaps the token, no network", async () => {
     const { getByLabelText, findByText } = render(SettingSheet, { settingId: "cockpit.spacing" });
     expect(await findByText("Spacing step")).toBeTruthy();

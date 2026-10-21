@@ -29,6 +29,7 @@ import { RESPONSES_REQUEST_SCHEMA } from "../../engine/src/shared/llm/responses.
 // credential". Imported, never restated: the admission path and the
 // own-credential discovery below must agree about what a sensitive name is.
 import { isSensitiveKeyName, normalizeSecretKey } from "../../engine/src/privacy/secret-signals.ts";
+import { DEV_API_PORT, DEV_CLIENT_PORT } from "../../shared/dev-ports.ts";
 
 function parseInteger(name: string, raw: string, min: number, max: number): number {
   const n = Number(raw);
@@ -66,11 +67,17 @@ function parseAllowedRoots(raw: string): readonly string[] {
 
 // ── Defaults (declared once, the authority) ──
 
-export const DEFAULT_PORT = 5174;
+// The dev workflow's two ports live in `shared/dev-ports.ts` so Vite's proxy
+// and the freshness preflight read the SAME declaration the server uses.
+export const DEFAULT_PORT = DEV_API_PORT;
 export const DEFAULT_HOST = "127.0.0.1";
-export const DEFAULT_ALLOWED_ORIGIN = "http://127.0.0.1:5173";
+export const DEFAULT_ALLOWED_ORIGIN = `http://127.0.0.1:${DEV_CLIENT_PORT}`;
 export const DEFAULT_MAX_BODY_BYTES = 1 << 20; // 1 MiB
 export const DEFAULT_SSE_KEEPALIVE_MS = 15_000;
+/** The largest epoch-millisecond value a JavaScript `Date` can represent
+ * (±8.64e15 ms). Ranged block reads convert `until` to an ISO wall time, so a
+ * bound past this is a client-input refusal, not a `RangeError` in a handler. */
+export const MAXIMUM_DATE_EPOCH_MS = 8_640_000_000_000_000;
 
 /**
  * How long a shutdown may take before the process exits regardless.

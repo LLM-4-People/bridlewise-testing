@@ -23,6 +23,7 @@ import { pathToFileURL } from "node:url";
 import {
   PLAN_SCHEMA,
   SHARD_REPORT_SCHEMA,
+  assignmentHash as hashAssignment,
   fail,
   manifestHash as hashManifest,
   normalizeFile,
@@ -68,6 +69,13 @@ function readPlan(path) {
   if (typeof plan.headSha !== "string" || !/^[0-9a-f]{7,64}$/i.test(plan.headSha)) fail("plan: headSha is missing");
   for (const [index, shard] of plan.shards.entries()) {
     if (shard.index !== index + 1 || !Array.isArray(shard.files)) fail(`plan: shard ${index + 1} is malformed`);
+  }
+  // THE PLAN'S HASH IS A CLAIM ABOUT ITS OWN SHARDS. Every report envelope
+  // copies `plan.assignmentHash`, so trusting it without recomputing made a
+  // plan (or a receipt) that lied about the assignment agree with itself.
+  // Recompute from the plan's bytes before any report is accepted.
+  if (hashAssignment(plan.shards) !== plan.assignmentHash) {
+    fail("plan: assignmentHash does not match the plan's shard assignment");
   }
   return plan;
 }

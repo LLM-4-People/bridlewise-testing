@@ -64,7 +64,7 @@ The folder lives at `engine/src/timeline/`.
 - `effect-documents.ts` is consumed by `engine/src/timeline/effect-sink.ts`, `server/kernel/canonical.ts`.
 - `effect-sink.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `server/kernel/canonical.ts`.
 - `ledger-dig.ts` is consumed by nothing yet.
-- `ledger-primitives.ts` is consumed by `engine/src/cli.ts`, `engine/src/kernel/execution-closure.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/effect-sink.ts`, `engine/src/timeline/recorded-effect.ts`, `engine/src/timeline/timeline-query.ts` and 4 more.
+- `ledger-primitives.ts` is consumed by `engine/src/cli.ts`, `engine/src/kernel/execution-closure.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/effect-sink.ts`, `engine/src/timeline/recorded-effect.ts`, `engine/src/timeline/timeline-query.ts` and 5 more.
 - `provider-recording.ts` is consumed by nothing yet.
 - `recorded-effect.ts` is consumed by `engine/src/performance/engine-instrumentation.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/shared/exposure/action.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/effect-sink.ts`, `engine/src/timeline/provider-recording.ts` and 1 more.
 - `recording-context.ts` is consumed by `engine/src/cli.ts`, `engine/src/performance/engine-instrumentation.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/provider-http.ts`, `engine/src/timeline/effect-sink.ts` and 5 more.

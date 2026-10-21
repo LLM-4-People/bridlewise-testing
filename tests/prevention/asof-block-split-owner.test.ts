@@ -168,6 +168,28 @@ describe("the ranged set is exactly what the server implements", () => {
       expect(garbage.success, `block "${id}" accepted a non-numeric until`).toBe(false);
     }
   });
+
+  test("every ranged `until` refuses an epoch outside the `Date` range at both ends", () => {
+    // An epoch outside ±8.64e15 is a NUMBER `z.coerce.number()` parses and
+    // `new Date(until).toISOString()` throws RangeError on. The handler then
+    // answered 500 from a read that should have refused the input. The range
+    // check lives in RANGED_UNTIL_PARAM (the one declaration every ranged
+    // block consumes); a block that hand-rolls its bound cannot inherit it.
+    const DATE_MAX_MS = 8_640_000_000_000_000;
+    for (const id of RANGED_BLOCKS) {
+      const input = definitions.find((d) => d.definition.id === id)!.definition
+        .read!.input as { safeParse: (v: unknown) => { success: boolean } };
+      const shape = id === "sweep.spectrum"
+        ? { scope: "chat", chatId: "c1" }
+        : id === "arm.flags" ? {} : { chatId: "c1" };
+      expect(input.safeParse({ ...shape, until: DATE_MAX_MS }).success,
+        `block "${id}" refused the Date range's own maximum`).toBe(true);
+      for (const outside of [DATE_MAX_MS + 1, 0, -1]) {
+        expect(input.safeParse({ ...shape, until: outside }).success,
+          `block "${id}" accepted an out-of-range until ${outside}`).toBe(false);
+      }
+    }
+  });
 });
 
 describe("the time-invariant escape hatch stays narrow and honest", () => {

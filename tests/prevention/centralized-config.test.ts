@@ -267,20 +267,36 @@ describe("centralized configuration — launcher script secrets", () => {
 // ── 4. Launcher script port-fallback contract (no drift from DEFAULT_PORT) ──
 
 describe("centralized configuration — launcher port-fallback contract", () => {
-  // The launcher scripts (sd.mjs, dev-all.ts) fall back to a hardcoded
-  // port when HARNESS_WEB_PORT is unset. The fallback MUST match
-  // `DEFAULT_PORT` in `server/config.ts` — the script runs before the
-  // server, so it cannot import the config module. A drift would make the
-  // health check hit the wrong port (the server starts on the config
-  // default, the script checks the script default) with no compile-time
-  // signal. This contract test catches the drift dynamically by parsing
-  // the literal from each source.
-  const configSrc = readFileSync(join(WEB_ROOT, "server/kernel/config.ts"), "utf8");
-  const configPortMatch = configSrc.match(/export\s+const\s+DEFAULT_PORT\s*=\s*(\d+)/);
-  if (configPortMatch === null) {
-    throw new Error("Could not parse DEFAULT_PORT from server/config.ts");
+  // The launcher scripts (sd.mjs, dev-all.ts) and the test floor's
+  // `tests/setup` preflight live before/outside the server module graph, so
+  // they cannot all import `server/kernel/config.ts`. The DEV PORTS are
+  // declared once in `shared/dev-ports.ts`; the server config imports them,
+  // Vite imports them, and the preflight reads the server's resolved port.
+  // A script that restates a fallback must match the shared DEFAULT_PORT —
+  // a drift makes the health check hit the wrong port with no compile-time
+  // signal. The population includes `tests/setup` so the preflight cannot
+  // grow a private copy again.
+  const devPortsSrc = readFileSync(join(WEB_ROOT, "shared/dev-ports.ts"), "utf8");
+  const apiPortMatch = devPortsSrc.match(/export\s+const\s+DEV_API_PORT\s*=\s*(\d+)/);
+  if (apiPortMatch === null) {
+    throw new Error("Could not parse DEV_API_PORT from shared/dev-ports.ts");
   }
-  const defaultPort = Number(configPortMatch[1]);
+  const defaultPort = Number(apiPortMatch[1]);
+
+  test("the server config's owned defaults ARE the shared dev-port declaration", () => {
+    const configSrc = readFileSync(join(WEB_ROOT, "server/kernel/config.ts"), "utf8");
+    expect(configSrc).toMatch(/export\s+const\s+DEFAULT_PORT\s*=\s*DEV_API_PORT\b/);
+    expect(configSrc).toContain("DEV_CLIENT_PORT");
+    expect(configSrc, "DEFAULT_PORT must not restate the literal").not.toMatch(/DEFAULT_PORT\s*=\s*\d+/);
+  });
+
+  test("Vite and the freshness preflight import the one declaration, never restate a port", () => {
+    for (const rel of ["vite.config.ts", "tests/setup/dev-server-freshness.ts"] as const) {
+      const src = readFileSync(join(WEB_ROOT, rel), "utf8");
+      expect(src, `${rel} must import shared/dev-ports.ts`).toContain("shared/dev-ports.ts");
+      expect(src, `${rel} must not restate the dev ports`).not.toMatch(/\b517[34]\b/u);
+    }
+  });
 
   // Dynamically discover every launcher script that references HARNESS_WEB_PORT
   // (a new launcher with a port fallback is auto-covered, not missed by a
@@ -288,9 +304,11 @@ describe("centralized configuration — launcher port-fallback contract", () => 
   // launcher is caught too. Each one gets its test; the test judges the
   // fallback of a script that reads the variable.
   const scriptFiles: string[] = [];
-  for (const file of walk(join(WEB_ROOT, "scripts"), { exts: [...SOURCE_EXTS] })) {
-    const rel = relative(WEB_ROOT, file);
-    if (/HARNESS_WEB_PORT/.test(readFileSync(file, "utf8"))) scriptFiles.push(rel);
+  for (const root of ["scripts", "tests/setup"] as const) {
+    for (const file of walk(join(WEB_ROOT, root), { exts: [...SOURCE_EXTS] })) {
+      const rel = relative(WEB_ROOT, file);
+      if (/HARNESS_WEB_PORT/.test(readFileSync(file, "utf8"))) scriptFiles.push(rel);
+    }
   }
   for (const script of scriptFiles) {
     const full = join(WEB_ROOT, script);

@@ -40,6 +40,8 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { processesListeningOn, startWallTimeMsOf } from "../../engine/src/process/process-facts.ts";
+import { serverConfig } from "../../server/kernel/config.ts";
+import { DEV_CLIENT_PORT } from "../../shared/dev-ports.ts";
 
 /** The dev servers an e2e/profile run can inherit, by the ports they listen on. */
 export interface DevServerPorts {
@@ -48,16 +50,15 @@ export interface DevServerPorts {
 }
 
 /**
- * The ports the dev workflow itself declares: `vite.config.ts` sets
- * `server.port` for the client and derives the API port from
- * `HARNESS_WEB_PORT`, defaulting to the API server's own default in
- * `server/config.ts`. If those move and these do not, the preflight goes
- * quiet in the safe-stated way: it finds no listener and has nothing to
- * judge.
+ * The ports the dev workflow itself declares. `vite.config.ts` takes the
+ * client port from `shared/dev-ports.ts`, and the API port is the server
+ * config owner's own resolved port (it reads `HARNESS_WEB_PORT` through the
+ * one env parser and refuses a malformed value). This preflight names no
+ * port of its own: if either moves, it follows, rather than going quiet
+ * against a listener that moved and judging nothing.
  */
-export function devServerPorts(env: NodeJS.ProcessEnv = process.env): DevServerPorts {
-  const api = Number(env.HARNESS_WEB_PORT ?? 5174);
-  return { vite: 5173, api: Number.isInteger(api) && api > 0 ? api : 5174 };
+export function devServerPorts(): DevServerPorts {
+  return { vite: DEV_CLIENT_PORT, api: serverConfig.port };
 }
 
 export interface DevServerListener {

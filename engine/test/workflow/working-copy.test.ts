@@ -188,6 +188,37 @@ test("checkout setup: links, the config mode, then the declared commands in orde
   assert.equal(lstatSync(join(target, "never"), { throwIfNoEntry: false }), undefined);
 });
 
+test("checkout setup refuses a declared link whose target is a regular file, naming the path", async () => {
+  // The declared link was assumed to already be a symlink. A regular file at
+  // the target escaped `readlinkSync` as a raw EINVAL, so the operator got a
+  // syscall error with no path and no remedy. The setup reads the actual
+  // type first and refuses with a typed error naming the file it will not
+  // replace.
+  const source = plantDirtySource();
+  mkdirSync(join(source, "corpus"), { recursive: true });
+  const target = join(createTempDir("working-copy-target-"), "copy");
+  createWorkingCopy({ sourceRoot: source, targetRoot: target, git: "stage-all" });
+  trackGateLogs(target);
+  const conflict = join(target, "corpus");
+  mkdirSync(join(target, "engine"), { recursive: true });
+  writeFileSync(conflict, "a regular file the setup must not overwrite\n");
+  await assert.rejects(
+    () => prepareCheckout(target, source, "engine", {
+      links: ["corpus"],
+      commands: {},
+      phases: { setup: [], validate: [], regenerate: [], merge: [] },
+    }, checkoutCommandRunner(target, supervisedRunner())),
+    (error: unknown) => {
+      const typed = error as { code?: unknown; message?: unknown };
+      return typed.code === "checkout_link_target_conflict" &&
+        typeof typed.message === "string" &&
+        typed.message.includes(conflict) &&
+        typed.message.includes("regular file");
+    },
+  );
+  assert.equal(readFileSync(conflict, "utf8"), "a regular file the setup must not overwrite\n");
+});
+
 // FR-15 / NF-08: a fresh checkout must reproduce every generated value from
 // its sources, so a first sync pass that rewrites a tracked output is a NAMED
 // finding (the source was not synced, or a generated value depends on

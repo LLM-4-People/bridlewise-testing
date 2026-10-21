@@ -25,6 +25,7 @@
     type DiagnosticModesState,
   } from "./settings-data.ts";
   import { isPastView, PAST_VIEW_ACT_REASON } from "../../data/asof.ts";
+  import { clientError } from "../../client-debug.ts";
   import { refusalReason, UNREADABLE_SHAPE } from "../../data/absence.ts";
   import Answer from "../response/Answer.svelte";
   import { failed, pending } from "../response/grammar.ts";
@@ -53,8 +54,12 @@
     return false;
   });
 
-  async function revalidate(): Promise<void> {
+  /** @returns whether the read landed. A failed read keeps its reason for
+   * the face and for the save path, so neither can pretend the list is
+   * current. */
+  async function revalidate(): Promise<boolean> {
     load = "pending";
+    loadReason = null;
     try {
       const next = await readDiagnosticModes();
       answer = next;
@@ -62,9 +67,15 @@
       // draft against a list the server just answered.
       draft = new Set(next.excluded);
       load = "ok";
+      return true;
     } catch (err) {
       loadReason = refusalReason(err) ?? (err instanceof Error ? err.message : String(err));
       load = "failed";
+      // A swallowed failure left the previous list on screen and a Save
+      // control that silently did nothing. The central client logger owns
+      // the record; the face owns the sentence.
+      clientError("settings", "diagnostic modes re-read failed:", err);
+      return false;
     }
   }
 
@@ -83,8 +94,18 @@
     note = null;
     try {
       await saveDiagnosticModes([...draft]);
-      note = { kind: "saved", text: "Saved. The list shows the confirmed configuration." };
-      await revalidate();
+      // "Saved" is a claim about the READ-BACK, not about the write's
+      // promise: the confirmation appears only when the mode re-read the
+      // list it is describing. A write that landed but could not be
+      // re-read is named as unconfirmed, never dressed as success.
+      if (await revalidate()) {
+        note = { kind: "saved", text: "Saved. The list shows the confirmed configuration." };
+      } else {
+        note = {
+          kind: "failed",
+          text: `The list could not be re-read after the save, so it may be stale: ${loadReason ?? UNREADABLE_SHAPE}`,
+        };
+      }
     } catch (err) {
       // The server refused — the standing list stands; the sentence is the
       // server's own, rendered at the verb that earned it.
@@ -102,6 +123,7 @@
   // a config-file fact.
   onMount(() =>
     whileRoomVisible("settings", () => {
+      note = null; // a new read retires the previous confirmation
       void revalidate();
       return () => undefined;
     }),
@@ -114,6 +136,11 @@
   {:else if load === "failed" && answer === null}
     <Answer answer={failed(`The diagnostic modes list: ${loadReason ?? UNREADABLE_SHAPE}`)} />
   {:else if answer !== null}
+    {#if load === "failed"}
+      <div data-field="diagnostic-modes-failure">
+        <Answer answer={failed(`The list could not be re-read: ${loadReason ?? UNREADABLE_SHAPE}`)} />
+      </div>
+    {/if}
     <p class="lead" data-field="diagnostic-modes-lead">
       Choose which modes run. Changes take effect on the next diagnostic run.
     </p>
@@ -139,7 +166,7 @@
         class="verb primary commit"
         type="button"
         data-verb-id="settings.diagnosticModes/set"
-        disabled={past}
+        disabled={past || load !== "ok"}
         aria-disabled={busy || past || load !== "ok" || draft === null || !dirty}
         aria-busy={busy}
         title={past

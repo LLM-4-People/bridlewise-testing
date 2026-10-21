@@ -224,7 +224,7 @@ export function assignShards(files, shardCount) {
   return bins;
 }
 
-function assignmentHash(shards) {
+export function assignmentHash(shards) {
   return sha256(shards.map((shard) => shard.files.map((file) => `${shard.index}:${file}`).join("\n")).join("\n"));
 }
 

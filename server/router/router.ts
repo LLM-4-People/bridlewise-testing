@@ -882,6 +882,19 @@ export function createRouter(opts: RouterOptions): Router {
                     { params, query: url.searchParams, body, res, req, sessionId },
                     warrant,
                   );
+                  // A MATCHED HANDLER OWES THE CLIENT AN ANSWER. A handler
+                  // that returns without writing one used to leave the
+                  // socket open until the caller timed out: the route
+                  // existed, dispatch resolved, and nobody said anything.
+                  // Refuse through the same catch every other handler
+                  // failure crosses, so the wire gets the fixed
+                  // internal-error body and the log names the condition.
+                  if (!res.headersSent) {
+                    throw new WebError(
+                      "the matched route handler produced no response",
+                      "internal_error",
+                    );
+                  }
                   return res.statusCode;
                 },
                 {

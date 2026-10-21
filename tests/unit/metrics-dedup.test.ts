@@ -127,6 +127,40 @@ describe("metrics polls — one poll, one point", () => {
     expect(tokenThroughput.get()).toBeNull();
   });
 
+  test("an absent half after a present one clears the store and writes exactly one point", () => {
+    // The store used to keep the previous poll's system/tokens when a later
+    // poll carried neither (`poll.system !== null` gated the set), so the
+    // dashboard showed a reading from a poll that no longer existed.
+    recordMetricsPoll({ snapshot: snapshot({ snapshotId: "s1" }), system: system(111), tokens: TOKENS });
+    expect(systemMetrics.get()?.memory.heapUsed).toBe(111);
+    const before = metricsHistory.get().length;
+    recordMetricsPoll({ snapshot: snapshot({ snapshotId: "s1" }), system: null, tokens: null });
+    expect(systemMetrics.get()).toBeNull();
+    expect(tokenThroughput.get()).toBeNull();
+    expect(metricsHistory.get()).toHaveLength(before + 1);
+    const point = metricsHistory.get().at(-1)!;
+    expect(point.heapUsed).toBeNull();
+    expect(point.tokensPerSecond).toBeNull();
+  });
+
+  test("a response that omits the half entirely is absent, never undefined, and never throws on the next poll", () => {
+    // A JSON response without `system`/`tokens` yields `undefined` at the
+    // caller. The old code stored `undefined` (declared as null) on the
+    // first poll, and the second poll's dedup read `.capturedAt` off it.
+    let poll = 0;
+    const omitted = () => ({
+      snapshot: snapshot({ snapshotId: `omitted-${++poll}` }),
+      system: undefined,
+      tokens: undefined,
+    }) as unknown as Parameters<typeof recordMetricsPoll>[0];
+    recordMetricsPoll(omitted());
+    expect(systemMetrics.get()).toBeNull();
+    expect(tokenThroughput.get()).toBeNull();
+    expect(metricsHistory.get().at(-1)?.heapUsed).toBeNull();
+    expect(() => recordMetricsPoll(omitted())).not.toThrow();
+    expect(metricsHistory.get()).toHaveLength(2);
+  });
+
   test("a point's values come from its own poll, not the previous poll's stores", () => {
     // The old path appended from the stores, which the client set AFTER the
     // snapshot: every point carried the previous poll's heap/event-loop/rate.
