@@ -213,6 +213,9 @@ export const DECISION_GROUPS = Object.freeze({
   scale: "Scale",
   memory: "Memory layers",
   labs: "Labs (docs, browser, intelligence)",
+  // The GitHub-only rules (GITHUB-*, GH-*) and the public messaging rules (MKT-*).
+  github: "GitHub",
+  brand: "Brand and public messaging",
 } as const);
 
 /**
