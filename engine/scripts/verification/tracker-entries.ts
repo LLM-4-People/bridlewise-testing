@@ -205,15 +205,3 @@ export function renderDecisionIndex(entries: readonly { readonly name: string; r
   });
   return sections.join("\n");
 }
-
-/**
- * The README `readme` with its generated block replaced by `index`, or
- * `null` when the README carries no (or a torn) block: a README without the
- * markers is refused, never silently left ungenerated.
- */
-export function withDecisionIndex(readme: string, index: string): string | null {
-  const begin = readme.indexOf(DECISION_INDEX.begin);
-  const end = readme.indexOf(DECISION_INDEX.end);
-  if (begin < 0 || end < begin) return null;
-  return `${readme.slice(0, begin + DECISION_INDEX.begin.length)}\n\n${index}\n${readme.slice(end)}`;
-}

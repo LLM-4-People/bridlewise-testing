@@ -433,7 +433,6 @@ export type LegitimateRawReader =
   | "web:scripts/floor/design-coverage.mjs"
   | "integration:scripts/verification/consumer-plants.ts"
   | "integration:src/git/working-copy.ts"
-  | "integration:src/workflow/failure-owners.ts"
   | "integration:test/git/flake-reproduction.test.ts"
   | "integration:test/timeline/timeline-recorder.test.ts"
   | "integration:test/prevention/no-unconfined-recursive-removal.test.ts"
@@ -458,13 +457,6 @@ export type LegitimateRawReader =
  * a reader who disagrees has something specific to disagree with.
  */
 export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
-  "integration:src/workflow/failure-owners.ts": {
-    why:
-      "The subject is the tracker's Markdown records, not program text: it reads each item "
-      + "file's front matter and body, renders the task board from them, and writes the "
-      + "board back into TASKS.md with every byte outside its generated block kept. The "
-      + "front matter and the rows ARE the prose a code view blanks.",
-  },
   "web:scripts/floor/site-pages.mjs": {
     why:
       "The subject is the assembled Markdown and its front matter, which is prose "

@@ -15,8 +15,8 @@ import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readEntries } from "../../engine/src/workflow/failure-owners.ts";
-import { DECISIONS_DIRECTORY, decisionViolations, renderDecisionIndex, withDecisionIndex } from "../../engine/scripts/verification/tracker-entries.ts";
-import { DECISION_INDEX } from "../../engine/src/kernel/verification-paths.ts";
+import { DECISIONS_DIRECTORY, decisionViolations, renderDecisionIndex } from "../../engine/scripts/verification/tracker-entries.ts";
+import { DECISION_INDEX, spliceGeneratedBlock } from "../../engine/src/kernel/verification-paths.ts";
 
 const ROOT = process.cwd();
 
@@ -28,7 +28,7 @@ describe("docs/decisions", () => {
     // acted_in paths judged by shape here; whether git holds them is judged by the commit that writes them.
     expect(decisionViolations(entries)).toEqual([]);
     // wf-1b3a-design M1: the index restates each file's state, so it is generated, never typed.
-    expect(withDecisionIndex(index, renderDecisionIndex(entries)), "docs/decisions/README.md's index is stale: run harness sync").toBe(index);
+    expect(spliceGeneratedBlock(index, DECISION_INDEX, renderDecisionIndex(entries)), "docs/decisions/README.md's index is stale: run harness sync").toBe(index);
     for (const { name } of entries) expect(index, `${name} is missing from the index`).toContain(`(${name})`);
   });
 
@@ -80,7 +80,7 @@ describe("docs/decisions", () => {
     expect(rendered).toContain("| [U2](U2-other.md) | Title (covers UD-C1, X3b) | user | done |");
     expect(rendered.indexOf("## Process decisions")).toBeLessThan(rendered.indexOf("## Earlier engine decisions"));
     const readme = `# Decisions\n\nprose\n\n${DECISION_INDEX.begin}\n\nstale\n${DECISION_INDEX.end}\n`;
-    expect(withDecisionIndex(readme, rendered)).toBe(`# Decisions\n\nprose\n\n${DECISION_INDEX.begin}\n\n${rendered}\n${DECISION_INDEX.end}\n`);
-    expect(withDecisionIndex("# Decisions\n", rendered), "a README without the markers is refused, never left ungenerated").toBeNull();
+    expect(spliceGeneratedBlock(readme, DECISION_INDEX, rendered)).toBe(`# Decisions\n\nprose\n\n${DECISION_INDEX.begin}\n\n${rendered}\n${DECISION_INDEX.end}\n`);
+    expect(spliceGeneratedBlock("# Decisions\n", DECISION_INDEX, rendered), "a README without the markers is refused, never left ungenerated").toBeNull();
   });
 });

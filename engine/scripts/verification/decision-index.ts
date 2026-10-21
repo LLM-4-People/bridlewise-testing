@@ -19,10 +19,10 @@ import { parseArgs } from "node:util";
 
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../src/kernel/errors.ts";
-import { DECISION_INDEX } from "../../src/kernel/verification-paths.ts";
+import { DECISION_INDEX, spliceGeneratedBlock } from "../../src/kernel/verification-paths.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { readEntries } from "../../src/workflow/failure-owners.ts";
-import { DECISIONS_DIRECTORY, renderDecisionIndex, withDecisionIndex } from "./tracker-entries.ts";
+import { DECISIONS_DIRECTORY, renderDecisionIndex } from "./tracker-entries.ts";
 
 
 export type DecisionIndexReport = Readonly<{
@@ -36,7 +36,7 @@ export function syncDecisionIndex(repositoryRoot: string, write: boolean): Decis
   const path = join(repositoryRoot, DECISION_INDEX.path);
   if (!existsSync(path)) return Object.freeze({ allCurrent: true, status: "absent", changed: [] });
   const readme = readFileSync(path, "utf8");
-  const next = withDecisionIndex(readme, renderDecisionIndex(readEntries(repositoryRoot, DECISIONS_DIRECTORY)));
+  const next = spliceGeneratedBlock(readme, DECISION_INDEX, renderDecisionIndex(readEntries(repositoryRoot, DECISIONS_DIRECTORY)));
   if (next === null) {
     throw new HarnessError(`${DECISION_INDEX.path} carries no generated index block (its begin and end markers, DECISION_INDEX in src/kernel/verification-paths.ts)`, "decision_index_block_missing");
   }

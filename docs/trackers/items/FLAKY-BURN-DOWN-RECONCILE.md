@@ -1,11 +1,11 @@
 ---
 schema: bridlewise-tracker-item/v1
 id: FLAKY-BURN-DOWN-RECONCILE
-type: Flake
+type: Task
 title: Reconcile the flaky burn-down list with the published memory
 state: closed
 resolution: completed
-lane: flaky-burn-down
+lane: floor
 opened: 2026-10-20
 closed: 2026-10-20
 ---

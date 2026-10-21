@@ -95,6 +95,33 @@ export const TRACKER_BOARD = deepFreeze({
 /** Every generated BLOCK a hand-written file can carry (its generator owns the text between `begin` and `end`). */
 export const GENERATED_BLOCKS = deepFreeze([README_CONSUMER_BLOCK, DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD] as const);
 
+/** A generated block's markers. */
+export type GeneratedBlockMarkers = Readonly<{ begin: string; end: string }>;
+
+/** Where `block` sits in `text`: its begin marker's start and its end marker's start, or `null` when the text carries no (or a torn) block. */
+function blockSpan(text: string, block: GeneratedBlockMarkers): Readonly<{ begin: number; end: number }> | null {
+  const begin = text.indexOf(block.begin);
+  const end = text.indexOf(block.end);
+  return begin < 0 || end < begin ? null : { begin, end };
+}
+
+/**
+ * THE ONE SPLICE of a generated block: `text` with the body between `block`'s
+ * markers replaced by `body` (a blank line after the begin marker, the body,
+ * a newline before the end marker), or `null` when the text carries no (or a
+ * torn) block — refused by the caller, never silently left ungenerated.
+ */
+export function spliceGeneratedBlock(text: string, block: GeneratedBlockMarkers, body: string): string | null {
+  const span = blockSpan(text, block);
+  return span === null ? null : `${text.slice(0, span.begin + block.begin.length)}\n\n${body}\n${text.slice(span.end)}`;
+}
+
+/** `text` split at `block`: the text before it, its body, the text after it; `null` when it carries no (or a torn) block. */
+export function splitGeneratedBlock(text: string, block: GeneratedBlockMarkers): Readonly<{ before: string; body: string; after: string }> | null {
+  const span = blockSpan(text, block);
+  return span === null ? null : { before: text.slice(0, span.begin), body: text.slice(span.begin + block.begin.length, span.end), after: text.slice(span.end + block.end.length) };
+}
+
 export const SLICE_PROJECTION_PATHS = deepFreeze({
   declarations: "traceability/canonical/slice-declarations.json",
   requirementsRegistry: "traceability/requirements.json",

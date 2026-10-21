@@ -1,11 +1,11 @@
 ---
 schema: bridlewise-tracker-item/v1
 id: FLAKY-LIVE-MCP-ARMS-RETIRE
-type: Flake
+type: Task
 title: Retire the two hermetic live MCP arms from the flaky list
 state: closed
 resolution: completed
-lane: flaky-burn-down
+lane: floor
 opened: 2026-10-20
 closed: 2026-10-20
 ---

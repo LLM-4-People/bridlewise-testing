@@ -51,7 +51,7 @@ import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexB
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
 import { acceptFrozenRecords, frozenRecordsMessage, syncFrozenRecords, type FrozenRecordsReport } from "./record-links.ts";
-import { syncTrackerBoard } from "./failure-owners.ts";
+import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
 import { engineAndCheckoutRoots, repositoryToplevel } from "../git/repository-ownership.ts";
 import { gitOutput, workingTreeReader } from "../git/tree-reader.ts";
 import { configuredGitRepository, configuredWorktreeGitPort } from "../git/worktree-port.ts";
@@ -228,7 +228,7 @@ export type HarnessRegenerateOutput = Readonly<{
    * from the structured tracker items (src/workflow/failure-owners.ts
    * `syncTrackerBoard`), so a row is always exactly its item.
    */
-  trackerBoard: DecisionIndexArm;
+  trackerBoard: TrackerBoardReport;
   /**
    * The shipped hooks (`SHIPPED_HOOK_FILES`): every canonical hook's whole
    * text, written by its generator (`scripts/verification/shipped-hooks.ts`)
@@ -1209,14 +1209,16 @@ export function evidenceIgnoreStep(evidenceIgnore: DecisionIndexArm): CheckStepR
   });
 }
 
-/** `harness check`'s task-board step: a board that differs from its items' render FAILS the check. */
-function trackerBoardStep(trackerBoard: DecisionIndexArm): CheckStepResult {
+/** `harness check`'s task-board step: a board that differs from its items' render, or one that cannot be judged (a hand row outside its block, a missing block or items folder), FAILS the check. */
+export function trackerBoardStep(trackerBoard: TrackerBoardReport): CheckStepResult {
   return deepFreeze({
     step: "tracker-board",
     status: trackerBoard.converged ? "pass" : "fail",
     message: trackerBoard.converged
       ? `the task board matches the tracker items${trackerBoard.status === "absent" ? " (this tree carries no tracker items)" : ""}`
-      : `the task board is stale against the tracker items (run harness sync): ${trackerBoard.changed.join(", ")}`,
+      : trackerBoard.status === "invalid"
+        ? `the task board cannot be judged: ${trackerBoard.problems.join("; ")}`
+        : `the task board is stale against the tracker items (run harness sync): ${trackerBoard.changed.join(", ")}`,
     details: trackerBoard,
   });
 }

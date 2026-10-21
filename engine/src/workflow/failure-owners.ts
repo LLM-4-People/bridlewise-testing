@@ -13,8 +13,9 @@
  * THE BOARD. `docs/trackers/TASKS.md` carries the items as rows inside ONE
  * generated block (`TRACKER_BOARD`), rendered by {@link renderTrackerBoard}
  * and kept current by `harness sync` ({@link syncTrackerBoard}); `harness check`
- * fails a stale board. Every guard that reads task rows keeps reading the
- * board through {@link taskRows}, so a row is exactly its item.
+ * fails a stale board, and a row typed by hand outside the block. Every guard
+ * that reads task rows reads the board through {@link boardRows} — only the
+ * rows inside the block — so a row is exactly its item.
  *
  * WHO OWNS A FAILURE. The user's standing policy for a land: zero NEW
  * failures, and every remaining failure owned by a named task. The workspace's
@@ -42,7 +43,8 @@ import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { schemaId } from "../kernel/product-identity.ts";
-import { TRACKER_BOARD } from "../kernel/verification-paths.ts";
+import { relativePath, rewriteRelativeLinks } from "./markdown-links.ts";
+import { spliceGeneratedBlock, splitGeneratedBlock, TRACKER_BOARD } from "../kernel/verification-paths.ts";
 
 // ── Task rows ───────────────────────────────────────────────────────────────
 
@@ -74,9 +76,23 @@ export function taskRows(trackerText: string): readonly TaskRow[] {
   return deepFreeze(rows);
 }
 
-/** Every OPEN task row of a tracker's text, in order. */
-export function openTaskRows(trackerText: string): readonly OpenTaskRow[] {
-  return deepFreeze(taskRows(trackerText).filter((row) => !row.done));
+/**
+ * THE BOARD'S ROWS — every task row of the board file's text, read ONLY
+ * between its `TRACKER_BOARD` markers: a row typed by hand above or below
+ * the generated block is no row (and `harness check` refuses it,
+ * {@link syncTrackerBoard}), so every row a guard reads is an item's. A text
+ * without the block is refused typed (`tracker_board_block_missing`). Every
+ * reader of the tracker file reads rows through this.
+ */
+export function boardRows(boardText: string): readonly TaskRow[] {
+  const split = splitGeneratedBlock(boardText, TRACKER_BOARD);
+  if (split === null) throw new HarnessError(`${TRACKER_BOARD.path} carries no generated board block (its begin and end markers, TRACKER_BOARD in src/kernel/verification-paths.ts)`, "tracker_board_block_missing");
+  return taskRows(split.body);
+}
+
+/** Every OPEN row of the board ({@link boardRows}), in order. */
+export function openBoardRows(boardText: string): readonly OpenTaskRow[] {
+  return deepFreeze(boardRows(boardText).filter((row) => !row.done));
 }
 
 /** The names a row declares: its text's whole tokens (see the header). */
@@ -248,7 +264,7 @@ export type TrackerItem = Readonly<{
   area: readonly string[];
   /** An `evidence:<path>` record link or an https URL. */
   evidence: string | null;
-  /** The GitHub object the item adopted (`#<n>` or `discussion#<n>`), when it came in from GitHub. */
+  /** The GitHub object the item adopted (`issue-<n>` or `discussion-<n>`), when it came in from GitHub. */
   gh: string | null;
   /** `YYYY-MM-DD`. */
   opened: string;
@@ -258,9 +274,15 @@ export type TrackerItem = Readonly<{
 }>;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/u;
-/** A value YAML reads back as the same plain string (the site reads item front matter as YAML). */
+/** A value YAML reads back as the same plain STRING (the site reads item front matter as YAML; a YAML 1.1 reader turns `No` into false). */
 function yamlPlain(item: string): string | null {
-  return /^[-?:,[\]{}#&*!|>'"%@`]|: | #|\s$/u.test(item) ? `${JSON.stringify(item)} is not a plain YAML scalar (no leading indicator, ": " or " #")` : null;
+  if (/^[-?:,[\]{}#&*!|>'"%@`]|: | #|\s$/u.test(item)) return `${JSON.stringify(item)} is not a plain YAML scalar (no leading indicator, ": " or " #")`;
+  if (/^(?:y|yes|n|no|true|false|on|off|null|~)$/iu.test(item) || /^[-+]?(?:\.?\d)[\d._:eE+-]*$/u.test(item)) return `${JSON.stringify(item)} reads as a YAML boolean, null or number, not text`;
+  return null;
+}
+/** A title is a row's head on the board: one line, no `*` (it would end the row's bold id). */
+function titleCheck(item: string): string | null {
+  return item.includes("*") ? `${JSON.stringify(item)} carries "*", which would end the board row's bold id` : yamlPlain(item);
 }
 
 /**
@@ -288,7 +310,8 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
         schema: { required: true, values: [TRACKER_ITEM_SCHEMA] },
         id: { required: true, values: [id] },
         type: { required: true, values: TRACKER_ITEM_TYPES },
-        title: { check: yamlPlain },
+        // A flaky owner is matched by its row id (src/workflow/flaky-burn-down.ts), so its row is headed by its id.
+        title: { check: titleCheck, forbiddenWhen: (fields) => fields.get("lane") === "flaky-burn-down" },
         state: { required: true, values: TRACKER_ITEM_STATES },
         resolution: { required: closed, forbiddenWhen: (fields) => !closed(fields), values: TRACKER_ITEM_RESOLUTIONS },
         lane: { required: true, values: Object.keys(TRACKER_LANES) },
@@ -300,7 +323,8 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
         severity: { values: TRACKER_ITEM_SEVERITIES },
         area: { list: true, check: yamlPlain },
         evidence: { pattern: /^(?:evidence:\S+|https:\/\/\S+)$/u },
-        gh: { pattern: /^(?:discussion)?#[1-9]\d*$/u },
+        // `issue-31`, never `#31`: YAML reads ` #31` as a comment.
+        gh: { pattern: /^(?:issue|discussion)-[1-9]\d*$/u },
         opened: { required: true, pattern: DATE },
         closed: { required: closed, forbiddenWhen: (fields) => !closed(fields), pattern: DATE },
       },
@@ -311,6 +335,8 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
     const closedOn = parsed.fields.get("closed") ?? "";
     if (DATE.test(opened) && DATE.test(closedOn) && closedOn < opened) problems.push(`${name}: closed ${closedOn} is before opened ${opened}`);
     if (parsed.body.trim().length === 0) problems.push(`${name}: the body is empty`);
+    // A body line shaped like a task row would be a second row on the board, owning failures no item declares.
+    for (const line of parsed.body.split("\n")) if (ROW.test(line)) problems.push(`${name}: the body line ${JSON.stringify(line.trim())} is a task row; a row is an item of its own`);
     const parent = parsed.fields.get("parent");
     if (parent !== undefined && parent.length > 0) parents.set(id, parent);
   }
@@ -363,9 +389,6 @@ export function readTrackerItems(root: string): readonly TrackerItem[] {
 
 // ── The board ───────────────────────────────────────────────────────────────
 
-const MARKDOWN_LINK = /(!?\[[^\]]*\]\()([^)\s]+)((?:\s+"[^"]*")?\))/gu;
-const NOT_RELATIVE = /^(?:[a-z][a-z0-9+.-]*:|\/|#)/iu;
-
 /**
  * `markdown` with every relative link target written from `fromDirectory`
  * rewritten to the same file as seen from `toDirectory` (both
@@ -373,13 +396,7 @@ const NOT_RELATIVE = /^(?:[a-z][a-z0-9+.-]*:|\/|#)/iu;
  * the board's row from the board's.
  */
 export function rebaseRelativeLinks(markdown: string, fromDirectory: string, toDirectory: string): string {
-  return markdown.replace(MARKDOWN_LINK, (whole, open: string, target: string, close: string) => {
-    if (NOT_RELATIVE.test(target)) return whole;
-    const hash = target.indexOf("#");
-    const path = hash < 0 ? target : target.slice(0, hash);
-    const rebased = posix.relative(toDirectory, posix.join(fromDirectory, path)) || ".";
-    return `${open}${rebased}${hash < 0 ? "" : target.slice(hash)}${close}`;
-  });
+  return rewriteRelativeLinks(markdown, fromDirectory, (path, fragment) => `${relativePath(toDirectory, path)}${fragment}`);
 }
 
 /** One item's board row: `- [ ] **<title or id>** — <body>`, its later body lines indented under the dash. */
@@ -405,35 +422,38 @@ export function renderTrackerBoard(items: readonly TrackerItem[]): string {
   return [...open, ...done].join("\n");
 }
 
-/** The board file `text` with its generated block replaced by `board`, or `null` when it carries no (or a torn) block. */
-export function withTrackerBoard(text: string, board: string): string | null {
-  const begin = text.indexOf(TRACKER_BOARD.begin);
-  const end = text.indexOf(TRACKER_BOARD.end);
-  if (begin < 0 || end < begin) return null;
-  return `${text.slice(0, begin + TRACKER_BOARD.begin.length)}\n\n${board}\n${text.slice(end)}`;
-}
-
 export type TrackerBoardReport = Readonly<{
-  status: "current" | "regenerated" | "stale" | "absent";
+  status: "current" | "regenerated" | "stale" | "absent" | "invalid";
   converged: boolean;
   changed: readonly string[];
+  /** Why an `invalid` board cannot be judged or written. */
+  problems: readonly string[];
 }>;
 
 /**
  * Judges (and with `write`, rewrites) the board of the repository at
- * `repositoryRoot` (`harness check` / `harness sync`). A tree without the
- * items folder (a product-only tree) is converged by absence; a board file
- * without its block is refused, never silently left ungenerated.
+ * `repositoryRoot` (`harness check` / `harness sync`). A tree with neither
+ * the items folder nor a board block (a product-only tree) is converged by
+ * absence. INVALID, never written: a board file without its block, a block
+ * without its items folder (deleting the items would otherwise silence the
+ * check), a missing board file, and a task row typed by hand outside the
+ * block (it would own failures no item declares).
  */
 export function syncTrackerBoard(repositoryRoot: string, write: boolean): TrackerBoardReport {
   const path = join(repositoryRoot, TRACKER_BOARD.path);
-  if (!existsSync(join(repositoryRoot, TRACKER_BOARD.items))) return deepFreeze({ status: "absent", converged: true, changed: [] });
-  const text = readFileSync(path, "utf8");
-  const next = withTrackerBoard(text, renderTrackerBoard(readTrackerItems(repositoryRoot)));
-  if (next === null) throw new HarnessError(`${TRACKER_BOARD.path} carries no generated board block (its begin and end markers, TRACKER_BOARD in src/kernel/verification-paths.ts)`, "tracker_board_block_missing");
-  if (next === text) return deepFreeze({ status: "current", converged: true, changed: [] });
-  if (!write) return deepFreeze({ status: "stale", converged: false, changed: [TRACKER_BOARD.path] });
+  const hasItems = existsSync(join(repositoryRoot, TRACKER_BOARD.items));
+  const text = existsSync(path) ? readFileSync(path, "utf8") : null;
+  const invalid = (...problems: string[]): TrackerBoardReport => deepFreeze({ status: "invalid", converged: false, changed: [], problems });
+  const split = text === null ? null : splitGeneratedBlock(text, TRACKER_BOARD);
+  if (!hasItems) return split === null ? deepFreeze({ status: "absent", converged: true, changed: [], problems: [] }) : invalid(`${TRACKER_BOARD.path} carries the generated board block but ${TRACKER_BOARD.items} is missing`);
+  if (text === null) return invalid(`${TRACKER_BOARD.path} is missing while ${TRACKER_BOARD.items} holds the items`);
+  if (split === null) return invalid(`${TRACKER_BOARD.path} carries no generated board block (its begin and end markers, TRACKER_BOARD in src/kernel/verification-paths.ts)`);
+  const handRows = taskRows(`${split.before}\n${split.after}`);
+  if (handRows.length > 0) return invalid(...handRows.map((row) => `${TRACKER_BOARD.path}: the row ${row.id} is typed outside the generated board block; a task is an item file in ${TRACKER_BOARD.items}`));
+  const next = spliceGeneratedBlock(text, TRACKER_BOARD, renderTrackerBoard(readTrackerItems(repositoryRoot)))!;
+  if (next === text) return deepFreeze({ status: "current", converged: true, changed: [], problems: [] });
+  if (!write) return deepFreeze({ status: "stale", converged: false, changed: [TRACKER_BOARD.path], problems: [] });
   const written = atomicWriteFile(path, next);
   if (!written.success) throw new HarnessError(`Failed to write ${TRACKER_BOARD.path}: ${written.reason ?? "unknown error"}`, "tracker_board_write_failed");
-  return deepFreeze({ status: "regenerated", converged: true, changed: [TRACKER_BOARD.path] });
+  return deepFreeze({ status: "regenerated", converged: true, changed: [TRACKER_BOARD.path], problems: [] });
 }
