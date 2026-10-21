@@ -210,7 +210,7 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
         url: url.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
         protocolHeaders: {
           Accept: request.accept ?? GITHUB_JSON_MEDIA_TYPE,
-          Authorization: authorization,
+          ...(authorization === undefined ? {} : { Authorization: authorization }),
           "X-GitHub-Api-Version": GITHUB_API_VERSION,
           "User-Agent": endpoint.userAgent,
           ...(request.body === undefined ? {} : { "Content-Type": "application/json" }),

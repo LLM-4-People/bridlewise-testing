@@ -77,11 +77,13 @@ export type ForgeResponse<T> = Readonly<{
 /**
  * A credential: WHO the requests run as (`principal`, a name for logs and
  * facts, never a secret) and the `Authorization` header value, asked for at
- * call time (a minted token is cached and renewed by its owner).
+ * call time (a minted token is cached and renewed by its owner). `undefined`
+ * sends no header: only GitHub's unauthenticated endpoints (the App manifest
+ * conversion) are called that way.
  */
 export type ForgeCredential = Readonly<{
   principal: string;
-  authorization: (signal: AbortSignal) => Promise<string>;
+  authorization: (signal: AbortSignal) => Promise<string | undefined>;
 }>;
 
 /** Where the API is and how a request is bounded. Every value comes from configuration; the adapter holds no default. */
