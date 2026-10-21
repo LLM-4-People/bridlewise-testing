@@ -100,7 +100,7 @@ The folder lives at `engine/src/shared/`.
 - `stats.ts` is consumed by `engine/src/awareness/fisher-ranking.ts`, `engine/src/evaluation/matrix-executor.ts`, `engine/src/shared/git-churn.ts`.
 - `string-values.ts` is consumed by `engine/src/privacy/responses-observation.ts`, `engine/src/privacy/responses-redaction.ts`, `engine/src/shared/llm/provider-observation.ts`.
 - `test-costs.ts` is consumed by nothing yet.
-- `tree-identity.ts` is consumed by `engine/scripts/tooling/run-tests.ts`.
+- `tree-identity.ts` is consumed by `engine/scripts/tooling/run-tests.ts`, `engine/src/workflow/gates/gates-cli.ts`, `engine/src/workflow/gates/run.ts`.
 - `type-guards.ts` is consumed by `engine/scripts/tooling/run-tests.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/editor/edit-operations.ts`, `engine/src/extensions/extension-manifest.ts`, `engine/src/filesystem/durable-filesystem-internal.ts` and 26 more.
 
 <!-- /consumers:generated -->

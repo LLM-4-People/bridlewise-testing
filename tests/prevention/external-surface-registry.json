@@ -1,20 +1,13 @@
 {
   "schemaVersion": "bridlewise-external-surface-registry/v1",
   "owner": "tests/prevention/external-surface-registry.test.ts",
-  "contract": "AGENTS.md \u2014 Measurement contract: the jurisdiction is the whole app, and anything the floor depends on from outside it must be pinned or measured rather than assumed.",
+  "contract": "AGENTS.md — Measurement contract: the jurisdiction is the whole app, and anything the floor depends on from outside it must be pinned or measured rather than assumed.",
   "universe": {
     "workflows": [
+      ".github/workflows/audit.yml",
       ".github/workflows/ci.yml",
       ".github/workflows/codeql.yml",
-      ".github/workflows/dependency-review.yml",
-      ".github/workflows/docs-links.yml",
-      ".github/workflows/pages.yml",
-      ".github/workflows/promotion-gate.yml",
-      ".github/workflows/reusable-workflow-failure.yml",
-      ".github/workflows/scorecard.yml",
-      ".github/workflows/secret-scan.yml",
-      ".github/workflows/test-shards.yml",
-      ".github/workflows/workflow-failure-issue.yml"
+      ".github/workflows/publish.yml"
     ],
     "build": [
       ".devcontainer/Dockerfile",
@@ -41,15 +34,10 @@
         "version": "v7"
       },
       "usedIn": [
+        ".github/workflows/audit.yml",
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
-        ".github/workflows/dependency-review.yml",
-        ".github/workflows/docs-links.yml",
-        ".github/workflows/pages.yml",
-        ".github/workflows/promotion-gate.yml",
-        ".github/workflows/scorecard.yml",
-        ".github/workflows/secret-scan.yml",
-        ".github/workflows/test-shards.yml"
+        ".github/workflows/publish.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. Dependabot's github-actions updates are configured but paused (open-pull-requests-limit: 0), so a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -62,11 +50,7 @@
       },
       "usedIn": [
         ".github/workflows/ci.yml",
-        ".github/workflows/docs-links.yml",
-        ".github/workflows/pages.yml",
-        ".github/workflows/promotion-gate.yml",
-        ".github/workflows/secret-scan.yml",
-        ".github/workflows/test-shards.yml"
+        ".github/workflows/publish.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The Node tarball it installs is pinned by the node-runtime surface; a moved action SHA is refused until this declaration moves with it."
     },
@@ -78,9 +62,8 @@
         "version": "v7"
       },
       "usedIn": [
-        ".github/workflows/promotion-gate.yml",
-        ".github/workflows/scorecard.yml",
-        ".github/workflows/test-shards.yml"
+        ".github/workflows/audit.yml",
+        ".github/workflows/ci.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. Dependabot's github-actions updates are configured but paused (open-pull-requests-limit: 0), so a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -92,7 +75,7 @@
         "version": "v8.0.2"
       },
       "usedIn": [
-        ".github/workflows/test-shards.yml"
+        ".github/workflows/ci.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The shard plan and shard reports are consumed through this action; a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -128,7 +111,7 @@
         "version": "v4.39.0"
       },
       "usedIn": [
-        ".github/workflows/scorecard.yml"
+        ".github/workflows/audit.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. It shares the pinned CodeQL release with the CodeQL workflow; a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -140,7 +123,7 @@
         "version": "v5.0.0"
       },
       "usedIn": [
-        ".github/workflows/dependency-review.yml"
+        ".github/workflows/ci.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The action reads the dependency diff from the pull request; the lockfiles it reviews are declared dependency-tree surfaces. A moved tag or SHA is refused until this declaration moves with it."
     },
@@ -152,7 +135,7 @@
         "version": "v6"
       },
       "usedIn": [
-        ".github/workflows/pages.yml"
+        ".github/workflows/publish.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. It resolves the Pages base path that the assembler consumes; a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -164,7 +147,7 @@
         "version": "v1"
       },
       "usedIn": [
-        ".github/workflows/pages.yml"
+        ".github/workflows/publish.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The action carries the Jekyll/Ruby builder image; its SHA is the only pin this tree can see for that image, so a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -176,7 +159,7 @@
         "version": "v5"
       },
       "usedIn": [
-        ".github/workflows/pages.yml"
+        ".github/workflows/publish.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The uploaded artifact is the Jekyll output directory; a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -188,7 +171,7 @@
         "version": "v5"
       },
       "usedIn": [
-        ".github/workflows/pages.yml"
+        ".github/workflows/publish.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The Pages service and its environment are provider-managed; the action SHA is the tree-visible pin. A moved tag or SHA is refused until this declaration moves with it."
     },
@@ -200,31 +183,9 @@
         "version": "v2.5.0"
       },
       "usedIn": [
-        ".github/workflows/scorecard.yml"
+        ".github/workflows/audit.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The scorecard checks it runs are upstream data, not a pin; a moved tag or SHA is refused until this declaration moves with it."
-    },
-    {
-      "id": "./.github/workflows/test-shards.yml",
-      "kind": "local-workflow",
-      "pinned": {
-        "path": ".github/workflows/test-shards.yml"
-      },
-      "usedIn": [
-        ".github/workflows/ci.yml"
-      ],
-      "drift": "Local reusable workflow, not an external action. The guard requires the target to exist in the enumerated workflow universe and the call site to be declared here; a call to a workflow outside the universe is refused."
-    },
-    {
-      "id": "./.github/workflows/reusable-workflow-failure.yml",
-      "kind": "local-workflow",
-      "pinned": {
-        "path": ".github/workflows/reusable-workflow-failure.yml"
-      },
-      "usedIn": [
-        ".github/workflows/workflow-failure-issue.yml"
-      ],
-      "drift": "Local reusable workflow, not an external action. The guard requires the target to exist in the enumerated workflow universe and the call site to be declared here; a call to a workflow outside the universe is refused."
     },
     {
       "id": "runner:ubuntu-24.04",
@@ -235,18 +196,26 @@
         "toolchain": "The runner image supplies git, gh, jq, make, gcc, coreutils and the apt archive; those float with the label and are not separately digest-pinned."
       },
       "usedIn": [
+        ".github/workflows/audit.yml",
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
-        ".github/workflows/dependency-review.yml",
-        ".github/workflows/docs-links.yml",
-        ".github/workflows/pages.yml",
-        ".github/workflows/promotion-gate.yml",
-        ".github/workflows/reusable-workflow-failure.yml",
-        ".github/workflows/scorecard.yml",
-        ".github/workflows/secret-scan.yml",
-        ".github/workflows/test-shards.yml"
+        ".github/workflows/publish.yml"
       ],
-      "drift": "The label is provider-managed and its image floats within the 24.04 line. The guard refuses any other runner label in the enumerated workflows, and the shard merge receipt records the runner class it ran on. A larger runner class or a different OS is a deliberate registry edit."
+      "drift": "The label is provider-managed and its image floats within the 24.04 line. The gate catalogue (engine/src/workflow/gates/catalogue.ts, GATE_RUNNER) is its one declaration and every workflow is generated from it; this guard refuses any other runner label in the enumerated workflows. A larger runner class or a different OS is a deliberate catalogue and registry edit."
+    },
+    {
+      "id": "runner:ubuntu-slim",
+      "kind": "runner",
+      "pinned": {
+        "label": "ubuntu-slim",
+        "provider": "GitHub-hosted",
+        "toolchain": "A one-CPU GitHub-hosted container (5 GB; a 15-minute job ceiling) for the API-only jobs (plan, seal); it is never a sandboxed gate runner. Its image floats with the label."
+      },
+      "usedIn": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/publish.yml"
+      ],
+      "drift": "The label is provider-managed and its container image floats. The gate catalogue (API_RUNNER) is its one declaration; only API-only jobs use it, never a gate that runs tests. Another label is a deliberate catalogue and registry edit."
     },
     {
       "id": "node:24.20.0",
@@ -275,11 +244,7 @@
         "package.json",
         "engine/package.json",
         ".github/workflows/ci.yml",
-        ".github/workflows/docs-links.yml",
-        ".github/workflows/pages.yml",
-        ".github/workflows/promotion-gate.yml",
-        ".github/workflows/secret-scan.yml",
-        ".github/workflows/test-shards.yml"
+        ".github/workflows/publish.yml"
       ],
       "drift": "The guard requires .node-version and .nvmrc to equal 24.20.0 and every workflow setup-node to read .nvmrc (node-version-file), refusing a workflow that spells an exact node-version; the two floor manifests to share >=24.18.0 <25.0.0; and every declared verification manifest to keep its exact 24.18.0 pin inside that floor range. Any tracked package.json with an engines.node outside this declaration is refused. A Node move changes the two pin files and the manifests."
     },
@@ -306,11 +271,9 @@
         "install": "npm ci --no-audit --no-fund"
       },
       "usedIn": [
-        ".github/workflows/ci.yml",
-        ".github/workflows/test-shards.yml",
-        ".github/workflows/promotion-gate.yml",
         ".devcontainer/devcontainer.json",
-        "Makefile"
+        "Makefile",
+        ".github/workflows/ci.yml"
       ],
       "drift": "The lockfile must exist, carry lockfileVersion 3 and an integrity hash on every non-link package; the guard refuses npm install/update in the enumerated install path. `npm ci` itself fails a manifest/lock disagreement in CI."
     },
@@ -325,11 +288,9 @@
         "install": "npm --prefix engine ci --no-audit --no-fund"
       },
       "usedIn": [
-        ".github/workflows/ci.yml",
-        ".github/workflows/test-shards.yml",
-        ".github/workflows/promotion-gate.yml",
         ".devcontainer/devcontainer.json",
-        "Makefile"
+        "Makefile",
+        ".github/workflows/ci.yml"
       ],
       "drift": "The lockfile must exist, carry lockfileVersion 3 and an integrity hash on every non-link package; the guard refuses npm install/update in the enumerated install path. `npm ci` itself fails a manifest/lock disagreement in CI."
     },
@@ -408,15 +369,15 @@
       "id": "pages:jekyll",
       "kind": "build-path",
       "pinned": {
-        "workflow": ".github/workflows/pages.yml",
+        "workflow": ".github/workflows/publish.yml",
         "assembler": "scripts/assemble-floor-site.mjs",
         "configSource": "product/docs/_config.yml, checked out at run time; not tracked in this repository",
         "builder": "actions/jekyll-build-pages, pinned by SHA in the github-action surface"
       },
       "usedIn": [
-        ".github/workflows/pages.yml",
         "scripts/assemble-floor-site.mjs",
-        "scripts/floor/site.mjs"
+        "scripts/floor/site.mjs",
+        ".github/workflows/publish.yml"
       ],
       "drift": "The Jekyll builder is the SHA-pinned actions/jekyll-build-pages action. The site config and plugin set are product-owned and resolved at run time, so the assembler is forbidden from adding plugins:, gems: or remote_theme:. The guard checks that prohibition and the declared build_revision handoff; a new plugin path is refused until this declaration says how it is pinned."
     },
@@ -429,7 +390,7 @@
         "resolvedCommitRecorded": true
       },
       "usedIn": [
-        ".github/workflows/pages.yml"
+        ".github/workflows/publish.yml"
       ],
       "drift": "Not pinned by SHA: the site mirrors the product docs, so the default ref follows main and the resolved commit is passed to Jekyll as build_revision. The guard requires this one declared expression and refuses any other literal branch ref. This is a declared content input, never a code-execution input; it is listed in knownExceptions."
     },
@@ -443,9 +404,9 @@
       },
       "usedIn": [
         ".github/workflows/ci.yml",
-        ".github/workflows/test-shards.yml"
+        ".github/workflows/codeql.yml"
       ],
-      "drift": "The exact package version is runner-image-specific, so the runner label and this name are the pin. The guard refuses any apt package not declared here and any install line the declaration does not name. The compiler itself is declared once, by engine/guardian/Makefile (CC := gcc-14), and both call sites (.github/workflows/ci.yml and .github/workflows/test-shards.yml) install this package and invoke that owner without a CC= literal. This is listed in knownExceptions; the owner is the guardian build owner."
+      "drift": "The exact package version is runner-image-specific, so the runner label and this name are the pin. The guard refuses any apt package not declared here and any install line the declaration does not name. The compiler itself is declared once, by engine/guardian/Makefile (CC := gcc-14), and every generated call site (.github/workflows/ci.yml and .github/workflows/codeql.yml, from the gate catalogue) install this package and invoke that owner without a CC= literal. This is listed in knownExceptions; the owner is the guardian build owner."
     },
     {
       "id": "apt:build-essential",
@@ -485,7 +446,7 @@
     {
       "surface": "pages:product-docs-ref",
       "reason": "The docs site mirrors the product documentation, so the ref follows main by design; the resolved commit is recorded as the Jekyll build revision. It is a content input, not a code-execution input.",
-      "owner": ".github/workflows/pages.yml"
+      "owner": ".github/workflows/publish.yml"
     },
     {
       "surface": "apt:gcc-14",

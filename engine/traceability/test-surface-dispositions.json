@@ -3821,6 +3821,38 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/gates/cells.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/workflow/gates/plan.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/workflow/gates/workflows.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/workflow/gates/yaml.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/gating-never-subtracts.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4061,14 +4093,6 @@
       "blocksFullRepositoryClaim": false
     },
     {
-      "path": "test/workflow/tracker-items.test.ts",
-      "language": "javascript-typescript",
-      "disposition": "canonical-node-test",
-      "rationale": "Auto-registered by npm test auto-heal.",
-      "evidenceLinks": [],
-      "blocksFullRepositoryClaim": false
-    },
-    {
       "path": "test/workflow/tree-landing.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4189,5 +4213,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "67dc32eea419917973a2e0479f0d0469444b44a38a7a4ac13cc7a5406ac6a85f"
+  "integrityHash": "1205fc70a61757a5df0bb56c258cfd1b547530dbef57801376065915d1bc477a"
 }

@@ -1,5 +1,7 @@
 # External-surface audit — third parties and build tooling
 
+> **Status, 2026-10-21:** every workflow is now generated from the gate catalogue (`engine/src/workflow/gates/`); the hand-written files this audit cites by line were deleted, and their pins and runner labels live in the catalogue's `ACTION_PINS` and runner classes. The rows below are the audit as taken.
+
 Date: 2026-10-20. Base: `4f958ef1` (`public/testing`). Work branch: `agent/external-surface`.
 
 The measurement contract's jurisdiction is the whole app. This audit covers the

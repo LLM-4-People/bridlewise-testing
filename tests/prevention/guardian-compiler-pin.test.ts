@@ -25,7 +25,8 @@ import { describe, expect, test } from "vitest";
 
 const MAKEFILE = "engine/guardian/Makefile";
 const BUILD = "engine/guardian/build.ts";
-const WORKFLOWS = [".github/workflows/ci.yml", ".github/workflows/test-shards.yml"] as const;
+/** The generated workflows that build the guardian (the gate catalogue's `gcc-14` toolchain and CodeQL's C/C++ build). */
+const WORKFLOWS = [".github/workflows/ci.yml", ".github/workflows/codeql.yml"] as const;
 const REGISTRY = "tests/prevention/external-surface-registry.json";
 
 function declaredCompiler(): string {
