@@ -558,6 +558,10 @@ export const { MAXIMUM_DESCRIPTION_BYTES } = engineSpans(ledgerPrimitives, "ledg
 // private copy in a sink is a second byte-measuring routine that can accept
 // what the store refuses.
 export const { truncateForLedger } = engineSpans(ledgerPrimitives, "ledger-primitives");
+// The ledger's canonical sequence grammar. Re-exported so a trust boundary
+// validating a cursor judges it against the SAME grammar the store parses,
+// rather than re-spelling the pattern in a second place that can drift.
+export const { DECIMAL_SEQUENCE_PATTERN } = engineSpans(ledgerPrimitives, "ledger-primitives");
 // The ledger's per-document byte default. The same rationale: a writer that
 // bounds documents against anything else is bounding against a number the
 // store may not enforce.

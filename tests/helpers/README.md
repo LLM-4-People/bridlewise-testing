@@ -24,6 +24,7 @@ The `tests/helpers/` folder of the development surface.
 - `history-page.ts` — tHE PAGE FACTS A FAKE `/history`.
 - `http-server.ts` — shared HTTP test-server lifecycle helper. 14+ integration tests.
 - `json-request.ts` — shared JSON HTTP request helper for integration tests. 9+ integration test files each defined their own `async function req()` to send a.
+- `memory-storage.ts` — the working `Storage` double for the node environment (write then read back) plus `RefusingStorage`, whose `setItem` throws the way a full or private-mode browser refuses a write.
 - `migrate-path-literals.ts` — migrate prevention guards off hardcoded product-path literals onto the module resolver.
 - `mock-http.ts` — shared HTTP mock primitives for tests that exercise.
 - `module-resolver.ts` — tHE SINGLE OWNER OF "WHERE DOES A PRODUCT MODULE LIVE". ── THE DEFECT THIS OWNER ENDS ──────────────────────────────────────────── A module's.

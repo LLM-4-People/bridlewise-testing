@@ -551,9 +551,10 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   request_path_malformed: 400,
   // The timeline query owner's bounds (engine/src/timeline/timeline-query.ts):
   // a sequence is a canonical decimal in the ledger's range, and a wall-time
-  // bound is a canonical ISO-8601 instant the store can compare. Both were
-  // passed through before round 4 — one became a BigInt/SQLite 500, the other
-  // a confident empty page. They are client-input refusals, hence 400.
+  // bound is a canonical ISO-8601 instant the store can compare. A bound that
+  // does not parse is a client-input refusal (400), never a 500 from a raw
+  // BigInt/SQLite comparison or an empty page from a lexicographic wall-time
+  // comparison.
   timeline_query_sequence_invalid: 400,
   timeline_query_wall_time_invalid: 400,
   body_too_large: 413,        // BodySizeLimitError

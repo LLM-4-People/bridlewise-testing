@@ -398,6 +398,10 @@ describe("the kept-alive editor room's draft binding survives every excursion", 
     resetProjects();
     authState.set(initialAuth);
     cleanup();
+    // Undo this block's `vi.stubGlobal("ResizeObserver")` in the same file
+    // that installed it: the DOM project shares one registry per worker
+    // (`isolate: false`), so the inert constructor must not outlive the test.
+    vi.unstubAllGlobals();
   });
 
   test("A. type → hide → show → type — the excursion costs the binding nothing", async () => {

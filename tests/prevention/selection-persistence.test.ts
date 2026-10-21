@@ -5,8 +5,8 @@
  * and the last active chat is restored (not "chats only load when I click").
  *
  * This test exercises the real persistence module + nanostores. In Node there
- * is no localStorage, so the helpers degrade to no-ops — the test installs a
- * mock localStorage to verify the save/restore cycle.
+ * is no localStorage, so the helpers degrade to no-ops — the test installs the
+ * shared in-memory Storage double to verify the save/restore cycle.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { atom } from "nanostores";
@@ -18,20 +18,10 @@ import {
   restoreBooleanAtom,
   persistBooleanAtom,
 } from "../../src/state/persistence";
-
-// Minimal localStorage mock for Node.
-class MockStorage {
-  private store = new Map<string, string>();
-  get length(): number { return this.store.size; }
-  key(index: number): string | null { return [...this.store.keys()][index] ?? null; }
-  getItem(k: string): string | null { return this.store.get(k) ?? null; }
-  setItem(k: string, v: string): void { this.store.set(k, v); }
-  removeItem(k: string): void { this.store.delete(k); }
-  clear(): void { this.store.clear(); }
-}
+import { MemoryStorage } from "../helpers/memory-storage.ts";
 
 beforeEach(() => {
-  (globalThis as { localStorage: Storage }).localStorage = new MockStorage();
+  (globalThis as { localStorage: Storage }).localStorage = new MemoryStorage();
 });
 
 afterEach(() => {

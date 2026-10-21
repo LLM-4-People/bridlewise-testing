@@ -18,7 +18,7 @@
  *
  * never weaken/fake. hard, realistic input.
  */
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { resolve } from "node:path";
 import { validateUiControlAction, describeUiControlAction, UI_CONTROL_ACTION_NAMES, UI_CONTROL_PANEL_NAMES, UI_CONTROL_THEME_NAMES } from "../../server/tools/ui-control.ts";
 import { getToolManifest } from "../../server/tools/tools-bridge.ts";
@@ -29,9 +29,11 @@ import {
   pendingShellView,
 } from "../../src/cockpit/shell/view-request.ts";
 import { localValue, setLocalPref } from "../../src/cockpit/settings/local-prefs.ts";
+import { ClientError } from "../../src/data/errors.ts";
 import { closeRightMenu, rightMenu } from "../../src/cockpit/shell/right-menu.ts";
 import { TAB_ROUTE_VALUES } from "../../shared/routes.ts";
 import { read } from "../helpers/source-scan.ts";
+import { MemoryStorage, RefusingStorage } from "../helpers/memory-storage.ts";
 // The run path is FIVE modules since the executor was split out of the GET
 // handler that used to be it. This guard asks about the run path, not about
 // whichever file happened to hold the answer when it was written.
@@ -39,6 +41,18 @@ import { runPathSource } from "../helpers/run-source.ts";
 
 import { modulePathMatching } from "../helpers/module-resolver.ts";
 const root = resolve(import.meta.dirname, "../..");
+
+// Node has no Web Storage, and the device-preference owner confirms every
+// write by reading it back. These cases therefore install a working in-memory
+// Storage — a write must be visible to the next read — and remove it in the
+// same file: the node project isolates module registries, not `globalThis`.
+beforeEach(() => {
+  vi.stubGlobal("localStorage", new MemoryStorage());
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe("control_interface — validation (server/ui-control.ts)", () => {
   it("set_tab with a valid tab validates", () => {
     expect(validateUiControlAction({ action: "set_tab", tab: "timeline" })).toEqual({ action: "set_tab", tab: "timeline" });
@@ -268,5 +282,23 @@ describe("control_interface — client listener + apply", () => {
     expect(() => setLocalPref("cockpit.theme", "carbon")).not.toThrow();
     expect(() => setLocalPref("cockpit.theme", "logbook")).not.toThrow();
     setLocalPref("cockpit.theme", "carbon");
+  });
+
+  it("set_theme: a storage that refuses the write throws and keeps the previous value", () => {
+    setLocalPref("cockpit.theme", "logbook");
+    // A full/private-mode browser throws from `setItem`, and the read-back
+    // still answers the stored value. The owner must report that as a typed
+    // refusal and revert the paint — never claim a save that lives only in
+    // the atom.
+    vi.stubGlobal("localStorage", new RefusingStorage());
+    let refusal: unknown;
+    try {
+      applyUiControlAction({ action: "set_theme", theme: "dark" });
+    } catch (error) {
+      refusal = error;
+    }
+    expect(refusal, "a refused write must reach the caller as a typed failure").toBeInstanceOf(ClientError);
+    expect((refusal as ClientError).code).toBe("storage_refused");
+    expect(localValue("cockpit.theme"), "the kept value is the stored one").toBe("logbook");
   });
 });

@@ -36,11 +36,10 @@ import { sendJson } from "../router/router.ts";
 import { assertValidBody } from "../router/validate.ts";
 import { getTimelineQuery } from "../observability/timeline-bridge.ts";
 import type { AsyncDbClient } from "../db/async-client.ts";
-import type { QueryOptions } from "../kernel/canonical.ts";
+import { DECIMAL_SEQUENCE_PATTERN, type QueryOptions } from "../kernel/canonical.ts";
 import { requireUserContext } from "../auth/user-context.ts";
 import { BadRequestError } from "../kernel/errors.ts";
 import { resolveTimelineScope } from "../observability/timeline-scope.ts";
-import { DECIMAL_SEQUENCE_PATTERN } from "../../engine/src/timeline/ledger-primitives.ts";
 import { TIMELINE_QUERY_LIMIT } from "../../shared/constants.ts";
 
 /** The query owner's typed refusals about a bound it could not understand. */

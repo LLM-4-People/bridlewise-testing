@@ -161,6 +161,10 @@ const SELF_CONTAINED = [
 afterEach(() => {
   cleanup();
   artifactErrors.forget(`editor:${ROOT}/index.html`);
+  // Undo the per-mount `ResizeObserver` stub here, in the file that installs
+  // it: the DOM project shares one registry per worker (`isolate: false`), so
+  // a stub left behind would be the next file's inherited global.
+  vi.unstubAllGlobals();
 });
 
 // ── A. THE PAGE FRAME IS WATCHED ─────────────────────────────────────────
