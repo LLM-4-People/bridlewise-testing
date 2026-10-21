@@ -196,7 +196,7 @@ test("a second copy of the formula in ANOTHER FUNCTION of the producer's module 
   // The duplicate scan used to skip the whole producer module, so the one
   // legitimate spelling and a planted second copy in a sibling function were
   // equally invisible. Only the producer symbol's own body span is exempt.
-  const producerPath = "engine/src/shared/ambient-load.ts";
+  const producerPath = modulePathMatching("ambient-load.ts");
   const source = WORLD.sources.get(producerPath);
   expect(source).toBeDefined();
   const planted = `${source}\nexport function plantSecondDivision(load1: number, cpuCount: number): number {\n  return load1 / cpuCount;\n}\n`;

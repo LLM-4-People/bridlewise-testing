@@ -610,7 +610,11 @@ describe("error-debug owner — the debug config wiring census", () => {
     const indexSrc = readFileSync(modulePathMatching("server/index.ts"), "utf8");
     expect(indexSrc).toContain("resolveWebDebugBootstrap()");
     expect(indexSrc).toMatch(/if \(debugBootstrap\.install\)/);
-    expect(indexSrc).toMatch(/configureWebDebug\([\s\S]{0,120}debugBootstrap\.base/);
+    // The call's argument NAMES, not a window: the install decision passes the
+    // resolved base as its first argument. Assert the call shape itself.
+    expect(indexSrc.replace(/\r\n/g, "\n")).toContain(
+      "configureWebDebug(\n    debugBootstrap.base",
+    );
     // The old gate — `if (debugEnabled())` deciding the bootstrap at the
     // call site — is the bypass this census exists to refuse: the env read
     // belongs to the resolver, never to the boot.
