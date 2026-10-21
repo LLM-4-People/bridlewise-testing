@@ -684,8 +684,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "workflow-harness-commands", path: "src/workflow/harness-commands.ts",
       realm: "runtime", layer: "interface", owner: "verification-workflow",
-      publicApi: { exportCount: 55, namesSha256: "29129f935d642665ad90d77db9b6d3b175787133dc2902e59afabcbb393ef5b0" },
-      dependencies: ["node:child_process","node:fs","node:path","node:sqlite","node:url","src/evaluation/cli.ts","src/extensions/extension-manifest.ts","src/filesystem/atomic-write.ts","src/filesystem/journaled-commit.ts","src/git/declared-deletions.ts","src/git/index-baseline.ts","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/kernel/test-surface-manifest.ts","src/kernel/verification-paths.ts","src/performance/benchmark-cli.ts","src/performance/configured-performance.ts","src/performance/diagnostic-cli.ts","src/performance/metrics-collector.ts","src/runtime/cli-debug.ts","src/runtime/harness-bootstrap.ts","src/shared/source-scan.ts","src/timeline/recording-context.ts","src/timeline/rollback.ts","src/timeline/timeline-store.ts","src/workflow/auto-generator.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/evidence-store.ts","src/workflow/flake-cli.ts","src/workflow/format-command.ts","src/workflow/hash-binding-registry.ts","src/workflow/module-registrar.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/promote-cli.ts","src/workflow/record-links.ts","src/workflow/repository-registry.ts","src/workflow/resource-lock.ts","src/workflow/slot-cli.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts","src/workflow/workspace-cli.ts"],
+      publicApi: { exportCount: 57, namesSha256: "8ac4fd239cbd328a458326491b5b3cd0e469ea6142747c3dc672638b117d68c1" },
+      dependencies: ["node:child_process","node:fs","node:path","node:sqlite","node:url","scripts/verification/architecture.ts","src/architecture-manifest.ts","src/evaluation/cli.ts","src/extensions/extension-manifest.ts","src/filesystem/atomic-write.ts","src/filesystem/journaled-commit.ts","src/git/declared-deletions.ts","src/git/index-baseline.ts","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/architecture-external-commands.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/kernel/test-surface-manifest.ts","src/kernel/verification-paths.ts","src/performance/benchmark-cli.ts","src/performance/configured-performance.ts","src/performance/diagnostic-cli.ts","src/performance/metrics-collector.ts","src/runtime/cli-debug.ts","src/runtime/harness-bootstrap.ts","src/shared/source-scan.ts","src/timeline/recording-context.ts","src/timeline/rollback.ts","src/timeline/timeline-store.ts","src/workflow/auto-generator.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/evidence-store.ts","src/workflow/flake-cli.ts","src/workflow/format-command.ts","src/workflow/hash-binding-registry.ts","src/workflow/module-registrar.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/promote-cli.ts","src/workflow/record-links.ts","src/workflow/repository-registry.ts","src/workflow/resource-lock.ts","src/workflow/slot-cli.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts","src/workflow/workspace-cli.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
       effects: ["child-process", "filesystem-read", "filesystem-write", "git", "process-status"],
       ports: { requires: ["test-result-collection", "module-registration", "auto-generation", "resource-locking"], provides: ["harness-commands"] },
@@ -1100,8 +1100,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "architecture-verification", path: "scripts/verification/architecture.ts", realm: "builder",
-      layer: "verification", owner: "verification", publicApi: { exportCount: 7, namesSha256: "43bbf739173ca2de42b22f81bd2817c9b76e098e492c6399837643694b0acdb2" },
-      dependencies: ["node:path","scripts/verification/effect-surface.ts","scripts/verification/filesystem-cache.ts","scripts/verification/static-source.ts","src/architecture-manifest.ts","src/kernel/integrity.ts","src/kernel/ordered.ts","src/quality-packs/prevention/ast-helpers.ts","src/shared/source-scan.ts","src/shared/type-guards.ts","src/workflow/workflow-config.ts"],
+      layer: "verification", owner: "verification", publicApi: { exportCount: 8, namesSha256: "74f5b124c6874f4f67144fbcb59e72a131c0f8cb2256964668868fc441592440" },
+      dependencies: ["node:path","scripts/verification/effect-surface.ts","scripts/verification/filesystem-cache.ts","scripts/verification/static-source.ts","src/architecture-manifest.ts","src/kernel/architecture-external-commands.ts","src/kernel/integrity.ts","src/kernel/ordered.ts","src/quality-packs/prevention/ast-helpers.ts","src/shared/source-scan.ts","src/shared/type-guards.ts","src/workflow/workflow-config.ts"],
       executionBoundary: "verification", ports: { requires: [], provides: ["architecture-analysis"] },
       responsibilities: ["module-graph-and-ownership-analysis"],
     }),
@@ -1567,8 +1567,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "artifact-admission-verification", path: "scripts/tooling/verification/artifact-admission.ts", realm: "builder",
       layer: "verification", owner: "artifact-governance",
-      publicApi: { exportCount: 8, namesSha256: "494372a3211f567467044a8915773431209349a43941245c354db8c91cb7cf40" },
-      dependencies: ["node:fs","node:path","scripts/verification/candidate-format.ts","scripts/tooling/verification/rejected-binary-fixture.ts","scripts/verification/safe-repository-reader.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/kernel/ordered.ts","src/kernel/root-policy.ts","src/privacy/secret-signals.ts","zod"],
+      publicApi: { exportCount: 9, namesSha256: "b1a064049304bc5f99eae56a968c7fdf474c92e1b8744b362f2d0ab1cfb27a40" },
+      dependencies: ["node:fs","node:path","scripts/tooling/verification/rejected-binary-fixture.ts","scripts/verification/candidate-format.ts","scripts/verification/safe-repository-reader.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/kernel/ordered.ts","src/kernel/root-policy.ts","src/privacy/secret-signals.ts","zod"],
       executionBoundary: "verification", effects: ["filesystem-read"],
       ports: { requires: ["lossless-rejected-binary-fixture-verification", "safe-repository-read"], provides: ["artifact-admission-analysis"] },
       responsibilities: ["important-artifact-inventory-integrity-and-admission-analysis"],
@@ -1624,7 +1624,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "hash-binding-registry", path: "src/workflow/hash-binding-registry.ts", realm: "shared",
       layer: "domain", owner: "verification-workflow",
       publicApi: { exportCount: 30, namesSha256: "1c394e1c5b63d2e30036dd54134581f6c0f2c44e944b88ee865f5671ff5cf115" },
-      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/filesystem/self-protection/guardian-build-stamp.ts","src/forensics/forensic-contracts.ts","src/forensics/offline-forensics.ts","src/git/repository-ownership.ts","src/kernel/architecture-external-commands.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/requirements.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts"],
+      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/filesystem/self-protection/guardian-build-stamp.ts","src/forensics/forensic-contracts.ts","src/forensics/offline-forensics.ts","src/git/repository-ownership.ts","src/kernel/architecture-external-commands.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/requirements.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/workflow/byte-pin-objects.ts"],
       executionBoundary: "effect-adapter",
       effects: ["filesystem-read", "filesystem-write"],
       ports: { requires: [], provides: ["hash-binding-registry"] },
@@ -4817,7 +4817,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "scripts-pin-authority-regeneration", path: "scripts/pin-authority-regeneration.ts", realm: "builder", layer: "verification",
       owner: "verification", publicApi: { exportCount: 9, namesSha256: "c6e61b7e005c1c93800799a14abdbad8f515a33e04ce674b1852cc4e0fcc21e9" },
-      dependencies: ["@babel/parser","node:fs","node:path","node:url","scripts/regenerate-handoff-manifest.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/runtime/cli-debug.ts"],
+      dependencies: ["@babel/parser","node:fs","node:path","node:url","scripts/regenerate-handoff-manifest.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/runtime/cli-debug.ts","src/workflow/byte-pin-objects.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
     }),
     moduleContract({
@@ -5557,8 +5557,13 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-kernel-architecture-external-commands", path: "src/kernel/architecture-external-commands.ts", realm: "shared", layer: "trusted-kernel",
-      owner: "architecture", publicApi: { exportCount: 1, namesSha256: "8bbfc982eb1d39e37f13c6e5c57e716a96f6656415141b94416a216a000b7236" },
+      owner: "architecture", publicApi: { exportCount: 3, namesSha256: "33144408ec1b3460841106c20afc8072cee1a1763576557d42bca695887a3ca7" },
       dependencies: ["src/kernel/integrity.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-byte-pin-objects", path: "src/workflow/byte-pin-objects.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 3, namesSha256: "d6a6ec63bc6aac11618d88e922df82fdbfa3ed3cb9c243b880d0ed217e25baa4" },
+      dependencies: ["@babel/parser"],
     }),
   ],
 });

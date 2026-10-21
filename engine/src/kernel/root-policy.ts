@@ -1366,9 +1366,32 @@ const ROOT_POLICY_VALUE = {
      */
     binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "8c8f4d6a2359678b7f8a4d1056f9e985b455e139800e5649dd1a03ce6f78d4eb",
+    bundleSha256: "2696d3367ed8337bd252b379953334471eb16f69b0e43762d0b04180fe15a2ab",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
+    /**
+     * THE SOURCE HALF OF THE SPEC-SCHEMA PIN.
+     *
+     * `specSchemaArtifactSha256` above is the digest of the PUBLISHED Draft
+     * 2020-12 projection; it compares the artifact with the schema it was
+     * projected from only through `harness sync`'s rebuild of that projection.
+     * A Zod constraint the projection cannot express (a `.refine`, a
+     * `superRefine`) changes runtime admission without changing the JSON
+     * schema at all, so the artifact and its pin stayed green while the
+     * guardian's admission did not.
+     *
+     * This literal is the digest of `self-protection-contracts.ts` ITSELF, the
+     * module that owns `GUARDIAN_SPEC_SCHEMA` (`specSchemaSourcePath`). The
+     * `root-policy-self-protection-spec-schema-source-sha256` binding in
+     * `src/workflow/hash-binding-registry.ts` checks it, and `harness sync`
+     * re-derives it after the schema moves — so a refinement-only change is
+     * visible in the commit gate even when the published artifact cannot
+     * represent it. The two pins answer two questions: the artifact pin says
+     * "the published projection is current", this one says "the source that
+     * decides admission is the reviewed source".
+     */
+    specSchemaSourcePath: "src/filesystem/self-protection/self-protection-contracts.ts",
+    specSchemaSourceSha256: "13e5d2112ef059ae3efac6ab66668b6d06a1210bdd5068e9bd3473cf0492255f",
     /**
      * RELATIVE TO THE HARNESS ROOT — the tree that holds `dist/bundle.js` and
      * `guardian/build/…` above, never the repository root.
@@ -2231,10 +2254,10 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "7ae8604f6de70ed67d24de2006e9b07f84f49005b1bb72ccbb9fe2b140dc8300",
+    testInventoryHash: "9450dbedab10675e8cf9d20c0317384749861ed75ec24b3fd19ab25f309a83e0",
     testSurfaceDispositionBinding: {
-      fileSha256: "89792952ec83f3450dbefcaab3c4323a630f0253a922de1023dcf1c5e5f4fc56",
-      identityHash: "687f190a5271b26a76b6f998b808bd2182bc0f1b2d79174630cb9db83b4e156b",
+      fileSha256: "c7cfa404b8628c0fbcdc5e8c7984b81edd6d58386a846ef833b95191f386399a",
+      identityHash: "39987b48fff595bfa455422c55090586d1f16385205d103d92479850a8251f9a",
     },
     testDiscovery: {
       inventoryScope: {

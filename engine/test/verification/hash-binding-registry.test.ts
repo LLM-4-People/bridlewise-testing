@@ -7,7 +7,7 @@ import test from "node:test";
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { computeGuardianBuildStamp } from "../../src/filesystem/self-protection/guardian-build-stamp.ts";
-import { EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, README_CONSUMER_BLOCK, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+import { EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { pinAuthorities } from "../../scripts/pin-authority-regeneration.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
@@ -20,6 +20,7 @@ import {
   generatedReadmePaths,
   isGenerationOnlyChange,
   listAllBindings,
+  regeneratedPinRanges,
   repairAllBindings,
   repairBinding,
   stripRegeneratedPins,
@@ -31,6 +32,10 @@ import {
   type HashBinding,
 } from "../../src/workflow/hash-binding-registry.ts";
 import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
+import {
+  PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256,
+  publishedExternalCommandPopulationHash,
+} from "../../src/kernel/architecture-external-commands.ts";
 
 const ROOT = process.cwd();
 
@@ -282,6 +287,8 @@ test("HashBindingRegistry: repairAllBindings repairs all stale bindings and veri
         `      bundleSha256: "${"0".repeat(64)}",`,
         '      specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",',
         `      specSchemaArtifactSha256: "${"0".repeat(64)}",`,
+        `      specSchemaSourcePath: "${ROOT_POLICY.selfProtection.specSchemaSourcePath}",`,
+        `      specSchemaSourceSha256: "${"0".repeat(64)}",`,
         "    },",
       ].join("\n") + "\n",
     );
@@ -303,6 +310,8 @@ test("HashBindingRegistry: repairAllBindings repairs all stale bindings and veri
     // one, so the digest is taken with it normalised out.
     writeRelative(tmpRoot, "dist/bundle.js", `const policy = { bundleSha256: "${"9".repeat(64)}" };\n`);
     writeRelative(tmpRoot, "traceability/self-protection/guardian-spec-schema.json", '{"schema":"guardian-spec"}\n');
+    // The spec-schema SOURCE pin (the module that decides guardian admission).
+    writeRelative(tmpRoot, ROOT_POLICY.selfProtection.specSchemaSourcePath, "export const SCHEMA = 1;\n");
     writeRelative(
       tmpRoot,
       engineModuleSourceRelative("kernel/requirements.ts"),
@@ -837,14 +846,30 @@ test("HashBindingRegistry: pin normalisation is owner-derived — a regenerated 
   );
 });
 
-test("HashBindingRegistry: every 64-hex literal in a suite-regenerated TypeScript module is binding-owned or in a declared AUTHORED PINS region", () => {
-  const modules = [...suiteRegeneratedPaths()]
+test("HashBindingRegistry: every 64-hex literal in a suite-regenerated or pin-authority TypeScript module is owner-derived or in a declared AUTHORED PINS region", () => {
+  // The pin-authority modules are re-derived by the driver and are generated
+  // outputs, but no registry binding targets them, so the old population (the
+  // binding targets only) never looked at the literals inside them. A
+  // `sha256:` value appended there in the pin field's shape was exempted from
+  // every lease check and no guard saw it.
+  const modules = [...new Set([
+    ...suiteRegeneratedPaths(),
+    ...Object.values(PIN_AUTHORITY_PATHS).map((path) => `engine/${path}`),
+  ])]
     .filter((path) => path.startsWith("engine/") && path.endsWith(".ts") && !wholesaleGeneratedPaths().has(path));
   assert.ok(modules.length > 0, "the suite-regenerated module population came back empty — a guard over nothing certifies nothing");
+  const pinAuthorityModules = Object.values(PIN_AUTHORITY_PATHS).filter((path) => path.endsWith(".ts"));
+  assert.ok(pinAuthorityModules.length > 0, "no TypeScript pin authority is registered — the added population is empty");
+  assert.ok(
+    pinAuthorityModules.every((path) => modules.includes(`engine/${path}`)),
+    "the guard population must include every registered pin-authority module",
+  );
   for (const repositoryPath of modules) {
     const targetPath = repositoryPath.slice("engine/".length);
     const text = readFileSync(join(ROOT, targetPath), "utf8");
-    const ownedStarts = new Set(bindingPinRanges(targetPath, text).map((range) => range.start));
+    // The owners' own locators: a binding's findRegex AND the pin-authority
+    // driver's structural byte-pin reader.
+    const ownedStarts = new Set(regeneratedPinRanges(targetPath, text).map((range) => range.start));
     const authoredStarts = new Set(authoredPinRanges(text).map((range) => range.start));
     for (const match of text.matchAll(HEX_64_GLOBAL)) {
       assert.ok(
@@ -855,10 +880,54 @@ test("HashBindingRegistry: every 64-hex literal in a suite-regenerated TypeScrip
   }
 });
 
+test("HashBindingRegistry: a pin-authority module's non-driver sha256 literal is an authored change, never an exempt regeneration", () => {
+  const authority = pinAuthorities().find((entry) => !entry.testingOnly);
+  assert.ok(authority, "no product pin authority is registered — the arm has no subject");
+  const repositoryPath = `engine/${authority!.targetPath}`;
+  const text = readFileSync(join(ROOT, authority!.targetPath), "utf8");
+  // A REGENERATION-ONLY EDIT: one real byte-pin's digest restated.
+  const driverOwned = regeneratedPinRanges(repositoryPath, text);
+  assert.ok(driverOwned.length > 0, "the structural reader located no byte-pin in the registered authority");
+  const pin = driverOwned[0]!;
+  const restamped = `${text.slice(0, pin.start)}${"0".repeat(64)}${text.slice(pin.end)}`;
+  assert.equal(
+    isGenerationOnlyChange(repositoryPath, text, restamped),
+    true,
+    "a byte-pin the driver re-derives is a regeneration, not a source edit",
+  );
+  // THE DEFECT'S SHAPE: a `sha256:` literal with no path/byteLength sibling is
+  // not a byte-pin. It must survive normalization and refuse the exemption.
+  const injected = `${text}
+export const SMUGGLED_SHA256 = { sha256: "${"a".repeat(64)}" } as const;
+`;
+  assert.equal(
+    isGenerationOnlyChange(repositoryPath, text, injected),
+    false,
+    "an appended sha256 literal the driver does not own is an authored source edit",
+  );
+  assert.ok(
+    stripRegeneratedPins(repositoryPath, injected).includes("a".repeat(64)),
+    "an unowned sha256 literal must survive normalization",
+  );
+});
+
 test("HashBindingRegistry: every published architecture external command's sourceSha256 is a derived, unique binding", () => {
   const manifestPath = "src/kernel/architecture-external-commands.ts";
   const manifest = readFileSync(join(ROOT, manifestPath), "utf8");
   const published = ARCHITECTURE_MANIFEST.externalCommands.filter((command) => command.publication === "published");
+  // THE FLOOR IS THE PINNED POPULATION, not "at least one exists". The old
+  // floor (`published.length > 0`) was satisfied by a set the same module had
+  // just declared: flipping both helper defaults to `not-published` left it
+  // with zero published commands, zero bindings and a green guard. The
+  // authored population pin is a value those helpers cannot move, so the same
+  // demotion now reds here.
+  assert.equal(
+    publishedExternalCommandPopulationHash(),
+    PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256,
+    `the published external-command population (${String(published.length)} commands) moved off its authored pin. ` +
+      "A demotion to not-published, a removal or an addition removes commands from verification; record the " +
+      "deliberate population change in PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256 with the command that moved.",
+  );
   assert.ok(published.length > 0, "the manifest declares no published external command — this guard would be vacuous");
   const bindings = listAllBindings().filter((binding) => binding.targetPath === manifestPath);
   assert.equal(bindings.length, published.length, "one registry binding per published external command");

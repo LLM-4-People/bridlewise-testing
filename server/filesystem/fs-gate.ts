@@ -64,6 +64,7 @@ import { ROOT_POLICY, resolveLocation, pathHasSecondName, identityOverlapIndex, 
 import { serverKeepOutPolicy } from "../safety/host-facts.ts";
 
 import { ForbiddenError, PathTraversalError, BadRequestError, WebError, ProjectPathError, wireMessage } from "../kernel/errors.ts";
+import { InputError } from "../../engine/src/kernel/errors.ts";
 import { webWarn } from "../observability/debug-bridge.ts";
 import { serverConfig } from "../kernel/config.ts";
 import type { AsyncDbClient } from "../db/async-client.ts";
@@ -593,7 +594,10 @@ export async function makeFsGateForRow(
   let rowLocation: string | null = null;
   try {
     rowLocation = resolveLocation(row.path, "the project's stored path");
-  } catch {
+  } catch (error) {
+    // A refused stored path is a decided denial (the row is not held here).
+    // An unexpected error is not: refusing it as "null" would hide a bug.
+    if (!(error instanceof InputError)) throw error;
     rowLocation = null;
   }
   const holder = rowLocation === null ? null : await db.projectAtPath(rowLocation);
@@ -616,7 +620,8 @@ export async function makeFsGateForRow(
         ) {
           decision = row;
         }
-      } catch {
+      } catch (error) {
+        if (!(error instanceof InputError)) throw error;
         decision = null;
       }
     }

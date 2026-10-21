@@ -76,7 +76,7 @@ source.
 
 The folder lives at `engine/scripts/verification/`.
 
-- `architecture.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/src/workflow/module-registrar.ts`.
+- `architecture.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/module-registrar.ts`.
 - `authority-graph.ts` is consumed by nothing yet.
 - `candidate-format.ts` is consumed by `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/repository-git.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-execution.ts`, `engine/scripts/tooling/verification/artifact-admission.ts`, `engine/scripts/tooling/verification/rejected-binary-fixture.ts` and 1 more.
 - `catch-blocks.ts` is consumed by `engine/scripts/verification/ratchet-baselines.ts`.

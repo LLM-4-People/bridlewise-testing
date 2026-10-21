@@ -13,6 +13,7 @@ import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_
 import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
 import { ownedFiles } from "../git/repository-ownership.ts";
 import { ARCHITECTURE_EXTERNAL_COMMANDS } from "../kernel/architecture-external-commands.ts";
+import { bytePinSha256Ranges } from "./byte-pin-objects.ts";
 
 /**
  * Central hash-binding registry — the single source of truth for every
@@ -466,6 +467,31 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     hashMode: { kind: "file-sha256" },
     findRegex: String.raw`(?<=specSchemaArtifactSha256: ")${SHA256_HEX}(?=")`,
   },
+  {
+    /**
+     * THE SCHEMA SOURCE — the half of the guardian's admission the published
+     * projection cannot see.
+     *
+     * The artifact binding above hashes the JSON projection. A Zod refinement
+     * (`.refine`) is not representable in Draft 2020-12, and `z.toJSONSchema`
+     * omits it: the projection, the artifact and the artifact pin stay
+     * byte-identical while runtime admission changed. That was the gap — the
+     * gate covered the JSON projection only. This binding hashes the MODULE
+     * that owns the schema, so any source change (a refinement included) moves
+     * the pin and reds `harness check`'s hash-bindings step until
+     * `harness sync` re-derives it. The pin is the reviewed source the
+     * guardian's admission is compiled from, not a second derivation of the
+     * schema's meaning.
+     */
+    id: "root-policy-self-protection-spec-schema-source-sha256",
+    description: "src/filesystem/self-protection/self-protection-contracts.ts bytes -> root-policy.ts selfProtection.specSchemaSourceSha256",
+    sourcePath: ROOT_POLICY.selfProtection.specSchemaSourcePath,
+    sourceOrigin: { kind: "repository-source" },
+    targetPath: ROOT_POLICY.sourcePath,
+    targetKind: "typescript",
+    hashMode: { kind: "file-sha256" },
+    findRegex: String.raw`(?<=specSchemaSourceSha256: ")${SHA256_HEX}(?=")`,
+  },
   ...externalCommandSourceBindings(),
 ]);
 
@@ -751,15 +777,30 @@ function isPinAuthorityTarget(targetPath: string): boolean {
 
 /**
  * The `{path, byteLength, sha256}` pin literals the pin-authority driver
- * re-derives in a source-authority file (its structural locator keys on the
- * `sha256` field, so this normalizer does too).
+ * re-derives in a source-authority file.
+ *
+ * ── THE STRUCTURE, NOT THE FIELD NAME ─────────────────────────────────────
+ *
+ * This used to match ANY `sha256: "<64 hex>"` field in a registered
+ * pin-authority module. The driver does not: it rewrites the `sha256` of an
+ * object that ALSO carries a string `path` and a numeric `byteLength`, and
+ * only when that path names a live file. So an authored value written in the
+ * same shape — `export const PROBE = { sha256: "<64 hex>" }` — was normalized
+ * away and the change that added it was judged `isGenerationOnlyChange`,
+ * exempting it from the lease and write-set checks while the driver never
+ * owned it. The ranges now come from the driver's own structural reader
+ * (`byte-pin-objects.ts`, shared with `scripts/pin-authority-regeneration.ts`),
+ * so the normalizer and the writer cannot disagree about what a pin is.
  */
 function pinAuthorityRanges(text: string): readonly BindingPinRange[] {
-  return [...text.matchAll(/sha256\s*:\s*"([0-9a-f]{64})"/gu)].map((match) => ({
-    literal: match[1]!,
-    start: match.index! + match[0].indexOf(match[1]!),
-    end: match.index! + match[0].indexOf(match[1]!) + match[1]!.length,
-  }));
+  try {
+    return bytePinSha256Ranges(text);
+  } catch (error) {
+    throw new HarnessError(
+      `pin-authority source is not parseable TypeScript: ${error instanceof Error ? error.message : String(error)}`,
+      "hash_binding_pin_source_invalid",
+    );
+  }
 }
 
 /**

@@ -20,7 +20,7 @@
  */
 import type { ArchitectureExternalCommand } from "../architecture-manifest.ts";
 
-import { deepFreeze } from "./integrity.ts";
+import { canonicalHash, deepFreeze } from "./integrity.ts";
 
 type ExternalCommandInput = Omit<ArchitectureExternalCommand, "disposition" | "exposure" | "language" | "publication">;
 
@@ -250,3 +250,43 @@ export const ARCHITECTURE_EXTERNAL_COMMANDS: readonly ArchitectureExternalComman
     sourceSha256: "8d20dcf7a41dc4b936a0f256f8200b07d13700dfec779ca6bdc7b2a2b2c58924",
   }),
 ]);
+
+/**
+ * THE POPULATION PIN — a CONSERVATION identity over the sorted PUBLISHED set
+ * (`id`, `path`, `publication`), not over the sources.
+ *
+ * ── WHY THIS EXISTS ──────────────────────────────────────────────────────
+ *
+ * `publication` was self-declared and nothing compared the declared
+ * population to a recorded one. Demoting a command to `not-published` in this
+ * file therefore removed its source binding (the registry derives bindings
+ * from a `publication === "published"` filter), skipped the verifier's
+ * content check, and `harness check` reported "architecture manifest is in
+ * sync" — the check certified the population it had just been handed. A
+ * command could leave the verified population, or be added to it, by editing
+ * the very field that decides membership.
+ *
+ * The hash is AUTHORED, not generated: `harness regenerate` cannot restate
+ * it, so a demotion, removal or addition reds the check until a human records
+ * the population change here. That is the point — the published set is a
+ * reviewed declaration, not a value a sync pass may rewrite.
+ */
+export function publishedExternalCommandPopulationHash(
+  commands: readonly ArchitectureExternalCommand[] = ARCHITECTURE_EXTERNAL_COMMANDS,
+): string {
+  return canonicalHash(
+    commands
+      .filter((command) => command.publication === "published")
+      .map((command) => ({ id: command.id, path: command.path, publication: command.publication }))
+      .toSorted((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
+  );
+}
+
+// The SHA-256 of the sorted published population above, at this revision.
+// A mismatch is `architecture-external-command-publication-population-drift`:
+// re-derive it deliberately (`publishedExternalCommandPopulationHash()`) and
+// record the new population here with the command that moved.
+// BEGIN AUTHORED PINS
+export const PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256 =
+  "c5bb7e1af0775dba1704b5410f2cc6be0ef522ca7effbab04855ea7f75b96373";
+// END AUTHORED PINS

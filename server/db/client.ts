@@ -102,6 +102,7 @@ import { sha256 } from "../kernel/digest.ts";
 // here. This module still reads no env vars of its own.
 import { serverConfig } from "../kernel/config.ts";
 import { ValidationError, ForbiddenError, ConflictError, WebError } from "../kernel/errors.ts";
+import { InputError } from "../../engine/src/kernel/errors.ts";
 import { webWarn } from "../observability/debug-bridge.ts";
 
 // ── Configurables ──
@@ -1138,7 +1139,11 @@ export class DbClient {
       let storedLocation: string;
       try {
         storedLocation = resolveLocation(stored, "a stored project path");
-      } catch {
+      } catch (error) {
+        // A stored path the resolver REFUSES is not this project's location
+        // (a decided denial). Anything else is a bug the loop must not
+        // swallow: rethrow it instead of treating it as "no match".
+        if (!(error instanceof InputError)) throw error;
         continue;
       }
       if (storedLocation === location) {

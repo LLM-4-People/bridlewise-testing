@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   verifyArchitectureSources,
+  verifyExternalCommands,
   type ArchitectureSource,
 } from "../../scripts/verification/architecture.ts";
 import {
@@ -12,6 +13,10 @@ import {
   type ArchitectureExternalCommand,
   type ArchitectureManifest,
 } from "../../src/architecture-manifest.ts";
+import {
+  PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256,
+  publishedExternalCommandPopulationHash,
+} from "../../src/kernel/architecture-external-commands.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
 
 // Regression coverage for MAJOR finding M2: `verifyExternalCommands` must
@@ -176,6 +181,46 @@ test("architecture-external-commands: shell command hash verified", () => {
     [{ path: shellCommand.path, source: `${shellSource}# tampered\n` }],
   );
   assert.ok(drifted.violations.includes(`architecture-external-command-source-hash-drift:${shellCommand.path}`));
+});
+
+test("architecture-external-commands: a demotion to not-published leaves the verified population and reds the conservation pin", () => {
+  const command = makeExternalCommand();
+  const manifest = makeManifest([command]);
+  const pinnedPopulation = publishedExternalCommandPopulationHash([command]);
+  // A manifest that still matches its own pin is green on the population arm.
+  const current: string[] = [];
+  verifyExternalCommands(manifest, new Map(), current, [{ path: command.path, source: PYTHON_SOURCE }], pinnedPopulation);
+  assert.equal(current.includes("architecture-external-command-publication-population-drift"), false);
+  // THE DEFECT'S SHAPE: demote the command and keep its source. The registry
+  // would drop its binding and the content verifier would stop checking it;
+  // the population identity is the value that cannot move with the field.
+  const demoted = makeManifest([{ ...command, publication: "not-published" }]);
+  const violations: string[] = [];
+  verifyExternalCommands(demoted, new Map(), violations, [{ path: command.path, source: PYTHON_SOURCE }], pinnedPopulation);
+  assert.ok(
+    violations.includes("architecture-external-command-publication-population-drift"),
+    `a demotion must move the population off its pinned value, got: ${JSON.stringify(violations)}`,
+  );
+  assert.ok(
+    violations.includes(`architecture-external-command-source-unexpectedly-published:${command.path}`),
+    "the demoted command's present source is an unexpected publication",
+  );
+  // The pinned population is over the sorted (id, path, publication) tuple, so
+  // a path or id move reds even when the count is unchanged.
+  const moved = makeManifest([{ ...command, path: "verification/benchmarks/test/moved.py" }]);
+  const movedViolations: string[] = [];
+  verifyExternalCommands(moved, new Map(), movedViolations, [], pinnedPopulation);
+  assert.ok(movedViolations.includes("architecture-external-command-publication-population-drift"));
+});
+
+test("architecture-external-commands: the real inventory's published population equals its authored pin", () => {
+  const published = ARCHITECTURE_MANIFEST.externalCommands.filter((command) => command.publication === "published");
+  assert.ok(published.length > 0, "the inventory declares no published command — the pin would certify an empty set");
+  assert.equal(
+    publishedExternalCommandPopulationHash(),
+    PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256,
+    "the published external-command population moved without a deliberate authored pin update",
+  );
 });
 
 test("architecture-external-commands: real repository matches the manifest and its publication boundary", () => {

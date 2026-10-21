@@ -161,6 +161,9 @@ export function artifactAdmissionViolations(input: ArtifactAdmissionInput): read
     canonicalHash(manifest.managedRoots) !== canonicalHash(ROOT_POLICY.artifactGovernance.governedRoots)) {
     violations.push("artifact-admission-policy-drift");
   }
+  // The provenance clauses are part of THIS policy, so every consumer of the
+  // admission check (S1, the check's artifact arm) reads one answer.
+  violations.push(...artifactProvenanceViolations(manifest));
 
   const entryByPath = uniqueMap(manifest.entries, (entry) => entry.path, "artifact-path-duplicate", violations);
   uniqueMap(manifest.entries, (entry) => entry.id, "artifact-id-duplicate", violations);
@@ -274,9 +277,20 @@ export function verifyArtifactAdmission(input: ArtifactAdmissionInput, violation
   violations.push(...artifactAdmissionViolations(input));
 }
 
+/**
+ * Build the canonical inventory from the governed roots.
+ *
+ * `generatedAt` is the timestamp a NEW (or byte-changed) artifact is captured
+ * at; it is NOT the document's `generatedAt`. The document's stamp is derived
+ * from the resulting entries (the latest `capturedAt`), so a hand edit of the
+ * document's stamp cannot be reproduced by a later build. `previousManifest`
+ * supplies the historical RECORD: a prior origin is reused only when it
+ * matches a pinned origin shape ({@link artifactProvenanceViolations}).
+ */
 export function buildArtifactAdmissionManifest(input: Readonly<{
   root: SafeRepositoryRootAccessInput;
   paths?: readonly string[];
+  /** The capture stamp new entries receive; the document's stamp is derived from the entries. */
   generatedAt: string;
   previousManifest?: unknown;
 }>): ArtifactAdmissionManifest {
@@ -329,6 +343,13 @@ export function buildArtifactAdmissionManifest(input: Readonly<{
     }
     const digest = sha256(bytes);
     const prior = previousByHash.get(digest);
+    // A prior origin is a RECORD only when it matches a pinned shape. The
+    // bytes matching a digest says nothing about who produced them, so an
+    // edited `producingTool`/`license` is not "the prior origin": it is an
+    // unadmitted claim, and this capture replaces it with the mechanical one.
+    const origin = prior !== undefined && admittedOriginShape(prior.origin, path) !== undefined
+      ? prior.origin
+      : mechanicalOrigin(path, input.generatedAt);
     const authorityStatus = authorityStatusFor(path);
     const artifactType = artifactTypeFor(path);
     const historical = path.includes("/historical-");
@@ -339,15 +360,7 @@ export function buildArtifactAdmissionManifest(input: Readonly<{
       artifactType,
       authorityStatus,
       authorityKey: `${authorityStatus}:${path}`,
-      origin: prior?.origin ?? {
-        kind: "governed-repository-admission-capture",
-        capturedAt: input.generatedAt,
-        producingTool: "canonical-artifact-manifest-generator",
-        producingModel: "not-applicable-mechanical-inventory-generation",
-        toolVersion: "artifact-admission/v1",
-        configuration: "ROOT_POLICY.artifactGovernance",
-        license: licenseFor(path),
-      },
+      origin,
       integrity: { byteLength: bytes.length, sha256: digest },
       contentFormat,
       relations: relationsFor(path),
@@ -380,11 +393,18 @@ export function buildArtifactAdmissionManifest(input: Readonly<{
       mayEstablishEvidence: contentFormat !== "rejected-binary-fixture",
     };
   });
+  // `generatedAt` is DERIVED from the record it stamps: the latest capture.
+  // The producer must never read it back from the previous document — that is
+  // how a hand-edited timestamp became "the value this run produced".
+  const generatedAt = entries.reduce(
+    (latest, entry) => entry.origin.capturedAt > latest ? entry.origin.capturedAt : latest,
+    "",
+  );
   return ARTIFACT_ADMISSION_MANIFEST_SCHEMA.parse({
     schemaVersion: "bridlewise-artifact-admission/v3",
     role: "canonical-important-artifact-inventory",
     policyHash: canonicalHash(ROOT_POLICY.artifactGovernance),
-    generatedAt: input.generatedAt,
+    generatedAt,
     managedRoots,
     selfPath: ARTIFACT_MANIFEST_PATH,
     entries,
@@ -437,6 +457,136 @@ function licenseFor(path: string): string {
     return "project-internal-research-primary-source-identities-in-docs/research/git/qualification/sources.lock.json";
   }
   return "project-internal-no-external-redistribution-license-asserted";
+}
+
+/**
+ * THE ADMITTED ORIGIN SHAPES — the pinned record that makes `origin` a claim
+ * with an authority rather than a value the document carries about itself.
+ *
+ * ── THE DEFECT THESE CLOSE ───────────────────────────────────────────────
+ *
+ * The producer reused a prior entry's `origin` whenever the BYTES matched its
+ * digest, and `artifact-manifest.ts` read `generatedAt` back out of the
+ * document. So a hand-edited `origin.producingTool`, `origin.license` or
+ * `generatedAt` was "produced" by the next regeneration, `--check` compared
+ * the edit with itself, and nothing refused it — while the same bytes were
+ * refused by `artifactAdmissionViolations` when it saw them. `origin.license:
+ * "unknown"` was current to the producer and inadmissible to the policy.
+ *
+ * ── WHAT IS DERIVED AND WHAT IS A RECORD ─────────────────────────────────
+ *
+ * A LICENSE that is not mechanical is a historical fact: the intake captures
+ * (37 files) and the pinned upstream captures (15) record the licence they
+ * arrived under, and the one builder-produced finding records its turn. Those
+ * shapes are pinned HERE, with the exact producer/model/version/licence that
+ * may appear. The mechanical capture shape is the default the generator
+ * stamps on new bytes, and its licence comes from {@link licenseFor}, the one
+ * path authority.
+ *
+ * A prior origin is reused only when it MATCHES one of these shapes for that
+ * path. Anything else is not a record — it is an unadmitted claim, refused by
+ * the check (`artifact-origin-not-admitted`) and replaced by a fresh
+ * mechanical capture when the producer writes. A capture cannot be laundered
+ * into another shape by a sync pass, and `generatedAt` is no longer read from
+ * the document at all (it is the latest `capturedAt`).
+ */
+type ArtifactOriginShape = Readonly<{
+  id: string;
+  kind: string;
+  producingTool: string;
+  producingModel: string;
+  toolVersion: string;
+  configuration: string;
+  /** The literal licence, or `null` for the mechanical capture (which uses `licenseFor(path)`). */
+  license: string | null;
+}>;
+
+const ARTIFACT_ORIGIN_SHAPES: readonly ArtifactOriginShape[] = deepFreeze([
+  {
+    id: "mechanical-admission-capture",
+    kind: "governed-repository-admission-capture",
+    producingTool: "canonical-artifact-manifest-generator",
+    producingModel: "not-applicable-mechanical-inventory-generation",
+    toolVersion: "artifact-admission/v1",
+    configuration: "ROOT_POLICY.artifactGovernance",
+    license: null,
+  },
+  {
+    id: "scratch-intake-byte-preservation",
+    kind: "governed-scratch-intake-byte-preservation",
+    producingTool: "repository-admission-copy",
+    producingModel: "not-applicable-mechanical-byte-copy",
+    toolVersion: "artifact-admission/v1",
+    configuration: "exact-byte-preservation-with-explicit-exclusions",
+    license: "project-internal-research-no-external-redistribution-license-asserted",
+  },
+  {
+    id: "pinned-public-primary-source",
+    kind: "pinned-public-primary-source",
+    producingTool: "upstream-source-capture",
+    producingModel: "not-applicable",
+    toolVersion: "source-manifest-bound",
+    configuration: "traceability-source-manifest",
+    license: "bound-by-adjacent-source-license-and-manifest",
+  },
+  {
+    id: "builder-artifact",
+    kind: "governed-repository-artifact",
+    producingTool: "multi-agent-builder",
+    producingModel: "exact-agent-model-metadata-not-exposed",
+    toolVersion: "builder-turn-2026-07-12",
+    configuration: "root-policy-and-requirements-bound",
+    license: "project-internal-or-explicit-adjacent-source-license",
+  },
+]);
+
+/** The admitted shape an origin matches for this path, or `undefined` for an unadmitted claim. */
+function admittedOriginShape(
+  origin: ArtifactAdmissionManifest["entries"][number]["origin"],
+  path: string,
+): ArtifactOriginShape | undefined {
+  return ARTIFACT_ORIGIN_SHAPES.find((shape) =>
+    origin.kind === shape.kind &&
+    origin.producingTool === shape.producingTool &&
+    origin.producingModel === shape.producingModel &&
+    origin.toolVersion === shape.toolVersion &&
+    origin.configuration === shape.configuration &&
+    origin.license === (shape.license ?? licenseFor(path)));
+}
+
+/** The origin a fresh (or byte-changed) artifact is captured with: the mechanical shape, licence from the path authority. */
+function mechanicalOrigin(path: string, capturedAt: string): ArtifactAdmissionManifest["entries"][number]["origin"] {
+  const shape = ARTIFACT_ORIGIN_SHAPES[0]!;
+  return {
+    kind: shape.kind,
+    capturedAt,
+    producingTool: shape.producingTool,
+    producingModel: shape.producingModel,
+    toolVersion: shape.toolVersion,
+    configuration: shape.configuration,
+    license: licenseFor(path),
+  };
+}
+
+/**
+ * THE PROVENANCE POLICY — the shared checks every artifact admission runs:
+ * every origin is one of the pinned shapes (never an edited claim), and the
+ * document's `generatedAt` is DERIVED from the entries (the latest capture),
+ * never read back from the document.
+ */
+export function artifactProvenanceViolations(manifest: ArtifactAdmissionManifest): readonly string[] {
+  const violations: string[] = [];
+  let latestCapture = "";
+  for (const entry of manifest.entries) {
+    if (admittedOriginShape(entry.origin, entry.path) === undefined) {
+      violations.push(`artifact-origin-not-admitted:${entry.id}`);
+    }
+    if (entry.origin.capturedAt > latestCapture) latestCapture = entry.origin.capturedAt;
+  }
+  if (manifest.generatedAt !== latestCapture) {
+    violations.push("artifact-generated-at-not-derived-from-captures");
+  }
+  return deepFreeze([...new Set(violations)].toSorted());
 }
 
 function relationsFor(path: string): ArtifactAdmissionManifest["entries"][number]["relations"] {

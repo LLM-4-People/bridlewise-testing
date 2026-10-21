@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { rmSync, writeFileSync, mkdirSync, readFileSync, appendFileSync, symlinkSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync, mkdirSync, readFileSync, appendFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -13,6 +13,7 @@ import {
   runBundleBuildStep,
   regenerateReadmeConsumers,
   harnessNewModule,
+  runArchitectureCheck,
   runInventoryCheck,
   wrapCommandError,
   runHarnessCli,
@@ -24,6 +25,7 @@ import {
   evidenceIgnoreStep,
   frozenRecordsStep,
 } from "../../src/workflow/harness-commands.ts";
+import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
 import { HARNESS_COMMAND_SCHEMA_VERSION, parseHarnessCommandResult, resultHasFail, type HarnessCommandResult } from "../../src/workflow/command-result.ts";
 import { collectTestResults } from "../../src/workflow/test-result-collector.ts";
 import { HarnessError, InputError } from "../../src/kernel/errors.ts";
@@ -398,6 +400,63 @@ test("HarnessCommands: harnessCheck architecture step detects drift", async () =
   assert.ok(["pass", "fail"].includes(result.result.architecture.status));
 });
 
+test("HarnessCommands: the architecture step gates the external-command inventory's sources and its publication boundary", () => {
+  const copy = createRepositoryWorkingCopy("external-command-check-", { include: engineGeneratorPopulation });
+  const engine = copy.engineRoot;
+  try {
+    const baseline = runArchitectureCheck(engine);
+    assert.equal(baseline.status, "pass", `a clean copy must be in sync: ${baseline.message}`);
+    // The old step ran only the module registrar: an edited external-command
+    // source left "architecture manifest is in sync".
+    const published = ARCHITECTURE_MANIFEST.externalCommands.find((command) => command.publication === "published");
+    assert.ok(published, "the inventory must publish at least one command for this arm");
+    const publishedPath = join(engine, published.path);
+    const original = readFileSync(publishedPath, "utf8");
+    writeFileSync(publishedPath, `${original}\n# a source edit the old step never read\n`);
+    const drifted = runArchitectureCheck(engine);
+    assert.equal(drifted.status, "fail", "a published source edit must red the architecture step");
+    assert.match(drifted.message, /architecture-external-command-source-hash-drift/u);
+    writeFileSync(publishedPath, original);
+
+    // A DECLARED ABSENCE stays green; a source that APPEARS at its path is a
+    // boundary breach, not a hash to compare.
+    const notPublished = ARCHITECTURE_MANIFEST.externalCommands.find((command) => command.publication === "not-published");
+    assert.ok(notPublished, "the inventory must declare a not-published boundary for this arm");
+    const absentPath = join(engine, notPublished.path);
+    assert.equal(existsSync(absentPath), false, "the public snapshot must not carry the not-published source");
+    mkdirSync(join(engine, notPublished.path.slice(0, notPublished.path.lastIndexOf("/"))), { recursive: true });
+    writeFileSync(absentPath, "# accidentally published\n");
+    const unexpectedly = runArchitectureCheck(engine);
+    assert.equal(unexpectedly.status, "fail", "a not-published source that appears must red the step");
+    assert.match(unexpectedly.message, /architecture-external-command-source-unexpectedly-published/u);
+    rmSync(absentPath);
+    assert.equal(runArchitectureCheck(engine).status, "pass", "restoring the boundary restores the step");
+  } finally {
+    removeRepositoryLocalTemporaryDirectory(copy.root);
+  }
+});
+
+test("HarnessCommands: a deleted governed artifact is refused by the check's artifact arm, with the way out named", async () => {
+  const copy = createRepositoryWorkingCopy("artifact-prune-gate-", { include: engineGeneratorPopulation });
+  const engine = copy.engineRoot;
+  try {
+    const options = { skipTypecheck: true, skipArchitecture: true, skipInventory: true } as const;
+    const baseline = await harnessCheck(engine, options);
+    assert.equal(baseline.result.artifactManifest.status, "pass", baseline.result.artifactManifest.message);
+    // THE DEFECT: the producer used to rebuild the inventory from the surviving
+    // files (500 -> 499 entries), the byte compare then agreed with itself, and
+    // the check went green with no supersession record.
+    const removed = "verification/benchmarks/runtime/schemas/README.md";
+    rmSync(join(engine, removed));
+    const drifted = await harnessCheck(engine, options);
+    assert.equal(drifted.result.artifactManifest.status, "fail", "a dropped artifact must red the check");
+    assert.match(drifted.result.artifactManifest.message, /artifact-manifest refused/u);
+    assert.match(drifted.result.artifactManifest.message, /--prune verification\/benchmarks\/runtime\/schemas\/README\.md/u);
+  } finally {
+    removeRepositoryLocalTemporaryDirectory(copy.root);
+  }
+});
+
 test("HarnessCommands: harnessCheck inventory step checks inventory hash", async () => {
   const result = await checkInventoryOnly();
   assert.ok(["pass", "fail", "skip"].includes(result.result.inventory.status));
@@ -448,14 +507,36 @@ test("HarnessCommands: the published guardian spec-schema artifact is gated — 
     assert.notEqual(mutated, source, "the mutation must change the schema");
     writeFileSync(schemaPath, mutated);
     const drifted = await harnessCheck(engine, options);
-    // THE EVIDENCE THAT THE OLD GATE WAS VACUOUS: the file-sha256 binding still
-    // passes, because the published artifact and its root-policy pin are stale
-    // TOGETHER. Only a rebuild of the projection sees the contract drift.
-    assert.equal(drifted.result.hashBindings.status, "pass", "artifact and pin agree with each other, not with the schema");
+    // THE OLD GATE HASHED THE PROJECTION ONLY: the artifact binding compares
+    // the published JSON with itself, so an edit the projection can represent
+    // was caught only by the projection rebuild. The source pin now sees the
+    // schema module itself, so the same edit also reds hash-bindings.
+    assert.equal(drifted.result.hashBindings.status, "fail", "the schema source pin must see the edit");
     assert.equal(drifted.result.guardianSpecArtifact.status, "fail", "a schema change must red the check");
     const generator = join(engine, "scripts", "verification", "guardian-spec-artifact.ts");
     execFileSync(process.execPath, [generator, "--write"], { cwd: engine, stdio: "pipe" });
     execFileSync(process.execPath, [generator, "--check"], { cwd: engine, stdio: "pipe" });
+    // Restore the source and the projection, then plant the refinement the
+    // projection CANNOT express: the artifact stays byte-identical (so the old
+    // gate was green) while runtime admission changed. The source pin reds.
+    writeFileSync(schemaPath, source);
+    execFileSync(process.execPath, [generator, "--write"], { cwd: engine, stdio: "pipe" });
+    const restored = await harnessCheck(engine, options);
+    assert.equal(restored.result.hashBindings.status, "pass", "restoring the source restores its pin");
+    assert.equal(restored.result.guardianSpecArtifact.status, "pass");
+    const refined = source.replace(
+      "abi_version_hint: z.number().int().nonnegative().max(64),",
+      "abi_version_hint: z.number().int().nonnegative().max(64).refine((value) => value !== 63),",
+    );
+    assert.notEqual(refined, source, "the refinement mutation must change the schema source");
+    writeFileSync(schemaPath, refined);
+    const refinementOnly = await harnessCheck(engine, options);
+    assert.equal(
+      refinementOnly.result.guardianSpecArtifact.status,
+      "pass",
+      "the JSON projection cannot represent a refinement — this is why the artifact-only gate was incomplete",
+    );
+    assert.equal(refinementOnly.result.hashBindings.status, "fail", "the schema source pin must see a refinement-only change");
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
   }

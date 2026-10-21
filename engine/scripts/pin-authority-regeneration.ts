@@ -27,7 +27,7 @@
  */
 
 import { readFileSync, existsSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseTypeScriptSource } from "@babel/parser";
 
@@ -40,6 +40,7 @@ import {
 } from "./regenerate-handoff-manifest.ts";
 import { bootstrapProcess, isEntryPoint } from "../src/runtime/cli-debug.ts";
 import { PIN_AUTHORITY_PATHS } from "../src/kernel/verification-paths.ts";
+import { eachBytePinObject, type BytePinObject } from "../src/workflow/byte-pin-objects.ts";
 
 /** One measured pin: the semantic identity (`path`, `role`) plus the byte facts. */
 export type PinMeasurement = Readonly<{
@@ -87,70 +88,70 @@ function numericLiteral(value: number): string {
   return value.toString(10).replace(NUMERIC_GROUP, "_");
 }
 
-/**
- * Walk a Babel AST and yield every object expression that carries a string
- * `path` property AND numeric `byteLength` AND 64-hex `sha256` properties —
- * the structural signature of a byte-pin, however it is nested or ordered.
- * This is the robust replacement for a regex over source text: a regex keys
- * on field ORDER and whitespace and silently misses a pin written in a
- * different (still valid) shape; the AST keys on what the object IS.
- */
-function* eachBytePinObject(node: unknown): Generator<{
-  path: string;
-  byteLength: number;
-  sha256: string;
-  byteLengthNode: { start: number; end: number; raw: string };
-  sha256Node: { start: number; end: number; raw: string };
-}> {
-  if (node === null || typeof node !== "object") return;
-  if (Array.isArray(node)) {
-    for (const item of node) yield* eachBytePinObject(item);
-    return;
+/** A byte-pin whose target path has been resolved to a string this driver can read. */
+type MeasuredPin = BytePinObject & Readonly<{ path: string }>;
+
+/** The initializer behind `as const` / `satisfies` / parentheses. */
+function unwrapInitializer(node: unknown): Record<string, unknown> | undefined {
+  let current = node as Record<string, unknown> | undefined;
+  while (current && ["TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "ParenthesizedExpression"]
+    .includes(current.type as string)) {
+    current = current.expression as Record<string, unknown> | undefined;
   }
-  const record = node as Record<string, unknown> & { type?: string };
-  if (record.type === "ObjectExpression" && Array.isArray(record.properties)) {
-    const props = (record.properties as Array<Record<string, unknown>>).filter(
-      (p) => p.type === "ObjectProperty",
-    );
-    const keyOf = (p: Record<string, unknown>): string | undefined => {
-      const k = p.key as Record<string, unknown> | undefined;
-      return k && (k.type === "Identifier" ? (k.name as string) : k.type === "StringLiteral" ? (k.value as string) : undefined);
-    };
-    const pathProp = props.find((p) => keyOf(p) === "path");
-    const byteProp = props.find((p) => keyOf(p) === "byteLength");
-    const shaProp = props.find((p) => keyOf(p) === "sha256");
-    const pathValue = pathProp?.value as Record<string, unknown> | undefined;
-    const byteValue = byteProp?.value as Record<string, unknown> | undefined;
-    const shaValue = shaProp?.value as Record<string, unknown> | undefined;
-    if (
-      pathValue?.type === "StringLiteral" &&
-      byteValue?.type === "NumericLiteral" &&
-      shaValue?.type === "StringLiteral" &&
-      /^[0-9a-f]{64}$/u.test(shaValue.value as string)
-    ) {
-      const byteExtra = byteValue.extra as Record<string, unknown> | undefined;
-      const shaExtra = shaValue.extra as Record<string, unknown> | undefined;
-      yield {
-        path: pathValue.value as string,
-        byteLength: byteValue.value as number,
-        sha256: shaValue.value as string,
-        byteLengthNode: {
-          start: byteValue.start as number,
-          end: byteValue.end as number,
-          raw: (byteExtra?.raw as string) ?? String(byteValue.value),
-        },
-        sha256Node: {
-          start: shaValue.start as number,
-          end: shaValue.end as number,
-          raw: (shaExtra?.raw as string) ?? `"${shaValue.value}"`,
-        },
-      };
+  return current;
+}
+
+/** Every `const NAME = "<string>"` declaration in one module's parse, by name. */
+function stringConstantsOf(program: unknown): ReadonlyMap<string, string> {
+  const constants = new Map<string, string>();
+  const body = (program as { program?: { body?: readonly unknown[] } }).program?.body ?? [];
+  for (const statement of body) {
+    const record = statement as Record<string, unknown>;
+    const declaration = (record.type === "ExportNamedDeclaration" ? record.declaration : record) as
+      Record<string, unknown> | undefined;
+    if (declaration?.type !== "VariableDeclaration") continue;
+    for (const declarator of (declaration.declarations as readonly Record<string, unknown>[]) ?? []) {
+      const id = declarator.id as Record<string, unknown> | undefined;
+      const initializer = unwrapInitializer(declarator.init);
+      if (id?.type === "Identifier" && initializer?.type === "StringLiteral") {
+        constants.set(id.name as string, initializer.value as string);
+      }
     }
   }
-  for (const key of Object.keys(record)) {
-    if (key === "loc" || key === "start" || key === "end" || key === "range" || key === "extra" || key === "leadingComments" || key === "trailingComments" || key === "innerComments") continue;
-    yield* eachBytePinObject(record[key]);
+  return constants;
+}
+
+/**
+ * The `path:` SYMBOLS a target's relative imports resolve to a string. A pin
+ * may write `path: FOUNDATION_CASCADE_TEST_WORKER_PATH` instead of a literal;
+ * the structural reader names the symbol, and this resolves it through the
+ * target's own import graph (one level — the catalogs export plain string
+ * constants). Without it those pins were silently filtered out of the
+ * measurement, so the driver never re-derived them.
+ */
+function importedStringConstants(root: string, targetPath: string, program: unknown): ReadonlyMap<string, string> {
+  const constants = new Map<string, string>();
+  const body = (program as { program?: { body?: readonly unknown[] } }).program?.body ?? [];
+  for (const statement of body) {
+    const record = statement as Record<string, unknown>;
+    if (record.type !== "ImportDeclaration") continue;
+    const source = (record.source as Record<string, unknown> | undefined)?.value;
+    if (typeof source !== "string" || !/^\.\.?\//u.test(source)) continue;
+    const importedAbsolute = resolve(dirname(resolve(root, targetPath)), source);
+    if (!existsSync(importedAbsolute)) continue;
+    const imported = stringConstantsOf(parseTypeScriptSource(readFileSync(importedAbsolute, "utf8"), {
+      sourceType: "module",
+      plugins: ["typescript"],
+    }));
+    for (const specifier of (record.specifiers as readonly Record<string, unknown>[]) ?? []) {
+      if (specifier.type !== "ImportSpecifier") continue;
+      const importedName = (specifier.imported as Record<string, unknown> | undefined)?.name;
+      const localName = (specifier.local as Record<string, unknown> | undefined)?.name;
+      const value = typeof importedName === "string" ? imported.get(importedName) : undefined;
+      if (typeof localName === "string" && value !== undefined) constants.set(localName, value);
+    }
   }
+  return constants;
 }
 
 /**
@@ -171,7 +172,24 @@ export function rederiveObjectPins(
   const absolute = resolve(root, targetPath);
   const source = readFileSync(absolute, "utf8");
   const program = parseTypeScriptSource(source, { sourceType: "module", plugins: ["typescript"] });
-  const pins = [...eachBytePinObject(program)]
+  const constants = new Map([...stringConstantsOf(program), ...importedStringConstants(root, targetPath, program)]);
+  const pins: readonly MeasuredPin[] = [...eachBytePinObject(program)]
+    .map((pin): MeasuredPin => {
+      if (pin.path !== null) return { ...pin, path: pin.path };
+      const resolved = pin.pathIdentifier === null ? undefined : constants.get(pin.pathIdentifier);
+      if (resolved === undefined) {
+        // A pin whose path symbol cannot be resolved is a measurement the
+        // driver cannot take. Refusing beats filtering it out: a filtered pin
+        // is a hand-maintained value with a driver that reports the file's
+        // OTHER pins current.
+        throw new InputError(
+          `pin authority ${targetPath} carries a byte-pin whose path symbol ` +
+            `${pin.pathIdentifier ?? "(none)"} is not a string this driver can resolve`,
+          "input_error",
+        );
+      }
+      return { ...pin, path: resolved };
+    })
     // A byte-pin's `path` names a tracked source FILE. A `path:` field that is
     // a config key (`contracts.limits.…`) or another non-file string is not a
     // byte-pin; only a path resolving to a real file under the root counts.

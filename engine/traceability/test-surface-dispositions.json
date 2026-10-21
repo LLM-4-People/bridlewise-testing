@@ -3693,6 +3693,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/verification/artifact-manifest.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/verification/corpus-manifest.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4173,5 +4181,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "687f190a5271b26a76b6f998b808bd2182bc0f1b2d79174630cb9db83b4e156b"
+  "integrityHash": "39987b48fff595bfa455422c55090586d1f16385205d103d92479850a8251f9a"
 }

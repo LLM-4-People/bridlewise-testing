@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -14,6 +14,9 @@ import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
 import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES } from "../kernel/verification-paths.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
+import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
+import { PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256 } from "../kernel/architecture-external-commands.ts";
+import { verifyExternalCommands, type ArchitectureSource } from "../../scripts/verification/architecture.ts";
 import { currentConfigContractArtifact, generateAutoGeneratorReport, type AutoGeneratorReport } from "./auto-generator.ts";
 import {
   generatedOutputPaths,
@@ -247,10 +250,12 @@ export type HarnessRegenerateOutput = Readonly<{
    * because every other arm above may have rewritten a governed file.
    */
   artifactManifest: Readonly<{
-    status: "current" | "regenerated" | "stale" | "absent";
+    status: "current" | "regenerated" | "stale" | "refused" | "absent";
     entries: number;
     policyHash: string;
     integrityHash: string;
+    /** The producer's refusal (a dropped artifact nobody named, inadmissible provenance), empty otherwise. */
+    message: string;
   }>;
 }>;
 
@@ -488,7 +493,9 @@ export async function harnessCheck(
       ? "the product tree carries no artifact-inventory generator (testing-floor tooling); skipped"
       : artifactManifest.status === "current"
         ? `the canonical artifact inventory matches the governed roots (${String(artifactManifest.entries)} artifacts)`
-        : "the canonical artifact inventory is stale against the governed roots (run harness sync)",
+        : artifactManifest.status === "refused"
+          ? artifactManifest.message
+          : "the canonical artifact inventory is stale against the governed roots (run harness sync)",
     details: artifactManifest,
   }));
 
@@ -1109,20 +1116,35 @@ const ARTIFACT_MANIFEST_GENERATOR = "scripts/tooling/artifact-manifest.ts";
 
 function regenerateArtifactManifest(root: string, write: boolean): HarnessRegenerateOutput["artifactManifest"] {
   if (!existsSync(resolve(root, ARTIFACT_MANIFEST_GENERATOR))) {
-    return deepFreeze({ status: "absent" as const, entries: 0, policyHash: "", integrityHash: "" });
+    return deepFreeze({ status: "absent" as const, entries: 0, policyHash: "", integrityHash: "", message: "" });
   }
-  const report = generatorReport<"current" | "stale" | "missing" | "written">(
-    root,
-    ARTIFACT_MANIFEST_GENERATOR,
-    [write ? "--write" : "--check"],
-    "the canonical artifact inventory",
-    "artifact_manifest_no_result",
-  );
+  let report: ReturnType<typeof generatorReport<"current" | "stale" | "missing" | "written">>;
+  try {
+    report = generatorReport<"current" | "stale" | "missing" | "written">(
+      root,
+      ARTIFACT_MANIFEST_GENERATOR,
+      [write ? "--write" : "--check"],
+      "the canonical artifact inventory",
+      "artifact_manifest_no_result",
+    );
+  } catch (error) {
+    // The producer REFUSES a dropped artifact nobody named and an
+    // inadmissible provenance. That is a failing arm with the refusal as its
+    // message (the way out is in the text), not a crashed check.
+    return deepFreeze({
+      status: "refused" as const,
+      entries: 0,
+      policyHash: "",
+      integrityHash: "",
+      message: extractErrorMessage(error),
+    });
+  }
   return deepFreeze({
     status: report.allCurrent ? "current" as const : write ? "regenerated" as const : "stale" as const,
     entries: typeof report.entries === "number" ? report.entries : 0,
     policyHash: typeof report.policyHash === "string" ? report.policyHash : "",
     integrityHash: typeof report.integrityHash === "string" ? report.integrityHash : "",
+    message: "",
   });
 }
 
@@ -1715,16 +1737,85 @@ function registrarDriftMessage(report: ModuleRegistrarReport): string {
     (report.compositionRootsCurrent ? "" : ", composition-root lists stale (run harness sync)");
 }
 
-function runArchitectureCheck(root: string): CheckStepResult {
+/**
+ * THE ARCHITECTURE STEP'S EXTERNAL-COMMAND ARM — the verifier the manifest's
+ * own inventory needs, run against the tree the command was pointed at.
+ *
+ * ── WHAT WAS MISSING ─────────────────────────────────────────────────────
+ *
+ * The step ran only the module registrar, which asks whether every module is
+ * registered and its derived fields current. Nothing in `harness check`
+ * called `verifyExternalCommands`, so the inventory's 11 published
+ * Python/shell source pins were verified only by the S1 test surface — and
+ * the `not-published` boundary ("this source must stay absent from the public
+ * snapshot") was not gated by the commit check at all. A source could drift,
+ * or a deliberately-absent source could appear, and the architecture step
+ * still said the manifest was in sync.
+ *
+ * ── THE DECLARED ABSENCE IS NOT A DEFECT ─────────────────────────────────
+ *
+ * The verifier names a declared-absent `not-published` source on every run so
+ * the boundary is never silent (the S1 tests assert exactly that list). For
+ * the commit gate those names are the declaration itself; everything else the
+ * verifier reports — a missing or drifted published source, an
+ * unexpectedly-published `not-published` source, an unreadable source, or the
+ * published POPULATION moving off its authored pin — refuses.
+ */
+export function externalCommandCheckViolations(root: string): readonly string[] {
+  const violations: string[] = [];
+  const sources: ArchitectureSource[] = [];
+  const maximumSourceBytes = ARCHITECTURE_MANIFEST.analysisLimits.maximumSourceBytes;
+  const declaredAbsence = new Set<string>();
+  for (const command of ARCHITECTURE_MANIFEST.externalCommands) {
+    const absolute = resolve(root, command.path);
+    if (command.publication === "not-published" && !existsSync(absolute)) {
+      declaredAbsence.add(`architecture-external-command-source-not-published:${command.path}`);
+      continue;
+    }
+    try {
+      if (statSync(absolute).size > maximumSourceBytes) {
+        violations.push(`architecture-external-command-source-too-large:${command.path}`);
+        continue;
+      }
+      sources.push({ path: command.path, source: readFileSync(absolute, "utf8") });
+    } catch (error) {
+      violations.push(
+        `architecture-external-command-source-unreadable:${command.path}:${extractErrorMessage(error)}`,
+      );
+    }
+  }
+  const moduleByPath = new Map(ARCHITECTURE_MANIFEST.modules.map((module) => [module.path, module] as const));
+  const verifierViolations: string[] = [];
+  verifyExternalCommands(
+    ARCHITECTURE_MANIFEST,
+    moduleByPath,
+    verifierViolations,
+    sources,
+    PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256,
+  );
+  violations.push(...verifierViolations.filter((violation) => !declaredAbsence.has(violation)));
+  return deepFreeze([...new Set(violations)].toSorted());
+}
+
+/** `harness check`'s architecture step (exported like `runInventoryCheck` so a focused test can drive it on a copy). */
+export function runArchitectureCheck(root: string): CheckStepResult {
   try {
     const moduleRegistrar = generateModuleRegistrarReport(root);
+    const registrarCurrent = registrarInSync(moduleRegistrar);
+    const externalCommandViolations = externalCommandCheckViolations(root);
+    const current = registrarCurrent && externalCommandViolations.length === 0;
     return deepFreeze({
       step: "architecture",
-      status: registrarInSync(moduleRegistrar) ? "pass" : "fail",
-      message: registrarInSync(moduleRegistrar)
-        ? "architecture manifest is in sync"
-        : registrarDriftMessage(moduleRegistrar),
-      details: moduleRegistrar,
+      status: current ? "pass" : "fail",
+      message: current
+        ? `architecture manifest is in sync and every external-command source matches its pin (${String(ARCHITECTURE_MANIFEST.externalCommands.length)} commands)`
+        : [
+          registrarCurrent ? "" : registrarDriftMessage(moduleRegistrar),
+          externalCommandViolations.length === 0
+            ? ""
+            : `the external-command inventory refused: ${externalCommandViolations.join(", ")}`,
+        ].filter((part) => part.length > 0).join(" | "),
+      details: { moduleRegistrar, externalCommandViolations },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "architecture check failed";

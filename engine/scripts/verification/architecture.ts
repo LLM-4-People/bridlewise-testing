@@ -11,6 +11,7 @@ import {
   type ArchitectureRealm,
 } from "../../src/architecture-manifest.ts";
 import { canonicalHash, deepFreeze, sha256 } from "../../src/kernel/integrity.ts";
+import { publishedExternalCommandPopulationHash } from "../../src/kernel/architecture-external-commands.ts";
 import { isPlainObject } from "../../src/shared/type-guards.ts";
 import { sameOrderedValues } from "../../src/kernel/ordered.ts";
 import { repositoryScanExclusionFor } from "../../src/shared/source-scan.ts";
@@ -1289,15 +1290,35 @@ function verifyInternalImportBoundaries(
   }
 }
 
-function verifyExternalCommands(
+/**
+ * The external-command arm, on its own so a caller that does not want the
+ * whole module-registration verification (the harness check's architecture
+ * step) can still gate the inventory: each declared source hash, the
+ * publication boundary (an expected-absent `not-published` source that
+ * appears is refused), and — when the caller passes the inventory's authored
+ * pin — the published population itself.
+ */
+export function verifyExternalCommands(
   manifest: ArchitectureManifest,
   modules: ReadonlyMap<string, ArchitectureModule>,
   violations: string[],
   externalCommandSources?: readonly ArchitectureSource[],
+  expectedPublishedPopulationSha256?: string,
 ): void {
   const paths = manifest.externalCommands.map((command) => command.path);
   if (!sameOrderedValues(paths, [...paths].toSorted()) || new Set(paths).size !== paths.length) {
     violations.push("architecture-external-command-list-invalid");
+  }
+  // THE CONSERVATION IDENTITY. `publication` decides both the verified
+  // population and the registry's binding set, so the population itself must
+  // be compared to a recorded value — otherwise a demotion removes a source
+  // from verification and every remaining check agrees with the smaller set.
+  // The expected hash is the AUTHORED pin (`harness regenerate` cannot rewrite
+  // it), and only the real inventory passes one in; synthetic manifests in
+  // tests carry no pin.
+  if (expectedPublishedPopulationSha256 !== undefined &&
+    publishedExternalCommandPopulationHash(manifest.externalCommands) !== expectedPublishedPopulationSha256) {
+    violations.push("architecture-external-command-publication-population-drift");
   }
   const ids = new Set<string>();
   const sourceByPath = new Map<string, string>();
