@@ -493,15 +493,52 @@ export function readTrackerItems(root: string): readonly TrackerItem[] {
 /** A decision record as the tracker reads it: its id, whether it is in force, and how far it is carried out. */
 export type DecisionRecord = Readonly<{ id: string; status: string; implementation: string; title: string }>;
 
-/** The decision records of the repository at `root` (`DECISION_INDEX`'s folder), from their front matter; none when the folder is absent. */
-export function readDecisionRecords(root: string): readonly DecisionRecord[] {
-  const directory = posix.dirname(DECISION_INDEX.path);
-  if (!existsSync(join(root, directory))) return deepFreeze([]);
-  return deepFreeze(readEntries(root, directory).flatMap(({ text }) => {
+/** The decision records among `entries` (`<file>.md` with its text), from their front matter. */
+export function decisionRecords(entries: readonly { readonly name: string; readonly text: string }[]): readonly DecisionRecord[] {
+  return deepFreeze(entries.flatMap(({ text }) => {
     const parsed = parseFrontMatter(text);
     const id = parsed?.fields.get("id");
     if (parsed === null || id === undefined) return [];
     return [{ id, status: parsed.fields.get("status") ?? "", implementation: parsed.fields.get("implementation") ?? "", title: /^# (.+)$/mu.exec(parsed.body)?.[1]?.trim() ?? id }];
+  }));
+}
+
+/** The decision records of the repository at `root` (`DECISION_INDEX`'s folder); none when the folder is absent. */
+export function readDecisionRecords(root: string): readonly DecisionRecord[] {
+  const directory = posix.dirname(DECISION_INDEX.path);
+  return existsSync(join(root, directory)) ? decisionRecords(readEntries(root, directory)) : deepFreeze([]);
+}
+
+/**
+ * The status facts of the item files `entries` AS THEY WERE (a commit of the
+ * items' history): id, type, open or closed and how, parent, milestone,
+ * blocked-by, decisions, tests and evidence, read from the front matter WITHOUT judging the
+ * format of the day — a past commit is history, read as written, never
+ * refused by a later rule. A file without front matter or an id is skipped.
+ */
+export function itemStatusFacts(entries: readonly { readonly name: string; readonly text: string }[]): readonly Readonly<{
+  id: string; type: string; state: "open" | "closed" | null; resolution: "completed" | "not-planned" | "duplicate" | null;
+  parent: string | null; milestone: string | null; blockedBy: readonly string[]; decisions: readonly string[];
+  tests: readonly string[]; evidence: string | null;
+}>[] {
+  return deepFreeze(entries.flatMap(({ text }) => {
+    const fields = parseFrontMatter(text)?.fields;
+    const id = fields?.get("id");
+    if (fields === undefined || id === undefined) return [];
+    const state = fields.get("state");
+    const resolution = fields.get("resolution");
+    return [{
+      id,
+      type: fields.get("type") ?? "Task",
+      state: state === "open" || state === "closed" ? state : null,
+      resolution: resolution === "completed" || resolution === "not-planned" || resolution === "duplicate" ? resolution : null,
+      parent: fields.get("parent") ?? null,
+      milestone: fields.get("milestone") ?? null,
+      blockedBy: listValue(fields.get("blocked-by") ?? "[]") ?? [],
+      decisions: listValue(fields.get("decisions") ?? "[]") ?? [],
+      tests: listValue(fields.get("tests") ?? "[]") ?? [],
+      evidence: fields.get("evidence") ?? null,
+    }];
   }));
 }
 

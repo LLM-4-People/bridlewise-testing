@@ -42,6 +42,14 @@ export function numericOption(value: number | undefined, fallback: number, name:
   return value;
 }
 
+// ── the roadmap feed (src/workflow/forge/projector/roadmap-feed.ts) ───────
+
+/** How many whole weeks of shipped history a milestone's ETA band needs; below it the band is `unknown`, never guessed. */
+export const DEFAULT_ROADMAP_ETA_MINIMUM_WEEKS = 4;
+
+/** The CPU-time ceiling, in seconds, of one confined projection or feed computation (the guardian's `cpu_seconds`). */
+export const DEFAULT_PROJECTION_CPU_SECONDS = 120;
+
 // ── harness-commands.ts defaults ──────────────────────────────────────────
 
 export const DEFAULT_TYPECHECK_TIMEOUT_MS = 120_000;

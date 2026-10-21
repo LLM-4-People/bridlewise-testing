@@ -29,9 +29,24 @@ GitHub-owned and never written.
 - `model.ts` — THE MODEL (pure): D's objects (class, key, git-owned fields), the classes in write order, each field's write phase (create → link → state), the fields GitHub gives a just-created object (`BORN_FIELDS`), the input D is computed from (`ProjectionInput`), the item marker and the lane label.
 - `project.ts` — `project(input)` (pure): the labels and the issues, sorted by class then key, every relative link of an item's body made a permalink at S, the record's own permalink in the footer; `projectText`, the confined program's text-in, text-out entry.
 - `confined.ts` — THE CONFINED CALL: `linkProgram` links the declared pure modules into one stdin program. Types are stripped, relative imports are rewritten to `data:` URLs, and an undeclared, bare, built-in or literal-dynamic specifier is refused (`projection_import_refused`). `confinedCall` runs the program under the guardian and types its ending (`projection_confinement_refused`, `projection_impure`, `projection_cpu_exhausted`, `projection_failed`). `PROJECTION_PROGRAM` is the projection's module set, and `ProjectorConfinement` its harness, keep-out facts and CPU ceiling.
-- `projection.ts` — D from two trees: `deterministicCall` (two confined runs that must agree),  `projectionInput` (the tracker items read from the source COMMIT through the tracker's one parser, `../../failure-owners.ts`, and the lanes' labels) and `computeProjection` (the sealed call, each marker's digest filled in, D's canonical digest).
+- `projection.ts` — D from two trees: `deterministicCall` (two confined runs that must agree), `roadmapFeedInput` and `computeRoadmapFeed` (the feed's input — the items and decisions at S, S's date, a snapshot of every item's status facts at each first-parent landing that changed an item or a decision, read as written then — and its confined computation),  `projectionInput` (the tracker items read from the source COMMIT through the tracker's one parser, `../../failure-owners.ts`, and the lanes' labels) and `computeProjection` (the confined calls, each marker's digest filled in, D's canonical digest).
+- `roadmap-feed.ts` — THE ROADMAP DATA FEED (pure, run confined like the projection, `ROADMAP_FEED_PROGRAM`): `roadmap.json`, `bridlewise-roadmap-feed/v1` (see below).
 - `store.ts` — THE STORE PORT the algorithm reads and writes GitHub through, in the projection's own terms (class, key, git-owned fields); the GitHub store is written on the forge port's client.
 - `apply.ts` — THE ONE APPLY ALGORITHM: `planProjection` (the writes that make the live state equal D, in phase, class and key order, and the orphans), `applyProjection` (write within the run's allowance, paced; re-read; verify; the receipt `bridlewise-projection-receipt/v1`), `verifyProjection` and `projectionFailure` (`projection_unverified` before any refusal; a budget refusal is retryable and the next run resumes).
+
+## The roadmap feed (`bridlewise-roadmap-feed/v1`)
+
+A pure function of a commit and its first-parent history, computed confined (twice); `engine/scripts/tooling/roadmap-feed.ts --at <commit>` prints it. No typed date is an input: every time in it is a git LANDING time. Its stable fields:
+
+- `source`, `sourceDate` (S's committer date: the feed's "now"), `states` (the state vocabulary), `totals` (items per state);
+- `milestones[]`: `id`, `title`, `order`, `state` and `because` (computed from the members), `members`, `counts` per state, `progress` (shipped over planned members), `criticalPath` (the longest chain of open work through `blocked-by`, the blocker first), `eta` (`done`; `unknown` with `because`; or `band` with `weeks.low`/`weeks.high` — weeks, never a date), `record` (permalink);
+- the states: `shipped` (a close PROVEN by linked evidence), `claimed` (a close nothing proves), `in progress`, `planned`, `blocked`, `not planned`;
+- `items[]`: `id`, `type`, `title`, `lane`, `milestone`, `parent`, `children`, `blockedBy`, `relates`, `horizon`, `order`, `owner`, `area`, `severity`, `state`, `because`, `landed` (`first`, `shipped`: the landing times at which it appeared and became shipped), `decisions`, `tests` (`path`, `url`), `rfc`, `gh`, `evidence`, `record`;
+- `decisions[]`: `id`, `title`, `status`, `progress` (built, partly built, designed, standing, superseded), `carriedBy` (item ids);
+- `history[]`: one entry per first-parent landing that moved a state (a landing that changed only a decision record or an evidence manifest included) — `commit`, `date`, `changes[]` (`id`, `from`, `to`; `null` for an item's first appearance or removal): burn-up, the roadmap at any commit and "what changed since" are replays of it;
+- `throughput`: `weekly` (work items that became shipped per whole week, by the landing time that made them so, from the first such landing to S), `minimumWeeks`, `enoughHistory`, `windowEnds`.
+
+Every state is computed (`src/workflow/tracker-status.ts`); nothing in the feed is typed by hand.
 
 ## Tests
 
@@ -43,4 +58,4 @@ link refuses undeclared modules; a CPU spin meets its ceiling; a NODE_OPTIONS
 preload never reaches the program; a host without the guardian is a refusal) and V-28 (a field GitHub silently drops is `projection_unverified`),
 the phase order, the resumable budget refusal, a refused write, orphans, and
 that the input is read from the commit, never the working tree, against the
-in-memory store `engine/test/forge/projection-store.ts`.
+in-memory store `engine/test/forge/projection-store.ts`. `engine/test/forge/roadmap-feed.test.ts` proves the feed: computed states, progress, the critical path, decisions, the per-landing history, ETA bands that stay `unknown` without enough history, a past item read as written, and one digest per commit.
