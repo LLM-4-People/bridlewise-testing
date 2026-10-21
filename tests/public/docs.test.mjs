@@ -65,8 +65,8 @@ test("the docs link checker refuses an anchor no heading owns", () => {
 });
 
 test("the refusal list has one owner and both contributor pages point to it", () => {
-  const process = read("docs/process/AGENTS.md");
-  assert.match(process, /^## What we will not accept$/mu);
+  const processDoc = read("docs/process/AGENTS.md");
+  assert.match(processDoc, /^## What we will not accept$/mu);
   for (const refusal of [
     "skips or deletes a test to make a badge green",
     "hides a failure behind a retry, fallback, or special case",
@@ -75,7 +75,7 @@ test("the refusal list has one owner and both contributor pages point to it", ()
     "claims production readiness that the admission gates do not support",
     "quotes a benchmark number without its method",
   ]) {
-    assert.ok(process.includes(refusal), `the refusal owner must state: ${refusal}`);
+    assert.ok(processDoc.includes(refusal), `the refusal owner must state: ${refusal}`);
   }
   for (const page of ["docs/floor/help.md", "CONTRIBUTING.md"]) {
     assert.ok(read(page).includes("AGENTS.md#what-we-will-not-accept"), `${page} must point at the refusal owner`);

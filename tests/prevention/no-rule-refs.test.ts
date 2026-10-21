@@ -69,7 +69,14 @@ const SELF = "no-rule-refs.test.ts";
  * entry point is the first document on its list — a path it READS, never a
  * rule it cites.
  */
-const NAMES_THE_DOC_AS_DATA = new Set<string>(["tests/declared-root.ts", "tests/prevention/agent-docs-liveness.test.ts"]);
+const NAMES_THE_DOC_AS_DATA = new Set<string>([
+  "tests/declared-root.ts",
+  "tests/prevention/agent-docs-liveness.test.ts",
+  // Its SUBJECT is who owns each rule: it reads the process document and
+  // asserts the refusal list lives there and that both contributor pages
+  // point at it. The filename is data it verifies, not a rule it cites.
+  "tests/public/docs.test.mjs",
+]);
 /** File extensions scanned. */
 const EXTS = [".ts", ".svelte", ".mjs", ".cjs", ".css", ".js"] as const;
 /** Directory names skipped (build artifacts, deps, unrelated). */
