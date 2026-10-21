@@ -5315,7 +5315,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-reachability", path: "src/workflow/reachability.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 16, namesSha256: "2f02fe28da8b068e1ffb653c04b5baa74891c4ec413856c43ea7e17e5b176319" },
-      dependencies: ["node:module","src/intelligence/js-tokenizer.ts","src/kernel/integrity.ts"],
+      dependencies: ["node:module","src/intelligence/js-tokenizer.ts","src/kernel/integrity.ts","src/kernel/language-extensions.ts"],
     }),
     moduleContract({
       id: "src-workflow-repository-registry", path: "src/workflow/repository-registry.ts", realm: "runtime", layer: "infrastructure",
