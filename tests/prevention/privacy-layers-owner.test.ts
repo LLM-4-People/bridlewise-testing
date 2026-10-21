@@ -295,6 +295,9 @@ describe("B. evasion — a secret that has been made unreadable to a regex", () 
   test("a Cyrillic homoglyph does not hide a declaration", () => {
     // One Cyrillic `а` (U+0430) inside the English word.
     const homo = "my pаssword is Hx7Kq2Bd9Lp4Rt8Wy";
+    // Witness: the homoglyph form IS the text under test, so its absence of the
+    // ASCII spelling is a claim about something present, not about nothing.
+    expect(homo).toContain("pаssword");
     expect(homo).not.toContain("password");
     expect(masked(homo)).toBe(true);
   });
@@ -426,6 +429,8 @@ describe("D. declarations in languages nobody enumerated", () => {
 
   for (const c of CASES) {
     test(`${c.lang}: the value is masked`, () => {
+      // Witness the mask, then the absence of the value it replaced.
+      expect(redactForLLMContext(c.text)).toMatch(/\[REDACTED/);
       expect(redactForLLMContext(c.text)).not.toContain(c.secret);
     });
   }
