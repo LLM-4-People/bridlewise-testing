@@ -51,7 +51,12 @@ test("guardian-binary: verifyGuardianBinaryAvailability admits the binary whose 
     assert.equal(availability.stamp, ROOT_POLICY.selfProtection.binaryStamp);
     assert.match(availability.sha256, /^[0-9a-f]{64}$/u);
     assert.equal(availability.binaryPath, expectedBinaryPath());
-    assert.ok(availability.kernelAbi >= 1, `kernelAbi should be >= 1, got ${availability.kernelAbi}`);
+    // SELF-REPORTED: the binary says which ABI it masks to; the denial probe
+    // above is what proves it enforces anything.
+    assert.ok(
+      availability.selfReportedKernelAbi >= 1,
+      `selfReportedKernelAbi should be >= 1, got ${availability.selfReportedKernelAbi}`,
+    );
   }
 });
 

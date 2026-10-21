@@ -1336,9 +1336,12 @@ const ROOT_POLICY_VALUE = {
      */
     buildStampSpecPath: "guardian/build-stamp.spec",
     /**
-     * THE ONE GUARDIAN TRUST ANCHOR — and it has a producer, a check and a
-     * regeneration path, all in `hash-binding-registry.ts`
-     * (`root-policy-self-protection-guardian-build-stamp`):
+     * THE STAMP HALF OF GUARDIAN ADMISSION — and it has a producer, a check
+     * and a regeneration path, all in `hash-binding-registry.ts`
+     * (`root-policy-self-protection-guardian-build-stamp`). A matching stamp
+     * is necessary but not sufficient: `verifyGuardianBinaryAvailability` also
+     * requires the binary to deny a protected read while allowing a control
+     * read, because a binary can print this pin without confining anything.
      *
      *   producer / regenerator  `harness sync` recomputes the stamp from
      *                           `buildStampSpecPath`'s sources and flags and
@@ -1363,7 +1366,7 @@ const ROOT_POLICY_VALUE = {
      */
     binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "31fa8b9e77d0ce51bdfcf5a8470cc7a8f9769c4c15c6e4828395f79e15ff2998",
+    bundleSha256: "ca95ce54fc5404eae16071c91e903a7a2dc0b55a6c0fcf1e39b74ced61e7090a",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
@@ -2228,7 +2231,7 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "5fc371bf69b3ecb434251d6185bfa74e8ab9c8653c64326988b9beca631c7f55",
+    testInventoryHash: "7ae8604f6de70ed67d24de2006e9b07f84f49005b1bb72ccbb9fe2b140dc8300",
     testSurfaceDispositionBinding: {
       fileSha256: "89792952ec83f3450dbefcaab3c4323a630f0253a922de1023dcf1c5e5f4fc56",
       identityHash: "687f190a5271b26a76b6f998b808bd2182bc0f1b2d79174630cb9db83b4e156b",

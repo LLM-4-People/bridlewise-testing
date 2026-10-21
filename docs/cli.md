@@ -220,5 +220,6 @@ A fresh checkout commonly gets `0644` or `0664`; the CLI refuses it with `config
 - **`config_mode_insecure`** — `chmod 600 engine/bridlewise.config.json`.
 - **Port already in use** — `node scripts/sd.mjs status`; stop the owning tree, then start again.
 - **`landlock_unavailable`** — the kernel does not expose Landlock; the guardian tests skip that path. This is not a pass for confinement.
+- **`confinement_not_observed`** — the guardian answered with the expected stamp but did not deny a protected probe read (or could not read the control), so it is not confining; rebuild it from this tree (`make -C engine/guardian all`).
 - **Bundle or guardian missing** — run `npm --prefix engine run build:bundle` and `make -C engine/guardian all`.
 - **`preflight` says `harnessReady: false`** — that is the expected preview state, not a bug.

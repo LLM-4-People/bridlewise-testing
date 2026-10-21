@@ -20,12 +20,15 @@ the spec compiler relies on. The guardian binary itself lives under
 - `self-protection-contracts.ts` — the guardian spec schema, the Landlock
   access-flag vocabulary, and the flag metadata.
 - `guardian-binary.ts` — resolving and verifying the guardian binary (its
-  path and its reproducible build stamp, recomputed from the sealed sources
-  and checked against the root-policy pin), and compiling the config to the
-  spec (the keep-out list's present entries become the spec's protected
-  subtrees and `keep_out`; no temp folder is granted unless the host names a
-  private one).
-- `guardian-build-stamp.ts` — THE REPRODUCIBLE GUARDIAN TRUST ANCHOR: reads
+  path, its reproducible build stamp recomputed from the sealed sources and
+  checked against the root-policy pin, and a two-part confinement probe: a
+  reader must succeed on an unprotected control file and be refused a file in
+  a protected probe folder), and compiling the config to the spec (the
+  keep-out list's present entries become the spec's protected subtrees and
+  `keep_out`; no temp folder is granted unless the host names a private one).
+  The Landlock ABI reported beside an admitted binary is the binary's
+  self-report, not a harness measurement.
+- `guardian-build-stamp.ts` — THE STAMP HALF OF ADMISSION: reads
   `guardian/build-stamp.spec`, hashes the declared sources and flags exactly
   as the Makefile does, recomputes the stamp at runtime, and parses a binary's
   `--stamp` answer strictly. The process call that asks the binary lives in
@@ -63,6 +66,14 @@ the spec compiler relies on. The guardian binary itself lives under
 - Path identity (resolution, `(dev, ino)` comparison) is `../path-identity.ts`.
 
 ## Stated residuals
+
+**A guardian that prints the expected pin and implements the denial is not
+distinguishable from an honest build.** Admission proves the binary's stamp
+agrees with the tree and the pin, that it runs, and that it denies a protected
+read while allowing a control read. A forger that does all of that passes;
+telling it from an honest build needs an artifact outside the tree (a
+signature, or a trusted byte digest), and a byte digest is exactly what is not
+reproducible across compilers.
 
 **A confined command reads a project's secret files raw** (sec-e-correctness
 M-6). A project holding `.npmrc`, `.docker/config.json` or `.kube/config` is

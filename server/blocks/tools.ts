@@ -60,7 +60,7 @@ const ConfinementOutput = z.strictObject({
   sentence: z.string(),
   reason: z.string(),
   measuredAt: z.number(),
-  kernelAbi: z.number().nullable(),
+  selfReportedKernelAbi: z.number().nullable(),
   guardianSha256: z.string().nullable(),
   code: z.string().nullable(),
 });

@@ -247,9 +247,22 @@ export type GuardianBinaryAvailability =
      * is `stamp`.
      */
     sha256: string;
-    /** The reproducible build stamp: recomputed from the sealed sources and reported by the binary. */
+    /**
+     * The reproducible build stamp: recomputed from the sealed sources and
+     * reported by the binary. A matching stamp is necessary, not sufficient:
+     * admission also requires the binary to deny a protected read (see
+     * `verifyGuardianBinaryAvailability`). A binary that prints this stamp,
+     * runs, and implements the denial is indistinguishable from an honest
+     * build without an artifact outside the tree.
+     */
     stamp: string;
-    kernelAbi: number;
+    /**
+     * The Landlock ABI the guardian says it masks its rules to. SELF-REPORTED
+     * by the binary, not measured by the harness: a binary that exits 0 for
+     * every probe reports 5 here. It is carried for diagnostics, never used
+     * to decide whether confinement holds — the denial probe decides that.
+     */
+    selfReportedKernelAbi: number;
   }>
   | Readonly<{
     available: false;
@@ -257,6 +270,7 @@ export type GuardianBinaryAvailability =
       | "binary_missing"
       | "binary_hash_mismatch"
       | "landlock_unavailable"
+      | "confinement_not_observed"
       | "platform_unsupported";
     fallbackAttempted: false;
   }>;

@@ -543,7 +543,8 @@ export type ConfinementView = Readonly<{
   /** Why, naming the inputs that decided it. */
   reason: string;
   measuredAt: number;
-  kernelAbi: number | null;
+  /** The guardian's self-reported Landlock ABI; never a harness measurement. */
+  selfReportedKernelAbi: number | null;
   guardianSha256: string | null;
   code: string | null;
 }>;
@@ -577,7 +578,7 @@ export function decodeConfinement(wire: unknown): ConfinementView | null {
     sentence,
     reason,
     measuredAt: at,
-    kernelAbi: finiteNumber(wire.kernelAbi),
+    selfReportedKernelAbi: finiteNumber(wire.selfReportedKernelAbi),
     guardianSha256: typeof wire.guardianSha256 === "string" ? wire.guardianSha256 : null,
     code: typeof wire.code === "string" ? wire.code : null,
   });

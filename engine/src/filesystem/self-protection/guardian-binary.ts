@@ -2,6 +2,7 @@ import {
   closeSync,
   existsSync,
   lstatSync,
+  mkdirSync,
   openSync,
   readFileSync,
   readdirSync,
@@ -9,7 +10,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { createOwnedTemporaryDirectory, ownedTemporaryName, PRIVATE_STATE_FILE_MODE } from "../private-state.ts";
+import {
+  createOwnedTemporaryDirectory,
+  ownedTemporaryName,
+  PRIVATE_STATE_DIRECTORY_MODE,
+  PRIVATE_STATE_FILE_MODE,
+} from "../private-state.ts";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -54,10 +60,13 @@ import type { SelfProtectionConfig } from "./self-protection-config.ts";
  * - {@link verifyGuardianBinaryAvailability}: a typed, never-throwing probe
  * that verifies the binary exists, its reported reproducible build stamp
  * agrees with the stamp recomputed from the sealed source tree and with the
- * root-policy pin, and Landlock is available on the running kernel. Reports a
- * typed `code` so the runtime can fail closed with an actionable error. The
- * binary's file sha256 is reported as a diagnostic only; it is NOT the trust
- * anchor, because compiler output is not reproducible across toolchains.
+ * root-policy pin, and that it DEMONSTRATES confinement: it must be refused a
+ * read inside a protected probe folder while the same reader can read an
+ * unprotected control file. The Landlock ABI it carries is the binary's
+ * SELF-REPORT, not a harness measurement. Reports a typed `code` so the
+ * runtime can fail closed with an actionable error. The binary's file sha256
+ * is reported as a diagnostic only; it is NOT the trust anchor, because
+ * compiler output is not reproducible across toolchains.
  * - {@link compileSelfProtectionConfigToSpec}: the single source of truth for
  * compiling the operator config + runtime facts (harness root, project root,
  * node binary path) into the low-level {@link GuardianSpec}. Pulls the
@@ -87,8 +96,9 @@ export function resolveGuardianBinaryPath(harnessRoot: string): string | undefin
 /**
  * Compute the sha256 of the binary file by reading it whole. DIAGNOSTIC ONLY:
  * the bytes differ between compilers, so this value is reported for support
- * and exactly why it is not compared to a pin. The trust anchor is the
- * reproducible build stamp below.
+ * and exactly why it is not compared to a pin. The admission checks are the
+ * reproducible build stamp and the denial probe below; neither is the file
+ * digest.
  */
 function fileSha256(path: string): string {
   const descriptor = openSync(path, "r");
@@ -127,17 +137,23 @@ export function readGuardianBinaryBuildStamp(binaryPath: string): GuardianBuildS
 }
 
 /**
- * Probe the running kernel's Landlock ABI version by running the guardian with
- * single-flag handled sets. For a flag with `minAbi = N`, a spec with
+ * Ask the guardian which Landlock ABI it masks its rules to, by running it
+ * with single-flag handled sets. For a flag with `minAbi = N`, a spec with
  * `handled_access_fs = [flag]` and `allow_rules = [{/usr, [flag]}]` survives
- * (handled non-empty) only when the kernel ABI >= N; otherwise the flag is
- * masked out, handled becomes empty, and the binary exits 4. The payload
- * `/bin/true` runs whenever handled is non-empty (exec/read are ungoverned
- * because EXECUTE/READ_FILE are not in handled). Returns the highest detected
- * ABI level, or 1 when all higher-level probes fail. Never throws; on any
- * unexpected error returns 0 (unknown).
+ * (handled non-empty) only when the guardian says the ABI is >= N; otherwise
+ * the flag is masked out, handled becomes empty, and the binary exits 4. The
+ * payload `/bin/true` runs whenever handled is non-empty (exec/read are
+ * ungoverned because EXECUTE/READ_FILE are not in handled). Returns the
+ * highest ABI the binary reports, or 1 when all higher-level probes fail.
+ *
+ * SELF-REPORTED, NOT MEASURED: this is the binary's answer about the kernel
+ * it is running on, and a binary that exits 0 without applying anything
+ * answers 5 for every probe. The denial probe in
+ * {@link verifyGuardianBinaryAvailability} is what proves it enforces
+ * something; this number is diagnostics and is never used as a decision.
+ * Never throws; on any unexpected error returns 0 (unknown).
  */
-function probeKernelLandlockAbi(binaryPath: string, tempDir: string): number {
+function readGuardianSelfReportedKernelAbi(binaryPath: string, tempDir: string): number {
   const probes: readonly Readonly<{ abi: number; flag: LandlockAccessFsFlagName }>[] = [
     { abi: 5, flag: "IOCTL_DEV" },
     { abi: 3, flag: "TRUNCATE" },
@@ -157,8 +173,8 @@ function probeKernelLandlockAbi(binaryPath: string, tempDir: string): number {
       protected_subtrees: [],
       default_deny_outside_allow_rules: true,
     });
-    const result = runGuardianSync(binaryPath, spec, "/bin/true", [], tempDir, true);
-    if (result.kind === "payload_exited" && result.exitCode === 0) {
+    const run = runGuardianSync(binaryPath, spec, "/bin/true", [], tempDir, true);
+    if (run.result.kind === "payload_exited" && run.result.exitCode === 0) {
       return probe.abi;
     }
   }
@@ -166,7 +182,7 @@ function probeKernelLandlockAbi(binaryPath: string, tempDir: string): number {
 }
 
 /**
- * Verify the guardian binary is available and Landlock is enforced on the
+ * Verify the guardian binary is available and confinement is enforced on the
  * current host. Never throws; never silently falls back. The returned `code`
  * names the operator action.
  */
@@ -180,13 +196,22 @@ export function verifyGuardianBinaryAvailability(
   if (binaryPath === undefined) {
     return deepFreeze<GuardianBinaryAvailability>({ available: false, code: "binary_missing", fallbackAttempted: false });
   }
-  // THE TRUST ANCHOR IS THE REPRODUCIBLE BUILD STAMP, NOT THE FILE BYTES.
-  // Three facts must agree, and each closes a different hole:
+  // WHAT ADMISSION PROVES, AND WHAT IT DOES NOT.
+  // Four checks run, and each closes a different hole:
   //   1. the source tree recomputes to a stamp (the sealed inputs are here);
   //   2. that stamp is the one this harness shipped (the root-policy pin);
-  //   3. the binary itself reports that stamp (it was built from these inputs).
-  // A binary replaced without a rebuild fails 3; a source tree edited without
-  // a re-pin fails 2; a binary built from other sources fails 1 and 3.
+  //   3. the binary itself reports that stamp (it answers `--stamp`);
+  //   4. the binary DEMONSTRATES confinement: a spec protects a probe folder,
+  //      a reader is refused the file inside it, and the same reader succeeds
+  //      on an unprotected control file.
+  // A replaced binary that cannot answer 3, or that runs but does not deny
+  // the protected read (a no-op, a wrapper, a pass-through), fails 3 or 4.
+  // RESIDUAL, stated because admission is not a signature: a forger who
+  // prints the pin AND implements the denial is indistinguishable from an
+  // honest build here without an artifact outside the tree (a signature or a
+  // trusted byte digest, which is exactly what is not reproducible across
+  // compilers). A source tree edited without a re-pin fails 2; a binary built
+  // from other sources fails 1 and 3.
   const sourceStamp = bestEffort(() => computeGuardianBuildStamp(harnessRoot));
   if (sourceStamp === undefined) {
     // A tree that cannot produce its own stamp is not a harness we can vouch
@@ -205,32 +230,136 @@ export function verifyGuardianBinaryAvailability(
   const actualSha256 = fileSha256(binaryPath);
   const tempDir = createOwnedTemporaryDirectory(tmpdir(), "harness-guardian-probe-");
   try {
-    const floor = ROOT_POLICY.selfProtection;
-    const probeSpec = buildAvailabilityProbeSpec(floor.minimumAllowSet);
-    const result = runGuardianSync(binaryPath, probeSpec, "/bin/true", [], tempDir, true);
-    if (result.kind === "pre_exec_failure" && result.exitCode === 3) {
+    const confinement = bestEffort(() => runAvailabilityConfinementProbe(binaryPath, tempDir));
+    if (confinement === undefined || confinement.kind === "confinement_not_observed") {
+      return deepFreeze<GuardianBinaryAvailability>({ available: false, code: "confinement_not_observed", fallbackAttempted: false });
+    }
+    if (confinement.kind === "landlock_unavailable") {
       return deepFreeze<GuardianBinaryAvailability>({ available: false, code: "landlock_unavailable", fallbackAttempted: false });
     }
-    if (result.kind !== "payload_exited" || result.exitCode !== 0) {
-      return deepFreeze<GuardianBinaryAvailability>({ available: false, code: "landlock_unavailable", fallbackAttempted: false });
-    }
-    const kernelAbi = probeKernelLandlockAbi(binaryPath, tempDir);
-    return deepFreeze<GuardianBinaryAvailability>({ available: true, binaryPath, sha256: actualSha256, stamp: sourceStamp, kernelAbi });
+    const selfReportedKernelAbi = readGuardianSelfReportedKernelAbi(binaryPath, tempDir);
+    return deepFreeze<GuardianBinaryAvailability>({ available: true, binaryPath, sha256: actualSha256, stamp: sourceStamp, selfReportedKernelAbi });
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
 }
 
+/** The reader both halves use: one payload that opens a file and writes what it read. */
+const AVAILABILITY_PROBE_READER = "/bin/cat";
+
+/**
+ * The outcome of the two-part confinement probe. `denial_observed` is the
+ * only admission: the control read succeeded AND the protected read was
+ * refused. Everything else names which half failed.
+ */
+type AvailabilityConfinementProbe =
+  | Readonly<{ kind: "denial_observed" }>
+  | Readonly<{ kind: "landlock_unavailable" }>
+  | Readonly<{ kind: "confinement_not_observed" }>;
+
+/**
+ * THE PROBE'S TWO HALVES, EACH MEASURED.
+ *
+ * A probe that runs `/bin/true` under a spec and requires exit 0 proves only
+ * that the binary execs something; a no-op binary passes it. This probe makes
+ * the binary produce the evidence itself:
+ *
+ *   1. CONTROL — `/bin/cat <control file>` must exit 0 and print exactly the
+ *      content written there. If this fails, the binary did not run the
+ *      payload under a spec that grants the read, so nothing can be concluded
+ *      about denial.
+ *   2. DENIAL — `/bin/cat <protected file>`, under the SAME spec, must exit
+ *      non-zero and must not print the protected content. The protected file
+ *      sits in a folder listed in `protected_subtrees` and covered by no
+ *      allow-rule, so a binary that applies Landlock refuses the open with
+ *      EACCES. A no-op or pass-through binary reads it and fails this half.
+ *
+ * The files and their contents are unique to this run (owned temporary
+ * names), so a stub cannot pass by recognising a fixed probe.
+ */
+function runAvailabilityConfinementProbe(
+  binaryPath: string,
+  tempDir: string,
+): AvailabilityConfinementProbe {
+  const controlDirectory = join(tempDir, "control");
+  const protectedDirectory = join(tempDir, "protected");
+  mkdirSync(controlDirectory, { recursive: true, mode: PRIVATE_STATE_DIRECTORY_MODE });
+  mkdirSync(protectedDirectory, { recursive: true, mode: PRIVATE_STATE_DIRECTORY_MODE });
+  const controlContent = `${ownedTemporaryName("availability-control-")}\n`;
+  const protectedContent = `${ownedTemporaryName("availability-protected-")}\n`;
+  const controlFile = join(controlDirectory, "control.txt");
+  const protectedFile = join(protectedDirectory, "secret.txt");
+  writeFileSync(controlFile, controlContent, { mode: PRIVATE_STATE_FILE_MODE });
+  writeFileSync(protectedFile, protectedContent, { mode: PRIVATE_STATE_FILE_MODE });
+  // The spec's paths are RESOLVED: the guardian opens each one without
+  // following a link, and `tmpdir()` itself may be spelled through one.
+  const resolvedControlDirectory = resolveLocation(controlDirectory, "the availability probe's control folder");
+  const resolvedProtectedDirectory = resolveLocation(protectedDirectory, "the availability probe's protected folder");
+  const spec = buildAvailabilityProbeSpec(
+    ROOT_POLICY.selfProtection.minimumAllowSet,
+    resolvedControlDirectory,
+    resolvedProtectedDirectory,
+  );
+  const control = runGuardianSync(
+    binaryPath,
+    spec,
+    AVAILABILITY_PROBE_READER,
+    [join(resolvedControlDirectory, "control.txt")],
+    tempDir,
+    true,
+  );
+  if (control.result.kind === "pre_exec_failure" && control.result.exitCode === 3) {
+    return deepFreeze({ kind: "landlock_unavailable" });
+  }
+  if (
+    control.result.kind !== "payload_exited"
+    || control.result.exitCode !== 0
+    || control.stdout !== controlContent
+  ) {
+    return deepFreeze({ kind: "confinement_not_observed" });
+  }
+  const denied = runGuardianSync(
+    binaryPath,
+    spec,
+    AVAILABILITY_PROBE_READER,
+    [join(resolvedProtectedDirectory, "secret.txt")],
+    tempDir,
+    true,
+  );
+  if (denied.result.kind === "pre_exec_failure" && denied.result.exitCode === 3) {
+    return deepFreeze({ kind: "landlock_unavailable" });
+  }
+  // A pre-exec failure means the reader never ran; that is not a denial.
+  if (denied.result.kind !== "payload_exited") {
+    return deepFreeze({ kind: "confinement_not_observed" });
+  }
+  if (denied.result.exitCode === 0 || denied.stdout === protectedContent) {
+    return deepFreeze({ kind: "confinement_not_observed" });
+  }
+  return deepFreeze({ kind: "denial_observed" });
+}
+
+/**
+ * The availability spec: the floor's allow-set plus exactly one control
+ * folder, and one protected folder with no allow-rule. `cat` reaches the
+ * control file through the control rule; the protected file is denied by
+ * omission, which is the denial the probe requires.
+ */
 function buildAvailabilityProbeSpec(
   minimumAllowSet: readonly Readonly<{ path: string; access: readonly LandlockAccessFsFlagName[] }>[],
+  controlDirectory: ResolvedAbsolutePath,
+  protectedDirectory: ResolvedAbsolutePath,
 ): GuardianSpec {
   return deepFreeze({
     abi_version_hint: 0,
     handled_access_fs: ROOT_POLICY.selfProtection.handledAccessFs,
     // Resolved like every compiled rule: the guardian opens each path without
     // following links (`/lib` is a link on a merged-/usr host).
-    allow_rules: minimumAllowSet.map((entry) => ({ path: resolveLocation(entry.path, "the safety floor's minimum allow-set"), access: entry.access })),
-    protected_subtrees: [],
+    allow_rules: [
+      ...minimumAllowSet.map((entry) => ({ path: resolveLocation(entry.path, "the safety floor's minimum allow-set"), access: entry.access })),
+      { path: controlDirectory, access: ["READ_FILE", "READ_DIR"] as const },
+    ],
+    protected_subtrees: [protectedDirectory],
     default_deny_outside_allow_rules: true,
   });
 }
@@ -771,8 +900,18 @@ type RootPolicySelfProtectionView = Readonly<{
 }>;
 
 /**
- * Synchronous guardian runner used by the availability/ABI probes. Uses
- * `execFileSync` with ignored stdio (except stderr for error classification).
+ * One guardian invocation: its classified result and the payload's stdout.
+ * The two halves of the availability probe differ only in what the reader can
+ * print, so the output is part of the measurement rather than diagnostics.
+ */
+type GuardianProbeRun = Readonly<{
+  result: GuardianBinaryResult;
+  stdout: string;
+}>;
+
+/**
+ * Synchronous guardian runner used by the availability/ABI probes. Captures
+ * stderr for failure classification and stdout for the probe's control read.
  * Never throws; returns a typed result.
  */
 function runGuardianSync(
@@ -782,14 +921,15 @@ function runGuardianSync(
   payloadArgs: readonly string[],
   tempDir: string,
   silentStderr: boolean,
-): GuardianBinaryResult {
+): GuardianProbeRun {
   const specPath = join(tempDir, `${ownedTemporaryName("probe-")}.json`);
   writeFileSync(specPath, canonicalJson(spec), { mode: PRIVATE_STATE_FILE_MODE });
   try {
-    const stderrBuffers: Buffer[] = [];
-    const result = spawnSyncGuardian(binaryPath, specPath, payloadExecutable, payloadArgs, silentStderr, stderrBuffers);
-    const stderr = stderrBuffers.map((b) => b.toString("utf8")).join("");
-    return classifyGuardianResult(result.exitCode, stderr);
+    const run = spawnSyncGuardian(binaryPath, specPath, payloadExecutable, payloadArgs, silentStderr);
+    return deepFreeze({
+      result: classifyGuardianResult(run.exitCode, run.stderr),
+      stdout: run.stdout,
+    });
   } finally {
     rmSync(specPath, { force: true });
   }
@@ -801,19 +941,20 @@ function spawnSyncGuardian(
   payloadExecutable: string,
   payloadArgs: readonly string[],
   silentStderr: boolean,
-  stderrBuffers: Buffer[],
-): Readonly<{ exitCode: number }> {
+): Readonly<{ exitCode: number; stdout: string; stderr: string }> {
   const result = spawnSync(
     binaryPath,
     ["apply", "--spec", specPath, "--exec", payloadExecutable, ...payloadArgs],
     {
-      stdio: ["ignore", "ignore", silentStderr ? "pipe" : "inherit"],
-      encoding: null,
+      stdio: ["ignore", "pipe", silentStderr ? "pipe" : "inherit"],
+      encoding: "utf8",
     },
   );
-  if (Buffer.isBuffer(result.stderr)) stderrBuffers.push(result.stderr);
-  const exitCode = result.status ?? -1;
-  return { exitCode };
+  return {
+    exitCode: result.status ?? -1,
+    stdout: typeof result.stdout === "string" ? result.stdout : "",
+    stderr: typeof result.stderr === "string" ? result.stderr : "",
+  };
 }
 
 /**

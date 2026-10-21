@@ -40,6 +40,16 @@ import { ROOT_POLICY } from "../../kernel/root-policy.ts";
  * binary that is running" for an honest build; it is not a signature. The
  * source tree and the pin are the anchor, and both are checked below the
  * runtime door.
+ *
+ * A MATCHING STAMP IS NOT ADMISSION BY ITSELF. `verifyGuardianBinaryAvailability`
+ * also requires the binary to run AND to deny a read inside a protected probe
+ * folder while the same reader succeeds on an unprotected control file. That
+ * refuses a no-op or pass-through binary that prints the expected pin. It does
+ * not distinguish a forger that both prints the pin and implements the denial:
+ * without an artifact outside the tree (a signature, or a trusted byte digest)
+ * that binary is indistinguishable from an honest build. The claim supported
+ * here is therefore narrow and exact: for an honest build, these sources and
+ * flags produced the binary that is running.
  */
 
 /** The only keys `guardian/build-stamp.spec` may declare. */

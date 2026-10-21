@@ -124,10 +124,12 @@ test("e2e: applySelfProtection returns pre_exec_failure with exit 64 when the bi
 });
 
 test("e2e: the guardian's reported stamp is the one recomputed from the sealed sources and the committed pin", () => {
-  // The trust anchor is reproducible: the binary carries a stamp derived from
-  // its sources and declared flags, and the runtime recomputes the same value
-  // from the tree. A missed rebuild or a source edit without `harness sync`
-  // refuses here instead of silently accepting a different program.
+  // The stamp is reproducible: the binary carries one derived from its
+  // sources and declared flags, and the runtime recomputes the same value from
+  // the tree. A missed rebuild or a source edit without `harness sync` changes
+  // the stamp and refuses here. A matching stamp is not admission by itself:
+  // verifyGuardianBinaryAvailability also requires the binary to deny a
+  // protected read, so a no-op that prints the pin is refused too.
   const binaryPath = join(candidateRoot, ROOT_POLICY.selfProtection.binaryRelativePath);
   requireHost(existsSync(binaryPath), `the built guardian binary at ${binaryPath} (the checkout setup's guardian step builds it)`);
   const availability = verifyGuardianBinaryAvailability(candidateRoot);

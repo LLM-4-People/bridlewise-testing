@@ -2772,12 +2772,13 @@ describe("E. derived rules with their own bounds", () => {
     // stale answer was unreachable, which was true of waiting and not of
     // content.
     //
-    // THE TAMPER EDITS THE EMBEDDED STAMP. The anchor is now the reproducible
-    // build stamp, not the file digest, so the lie a tampered binary would have
-    // to tell is a different stamp; a byte swap that leaves the stamp intact is
-    // the stated residual of a stamp anchor (guardian-build-stamp.ts), not
-    // something this test can distinguish. Planting the edited stamp keeps the
-    // arm about the cache AND the anchor instead of about the old digest.
+    // THE TAMPER EDITS THE EMBEDDED STAMP. Admission is now the reproducible
+    // build stamp plus a denial probe, not the file digest, so the lie a
+    // tampered binary would have to tell is a different stamp; a byte swap that
+    // leaves the stamp intact AND still denies a protected read is the stated
+    // residual of admission (guardian-binary.ts), not something this test can
+    // distinguish. Planting the edited stamp keeps the arm about the cache AND
+    // the stamp instead of about the old digest.
     requireHost(hostCanCompile(), "a host that compiles a confinement spec (Landlock and the built guardian)");
     const harness = createTempDir("probe-cache-harness-");
     const realGuardian = join(realHarnessRoot(), "guardian", "build", "harness-landlock-guardian");

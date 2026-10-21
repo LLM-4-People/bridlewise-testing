@@ -124,8 +124,12 @@ export type SelfProtectionStatus = Readonly<{
   reason: string;
   /** epoch ms of the measurement behind this answer. */
   measuredAt: number;
-  /** The kernel's Landlock generation, when it was measured. */
-  kernelAbi: number | null;
+  /**
+   * The Landlock generation the guardian SAYS it masks its rules to. SELF-
+   * REPORTED by the binary, not measured by the harness; it is diagnostics,
+   * never the proof that confinement holds (the denial probe is).
+   */
+  selfReportedKernelAbi: number | null;
   /**
    * The sha256 of the guardian file actually found, when one was. DIAGNOSTIC
    * ONLY: it changes between compilers for the same sources, so it is not the
@@ -150,10 +154,12 @@ function unavailabilitySentence(code: GuardianUnavailableCode): string {
       return "Confinement is turned on but the program that enforces it does not match the version this harness expects, so commands are refused.";
     case "landlock_unavailable":
       return "Confinement is turned on but this computer's operating system will not enforce it, so commands are refused.";
+    case "confinement_not_observed":
+      return "Confinement is turned on but the program that enforces it did not refuse a read it must deny, so commands are refused.";
     case "platform_unsupported":
       return "Confinement is turned on but it only works on Linux, so commands are refused on this computer.";
     default: {
-      // Unrepresentable rather than defaulted: if the harness adds a fifth
+      // Unrepresentable rather than defaulted: if the harness adds another
       // failure code, this stops compiling instead of quietly describing it
       // with someone else's sentence.
       const exhaustive: never = code;
@@ -163,9 +169,10 @@ function unavailabilitySentence(code: GuardianUnavailableCode): string {
 }
 
 /**
- * The availability probe spawns the guardian several times (once to check it
- * runs, then once per Landlock generation to find the kernel's), so it is far
- * too expensive for the per-command path. It is cached on the IDENTITY OF THE
+ * The availability probe spawns the guardian several times (a control read, a
+ * protected read that must be denied, then once per Landlock generation to
+ * ask the binary for its ABI), so it is far too expensive for the
+ * per-command path. It is cached on the IDENTITY OF THE
  * GUARDIAN'S INPUTS — the binary's CONTENT and the stamp recomputed from the
  * sealed source tree — rather than on a timer: rebuild the guardian, edit a
  * sealed source, or re-pin and the next command re-probes; leave all of them
@@ -315,7 +322,7 @@ export function selfProtectionStatus(): SelfProtectionStatus {
         "Whether commands are confined to this project cannot be determined, so commands are refused.",
       reason: `The self-protection settings could not be read: ${message}`,
       measuredAt: Date.now(),
-      kernelAbi: null,
+      selfReportedKernelAbi: null,
       guardianSha256: null,
       code: CONFIG_UNREADABLE_CODE,
     };
@@ -333,7 +340,7 @@ export function selfProtectionStatus(): SelfProtectionStatus {
       reason:
         "Self-protection is turned off in the harness settings (selfProtection.enabled is false). Turn it on to confine every command to the selected project.",
       measuredAt: Date.now(),
-      kernelAbi: null,
+      selfReportedKernelAbi: null,
       guardianSha256: null,
       code: null,
     };
@@ -347,7 +354,7 @@ export function selfProtectionStatus(): SelfProtectionStatus {
         "Whether commands are confined to this project cannot be determined, so commands are refused.",
       reason: `Self-protection is on (it is on unless the settings turn it off), but checking it failed: ${probe.failure ?? "no reason recorded"}`,
       measuredAt: probe.measuredAt,
-      kernelAbi: null,
+      selfReportedKernelAbi: null,
       guardianSha256: null,
       code: "probe_failed",
     };
@@ -358,7 +365,7 @@ export function selfProtectionStatus(): SelfProtectionStatus {
       sentence: unavailabilitySentence(probe.availability.code),
       reason: `Self-protection is on (it is on unless the settings turn it off) and the check reported '${probe.availability.code}' for ${root}.`,
       measuredAt: probe.measuredAt,
-      kernelAbi: null,
+      selfReportedKernelAbi: null,
       guardianSha256: null,
       code: probe.availability.code,
     };
@@ -368,7 +375,7 @@ export function selfProtectionStatus(): SelfProtectionStatus {
     sentence: CONFINED_SENTENCE,
     reason: `Self-protection is on (turning it off has to be written into the settings) and was verified against ${root}.`,
     measuredAt: probe.measuredAt,
-    kernelAbi: probe.availability.kernelAbi,
+    selfReportedKernelAbi: probe.availability.selfReportedKernelAbi,
     guardianSha256: probe.availability.sha256,
     code: null,
   };

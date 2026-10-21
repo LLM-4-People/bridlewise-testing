@@ -60,17 +60,26 @@ a digest of the **sealed inputs** instead:
   recomputation and the root-policy `binaryStamp` pin.
 
 `harness sync` regenerates the pin from the sources — no compiler needed. A
-source change without a rebuild, or a rebuild from a tampered source, is
-refused with `binary_hash_mismatch`.
+binary whose `--stamp` no longer agrees with the tree or the pin (a source
+change without a rebuild, or a rebuild from a tampered source) is refused with
+`binary_hash_mismatch`.
 
 ```bash
 ./build/harness-landlock-guardian --stamp   # one 64-hex stamp on stdout
 ```
 
-The stamp proves provenance for an honest build. It is not a signature: a
-binary that forges its `--stamp` output is indistinguishable without a
-byte-level digest, and a byte-level digest is exactly what is not reproducible
-across compilers.
+A matching stamp is necessary, not sufficient. Admission also requires the
+binary to **demonstrate confinement**: under a spec that protects a probe
+folder, a reader must be refused the file inside it while the same reader
+reads an unprotected control file. A no-op or pass-through binary that prints
+the expected pin is refused with `confinement_not_observed`.
+
+That pair proves the binary answers with the expected stamp, runs, and denies
+a protected read. It does not distinguish a forger that both prints the pin
+and implements the denial: without an artifact outside the tree (a signature,
+or a trusted byte digest) that binary is indistinguishable from an honest
+build. A byte-level digest is exactly what is not reproducible across
+compilers. The stamp is provenance for an honest build, not a signature.
 
 ## CLI
 
