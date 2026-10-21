@@ -243,7 +243,7 @@ export type HarnessRegenerateOutput = Readonly<{
    * Discussion forms), generated from `docs/community/` and their facts' owners
    * (src/workflow/community/health-files.ts), never edited by hand.
    */
-  communityFiles: DecisionIndexArm;
+  communityFiles: CommunityFilesArm;
   /**
    * The guardian spec-schema artifact, rebuilt from the live Zod schema
    * (`scripts/verification/guardian-spec-artifact.ts`) BEFORE the binding
@@ -274,6 +274,15 @@ export type DecisionIndexArm = Readonly<{
   status: "current" | "regenerated" | "stale" | "absent";
   converged: boolean;
   changed: readonly string[];
+}>;
+
+/** What the community-files arm did: a generator arm, or `refused` with the typed refusal's code and message (a missing or invalid source, a hand-made shadow file). */
+export type CommunityFilesArm = Readonly<{
+  status: "current" | "regenerated" | "stale" | "absent" | "refused";
+  converged: boolean;
+  changed: readonly string[];
+  /** The refusal's `code: message`, empty otherwise. */
+  refusal: string;
 }>;
 
 /** What the README consumer arm did: `changed` is what a write rewrote, or what a check found stale. */
@@ -1211,21 +1220,32 @@ export function evidenceIgnoreStep(evidenceIgnore: DecisionIndexArm): CheckStepR
 }
 
 /** `harness check`'s community-files step: a stale generated health file or form FAILS the check, naming each path. */
-export function communityFilesStep(communityFiles: DecisionIndexArm): CheckStepResult {
+export function communityFilesStep(communityFiles: CommunityFilesArm): CheckStepResult {
   return deepFreeze({
     step: "community-files",
     status: communityFiles.converged ? "pass" : "fail",
-    message: communityFiles.converged
-      ? `the community health files and forms match their sources${communityFiles.status === "absent" ? " (this tree carries no community sources)" : ""}`
-      : `community files are stale against docs/community/ (run harness sync): ${communityFiles.changed.join(", ")}`,
+    message: communityFiles.status === "refused"
+      ? `the community files cannot be generated: ${communityFiles.refusal}`
+      : communityFiles.converged
+        ? `the community health files and forms match their sources${communityFiles.status === "absent" ? " (this tree carries no community surface at all)" : ""}`
+        : `community files are stale against docs/community/, or a file GitHub reads as one was not generated (run harness sync): ${communityFiles.changed.join(", ")}`,
     details: communityFiles,
   });
 }
 
-/** The community-files arm (in process: the community sources are a runtime module the IssueOps commands read too). */
-function regenerateCommunityFiles(root: string, write: boolean): DecisionIndexArm {
-  const report = syncCommunityFiles(trackedTop(root), write);
-  return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
+/**
+ * The community-files arm (in process: the community sources are a runtime
+ * module the IssueOps commands read too). A typed refusal is the arm's
+ * `refused` answer, so `harness check` names it as a failing step.
+ */
+export function regenerateCommunityFiles(root: string, write: boolean): CommunityFilesArm {
+  try {
+    const report = syncCommunityFiles(trackedTop(root), write);
+    return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed, refusal: "" });
+  } catch (error) {
+    if (!(error instanceof HarnessError) || !/^(?:community_|yaml_)/u.test(error.code)) throw error;
+    return deepFreeze({ status: "refused" as const, converged: false, changed: [], refusal: `${error.code}: ${error.message}` });
+  }
 }
 
 /** `harness check`'s frozen-records step: a frozen root whose content left its pin FAILS the check, naming each path. */

@@ -17,10 +17,10 @@ and the same independent review.
   a triager needs.
 - **Ask, propose or show** in [Discussions]({{repositoryUrl}}/discussions) (see
   [SUPPORT.md](SUPPORT.md) for the categories).
-- **Pick up work** labelled `good first issue` or `help wanted`. Each names its
-  files, the test that should pass and the commands to run.
-- **Review** an open pull request. A reviewer's approval counts as independent
-  verification (see [GOVERNANCE.md](GOVERNANCE.md)).
+- **Pick up work** labelled `good first issue` or `help wanted`.
+- **Review** an open pull request: say what you checked and what you could not.
+- **See what is coming:** the [planned community features](SUPPORT.md#planned),
+  each linked to its tracking issue.
 
 The issue forms:
 
@@ -79,7 +79,7 @@ bar](docs/process/AGENTS.md#evidence).
   Origin](https://developercertificate.org/): `git commit -s` adds
   `Signed-off-by: Your Name <you@example.com>`, matching the commit's author. To
   fix a pull request that lacks it, run `git rebase --signoff main` and push
-  again. Commits made in GitHub's web editor are signed off by GitHub.
+  again. {{feature:web-signoff}}
 - **Sign your commits** (SSH signing is three lines):
   `git config gpg.format ssh`,
   `git config user.signingkey ~/.ssh/id_ed25519.pub`,
@@ -108,8 +108,7 @@ bar](docs/process/AGENTS.md#evidence).
 AI-assisted work is welcome. You remain responsible for the result. Disclose
 material assistance, verify every claim, and do not paste unreviewed generated
 code into safety, privacy, auth or persistence paths. The project's own agents
-work the same way: their pull requests explain themselves, and they answer
-review comments in the thread.
+land their work through the same pull requests, checks and review.
 
 ## Review
 

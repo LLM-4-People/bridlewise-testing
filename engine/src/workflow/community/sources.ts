@@ -5,9 +5,17 @@
  * authorisation, the teams the forge applies — reads them through here, so a
  * role, a form or a Discussion category is declared once.
  *
- * A source that is missing where it is required, malformed, or inconsistent
- * (a member naming no role, two roles on one team, a contact link naming no
- * category) is the typed `community_source_invalid`, naming the file.
+ * A source that is missing, malformed, or inconsistent (a member naming no
+ * role, two roles on one team, a contact link naming no live category, a form
+ * GitHub would reject) is the typed `community_source_invalid`, naming the
+ * file.
+ *
+ * EVERY CLAIM HAS ITS RECEIPT: whatever the generated pages state about
+ * GitHub or the harness — a Discussion category, the issue type a form sets,
+ * a feature — carries a status: `{ "live": "<receipt>" }` (what proves it
+ * holds today) or `{ "planned": "<tracking URL>" }`. A page states a live
+ * thing as fact and lists a planned one as planned, linked to its tracking
+ * item; nothing unbuilt is described as working.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,10 +27,23 @@ import { InputError } from "../../kernel/errors.ts";
 export const COMMUNITY_DIRECTORY = "docs/community";
 export const ROLES_PATH = `${COMMUNITY_DIRECTORY}/roles.json`;
 export const INTAKE_PATH = `${COMMUNITY_DIRECTORY}/intake.json`;
+export const FEATURES_PATH = `${COMMUNITY_DIRECTORY}/features.json`;
 
 /** GitHub's repository permission levels, weakest first (`GET …/collaborators/{u}/permission` answers one). */
 export const PERMISSION_LEVELS = Object.freeze(["read", "triage", "write", "maintain", "admin"] as const);
 export type PermissionLevel = (typeof PERMISSION_LEVELS)[number];
+
+/** A claim's status: live, with the receipt that proves it today, or planned, with its tracking item. */
+const STATUS = z.union([
+  z.strictObject({ live: z.string().min(1) }),
+  z.strictObject({ planned: z.string().regex(/^https:\/\/github\.com\/\S+$/u, "a planned claim links its tracking item (an https://github.com/ URL)") }),
+]);
+export type ClaimStatus = z.infer<typeof STATUS>;
+
+/** Whether `status` is live. */
+export function isLive(status: ClaimStatus): status is Readonly<{ live: string }> {
+  return "live" in status;
+}
 
 const ROLE = z.strictObject({
   id: z.string().regex(/^[a-z][a-z-]*$/u),
@@ -42,16 +63,24 @@ const ROLES = z.strictObject({
   conduct: z.strictObject({ contact: z.string().min(1) }),
 });
 
+/** The id of the checkbox block every issue form ends with (generated from `confirmations`): no field may take it. */
+export const CONFIRMATIONS_FIELD_ID = "confirmations";
+
+/** A form field, with the rules GitHub's form schema adds: options only (and always) on a dropdown, `render` only on a textarea. */
 const FIELD = z.strictObject({
   kind: z.enum(["textarea", "input", "dropdown"]),
-  id: z.string().regex(/^[a-z][a-z0-9-]*$/u),
+  id: z.string().regex(/^[a-z][a-z0-9-]*$/u).refine((id) => id !== CONFIRMATIONS_FIELD_ID, `"${CONFIRMATIONS_FIELD_ID}" is the generated checkbox block's id`),
   label: z.string().min(1),
   description: z.string().optional(),
   placeholder: z.string().optional(),
   render: z.string().optional(),
-  options: z.array(z.string()).optional(),
+  options: z.array(z.string().min(1)).min(1).optional(),
   required: z.boolean(),
-});
+}).refine((field) => (field.kind === "dropdown") === (field.options !== undefined), "a dropdown names its options, and only a dropdown does")
+  .refine((field) => field.render === undefined || field.kind === "textarea", "only a textarea renders as code");
+
+/** A form's fields: at least one, each id once. */
+const FIELDS = z.array(FIELD).min(1).refine((fields) => new Set(fields.map((field) => field.id)).size === fields.length, "a form's field ids are unique");
 
 const ISSUE_FORM = z.strictObject({
   file: z.string().regex(/^[a-z][a-z0-9-]*\.yml$/u),
@@ -59,7 +88,9 @@ const ISSUE_FORM = z.strictObject({
   description: z.string().min(1),
   /** The issue type the form sets (the org's issue-type registry names it). */
   type: z.string().min(1),
-  fields: z.array(FIELD).min(1),
+  /** Whether that type exists in the org today: a planned type is left out of the form, never named. */
+  typeStatus: STATUS,
+  fields: FIELDS,
 });
 
 const CATEGORY = z.strictObject({
@@ -69,7 +100,9 @@ const CATEGORY = z.strictObject({
   format: z.enum(["announcement", "open-ended", "question-answer", "poll"]),
   postedBy: z.string().min(1),
   use: z.string().min(1),
-  form: z.strictObject({ title: z.string(), fields: z.array(FIELD).min(1) }).optional(),
+  /** Whether the category exists on the repository (GitHub has no API that creates one): a planned one is listed as planned, never linked. */
+  status: STATUS,
+  form: z.strictObject({ title: z.string(), fields: FIELDS }).optional(),
 });
 
 const CONTACT_LINK = z.strictObject({
@@ -88,6 +121,19 @@ const INTAKE = z.strictObject({
   discussionCategories: z.array(CATEGORY).min(1),
 });
 
+/** A feature a page may describe: its one sentence, stated only while it is live. */
+const FEATURE = z.strictObject({
+  id: z.string().regex(/^[a-z][a-z0-9-]*$/u),
+  text: z.string().min(1),
+  status: STATUS,
+});
+
+const FEATURES = z.strictObject({
+  schema: z.literal("bridlewise-community-features/v1"),
+  features: z.array(FEATURE),
+});
+
+export type CommunityFeature = z.infer<typeof FEATURE>;
 export type CommunityRole = z.infer<typeof ROLE>;
 export type CommunityRoles = z.infer<typeof ROLES>;
 export type FormField = z.infer<typeof FIELD>;
@@ -117,11 +163,6 @@ function duplicates(values: readonly string[]): readonly string[] {
   return [...new Set(values.filter((value, index) => values.indexOf(value) !== index))];
 }
 
-/** Whether the repository carries community sources at all (a tree without the folder is converged by absence). */
-export function hasCommunitySources(repositoryRoot: string): boolean {
-  return existsSync(join(repositoryRoot, ROLES_PATH));
-}
-
 /** The role table, validated: unique ids and teams, permissions strictly rising, every member's role declared. */
 export function readRoles(repositoryRoot: string): CommunityRoles {
   const roles = readSource(repositoryRoot, ROLES_PATH, ROLES);
@@ -146,18 +187,27 @@ export function readIntake(repositoryRoot: string): CommunityIntake {
   const repeated = [...duplicates(intake.issueForms.map((form) => form.file)), ...duplicates(slugs)];
   if (repeated.length > 0) invalid(INTAKE_PATH, `declared twice: ${repeated.join(", ")}`);
   if (intake.issueForms.some((form) => form.file === "config.yml")) invalid(INTAKE_PATH, "config.yml is the chooser's file, never a form");
+  const live = intake.discussionCategories.filter((category) => isLive(category.status)).map((category) => category.slug);
   for (const link of intake.contactLinks) {
     if ((link.category === undefined) === (link.advisory === undefined)) invalid(INTAKE_PATH, `contact link ${link.name} must name exactly one of a category or the advisory`);
-    if (link.category !== undefined && !slugs.includes(link.category)) invalid(INTAKE_PATH, `contact link ${link.name} names no declared category (${link.category})`);
+    if (link.category !== undefined && !live.includes(link.category)) invalid(INTAKE_PATH, `contact link ${link.name} names no live category (${link.category})`);
   }
   return intake;
 }
 
-/** The weakest role whose permission `level` reaches (the role a collaborator's permission answer grants), or the first role. */
+/** The features, validated: each id once. */
+export function readFeatures(repositoryRoot: string): readonly CommunityFeature[] {
+  const { features } = readSource(repositoryRoot, FEATURES_PATH, FEATURES);
+  const repeated = duplicates(features.map((feature) => feature.id));
+  if (repeated.length > 0) invalid(FEATURES_PATH, `declared twice: ${repeated.join(", ")}`);
+  return features;
+}
+
+/** The highest role whose permission `level` reaches (the role a collaborator's permission answer grants); a level no role reaches is `community_source_invalid`. */
 export function roleForPermission(roles: CommunityRoles, level: PermissionLevel): CommunityRole {
   const rank = PERMISSION_LEVELS.indexOf(level);
   const reached = roles.roles.filter((role) => PERMISSION_LEVELS.indexOf(role.permission) <= rank);
-  return reached.at(-1) ?? roles.roles[0]!;
+  return reached.at(-1) ?? invalid(ROLES_PATH, `no role is reached by the permission ${level}: the first role must grant read`);
 }
 
 /** The teams the role table declares, for the forge to apply: each team with its repository permission. */

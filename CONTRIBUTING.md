@@ -18,15 +18,15 @@ and the same independent review.
   a triager needs.
 - **Ask, propose or show** in [Discussions](https://github.com/LLM-4-People/bridlewise-testing/discussions) (see
   [SUPPORT.md](SUPPORT.md) for the categories).
-- **Pick up work** labelled `good first issue` or `help wanted`. Each names its
-  files, the test that should pass and the commands to run.
-- **Review** an open pull request. A reviewer's approval counts as independent
-  verification (see [GOVERNANCE.md](GOVERNANCE.md)).
+- **Pick up work** labelled `good first issue` or `help wanted`.
+- **Review** an open pull request: say what you checked and what you could not.
+- **See what is coming:** the [planned community features](SUPPORT.md#planned),
+  each linked to its tracking issue.
 
 The issue forms:
 
 - [Bug report](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=bug.yml): Report a reproducible problem in the developer preview.
-- [Flake report](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=flake.yml): A test that passed and failed on the same tree. Name the test, so a triager can run /reproduce.
+- [Flake report](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=flake.yml): A test that passed and failed on the same tree. Name the test file and the test.
 - [Docs fix](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=docs.yml): A page that is wrong, stale, unclear or missing.
 
 ## Setup
@@ -111,8 +111,7 @@ bar](docs/process/AGENTS.md#evidence).
 AI-assisted work is welcome. You remain responsible for the result. Disclose
 material assistance, verify every claim, and do not paste unreviewed generated
 code into safety, privacy, auth or persistence paths. The project's own agents
-work the same way: their pull requests explain themselves, and they answer
-review comments in the thread.
+land their work through the same pull requests, checks and review.
 
 ## Review
 
