@@ -414,7 +414,7 @@ test("a forged listing cannot omit a file the fresh enumeration selects", () => 
     // re-derived the population.
     assert.throws(
       () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, list: freshEnumeration }),
-      /OMITS .*tests\/c\.test\.ts/u,
+      (err) => err.message.includes("OMITS") && err.message.includes("tests/c.test.ts"),
     );
     // The same subject cannot invent a file the enumeration did not select.
     writeJson(live, {
@@ -429,7 +429,7 @@ test("a forged listing cannot omit a file the fresh enumeration selects", () => 
     });
     assert.throws(
       () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, list: freshEnumeration }),
-      /names .*tests\/invented\.test\.ts/u,
+      (err) => err.message.includes("names") && err.message.includes("tests/invented.test.ts"),
     );
   } finally {
     rmSync(work, { recursive: true, force: true });

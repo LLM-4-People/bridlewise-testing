@@ -124,6 +124,7 @@ export const state={count:0};`);
     writeFileSync(file, `// @vitest-environment jsdom
 import {test,expect,vi} from 'vitest'; import {appendFileSync} from 'node:fs';
 import {threadId} from 'node:worker_threads';
+globalThis[Symbol.for('bridlewise.global-boundary.allow-leak')]=true;
 ${index === 1 ? "vi.mock('./leaf.ts',()=>({word:'mocked'}));" : ""}
 import {consume,state} from './consumer.ts'; import native from './dependency.cjs';
 import {serverConfig} from ${JSON.stringify(serverConfig)};

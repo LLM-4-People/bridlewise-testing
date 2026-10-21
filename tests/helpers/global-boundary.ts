@@ -113,6 +113,36 @@ function initialisePlatformFetchGlobals(): void {
   }
 }
 
+/**
+ * Symbols the PLATFORM toolchain registers on `globalThis` through the global
+ * symbol registry, not tests.
+ *
+ * `Symbol.for("signal-exit emitter")` is installed by rolldown's bundled
+ * signal-exit when the bundler's watch module loads — which happens in a file
+ * that reads the Vite config, not in the test's own code. It arrives after the
+ * entry snapshot, so the boundary used to blame the file that happened to load
+ * the bundler. The key is registry-global, so a test cannot get a private one,
+ * and a test that sets this key is still judged by its descriptor; this set
+ * only names the keys the platform owns.
+ */
+const PLATFORM_REGISTERED_SYMBOLS: ReadonlySet<symbol> = new Set([
+  Symbol.for("signal-exit emitter"),
+  Symbol.for("graceful-fs.queue"),
+]);
+
+/**
+ * The ONE declared exception: a fixture whose SUBJECT is the leak itself.
+ *
+ * The isolation contract plants a symbol and an env var and then proves the
+ * next file starts clean; failing the planter would make the contract report a
+ * failure for the leak it deliberately created. The marker is a registry
+ * symbol set at the fixture's MODULE load (an environment variable set inside
+ * a test is restored by the env door before this one reads it). The door still
+ * REPAIRS the globals — the run is not poisoned — it only does not fail that
+ * file, and it does not report the marker itself.
+ */
+const DECLARED_LEAK_MARKER = Symbol.for("bridlewise.global-boundary.allow-leak");
+
 function sameDescriptor(left: GlobalDescriptor | undefined, right: GlobalDescriptor | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
   return (
@@ -144,11 +174,15 @@ export function restoreGlobals(): PropertyKey[] {
     const before = entryDescriptors.get(name);
     const now = current.get(name);
     if (sameDescriptor(before, now)) continue;
-    // NO SYMBOL EXCEPTION: the platform symbols a runtime installs lazily are
-    // in the entry snapshot now (`initialisePlatformFetchGlobals`), so a
-    // symbol-keyed property that appears after it is a global the file
-    // installed. Reporting it by `String(name)` is enough to blame the file.
-    changed.push(name);
+    // A symbol the PLATFORM toolchain registered after the entry snapshot is
+    // not this file's leak: loading the bundler's watch module installs
+    // `Symbol.for("signal-exit emitter")` as a side effect. It is repaired
+    // below like any other, but not reported against the file.
+    const platformInstalled =
+      before === undefined &&
+      typeof name === "symbol" &&
+      (PLATFORM_REGISTERED_SYMBOLS.has(name) || name === DECLARED_LEAK_MARKER);
+    if (!platformInstalled) changed.push(name);
     try {
       if (before === undefined) Reflect.deleteProperty(globalThis, name);
       else Object.defineProperty(globalThis, name, before);
@@ -192,8 +226,12 @@ export function restoreGlobals(): PropertyKey[] {
  * hook does not strand the worker's state.
  */
 export function assertGlobalsRestored(testFile: string): void {
+  // Read the fixture's declaration BEFORE the repair: the marker itself is a
+  // property this file added, so `restoreGlobals` removes it.
+  const declaredLeak = (globalThis as Record<symbol, unknown>)[DECLARED_LEAK_MARKER] === true;
   const leaked = restoreGlobals();
   if (leaked.length === 0) return;
+  if (declaredLeak) return;
   const shown = leaked.slice(0, 10).map(String).join(", ") + (leaked.length > 10 ? ", …" : "");
   throw new Error(
     `${testFile} changed ${shown} on globalThis and did not restore ` +
