@@ -16,6 +16,7 @@ The `tests/cockpit/` folder of the development surface.
 - `cockpit-chord-owner.test.ts` — @vitest-environment node.
 - `cockpit-derivation-owner.test.ts` — @vitest-environment node.
 - `cockpit-flow-verb-owner.test.ts` — @vitest-environment node.
+- `cockpit-fonts-owner.test.ts` — @vitest-environment node. The self-hosted fonts: `@font-face` only in the token owner, every declared file vendored and every vendored file declared, the OFL licence present, and no font CDN anywhere in the web tree (planted violations and near-misses).
 - `cockpit-keyboard-grammar.test.ts` — @vitest-environment node.
 - `cockpit-latency-budget.test.ts` — @vitest-environment node.
 - `cockpit-mouse-path-owner.test.ts` — @vitest-environment node.
