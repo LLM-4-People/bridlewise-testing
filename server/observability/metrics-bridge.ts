@@ -117,7 +117,7 @@ export function getSystemMetrics(): SystemMetrics {
 export type CombinedMetrics = Readonly<{
   snapshot: MetricsSnapshot;
   system: SystemMetrics;
-  tokens: Readonly<{ inputTokens: number; outputTokens: number; totalTokens: number; tokensPerSecond: number }>;
+  tokens: Readonly<{ inputTokens: number; outputTokens: number; totalTokens: number; tokensPerSecond: number | null }>;
 }>;
 
 export function getCombinedMetrics(): CombinedMetrics {

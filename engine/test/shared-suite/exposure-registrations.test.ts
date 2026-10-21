@@ -82,8 +82,11 @@ test("exp470-registration: every signal has a dynamic value + every action is ex
   for (const signal of listSignals()) {
     assert.equal(typeof signal.value, "function", `signal ${signal.id} value must be a function`);
     const v = readSignal(signal.id);
-    assert.ok(typeof v === "number" || typeof v === "string" || typeof v === "boolean",
-      `signal ${signal.id} value must be a scalar`);
+    // null is the signal's ABSENCE (a rate with no measured denominator, a
+    // reading before its first tick): a scalar or a stated absence, never an
+    // invented zero.
+    assert.ok(v === null || typeof v === "number" || typeof v === "string" || typeof v === "boolean",
+      `signal ${signal.id} value must be a scalar or null absence`);
   }
 
   let executableActions = 0;

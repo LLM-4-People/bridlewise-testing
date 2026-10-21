@@ -231,9 +231,11 @@ test("T-K3/T-K4: with NO git identity configured, the commit is S's committer at
     return { ...receipt, commands: receipt.commands.map(({ evidence: _evidence, ...step }) => step) };
   };
   assert.deepEqual(withoutEvidence(fixture.git(["rev-parse", refs.receipt(second.commit)])), withoutEvidence(firstReceipt));
-  const evidence = (JSON.parse(fixture.git(["cat-file", "blob", firstReceipt])) as { commands: readonly { step: string; evidence?: { argv: readonly string[]; attempts: number; durationMs: number; load: number; parallelism: number } }[] }).commands.find((step) => step.step === "gate")!.evidence!;
+  const evidence = (JSON.parse(fixture.git(["cat-file", "blob", firstReceipt])) as { commands: readonly { step: string; evidence?: { argv: readonly string[]; attempts: number; durationMs: number; load: number | null; parallelism: number } }[] }).commands.find((step) => step.step === "gate")!.evidence!;
   assert.equal(evidence.attempts, 1);
-  assert.ok(evidence.argv.length > 0 && evidence.durationMs >= 0 && evidence.load >= 0 && evidence.parallelism >= 1, JSON.stringify(evidence));
+  // The load is the shared producer's raw one-minute leg or null when
+  // unreadable; a negative number would be the defect, absence is not.
+  assert.ok(evidence.argv.length > 0 && evidence.durationMs >= 0 && (evidence.load === null || evidence.load >= 0) && evidence.parallelism >= 1, JSON.stringify(evidence));
 });
 
 test("resume: a pending commit built for this S on this T is the answer (nothing rebuilt); a pending commit for an older source is dropped and rebuilt", async () => {

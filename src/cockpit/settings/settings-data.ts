@@ -461,7 +461,10 @@ export function measuredEffect(
   const signal = linkedSignal(schema, id);
   if (signal === null || values === null) return null;
   const reading = values.signals.find((s) => s.id === signal.id)?.value;
-  if (reading === undefined) return null;
+  // `undefined` = the snapshot does not carry this signal; `null` = it
+  // carries it and the signal has measured nothing. Neither is a reading, so
+  // the line is omitted rather than rendered as a zero. No coercion.
+  if (reading === undefined || reading === null) return null;
   return `measured now · ${formatValue(reading, signal.unit)}`;
 }
 

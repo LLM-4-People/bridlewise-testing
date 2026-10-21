@@ -79,8 +79,27 @@ test("the checked-in shard manifest is complete, well-formed and self-describing
   const declared = /(\d+) supported files/u.exec(raw.weightSource)?.[1];
   assert.equal(Number(declared), manifest.files.length, "weightSource must name the manifest's population");
   for (const file of manifest.files) {
-    assert.ok(Number.isSafeInteger(file.weightMs) && file.weightMs >= 0, `${file.path} has no measured weight`);
+    // The producer floors a weight at 1 (`Math.max(1, Math.round(...))`) and
+    // `readManifest` refuses a non-positive entry. This self-check asserted
+    // `>= 0`, so a zero-weight fixture read as measured here while the owner
+    // refused it — the check was weaker than the thing it audits.
+    assert.ok(Number.isSafeInteger(file.weightMs) && file.weightMs >= 1, `${file.path} has no measured weight`);
     assert.match(file.path, /\.test\.(?:ts|mjs)$/u, `${file.path} is not a test file`);
+  }
+});
+
+test("a zero weight is refused by the owner, not read as a measured weight", () => {
+  // The self-check above audits the tracked manifest; this arm drives the
+  // owner's own floor so the two cannot drift apart again.
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-weight-floor-"));
+  try {
+    const path = join(work, "manifest.json");
+    const manifest = manifestFor(["tests/a.test.ts"]);
+    manifest.files[0].weightMs = 0;
+    writeJson(path, manifest);
+    assert.throws(() => readManifest(work, path), /must carry a positive integer weightMs/u);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
   }
 });
 
@@ -157,6 +176,8 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
         numTotalTests: shard.files.length,
         numFailedTests: 0,
         numFailedTestSuites: 0,
+        numPendingTests: 0,
+        numTodoTests: 0,
         testResults: shard.files.map((file) => ({ name: join(work, file), status: "passed", assertionResults: [] })),
       });
       wrapShardReport({
@@ -227,6 +248,7 @@ test("a wrapped report with the wrong commit, manifest hash or assignment hash i
     const wrapped = join(work, "wrapped.json");
     writeJson(raw, {
       success: true, numTotalTests: 1, numFailedTests: 0, numFailedTestSuites: 0,
+      numPendingTests: 0, numTodoTests: 0,
       testResults: [{ name: join(work, "tests/a.test.ts"), status: "passed", assertionResults: [] }],
     });
     wrapShardReport({ root: work, planPath: join(planDir, "plan.json"), shard: 1, vitestPath: raw, outPath: wrapped });

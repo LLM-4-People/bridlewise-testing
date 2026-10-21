@@ -344,6 +344,9 @@
   function monitorValue(signalId: string): string {
     const s = current[signalId];
     if (s === undefined) return "collecting";
+    // `null` is a known signal that has measured nothing; the formatter
+    // refuses it by design, so the monitor says so in words.
+    if (s.v === null) return "not measured";
     const meta = schema?.signals.find((x) => x.id === signalId);
     // Same formatter as the cell — the monitor is a reference to the same
     // measured fact, never a second derivation.

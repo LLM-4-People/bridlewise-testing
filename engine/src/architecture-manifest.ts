@@ -3012,7 +3012,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "shared-exposure-signal", path: "src/shared/exposure/signal.ts", realm: "shared", layer: "domain",
-      owner: "shared-exposure", publicApi: { exportCount: 20, namesSha256: "8f2799c2e2c10e1134a49a1114972f277af4768c3e4697bd9744652b1f6efc03" },
+      owner: "shared-exposure", publicApi: { exportCount: 21, namesSha256: "b5a77e6da2591b4caa5bcb5c90ed47bedd4383d601c4e4b40e762e0c9eb565b6" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/exposure/catalog.ts","src/shared/exposure/contract.ts"],
     }),
     moduleContract({
@@ -5249,7 +5249,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-checkout-setup", path: "src/workflow/checkout-setup.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 31, namesSha256: "24c36c6961c8ed7518a8b84f2c8998996e38c49d41b414a1ce8c4e44ae3ae15a" },
-      dependencies: ["node:fs","node:os","node:path","node:string_decoder","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/git/repository-ownership.ts","src/git/working-copy.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/privacy/evidence-handler.ts","src/process/instrument-lock.ts","src/process/supervised-run.ts","src/shared/debug/debug-system.ts","src/shared/run-history.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["node:fs","node:os","node:path","node:string_decoder","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/git/repository-ownership.ts","src/git/working-copy.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/privacy/evidence-handler.ts","src/process/instrument-lock.ts","src/process/supervised-run.ts","src/shared/ambient-load.ts","src/shared/debug/debug-system.ts","src/shared/run-history.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "src-mcp-tool-name", path: "src/mcp/tool-name.ts", realm: "runtime", layer: "domain",
@@ -5708,7 +5708,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-flake-cli", path: "src/workflow/flake-cli.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 21, namesSha256: "61aac73364be11e46eccf7372676c846c42432b692b0c41b4c3f9df0b8315d4c" },
-      dependencies: ["guardian/build.ts","node:fs","node:os","node:path","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/filesystem/temporary-root.ts","src/git/flake-cause-fixes.ts","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/privacy/evidence-handler.ts","src/privacy/secret-signals.ts","src/process/instrument-lock.ts","src/process/supervised-run.ts","src/shared/flake-reproduction.ts","src/shared/run-history.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/evidence-store.ts","src/workflow/repository-registry.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["guardian/build.ts","node:fs","node:os","node:path","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/filesystem/temporary-root.ts","src/git/flake-cause-fixes.ts","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/privacy/evidence-handler.ts","src/privacy/secret-signals.ts","src/process/instrument-lock.ts","src/process/supervised-run.ts","src/shared/ambient-load.ts","src/shared/flake-reproduction.ts","src/shared/run-history.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/evidence-store.ts","src/workflow/repository-registry.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "src-quality-languages-semantic-form", path: "src/quality/languages/semantic-form.ts", realm: "runtime", layer: "domain",

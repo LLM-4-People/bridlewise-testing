@@ -51,6 +51,15 @@ export const SIGNAL_TYPES = deepFreeze([
 export type SignalType = typeof SIGNAL_TYPES[number];
 
 /**
+ * A signal's value. `null` is ABSENCE, not a value: a gauge whose source has
+ * not produced a measurement (a rate with no positive denominator, a reading
+ * before its first tick) states that plainly. A consumer renders absence or
+ * skips the reading; it must never coerce null to 0, which would turn "not
+ * measured" into a measured claim.
+ */
+export type SignalValue = number | string | boolean | null;
+
+/**
  * Declared abnormality bounds for a numeric signal — the ONLY basis on which
  * a generic surface may color a reading as abnormal.
  *
@@ -143,7 +152,7 @@ export type Signal = Readonly<{
   /** Optional argument schema when `value` needs input. */
   args?: readonly SignalArg[];
   /** Compute the current value (always dynamic, never a stored constant). */
-  value: (args?: Readonly<Record<string, unknown>>) => number | string | boolean;
+  value: (args?: Readonly<Record<string, unknown>>) => SignalValue;
   /**
    * WHO MAY READ THE VALUE. Absent: every signed-in viewer. `admin`: the value
    * names the host's layout (paths of other installs, the key home, backups),
@@ -151,7 +160,7 @@ export type Signal = Readonly<{
    * a version) — or nothing, when there is none. Applied by the one values
    * surface (`buildUiSchemaValues`), per caller.
    */
-  visibility?: Readonly<{ viewer: "admin"; publicValue?: () => number | string | boolean }>;
+  visibility?: Readonly<{ viewer: "admin"; publicValue?: () => SignalValue }>;
   /**
    * Shared exposure metadata — determinism class, effect timing, audience,
    * visibility predicate. Optional; see `contract.ts`. Present on EVERY
@@ -194,7 +203,7 @@ export function getSignal(id: string): Signal | undefined {
 export function readSignal(
   id: string,
   args?: Readonly<Record<string, unknown>>,
-): number | string | boolean {
+): SignalValue {
   const signal = catalog.get(id);
   if (!signal) throw new InputError(`exposure: signal "${id}" not registered`);
   return signal.value(args);
@@ -243,7 +252,7 @@ export function defineSignal(
   name: string,
   description: string,
   type: SignalType,
-  value: (args?: Readonly<Record<string, unknown>>) => number | string | boolean,
+  value: (args?: Readonly<Record<string, unknown>>) => SignalValue,
   extra: SignalExtra = {},
 ): Signal {
   const signal: Signal = { id: `${module}.${id}`, module, name, description, type, value, ...extra };
@@ -256,7 +265,7 @@ export function defineCounter(
   id: string,
   name: string,
   description: string,
-  value: (args?: Readonly<Record<string, unknown>>) => number | string | boolean,
+  value: (args?: Readonly<Record<string, unknown>>) => SignalValue,
   labels?: readonly string[],
 ): Signal {
   return defineSignal(module, id, name, description, "counter", value, labels !== undefined ? { labels } : {});
@@ -268,7 +277,7 @@ export function defineGauge(
   id: string,
   name: string,
   description: string,
-  value: (args?: Readonly<Record<string, unknown>>) => number | string | boolean,
+  value: (args?: Readonly<Record<string, unknown>>) => SignalValue,
   unit?: string,
 ): Signal {
   return defineSignal(module, id, name, description, "gauge", value, unit !== undefined ? { unit } : {});
@@ -280,7 +289,7 @@ export function defineState(
   id: string,
   name: string,
   description: string,
-  value: (args?: Readonly<Record<string, unknown>>) => number | string | boolean,
+  value: (args?: Readonly<Record<string, unknown>>) => SignalValue,
 ): Signal {
   return defineSignal(module, id, name, description, "state", value, {});
 }

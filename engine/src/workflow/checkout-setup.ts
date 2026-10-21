@@ -42,7 +42,7 @@
 
 import { appendFileSync, chmodSync, closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, statSync, symlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { availableParallelism, loadavg, tmpdir } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
@@ -61,6 +61,7 @@ import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { workingTreeId } from "../git/working-copy.ts";
 import { holdInstrumentLock, waitForInstrumentLock, wholeInstrumentTestFileCount, type InstrumentHold } from "../process/instrument-lock.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
+import { readAmbientLoadPerCpu } from "../shared/ambient-load.ts";
 
 /**
  * Why a command failed: ERRORED — the environment ended it (its ceiling, a
@@ -76,9 +77,11 @@ export type CheckoutFailureClass = "errored" | "failed";
  * How a command ran (merge-door-final §7.4: what a receipt records of every
  * command): its argv and folder, how many attempts the errored-class retry
  * took, their total duration, and the machine's load and parallelism when it
- * ended — so a slow or errored run is judged against the load it met.
+ * ended — so a slow or errored run is judged against the load it met. `load`
+ * is the one-minute leg of the shared ambient reading, or null when the
+ * sample was unreadable — never a fabricated zero.
  */
-export type CommandEvidence = Readonly<{ argv: readonly string[]; cwd: string; attempts: number; durationMs: number; load: number; parallelism: number; invocationId?: string; terminal?: SupervisedCommand }>;
+export type CommandEvidence = Readonly<{ argv: readonly string[]; cwd: string; attempts: number; durationMs: number; load: number | null; parallelism: number; invocationId?: string; terminal?: SupervisedCommand }>;
 
 /** One step a checkout took: a link, the config mode, or a command (a gate). */
 export type CheckoutStep = Readonly<{
@@ -379,7 +382,11 @@ async function runOnce(checkoutRoot: string, name: string, command: CheckoutComm
     const spelled = `${argv.join(" ")} (in ${command.cwd})`;
     const passed = run.ending === "exited" && run.exitCode === 0;
     const failure = passed ? undefined : commandFailureClass(run.ending, tail);
-    const evidence: CommandEvidence = { argv, cwd: command.cwd, attempts: attempt, durationMs: run.elapsedMs, load: loadavg()[0]!, parallelism: availableParallelism(),
+    // The ambient sample is read through its one producer: this record keeps
+    // the raw one-minute leg (not the per-CPU quantity) and records null when
+    // the sample was unreadable, never 0.
+    const ambient = readAmbientLoadPerCpu();
+    const evidence: CommandEvidence = { argv, cwd: command.cwd, attempts: attempt, durationMs: run.elapsedMs, load: ambient.loads?.[0] ?? null, parallelism: availableParallelism(),
       ...(invocationId === undefined ? {} : { invocationId }), terminal: run };
     debugLog("workflow", passed ? "info" : "warn", `${name} ${passed ? "passed" : failure!}`, () => ({
       command: name, class: failure ?? "pass", ending: run.ending, exit: run.exitCode, signal: run.signal, durationMs: run.elapsedMs, attempt, load: evidence.load, parallelism: evidence.parallelism,

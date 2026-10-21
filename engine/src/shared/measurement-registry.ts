@@ -236,6 +236,16 @@ export const MEASUREMENT_FINDINGS: readonly MeasurementFinding[] = Object.freeze
       "and is recorded, not used to normalise. This entry therefore has no bound past which a " +
       "verdict defers; the finding records that design.",
   },
+  {
+    id: "F-TOKEN-THROUGHPUT-NO-BOUND",
+    title: "Token throughput is measured over wall time with no ambient bound",
+    detail:
+      "Tokens per second divides the recorder's token accumulator by the server's elapsed wall " +
+      "clock. Host load, a stalled stream or a slow client lengthens that interval and lowers " +
+      "the rate, and no numeric ambient-load bound exists past which the exposure signal, the " +
+      "history point or the metrics route defers. Recorded as an open finding; the registry " +
+      "does not claim the figure is load-agnostic.",
+  },
 ]);
 
 /**
@@ -293,7 +303,6 @@ export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Objec
   "src/state/chat-messages.ts::settleHydratedRunningToolCalls": "settles hydrated running tool calls; a state repair, not a measurement",
   "engine/src/process/process-facts.ts::startWallTimeMsOf": "reads a process start stamp for the instrument lock's identity; identity, not a duration",
   "engine/src/process/process-facts.ts::processIdentity": "assembles the process's identity for the instrument lock; identity, not a measurement",
-  "server/observability/metrics-recorder.ts::getTokenThroughput": "returns the recorder's live token-throughput estimate for the dashboard's history point; not judged, recorded or quoted by the floor",
   "server/observability/metrics-recorder.ts::recordLlmCall": "records one LLM call into the metrics collector; a recording hook, not a computed quantity",
   "server/observability/metrics-recorder.ts::recordToolCall": "records one tool call into the metrics collector; a recording hook, not a computed quantity",
 });
@@ -698,6 +707,12 @@ const CI_SUMMED_SHARD: MetricEntry = {
 /**
  * The run-start ambient load, per CPU. The verdict consumes the 5-minute
  * leg; the 1-minute leg is recorded as a covariate and is never a normaliser.
+ *
+ * The last derivation spelling is the RAW READ. The producer is the one
+ * owner of the sample, so a `loadavg()` call anywhere else is a second
+ * reading of the same fact even when it does not divide — the two direct
+ * readers this entry caught (`checkout-setup.ts`, `flake-cli.ts`) recorded
+ * the raw leg and were invisible to a division-only scan.
  */
 const AMBIENT_LOAD: MetricEntry = {
   status: "registered",
@@ -712,6 +727,7 @@ const AMBIENT_LOAD: MetricEntry = {
       "load1\\s*/\\s*cpuCount",
       "loads?\\[0\\]\\s*/\\s*\\w+",
       "\\bl1\\s*/\\s*cores\\.length\\b",
+      "loadavg\\(\\)",
     ],
     forbids: ["wallClock", "performance.now(", "cpuUsage("],
   },
@@ -737,6 +753,49 @@ const AMBIENT_LOAD: MetricEntry = {
   zero: { kind: "not-numeric", reason: "the unit is load per CPU; a measured 0 is an idle reading and is represented as 0 only when the sample was readable" },
 };
 
+/**
+ * The server's token throughput, exposed by the metrics bridge and recorded
+ * in the web history. It is a RATE: the numerator is the recorder's token
+ * accumulator and the denominator is the server's own elapsed wall clock.
+ * A non-positive denominator has no rate, so the producer answers null and
+ * every consumer carries null (never 0). It is load-sensitive with no
+ * numeric bound, recorded as {@link MEASUREMENT_FINDINGS} finding
+ * `F-TOKEN-THROUGHPUT-NO-BOUND`.
+ */
+const TOKEN_THROUGHPUT: MetricEntry = {
+  status: "registered",
+  name: "performance.tokensPerSecond",
+  unit: "tokens per second",
+  family: null,
+  distinctFrom: [],
+  producer: {
+    module: "server/observability/metrics-recorder.ts",
+    symbol: "getTokenThroughput",
+    derivation: ["totalTokens\\s*/\\s*seconds"],
+    forbids: ["cpuUsage("],
+  },
+  consumers: [
+    { kind: "record", id: "tokensPerSecond", source: "server/observability/metrics-bridge.ts" },
+    { kind: "record", id: "tokensPerSecond", source: "src/state/metrics.ts" },
+    { kind: "record", id: "tokensPerSecond", source: "engine/src/shared/exposure/registrations/performance.ts" },
+  ],
+  load: {
+    kind: "sensitive",
+    sensitivity: "the token count is divided by the server's elapsed wall clock; host load and stalled streams lengthen the interval and lower the rate",
+    bound: null,
+    finding: "F-TOKEN-THROUGHPUT-NO-BOUND",
+  },
+  absent: {
+    kind: "null",
+    reason: "a non-positive elapsed interval has no rate: the producer returns null and the bridge, the history point and the exposure signal carry null — never a fabricated 0",
+  },
+  zero: {
+    kind: "honest",
+    witness: "the accumulator held zero tokens across a positive measured interval",
+    reason: "a zero rate over a real interval is a measured fact, distinct from an unmeasurable denominator",
+  },
+};
+
 export const MEASUREMENT_REGISTRY: readonly MetricEntry[] = Object.freeze([
   MEASURED_SURFACE,
   INSTRUMENT_LOCK,
@@ -748,6 +807,7 @@ export const MEASUREMENT_REGISTRY: readonly MetricEntry[] = Object.freeze([
   SHARD_WEIGHT,
   CI_TEST_PHASE,
   CI_SUMMED_SHARD,
+  TOKEN_THROUGHPUT,
   AMBIENT_LOAD,
 ]);
 

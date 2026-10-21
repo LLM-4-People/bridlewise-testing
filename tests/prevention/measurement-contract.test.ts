@@ -42,7 +42,7 @@
  *
  * ── LIVENESS ─────────────────────────────────────────────────────────────
  *
- * The clean arm asserts a populated registry (23 metrics, 13 budgets, a
+ * The clean arm asserts a populated registry (24 metrics, 13 budgets, a
  * declared gate universe) and the producer universe discovers the shared
  * producers rather than passing because it looked at nothing. The plant arms
  * assert the EXACT failure code, not merely that something failed.
@@ -115,10 +115,32 @@ test("a duplicate derivation of a registered number is refused", () => {
 });
 
 test("a duplicate derivation hidden behind a regex literal is still a duplicate", () => {
+  // The regex's escaped slash followed by its closing delimiter is `//`. The
+  // REMOVED comment stripper was not regex-aware: it read that pair as the
+  // start of a line comment and dropped the rest of the line. The duplicate
+  // therefore has to sit on THAT line. On a later line the old view still saw
+  // it, so the plant proved nothing about the regex fix and passed under both
+  // views.
+  const plantSource = "const URL_RE = /https?:\\/\\//; export function readPlantLoad(): number { const loads = loadavg(); return loads[0] / 1; }\n";
+  const naiveLineComment = plantSource.indexOf("//");
+  expect(naiveLineComment).toBeGreaterThan(-1);
+  // NEGATIVE CONTROL: the old line-comment read keeps only the prefix before
+  // `//`, so it loses the duplicate. If this assertion fails the plant no
+  // longer exercises the defect it names.
+  expect(plantSource.slice(0, naiveLineComment)).not.toContain("loads[0] / 1");
+  // The lexed view keeps the regex literal, so the check still sees it.
+  expect(failuresWith(withSource(WORLD, "engine/src/shared/plant-regex-duplicate.ts", plantSource))).toContain("duplicate-derivation");
+});
+
+test("a second loadavg() sample is a duplicate even when it never divides", () => {
+  // The recorded raw leg is the same ambient fact, not a new quantity: two
+  // direct readers used to sample `loadavg()` themselves and their shape
+  // (`loadavg()[0]!`) matched none of the division spellings, so the scan
+  // could not see them.
   const plant = withSource(
     WORLD,
-    "engine/src/shared/plant-regex-duplicate.ts",
-    "const URL_RE = /https?:\\/\\//;\nexport function readPlantLoad(): number {\n  const loads = loadavg();\n  return loads[0] / 1;\n}\n",
+    "engine/src/shared/plant-direct-load.ts",
+    "export function readPlantLoadNow(): number | null {\n  return loadavg()[0] ?? null;\n}\n",
   );
   expect(failuresWith(plant)).toContain("duplicate-derivation");
 });
@@ -147,6 +169,40 @@ test("a producer's body is read, not its object return type", () => {
   };
   const codes = failuresWith(withSource(WORLD, plantPath, plant), [...MEASUREMENT_REGISTRY, entry]);
   expect(codes).toContain("forbidden-quantity");
+});
+
+test("a producer body is read through its code view, so a comment cannot keep the formula alive", () => {
+  // The real computation moved to a helper; the named producer only delegates
+  // and leaves the old formula in a COMMENT. Reading the raw body (comments
+  // included) satisfied `derivation` here and certified a producer that no
+  // longer computes the declared quantity. The module still spells the
+  // arithmetic in `helper`, so only the body arm can refuse this plant.
+  const plantPath = "engine/src/shared/plant-comment-producer.ts";
+  const plant = [
+    "export function readPlantLoad(): number | null {",
+    "  // the formula this producer used to compute: widgets[0] / count",
+    "  return helper() ?? null;",
+    "}",
+    "export function helper(): number | null {",
+    "  const widgets = [1, 2];",
+    "  return widgets[0] / 2;",
+    "}",
+    "",
+  ].join("\n");
+  const entry: MetricEntry = {
+    status: "registered",
+    name: "plant.load.comment",
+    unit: "load",
+    family: null,
+    distinctFrom: [],
+    producer: { module: plantPath, symbol: "readPlantLoad", derivation: ["widgets\\[0\\]\\s*/\\s*\\w+"], forbids: [] },
+    consumers: [],
+    load: { kind: "sensitive", sensitivity: "host load", bound: null, finding: "F-AMBIENT-NO-DEFERRAL" },
+    absent: { kind: "null", reason: "unreadable sample is null" },
+    zero: { kind: "not-numeric", reason: "not numeric" },
+  };
+  const report = validateMeasurementContract(withSource(WORLD, plantPath, plant), { registry: [...MEASUREMENT_REGISTRY, entry] });
+  expect(report.failures.map((failure) => failure.code)).toContain("derivation-not-in-producer");
 });
 
 test("a zero assigned to the measurement's own field is a zero-for-absent", () => {

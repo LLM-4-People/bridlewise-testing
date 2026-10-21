@@ -46,7 +46,7 @@
  * the ledgers use, whatever the reproduced tree's own runner looked like.
  */
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
-import { loadavg, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -69,6 +69,7 @@ import { superviseCommand } from "../process/supervised-run.ts";
 import { persistableText } from "../privacy/evidence-handler.ts";
 import { isSensitiveKeyName } from "../privacy/secret-signals.ts";
 import { directoryGitEnvironment } from "../git/repository-ownership.ts";
+import { readAmbientLoadPerCpu } from "../shared/ambient-load.ts";
 import { temporaryRootKeepOutRefusal } from "../filesystem/temporary-root.ts";
 import {
   contentKeyDigest,
@@ -236,7 +237,8 @@ export type ReproductionSettings = Readonly<{
   runs: number;
   preloadSha256: string | null;
   now: () => Date;
-  load: () => number;
+  /** The host's one-minute ambient load, read through its shared producer; null when the sample is unreadable. */
+  load: () => number | null;
   significance: number;
   /** The preloaded modules whose one run per side is strong (config). */
   deterministicShims: readonly string[];
@@ -286,7 +288,7 @@ export async function reproduceFlake(
   const keys = flakeCauseContentKeys(repository);
   const files = [...new Set(request.tests.map(({ identity }) => failureIdentityFile(identity)!))];
   const tallies = { parent: new Map<string, Tally>(), fix: new Map<string, Tally>() };
-  const loads: { parent: number[]; fix: number[] } = { parent: [], fix: [] };
+  const loads: { parent: (number | null)[]; fix: (number | null)[] } = { parent: [], fix: [] };
   const outputs: { revision: "parent" | "fix"; run: number; sha256: string }[] = [];
   const conditions = recordableConditions(request, settings.preloadSha256);
   const mode = request.statistical ? "statistical" as const : "deterministic" as const;
@@ -545,7 +547,9 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
       runs: request.statistical ? statisticalRunsOf(request, config) : deterministicRuns(request.preload, significance, deterministicShims),
       preloadSha256,
       now: () => new Date(),
-      load: () => loadavg()[0]!,
+      // The one producer owns the sample; this record keeps its raw one-minute
+      // leg and records null when the reading is unreadable, never 0.
+      load: () => readAmbientLoadPerCpu().loads?.[0] ?? null,
       significance,
       deterministicShims,
       priorLooks: (identity, fixCommit) => claimLooks(readFlakeAttempts(ENGINE_ROOT).looks, identity, fixCommit),

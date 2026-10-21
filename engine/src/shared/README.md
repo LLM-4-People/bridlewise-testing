@@ -72,7 +72,7 @@ The shared domain: the agnostic helpers every engine domain consumes, owned once
 The folder lives at `engine/src/shared/`.
 
 - `abort-signals.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/evaluation/scenario-runner.ts`, `engine/src/mcp/retry.ts`, `engine/src/mcp/transport/streamable-http.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/runtime/provider-adapter.ts` and 6 more.
-- `ambient-load.ts` is consumed by `engine/scripts/tooling/run-tests.ts`, `engine/src/performance/diagnostic-modes.ts`, `server/observability/metrics-bridge.ts`.
+- `ambient-load.ts` is consumed by `engine/scripts/tooling/run-tests.ts`, `engine/src/performance/diagnostic-modes.ts`, `engine/src/workflow/checkout-setup.ts`, `engine/src/workflow/flake-cli.ts`, `server/observability/metrics-bridge.ts`.
 - `backoff.ts` is consumed by `engine/src/mcp/retry.ts`, `engine/src/shared/llm/client.ts`.
 - `best-effort.ts` is consumed by `engine/scripts/tooling/compile-cache.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/filesystem-cache.ts`, `engine/src/agents/agent-runtime.ts`, `engine/src/agents/agent-state.ts` and 39 more.
 - `budget-verdict.ts` is consumed by `engine/scripts/tooling/run-diff.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-receipt.ts`, `engine/src/shared/run-history.ts`, `engine/src/shared/test-costs.ts`, `engine/src/workflow/promotion/context.ts` and 1 more.

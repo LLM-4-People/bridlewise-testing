@@ -82,9 +82,12 @@
   // and the abnormal state all fall away together, so no half of the cell can
   // keep describing an instant the other half has stopped describing.
   const withheld = $derived(pastReason !== null);
-  const measured = $derived(sample !== undefined && !withheld);
+  // A sample whose value is null is a KNOWN signal that has measured
+  // nothing: it is absent exactly like a missing sample, and no numeral may
+  // be rendered for it (formatMeasuredValue refuses null by design).
+  const measured = $derived(sample !== undefined && sample.v !== null && !withheld);
   const display = $derived(
-    measured && sample !== undefined
+    measured && sample !== undefined && sample.v !== null
       ? formatMeasuredValue(sample.v, signal.type, signal.unit)
       : null,
   );
@@ -93,9 +96,11 @@
   const absenceWords = $derived(
     pastReason !== null
       ? pastReason
-      : collectingSince !== null
-        ? `collecting since ${asOfTime(collectingSince)}`
-        : "not measured yet",
+      : sample !== undefined
+        ? "not measured"
+        : collectingSince !== null
+          ? `collecting since ${asOfTime(collectingSince)}`
+          : "not measured yet",
   );
 
   // Digit roll ONLY on a true value CHANGE (§11.4): the first appearance

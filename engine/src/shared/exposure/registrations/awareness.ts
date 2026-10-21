@@ -84,11 +84,11 @@ function applyBackgroundMonitor(): void {
 }
 
 /** One awareness refresh: recompute monitored-signal aggregates from the live registry. */
-function performRefresh(): ReadonlyArray<{ id: string; value: number | string | boolean }> {
+function performRefresh(): ReadonlyArray<{ id: string; value: number | string | boolean | null }> {
   const startedAt = performance.now();
   awarenessState.refreshCount += 1;
   awarenessState.lastUpdateMs = Date.now();
-  const rows: Array<{ id: string; value: number | string | boolean }> = [];
+  const rows: Array<{ id: string; value: number | string | boolean | null }> = [];
   for (const id of awarenessState.enabledSignals) {
     if (getSignal(id) !== undefined) rows.push({ id, value: readSignal(id) });
   }
@@ -251,7 +251,7 @@ export function registerAwarenessExposure(): void {
         // Per-signal detail rows, token-capped by `compactMaxTokens` (the
         // compacted awareness view retains at most that many tokens; a row
         // is ~chars/4 tokens).
-        const detail: Array<{ id: string; value: number | string | boolean }> = [];
+        const detail: Array<{ id: string; value: number | string | boolean | null }> = [];
         let tokens = 0;
         let truncated = false;
         for (const row of rows) {

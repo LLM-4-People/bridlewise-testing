@@ -46,13 +46,19 @@ const tokenAccumulator = {
 /**
  * Cumulative input + output tokens since the server started, plus the
  * derived tokens/second rate. Used by the Metrics tab to show throughput.
+ *
+ * `tokensPerSecond` is NULL when the elapsed interval is not positive: a
+ * rate with a zero denominator was never measured, and 0 would claim the
+ * server moved zero tokens over a positive span. Consumers record/serve the
+ * absence rather than substituting a number (`performance.tokensPerSecond`
+ * in the measurement registry).
  */
 export function getTokenThroughput(): Readonly<{
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
   elapsedMs: number;
-  tokensPerSecond: number;
+  tokensPerSecond: number | null;
 }> {
   const totalTokens = tokenAccumulator.input + tokenAccumulator.output;
   const elapsedMs = Date.now() - tokenAccumulator.startTime;
@@ -62,7 +68,7 @@ export function getTokenThroughput(): Readonly<{
     outputTokens: tokenAccumulator.output,
     totalTokens,
     elapsedMs,
-    tokensPerSecond: seconds > 0 ? totalTokens / seconds : 0,
+    tokensPerSecond: seconds > 0 ? totalTokens / seconds : null,
   };
 }
 

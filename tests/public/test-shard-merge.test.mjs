@@ -17,6 +17,8 @@ function shardReport(files, { success = true, tests = 1 } = {}) {
     numTotalTests: success ? files.length * tests : 0,
     numFailedTests: success ? 0 : 1,
     numFailedTestSuites: success ? 0 : 1,
+    numPendingTests: 0,
+    numTodoTests: 0,
     testResults: files.map((name) => ({ name, status: "passed", assertionResults: [] })),
   };
 }
@@ -268,6 +270,77 @@ test("the shard merge refuses a failed shard or a file outside the root", () => 
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("the shard merge refuses a report that does not declare its failed-suite count", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-absent-count-"));
+  try {
+    const a = join(work, "tests/a.test.ts");
+    const manifest = join(work, "manifest.json");
+    const report = join(work, "shard-1.json");
+    const out = join(work, "receipt.json");
+    writeJson(manifest, [{ file: a }]);
+    const green = shardReport([a]);
+    delete green.numFailedTestSuites;
+    writeJson(report, green);
+    const merge = () => mergeShardReports({
+      root: work,
+      manifestPath: manifest,
+      shardPaths: [report],
+      expectedShards: 1,
+      headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
+      outPath: out,
+    });
+    // Absent is not zero: a report that never said it had no failing suite
+    // used to merge as if it had declared one.
+    assert.throws(merge, /does not declare numFailedTestSuites; absent is not zero/u);
+    // A genuinely green report — the same counts, declared — still merges.
+    writeJson(report, shardReport([a]));
+    assert.equal(merge().failedTests, 0);
+
+    // The CI path is a WRAPPED report; the finding's reproduction. The
+    // envelope carries provenance, not counts, so the same absence rule must
+    // refuse it there too, and the genuine wrapped report must still merge.
+    const head = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
+    const planDir = join(work, "plan");
+    const planManifest = join(work, "plan-manifest.json");
+    const raw = join(work, "raw.json");
+    const wrapped = join(work, "wrapped.json");
+    mkdirSync(join(work, "tests"), { recursive: true });
+    writeFileSync(a, "");
+    writeJson(planManifest, {
+      schemaVersion: MANIFEST_SCHEMA,
+      measuredHeadSha: head,
+      measuredAt: "2026-01-01T00:00:00.000Z",
+      files: [{ path: "tests/a.test.ts", weightMs: 1 }],
+      excluded: [],
+    });
+    planShards({ root: work, manifestPath: planManifest, shardCount: 1, headSha: head, outDir: planDir });
+    const wrappedMerge = () => mergeShardReports({
+      root: work,
+      manifestPath: join(planDir, "manifest.json"),
+      planPath: join(planDir, "plan.json"),
+      shardPaths: [wrapped],
+      expectedShards: 1,
+      headSha: head,
+      outPath: join(work, "wrapped-receipt.json"),
+    });
+    writeJson(raw, green);
+    wrapShardReport({
+      root: work, planPath: join(planDir, "plan.json"), shard: 1, vitestPath: raw, outPath: wrapped,
+      startedAt: "1000", finishedAt: "2000",
+    });
+    assert.throws(wrappedMerge, /does not declare numFailedTestSuites; absent is not zero/u);
+    writeJson(raw, shardReport([a]));
+    wrapShardReport({
+      root: work, planPath: join(planDir, "plan.json"), shard: 1, vitestPath: raw, outPath: wrapped,
+      startedAt: "1000", finishedAt: "2000",
+    });
+    assert.equal(wrappedMerge().failedTests, 0);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
 test("the shard merge refuses skipped or todo tests", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-skipped-"));
   try {

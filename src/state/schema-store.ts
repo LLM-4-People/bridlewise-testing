@@ -94,17 +94,17 @@ export function widgetsForSlot(slot: WidgetSlot): readonly WidgetEntry[] {
 
 // ── Derived: signal value lookup map ──
 
-export const signalValueMap: ReadableAtom<ReadonlyMap<string, number | string | boolean>> = computed(
+export const signalValueMap: ReadableAtom<ReadonlyMap<string, number | string | boolean | null>> = computed(
   uiSchemaValues,
   (v) => {
-    const map = new Map<string, number | string | boolean>();
+    const map = new Map<string, number | string | boolean | null>();
     if (v) for (const entry of v.signals) map.set(entry.id, entry.value);
     return map;
   },
 );
 
-/** Read a signal's current value from the values store, or `undefined`. */
-export function getSignalValue(id: string): number | string | boolean | undefined {
+/** Read a signal's current value from the values store, or `undefined` when the id is unknown (`null` is a known signal that measured nothing). */
+export function getSignalValue(id: string): number | string | boolean | null | undefined {
   return signalValueMap.get().get(id);
 }
 

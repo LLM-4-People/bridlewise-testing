@@ -288,7 +288,12 @@ export type UiSchema = Readonly<{
 
 export type SignalValueEntry = Readonly<{
   readonly id: string;
-  readonly value: number | string | boolean;
+  /**
+   * `null` is ABSENCE: the signal's source has not produced a measurement
+   * (a rate with no positive denominator, a reading before its first tick).
+   * Consumers render absence; they never coerce it to 0.
+   */
+  readonly value: number | string | boolean | null;
 }>;
 
 export type CustomizationValueEntry = Readonly<{

@@ -36,7 +36,8 @@ export type TokenThroughput = Readonly<{
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
-  tokensPerSecond: number;
+  /** Null when the server's elapsed interval is not positive: no rate was measured. */
+  tokensPerSecond: number | null;
 }>;
 
 // ── Stores ──
@@ -175,7 +176,8 @@ function throughputIdentical(a: TokenThroughput, b: TokenThroughput): boolean {
 
 export type MetricsHistoryPoint = Readonly<{
   readonly at: number;
-  readonly tokensPerSecond: number;
+  /** Null when no rate was measured; the sparkline skips absence, never draws 0 for it. */
+  readonly tokensPerSecond: number | null;
   readonly totalCalls: number;
   readonly totalErrors: number;
   readonly loadAverage1m: number | null;
@@ -203,7 +205,9 @@ export function setMetrics(snapshot: MetricsSnapshot): void {
   const sys = systemMetrics.get();
   appendHistoryPoint({
     at: Date.now(),
-    tokensPerSecond: tp?.tokensPerSecond ?? 0,
+    // Absence is recorded as absence: an unmeasured rate must not enter the
+    // history as a measured zero (the point is the record, not a display).
+    tokensPerSecond: tp?.tokensPerSecond ?? null,
     totalCalls: snapshot.totalCallCount,
     totalErrors: snapshot.totalErrorCount,
     loadAverage1m: sys?.loadAverage1m ?? null,

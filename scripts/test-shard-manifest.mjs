@@ -61,14 +61,27 @@ export function normalizeFile(root, file, subject) {
 export function requireGreenReport(report, subject) {
   if (report === null || typeof report !== "object") fail(`${subject}: report is not an object`);
   if (report.success !== true) fail(`${subject}: vitest reported success=false`);
-  const failedTests = Number(report.numFailedTests ?? 0);
-  const pendingTests = Number(report.numPendingTests ?? 0);
-  const todoTests = Number(report.numTodoTests ?? 0);
-  if (failedTests !== 0 || Number(report.numFailedTestSuites ?? 0) !== 0) {
-    fail(
-      `${subject}: ${String(failedTests)} failed test(s) and ` +
-        `${String(Number(report.numFailedTestSuites ?? 0))} failed suite(s)`,
-    );
+  // ABSENT IS NOT ZERO. Every count this rule judges must be DECLARED by the
+  // report. Defaulting a missing `numFailedTestSuites` to 0 is how a report
+  // that never said it had no failing suite merged as green; the same
+  // substitution could hide a missing failed-test, skipped or todo count.
+  const declared = (field) => {
+    const value = report[field];
+    if (value === undefined || value === null) {
+      fail(`${subject}: report does not declare ${field}; absent is not zero`);
+    }
+    const count = Number(value);
+    if (!Number.isSafeInteger(count) || count < 0) {
+      fail(`${subject}: ${field} is not a non-negative integer (${String(value)})`);
+    }
+    return count;
+  };
+  const failedTests = declared("numFailedTests");
+  const failedSuites = declared("numFailedTestSuites");
+  const pendingTests = declared("numPendingTests");
+  const todoTests = declared("numTodoTests");
+  if (failedTests !== 0 || failedSuites !== 0) {
+    fail(`${subject}: ${String(failedTests)} failed test(s) and ${String(failedSuites)} failed suite(s)`);
   }
   if (pendingTests !== 0 || todoTests !== 0) {
     fail(

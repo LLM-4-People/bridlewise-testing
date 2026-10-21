@@ -19,9 +19,12 @@
  * reads the bridge through the source, never a parallel HTTP client.
  *
  * HONEST ABSENCE: with no source installed (engine tests, a host that has
- * not booted the metrics bridge) every signal reads its zero — no
- * measurement was taken in this process — and `samplerActive` reads false,
- * which is itself the honest statement that the resource rows are not live.
+ * not booted the metrics bridge) every COUNT reads its zero — no call was
+ * recorded in this process — and `samplerActive` reads false, which is itself
+ * the honest statement that the resource rows are not live. The throughput
+ * gauge is the exception by nature: a rate whose denominator is not positive
+ * was never measured, so `tokensPerSecond` reads null and every surface must
+ * render absence instead of inventing 0.
  */
 
 import {
@@ -44,11 +47,13 @@ import {
 // ── The live metrics state source (installed by the server's bridge) ────────
 
 /**
- * The measured performance facts the signals serve. Every number is
+ * The measured performance facts the signals serve. Every value is
  * MEASURED by the metrics bridge (the collector's snapshot, the token
  * accumulator, the self-improving analyzer over the same snapshot, the
  * sampler's last tick) — nothing here is synthesized, and a lane that
- * recorded nothing reads zero.
+ * recorded nothing reads zero. The one exception is a RATE whose denominator
+ * was never positive: it reads null (absence), because zero would be a claim
+ * that an interval nobody measured produced no tokens.
  */
 export type PerformanceMetricsState = Readonly<{
   /** Totals across every recorded scope (the collector's snapshot). */
@@ -69,8 +74,8 @@ export type PerformanceMetricsState = Readonly<{
   /** Summed resource aggregates of the recorded calls. */
   cpuTimeMs: number;
   heapDeltaBytes: number;
-  /** Token throughput since the server started. */
-  tokensPerSecond: number;
+  /** Token throughput since the server started; null when no positive interval has elapsed. */
+  tokensPerSecond: number | null;
   /** The self-improving analyzer's suggestion count over the same snapshot. */
   selfImprovingSuggestions: number;
   /** Whether the resource sampler's timer is running in this process. */
@@ -131,7 +136,7 @@ const NO_MEASUREMENTS: PerformanceMetricsState = Object.freeze({
   durationP95Ms: 0,
   cpuTimeMs: 0,
   heapDeltaBytes: 0,
-  tokensPerSecond: 0,
+  tokensPerSecond: null,
   selfImprovingSuggestions: 0,
   samplerActive: false,
   lastSample: null,

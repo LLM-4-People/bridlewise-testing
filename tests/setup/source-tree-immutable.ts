@@ -98,9 +98,6 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
-import {
-} from "../../engine/scripts/verification/gitignore-anchoring.ts";
-
 /**
  * The one exclusion, and it applies to the suite's OWN repository only.
  */

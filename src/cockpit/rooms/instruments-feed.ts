@@ -58,8 +58,8 @@ import {
   type SignalPoint,
 } from "./instruments-data.ts";
 
-/** One received sample: the value and the epoch-ms it was received. */
-export type SignalSample = Readonly<{ v: number | string | boolean; t: number }>;
+/** One received sample: the value — `null` when the signal itself reports absence — and the epoch-ms it was received. */
+export type SignalSample = Readonly<{ v: number | string | boolean | null; t: number }>;
 
 // ── Stores (read by the room + monitors; written only by this module) ─────
 
@@ -340,9 +340,11 @@ export function projectMonitors(
       id: m.signalId,
       label: meta?.name ?? m.signalId,
       value:
-        sample !== undefined
-          ? formatMeasuredValue(sample.v, meta?.type ?? "gauge", meta?.unit)
-          : "collecting",
+        sample === undefined
+          ? "collecting"
+          : sample.v === null
+            ? "not measured"
+            : formatMeasuredValue(sample.v, meta?.type ?? "gauge", meta?.unit),
       asOf: sample?.t ?? collectingSince.get() ?? m.pinnedAt,
       openSource,
     };

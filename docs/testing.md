@@ -88,7 +88,9 @@ measured-surface hash and instrument lock, each `webUi.performance` budget
 (the per-file collect and per-file occupancy costs, their total collect and
 total occupancy denominators, the shard weights and their measurement path
 (`testPhaseMs` and `testPhaseCpuMs` on the CI receipt), and the run-start
-ambient load the CPU verdict reads. The CPU metric itself is a clearly
+ambient load the CPU verdict reads, and the server's token throughput
+(`performance.tokensPerSecond`, whose non-positive denominator is recorded
+and served as `null`, never 0). The CPU metric itself is a clearly
 marked placeholder while its owner changes `run-cpu.ts` and
 `budget-verdict.ts`; its final fields and load declaration are not guessed
 here.

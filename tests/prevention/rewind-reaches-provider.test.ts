@@ -16,8 +16,6 @@ vi.hoisted(() => {
 });
 import type { DbClient } from "../../server/db/client.ts";
 import { createRewindHarness } from "../helpers/rewind-provider-harness.ts";
-import {
-} from "../../server/run/rewind.ts";
 import { read } from "../helpers/source-scan.ts";
 import { modulePathMatching } from "../helpers/module-resolver.ts";
 

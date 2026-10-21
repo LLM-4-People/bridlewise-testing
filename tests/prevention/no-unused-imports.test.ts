@@ -89,6 +89,19 @@ function extractImports(rawSrc: string, file: string): ImportBinding[] {
   return out;
 }
 
+/**
+ * Empty named-import clauses (`import {\n} from "..."`): a statement that
+ * binds nothing but still reads as an import. `extractImports` correctly
+ * returns no bindings for one — which is exactly why it needs its own scan:
+ * the unused-binding test can never fail for a clause with no bindings.
+ * Returns the 1-based lines the clause starts on.
+ */
+function emptyImportClauses(rawSrc: string, file: string): number[] {
+  const source = blankStringLiterals(rawSrc, file);
+  return [...source.matchAll(/^import\s+(?:type\s+)?\{\s*\}\s*from\s*["'][^"']+["']/gmu)]
+    .map((match) => source.slice(0, match.index ?? 0).split("\n").length);
+}
+
 /** Check if `name` appears as a word boundary anywhere after the import line.
  * Deliberately scans the RAW source: a binding referenced only from inside a
  * template literal is still referenced, and blanking strings here would
@@ -104,6 +117,7 @@ function isUsed(src: string, name: string): boolean {
 
 describe("no unused imports", () => {
   const unused: { name: string; file: string; line: number }[] = [];
+  const emptyClauses: { file: string; line: number }[] = [];
   for (const root of ROOTS) {
     // THE EXTENSIONS ARE NAMED, NOT DEFAULTED. `scripts/` is in ROOTS above and
     // holds five tracked `.mjs` files that the default `[".ts", ".svelte"]`
@@ -119,6 +133,7 @@ describe("no unused imports", () => {
           unused.push(imp);
         }
       }
+      for (const line of emptyImportClauses(src, rel)) emptyClauses.push({ file: rel, line });
     }
   }
 
@@ -140,6 +155,27 @@ describe("no unused imports", () => {
     expect(bindings.map((binding) => binding.line)).toEqual([1, 1]);
     expect(isUsed(src, "usedByTheBody")).toBe(true);
     expect(isUsed(src, "deadOnArrival")).toBe(false);
+  });
+
+  test("an empty named-import clause is refused, not silently binding nothing", () => {
+    // Two cleanup passes left `import {\n} from "..."` behind. The unused
+    // binding test cannot see them: a clause with no bindings contributes no
+    // name to check, so a dead statement sat in the tree looking imported.
+    const src = [
+      'import {\n} from "../../server/run/rewind.ts";',
+      'import { used } from "./module.ts";',
+      "export const value = used;",
+      "",
+    ].join("\n");
+    expect(extractImports(src, "fixture.ts").map((binding) => binding.name)).toEqual(["used"]);
+    expect(emptyImportClauses(src, "fixture.ts")).toEqual([1]);
+  });
+
+  test("no source holds an empty named-import clause", () => {
+    const detail = emptyClauses
+      .map((clause) => `  ${clause.file}:${clause.line}  import {\n} from ...`)
+      .join("\n");
+    expect(emptyClauses, `Empty import statements found — delete them:\n${detail}`).toEqual([]);
   });
 
   test("an import written inside a fixture string is not a real import", () => {

@@ -367,7 +367,7 @@ export type AbnormalState = Readonly<{ level: "warn" | "alarm"; reason: string }
  */
 export function abnormalState(
   entry: SignalEntry,
-  value: number | string | boolean | undefined,
+  value: number | string | boolean | null | undefined,
 ): AbnormalState | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   const t = declaredThresholds(entry);
@@ -418,15 +418,15 @@ function durationMs(ms: number): string {
 /**
  * Format a MEASURED value for the cell readout. Callers gate on
  * measurement first — an unmeasured signal renders the absence state, and
- * this function throwing on `undefined` is the mechanical enforcement (an
- * unmeasured value can never be rendered as a number, §1.1).
+ * this function throwing on `undefined` or `null` is the mechanical
+ * enforcement (an unmeasured value can never be rendered as a number, §1.1).
  */
 export function formatMeasuredValue(
-  value: number | string | boolean | undefined,
+  value: number | string | boolean | null | undefined,
   type: string,
   unit?: string,
 ): string {
-  if (value === undefined) {
+  if (value === undefined || value === null) {
     throw new InstrumentHonestyViolation(
       "unmeasured signal reached the numeral — render the absence state instead (§1.1)",
     );

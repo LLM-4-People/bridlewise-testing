@@ -357,6 +357,7 @@ function checkLoad(
 function checkAbsence(
   entry: MetricEntry,
   body: string,
+  bodyWithStrings: string,
   fail: (code: string, message: string) => void,
 ): void {
   // A `?? 0` used only as a COUNT precondition (e.g. `totalCalls ?? 0) > 0`)
@@ -380,7 +381,10 @@ function checkAbsence(
   if (entry.absent.kind === "null") {
     if (!/\bnull\b/u.test(body)) fail("absence-not-represented", "the entry declares null absence but the producer never mentions null");
   } else if (entry.absent.kind === "sentinel") {
-    if (!body.includes(entry.absent.value)) fail("absence-sentinel-missing", `the producer does not produce the declared sentinel ${JSON.stringify(entry.absent.value)}`);
+    // A sentinel IS a string literal, so this one branch reads the
+    // comments-only view: the string must survive, the prose explaining it
+    // must not count. (`body` has its string interiors blanked.)
+    if (!bodyWithStrings.includes(entry.absent.value)) fail("absence-sentinel-missing", `the producer does not produce the declared sentinel ${JSON.stringify(entry.absent.value)}`);
   } else {
     if (!/\bnull\b|\bthrow\b|\bfail\(/u.test(body)) fail("absence-refusal-missing", "the entry declares a refusal but the producer has no refusal path");
   }
@@ -400,9 +404,9 @@ function checkProducer(
     fail("producer-not-exported", `${entry.producer.module} does not export ${entry.producer.symbol}`);
     return 0;
   }
-  let body: string;
+  let rawBody: string;
   try {
-    body = functionBody(moduleText, entry.producer.symbol, `${entry.producer.module} ${entry.producer.symbol}`).body;
+    rawBody = functionBody(moduleText, entry.producer.symbol, `${entry.producer.module} ${entry.producer.symbol}`).body;
   } catch (error) {
     fail(
       "producer-body-unreadable",
@@ -410,18 +414,31 @@ function checkProducer(
     );
     return 0;
   }
+  // THE BODY IS READ THROUGH A VIEW, NOT AS RAW BYTES. A comment above the
+  // computation used to satisfy the declared derivation, so moving the real
+  // arithmetic to a helper while leaving `// return loads[0] / cpuCount` in
+  // place kept the producer "computing" it. The code view blanks comments and
+  // string/template interiors; a derivation that legitimately spells a string
+  // literal (the per-file collect entry names `"collectDuration"`) is read
+  // through the comments-only view instead, exactly as the duplicate scan
+  // chooses. One lexer, two views; no second stripper.
+  const bodyPath = `${entry.producer.module}#${entry.producer.symbol}`;
+  const codeBody = sourceViewOf(rawBody, bodyPath).code();
+  const bodyWords = stripCommentsOnly(rawBody);
+  const bodyViewFor = (pattern: string): string =>
+    pattern.includes('"') || pattern.includes("'") ? bodyWords : codeBody;
   for (const forbidden of entry.producer.forbids) {
-    if (body.includes(forbidden)) {
+    if (codeBody.includes(forbidden)) {
       fail("forbidden-quantity", `the producer reads ${JSON.stringify(forbidden)} — a different quantity than the entry declares`);
     }
   }
-  checkAbsence(entry, body, fail);
+  checkAbsence(entry, codeBody, bodyWords, fail);
   // The declared spellings are ALTERNATIVES: the producer contains at least
   // one of them, and any other module containing one is a second derivation.
-  // Both reads are through the comments-only view, so the documentation above
-  // a producer cannot satisfy its own derivation (the ambient entry's legacy
+  // The module read stays comments-only so a literal-spelled derivation is
+  // found, while a doc comment cannot satisfy it (the ambient entry's legacy
   // spelling sat in a doc comment and the raw-text check counted it).
-  const inBody = entry.producer.derivation.some((pattern) => new RegExp(pattern, "u").test(body));
+  const inBody = entry.producer.derivation.some((pattern) => new RegExp(pattern, "u").test(bodyViewFor(pattern)));
   if (!inBody) {
     fail(
       "derivation-not-in-producer",

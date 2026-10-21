@@ -26,7 +26,7 @@
  * source at a fabricated snapshot reds D; reading a fresh process-memory
  * call instead of the sampler's tick reds C's identity arm.
  */
-import { describe, expect, test, beforeEach } from "vitest";
+import { describe, expect, test, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
 import {
@@ -38,10 +38,12 @@ import {
   installPerformanceMetricsExposureSource,
   lastResourceSample,
   getMetricsSnapshot,
+  getTokenThroughput,
   recordLlmCall,
   recordToolCall,
   sampleResourceOnce,
 } from "../../server/observability/metrics-bridge.ts";
+import { metricsHistory, setMetrics, setTokenThroughput } from "../../src/state/metrics.ts";
 import { walkTs } from "../helpers/source-scan.ts";
 import { modulePath, modulePathMatching } from "../helpers/module-resolver.ts";
 
@@ -136,14 +138,43 @@ describe("the installed source drives the exposure signals from the real bridge"
     expect(readSignal("performance.samplerActive")).toBe(false); // never started here
   });
 
-  test("with the source cleared, every performance signal reads its honest zero", () => {
+  test("a zero elapsed interval is ABSENT through the producer, the history record and the exposure signal", () => {
+    // Freeze the clock at the accumulator's own start: elapsedMs is 0, so the
+    // denominator has no rate. The old producer answered 0 — a measured claim
+    // that the server moved no tokens over an interval that did not elapse.
+    const realNow = Date.now;
+    const fixed = realNow() - getTokenThroughput().elapsedMs;
+    const now = vi.spyOn(Date, "now").mockReturnValue(fixed);
+    try {
+      expect(getTokenThroughput().tokensPerSecond).toBeNull();
+      setTokenThroughput(getTokenThroughput());
+      setMetrics({
+        snapshotId: "absent-token-rate",
+        entryCount: 0,
+        totalCallCount: 1,
+        totalErrorCount: 0,
+        totalCancellationCount: 0,
+        entries: [],
+      } as never);
+      expect(metricsHistory.get().at(-1)?.tokensPerSecond).toBeNull();
+      // The bridge's installed source reads the same producer, so the served
+      // signal is absent too — not a zero standing in for an unmeasured rate.
+      expect(readSignal("performance.tokensPerSecond")).toBeNull();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test("with the source cleared, counts read their honest zero and the rate reads absence", () => {
     clearPerformanceMetricsSource();
     expect(readSignal("performance.callCount")).toBe(0);
     expect(readSignal("performance.llmCalls")).toBe(0);
     expect(readSignal("performance.toolCalls")).toBe(0);
     expect(readSignal("performance.durationP50Ms")).toBe(0);
     expect(readSignal("performance.durationP95Ms")).toBe(0);
-    expect(readSignal("performance.tokensPerSecond")).toBe(0);
+    // A cleared source measured no token rate at all; 0 would be a measured
+    // claim about an interval nobody observed.
+    expect(readSignal("performance.tokensPerSecond")).toBeNull();
     expect(readSignal("performance.selfImprovingSuggestions")).toBe(0);
     expect(readSignal("performance.samplerActive")).toBe(false);
     expect(readSignal("performance.processRssBytes")).toBe(0);
