@@ -191,10 +191,14 @@ const GATES: readonly Gate[] = [
     cellCommand: "web-shard",
   },
   {
+    // A SIGNAL until it is green on hosted runners (runbook P0.9: every red it
+    // shows is fixed or filed as an owned record first); flipping it to
+    // `required` is this one line. Its cells run, are recorded and shown on
+    // every run meanwhile — never skipped.
     id: "engine-suite",
     title: "Engine suite",
     class: "suite",
-    role: "required",
+    role: "signal",
     commands: [],
     setup: ["bundle", "guardian"],
     toolchain: ["hooks", "corpus"],

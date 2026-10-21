@@ -29,7 +29,7 @@
  * skipped) and passes only when the runner's cell rule passed and its
  * summary records the cell's tests passed and none failed.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { InputError } from "../../kernel/errors.ts";
@@ -197,8 +197,12 @@ export async function runLightGate(plan: GatePlan, gateId: string, environment: 
 /** The engine summary the engine runner writes, repository-relative. */
 export const ENGINE_SUMMARY_PATH = "engine/.bridlewise/state/test-results/latest-summary.json";
 
-function engineFinish(repositoryRoot: string, cell: ShardCell, population: string): (outcome: Readonly<{ ok: boolean }>) => Readonly<{ refusal?: string; suite?: SuiteOutcome }> {
+function engineFinish(repositoryRoot: string, outDirectory: string, cell: ShardCell, population: string): (outcome: Readonly<{ ok: boolean }>) => Readonly<{ refusal?: string; suite?: SuiteOutcome }> {
   return ({ ok }) => {
+    // The runner's summary travels with the result, passed or failed: it names each failure (the log
+    // withholds a diagnostic line too long to redact whole).
+    const summaryPath = join(repositoryRoot, ENGINE_SUMMARY_PATH);
+    if (existsSync(summaryPath)) copyFileSync(summaryPath, join(outDirectory, `${cell.cell}.engine-summary.json`));
     if (!ok) return {};
     const path = join(repositoryRoot, ENGINE_SUMMARY_PATH);
     if (!existsSync(path)) return { refusal: `the engine runner exited 0 but wrote no summary at ${ENGINE_SUMMARY_PATH}` };
@@ -239,5 +243,5 @@ export async function runShard(plan: GatePlan, cellId: string, environment: RunE
   mkdirSync(environment.outDirectory, { recursive: true });
   const listPath = join(environment.outDirectory, `${cell.cell}.cell`);
   writeFileSync(listPath, `${cell.files.map((path) => path.replace(/^engine\//u, "")).join("\n")}\n`);
-  return runCell(plan, { gate, cell: cell.cell, commands: [{ name, extra: () => [listPath] }], finish: engineFinish(environment.repositoryRoot, cell, population) }, environment);
+  return runCell(plan, { gate, cell: cell.cell, commands: [{ name, extra: () => [listPath] }], finish: engineFinish(environment.repositoryRoot, environment.outDirectory, cell, population) }, environment);
 }
