@@ -1,14 +1,14 @@
 /**
  * THE FORGE'S CONFIGURATION SECTION (`forge` in `bridlewise.config.json`) —
  * declared here beside the module it steers (the module-exports-its-section
- * idiom; `src/kernel/config-contracts.ts` splices it in) — and its one
- * reader. Every value the forge uses that is not GitHub's own protocol comes
- * from here: the organisation, the API and web origins, the request bounds,
- * the repository topology (each repository's `kind`, github-only §2.1) and
- * the local Apps page. There is no default in code: a checkout whose document
- * declares no `forge` section is the typed `forge_not_configured` (the CLI's
- * reader, `cli.ts`). This module imports no configuration reader (the kernel
- * imports it).
+ * idiom; `src/kernel/config-contracts.ts` splices it in). Every value the
+ * forge uses that is not GitHub's own protocol comes from here: the
+ * organisation, the API and web origins, the request bounds, the repository
+ * topology (each repository's `kind`, github-only §2.1) and the local Apps
+ * page. There is no default in code: a checkout whose document declares no
+ * `forge` section is the typed `forge_not_configured` (its one reader,
+ * `configured-forge.ts`). This module imports no configuration reader (the
+ * kernel imports it).
  */
 import { z } from "zod";
 
@@ -39,6 +39,8 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     maxResponseBytes: z.number().int().min(1_024).max(268_435_456),
     cleanupTimeoutMs: z.number().int().min(10).max(60_000),
     etagCacheEntries: z.number().int().min(1).max(100_000),
+    /** The most pages one list read follows (a longer list is refused, never truncated). */
+    maxPages: z.number().int().min(1).max(1_000),
   }),
   /** An installation token is minted again this long before it expires. */
   tokenRenewBeforeMs: z.number().int().min(0).max(3_000_000),

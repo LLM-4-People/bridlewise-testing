@@ -1038,7 +1038,8 @@
       "timeoutMs": 30000,
       "maxResponseBytes": 16777216,
       "cleanupTimeoutMs": 2000,
-      "etagCacheEntries": 1024
+      "etagCacheEntries": 1024,
+      "maxPages": 50
     },
     "tokenRenewBeforeMs": 300000,
     "repositories": [

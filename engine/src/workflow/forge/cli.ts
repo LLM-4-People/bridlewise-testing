@@ -10,7 +10,6 @@
  * (`forge_not_configured` otherwise).
  */
 import { admitHarnessKeyHome } from "../../filesystem/self-protection/key-home.ts";
-import { loadPinnedConfigSnapshot } from "../../kernel/config.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { wrapResult, type CommandAnswer } from "../command-result.ts";
 import { readIntake } from "../community/sources.ts";
@@ -18,16 +17,10 @@ import { trackedTop } from "../evidence-store.ts";
 import { FORGE_APP_ROLES, FORGE_APPS } from "./app-registry.ts";
 import { serveAppsPage } from "./apps-page.ts";
 import { ForgeError } from "./codes.ts";
-import { forgeEndpoint, trunkRepository, type ForgeSettings } from "./forge-config.ts";
+import { configuredForge } from "./configured-forge.ts";
+import { forgeEndpoint, trunkRepository } from "./forge-config.ts";
 import { syncForgeFiles } from "./generated-files.ts";
 import { maintainerCli } from "./maintainer-cli.ts";
-
-/** The `forge` section of this checkout's configuration, or `forge_not_configured`. */
-export function configuredForge(): ForgeSettings {
-  const section = loadPinnedConfigSnapshot().document.forge;
-  if (section === undefined) throw new ForgeError("forge_not_configured", "bridlewise.config.json declares no `forge` section.", {});
-  return section;
-}
 
 const USAGE = "harness forge takes: apps manifests [--check] | apps create";
 

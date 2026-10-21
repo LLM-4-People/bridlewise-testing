@@ -34,7 +34,7 @@ const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
   apiUrl: "https://api.github.com",
   webUrl: "https://github.com",
   userAgent: "bridlewise-forge-test",
-  request: { timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64 },
+  request: { timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64, maxPages: 10 },
   tokenRenewBeforeMs: 300_000,
   repositories: [
     { name: "bridlewise-testing", kind: "trunk", visibility: "public" },
