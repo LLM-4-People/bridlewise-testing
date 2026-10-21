@@ -39,6 +39,7 @@
     "test:e2e": "node --experimental-strip-types engine/src/cli.ts harness slot run -- npx playwright test",
     "test:all": "node --experimental-strip-types scripts/run-tests.ts && node --experimental-strip-types engine/src/cli.ts harness slot run -- npx playwright test",
     "test:raw": "node --experimental-strip-types engine/src/cli.ts harness slot run -- npx vitest run",
+    "test:supported": "node --experimental-strip-types engine/src/cli.ts harness slot run -- npx vitest run $(node scripts/test-shard-manifest.mjs supported)",
     "typecheck:templates": "node --experimental-strip-types scripts/template-check.ts --tsconfig ./tsconfig.templates.json --config ./vite.config.ts",
     "bridlewise": "node bin/bridlewise.mjs",
     "preflight": "node bin/bridlewise.mjs preflight",

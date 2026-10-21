@@ -643,6 +643,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         mkdirSync(dirname(outPath), { recursive: true });
         writeFileSync(outPath, text);
       } else process.stdout.write(text);
+    } else if (options.command === "supported") {
+      // The SUPPORTED file set, one path per line: the population a full run
+      // judges. The four excluded files have declared reasons and are not a
+      // clean run's business (a runner that includes them cannot go green in
+      // the public snapshot).
+      const manifest = readJson(options.manifestPath ?? resolve(process.cwd(), "tests/test-shards.json"), "manifest");
+      for (const file of manifest.files) process.stdout.write(`${file.path}\n`);
     } else if (options.command === "verify") {
       if (!options.manifestPath || !options.livePath) fail("verify requires --manifest and --live");
       // `--tree` is a cross-check, never an override: `verifyManifest`
@@ -676,7 +683,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       wrapShardReport(options);
       process.stdout.write(`shard report: shard ${options.shard} wrapped\n`);
     } else {
-      fail("command must be list, verify, plan, measure, or wrap");
+      fail("command must be list, supported, verify, plan, measure, or wrap");
     }
   } catch (error) {
     process.stderr.write(`shard manifest refused: ${error.message}\n`);

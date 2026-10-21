@@ -11,7 +11,8 @@
  *
  * Nothing here has a DEFAULT, deliberately. See `readCpuBudget`.
  */
-import { globSync } from "node:fs";
+import { globSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { readConfigRaw } from "../../server/kernel/harness-config.ts";
 import { getConfigDocumentSchema } from "../../engine/src/kernel/config.ts";
@@ -309,8 +310,17 @@ export function fullRunGlobs(): readonly string[] {
 }
 
 /** How many test files a FULL run covers. */
+const REPOSITORY_ROOT = resolve(import.meta.dirname, "../..");
+
 export function fullRunModuleCount(): number {
-  return new Set(globSync([...fullRunGlobs()])).size;
+  // The MANIFEST owns the population: every live test file is either judged
+  // by a full run or excluded with a declared reason (the private artifacts a
+  // public snapshot does not publish). Counting the glob here would judge a
+  // population no run can be clean over, so this reads the one owner.
+  const manifest = readFileSync(resolve(REPOSITORY_ROOT, "tests", "test-shards.json"), "utf8");
+  const parsed = JSON.parse(manifest) as { files?: unknown };
+  if (!Array.isArray(parsed.files)) throw new Error("tests/test-shards.json has no files array");
+  return parsed.files.length;
 }
 
 /**

@@ -108,7 +108,8 @@ npm run typecheck
 npm run typecheck:includes
 npm test                 # vite/vitest suite through the watchdog
 npm run test:watch
-npm run test:raw         # vitest under the harness slot
+npm run test:raw         # vitest under the harness slot (every live file)
+npm run test:supported   # the supported population a full run judges (the manifest's files)
 npm run test:e2e         # Playwright
 npm run test:all         # root suite + Playwright
 npm run perf:profile     # writes the gitignored report
@@ -117,7 +118,10 @@ node --experimental-strip-types bench/run.ts
 
 ### The performance profile (idle-host contract)
 
-`npm run perf:profile` writes the gitignored report under `tests/performance`, the artifact the root
+The web suite's CPU window and the performance profile are measured over the SUPPORTED population:
+`npm run test:supported` runs exactly the manifest's files. A raw run also includes the excluded
+files (private artifacts the public snapshot does not publish), so its reds are declared exclusions,
+not a clean run. `npm run perf:profile` writes the gitignored report under `tests/performance`, the artifact the root
 performance-regression gate (`tests/performance/regression.test.ts`) judges. A profile is a
 measurement, not a smoke test, so the conditions under which it is taken are part of the
 result:
