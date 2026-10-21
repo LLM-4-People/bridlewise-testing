@@ -18,6 +18,8 @@ import { resolve } from "node:path";
 import { read } from "../helpers/source-scan.ts";
 
 import { modulePathMatching } from "../helpers/module-resolver.ts";
+// @ts-expect-error -- a .mjs module has no declaration file in the TS program (as in floor-site-links.test.ts).
+import { markColors, markOutputs } from "../../scripts/generate-pwa-icons.mjs";
 const root = resolve(import.meta.dirname, "../..");
 function exists(rel: string): boolean {
   return existsSync(resolve(root, rel));
@@ -270,10 +272,31 @@ describe("PWA — icon generator (no-dep build tool)", () => {
     // Writes go through the shared atomic writer (the checkout write door),
     // never a raw fs write of a tracked file.
     expect(src).toMatch(/from\s*["']\.\.\/engine\/src\/filesystem\/atomic-write\.ts["']/);
-    expect(src).not.toMatch(/writeFileSync|from\s*["']node:fs["']/);
+    // It may READ (the token owner, the committed icons for --check) but
+    // never write through node:fs.
+    expect(src).not.toMatch(/writeFileSync|appendFileSync|createWriteStream|copyFileSync|renameSync|\bfs\.write/);
     // No external image dep (sharp/canvas/jimp) — hand-encoded PNG.
     expect(src).not.toMatch(/from\s*["']sharp["']/);
     expect(src).not.toMatch(/from\s*["']canvas["']/);
     expect(src).toContain("IHDR");
+  });
+
+  it("the committed icons are exactly the generator's output (the one mark, in the token owner's colours)", () => {
+    const outputs = markOutputs() as Map<string, Buffer>;
+    expect([...outputs.keys()].map((p) => p.slice(root.length + 1)).sort()).toEqual([
+      "public/icons/icon-192.png",
+      "public/icons/icon-512.png",
+      "public/icons/icon.svg",
+    ]);
+    for (const [path, bytes] of outputs) {
+      expect(readFileSync(path).equals(bytes), `${path} drifted: run node scripts/generate-pwa-icons.mjs`).toBe(true);
+    }
+    // The colours come from the token owner: a planted palette change reaches the mark,
+    // and a missing token is a loud refusal, never a default.
+    const tokens = read("src/cockpit/tokens.css");
+    expect((markColors as (css: string) => Record<string, string>)(tokens.replace(/--beam:\s*#8fd3ff;/, "--beam: #123456;"))["--beam"]).toBe("#123456");
+    expect(() => markColors(tokens.replace(/--beam:\s*#8fd3ff;/, ""))).toThrow(/--beam/);
+    // The retired indigo disc is gone from every icon.
+    expect(readFileSync(resolve(root, "public/icons/icon.svg"), "utf8")).not.toMatch(/#7c8cf8|#9ba5fa|#0d0f14/i);
   });
 });
