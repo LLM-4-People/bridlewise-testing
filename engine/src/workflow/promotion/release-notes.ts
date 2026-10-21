@@ -63,16 +63,33 @@ export function decisionChanges(repository: GitRepository, from: string | null, 
   return changes.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-/** The names the non-merge commits of `from..to` credit (`Signed-off-by`, `Co-authored-by`), sorted, each once; addresses dropped. */
+/** GitHub's private commit address (`<id>+<login>@users.noreply.github.com`, or `<login>@…`): it names a login, published as `@login`. */
+const NOREPLY_ADDRESS = /^(?:\d+\+)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))@users\.noreply\.github\.com$/u;
+
+/**
+ * How one `Signed-off-by` / `Co-authored-by` value is credited: the name
+ * before its `<address>`; a bare GitHub private address as its `@login`;
+ * otherwise the value with every word that holds an `@` removed — so no
+ * address is ever published, however the trailer was written. `null` when
+ * nothing but an address was given.
+ */
+export function creditedName(value: string): string | null {
+  const open = value.indexOf("<");
+  const name = (open === -1 ? value : value.slice(0, open)).trim();
+  const login = NOREPLY_ADDRESS.exec(name)?.[1];
+  if (login !== undefined) return `@${login}`;
+  const words = name.split(/\s+/u).filter((word) => word.length > 0 && !word.includes("@") && !/^\(?\)?$/u.test(word));
+  return words.length === 0 ? null : words.join(" ");
+}
+
+/** The names the non-merge commits of `from..to` credit (`Signed-off-by`, `Co-authored-by`), sorted, each once; never an address. */
 export function creditedPeople(repository: GitRepository, from: string | null, to: string): readonly string[] {
   const range = from === null ? [to] : [`${from}..${to}`];
   const text = gitOutput(repository, ["log", "--no-merges", "--format=%(trailers:key=Signed-off-by,valueonly,separator=%x00)%x00%(trailers:key=Co-authored-by,valueonly,separator=%x00)%x00", ...range, "--"]).stdout.toString("utf8");
   const names = new Set<string>();
   for (const value of text.split(/[\0\n]/u)) {
-    // `Name <address>`: the name only; a value naming no address is a name as it stands.
-    const address = value.indexOf("<");
-    const name = (address === -1 ? value : value.slice(0, address)).trim();
-    if (name.length > 0) names.add(name);
+    const name = creditedName(value);
+    if (name !== null) names.add(name);
   }
   return [...names].sort((a, b) => a.localeCompare(b));
 }

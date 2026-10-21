@@ -17,8 +17,8 @@ import type { ConfigDocument } from "../../../src/kernel/config-contracts.ts";
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
 import { assembleRelease, releaseAssetNames } from "../../../src/workflow/promotion/release-assets.ts";
 import { parseReleaseArguments, runReleaseCli } from "../../../src/workflow/promotion/release-cli.ts";
-import { creditedPeople, decisionChanges, landedPullRequests, renderReleaseNotes } from "../../../src/workflow/promotion/release-notes.ts";
-import { compareSemver, parseSemver, planRelease, type ReleasePlan, type ReleaseSettings } from "../../../src/workflow/promotion/release-train.ts";
+import { creditedName, creditedPeople, decisionChanges, landedPullRequests, renderReleaseNotes } from "../../../src/workflow/promotion/release-notes.ts";
+import { planRelease, type ReleasePlan, type ReleaseSettings } from "../../../src/workflow/promotion/release-train.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
 import { PROFILE_DIRECTORY, PROFILE_NAME, SOURCE, TARGET, json, promotionFixture, type PromotionFixture } from "./promotion-fixture.ts";
 
@@ -54,19 +54,15 @@ function plan(fixture: PromotionFixture, options: Readonly<{ now?: Date; manual?
   });
 }
 
+/** The release tag the train creates: annotated, dated `at` (its tagger date is the release's time). */
+function releaseTag(fixture: PromotionFixture, tag: string, commit: string, at: Date): void {
+  const date = `${String(Math.floor(at.getTime() / 1000))} +0000`;
+  fixture.git(["tag", "-a", tag, "-m", `release ${tag}`, commit], { GIT_COMMITTER_DATE: date });
+}
+
 function refusedWith(code: string, run: () => unknown): void {
   assert.throws(run, (error: unknown) => error instanceof PromotionError && error.promotionCode === code);
 }
-
-test("semantic versions: precedence as semver.org §11 orders it, and only full versions parse", () => {
-  const ordered = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0", "1.0.1", "1.1.0", "2.0.0"];
-  for (let index = 1; index < ordered.length; index += 1) {
-    assert.ok(compareSemver(parseSemver(ordered[index - 1]!)!, parseSemver(ordered[index]!)!) < 0, `${ordered[index - 1]!} < ${ordered[index]!}`);
-    assert.ok(compareSemver(parseSemver(ordered[index]!)!, parseSemver(ordered[index - 1]!)!) > 0);
-  }
-  assert.equal(compareSemver(parseSemver("0.10.0")!, parseSemver("0.9.0")!) > 0, true, "numeric, never lexical");
-  for (const invalid of ["1.0", "v1.0.0", "01.0.0", "1.0.0+build", "1.0.0-", ""]) assert.equal(parseSemver(invalid), null, invalid);
-});
 
 test("the train: a product with no Projected-From is never released; a projection departs once, then waits for each unmet condition by name", () => {
   const fixture = promotionFixture("release-train");
@@ -75,10 +71,12 @@ test("the train: a product with no Projected-From is never released; a projectio
   const departing = plan(fixture);
   assert.deepEqual([departing.due, departing.reasons, departing.tag, departing.prerelease, departing.previous, departing.product.commit, departing.product.source], [true, [], "v1.0.0", false, null, first, fixture.tip(SOURCE)]);
 
-  fixture.git(["tag", "v1.0.0", first]);
-  const released = plan(fixture);
+  const at = Date.parse("2026-10-20T12:00:00Z");
+  releaseTag(fixture, "v1.0.0", first, new Date(at));
+  const released = plan(fixture, { now: new Date(at + 5 * HOUR) });
   assert.ok(released.previous !== null && released.previous.tag === "v1.0.0" && released.previous.source === fixture.tip(SOURCE));
-  const at = Date.parse(released.previous.at);
+  assert.deepEqual([released.previous.at, released.hoursSincePrevious], ["2026-10-20T12:00:00.000Z", 5], "the interval runs from the release tag's own time");
+  assert.deepEqual(released.reasons, ["version_released", "product_unchanged", "interval"], "5 hours after a release, a 24-hour interval waits");
   assert.deepEqual(plan(fixture, { now: new Date(at + HOUR) }).reasons, ["version_released", "product_unchanged", "interval"]);
 
   project(fixture, { "assets/notes.txt": "a product change\n" });
@@ -133,10 +131,11 @@ test("the notes: landed pull requests, decision records and credited names betwe
   assert.match(firstNotes, /first release projected from `main`/u);
   assert.match(firstNotes, /https:\/\/example\.invalid\/prior-releases/u);
   assert.doesNotMatch(firstNotes, /Developer preview/u, "1.0.0 is no pre-release");
-  fixture.git(["tag", "v1.0.0", first]);
+  releaseTag(fixture, "v1.0.0", first, new Date());
 
   fixture.commit(SOURCE, { "docs/decisions/D-90-a-decision.md": "# Decide the thing\n\nBody.\n" }, "Add a decision (#8)\n\nSigned-off-by: Ada Writer <ada@example.invalid>\nCo-authored-by: Bo Pair <bo@example.invalid>");
   fixture.commit(SOURCE, { "assets/near-miss.txt": "x\n" }, "Mention (#not-a-number) and (#12) mid-subject\n\nSigned-off-by: Dee Plain");
+  fixture.commit(SOURCE, { "assets/addresses.txt": "x\n" }, "Addresses only\n\nSigned-off-by: bare@example.invalid\nCo-authored-by: 4242+octo-cat@users.noreply.github.com\nCo-authored-by: Paren Name (paren@example.invalid)");
   fixture.git(["checkout", "-q", "-b", "topic", SOURCE]);
   fixture.git(["commit", "-q", "--allow-empty", "-m", "topic work\n\nSigned-off-by: Cy Third <cy@example.invalid>"]);
   fixture.git(["checkout", "-q", SOURCE]);
@@ -146,10 +145,10 @@ test("the notes: landed pull requests, decision records and credited names betwe
   const from = next.previous!.source;
   assert.deepEqual(landedPullRequests(fixture.repository, from, next.product.source), [{ number: 8, title: "Add a decision" }, { number: 9, title: "Ship the topic" }]);
   assert.deepEqual(decisionChanges(fixture.repository, from, next.product.source), [{ status: "added", path: "docs/decisions/D-90-a-decision.md", title: "Decide the thing" }]);
-  assert.deepEqual(creditedPeople(fixture.repository, from, next.product.source), ["Ada Writer", "Bo Pair", "Cy Third", "Dee Plain"], "a value naming no address is a name as it stands");
+  assert.deepEqual(creditedPeople(fixture.repository, from, next.product.source), ["@octo-cat", "Ada Writer", "Bo Pair", "Cy Third", "Dee Plain", "Paren Name"], "a name, or a private address's login; a bare address credits nobody");
   const notes = renderReleaseNotes(fixture.repository, next, SETTINGS, "owner/name");
-  for (const expected of ["- Add a decision (#8)", "- Ship the topic (#9)", "added: [Decide the thing]", "Ada Writer, Bo Pair, Cy Third, Dee Plain", "gh release verify v1.1.0 --repo owner/name", "compare/v1.0.0...v1.1.0"]) assert.ok(notes.includes(expected), `${expected}\n${notes}`);
-  assert.doesNotMatch(notes, /example\.invalid/u, "no address is published");
+  for (const expected of ["- Add a decision (#8)", "- Ship the topic (#9)", "added: [Decide the thing]", "@octo-cat, Ada Writer, Bo Pair, Cy Third, Dee Plain, Paren Name", "gh release verify v1.1.0 --repo owner/name", "compare/v1.0.0...v1.1.0"]) assert.ok(notes.includes(expected), `${expected}\n${notes}`);
+  assert.doesNotMatch(notes, /@[A-Za-z0-9.-]+\.[a-z]{2,}|noreply/u, "no address is published, in any form a trailer can take");
   assert.equal(renderReleaseNotes(fixture.repository, next, SETTINGS, "owner/name"), notes, "the same plan gives the same notes");
 });
 
@@ -160,12 +159,30 @@ test("a product seeded with earlier previews: their tags are previous releases, 
   project(fixture, { "package.json": manifest(fixture, "0.1.0") });
   const seeded = plan(fixture, { settings: { minIntervalHours: 0 } });
   assert.deepEqual([seeded.due, seeded.previous?.tag, seeded.previous?.source, seeded.productChanged], [true, "v0.0.3-preview", null, true]);
+  const fresh = plan(fixture, { now: new Date(Date.parse(fixture.git(["log", "-1", "--format=%cI", "v0.0.3-preview"])) + HOUR) });
+  assert.deepEqual([fresh.previous?.at, fresh.hoursSincePrevious, fresh.reasons], [null, null, []], "a lightweight tag has no release time: its commit's date is never taken for one");
   const notes = renderReleaseNotes(fixture.repository, seeded, SETTINGS, "owner/name");
   assert.match(notes, /first release projected from `main`/u);
   assert.match(notes, /\[v0\.0\.3-preview\]\(https:\/\/github\.com\/owner\/name\/releases\/tag\/v0\.0\.3-preview\), predates the projection/u);
   for (const absent of ["An old change", "Old Author", "## Landed", "## Decisions"]) assert.ok(!notes.includes(absent), `${absent}: no history is read across a seeded preview`);
   project(fixture, { "package.json": manifest(fixture, "0.0.2") });
   refusedWith("promotion_release_version_invalid", () => plan(fixture));
+});
+
+test("a credited value never publishes an address", () => {
+  const cases: ReadonlyArray<readonly [string, string | null]> = [
+    ["Ada Writer <ada@example.invalid>", "Ada Writer"],
+    ["ada@example.invalid", null],
+    ["<ada@example.invalid>", null],
+    ["Ada (ada@example.invalid)", "Ada"],
+    ["12+octo@users.noreply.github.com", "@octo"],
+    ["octo@users.noreply.github.com", "@octo"],
+    ["Octo Cat <12+octo@users.noreply.github.com>", "Octo Cat"],
+    ["evil@users.noreply.github.com.example.invalid", null],
+    ["Plain Name", "Plain Name"],
+    ["", null],
+  ];
+  for (const [value, expected] of cases) assert.equal(creditedName(value), expected, value);
 });
 
 test("the assets: every input required, canonical names, the source archive of the product commit, and checksums that verify", () => {

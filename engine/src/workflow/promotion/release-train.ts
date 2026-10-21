@@ -33,6 +33,7 @@
 import { deepFreeze } from "../../kernel/integrity.ts";
 import type { ConfigDocument, ReleaseTrainMode } from "../../kernel/config-contracts.ts";
 import { commitTreeReader, gitOutput, resolveRevision, type GitRepository } from "../../git/tree-reader.ts";
+import { compareSemver, isValidSemver, parseSemver } from "../../extensions/semver.ts";
 import { PromotionError } from "./codes.ts";
 import { loadPromotionProfiles, selectPromotionProfile } from "./profile.ts";
 import { promotionTrailersOf } from "./trailers.ts";
@@ -55,46 +56,15 @@ export type ReleasePlan = Readonly<{
   /** Below 1.0, or a version with a pre-release part: published as a pre-release. */
   prerelease: boolean;
   product: Readonly<{ ref: string; commit: string; tree: string; source: string }>;
-  previous: Readonly<{ tag: string; version: string; commit: string; source: string | null; at: string }> | null;
+  /** The last release; `at` is its annotated tag's time, `null` for a lightweight (seeded) tag. */
+  previous: Readonly<{ tag: string; version: string; commit: string; source: string | null; at: string | null }> | null;
   productChanged: boolean;
   hoursSincePrevious: number | null;
   discussionCategory: string;
 }>;
 
-const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u;
-
-type Semver = Readonly<{ core: readonly [number, number, number]; pre: readonly string[] }>;
-
-/** A semantic version's parts, or `null` when `text` is not one (build metadata is not accepted: a tag must name one artifact). */
-export function parseSemver(text: string): Semver | null {
-  const match = SEMVER.exec(text);
-  if (match === null) return null;
-  return { core: [Number(match[1]), Number(match[2]), Number(match[3])], pre: match[4] === undefined ? [] : match[4].split(".") };
-}
-
-/** Semantic-version precedence (semver.org §11): negative when `a` < `b`, 0 when equal, positive when greater. */
-export function compareSemver(a: Semver, b: Semver): number {
-  for (let index = 0; index < 3; index += 1) {
-    const difference = a.core[index]! - b.core[index]!;
-    if (difference !== 0) return difference;
-  }
-  if (a.pre.length === 0 || b.pre.length === 0) return (a.pre.length === 0 ? 1 : 0) - (b.pre.length === 0 ? 1 : 0);
-  for (let index = 0; index < Math.max(a.pre.length, b.pre.length); index += 1) {
-    const left = a.pre[index];
-    const right = b.pre[index];
-    if (left === undefined || right === undefined) return left === undefined ? -1 : 1;
-    if (left === right) continue;
-    const leftNumeric = /^\d+$/u.test(left);
-    const rightNumeric = /^\d+$/u.test(right);
-    if (leftNumeric && rightNumeric) return Number(left) - Number(right);
-    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
-    return left < right ? -1 : 1;
-  }
-  return 0;
-}
-
 /** The version the product commit declares: its root `package.json`'s `version`, which must be semver. */
-function declaredVersion(repository: GitRepository, commit: string): Readonly<{ text: string; parsed: Semver }> {
+function declaredVersion(repository: GitRepository, commit: string): string {
   const manifest = commitTreeReader(repository, commit).text("package.json");
   let version: unknown;
   try {
@@ -102,30 +72,38 @@ function declaredVersion(repository: GitRepository, commit: string): Readonly<{ 
   } catch (error) {
     throw new PromotionError("promotion_release_version_invalid", `the product ${commit}'s package.json is not JSON: ${error instanceof Error ? error.message : String(error)}`, { commit });
   }
-  const parsed = typeof version === "string" ? parseSemver(version) : null;
-  if (parsed === null) throw new PromotionError("promotion_release_version_invalid", `the product ${commit} declares no semantic version in package.json (found ${JSON.stringify(version ?? null)})`, { commit, version: version ?? null });
-  return { text: version as string, parsed };
+  if (typeof version !== "string" || version !== version.trim() || !isValidSemver(version)) {
+    throw new PromotionError("promotion_release_version_invalid", `the product ${commit} declares no semantic version in package.json (found ${JSON.stringify(version ?? null)})`, { commit, version: version ?? null });
+  }
+  return version;
 }
 
 /**
  * The newest release tag of `settings` on the product's own line (`commit`'s
  * first-parent history: a tag on a `main` commit the product carries as a
  * second parent is no release), by version precedence, or `null`.
+ *
+ * A release's time is its ANNOTATED tag's tagger date: the train creates
+ * every release tag annotated (and the release immutable), so the tag is the
+ * release record git holds. A lightweight tag (a preview the product branch
+ * was seeded with) has no release time here — `at` is `null` and the
+ * interval is not measured from it; a commit's date is never taken for a
+ * release's.
  */
 function previousRelease(repository: GitRepository, commit: string, settings: ReleaseSettings): ReleasePlan["previous"] {
   const line = new Set(gitOutput(repository, ["rev-list", "--first-parent", commit]).stdout.toString("utf8").split("\n").filter((id) => id.length > 0));
-  const lines = gitOutput(repository, ["for-each-ref", "--merged", commit, "--format=%(refname:strip=2)%00%(creatordate:iso-strict)%00%(*objectname)%00%(objectname)", `refs/tags/${settings.tagPrefix}*`]).stdout.toString("utf8").split("\n").filter((entry) => entry.length > 0);
-  let best: { tag: string; version: string; parsed: Semver; at: string } | null = null;
+  const lines = gitOutput(repository, ["for-each-ref", "--merged", commit, "--format=%(refname:strip=2)%00%(objecttype)%00%(taggerdate:iso-strict)%00%(*objectname)%00%(objectname)", `refs/tags/${settings.tagPrefix}*`]).stdout.toString("utf8").split("\n").filter((entry) => entry.length > 0);
+  let best: { tag: string; version: string; at: string | null } | null = null;
   for (const entry of lines) {
-    const [tag, at, peeled, object] = entry.split("\0") as [string, string, string, string];
-    if (!line.has(peeled === "" ? object : peeled)) continue;
-    const parsed = parseSemver(tag.slice(settings.tagPrefix.length));
-    if (parsed === null) continue;
-    if (best === null || compareSemver(parsed, best.parsed) > 0) best = { tag, version: tag.slice(settings.tagPrefix.length), parsed, at };
+    const [tag, type, taggerDate, peeled, object] = entry.split("\0") as [string, string, string, string, string];
+    if (!line.has(type === "tag" ? peeled : object)) continue;
+    const version = tag.slice(settings.tagPrefix.length);
+    if (!isValidSemver(version) || version !== version.trim()) continue;
+    if (best === null || compareSemver(version, best.version) > 0) best = { tag, version, at: type === "tag" && taggerDate !== "" ? new Date(taggerDate).toISOString() : null };
   }
   if (best === null) return null;
   const tagged = resolveRevision(repository, `refs/tags/${best.tag}`)!;
-  return deepFreeze({ tag: best.tag, version: best.version, commit: tagged, source: promotionTrailersOf(repository, tagged).projectedFrom, at: new Date(best.at).toISOString() });
+  return deepFreeze({ tag: best.tag, version: best.version, commit: tagged, source: promotionTrailersOf(repository, tagged).projectedFrom, at: best.at });
 }
 
 export type ReleasePlanInput = Readonly<{
@@ -153,13 +131,13 @@ export function planRelease(input: ReleasePlanInput): ReleasePlan {
   if (source === null) throw new PromotionError("promotion_release_source_unproven", `the product tip ${commit} carries no Projected-From trailer: only a projection of a main commit is released`, { commit });
   const version = declaredVersion(repository, commit);
   const previous = previousRelease(repository, commit, settings);
-  if (previous !== null && compareSemver(version.parsed, parseSemver(previous.version)!) < 0) {
-    throw new PromotionError("promotion_release_version_invalid", `the product declares ${version.text}, below the last release ${previous.tag}: a version never goes back`, { version: version.text, previous: previous.tag });
+  if (previous !== null && compareSemver(version, previous.version) < 0) {
+    throw new PromotionError("promotion_release_version_invalid", `the product declares ${version}, below the last release ${previous.tag}: a version never goes back`, { version, previous: previous.tag });
   }
-  const tag = `${settings.tagPrefix}${version.text}`;
+  const tag = `${settings.tagPrefix}${version}`;
   const tree = resolveRevision(repository, commit, "tree")!;
   const productChanged = previous === null || resolveRevision(repository, previous.commit, "tree") !== tree;
-  const hoursSincePrevious = previous === null ? null : Math.floor((input.now.getTime() - Date.parse(previous.at)) / 36_000) / 100;
+  const hoursSincePrevious = previous === null || previous.at === null ? null : Math.floor((input.now.getTime() - Date.parse(previous.at)) / 36_000) / 100;
   const reasons: ReleaseWaitReason[] = [];
   if (resolveRevision(repository, `refs/tags/${tag}`, "object") !== null) reasons.push("version_released");
   if (!productChanged) reasons.push("product_unchanged");
@@ -170,9 +148,9 @@ export function planRelease(input: ReleasePlanInput): ReleasePlan {
     reasons,
     mode: settings.train,
     approval: settings.train === "approval",
-    version: version.text,
+    version,
     tag,
-    prerelease: version.parsed.core[0] === 0 || version.parsed.pre.length > 0,
+    prerelease: parseSemver(version).major === 0 || parseSemver(version).prerelease !== null,
     product: { ref: productRef, commit, tree, source },
     previous,
     productChanged,

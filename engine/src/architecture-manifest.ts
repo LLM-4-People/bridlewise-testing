@@ -5577,13 +5577,13 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-promotion-release-notes", path: "src/workflow/promotion/release-notes.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 4, namesSha256: "33cb66e2928a7a9a33d9799c574c9d9624a6fb5b46b9e0eca1d24e57919b79d5" },
+      owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "566f89510164deefb7afe3e790f0b2535ed529ca2700c61a3b3235fe110bcde6" },
       dependencies: ["src/git/tree-reader.ts"],
     }),
     moduleContract({
       id: "src-workflow-promotion-release-train", path: "src/workflow/promotion/release-train.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 8, namesSha256: "4a06d8d016784fb399ce82381bb5b36d91f0ebecfc37022ed3644398113c909d" },
-      dependencies: ["src/git/tree-reader.ts","src/kernel/integrity.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/trailers.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "5a6d984452d12603beebd8ff64c85fd867757299fb69ba24795e288bed657de2" },
+      dependencies: ["src/extensions/semver.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/trailers.ts"],
     }),
     moduleContract({
       id: "src-shared-exposure-registrations-release", path: "src/shared/exposure/registrations/release.ts", realm: "shared", layer: "domain",
