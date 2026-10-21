@@ -18,7 +18,8 @@ memory, privacy, safety, timeline, workflow, MCP, and quality contracts.
   malformed input explicitly.
 - Use the engine's existing owner for a fact, default, or limit. Do not add a
   second copy in the web tree.
-- Engine tests run from the engine package. A focused test is the default;
-  a full engine run needs a fresh receipt.
+- Engine tests run from the engine package; the
+  [evidence bar](../docs/process/AGENTS.md#evidence) owns what a focused or
+  full run must prove.
 - The engine is part of an experimental developer preview. Do not describe it
   as production ready.

@@ -37,13 +37,13 @@ The supported shard set lives in `tests/test-shards.json`. The shard workflow is
 
 ## What makes a good change
 
-- Fix the cause, not the symptom. Do not add retries, silent fallbacks, or special cases to hide a failure.
-- Reproduce the failure before editing. Add a regression test that fails on the old behavior.
-- State the class a prevention guard protects, the plant it uses, the driven behavior, and the liveness check.
-- Keep one owner per fact. Reuse the canonical declaration; do not add a parallel registry, route, or manifest.
+The [mandatory engineering rules](docs/process/AGENTS.md#mandatory-engineering-rules)
+and the [evidence bar](docs/process/AGENTS.md#evidence) bind every change; the
+[Tier 1 contract](docs/process/TIER1-AGENT-CONTRACT.md) owns what a change must
+not do. This page keeps the contribution mechanics around them.
+
 - Validate at trust boundaries: paths, schema fields, finite numbers, uniqueness, and cross-field invariants.
 - Make multi-step state changes atomic, and give background work ownership, cancellation, timeout, and shutdown.
-- Do not skip a test to make CI green. A typed refusal is better than a green lie.
 - Update the docs when a command, route, config key, or user-visible behavior changes.
 
 ## Test conventions
@@ -68,7 +68,10 @@ AI-assisted work is welcome. You remain responsible for the result. Disclose mat
 
 ## Review
 
-Maintainers review correctness, evidence, scope, and consistency with the design principles. A green CI run is necessary but not sufficient. Changes that make the preview look more complete than it is may be declined.
+Review applies the [evidence bar](docs/process/AGENTS.md#evidence) through the
+[reviewer role](docs/process/ROLES.md#reviewer). A green CI run is necessary
+but not sufficient: changes that make the preview look more complete than it is
+may be declined.
 
 ## Code of conduct
 

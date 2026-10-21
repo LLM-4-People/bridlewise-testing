@@ -9,15 +9,17 @@ with non-overlapping file scopes.
 
 ## Writer
 
-Owns one cohesive change in a named file scope. Reproduces the baseline,
-implements the change, updates every consumer, and runs the focused checks.
-Reports the exact commands and results. Does not silently widen the scope.
+Owns one cohesive change in a named file scope. Follows the
+[workflow](WORKFLOW.md); the [evidence rules](AGENTS.md#evidence) own what it
+reports. Does not silently widen the scope.
 
 ## Reviewer
 
 Reads the complete diff and the evidence. Checks the failure mechanism, the
-owner of each fact, the consumer updates, the regression coverage, and the
-public boundary. A reviewer who finds an unverified claim sends it back.
+owner of each fact, the absence of dead code or a duplicate owner, the consumer
+updates, the regression coverage, the roadmap's exit criteria for the change,
+and the [public boundary](../../AGENTS.md#public-boundary-and-publishing). A
+reviewer who finds an unverified claim sends it back.
 
 ## Release owner
 

@@ -24,52 +24,31 @@ The development floor is where Bridlewise is tested, challenged, and made reprod
 | **Make it reproducible** | Sharding, fixtures, corpus manifests, performance reports | Start with [M1 on the roadmap]({{ '/floor/roadmap/' | relative_url }}) |
 | **Extend** | Tools, blocks, providers, MCP, quality packs, embedding | Read [Building on the harness]({{ '/extending/' | relative_url }}) |
 | **Document** | Making examples match the command output | Pick a [`documentation`](https://github.com/LLM-4-People/bridlewise-testing/issues?q=is%3Aissue+is%3Aopen+label%3Adocumentation) issue |
-| **Review** | Reading for the failure mode, not the happy path | Use the review checklist below |
+| **Review** | Reading for the failure mode, not the happy path | Use the [reviewer role's checklist](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/ROLES.md#reviewer) |
 
 New here? The [`good first issue`](https://github.com/LLM-4-People/bridlewise-testing/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) label is the shortest path. If an issue is unclear, ask for the missing evidence before writing code.
 
 ## The first hour
 
-```bash
-git clone https://github.com/LLM-4-People/bridlewise-testing.git
-cd bridlewise-testing
-npm ci
-npm --prefix engine ci
-npm run bootstrap:hooks
-chmod 600 engine/bridlewise.config.json
-npm run typecheck
-npm --prefix engine run typecheck
-npm run check:secrets
-npm run test:public
-```
+The setup commands and the fresh-clone gate live in [CONTRIBUTING](https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md#setup); run them before your first change. That is the public gate, and it works on a fresh clone without the external corpus. If it fails, capture the exact command and the first typed error; do not disable the gate to get past it.
 
-That is the public gate. It works on a fresh clone without the external corpus. If it fails, capture the exact command and the first typed error. Do not work around a gate failure by disabling the gate.
-
-The full suite has named prerequisites: the external corpus, the performance report, Chromium, systemd, OpenSSL, and Landlock. Read [docs/testing.md](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/testing.md) before claiming a full run. A prerequisite refusal is useful; a silent skip is not.
+The full suite has named prerequisites. The [testing guide](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/testing.md) owns them and the full-run bar.
 
 ## What a good contribution looks like
 
 ### A reproduced bug
 
-1. State the observed behavior and the expected behavior.
-2. Give the smallest command or fixture that reproduces it.
-3. Include the typed error, the run id if there is one, and the relevant version or commit.
-4. Redact secrets, private code, and personal data.
-5. Add a regression test that fails before the fix and passes after it.
+The [evidence rules](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/AGENTS.md#evidence) own the bar. A useful report:
+
+1. States the observed behavior and the expected behavior.
+2. Gives the smallest command or fixture that reproduces it, with the typed error, the run id if there is one, and the relevant version or commit.
+3. Redacts secrets, private code, and personal data, and adds a regression test that fails before the fix.
 
 If reproduction is impossible, say so explicitly. Do not present a guess as a diagnosis.
 
 ### A prevention guard
 
-A guard is not just a new assertion. It needs:
-
-- **The class:** what failure family it protects.
-- **The plant:** the synthetic bad input or mutation it must catch.
-- **The driven behavior:** the real path that receives the plant.
-- **The liveness check:** proof that the guard still observes the real population, not an empty one.
-- **A failure proof:** the guard fails on the old behavior and passes on the fix.
-
-Add the test at the narrowest layer that would have caught the bug. Do not duplicate an existing guard. Do not weaken a boundary to make the plant pass.
+A guard is not just a new assertion: the [evidence rules](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/AGENTS.md#evidence) own the standard it must meet, including its failure proof, and [CONTRIBUTING](https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md#test-conventions) owns where the test goes.
 
 ### A test-floor improvement
 
@@ -92,23 +71,7 @@ Read [Building on the harness]({{ '/extending/' | relative_url }}) first. If the
 
 ### A documentation change
 
-Every command, config key, route, and user-visible behavior must match the code. Verify the example. Link the source of truth. If a floor page and the product docs disagree, report the drift rather than choosing the friendlier statement.
-
-## Review checklist
-
-When you review a change, ask:
-
-- Does it fix the cause at the owner, or mask the symptom?
-- Is there one source of truth, or a second registry, list, or default?
-- What happens on invalid input, a missing prerequisite, cancellation, and shutdown?
-- Is a multi-step mutation atomic?
-- Does the evidence show the failure before the fix?
-- Does the test prove behavior rather than an implementation detail?
-- Are secrets, private paths, and personal data absent?
-- Does the documentation match the command output?
-- Is the scope one cohesive change?
-
-A green run is necessary, not sufficient. A passing test that cannot fail is not evidence.
+Verify the example against the code, and link the source of truth. [CONTRIBUTING](https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md#what-makes-a-good-change) owns the documentation rule; if a floor page and the product docs disagree, report the drift rather than choosing the friendlier statement.
 
 ## Labels and next actions
 
@@ -124,12 +87,7 @@ A green run is necessary, not sufficient. A passing test that cannot fail is not
 
 ## What we will not accept
 
-- A skipped or deleted test that makes a badge green.
-- A retry, fallback, or special case that hides a failure.
-- A real credential, private source file, or personal data in a fixture.
-- A "supports everything" provider claim without conformance evidence.
-- A production-readiness claim that the admission gates do not support.
-- A benchmark number without its method.
+The [Tier 1 contract](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/TIER1-AGENT-CONTRACT.md#you-must-not) owns the refusals, and the [evidence rules](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/AGENTS.md#evidence) own what counts as evidence. The warning above is the short version for anything involving real code or data.
 
 ## Ask, report, or review
 
