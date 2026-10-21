@@ -143,7 +143,9 @@ describe("buildUiSchemaValues", () => {
     expect(values.signals.length).toBeGreaterThan(0);
     for (const s of values.signals) {
       expect(typeof s.id).toBe("string");
-      expect(["number", "string", "boolean"]).toContain(typeof s.value);
+      // ABSENCE IS A VALUE: a signal that could not be measured is null, and that
+      // is not a type violation. A present value is always a scalar.
+      expect(s.value === null || ["number", "string", "boolean"].includes(typeof s.value)).toBe(true);
     }
   });
 
