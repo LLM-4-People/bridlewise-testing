@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { resolve } from "node:path";
 
-import { InputError } from "../kernel/errors.ts";
+import { HarnessError, InputError } from "../kernel/errors.ts";
 import { canonicalJson, deepFreeze, sha256 } from "../kernel/integrity.ts";
 import { schemaId } from "../kernel/product-identity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
@@ -12,7 +12,7 @@ import { S3_OFFLINE_FORENSIC_HASH } from "../forensics/offline-forensics.ts";
 import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
 import { ownedFiles } from "../git/repository-ownership.ts";
-import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
+import { ARCHITECTURE_EXTERNAL_COMMANDS } from "../kernel/architecture-external-commands.ts";
 
 /**
  * Central hash-binding registry — the single source of truth for every
@@ -172,8 +172,8 @@ function escapeForRegex(literal: string): string {
 }
 
 /**
- * The architecture manifest's EXTERNAL COMMAND SOURCE PINS, derived from the
- * manifest's own declarations instead of hand-kept beside them.
+ * The external-command SOURCE PINS, derived from the inventory's own
+ * declarations instead of hand-kept beside them.
  *
  * `externalCommands[].sourceSha256` is a byte-lock of a tracked
  * `verification/` source. The module registrar rewrites only the per-module
@@ -190,14 +190,14 @@ function escapeForRegex(literal: string): string {
  * every check as an error instead of the verifier's named boundary.
  */
 function externalCommandSourceBindings(): readonly HashBinding[] {
-  return ARCHITECTURE_MANIFEST.externalCommands
+  return ARCHITECTURE_EXTERNAL_COMMANDS
     .filter((command) => command.publication === "published")
     .map((command) => ({
       id: `architecture-external-command-${command.id}-source-sha256`,
-      description: `${command.path} bytes -> src/architecture-manifest.ts externalCommands[${command.id}].sourceSha256`,
+      description: `${command.path} bytes -> src/kernel/architecture-external-commands.ts [${command.id}].sourceSha256`,
       sourcePath: command.path,
       sourceOrigin: { kind: "repository-source" } as const,
-      targetPath: "src/architecture-manifest.ts",
+      targetPath: "src/kernel/architecture-external-commands.ts",
       targetKind: "typescript" as const,
       hashMode: { kind: "file-sha256" } as const,
       // Anchored on the command's unique id, tempered so NO other command id
@@ -676,8 +676,14 @@ export function bindingPinRanges(targetPath: string, text: string): readonly Bin
       let pattern: RegExp;
       try {
         pattern = new RegExp(binding.findRegex, "gu");
-      } catch {
-        continue;
+      } catch (error) {
+        // A registry locator that does not compile is a broken owner, not a
+        // file with no pins: skip it and the binding silently never normalizes
+        // (the round-5 defect shape). Name it and stop.
+        throw new HarnessError(
+          `${binding.id}: findRegex is not a valid pattern (${error instanceof Error ? error.message : String(error)})`,
+          "hash_binding_regex_invalid",
+        );
       }
       for (const match of text.matchAll(pattern)) {
         if (!SHA256_LITERAL.test(match[0]) || match.index === undefined) continue;
@@ -689,12 +695,19 @@ export function bindingPinRanges(targetPath: string, text: string): readonly Bin
     // (the target's current literal, never a static import), then locate the
     // one `"<leaf>": "<value>"` pair that carries it. An ambiguous locator is
     // left un-normalized rather than guessed at.
-    let value: unknown;
+    let parsed: unknown;
     try {
-      value = jsonValueAtPath(JSON.parse(text), binding.jsonPath ?? []);
-    } catch {
-      continue;
+      parsed = JSON.parse(text);
+    } catch (error) {
+      // This binding targets a JSON document; bytes that do not parse are a
+      // corrupt target, not "no pin here". Refuse loudly rather than compare a
+      // document to itself with its pins left in place.
+      throw new HarnessError(
+        `${binding.id}: target ${targetPath} is not valid JSON (${error instanceof Error ? error.message : String(error)})`,
+        "hash_binding_json_invalid",
+      );
     }
+    const value = jsonValueAtPath(parsed, binding.jsonPath ?? []);
     if (typeof value !== "string" || !SHA256_LITERAL.test(value)) continue;
     const leaf = binding.jsonPath?.at(-1);
     if (leaf === undefined) continue;
@@ -773,7 +786,7 @@ function pinAuthorityRanges(text: string): readonly BindingPinRange[] {
  * A literal no owner locates is left intact, so an authored change is visible
  * to every consumer of this normalization.
  */
-export function stripRegeneratedPins(path: string, text: string): string {
+export function regeneratedPinRanges(path: string, text: string): readonly BindingPinRange[] {
   const targetPath = path.startsWith("engine/") ? path.slice("engine/".length) : path;
   const owningBindings = listAllBindings().filter((binding) => binding.targetPath === targetPath);
   let ranges: readonly BindingPinRange[];
@@ -787,6 +800,11 @@ export function stripRegeneratedPins(path: string, text: string): string {
     ranges = bindingPinRanges(targetPath, text);
   }
   if (isPinAuthorityTarget(targetPath)) ranges = [...ranges, ...pinAuthorityRanges(text)];
+  return dedupePinRanges(ranges);
+}
+
+export function stripRegeneratedPins(path: string, text: string): string {
+  const ranges = regeneratedPinRanges(path, text);
   let stripped = text;
   for (const range of [...ranges].sort((left, right) => right.start - left.start)) {
     stripped = `${stripped.slice(0, range.start)}<regenerated-pin>${stripped.slice(range.end)}`;

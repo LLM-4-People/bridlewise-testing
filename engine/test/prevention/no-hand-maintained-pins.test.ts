@@ -126,7 +126,11 @@ function bytePinOccurrences(text: string): readonly BytePinOccurrence[] {
       const measured = pathMatch[1]!;
       const measuredAbsolute = join(ROOT, measured);
       if (existsSync(measuredAbsolute) && statSync(measuredAbsolute).isFile()) {
-        findings.push({ line: index + 1, text: line.trim().slice(0, 100), start: offset + literal.index });
+        // Keep the FULL line for classification (the registrar-owned
+    // `publicApi: { … namesSha256 }` on a builder module's long
+    // `moduleContract` line sits past 100 characters); truncate only when the
+    // failure names the occurrence.
+    findings.push({ line: index + 1, text: line.trim(), start: offset + literal.index });
       }
     }
     offset += line.length + 1;
@@ -150,22 +154,23 @@ test("every sha256/byte-pin literal in source is produced by a registered auto-g
   // nothing. The registry alone contributes 18 targets, so an empty set means
   // the owner's derivation broke.
   assert.ok(covered.size > 0, "the auto-generated covered set came back empty — a guard over nothing certifies nothing");
-  // Liveness of the narrowed architecture-manifest arm: the registry must
-  // really own the external-command pins, or the per-occurrence exemption
-  // below is a hole with a test around it.
-  const manifestPins = bindingPinRanges("src/architecture-manifest.ts", readFileSync(join(ROOT, "src/architecture-manifest.ts"), "utf8"));
-  assert.ok(manifestPins.length > 0, "the registry located no external-command pin in the architecture manifest");
+  // Liveness of the narrowed external-command arm: the registry must really
+  // own the inventory's published source pins, or the per-occurrence
+  // exemption below is a hole with a test around it.
+  const commandModule = "src/kernel/architecture-external-commands.ts";
+  const commandPins = bindingPinRanges(commandModule, readFileSync(join(ROOT, commandModule), "utf8"));
+  assert.ok(commandPins.length > 0, "the registry located no external-command pin in the command inventory");
 
   const handMaintained: string[] = [];
   for (const file of sourceFiles()) {
     if (covered.has(file)) continue;
     const text = readFileSync(join(ROOT, file), "utf8");
     if (!HEX64.test(text)) continue;
-    const ranges = file === "src/architecture-manifest.ts" ? bindingPinRanges(file, text) : [];
+    const ranges = bindingPinRanges(file, text);
     const ownedStarts = new Set(ranges.map((range) => range.start));
     handMaintained.push(...bytePinOccurrences(text)
       .filter((occurrence) => !ownedStarts.has(occurrence.start) && !isRegistrarOwnedModuleField(file, occurrence))
-      .map((occurrence) => `${file}:${occurrence.line}: ${occurrence.text}`));
+      .map((occurrence) => `${file}:${occurrence.line}: ${occurrence.text.slice(0, 100)}`));
   }
   assert.deepEqual(
     handMaintained,

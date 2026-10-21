@@ -247,7 +247,7 @@ export type HarnessRegenerateOutput = Readonly<{
    * because every other arm above may have rewritten a governed file.
    */
   artifactManifest: Readonly<{
-    status: "current" | "regenerated" | "stale";
+    status: "current" | "regenerated" | "stale" | "absent";
     entries: number;
     policyHash: string;
     integrityHash: string;
@@ -483,10 +483,12 @@ export async function harnessCheck(
   const artifactManifest = regenerateArtifactManifest(root, false);
   steps.push(deepFreeze({
     step: "artifact-manifest",
-    status: artifactManifest.status === "current" ? "pass" : "fail",
-    message: artifactManifest.status === "current"
-      ? `the canonical artifact inventory matches the governed roots (${String(artifactManifest.entries)} artifacts)`
-      : "the canonical artifact inventory is stale against the governed roots (run harness sync)",
+    status: artifactManifest.status === "absent" ? "skip" : artifactManifest.status === "current" ? "pass" : "fail",
+    message: artifactManifest.status === "absent"
+      ? "the product tree carries no artifact-inventory generator (testing-floor tooling); skipped"
+      : artifactManifest.status === "current"
+        ? `the canonical artifact inventory matches the governed roots (${String(artifactManifest.entries)} artifacts)`
+        : "the canonical artifact inventory is stale against the governed roots (run harness sync)",
     details: artifactManifest,
   }));
 
@@ -913,7 +915,7 @@ export function harnessRegenerate(
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
         pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
-        (artifactManifest.status === "current" || artifactManifest.status === "regenerated")
+        (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
     : undefined;
   return wrapResult("regenerate", output, status === undefined ? {} : { status });
@@ -1095,10 +1097,23 @@ function regenerateGuardianSpecArtifact(root: string, write: boolean): HarnessRe
  * compares the committed manifest with a fresh build over the governed roots'
  * repository listing, and writes only when the document changed.
  */
+/**
+ * The artifact-inventory producer is TESTING-FLOOR content
+ * (`engine/scripts/tooling/` is stripped by the promotion profile): the
+ * manifest inventories the testing tree's governed roots, and a product tree
+ * does not carry them. The reference is therefore OPTIONAL, probed through
+ * `existsSync` (the run-tests pattern the source-root guard requires), never a
+ * mandatory subprocess that would die with MODULE_NOT_FOUND there.
+ */
+const ARTIFACT_MANIFEST_GENERATOR = "scripts/tooling/artifact-manifest.ts";
+
 function regenerateArtifactManifest(root: string, write: boolean): HarnessRegenerateOutput["artifactManifest"] {
+  if (!existsSync(resolve(root, ARTIFACT_MANIFEST_GENERATOR))) {
+    return deepFreeze({ status: "absent" as const, entries: 0, policyHash: "", integrityHash: "" });
+  }
   const report = generatorReport<"current" | "stale" | "missing" | "written">(
     root,
-    "scripts/tooling/artifact-manifest.ts",
+    ARTIFACT_MANIFEST_GENERATOR,
     [write ? "--write" : "--check"],
     "the canonical artifact inventory",
     "artifact_manifest_no_result",

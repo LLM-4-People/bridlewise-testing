@@ -856,7 +856,7 @@ test("HashBindingRegistry: every 64-hex literal in a suite-regenerated TypeScrip
 });
 
 test("HashBindingRegistry: every published architecture external command's sourceSha256 is a derived, unique binding", () => {
-  const manifestPath = "src/architecture-manifest.ts";
+  const manifestPath = "src/kernel/architecture-external-commands.ts";
   const manifest = readFileSync(join(ROOT, manifestPath), "utf8");
   const published = ARCHITECTURE_MANIFEST.externalCommands.filter((command) => command.publication === "published");
   assert.ok(published.length > 0, "the manifest declares no published external command — this guard would be vacuous");
@@ -883,7 +883,7 @@ test("HashBindingRegistry: a published external command source edit reds its der
     writeRelative(tmpRoot, command!.path, sourceBytes);
     writeRelative(
       tmpRoot,
-      "src/architecture-manifest.ts",
+      "src/kernel/architecture-external-commands.ts",
       `export const MANIFEST = { externalCommands: [\n  {\n    id: "${command!.id}",\n    path: "${command!.path}",\n    sourceSha256: "${command!.sourceSha256}",\n  },\n] };\n`,
     );
     const drifted = verifyBinding(tmpRoot, binding!);
@@ -892,7 +892,7 @@ test("HashBindingRegistry: a published external command source edit reds its der
     assert.equal(drifted.actual, command!.sourceSha256, "the actual literal is the declared manifest pin");
     const repaired = repairBinding(tmpRoot, binding!);
     assert.equal(repaired.repaired, true, "the binding repair re-derives the pin");
-    assert.ok(readFileSync(join(tmpRoot, "src/architecture-manifest.ts"), "utf8").includes(sha256(sourceBytes)));
+    assert.ok(readFileSync(join(tmpRoot, "src/kernel/architecture-external-commands.ts"), "utf8").includes(sha256(sourceBytes)));
     assert.equal(verifyBinding(tmpRoot, binding!).matches, true, "the repaired pin matches the source");
   } finally {
     rmSync(tmpRoot, { recursive: true, force: true });
