@@ -264,37 +264,49 @@ type AvailabilityConfinementProbe =
  * that the binary execs something; a no-op binary passes it. This probe makes
  * the binary produce the evidence itself:
  *
- *   1. CONTROL — `/bin/cat <control file>` must exit 0 and print exactly the
- *      content written there. If this fails, the binary did not run the
- *      payload under a spec that grants the read, so nothing can be concluded
- *      about denial.
- *   2. DENIAL — `/bin/cat <protected file>`, under the SAME spec, must exit
- *      non-zero and must not print the protected content. The protected file
- *      sits in a folder listed in `protected_subtrees` and covered by no
- *      allow-rule, so a binary that applies Landlock refuses the open with
- *      EACCES. A no-op or pass-through binary reads it and fails this half.
+ *   1. CONTROL — the reader is pointed at a control file and must exit 0 and
+ *      print exactly the content written there. If this fails, the binary did
+ *      not run the payload under a spec that grants the read, so nothing can
+ *      be concluded about denial.
+ *   2. DENIAL — the reader is pointed at a protected file, under the SAME
+ *      spec, and must exit non-zero and must not print the protected content.
+ *      The protected file sits in a folder listed in `protected_subtrees` and
+ *      covered by no allow-rule, so a binary that applies Landlock refuses the
+ *      open with EACCES. A no-op or pass-through binary reads it and fails
+ *      this half.
  *
- * The files and their contents are unique to this run (owned temporary
- * names), so a stub cannot pass by recognising a fixed probe.
+ * EVERY NAME IS DRAWN FROM THE OWNED TEMPORARY NAME GENERATOR: both probe
+ * folders AND both file names, not only the file contents. The round-6
+ * finding was concrete — with fixed `control/` and `protected/` directories a
+ * stub could print the real build stamp and refuse only an argv path
+ * containing `/protected/`, never applying a rule at all. Randomizing the
+ * contents alone left the shape intact; the directory and file names are now
+ * part of what the stub cannot know in advance.
  */
 function runAvailabilityConfinementProbe(
   binaryPath: string,
   tempDir: string,
 ): AvailabilityConfinementProbe {
-  const controlDirectory = join(tempDir, "control");
-  const protectedDirectory = join(tempDir, "protected");
+  // Owned random names: pid + start time + a fresh nonce, so the path the
+  // probe asks the binary to read is not a value any fixed-shape stub can
+  // recognise. The prefixes are deliberately role-NEUTRAL: a prefix naming
+  // "control" or "protected" would restore the very shape this removes.
+  const controlDirectory = join(tempDir, ownedTemporaryName("probe-"));
+  const protectedDirectory = join(tempDir, ownedTemporaryName("probe-"));
   mkdirSync(controlDirectory, { recursive: true, mode: PRIVATE_STATE_DIRECTORY_MODE });
   mkdirSync(protectedDirectory, { recursive: true, mode: PRIVATE_STATE_DIRECTORY_MODE });
   const controlContent = `${ownedTemporaryName("availability-control-")}\n`;
   const protectedContent = `${ownedTemporaryName("availability-protected-")}\n`;
-  const controlFile = join(controlDirectory, "control.txt");
-  const protectedFile = join(protectedDirectory, "secret.txt");
+  const controlFile = join(controlDirectory, ownedTemporaryName("entry-"));
+  const protectedFile = join(protectedDirectory, ownedTemporaryName("entry-"));
   writeFileSync(controlFile, controlContent, { mode: PRIVATE_STATE_FILE_MODE });
   writeFileSync(protectedFile, protectedContent, { mode: PRIVATE_STATE_FILE_MODE });
   // The spec's paths are RESOLVED: the guardian opens each one without
   // following a link, and `tmpdir()` itself may be spelled through one.
   const resolvedControlDirectory = resolveLocation(controlDirectory, "the availability probe's control folder");
   const resolvedProtectedDirectory = resolveLocation(protectedDirectory, "the availability probe's protected folder");
+  const resolvedControlFile = resolveLocation(controlFile, "the availability probe's control file");
+  const resolvedProtectedFile = resolveLocation(protectedFile, "the availability probe's protected file");
   const spec = buildAvailabilityProbeSpec(
     ROOT_POLICY.selfProtection.minimumAllowSet,
     resolvedControlDirectory,
@@ -304,7 +316,7 @@ function runAvailabilityConfinementProbe(
     binaryPath,
     spec,
     AVAILABILITY_PROBE_READER,
-    [join(resolvedControlDirectory, "control.txt")],
+    [resolvedControlFile],
     tempDir,
     true,
   );
@@ -322,7 +334,7 @@ function runAvailabilityConfinementProbe(
     binaryPath,
     spec,
     AVAILABILITY_PROBE_READER,
-    [join(resolvedProtectedDirectory, "secret.txt")],
+    [resolvedProtectedFile],
     tempDir,
     true,
   );

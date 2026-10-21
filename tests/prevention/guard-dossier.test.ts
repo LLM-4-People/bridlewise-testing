@@ -434,7 +434,7 @@ describe("the ratchet bites", () => {
 
     const honest = judgeDossierFloor(
       load,
-      withMarker("the atomic write owner preserves permission bits on real files, so the fixture is content complete"),
+      withMarker("the atomic write owner preserves permission bits on real files; its fixture is written by the test and consumed within the same run"),
     );
     expect(honest.ok, honest.detail).toBe(true);
   });

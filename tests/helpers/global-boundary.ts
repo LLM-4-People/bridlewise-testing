@@ -75,8 +75,42 @@ function snapshotDescriptors(): Map<PropertyKey, GlobalDescriptor> {
  * hands the next one a global it did not inherit itself.
  */
 export function captureGlobals(): void {
+  initialisePlatformFetchGlobals();
   entryDescriptors.clear();
   for (const [name, descriptor] of snapshotDescriptors()) entryDescriptors.set(name, descriptor);
+}
+
+/**
+ * Force Node's LAZY platform-fetch module to register its globals BEFORE the
+ * snapshot.
+ *
+ * Node brings up undici (`fetch`, `Headers`, `Request`, …) on first use, and
+ * that initialisation installs two own SYMBOL properties on `globalThis`
+ * (`Symbol.for("undici.globalDispatcher.1")` and `…2`). They therefore used to
+ * appear between the setup snapshot and the first test. The door excused every
+ * NEW symbol-named property to tolerate that, and the excuse also covered a
+ * symbol a test installed at module scope — a leaked global nobody reported.
+ *
+ * Constructing a platform fetch primitive initialises the same lazy module
+ * before the snapshot is taken (measured on node 24.20: exactly the two
+ * dispatcher symbols, no other property). The symbols are then part of the
+ * file's ENTRY state, so the comparison below needs no symbol special case:
+ * every key, string or symbol, is judged by its descriptor. Importing the
+ * `undici` package later in a test only re-confirms the same values.
+ *
+ * Best-effort because a DOM test environment may not expose `Headers`; if it
+ * does not, Node's lazy module is not what installs the property and there is
+ * nothing to pre-initialise.
+ */
+function initialisePlatformFetchGlobals(): void {
+  const HeadersConstructor = (globalThis as { Headers?: new () => unknown }).Headers;
+  if (typeof HeadersConstructor !== "function") return;
+  try {
+    new HeadersConstructor();
+  } catch {
+    // An environment whose Headers cannot be constructed is not proof either
+    // way; the descriptor comparison below is still the verdict owner.
+  }
 }
 
 function sameDescriptor(left: GlobalDescriptor | undefined, right: GlobalDescriptor | undefined): boolean {
@@ -110,12 +144,10 @@ export function restoreGlobals(): PropertyKey[] {
     const before = entryDescriptors.get(name);
     const now = current.get(name);
     if (sameDescriptor(before, now)) continue;
-    // Node registers its undici global-dispatcher symbols lazily in the test
-    // worker, after the setup snapshot but before the first test. They are
-    // runtime environment, not a global the file replaced, and they carry no
-    // useful string name to report. A symbol a TEST writes is still caught by
-    // the static scan (a computed `globalThis[...] =` write).
-    if (before === undefined && typeof name === "symbol") continue;
+    // NO SYMBOL EXCEPTION: the platform symbols a runtime installs lazily are
+    // in the entry snapshot now (`initialisePlatformFetchGlobals`), so a
+    // symbol-keyed property that appears after it is a global the file
+    // installed. Reporting it by `String(name)` is enough to blame the file.
     changed.push(name);
     try {
       if (before === undefined) Reflect.deleteProperty(globalThis, name);

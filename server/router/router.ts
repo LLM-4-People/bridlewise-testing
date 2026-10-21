@@ -510,14 +510,20 @@ export function createRouter(opts: RouterOptions): Router {
     // mapped via the single code→status table owned by shared/errors.ts
     // (`statusForCode`). This lets a route THROW a typed error and let the
     // router map it — instead of each route catching + remapping (the prior
-    // `sendError`-helper duplication across 8 route files). A code prefixed
-    // `invalid_`/`missing_` is always 400 (the input-validation convention);
-    // the code map handles the rest.
+    // `sendError`-helper duplication across 8 route files).
+    //
+    // A DECLARATION WINS OVER THE CONVENTION. `invalid_`/`missing_` is the
+    // DEFAULT for an undeclared input-validation code, not an override: the
+    // taxonomy declares some `invalid_` codes as guided refusals (428,
+    // `invalid_customization_value` and `invalid_arm_predicate`), and testing
+    // the prefix first demoted every one of them to 400. The shared
+    // `resolveStatus` has always ordered it declaration-first; this second
+    // derivation disagreed with it. Ask the table first, then the convention.
     const code = taxonomyCode(err);
     if (code !== undefined) {
-      if (code.startsWith("invalid_") || code.startsWith("missing_")) return 400;
       const mapped = statusForCode(code);
       if (mapped !== undefined) return mapped;
+      if (code.startsWith("invalid_") || code.startsWith("missing_")) return 400;
     }
     return 500;
   }

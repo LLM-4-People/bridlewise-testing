@@ -256,6 +256,18 @@ export function listTestFiles({ root = process.cwd(), run = spawnSync } = {}) {
  * compared with a fresh `treeFingerprint(root)`; an explicit `tree` is only a
  * cross-check that must equal that same computed value. `fingerprint` is
  * injectable so a fixture can drive a tree without a real git checkout.
+ *
+ * THE POPULATION IS RE-DERIVED HERE TOO, NOT TAKEN FROM THE SUBJECT. The
+ * fingerprint binds the listing to a tree, but the listing's own `files`
+ * array was still the only evidence about what that tree SELECTS: a document
+ * written from a stale selection (or edited to omit a file) verified as long
+ * as its fingerprint was current and every file it did name was classified.
+ * A test file the manifest does not know is then invisible to every check.
+ * So verification re-runs `listTestFiles` — the same enumeration the listing
+ * command runs — and compares the two file SETS: the subject may not omit a
+ * file the fresh enumeration selected, nor name one it did not. The fresh
+ * enumeration is the evidence; the subject is the thing judged. `list` is
+ * injectable for fixtures that are not a real checkout.
  */
 export function verifyManifest({
   root = process.cwd(),
@@ -263,6 +275,7 @@ export function verifyManifest({
   livePath,
   tree = undefined,
   fingerprint = treeFingerprint,
+  list = listTestFiles,
 }) {
   if (tree !== undefined && (typeof tree !== "string" || tree.length === 0)) {
     fail("live manifest: --tree must be a non-empty working-tree identity when supplied");
@@ -295,12 +308,52 @@ export function verifyManifest({
   }
   const live = liveDocument.files;
   if (!Array.isArray(live) || live.length === 0) fail("live manifest: expected a non-empty `files` array");
-  const liveFiles = live.map((entry, index) => {
+  const declaredFiles = live.map((entry, index) => {
     if (entry === null || typeof entry !== "object") fail(`live manifest: entry ${index} is not an object`);
     return normalizeFile(repositoryRoot, entry.file, `live manifest entry ${index}`);
   });
+  const declaredSet = new Set(declaredFiles);
+  if (declaredSet.size !== declaredFiles.length) fail("live manifest: duplicate file");
+  // THE FRESH ENUMERATION. This is the evidence about the population; the
+  // document above is only the claim. `listTestFiles` binds its own result to
+  // the same tree before and after the run, and its tree is checked against
+  // the tree this verification computed, so the two reads describe one state.
+  const fresh = list({ root: repositoryRoot });
+  if (fresh === null || typeof fresh !== "object" || fresh.schemaVersion !== "bridlewise-test-listing/v1") {
+    fail("fresh enumeration: expected a `bridlewise-test-listing/v1` document from listTestFiles");
+  }
+  if (typeof fresh.tree !== "string" || fresh.tree.length === 0) {
+    fail("fresh enumeration: the enumeration carries no working-tree identity");
+  }
+  if (fresh.tree !== currentTree) {
+    fail(
+      `fresh enumeration: the enumeration is bound to tree ${fresh.tree}, not the working tree being ` +
+        `verified (${currentTree}); the population was selected from a tree that moved.`,
+    );
+  }
+  if (!Array.isArray(fresh.files) || fresh.files.length === 0) {
+    fail("fresh enumeration: expected a non-empty `files` array");
+  }
+  const liveFiles = fresh.files.map((entry, index) => {
+    if (entry === null || typeof entry !== "object") fail(`fresh enumeration: entry ${index} is not an object`);
+    return normalizeFile(repositoryRoot, entry.file, `fresh enumeration entry ${index}`);
+  });
   const liveSet = new Set(liveFiles);
-  if (liveSet.size !== liveFiles.length) fail("live manifest: duplicate file");
+  if (liveSet.size !== liveFiles.length) fail("fresh enumeration: duplicate file");
+  const omitted = liveFiles.filter((file) => !declaredSet.has(file));
+  if (omitted.length > 0) {
+    fail(
+      `live manifest: the listing OMITS ${omitted.length} file(s) the fresh enumeration selected: ` +
+        `${omitted.slice(0, 8).join(", ")}. A listing is not evidence about a population it did not select.`,
+    );
+  }
+  const invented = [...declaredSet].filter((file) => !liveSet.has(file));
+  if (invented.length > 0) {
+    fail(
+      `live manifest: the listing names ${invented.length} file(s) the fresh enumeration did not select: ` +
+        `${invented.slice(0, 8).join(", ")}.`,
+    );
+  }
   const known = new Set([...manifest.files.map((file) => file.path), ...manifest.excluded.map((file) => file.path)]);
   const missing = [...liveSet].filter((file) => !known.has(file));
   if (missing.length > 0) fail(`live manifest: unclassified file(s): ${missing.slice(0, 8).join(", ")}`);

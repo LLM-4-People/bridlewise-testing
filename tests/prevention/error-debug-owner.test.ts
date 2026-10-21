@@ -250,6 +250,7 @@ import {
   CsrfError,
   RateLimitError,
   statusForCode,
+  resolveStatus,
 } from "../../server/kernel/errors.ts";
 
 describe("error-debug owner — router mapping (behavioral)", () => {
@@ -381,6 +382,28 @@ describe("error-debug owner — router mapping (behavioral)", () => {
     expect(statusForCode("project_path_inaccessible")).toBe(404);
     expect(statusForCode("project_path_invalid")).toBe(404);
     expect(statusForCode("config_invalid")).toBe(503);
+  });
+
+  test("(B2b) a DECLARED 428 code beats the invalid_/missing_ 400 convention", async () => {
+    // THE ORDERING DEFECT. `statusForError` tested the `invalid_`/`missing_`
+    // input convention BEFORE consulting CODE_STATUS_MAP, so a status-less
+    // class carrying a code the taxonomy declares 428 answered 400. The
+    // convention is a DEFAULT for undeclared codes; a declaration is the more
+    // specific fact and must win — `resolveStatus` (the shared resolution the
+    // client also uses) already orders it that way, and the router had a
+    // second derivation that disagreed.
+    const cases = [
+      { code: "invalid_customization_value", expected: 428 },
+      { code: "invalid_arm_predicate", expected: 428 },
+      { code: "invalid_project_input", expected: 400 }, // declared 400 control
+      { code: "missing_performance_budget", expected: 400 },
+    ] as const;
+    for (const { code, expected } of cases) {
+      const result = await dispatchThrowingRouter(new ValidationError("refused", code));
+      expect(result.status, `${code} → status`).toBe(expected);
+      expect(result.status, `${code} must agree with the shared resolveStatus`).toBe(resolveStatus(code));
+      expect((result.body as { error?: string }).error, `${code} must keep its own code`).toBe(code);
+    }
   });
 
   test("(B3) every error code thrown in the codebase maps to a non-500 status (dynamic discovery)", () => {

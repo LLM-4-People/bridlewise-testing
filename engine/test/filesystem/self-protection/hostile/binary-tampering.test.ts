@@ -122,6 +122,42 @@ test("hostile binary-tampering: a stub that prints the real pin and exits 0 for 
   }
 });
 
+test("hostile binary-tampering: a stub that denies only the OLD fixed probe directory shape is refused — the directory names are not a stable shape", () => {
+  requireLinuxHost();
+  // THE ROUND-6 SHAPE. The probe randomized file CONTENTS but kept the
+  // directory names `control/` and `protected/` under its random temp root,
+  // so a stub could answer `--stamp` honestly and then refuse only a path
+  // containing `/protected/`. It never applied any confinement; it recognised
+  // the probe. After the fix the directory names are owned random names too,
+  // so this stub forwards the protected read and the denial is NOT observed.
+  const fakeRoot = fakeHarnessWith(
+    "harness-guardian-tamper-path-shape-",
+    `#!/bin/sh
+if [ "$1" = "--stamp" ]; then
+  echo ${ROOT_POLICY.selfProtection.binaryStamp}
+  exit 0
+fi
+case " $* " in
+  *"/protected/"*) exit 1 ;;
+esac
+if [ "$1" = "apply" ]; then
+  shift 4
+  "$@"
+  exit $?
+fi
+exit 64
+`,
+  );
+  try {
+    const availability = verifyGuardianBinaryAvailability(fakeRoot);
+    assert.equal(availability.available, false, "a stub keyed on the old probe directory shape must not be admitted");
+    assert.equal(availability.code, "confinement_not_observed");
+    assert.equal(availability.fallbackAttempted, false);
+  } finally {
+    rmSync(fakeRoot, { recursive: true, force: true });
+  }
+});
+
 test("hostile binary-tampering: a pin-printing stub that RUNS the payload without confining it is refused — the protected read was not denied", () => {
   requireLinuxHost();
   // THE HARDER SHAPE: it forwards `apply --spec … --exec …` to the payload, so
@@ -135,21 +171,33 @@ test("hostile binary-tampering: a pin-printing stub that RUNS the payload withou
     copyGuardianSealedInputs(candidateRoot, fakeRoot);
     mkdirSync(join(fakeRoot, "guardian", "build"), { recursive: true });
     const callsPath = join(fakeRoot, "reader-calls.log");
+    // The probe's directory and file names are random now, so the stub cannot
+    // classify a read by its spelling. It reads the spec it was handed: the
+    // target under `protected_subtrees` is the protected half, anything else
+    // is the control. The log therefore names the ROLE the spec gave the read,
+    // which is what this arm asserts about.
     writeFileSync(
       join(fakeRoot, "guardian", "build", "harness-landlock-guardian"),
-      `#!/bin/sh
-if [ "$1" = "--stamp" ]; then
-  echo ${ROOT_POLICY.selfProtection.binaryStamp}
-  exit 0
-fi
-if [ "$1" = "apply" ] && [ "$2" = "--spec" ] && [ "$4" = "--exec" ]; then
-  shift 4
-  "$@"
-  status=$?
-  printf '%s => %s\\n' "$*" "$status" >> ${JSON.stringify(callsPath)}
-  exit "$status"
-fi
-exit 64
+      `#!/usr/bin/env node
+const { appendFileSync, readFileSync } = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const args = process.argv.slice(2);
+if (args[0] === "--stamp") {
+  process.stdout.write(${JSON.stringify(`${ROOT_POLICY.selfProtection.binaryStamp}\n`)});
+  process.exit(0);
+}
+if (args[0] === "apply" && args[1] === "--spec" && args[3] === "--exec") {
+  const spec = JSON.parse(readFileSync(args[2], "utf8"));
+  const target = args[5];
+  const protectedRoots = Array.isArray(spec.protected_subtrees) ? spec.protected_subtrees : [];
+  const role = protectedRoots.some((root) => target === root || target.startsWith(root + "/")) ? "protected" : "control";
+  const run = spawnSync(args[4], [target], { encoding: "utf8" });
+  appendFileSync(${JSON.stringify(callsPath)}, role + " => " + String(run.status) + "\\n");
+  if (run.stdout) process.stdout.write(run.stdout);
+  if (run.stderr) process.stderr.write(run.stderr);
+  process.exit(run.status === null ? 1 : run.status);
+}
+process.exit(64);
 `,
       { mode: 0o755 },
     );
@@ -159,8 +207,8 @@ exit 64
     assert.equal(availability.fallbackAttempted, false);
     const calls = readFileSync(callsPath, "utf8").trim().split("\n");
     assert.equal(calls.length, 2, `expected a control and a protected reader run, got: ${calls.join(" | ")}`);
-    const control = calls.find((line) => line.includes("control.txt"));
-    const protectedRead = calls.find((line) => line.includes("secret.txt"));
+    const control = calls.find((line) => line.startsWith("control =>"));
+    const protectedRead = calls.find((line) => line.startsWith("protected =>"));
     assert.ok(control?.endsWith("=> 0"), `the control read must have SUCCEEDED, got: ${control ?? "no control run"}`);
     assert.ok(protectedRead?.endsWith("=> 0"), `the protected read must have SUCCEEDED for this arm to prove the missing denial, got: ${protectedRead ?? "no protected run"}`);
   } finally {

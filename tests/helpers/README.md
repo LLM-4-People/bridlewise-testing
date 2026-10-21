@@ -18,7 +18,7 @@ The `tests/helpers/` folder of the development surface.
 - `dossier-floor.ts` — the guard-dossier ratchet's tracked content floor: canonical per-guard fact lines, absent/corrupt refusals, and the pure judge. The only writer is `npm run dossier-floor:update` (`scripts/testing/update-dossier-floor.ts`); a test run never writes it.
 - `egress-id-corpus.ts` — the settings ids whose own egress is at risk — the shared oracle for the wire-level redaction arms (the served settings ids the raw detector would corrupt), consumed by the schema-wire suite and the block-door suite.
 - `error-scan.ts` — shared error-mapping scan helpers for the prevention test suite.
-- `freshness-exemption.ts` — the one owner of `@freshness-exempt <reason>` quality: the marker shape and the refusal of empty, placeholder, and content-free reasons, shared by the freshness census and the dossier ratchet.
+- `freshness-exemption.ts` — the one owner of `@freshness-exempt <reason>` quality: the marker shape and the refusal of empty, placeholder, and content-free reasons, plus the two required halves (the artifact that would be stale AND the command, producer, or property that establishes its currency), shared by the freshness census and the dossier ratchet.
 - `fresh-mtime.ts` — sINGLE-PARTY OWNER of "write a file, then force its mtime so an mtime-keyed cache observes the write". ── The defect this exists to make impossible….
 - `function-scope.ts` — sTRUCTURAL SCOPES FOR SOURCE ASSERTIONS — this suite's door to the shared owner, which is `integration/src/shared/source-structure.ts`. The matcher….
 - `git-spawn-owner.ts` — wHO CAN MAKE GIT RUN — derived from the owner's own source, not spelled. ── WHY THIS EXISTS ──────────────────────────────────────────────────────….

@@ -4801,7 +4801,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-text-json-repair", path: "src/text/json-repair.ts", realm: "shared", layer: "domain",
-      owner: "text-processing", publicApi: { exportCount: 3, namesSha256: "046eb198453b329c4a04a77d2ea548b678498546cce860b559fb115a0568b704" },
+      owner: "text-processing", publicApi: { exportCount: 5, namesSha256: "61d89f9ef70769f27fde6e7792b459816ddcdeeba5de8cdaaa5438d6d22aebd6" },
       dependencies: ["src/kernel/json-integrity.ts","src/shared/type-guards.ts"],
     }),
     moduleContract({

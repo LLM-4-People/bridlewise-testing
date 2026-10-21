@@ -480,9 +480,30 @@ describe("generated-artifact freshness — every gitignored-artifact reader bind
       messages("it was always done this way and the behaviour is unchanged by any future edit at all"),
       "a long reason naming nothing the reader uses must be refused",
     ).toContain("names nothing");
+    // ── A LONG NON-ANSWER THAT DOES NAME THE ARTIFACT ───────────────────
+    // The old rule accepted any reason that shared ONE code token with the
+    // reader, however long or empty the claim around it. An exemption is a
+    // claim about the world: it must name WHAT would be stale AND the
+    // evidence that establishes its currency (the command that rewrites it,
+    // its producer, or the property that makes it impossible for it to go
+    // stale). This arm was green before the rule demanded the second half.
     expect(
-      messages("the tracked dossier floor is a reviewed baseline, re-recorded only by the update command"),
-      "an honest reason that names the floor must pass",
+      messages(
+        "the dossier floor is reviewed carefully by the team whenever a change lands and everyone agrees it is current",
+      ),
+      "a long reason that names the artifact but no evidence of its currency must be refused",
+    ).toContain("evidence");
+    expect(
+      messages(
+        "the tracked tests/prevention/dossier-floor.json is rewritten only by npm run dossier-floor:update, which re-records the fact lines",
+      ),
+      "a reason naming the artifact and the command that refreshes it must pass",
+    ).toBe("");
+    expect(
+      messages(
+        "the tracked dossier floor is a reviewed baseline, re-recorded only by the update command",
+      ),
+      "an honest reason that names the floor and its producer must pass",
     ).toBe("");
   });
 });

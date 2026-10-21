@@ -26,7 +26,7 @@ import type { ChatMessage } from "../kernel/canonical.ts";
 import type { ResponseRequestFor } from "../../engine/src/shared/llm/responses-endpoints.ts";
 import { toolsToResponses } from "../../engine/src/shared/llm/responses.ts";
 import { admitEndpointCredential, admitMintedCredential, type ProviderEndpointCredential, type ProviderCredential } from "./providers.ts";
-import { parseJsonLoose, parseJsonObjectExact } from "../../engine/src/text/json-repair.ts";
+import { parseToolCallArguments } from "../../engine/src/text/json-repair.ts";
 import { editorState } from "../../engine/src/shared/exposure/registrations/editor.ts";
 import type { ProviderDiscoveryResult, DiscoveredProviderModel, ProviderTestFailureKind, ProviderTestResult } from "../../shared/wire-types.ts";
 import { serverConfig, llmFixturesEnabled } from "../kernel/config.ts";
@@ -954,45 +954,28 @@ export async function* streamChat(
               // THE JSON-REPAIR CHOKE POINT. Every tool-call argument the model
               // emits crosses here, exactly once, before dispatch. A weak model
               // routinely emits almost-JSON (a markdown fence, a raw newline in
-              // a string, an unclosed brace, a trailing comma); the
-              // `parseJsonLoose` ladder repairs it. A payload that is ALREADY
-              // valid JSON is never touched — it parses on the first exact
-              // pass, so the repair never mangles valid input (pinned by the
-              // json-safety tests). Gated by `editor.jsonRepairEnabled`; when
-              // off, a malformed payload surfaces as an error rather than a
-              // silent `{}`.
+              // a string, an unclosed brace, a trailing comma); the repair
+              // ladder repairs it. A payload that is ALREADY valid JSON is
+              // never touched — it parses on the first exact pass, so the
+              // repair never mangles valid input (pinned by the json-safety
+              // tests). Gated by `editor.jsonRepairEnabled`.
+              //
+              // AN UNPARSEABLE PAYLOAD IS REFUSED, NOT COERCED TO `{}`. The
+              // old fallback dispatched the tool with empty arguments, i.e. it
+              // ran an action with defaults the model never named. The refusal
+              // travels as the stream's error event (the same channel a
+              // provider failure uses) and no `tool_call_done` is emitted.
               const raw = tc.argumentsBuffer;
-              let parsedArgs: Record<string, unknown> | null = null;
-              if (raw.length > 0) {
-                if (editorState.jsonRepairEnabled) {
-                  // The exact parse first: a payload that is already valid is
-                  // parsed once and is not a repair; only what fails it goes
-                  // down the repair ladder and counts (a2-design L2: the
-                  // valid case used to be parsed twice through a wrapper).
-                  const exact = parseJsonObjectExact(raw);
-                  const repaired = exact ?? parseJsonLoose(raw);
-                  if (repaired !== null) {
-                    parsedArgs = repaired as Record<string, unknown>;
-                    if (exact === null) editorState.jsonRepairCount += 1;
-                  }
-                } else {
-                  parsedArgs = parseJsonObjectExact(raw);
-                }
-              } else {
-                parsedArgs = {};
-              }
-              if (parsedArgs === null) {
-                // Unparseable even after repair (or repair disabled): surface
-                // it via the centralized debug bridge and fall back to `{}` so
-                // the run continues (the tool handler validates args + returns
-                // a typed error) — never a silent, invisible default.
-                webWarn(
-                  "llm-bridge",
-                  "tool_call arguments JSON could not be parsed (defaulting to {})",
-                  () => ({ callId: tc.callId, name: tc.name, repairEnabled: editorState.jsonRepairEnabled }),
+              const parsed = parseToolCallArguments(raw, editorState.jsonRepairEnabled);
+              if (!parsed.ok) {
+                throw new InvalidResponseError(
+                  "the model's tool-call arguments are not JSON and cannot be repaired without changing a value; " +
+                    "the call was refused rather than dispatched with empty arguments. Re-issue the call with valid JSON.",
+                  { tool: tc.name },
                 );
-                parsedArgs = {};
               }
+              if (parsed.repaired) editorState.jsonRepairCount += 1;
+              const parsedArgs = parsed.arguments as Record<string, unknown>;
               // The finalized pair joins the response capture: the RAW
               // arguments buffer (what the provider actually emitted, redacted
               // when the document is built), not the repaired parse — the

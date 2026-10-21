@@ -239,9 +239,18 @@ test("the manifest verifier accounts for every live file exactly once", () => {
     });
     // The fingerprint is injected: this fixture is not a git checkout. The
     // verifier still computes the tree itself — a caller cannot replace it.
+    // The ENUMERATION is injected too, but it is the VERIFIER's own fresh
+    // enumeration: the listing document below is the subject, never evidence.
     const fingerprint = () => "planted-tree";
+    const enumerate = (files) => ({
+      schemaVersion: "bridlewise-test-listing/v1",
+      tree: "planted-tree",
+      files: files.map((file) => ({ file: join(work, file), projectName: "node" })),
+    });
+    const listed = ["tests/a.test.ts", "tests/b.test.ts", "tests/private.test.ts"];
     const verdict = verifyManifest({
       root: work, manifestPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
+      list: () => enumerate(listed),
     });
     assert.equal(verdict.fileCount, 2);
     assert.equal(verdict.excludedCount, 1);
@@ -253,13 +262,14 @@ test("the manifest verifier accounts for every live file exactly once", () => {
     assert.throws(
       () => verifyManifest({
         root: work, manifestPath: manifest, livePath: live, tree: "another-tree", fingerprint,
+        list: () => enumerate(listed),
       }),
       /--tree another-tree is not the working tree being verified \(planted-tree\)/u,
     );
     // The same listing with no explicit tree is still verified against the
     // computed tree: `--tree` is a cross-check, not the source of the check.
     assert.equal(
-      verifyManifest({ root: work, manifestPath: manifest, livePath: live, fingerprint }).liveCount,
+      verifyManifest({ root: work, manifestPath: manifest, livePath: live, fingerprint, list: () => enumerate(listed) }).liveCount,
       3,
     );
 
@@ -269,6 +279,7 @@ test("the manifest verifier accounts for every live file exactly once", () => {
     assert.throws(
       () => verifyManifest({
         root: work, manifestPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
+        list: () => enumerate(listed),
       }),
       /not accepted/,
     );
@@ -284,6 +295,7 @@ test("the manifest verifier accounts for every live file exactly once", () => {
     assert.throws(
       () => verifyManifest({
         root: work, manifestPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
+        list: () => enumerate(["tests/a.test.ts", "tests/unclassified.test.ts"]),
       }),
       /unclassified file/,
     );
@@ -295,9 +307,11 @@ test("the manifest verifier accounts for every live file exactly once", () => {
 test("a stale listing cannot be verified by supplying the fingerprint it was written under", () => {
   // The defect: `--tree` was the only tree the verifier compared against, so
   // a caller passed the OLD fingerprint (the one the listing recorded) and the
-  // listing verified even though `tests/c.test.ts` had since joined the tree.
-  // The verifier now computes the working tree itself; `--tree` must agree
-  // with that computed value instead of replacing it.
+  // listing verified even though the tree had moved since. The verifier now
+  // computes the working tree itself; `--tree` must agree with that computed
+  // value instead of replacing it. (The tree moves through a non-test file so
+  // the injected fresh enumeration stays the same population; the separate
+  // arm below covers a listing that omits a real test file.)
   const work = mkdtempSync(join(tmpdir(), "bridlewise-stale-tree-"));
   try {
     execFileSync("git", ["init", "-q"], { cwd: work, stdio: "pipe" });
@@ -317,19 +331,26 @@ test("a stale listing cannot be verified by supplying the fingerprint it was wri
       files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
     });
     // The tree moves after the listing was written.
-    writeFileSync(join(work, "tests/c.test.ts"), "");
+    writeFileSync(join(work, "README.md"), "moved after the listing\n");
     const currentTree = treeFingerprint(work);
     assert.notEqual(currentTree, oldTree);
 
+    // The verifier's OWN enumeration of the current tree (a, b and the moved
+    // tree's c), independent of the stale listing it is judging.
+    const enumerateCurrent = () => ({
+      schemaVersion: "bridlewise-test-listing/v1",
+      tree: currentTree,
+      files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
+    });
     // The old listing with the old explicit fingerprint: refused by the
     // computed tree, even though the caller's value matches the document.
     assert.throws(
-      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: oldTree }),
+      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: oldTree, list: enumerateCurrent }),
       /bound to tree [0-9a-f]{64}, not the working tree being verified/u,
     );
     // ...and without the flag, for the same reason.
     assert.throws(
-      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live }),
+      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, list: enumerateCurrent }),
       /bound to tree [0-9a-f]{64}, not the working tree being verified/u,
     );
     // A current listing verifies; `--tree` agrees with the computation.
@@ -339,8 +360,76 @@ test("a stale listing cannot be verified by supplying the fingerprint it was wri
       files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
     });
     assert.equal(
-      verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: currentTree }).fileCount,
+      verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: currentTree, list: enumerateCurrent }).fileCount,
       2,
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("a forged listing cannot omit a file the fresh enumeration selects", () => {
+  // THE SELF-ATTESTED-LISTING DEFECT. Verification used to consume the
+  // listing's own `files` array as the live population: the tree fingerprint
+  // was recomputed, but nothing re-ran the enumeration, so editing the
+  // document (or writing it from a stale selection) could omit a test file
+  // that had joined the tree. A file the manifest does not know is invisible
+  // to the classification check, and a file it does know is caught only by
+  // name — the forged shape below passes every old check.
+  //
+  // The verifier now runs `listTestFiles` itself and compares SETS. The
+  // listing is the subject under judgement, never the evidence.
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-forged-listing-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: work, stdio: "pipe" });
+    writeFileSync(join(work, ".gitignore"), "live.json\n");
+    mkdirSync(join(work, "tests"), { recursive: true });
+    const manifest = join(work, "manifest.json");
+    const live = join(work, "live.json");
+    writeJson(manifest, manifestFor(["tests/a.test.ts", "tests/b.test.ts"]));
+    writeFileSync(join(work, "tests/a.test.ts"), "");
+    writeFileSync(join(work, "tests/b.test.ts"), "");
+    // A real test file joins the tree, and is deliberately absent from the
+    // checked-in manifest: that is exactly the population a stale listing
+    // hides from the old verification.
+    writeFileSync(join(work, "tests/c.test.ts"), "");
+    const currentTree = treeFingerprint(work);
+    // The forged document carries the CURRENT fingerprint (so the old tree
+    // check passes) and a file list that stops at the manifest's two files.
+    writeJson(live, {
+      schemaVersion: "bridlewise-test-listing/v1",
+      tree: currentTree,
+      files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
+    });
+    const freshEnumeration = () => ({
+      schemaVersion: "bridlewise-test-listing/v1",
+      tree: currentTree,
+      files: [
+        { file: join(work, "tests/a.test.ts") },
+        { file: join(work, "tests/b.test.ts") },
+        { file: join(work, "tests/c.test.ts") },
+      ],
+    });
+    // RED BEFORE THE FIX: the forged listing verified because nothing
+    // re-derived the population.
+    assert.throws(
+      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, list: freshEnumeration }),
+      /OMITS .*tests\/c\.test\.ts/u,
+    );
+    // The same subject cannot invent a file the enumeration did not select.
+    writeJson(live, {
+      schemaVersion: "bridlewise-test-listing/v1",
+      tree: currentTree,
+      files: [
+        { file: join(work, "tests/a.test.ts") },
+        { file: join(work, "tests/b.test.ts") },
+        { file: join(work, "tests/c.test.ts") },
+        { file: join(work, "tests/invented.test.ts") },
+      ],
+    });
+    assert.throws(
+      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, list: freshEnumeration }),
+      /names .*tests\/invented\.test\.ts/u,
     );
   } finally {
     rmSync(work, { recursive: true, force: true });

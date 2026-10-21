@@ -50,7 +50,7 @@ import {
   resolveDelegationRestrictions,
   DELEGATION_RESTRICTION_PRESETS,
 } from "../../server/agent/agent-restrictions.ts";
-import type { AgentProfile } from "../../server/kernel/canonical.ts";
+import type { AgentProfile, ModelEvent } from "../../server/kernel/canonical.ts";
 import { SharedLLMClient } from "../../engine/src/shared/llm/client.ts";
 import { completedResponse } from "../helpers/provider-stream.ts";
 
@@ -607,5 +607,42 @@ test("sub-agent private receipts and both abort lifetimes reach the real shared 
     await operation;
     expect(actualSignal?.aborted).toBe(true); expect(actualSignal?.reason).toBe(reason);
     expect(receiptCount).toBe(1); expect(received).toHaveLength(1); resetProviderClients();
+  }
+});
+
+// ── F13: unparseable tool arguments are REFUSED, never dispatched with {} ──
+//
+// The bridge's JSON-repair choke point fell back to an EMPTY OBJECT when the
+// arguments could not be parsed (even after the repair ladder). That is a
+// coerced value: a tool the model called with arguments runs with defaults it
+// never named. The repair ladder is also the owner of the numeric-leaf
+// contract — a value it cannot preserve is refused, never rounded. This arm
+// drives the real `streamChat` against a stubbed client and requires the
+// refusal to reach the caller as an error event with NO tool_call_done.
+test("a tool call whose arguments are not JSON is refused, never dispatched with {}", async () => {
+  const { streamChat } = await import("../../server/llm/llm-bridge.ts");
+  const stub = vi.spyOn(SharedLLMClient.prototype, "stream").mockImplementation(async function* () {
+    yield { type: "tool_call_start", index: 0, id: "call-unparseable", name: "edit" } as const;
+    // The classic truncated emission: no closing brace and no recoverable
+    // balanced object inside any candidate.
+    yield { type: "tool_call_delta", index: 0, arguments: '{"oldString": "a", "newString":' } as const;
+    yield completedResponse({});
+    yield { type: "finish", reason: "tool_calls", truncated: false } as const;
+  });
+  try {
+    const events: ModelEvent[] = [];
+    for await (const event of streamChat("hello", {
+      credential: stubCredential(),
+      systemPrompt: "p",
+      messages: [{ role: "user", content: "hello" }],
+    } as never)) events.push(event);
+    expect(events.some((event) => event.type === "tool_call_done"), "no tool may be dispatched with {}").toBe(false);
+    const error = events.find((event) => event.type === "error");
+    expect(error, "the refusal must reach the caller as an error event").toBeDefined();
+    if (error?.type === "error") {
+      expect(error.error.message).toMatch(/argument|JSON|cannot be repaired|refus/iu);
+    }
+  } finally {
+    stub.mockRestore();
   }
 });

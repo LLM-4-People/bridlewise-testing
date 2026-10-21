@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseJsonLoose, parseJsonObjectExact } from "../../src/text/json-repair.ts";
+import { parseJsonLoose, parseJsonObjectExact, parseToolCallArguments } from "../../src/text/json-repair.ts";
 
 /**
  * The transport-level tool-argument repair ladder. Two contracts, both pinned:
@@ -14,8 +14,10 @@ import { parseJsonLoose, parseJsonObjectExact } from "../../src/text/json-repair
  *
  *   REPAIR — a payload a weak model actually breaks (fences, prose, raw
  *     control chars, unclosed braces, trailing commas, single quotes, unquoted
- *     keys, smart quotes, Python literals, NaN, comments, truncation) is
- *     recovered to the intended object.
+ *     keys, smart quotes, Python literals, comments, truncation) is
+ *     recovered to the intended object. Values JSON cannot represent without
+ *     changing them — NaN, Infinity, undefined, an integer beyond double
+ *     precision — are REFUSED instead (a repaired value must be the value).
  */
 
 const NL = String.fromCharCode(10);
@@ -204,8 +206,52 @@ test("REPAIR: Python literals True/False/None", () => {
   assert.deepEqual(parseJsonLoose('{"ok":True,"bad":False,"err":None}'), { ok: true, bad: false, err: null });
 });
 
-test("REPAIR: NaN / Infinity / undefined → null", () => {
-  assert.deepEqual(parseJsonLoose('{"x":NaN,"y":Infinity,"z":undefined}'), { x: null, y: null, z: null });
+test("REFUSAL: NaN / Infinity / undefined are refused, never coerced to null", () => {
+  // F13. The repair ladder used to rewrite these JavaScript words to `null`,
+  // i.e. it silently changed a numeric leaf's value. JSON has no
+  // representation for any of them, so the value cannot be preserved; the
+  // honest answer is to refuse the payload (the transport then refuses the
+  // tool call rather than dispatching a different value).
+  assert.equal(parseJsonLoose('{"x":NaN}'), null);
+  assert.equal(parseJsonObjectExact('{"x":NaN}'), null);
+  assert.equal(parseJsonLoose('{"x":Infinity}'), null);
+  assert.equal(parseJsonLoose('{"x":-Infinity}'), null);
+  assert.equal(parseJsonLoose('{"x":undefined}'), null);
+  // A string spelling one of those words is untouched — it is a string leaf.
+  assert.deepEqual(parseJsonLoose('{"x":"NaN"}'), { x: "NaN" });
+});
+
+test("REFUSAL: an empty buffer is the only declared empty argument object", () => {
+  // A tool with no arguments is emitted with no JSON at all; that is the ONE
+  // case where `{}` is the value, not a fallback.
+  assert.deepEqual(parseToolCallArguments("", true), { ok: true, arguments: {}, repaired: false });
+  assert.deepEqual(parseToolCallArguments("", false), { ok: true, arguments: {}, repaired: false });
+});
+
+test("REFUSAL: unparseable or value-changing arguments are refused, never coerced to {}", () => {
+  // The bridge's old fallback dispatched the tool with `{}` when the buffer
+  // did not parse. These are the shapes that reached it.
+  assert.deepEqual(parseToolCallArguments('{"a":', true), { ok: false });
+  assert.deepEqual(parseToolCallArguments('{"a": NaN}', true), { ok: false });
+  assert.deepEqual(parseToolCallArguments('{"id": 12345678901234567890}', true), { ok: false });
+  // The value-preserving paths still work, and the repair COUNTS.
+  assert.deepEqual(parseToolCallArguments('{"a":1}', false), { ok: true, arguments: { a: 1 }, repaired: false });
+  assert.deepEqual(parseToolCallArguments('```json\n{"a":1}\n```', true), { ok: true, arguments: { a: 1 }, repaired: true });
+  assert.deepEqual(parseToolCallArguments('```json\n{"a":1}\n```', false), { ok: false });
+});
+
+test("REFUSAL: an integer JSON.parse would round is refused, not rounded", () => {
+  // The value 12345678901234567890 does not survive JSON.parse: it becomes
+  // 12345678901234567000. The old ladder returned that rounded value. A
+  // numeric leaf must be preserved or refused; there is no exact double for
+  // this literal, so it is refused.
+  assert.equal(parseJsonObjectExact('{"id":12345678901234567890}'), null);
+  assert.equal(parseJsonLoose('{"id":12345678901234567890}'), null);
+  // A value the double can represent exactly is preserved.
+  assert.deepEqual(parseJsonLoose('{"id":9007199254740991}'), { id: 9007199254740991 });
+  assert.deepEqual(parseJsonLoose('{"n":1,"f":1.5,"e":1.5e10,"neg":-42}'), {
+    n: 1, f: 1.5, e: 1.5e10, neg: -42,
+  });
 });
 
 test("REPAIR: comments stripped", () => {

@@ -16,6 +16,11 @@
  * changed something, so valid input round-trips byte-identical. This is the
  * property the safety tests pin.
  *
+ * A REPAIRED VALUE MUST BE THE VALUE. The ladder refuses what JSON cannot
+ * carry without changing it: `NaN`/`Infinity`/`undefined` are not rewritten
+ * to `null`, and an integer beyond double precision is not rounded. The
+ * caller treats `null` as a refusal rather than dispatching a changed leaf.
+ *
  * Every repair is pure (no mutation of the input) and idempotent. Candidates
  * are tried cheapest-and-safest first; the first that parses wins.
  *
@@ -24,7 +29,7 @@
  * tool executor all read ONE repair ladder instead of each parsing ad hoc.
  */
 
-import { parseJsonExact } from "../kernel/json-integrity.ts";
+import { jsonNumberRanges, parseJsonExact } from "../kernel/json-integrity.ts";
 import { isPlainObject } from "../shared/type-guards.ts";
 
 /** The parsed object, or `null` when nothing parses. */
@@ -44,11 +49,72 @@ export function parseJsonLoose(text: string): JsonRepairResult {
   return null;
 }
 
+/**
+ * Whether every integer NUMBER TOKEN in `text` survives `JSON.parse`
+ * unchanged.
+ *
+ * A JSON document can spell an integer that IEEE-754 cannot represent
+ * exactly (`12345678901234567890`). `JSON.parse` rounds it, and a caller that
+ * treats that parsed object as the model's arguments dispatches a value the
+ * model never wrote — a silently changed numeric leaf. The transport cannot
+ * carry the exact literal, so the honest choice is refusal: a payload whose
+ * digits would move is not repaired into something else.
+ *
+ * Exact-representable integers (`9007199254740991`, `-42`, `0`) pass; a
+ * decimal or exponent form is left to JSON's own numeric semantics (it names
+ * a double, not an integer literal).
+ */
+function jsonNumbersPreserved(text: string): boolean {
+  const ranges = jsonNumberRanges(text);
+  if (ranges === undefined) return true;
+  for (const range of ranges) {
+    const token = text.slice(range.startUtf16, range.endUtf16);
+    if (!/^-?(?:0|[1-9]\d*)$/u.test(token)) continue;
+    const parsed = Number(token);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return false;
+    if (BigInt(parsed) !== BigInt(token)) return false;
+  }
+  return true;
+}
+
 /** One exact parse, no repair: the plain object the text encodes, or `null`. */
 export function parseJsonObjectExact(text: string): JsonRepairResult {
   if (!text || typeof text !== "string") return null;
   const parsed = parseJsonExact(text);
-  return parsed !== undefined && isPlainObject(parsed.value) ? parsed.value : null;
+  if (parsed === undefined || !isPlainObject(parsed.value)) return null;
+  // A value that would be ROUNDED by the parse is not the value; refuse it
+  // (the bridge then refuses the tool call rather than dispatch a changed
+  // number).
+  if (!jsonNumbersPreserved(text)) return null;
+  return parsed.value;
+}
+
+/**
+ * Parse one model tool-call argument buffer into the object the runtime will
+ * dispatch, or refuse it. THE ONE OWNER of that decision: the bridge calls
+ * this instead of spelling a fallback of its own.
+ *
+ * An EMPTY buffer is the one declared empty object (a tool that takes no
+ * arguments is emitted with no JSON at all). Anything non-empty that does not
+ * parse — with the repair ladder enabled or not — is `{ ok: false }`: it is
+ * never coerced to `{}`, because dispatching a tool with defaults the model
+ * never named changes the action.
+ */
+export type ToolCallArgumentsParse =
+  | Readonly<{ ok: true; arguments: Readonly<Record<string, unknown>>; repaired: boolean }>
+  | Readonly<{ ok: false }>;
+
+export function parseToolCallArguments(raw: string, repairEnabled: boolean): ToolCallArgumentsParse {
+  if (raw.length === 0) return Object.freeze({ ok: true, arguments: Object.freeze({}), repaired: false });
+  if (repairEnabled) {
+    const exact = parseJsonObjectExact(raw);
+    if (exact !== null) return Object.freeze({ ok: true, arguments: exact, repaired: false });
+    const repaired = parseJsonLoose(raw);
+    if (repaired === null) return Object.freeze({ ok: false });
+    return Object.freeze({ ok: true, arguments: repaired, repaired: true });
+  }
+  const exact = parseJsonObjectExact(raw);
+  return exact === null ? Object.freeze({ ok: false }) : Object.freeze({ ok: true, arguments: exact, repaired: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +335,11 @@ function normalizeLooseJson(text: string): string {
       if (word === "True") { out += "true"; changed = true; i = j; continue; }
       if (word === "False") { out += "false"; changed = true; i = j; continue; }
       if (word === "None") { out += "null"; changed = true; i = j; continue; }
-      if (word === "NaN" || word === "Infinity" || word === "undefined") { out += "null"; changed = true; i = j; continue; }
+      // NaN / Infinity / -Infinity / undefined have NO JSON value. They used
+      // to be rewritten to `null` here, which changed the leaf's value; they
+      // are left in place so the candidate fails to parse and the caller
+      // refuses the payload (preserve or refuse — never coerce).
+
       out += word; i = j; continue;
     }
     out += c; i++;

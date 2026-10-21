@@ -165,6 +165,107 @@ function escapeRegExp(value: string): string {
  */
 const GLOBAL_ACCESS = String.raw`\(?\s*globalThis\s*(?:!\s*)?(?:\s+as\s+[^)\]\n]+)?\s*\)?\s*`;
 
+/** The index just past the quoted span starting at `at` (backslash-aware). */
+function skipQuoted(text: string, at: number): number {
+  const quote = text[at]!;
+  let index = at + 1;
+  while (index < text.length) {
+    if (text[index] === "\\") { index += 2; continue; }
+    if (text[index] === quote) return index + 1;
+    index += 1;
+  }
+  return text.length;
+}
+
+/** The index of the bracket matching `text[open]`, or -1. Strings are skipped. */
+function matchingBracket(text: string, open: number): number {
+  const opener = text[open]!;
+  const closer = opener === "{" ? "}" : opener === "[" ? "]" : ")";
+  let depth = 0;
+  for (let index = open; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (character === '"' || character === "'" || character === "`") {
+      index = skipQuoted(text, index) - 1;
+      continue;
+    }
+    if (character === opener) depth += 1;
+    else if (character === closer) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+/** The index of the next top-level `,` or the object's closing `}`. */
+function endOfValue(text: string, at: number): number {
+  let index = at;
+  while (index < text.length) {
+    const character = text[index]!;
+    if (character === '"' || character === "'" || character === "`") {
+      index = skipQuoted(text, index);
+      continue;
+    }
+    if (character === "{" || character === "[" || character === "(") {
+      const close = matchingBracket(text, index);
+      if (close === -1) return text.length;
+      index = close + 1;
+      continue;
+    }
+    if (character === "," || character === "}") return index;
+    index += 1;
+  }
+  return text.length;
+}
+
+/**
+ * The member keys an object-literal install path assigns, plus whether it
+ * carries a member the scan cannot name. `Object.assign(globalThis, { fetch:
+ * fake })` writes one own property per top-level member: an identifier or
+ * quoted key is reported by name, a computed/spread member by line.
+ */
+function objectLiteralMembers(literal: string): Readonly<{ names: string[]; computed: boolean }> {
+  const names: string[] = [];
+  let computed = false;
+  const end = literal.length - 1; // the closing brace
+  let index = 1; // just past the opening brace
+  while (index < end) {
+    while (index < end && /[\s,]/u.test(literal[index]!)) index += 1;
+    if (index >= end) break;
+    if (literal.startsWith("...", index)) {
+      computed = true;
+      index = endOfValue(literal, index + 3);
+      continue;
+    }
+    if (literal[index] === "[") {
+      const close = matchingBracket(literal, index);
+      if (close === -1) { computed = true; break; }
+      const inner = literal.slice(index + 1, close).trim();
+      const literalKey = /^(["'`])([A-Za-z_$][\w$]*)\1$/u.exec(inner)?.[2];
+      if (literalKey !== undefined) names.push(literalKey);
+      else computed = true;
+      index = endOfValue(literal, close + 1);
+      continue;
+    }
+    let name: string | undefined;
+    if (literal[index] === '"' || literal[index] === "'" || literal[index] === "`") {
+      const close = skipQuoted(literal, index);
+      name = literal.slice(index + 1, close - 1);
+      index = close;
+    } else {
+      const identifier = /^[A-Za-z_$][\w$]*/u.exec(literal.slice(index));
+      if (identifier !== null) { name = identifier[0]; index += name.length; }
+    }
+    while (index < end && /\s/u.test(literal[index]!)) index += 1;
+    if (literal[index] === ":") index = endOfValue(literal, index + 1);
+    else index = endOfValue(literal, index);
+    if (name === undefined) computed = true;
+    else if (/^[A-Za-z_$][\w$]*$/u.test(name)) names.push(name);
+    else computed = true;
+  }
+  return { names, computed };
+}
+
 function globalWriteOffenders(source: string, rel: string): string[] {
   const view = sourceViewOf(source, rel);
   const assigned = new Set<string>();
@@ -188,15 +289,55 @@ function globalWriteOffenders(source: string, rel: string): string[] {
     else computed.push(`${rel}:${match.line}`);
   }
   // `Object.defineProperty(globalThis, "window", …)` installs a global too.
+  // The KEY may be an identifier or a computed expression; a key the scan
+  // cannot name is reported by line rather than silently dropped.
   for (const match of view.matches(
     new RegExp(
-      String.raw`Object\.defineProperty\s*\(\s*` + GLOBAL_ACCESS +
-        String.raw`\s*,\s*["']([A-Za-z_$][\w$]*)["']`,
+      String.raw`Object\.defineProperty\s*\(\s*` + GLOBAL_ACCESS + String.raw`\s*,\s*([^,]+?)\s*,`,
       "gu",
     ),
     "codeWithStrings",
   )) {
-    assigned.add(match.match[1]!);
+    const key = match.match[1]!.trim();
+    const literal = /^(?:"([A-Za-z_$][\w$]*)"|'([A-Za-z_$][\w$]*)'|`([A-Za-z_$][\w$]*)`)$/u.exec(key);
+    const name = literal?.[1] ?? literal?.[2] ?? literal?.[3];
+    if (name !== undefined) assigned.add(name);
+    else computed.push(`${rel}:${match.line}`);
+  }
+  // `Object.assign(globalThis, { … })` is the same per-member write. The
+  // literal's members are read from a strings-intact view at the same
+  // offsets; a non-literal source or a spread is reported by line.
+  const withStrings = view.codeWithStringsAndTemplates();
+  for (const match of view.matches(
+    new RegExp(String.raw`Object\.assign\s*\(\s*` + GLOBAL_ACCESS + String.raw`\s*,`, "gu"),
+    "code",
+  )) {
+    let at = match.index + match.text.length;
+    while (at < withStrings.length && /\s/u.test(withStrings[at]!)) at += 1;
+    if (withStrings[at] !== "{") {
+      computed.push(`${rel}:${match.line}`);
+      continue;
+    }
+    const close = matchingBracket(withStrings, at);
+    if (close === -1) {
+      computed.push(`${rel}:${match.line}`);
+      continue;
+    }
+    const members = objectLiteralMembers(withStrings.slice(at, close + 1));
+    for (const name of members.names) assigned.add(name);
+    if (members.computed) computed.push(`${rel}:${match.line}`);
+  }
+  // `Reflect.set(globalThis, "fetch", …)` installs a global through a
+  // function call. A literal key is judged by name; anything computed is a
+  // line-level offender (a restore cannot be matched to it by name).
+  for (const match of view.matches(
+    new RegExp(String.raw`Reflect\.set\s*\(\s*` + GLOBAL_ACCESS + String.raw`\s*,\s*`, "gu"),
+    "codeWithStrings",
+  )) {
+    const rest = view.codeWithStrings().slice(match.index + match.text.length);
+    const literal = /^(["'`])([A-Za-z_$][\w$]*)\1/u.exec(rest);
+    if (literal !== null) assigned.add(literal[2]!);
+    else computed.push(`${rel}:${match.line}`);
   }
   for (const match of view.matches(/vi\.stubGlobal\s*\(\s*["']([A-Za-z_$][\w$]*)["']/gu, "codeWithStrings")) {
     assigned.add(match.match[1]!);
@@ -265,6 +406,28 @@ describe("B. no test file leaks a global to the next file", () => {
     }
   });
 
+  test("the descriptor door reports a NEW symbol-keyed global, not only string-named ones", () => {
+    // The door skipped `before === undefined && typeof name === "symbol"` so
+    // Node's lazily-registered undici symbols would not be blamed. That skip
+    // also excused every symbol a test installed: `globalThis[Symbol.for(…)]`
+    // leaked to the next file with no report. The undici symbols are
+    // initialised before the snapshot now, so the door can compare ALL keys.
+    const key = Symbol.for("planted.symbol.global");
+    const had = Object.getOwnPropertyDescriptor(globalThis, key);
+    try {
+      captureGlobals();
+      Object.defineProperty(globalThis, key, { value: 1, writable: true, configurable: true, enumerable: true });
+      expect(() => assertGlobalsRestored("planted-symbol.test.ts")).toThrow(
+        /planted-symbol\.test\.ts changed Symbol\(planted\.symbol\.global\) on globalThis and did not restore/u,
+      );
+      // The repair deleted the property, so the arm does not poison the worker.
+      expect(Object.getOwnPropertyDescriptor(globalThis, key)).toBeUndefined();
+    } finally {
+      if (had === undefined) delete (globalThis as unknown as Record<PropertyKey, unknown>)[key];
+      else Object.defineProperty(globalThis, key, had);
+    }
+  });
+
   test("a REAL module-scope leak fixture fails its own file at teardown", () => {
     // The runtime door is only real if the suite's own setup reaches it. Two
     // fixture files are written outside the checkout and run through
@@ -287,6 +450,16 @@ describe("B. no test file leaks a global to the next file", () => {
           `const realFetch = globalThis.fetch;\n` +
           `(globalThis as any)["fetch"] = (() => { throw new Error("module-scope bracket leak"); }) as typeof fetch;\n` +
           `test("leaks through a bracket write", () => { expect(globalThis.fetch).not.toBe(realFetch); });\n`,
+      },
+      {
+        // SYMBOL-KEYED. The old door skipped every NEW symbol-named global
+        // ("Node registers undici's lazily"), so a test file could install a
+        // symbol global at module scope and no file ever reported it.
+        name: "symbol-scope.fixture.ts",
+        source:
+          `const key = Symbol.for("planted.symbol.leak");\n` +
+          `(globalThis as any)[key] = 1;\n` +
+          `test("leaks a symbol-keyed global", () => { expect((globalThis as any)[key]).toBe(1); });\n`,
       },
     ];
     for (const fixture of fixtures) writeFileSync(join(dir, fixture.name), fixture.source);
@@ -312,8 +485,9 @@ describe("B. no test file leaks a global to the next file", () => {
     expect(child.error, output).toBeUndefined();
     expect(child.status, output).not.toBe(0);
     for (const fixture of fixtures) {
+      const changed = fixture.name === "symbol-scope.fixture.ts" ? "Symbol\\(planted\\.symbol\\.leak\\)" : "fetch";
       expect(output, `${fixture.name} must be blamed by name`).toMatch(
-        new RegExp(`${fixture.name.replaceAll(".", "\\.")} changed fetch on globalThis and did not restore`, "u"),
+        new RegExp(`${fixture.name.replaceAll(".", "\\.")} changed ${changed} on globalThis and did not restore`, "u"),
       );
     }
   });
@@ -366,6 +540,29 @@ describe("B. no test file leaks a global to the next file", () => {
         "planted.test.ts",
       ),
     ).toEqual([]);
+    // THE THREE INSTALLATION FORMS the old scan could not see. Each is a
+    // write to an own property of `globalThis` and each carries a restore
+    // requirement exactly like a dot assignment.
+    expect(
+      globalWriteOffenders("Object.assign(globalThis, { fetch: fake });", "planted.test.ts"),
+      "Object.assign installs a global",
+    ).toEqual(["planted.test.ts: fetch"]);
+    expect(
+      globalWriteOffenders('Reflect.set(globalThis, "fetch", fake);', "planted.test.ts"),
+      "Reflect.set installs a global",
+    ).toEqual(["planted.test.ts: fetch"]);
+    expect(
+      globalWriteOffenders('const key = "fetch";\nObject.defineProperty(globalThis, key, { value: fake });', "planted.test.ts"),
+      "a computed defineProperty installs a global",
+    ).toEqual(["planted.test.ts:2"]);
+    expect(
+      globalWriteOffenders("Object.assign(globalThis, { fetch: fake });\nglobalThis.fetch = realFetch;", "planted.test.ts"),
+      "a restored Object.assign write is not a leak",
+    ).toEqual([]);
+    expect(
+      globalWriteOffenders('Object.assign(globalThis, { ["fetch"]: fake });', "planted.test.ts"),
+      "a computed literal key is judged by its name",
+    ).toEqual(["planted.test.ts: fetch"]);
     expect(
       globalWriteOffenders('vi.stubGlobal("fetch", fake);\nvi.unstubAllGlobals();', "planted.test.ts"),
     ).toEqual([]);
