@@ -172,12 +172,21 @@ function repositoryHoldings(root: string): Holdings {
  * the group and whether a newer run cancels the one in flight.
  */
 function workflowConcurrency(path: string): Readonly<{ group: string; cancelInProgress: boolean }> {
-  const text = readFileSync(join(ROOT, path), "utf8");
-  const block = /^concurrency:\s*\n((?:[ \t]+[^\n]*\n?)+)/mu.exec(text)?.[1] ?? "";
-  const group = /^[ \t]+group:\s*(.+?)\s*$/mu.exec(block)?.[1];
-  const cancel = /^[ \t]+cancel-in-progress:\s*(true|false)\s*$/mu.exec(block)?.[1];
+  const lines = readFileSync(join(ROOT, path), "utf8").split("\n");
+  const start = lines.findIndex((line) => /^concurrency:\s*$/u.test(line));
+  // Read the block line by line: the YAML keys are the anchors, and a regex
+  // spanning them would be a proximity window no matter how it is bounded.
+  const block: string[] = [];
+  for (let index = start + 1; start >= 0 && index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line === undefined || !/^[ \t]+\S/u.test(line)) break;
+    block.push(line);
+  }
+  const group = block.map((line) => /^[ \t]+group:\s*(.+?)\s*$/u.exec(line)?.[1]).find((value) => value !== undefined);
+  const cancel = block.map((line) => /^[ \t]+cancel-in-progress:\s*(true|false)\s*$/u.exec(line)?.[1]).find((value) => value !== undefined);
   expect(group, `${path} states no concurrency group`).toBeDefined();
   expect(cancel, `${path} states no cancel-in-progress`).toBeDefined();
+  if (group === undefined || cancel === undefined) return { group: "", cancelInProgress: false };
   return { group: group!, cancelInProgress: cancel === "true" };
 }
 

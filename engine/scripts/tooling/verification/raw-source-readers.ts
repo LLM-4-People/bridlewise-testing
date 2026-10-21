@@ -444,7 +444,8 @@ export type LegitimateRawReader =
   | "web:tests/setup/source-tree-immutable.ts"
   | "web:scripts/check-docs-links.mjs"
   | "web:scripts/check-secrets.mjs"
-  | "web:scripts/floor/site.mjs";
+  | "web:scripts/floor/site.mjs"
+  | "web:tests/prevention/agent-docs-liveness.test.ts";
 
 /**
  * The readers that must have bytes, each with the reason WRITTEN DOWN.
@@ -460,6 +461,14 @@ export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
       + "load — not repository source. Class coverage is a property of the literal "
       + "class attributes and CSS selectors as emitted, so the comparison needs those "
       + "bytes; a parsed source view cannot answer it.",
+  },
+  "web:tests/prevention/agent-docs-liveness.test.ts": {
+    why:
+      "The subject is what documents SAY: Markdown prose, fenced examples, "
+      + "workflow YAML and package.json. None of them is program source, so a "
+      + "source view would blank the very spans the check reads (a module "
+      + "specifier inside a fenced block IS a quoted string). The bytes of the "
+      + "document are the input.",
   },
   "web:scripts/check-docs-links.mjs": {
     why:

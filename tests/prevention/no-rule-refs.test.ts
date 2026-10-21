@@ -72,6 +72,9 @@ const SELF = "no-rule-refs.test.ts";
 const NAMES_THE_DOC_AS_DATA = new Set<string>([
   "tests/declared-root.ts",
   "tests/prevention/agent-docs-liveness.test.ts",
+  // Its SUBJECT is classifying links to the process documents: it matches
+  // their file names and hand-written absolute URLs, so the names are data.
+  "scripts/repository-links.ts",
   // Its SUBJECT is who owns each rule: it reads the process document and
   // asserts the refusal list lives there and that both contributor pages
   // point at it. The filename is data it verifies, not a rule it cites.

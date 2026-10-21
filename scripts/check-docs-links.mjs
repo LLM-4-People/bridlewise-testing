@@ -5,9 +5,9 @@
  * Absolute site URLs and http(s) links are the Pages deployment's concern,
  * with one exception this gate owns: a process document that hand-writes an
  * absolute GitHub URL to another process document bypasses the relative link
- * resolution every other rule uses (the three standing decisions once did:
- * they were labelled ROLES.md / WORKFLOW.md / AGENTS.md and all pointed at the
- * product repository's `CONTRIBUTING.md`). The classifier is
+ * resolution every other rule uses (three standing decisions once did: their
+ * links were labelled as the local process documents while all pointing at the
+ * product repository's contributing guide). The classifier is
  * `scripts/repository-links.ts`, shared with the briefing liveness test.
  *
  * The gate catches the common, local failures: a repository-relative link to a
