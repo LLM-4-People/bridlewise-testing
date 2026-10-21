@@ -89,6 +89,21 @@ test("the checked-in shard manifest is complete, well-formed and self-describing
   }
 });
 
+test("the testing page defers its population to the manifest, or agrees with it", () => {
+  // docs/testing.md claimed "527 supported files (523 plus four)" while the
+  // tracked manifest held 528 and five separately measured weights. A hand
+  // count drifts; the page now names the generated `weightSource` and states
+  // no count. If a count is reintroduced, it must match the manifest.
+  const page = readFileSync(join(process.cwd(), "docs/testing.md"), "utf8");
+  assert.match(page, /weightSource/u, "the page must name the manifest's generated population record");
+  const stated = /(\d+)\s+supported files/u.exec(page)?.[1];
+  if (stated !== undefined) {
+    const manifest = JSON.parse(readFileSync(join(process.cwd(), "tests/test-shards.json"), "utf8"));
+    assert.equal(Number(stated), manifest.files.length, "a stated supported-file count must match the manifest");
+  }
+  assert.doesNotMatch(page, /\b\d+\s+measured on their own\b/u, "do not hand-maintain the separately measured population");
+});
+
 test("the green rule refuses absent, fractional and string test totals and passed counts", () => {
   // `numTotalTests` was read outside the green rule: absence fell back to 0,
   // so a report that declared success and the four judged counts but no total

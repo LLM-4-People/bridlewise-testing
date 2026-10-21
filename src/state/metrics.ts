@@ -181,8 +181,10 @@ export type MetricsHistoryPoint = Readonly<{
   readonly totalCalls: number;
   readonly totalErrors: number;
   readonly loadAverage1m: number | null;
-  readonly heapUsed: number;
-  readonly eventLoopUtil: number;
+  /** Null when the poll carried no system reading; absence is not a measured zero. */
+  readonly heapUsed: number | null;
+  /** Null when the poll carried no system reading; absence is not a measured zero. */
+  readonly eventLoopUtil: number | null;
 }>;
 
 export const metricsHistory = atom<readonly MetricsHistoryPoint[]>([]);
@@ -194,26 +196,54 @@ function appendHistoryPoint(point: MetricsHistoryPoint): void {
   metricsHistory.set(next);
 }
 
+export type MetricsPoll = Readonly<{
+  snapshot: MetricsSnapshot;
+  /** The same poll's system reading, or null when the response carried none. */
+  system: SystemMetrics | null;
+  /** The same poll's token accumulator, or null when the response carried none. */
+  tokens: TokenThroughput | null;
+}>;
+
+/**
+ * Record one `/api/metrics` poll atomically: the three stores and the history
+ * point all take their values from THIS response, never from whatever the
+ * previous poll left behind. This is the only path that appends a history
+ * point; the individual setters below only hydrate a store (chat history
+ * hydration and tests use them).
+ *
+ * An unmeasured heap, event-loop utilization, load average or rate is recorded
+ * as null. Absence is not a measured zero: the record is evidence, not a
+ * display fallback.
+ */
+export function recordMetricsPoll(poll: MetricsPoll): void {
+  const prevSnapshot = metricsSnapshot.get();
+  const prevSystem = systemMetrics.get();
+  const prevTokens = tokenThroughput.get();
+  const snapshotChanged = prevSnapshot === null || !snapshotIdentical(prevSnapshot, poll.snapshot);
+  const systemChanged = prevSystem === null || (poll.system !== null && !systemMetricsIdentical(prevSystem, poll.system));
+  const tokensChanged = prevTokens === null || (poll.tokens !== null && !throughputIdentical(prevTokens, poll.tokens));
+  if (!snapshotChanged && !systemChanged && !tokensChanged) return;
+  if (snapshotChanged) metricsSnapshot.set(poll.snapshot);
+  if (poll.system !== null && systemChanged) systemMetrics.set(poll.system);
+  if (poll.tokens !== null && tokensChanged) tokenThroughput.set(poll.tokens);
+  appendHistoryPoint({
+    at: Date.now(),
+    tokensPerSecond: poll.tokens?.tokensPerSecond ?? null,
+    totalCalls: poll.snapshot.totalCallCount,
+    totalErrors: poll.snapshot.totalErrorCount,
+    loadAverage1m: poll.system?.loadAverage1m ?? null,
+    heapUsed: poll.system?.memory.heapUsed ?? null,
+    eventLoopUtil: poll.system?.eventLoop.utilization ?? null,
+  });
+}
+
 export function setMetrics(snapshot: MetricsSnapshot): void {
-  // Dedup: skip the set + history append when the poll returned identical
-  // per-function metrics (idle harness). Prevents duplicate sparkline
-  // points and unnecessary re-renders.
+  // Dedup: skip the store set when the poll returned identical per-function
+  // metrics (idle harness) — no wasted re-render. History is appended only by
+  // recordMetricsPoll, from one complete poll.
   const prev = metricsSnapshot.get();
   if (prev !== null && snapshotIdentical(prev, snapshot)) return;
   metricsSnapshot.set(snapshot);
-  const tp = tokenThroughput.get();
-  const sys = systemMetrics.get();
-  appendHistoryPoint({
-    at: Date.now(),
-    // Absence is recorded as absence: an unmeasured rate must not enter the
-    // history as a measured zero (the point is the record, not a display).
-    tokensPerSecond: tp?.tokensPerSecond ?? null,
-    totalCalls: snapshot.totalCallCount,
-    totalErrors: snapshot.totalErrorCount,
-    loadAverage1m: sys?.loadAverage1m ?? null,
-    heapUsed: sys?.memory.heapUsed ?? 0,
-    eventLoopUtil: sys?.eventLoop.utilization ?? 0,
-  });
 }
 
 export function setSystemMetrics(metrics: SystemMetrics): void {

@@ -137,8 +137,9 @@ file.
   moves a remote-tracking ref (git's `committed` state of a ref transaction
   touching `refs/remotes/…`), it starts `harness promote auto --refs <the
   moved refs>` in the background, which promotes each profile whose source
-  that ref is and whose trigger is `on-source-publish` (`docs/process/
-  MERGE-GUIDE.md` §3.3); `auto`'s `--text` report — one line per blocked
+  that ref is and whose trigger is `on-source-publish`
+  ([MERGE-GUIDE.md §3.3](../docs/process/MERGE-GUIDE.md#33-hands-free-the-trigger));
+  `auto`'s `--text` report — one line per blocked
   promotion, nothing otherwise — is all the pusher sees on stderr. It must NEVER fail: git runs it in the `prepared`
   state of EVERY ref transaction (a commit, a checkout, a fetch, a push), and
   a non-zero exit there aborts the update ("ref updates aborted by hook") —

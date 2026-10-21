@@ -17,7 +17,10 @@ floor's [mandatory engineering rules](AGENTS.md#mandatory-engineering-rules),
 
 ## You must not
 
-- Replace a root-cause fix with a retry, special case, or silent default.
+The [agent process](AGENTS.md#what-we-will-not-accept) owns the floor's refusal
+list, including the rule against hiding a failure behind a retry, special case,
+or silent default. This contract adds the obligations of the role:
+
 - Present a subset run or a weakened guard as evidence; the
   [evidence bar](AGENTS.md#evidence) owns what counts.
 - Commit generated state, credentials, logs, or build output.

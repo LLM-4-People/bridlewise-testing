@@ -63,4 +63,16 @@ describe("the guardian compiler pin", () => {
     const surface = registry.surfaces.find((entry) => entry.id === "apt:gcc-14");
     expect(surface?.pinned?.package).toBe(declaredCompiler());
   });
+
+  test("the setup documents name the declared compiler, not a search list", () => {
+    // The pin is part of the artifact: a host with only `gcc` cannot build the
+    // guardian, so the setup documents must name the package to install. This
+    // was stale when the Makefile moved to gcc-14 and the docs still said "a C
+    // compiler".
+    const compiler = declaredCompiler();
+    for (const document of ["CONTRIBUTING.md", "docs/testing.md", "engine/guardian/README.md"]) {
+      expect(readFileSync(document, "utf8"), `${document} must name ${compiler}, the declared pin`).toContain(compiler);
+    }
+    expect(readFileSync("engine/guardian/README.md", "utf8")).not.toContain("`cc`/`gcc`/`clang`");
+  });
 });

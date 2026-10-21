@@ -833,6 +833,7 @@ const TOKEN_THROUGHPUT: MetricEntry = {
     { kind: "record", id: "tokensPerSecond", source: "server/observability/metrics-bridge.ts" },
     { kind: "record", id: "tokensPerSecond", source: "src/state/metrics.ts" },
     { kind: "record", id: "tokensPerSecond", source: "engine/src/shared/exposure/registrations/performance.ts" },
+    { kind: "doc", id: "performance.tokensPerSecond", source: MEASUREMENT_DOC_SOURCE, anchor: "server's token throughput" },
   ],
   load: {
     kind: "sensitive",

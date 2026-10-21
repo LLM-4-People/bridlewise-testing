@@ -7,7 +7,7 @@ This repository carries the tests, guards, benchmarks, and design records behind
 
 ## Setup
 
-Requirements: Linux, Node `>=24.18.0 <25.0.0`, npm, Git, a C compiler, and optionally Playwright Chromium for E2E.
+Requirements: Linux, Node `>=24.18.0 <25.0.0`, npm, Git, `gcc-14` (the guardian's pinned compiler; on Debian/Ubuntu install it with `sudo apt-get install -y gcc-14`), and optionally Playwright Chromium for E2E.
 
 ```bash
 git clone https://github.com/LLM-4-People/bridlewise-testing.git
@@ -39,8 +39,8 @@ The supported shard set lives in `tests/test-shards.json`. The shard workflow is
 
 The [mandatory engineering rules](docs/process/AGENTS.md#mandatory-engineering-rules)
 and the [evidence bar](docs/process/AGENTS.md#evidence) bind every change; the
-[Tier 1 contract](docs/process/TIER1-AGENT-CONTRACT.md) owns what a change must
-not do. This page keeps the contribution mechanics around them.
+[agent process](docs/process/AGENTS.md#what-we-will-not-accept) owns what the
+floor will not accept. This page keeps the contribution mechanics around them.
 
 - Validate at trust boundaries: paths, schema fields, finite numbers, uniqueness, and cross-field invariants.
 - Make multi-step state changes atomic, and give background work ownership, cancellation, timeout, and shutdown.
@@ -48,11 +48,10 @@ not do. This page keeps the contribution mechanics around them.
 
 ## Test conventions
 
-- Web tests use Vitest; engine tests use `node:test` and `node:assert/strict`.
-- Use the provided temp helpers; never depend on the developer's home directory or a live network.
-- Do not plant a real credential. Use obvious synthetic values and keep them in a fixture path.
-- For a reproduced bug, add the regression at the narrowest layer that would have caught it.
-- For a cross-module contract, test the observable behavior, not the implementation detail.
+Where a test goes, which runner it uses, how it stays deterministic and when it
+must fail first are owned by [Adding a test](docs/testing.md#adding-a-test).
+The contribution mechanics for a test change are the commit and pull-request
+rules below.
 
 ## Commit and pull request style
 

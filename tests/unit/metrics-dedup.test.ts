@@ -2,11 +2,14 @@
 /**
  * Metrics store dedup + history tests.
  *
- * Verifies the poll-dedup fix: an identical snapshot does NOT trigger a
- * store notification or a duplicate sparkline history point (the dashboard
- * re-renders only when metrics actually change — no wasted re-renders while
- * the harness is idle). Also verifies the history cap is config-driven
- * (webUi.metrics.historyMax) rather than a hardcoded 60.
+ * Verifies the poll record fix: one `/api/metrics` poll updates all three
+ * stores and appends ONE history point whose values all come from that same
+ * poll. An identical poll does NOT trigger a store notification or a duplicate
+ * sparkline history point (the dashboard re-renders only when metrics actually
+ * change — no wasted re-renders while the harness is idle), and an unmeasured
+ * heap/event-loop is recorded as absent, never as a fabricated zero. Also
+ * verifies the history cap is config-driven (webUi.metrics.historyMax) rather
+ * than a hardcoded 60.
  */
 import { describe, test, expect, beforeEach } from "vitest";
 import {
@@ -14,6 +17,7 @@ import {
   metricsHistory,
   systemMetrics,
   tokenThroughput,
+  recordMetricsPoll,
   setMetrics,
   setSystemMetrics,
   setTokenThroughput,
@@ -66,22 +70,34 @@ function snapshot(opts: Partial<MetricsSnapshot> = {}): MetricsSnapshot {
   };
 }
 
-describe("metrics dedup — identical snapshots are skipped", () => {
+function system(heapUsed: number, loadAverage1m = 0.5) {
+  return {
+    capturedAt: `t-${heapUsed}`,
+    processUptimeMs: 1000,
+    osUptimeMs: 0,
+    cpuCount: 4,
+    loadAverage1m,
+    memory: { rss: 1, heapUsed, heapTotal: 3, external: 0, arrayBuffers: 0, systemFree: 0, systemTotal: 0 },
+    eventLoop: { utilization: 0.1, delayMin: 0, delayMax: 0, delayMean: 0, delayStddev: 0 },
+  };
+}
+
+const TOKENS = { inputTokens: 1, outputTokens: 2, totalTokens: 3, tokensPerSecond: 4 };
+
+describe("metrics polls — one poll, one point", () => {
   beforeEach(() => resetMetrics());
 
-  test("setMetrics with an identical snapshot does NOT notify or append history", () => {
+  test("a repeated poll does NOT notify or append a duplicate history point", () => {
     let notifications = 0;
     const unlisten = metricsSnapshot.listen(() => { notifications++; });
     let historyNotifications = 0;
     const unlistenHist = metricsHistory.listen(() => { historyNotifications++; });
 
-    setMetrics(snapshot());
+    recordMetricsPoll({ snapshot: snapshot(), system: system(2), tokens: TOKENS });
     const afterFirst = notifications;
     const afterFirstHist = historyNotifications;
 
-    // Second call with the SAME snapshot → skipped (no new notification, no
-    // duplicate history point).
-    setMetrics(snapshot());
+    recordMetricsPoll({ snapshot: snapshot(), system: system(2), tokens: TOKENS });
     expect(notifications).toBe(afterFirst);
     expect(historyNotifications).toBe(afterFirstHist);
     expect(metricsHistory.get().length).toBe(1);
@@ -90,14 +106,46 @@ describe("metrics dedup — identical snapshots are skipped", () => {
     unlistenHist();
   });
 
-  test("setMetrics with a CHANGED snapshot notifies + appends history", () => {
-    setMetrics(snapshot({ snapshotId: "s1", totalCallCount: 10 }));
+  test("a changed snapshot notifies + appends history", () => {
+    recordMetricsPoll({ snapshot: snapshot({ snapshotId: "s1", totalCallCount: 10 }), system: system(2), tokens: TOKENS });
     expect(metricsHistory.get().length).toBe(1);
-    setMetrics(snapshot({ snapshotId: "s2", totalCallCount: 11 }));
+    recordMetricsPoll({ snapshot: snapshot({ snapshotId: "s2", totalCallCount: 11 }), system: system(2), tokens: TOKENS });
     expect(metricsHistory.get().length).toBe(2);
     const points = metricsHistory.get() as readonly MetricsHistoryPoint[];
     expect(points[0]!.totalCalls).toBe(10);
     expect(points[1]!.totalCalls).toBe(11);
+  });
+
+  test("a poll with no system reading records heap and event-loop as absent, not 0", () => {
+    recordMetricsPoll({ snapshot: snapshot(), system: null, tokens: null });
+    const point = metricsHistory.get().at(-1)!;
+    expect(point.heapUsed).toBeNull();
+    expect(point.eventLoopUtil).toBeNull();
+    expect(point.loadAverage1m).toBeNull();
+    expect(point.tokensPerSecond).toBeNull();
+    expect(systemMetrics.get()).toBeNull();
+    expect(tokenThroughput.get()).toBeNull();
+  });
+
+  test("a point's values come from its own poll, not the previous poll's stores", () => {
+    // The old path appended from the stores, which the client set AFTER the
+    // snapshot: every point carried the previous poll's heap/event-loop/rate.
+    setSystemMetrics(system(111, 2));
+    setTokenThroughput({ ...TOKENS, tokensPerSecond: 2 });
+    setMetrics(snapshot({ snapshotId: "old", totalCallCount: 7 }));
+
+    recordMetricsPoll({
+      snapshot: snapshot({ snapshotId: "new", totalCallCount: 8 }),
+      system: system(999, 3),
+      tokens: { ...TOKENS, tokensPerSecond: 3 },
+    });
+
+    const point = metricsHistory.get().at(-1)!;
+    expect(point.totalCalls).toBe(8);
+    expect(point.heapUsed).toBe(999);
+    expect(point.eventLoopUtil).toBe(0.1);
+    expect(point.loadAverage1m).toBe(3);
+    expect(point.tokensPerSecond).toBe(3);
   });
 
   test("setSystemMetrics dedups identical system metrics", () => {

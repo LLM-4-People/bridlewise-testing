@@ -122,6 +122,19 @@ like any other, and anything the floor depends on from outside it must be
 pinned or measured rather than assumed. A signal that was not measured is
 absent, never zero; a vacuous population refuses rather than skipping.
 
+## What we will not accept
+
+This section is the single owner of the floor's refusals; the briefing, the
+Tier 1 contract and the contributor pages point here rather than restating
+them. A change is refused when it:
+
+- skips or deletes a test to make a badge green;
+- hides a failure behind a retry, fallback, or special case;
+- puts a real credential, private source file, or personal data in a fixture;
+- claims a provider "supports everything" without conformance evidence;
+- claims production readiness that the admission gates do not support;
+- quotes a benchmark number without its method.
+
 ## Review
 
 [Roles](ROLES.md#reviewer) owns what a review checks; [Evidence](#evidence)
