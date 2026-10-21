@@ -888,6 +888,33 @@ describe("J. a URL userinfo password is a credential on every egress path", () =
     expect(secretTextSignalIds(BENIGN, "admission")).not.toContain("connection-string");
   });
 
+  test("a keep-marked userinfo is already concealed and is never re-read as a password", () => {
+    // The MCP owner masks the whole userinfo and labels its place with a keep
+    // mark. The marker's own `:` is not a user/password separator; if the
+    // global signal re-read it, an egress redactor would replace the marker
+    // with a generic mask and the write-back would lose the part.
+    const MASKED = "https://‹keep:url.userinfo›@mcp.example.com/mcp?api_key=‹keep:url.query.api_key.0›&region=eu";
+    expect(secretTextSignalIds(MASKED, "admission")).not.toContain("connection-string");
+    expect(
+      detectSecretSpans(MASKED, P).some((span) => span.signalId === "connection-string"),
+    ).toBe(false);
+    expect(redactForUserDisplay(MASKED)).toBe(MASKED);
+
+    // The veto is SCOPED to a userinfo that IS the labelled mark: a real
+    // password in front of a marked query is still a credential and still
+    // masked.
+    const MIXED = "postgres://app:Summer2026!@db.internal:5432/app?token=‹keep:url.query.token.0›";
+    expect(secretTextSignalIds(MIXED, "admission")).toContain("connection-string");
+    expect(JSON.stringify(redactForUserDisplay(MIXED))).not.toContain("Summer2026!");
+
+    // A password that merely CONTAINS the marker text is not the marker: the
+    // signal still fires, so the veto cannot become a spelling a credential
+    // hides behind.
+    const PASSWORD_CONTAINS_MARKER = "postgres://app:pa‹keep:ss@db.internal:5432/app";
+    expect(secretTextSignalIds(PASSWORD_CONTAINS_MARKER, "admission")).toContain("connection-string");
+    expect(JSON.stringify(redactForUserDisplay(PASSWORD_CONTAINS_MARKER))).not.toContain("pa‹keep:ss");
+  });
+
   test("redactForLLMContext masks the password in both the ! and $ forms", () => {
     for (const url of [WITH_BANG, WITH_DOLLAR]) {
       const out = redactForLLMContext(url);

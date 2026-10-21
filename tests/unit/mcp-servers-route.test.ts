@@ -182,6 +182,10 @@ describe("credentials inside a URL or an argument never cross either (SECC-V S3)
     const serialized = JSON.stringify(json);
     expect(serialized).not.toContain(SENTINEL);
     expect(serialized).not.toContain(SHAPED);
+    // The agreed contract: the MCP owner's LABELLED mark is the served form.
+    // A generic egress mask here would be a second owner and would destroy
+    // the write-back the marks exist for.
+    expect(serialized).not.toContain("[REDACTED:credential]");
     const rows = (json as { servers: { id: string; args: string[]; url: string | null }[] }).servers;
     // ONE write-only primitive (engine/src/privacy/secret-parts.ts): each secret part is a keep mark naming its place.
     expect(rows.find((r) => r.id === "args-local")!.args).toEqual([
@@ -210,6 +214,9 @@ describe("credentials inside a URL or an argument never cross either (SECC-V S3)
     seedConfig([URL_ARGS_LOCAL, URL_REMOTE]);
     const rows = ((await req("GET", "/api/mcp/servers")).json as { servers: { id: string; args: string[]; url: string | null }[] }).servers;
     const local = rows.find((r) => r.id === "args-local")!, remote = rows.find((r) => r.id === "url-remote")!;
+    // The write-back source is the labelled form, not a generic egress mask.
+    expect(JSON.stringify({ local, remote })).toContain("‹keep:");
+    expect(JSON.stringify({ local, remote })).not.toContain("[REDACTED:credential]");
     expect((await req("PUT", "/api/mcp/servers", { id: "args-local", transport: "stdio", command: "echo", args: local.args, timeoutMs: 5000 })).status).toBe(200);
     expect((await req("PUT", "/api/mcp/servers", { id: "url-remote", transport: "http", url: remote.url, timeoutMs: 5000 })).status).toBe(200);
     const saved = configServers();
@@ -242,6 +249,7 @@ describe("credentials inside a URL or an argument never cross either (SECC-V S3)
     expect(serialized).not.toContain(SENTINEL);
     expect(serialized).not.toContain(SHAPED);
     expect(serialized).toContain("‹keep:url.userinfo›@mcp.example.com");
+    expect(serialized).not.toContain("[REDACTED:credential]");
     const planted = await req("PUT", "/api/config", { path: "tools.mcpServers.1.url", value: "https://‹keep:url.userinfo›@attacker.example/mcp" });
     expect(planted.status).toBe(400);
     expect(JSON.stringify(configServers())).not.toContain("attacker.example");

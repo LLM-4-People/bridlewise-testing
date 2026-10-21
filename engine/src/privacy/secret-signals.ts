@@ -117,11 +117,23 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     // structural rather than a keyword. The span stops at the `@` so the host
     // and database name stay visible after redaction, and the lookahead
     // requires a host so `scheme://user:pass@` (no host) is not a URL.
+    //
+    // A KEEP MARK IS NOT A PASSWORD. The write-only secret primitive
+    // (`secret-parts.ts`, `‹keep:<place>›`) masks a whole userinfo and emits
+    // the marker in its place; the marker's own `:` would otherwise read as
+    // the user/password separator, and an egress redactor would replace the
+    // marker with `[REDACTED:credential]` and destroy the write-back
+    // contract (MCP SECC-V S3). The lookahead vetoes only a userinfo that IS
+    // exactly the labelled mark, so a password merely containing those
+    // characters, or a real password in front of a marked query, still
+    // matches. The marker spelling is the MCP owner's contract
+    // (`engine/src/privacy/secret-parts.ts`); this signal is the owner of
+    // deciding it is not a credential.
     id: "connection-string",
     category: "credential",
     description: "connection-string credential",
-    admission: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]*:[^\s@/]+@(?=[^\s/])/iu,
-    classification: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]*:[^\s@/]+@(?=[^\s/])/iu,
+    admission: /\b[a-z][a-z0-9+.-]*:\/\/(?!(?:‹keep:[^›\s]{1,200}›)@)[^\s:@/]*:[^\s@/]+@(?=[^\s/])/iu,
+    classification: /\b[a-z][a-z0-9+.-]*:\/\/(?!(?:‹keep:[^›\s]{1,200}›)@)[^\s:@/]*:[^\s@/]+@(?=[^\s/])/iu,
   },
 ] as const);
 
