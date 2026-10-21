@@ -236,7 +236,7 @@ describe("the grid — uniform, module-grouped, absence-first", () => {
     const { container } = open();
     const line = container.querySelector(".counts")!.textContent!;
     expect(line).toContain("6 signals declared");
-    expect(line).toContain("0 measured");
+    expect(line).toContain("0 of 6 measured");
   });
 
   test("no signal renders twice (one manifestation per fact, §1.4)", () => {
@@ -293,9 +293,33 @@ describe("values arrive live and absence survives", () => {
     await vi.advanceTimersByTimeAsync(1);
     await waitFor(() => {
       const line = container.querySelector(".counts")!.textContent!;
-      expect(line).toContain("1 measured");
+      expect(line).toContain("1 of 6 measured");
       expect(line).toContain("5 collecting");
     });
+  });
+
+  test("a sample that REPORTED absence is not counted as measured — the header states M of N", async () => {
+    setInstrumentsReader({
+      values: async () => setUiSchemaValues({
+        signals: [
+          { id: "context.utilization", value: 0.16 },
+          { id: "tools.callCount", value: null },
+        ],
+        customizations: [],
+      } as UiSchemaValues),
+    });
+    const { container } = open();
+    await vi.advanceTimersByTimeAsync(1);
+    await waitFor(() =>
+      expect(container.querySelector('[data-signal="context.utilization"] .value')?.textContent).toBe("16%"),
+    );
+    const line = container.querySelector(".counts")!.textContent!;
+    // The null sample is a received sample that measured nothing: it must not
+    // inflate the measured count the header states.
+    expect(line).toContain("1 of 6 measured");
+    expect(line).not.toContain("2 measured");
+    expect(line).toContain("1 reported no measurement");
+    expect(line).toContain("4 collecting");
   });
 
   test("a refused channel says so and un-measures nothing", async () => {
@@ -485,13 +509,14 @@ describe("pin → HORIZON monitor, max 4, the 5th asks inline", () => {
     expect((last[0] as { label: string }).label).toBe("Utilization");
   });
 
-  test("a monitor carries a real asOf even before its first sample", async () => {
+  test("a monitor carries NO asOf before its first sample", async () => {
     const { container } = open();
     await pin(container, "context.utilization");
     const last = shell.monitors[shell.monitors.length - 1]!;
-    const m = last[0] as { asOf: number; value: string };
-    expect(typeof m.asOf).toBe("number");
-    expect(m.asOf).toBeGreaterThan(0);
+    const m = last[0] as { asOf?: number; value: string };
+    // "collecting" has no measurement instant; the pin time is when the
+    // REFERENCE was made, not when the signal was measured.
+    expect("asOf" in m).toBe(false);
     expect(m.value).toBe("collecting");
   });
 
@@ -693,6 +718,32 @@ describe("the actions fold — the module's act-on-the-system surface", () => {
           ?.textContent,
       ).toContain("Retrieve Memory — done");
     });
+  });
+
+  test("a new run clears the previous result while it is IN FLIGHT", async () => {
+    const { container } = openAllFolds();
+    const row = container.querySelector('[data-action-id="context.retrieveMemory"]')!;
+    const retrieve = row.querySelector<HTMLButtonElement>(
+      '[data-verb-id="actions/context.retrieveMemory"]',
+    )!;
+    executeActionMock.mockResolvedValueOnce("first-run-result");
+    fireEvent.click(retrieve);
+    await waitFor(() => expect(row.querySelector('[role="status"]')?.textContent).toContain("first-run-result"));
+
+    // Second invocation held open: the first run's answer must not stand as if
+    // it described THIS run. The running face is the verb itself; the answer
+    // line is empty until this run answers.
+    let release!: () => void;
+    executeActionMock.mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve("second-run-result"); }),
+    );
+    fireEvent.click(retrieve);
+    await waitFor(() => expect(executeActionMock).toHaveBeenCalledTimes(2));
+    expect(row.querySelector('[role="status"]'), "the previous run's result cannot describe the running one").toBeNull();
+    expect(row.textContent).not.toContain("first-run-result");
+    release();
+    await waitFor(() => expect(row.querySelector('[role="status"]')?.textContent).toContain("second-run-result"));
+    expect(row.textContent).not.toContain("first-run-result");
   });
 
   test("an action that returned NOTHING renders absence, never the string \"null\"", async () => {

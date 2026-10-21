@@ -159,6 +159,28 @@
   );
   const load = $derived($settingsLoadState);
 
+  /**
+   * WHOSE READ IS THIS? A standalone sheet owns a fresh read on mount; an
+   * inline one rides the index's (the room shows its own stale banner). When
+   * the standalone read fails, the value in the store belongs to an older
+   * snapshot and this mount never measured it: the sheet renders the
+   * unreadable state, not that cache, and offers no write path. Only a
+   * landed read of the CURRENT value may be saved from.
+   */
+  const readUnavailable = $derived(!inline && load.kind === "failed");
+  const readFailureReason = $derived(load.kind === "failed" ? load.reason : "");
+  const writeableRead = $derived(inline || load.kind !== "failed");
+  let retrying = $state(false);
+  async function retryRead(): Promise<void> {
+    if (retrying) return;
+    retrying = true;
+    try {
+      await requestSettingsData();
+    } finally {
+      retrying = false;
+    }
+  }
+
   // ── save machine ────────────────────────────────────────────────────────
   type SaveState =
     | { kind: "idle" }
@@ -205,7 +227,7 @@
   });
 
   async function commit(value: SettingValue): Promise<boolean> {
-    if (row === null || past || saving) return false;
+    if (row === null || past || saving || !writeableRead) return false;
     const targetId = row.id;
     const generation = ++saveGeneration;
     const revision = draftRevision;
@@ -294,7 +316,7 @@
   const confirmationMotion = $derived< MovesParam >(save.kind === "saved" ? { motion: "arrive", cause: becauseChanged("setting confirmed", null, save.atMs) } : null);
 
   function commitDraft(): void {
-    if (row === null || past || !dirty || saving || (draft === null && (!uncertain || displayedMasked))) return;
+    if (row === null || past || !writeableRead || !dirty || saving || (draft === null && (!uncertain || displayedMasked))) return;
     const text = draft ?? draftShown;
     if (row.type === "number") {
       // A CLEARED FIELD IS ABSENT, NOT ZERO. `Number("")` is 0, so this used
@@ -392,7 +414,7 @@
 
   let sheetElement: HTMLDivElement | undefined;
   async function resetDefault(): Promise<void> {
-    if (row === null || past || saving) return;
+    if (row === null || past || saving || !writeableRead) return;
     const focused = document.activeElement;
     const owned = focused instanceof HTMLElement && sheetElement?.contains(focused);
     const operation = commit(row.defaultValue);
@@ -429,14 +451,39 @@
 </script>
 
 <div class="sheet" bind:this={sheetElement} class:inline data-setting-sheet data-setting={settingId} data-edit-state={commitState}>
+  {#snippet retryReadButton()}
+    <button
+      class="verb retry-read"
+      data-verb-id="settings.sheet/retry"
+      aria-busy={retrying}
+      disabled={retrying}
+      title="read the server's current value again"
+      onclick={() => void retryRead()}
+    >{retrying ? "Reading…" : "Retry"}</button>
+  {/snippet}
   {#if row === null}
     {#if load.kind === "pending"}
       <Answer answer={pending("reading the served settings")} />
     {:else if load.kind === "failed"}
       <Answer answer={failed(`settings not readable: ${load.reason}`)} />
+      {@render retryReadButton()}
     {:else}
       <Answer answer={absent(`no setting named “${settingId}” is served: nothing to adjust`)} />
     {/if}
+  {:else if readUnavailable}
+    {#if !inline}
+      <header class="head">
+        <h2 class="sheet-title">{label}</h2>
+      </header>
+    {/if}
+    <div class="unreadable" data-setting-unreadable>
+      <Answer answer={failed(`settings not readable: ${readFailureReason}`)} />
+      <p class="unreadable-note">
+        The value shown before this read came from an older snapshot; this sheet did not measure it,
+        so it is not shown and cannot be saved.
+      </p>
+      {@render retryReadButton()}
+    </div>
   {:else}
     {#if !inline}
       <header class="head">
@@ -748,5 +795,13 @@
     font-family: var(--face-mono);
     font-size: var(--f-data-size);
     color: var(--alarm);
+  }
+  /* The read that failed: no control, no value, one way forward. */
+  .unreadable { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
+  .unreadable-note {
+    margin: 0;
+    max-width: var(--measure);
+    color: var(--ink-2);
+    font-size: var(--f-data-size);
   }
 </style>

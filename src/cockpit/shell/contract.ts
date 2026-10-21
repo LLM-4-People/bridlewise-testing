@@ -104,8 +104,9 @@ export type Monitor = Readonly<{
   label: string;
   /** Measured value, already formatted. Honest absence allowed. */
   value: string;
-  /** Epoch ms of the measurement (§1.1 — every number has an asOf). */
-  asOf: number;
+  /** Epoch ms of the measurement (§1.1 — every number has an asOf).
+   * ABSENT when the value is absent: an unmeasured reading has no instant. */
+  asOf?: number;
   openSource: () => void;
 }>;
 

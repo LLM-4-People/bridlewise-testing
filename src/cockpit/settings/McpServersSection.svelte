@@ -448,8 +448,15 @@
           formNote = { kind: "saved", text: `Saved ${id}. Newer changes are unsaved.` };
         }
       }
-      notes.set(saved.id, "saved: the values shown are the server's own read-back");
+      // THE CLAIM WAITS FOR ITS EVIDENCE. The saved answer is the server's
+      // acceptance, not the list's read-back: printing "read back" here
+      // described a re-read that had not started. The row says what is
+      // actually known, then says what the revalidation found.
+      notes.set(saved.id, "saved: waiting for the server to read it back…");
       await revalidate();
+      notes.set(saved.id, load === "ok"
+        ? "saved: the values shown are the server's own read-back"
+        : `saved: the server accepted the change, but the list could not be re-read — ${loadReason}`);
     } catch (err) {
       if (pendingSave?.token === operation.token && formOpen && formGeneration === operation.generation) {
         formNote = { kind: "failed", text: refusalReason(err) ?? (err instanceof Error ? err.message : String(err)) };

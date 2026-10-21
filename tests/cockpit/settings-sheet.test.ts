@@ -651,6 +651,32 @@ describe("served words on the sheet", () => {
     expect(await findByText(/no setting named “never.served” is served/)).toBeTruthy();
   });
 
+  test("a failed fresh read renders an UNREADABLE state with Retry — never the previous value or a Save door", async () => {
+    // The store holds the boot snapshot; this sheet's OWN fresh read fails.
+    // Painting the boot value under a header that claims a live read would let
+    // the reader save from a cache this mount never verified. The value is
+    // absent, and the only offered action is another read.
+    setSettingsReaders({
+      schema: async () => setUiSchema(SCHEMA),
+      values: async () => {
+        throw new ClientError("network", "the values route refused");
+      },
+    });
+    const view = render(SettingSheet, { settingId: "tools.parallelCap" });
+    expect(await view.findByText(/settings not readable: the values route refused/)).toBeTruthy();
+    expect(view.queryByLabelText("Parallel tool calls"), "a stale value must not paint as a measured one").toBeNull();
+    expect(view.container.querySelector(".commit"), "no write path may be offered from an unreadable read").toBeNull();
+    expect(view.container.querySelector('[data-setting-unreadable]')).not.toBeNull();
+    expect(view.container.querySelector('[data-verb-id="settings.sheet/retry"]')).not.toBeNull();
+
+    // Retry is the one way forward, and a successful retry serves the value.
+    setSettingsReaders({ schema: async () => setUiSchema(SCHEMA), values: async () => setUiSchemaValues(serverValues) });
+    await fireEvent.click(view.getByText("Retry"));
+    const field = await view.findByLabelText("Parallel tool calls");
+    expect((field as HTMLInputElement).value).toBe("4");
+    expect(view.container.querySelector(".commit")).not.toBeNull();
+  });
+
   test("mutation: a raw-key label refuses to render (§9.3 raw-key law)", () => {
     const rawSchema = {
       ...SCHEMA,

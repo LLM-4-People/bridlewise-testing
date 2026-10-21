@@ -263,6 +263,54 @@ describe("add a tool server", () => {
   });
 });
 
+describe("the row's read-back claim waits for the read-back", () => {
+  function noteOf(container: HTMLElement): string {
+    return container.querySelector('[data-mcp-server="local-fixture"] [data-field="mcp-server-note"]')
+      ?.textContent ?? "";
+  }
+
+  test("a save in flight says it is waiting, never read back — the claim lands only after revalidation", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let calls = 0;
+    vi.mocked(listMcpServers).mockImplementation(async () => {
+      calls += 1;
+      if (calls === 2) await held; // the post-save revalidation
+      return SERVERS_TWO;
+    });
+    const { container } = render(McpServersSection);
+    await waitFor(() => expect(container.querySelector('[data-mcp-server="local-fixture"]')).not.toBeNull());
+    await fireEvent.click(container.querySelector('[data-mcp-server="local-fixture"] [data-verb-id="mcp.server/edit"]')!);
+    await fireEvent.submit(container.querySelector("form")!);
+    await waitFor(() => expect(saveMcpServer).toHaveBeenCalled());
+    await waitFor(() => expect(noteOf(container)).not.toBe(""));
+    // THE DEFECT: this line used to read "saved and read back" here, before
+    // the values it names had been re-read at all.
+    expect(noteOf(container)).not.toMatch(/read-back/);
+    expect(noteOf(container)).toMatch(/waiting for the server to read it back/i);
+    release();
+    await waitFor(() => expect(noteOf(container)).toMatch(/read-back/));
+  });
+
+  test("a failed revalidation never prints a read-back claim", async () => {
+    let calls = 0;
+    vi.mocked(listMcpServers).mockImplementation(async () => {
+      calls += 1;
+      if (calls === 2) throw new Error("the list route refused");
+      return SERVERS_TWO;
+    });
+    const { container } = render(McpServersSection);
+    await waitFor(() => expect(container.querySelector('[data-mcp-server="local-fixture"]')).not.toBeNull());
+    await fireEvent.click(container.querySelector('[data-mcp-server="local-fixture"] [data-verb-id="mcp.server/edit"]')!);
+    await fireEvent.submit(container.querySelector("form")!);
+    await waitFor(() => expect(saveMcpServer).toHaveBeenCalled());
+    // The save is known accepted, but the list the claim would describe never
+    // arrived: the row says so instead of vouching for the previous answer.
+    await waitFor(() => expect(noteOf(container)).toMatch(/could not be re-read/i));
+    expect(noteOf(container)).not.toMatch(/read-back/i);
+  });
+});
+
 describe("edit a tool server", () => {
   test("credential fields open BLANK and keep the saved value; only the names are prefilled", async () => {
     const { container } = render(McpServersSection);

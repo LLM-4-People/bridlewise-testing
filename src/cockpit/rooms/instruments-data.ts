@@ -496,31 +496,47 @@ export function assertUniquePinnedMonitors(pinned: readonly PinnedMonitor[]): vo
 
 export type InstrumentCounts = Readonly<{
   declared: number;
+  /** Samples that carry a present value. */
   measured: number;
+  /** Samples whose own value is null: a measured absence, not a measurement. */
+  absent: number;
+  /** Declared signals with no sample yet while the feed is running. */
   collecting: number;
+  /** Declared signals with no sample and no feed running. */
   notMeasured: number;
 }>;
 
+/** The per-signal sample map the honest tally reads (the feed's own shape). */
+export type InstrumentSamples = Readonly<
+  Record<string, Readonly<{ v: number | string | boolean | null }>>
+>;
+
 /**
- * The honest tally: `measured` signals have a received sample; while the
- * feed is running, the rest are `collecting` (a sample may still arrive —
+ * The honest tally. A signal is MEASURED only when a sample arrived carrying
+ * a present value; a sample that itself reports `null` is a measured
+ * absence and must never inflate the measured count. While the feed is
+ * running, a signal with no sample is `collecting` (one may still arrive —
  * or the server refused that signal's read this tick); before the feed has
- * ever run they are simply `notMeasured`.
+ * ever run it is simply `notMeasured`.
  */
 export function countInstruments(
   signals: readonly SignalEntry[],
-  measuredIds: ReadonlySet<string>,
+  samples: InstrumentSamples,
   feedRunning: boolean,
 ): InstrumentCounts {
   let measured = 0;
-  for (const s of signals) if (measuredIds.has(s.id)) measured += 1;
-  const rest = signals.length - measured;
-  return {
-    declared: signals.length,
-    measured,
-    collecting: feedRunning ? rest : 0,
-    notMeasured: feedRunning ? 0 : rest,
-  };
+  let absent = 0;
+  let collecting = 0;
+  let notMeasured = 0;
+  for (const s of signals) {
+    const sample = samples[s.id];
+    if (sample === undefined) {
+      if (feedRunning) collecting += 1;
+      else notMeasured += 1;
+    } else if (sample.v === null) absent += 1;
+    else measured += 1;
+  }
+  return { declared: signals.length, measured, absent, collecting, notMeasured };
 }
 
 /** Re-exported action entry helper: the exposure `actions` list shares no

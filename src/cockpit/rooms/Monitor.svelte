@@ -28,8 +28,8 @@
   }: {
     label: string;
     value: string;
-    /** Epoch-ms of the measurement (§1.1 — asOf required). */
-    asOf: number;
+    /** Epoch-ms of the measurement (§1.1 — present only when measured). */
+    asOf?: number | undefined;
     points: readonly SignalPoint[];
     /** The verb this reference performs when activated (§1.2). */
     verbId: string;
@@ -37,7 +37,12 @@
   } = $props();
 </script>
 
-<button class="monitor" data-verb-id={verbId} title={`asOf ${asOfTime(asOf)}`} onclick={onOpen}>
+<button
+  class="monitor"
+  data-verb-id={verbId}
+  title={asOf === undefined ? undefined : `asOf ${asOfTime(asOf)}`}
+  onclick={onOpen}
+>
   <span class="label engraved trunc">{label}</span>
   {#if sparkRenderable(points)}
     <Spark {points} variant="dot" />

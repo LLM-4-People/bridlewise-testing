@@ -361,10 +361,19 @@ export function displaceMonitor(displaceId: string, signalId: string): void {
 let shellBound: ShellApi | null = null;
 let unbindShell: (() => void)[] = [];
 
+/**
+ * The measurement instant of a sample, or undefined when the sample IS
+ * absent (no sample, or a sample whose own value is null). A collection
+ * start or a pin time is not a measurement instant: pinning either beside
+ * "collecting" / "not measured" would claim the reading was taken then.
+ */
+export function measuredAsOf(sample: SignalSample | undefined): number | undefined {
+  return sample === undefined || sample.v === null ? undefined : sample.t;
+}
+
 /** The Monitor list the shell renders — exported pure so tests can pin the
- * projection without a shell. Every entry's asOf is a real instant: the
- * measurement time when measured, the collection start otherwise (the
- * honest fact then IS "collecting since t"). */
+ * projection without a shell. `asOf` exists only for a MEASURED value; an
+ * unmeasured monitor carries no measurement instant at all. */
 export function projectMonitors(
   pinned: readonly PinnedMonitor[],
   current: Readonly<Record<string, SignalSample>>,
@@ -374,6 +383,7 @@ export function projectMonitors(
   return pinned.slice(0, MAX_PINNED).map((m) => {
     const meta = schema?.signals.find((s) => s.id === m.signalId);
     const sample = current[m.signalId];
+    const asOf = measuredAsOf(sample);
     return {
       id: m.signalId,
       label: meta?.name ?? m.signalId,
@@ -383,7 +393,7 @@ export function projectMonitors(
           : sample.v === null
             ? "not measured"
             : formatMeasuredValue(sample.v, meta?.type ?? "gauge", meta?.unit),
-      asOf: sample?.t ?? collectingSince.get() ?? m.pinnedAt,
+      ...(asOf === undefined ? {} : { asOf }),
       openSource,
     };
   });

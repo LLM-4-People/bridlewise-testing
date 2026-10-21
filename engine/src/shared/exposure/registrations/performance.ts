@@ -68,9 +68,9 @@ export type PerformanceMetricsState = Readonly<{
   toolCalls: number;
   toolErrors: number;
   toolCancellations: number;
-  /** Duration quantiles over every recorded call, in ms (0 when none). */
-  durationP50Ms: number;
-  durationP95Ms: number;
+  /** Duration quantiles over every recorded call, in ms (null when no distribution exists). */
+  durationP50Ms: number | null;
+  durationP95Ms: number | null;
   /** Summed resource aggregates of the recorded calls. */
   cpuTimeMs: number;
   heapDeltaBytes: number;
@@ -132,8 +132,8 @@ const NO_MEASUREMENTS: PerformanceMetricsState = Object.freeze({
   toolCalls: 0,
   toolErrors: 0,
   toolCancellations: 0,
-  durationP50Ms: 0,
-  durationP95Ms: 0,
+  durationP50Ms: null,
+  durationP95Ms: null,
   cpuTimeMs: 0,
   heapDeltaBytes: 0,
   tokensPerSecond: null,
@@ -248,7 +248,7 @@ export function registerPerformanceExposure(): void {
     id: "performance.durationP50Ms",
     module: "performance",
     name: "Half of calls finished within",
-    description: "The median duration of every recorded call, from the collector's histograms.",
+    description: "The median duration of every recorded call, from the collector's histograms. Not measured until at least one call is recorded.",
     type: "timer",
     unit: "ms",
     value: () => metricsState().durationP50Ms,
@@ -257,7 +257,7 @@ export function registerPerformanceExposure(): void {
     id: "performance.durationP95Ms",
     module: "performance",
     name: "19 of 20 calls finished within",
-    description: "The 95th-percentile duration of every recorded call — the slow tail the median hides.",
+    description: "The 95th-percentile duration of every recorded call — the slow tail the median hides. Not measured until at least one call is recorded.",
     type: "timer",
     unit: "ms",
     value: () => metricsState().durationP95Ms,
@@ -310,28 +310,28 @@ export function registerPerformanceExposure(): void {
     id: "performance.processRssBytes",
     module: "performance",
     name: "Process memory held resident",
-    description: "The server process's resident set size as the resource sampler last measured it. Zero until the first sample lands.",
+    description: "The server process's resident set size as the resource sampler last measured it. Not measured until the first sample lands.",
     type: "gauge",
     unit: "bytes",
-    value: () => metricsState().lastSample?.rssBytes ?? 0,
+    value: () => metricsState().lastSample?.rssBytes ?? null,
   });
   registerSignal({
     id: "performance.processHeapUsedBytes",
     module: "performance",
     name: "Process heap in use",
-    description: "The server process's used heap as the resource sampler last measured it. Zero until the first sample lands.",
+    description: "The server process's used heap as the resource sampler last measured it. Not measured until the first sample lands.",
     type: "gauge",
     unit: "bytes",
-    value: () => metricsState().lastSample?.heapUsedBytes ?? 0,
+    value: () => metricsState().lastSample?.heapUsedBytes ?? null,
   });
   registerSignal({
     id: "performance.eventLoopUtilization",
     module: "performance",
     name: "Event loop busy share",
-    description: "How busy the event loop was since the previous sample, as the resource sampler last measured it. Zero until the first sample lands.",
+    description: "How busy the event loop was since the previous sample, as the resource sampler last measured it. Not measured until the first sample lands.",
     type: "gauge",
     unit: "ratio",
-    value: () => metricsState().lastSample?.eventLoopUtilization ?? 0,
+    value: () => metricsState().lastSample?.eventLoopUtilization ?? null,
   });
   registerSignal({
     id: "performance.resourceDeltasEnabled",

@@ -232,29 +232,45 @@ describe("the pinned set — ≤4, and the 5th asks", () => {
 
 describe("the honest counts the header states", () => {
   const signals = [S(), S({ id: "b" }), S({ id: "c" })];
+  const sampled = (...ids: readonly string[]) =>
+    Object.fromEntries(ids.map((id) => [id, { v: 1 }]));
 
   test("with the feed running, unmeasured signals are COLLECTING", () => {
-    expect(countInstruments(signals, new Set(["context.utilization"]), true)).toEqual({
+    expect(countInstruments(signals, sampled("context.utilization"), true)).toEqual({
       declared: 3,
       measured: 1,
+      absent: 0,
       collecting: 2,
       notMeasured: 0,
     });
   });
 
   test("before the feed ever ran, they are NOT MEASURED YET", () => {
-    expect(countInstruments(signals, new Set(), false)).toEqual({
+    expect(countInstruments(signals, {}, false)).toEqual({
       declared: 3,
       measured: 0,
+      absent: 0,
       collecting: 0,
       notMeasured: 3,
     });
   });
 
-  test("MUTATION: the three buckets always sum to the declared field", () => {
+  test("a sample that itself reports null is ABSENT, never measured", () => {
+    // The header used to count the sample map's keys, so a known signal that
+    // reported "nothing measured" inflated the measured total.
+    expect(countInstruments(signals, { b: { v: null }, c: { v: 2 } }, true)).toEqual({
+      declared: 3,
+      measured: 1,
+      absent: 1,
+      collecting: 1,
+      notMeasured: 0,
+    });
+  });
+
+  test("MUTATION: every bucket always sums to the declared field", () => {
     for (const running of [true, false]) {
-      const c = countInstruments(signals, new Set(["b"]), running);
-      expect(c.measured + c.collecting + c.notMeasured).toBe(c.declared);
+      const c = countInstruments(signals, { ...sampled("b"), c: { v: null } }, running);
+      expect(c.measured + c.absent + c.collecting + c.notMeasured).toBe(c.declared);
     }
   });
 });

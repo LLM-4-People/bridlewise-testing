@@ -125,9 +125,11 @@ describe("the installed source drives the exposure signals from the real bridge"
     // process already measured — assert the IDENTITY instead: the signal
     // value equals the sampler's own exported head, whatever it is.
     const head = lastResourceSample();
-    expect(readSignal("performance.processRssBytes")).toBe(head === null ? 0 : head.rssBytes);
-    expect(readSignal("performance.processHeapUsedBytes")).toBe(head === null ? 0 : head.heapUsedBytes);
-    expect(readSignal("performance.eventLoopUtilization")).toBe(head === null ? 0 : head.eventLoopUtilization);
+    // Before the first tick there is no sample: the rows are ABSENT, never a
+    // zero standing in for a process footprint nobody measured.
+    expect(readSignal("performance.processRssBytes")).toBe(head === null ? null : head.rssBytes);
+    expect(readSignal("performance.processHeapUsedBytes")).toBe(head === null ? null : head.heapUsedBytes);
+    expect(readSignal("performance.eventLoopUtilization")).toBe(head === null ? null : head.eventLoopUtilization);
     // One real tick (the same rows the live server writes on its interval):
     // the head moves, and the signal follows IT — not an independent read.
     sampleResourceOnce();
@@ -169,19 +171,39 @@ describe("the installed source drives the exposure signals from the real bridge"
     }
   });
 
-  test("with the source cleared, counts read their honest zero and the rate reads absence", () => {
+  test("an all-absent measurement payload serves ABSENCE for every unmeasured reading — never zero", () => {
+    // The registry's no-source payload is the all-absent case: nothing was
+    // sampled and no duration distribution exists. A gauge that answers 0 for
+    // "the sampler has not ticked" is a measured claim about a process nobody
+    // observed — the measurement contract's exact refusal. Quantiles are the
+    // same shape: no histogram is no distribution, not a 0 ms median.
+    clearPerformanceMetricsSource();
+    for (const id of [
+      "performance.processRssBytes",
+      "performance.processHeapUsedBytes",
+      "performance.eventLoopUtilization",
+      "performance.durationP50Ms",
+      "performance.durationP95Ms",
+    ]) {
+      expect(readSignal(id), `${id} must be absent, not 0`).toBeNull();
+    }
+  });
+
+  test("with the source cleared, counts read their honest zero and the unmeasured readings are absent", () => {
     clearPerformanceMetricsSource();
     expect(readSignal("performance.callCount")).toBe(0);
     expect(readSignal("performance.llmCalls")).toBe(0);
     expect(readSignal("performance.toolCalls")).toBe(0);
-    expect(readSignal("performance.durationP50Ms")).toBe(0);
-    expect(readSignal("performance.durationP95Ms")).toBe(0);
+    expect(readSignal("performance.durationP50Ms")).toBeNull();
+    expect(readSignal("performance.durationP95Ms")).toBeNull();
     // A cleared source measured no token rate at all; 0 would be a measured
     // claim about an interval nobody observed.
     expect(readSignal("performance.tokensPerSecond")).toBeNull();
     expect(readSignal("performance.selfImprovingSuggestions")).toBe(0);
     expect(readSignal("performance.samplerActive")).toBe(false);
-    expect(readSignal("performance.processRssBytes")).toBe(0);
+    expect(readSignal("performance.processRssBytes")).toBeNull();
+    expect(readSignal("performance.processHeapUsedBytes")).toBeNull();
+    expect(readSignal("performance.eventLoopUtilization")).toBeNull();
     // The knobs' mirrors read the config, not the source — they stay live.
     expect(readSignal("performance.resourceDeltasEnabled")).toBe(true);
   });

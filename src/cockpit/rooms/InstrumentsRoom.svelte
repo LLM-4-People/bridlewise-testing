@@ -67,6 +67,7 @@
     displaceMonitor,
     feedRunning,
     lastFeedError,
+    measuredAsOf,
     monitorStorageDegraded,
     pinMonitor,
     pinnedMonitors,
@@ -118,7 +119,7 @@
   const counts = $derived(
     countInstruments(
       schema?.signals ?? [],
-      new Set(Object.keys(current)),
+      current,
       feedRunning() || since !== null,
     ),
   );
@@ -205,6 +206,15 @@
 
   async function runAction(entry: ActionEntry): Promise<void> {
     if (busyActions.has(entry.id)) return;
+    // A NEW RUN STARTS WITH NO RESULT. The previous invocation's answer
+    // described that invocation; leaving it under a running verb let a reader
+    // attribute an old outcome to the new press. The verb's own busy face is
+    // the running state; the answer line waits for this run's answer.
+    if (actionNotes[entry.id] !== undefined) {
+      const next = { ...actionNotes };
+      delete next[entry.id];
+      actionNotes = next;
+    }
     busyActions = new Set([...busyActions, entry.id]);
     try {
       // An exposure action is a WRITE against the live harness (the route
@@ -366,7 +376,8 @@
         signal registry not loaded — the boot column reports schema availability
       {:else}
         {counts.declared} signals declared
-        · {counts.measured} measured
+        · {counts.measured} of {counts.declared} measured
+        {#if counts.absent > 0}· {counts.absent} reported no measurement{/if}
         {#if counts.collecting > 0}· {counts.collecting} collecting{/if}
         {#if counts.notMeasured > 0}· {counts.notMeasured} not measured yet{/if}
       {/if}
@@ -392,7 +403,7 @@
         <MonitorRef
           label={monitorLabel(m.signalId)}
           value={monitorValue(m.signalId)}
-          asOf={current[m.signalId]?.t ?? since ?? m.pinnedAt}
+          asOf={measuredAsOf(current[m.signalId])}
           points={history[m.signalId] ?? []}
           verbId="instruments.displace"
           onOpen={() => displaceWith(m.signalId)}

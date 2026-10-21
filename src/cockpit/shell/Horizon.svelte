@@ -219,7 +219,7 @@
 
   <div class="side right">
     {#each pinned as m (m.id)}
-      <button class="monitor" onclick={m.openSource} title={`asOf ${logTime(m.asOf)}`}>
+      <button class="monitor" onclick={m.openSource} title={m.asOf === undefined ? undefined : `asOf ${logTime(m.asOf)}`}>
         <span class="m-label engraved trunc">{m.label}</span>
         <span class="m-value">{m.value}</span>
       </button>

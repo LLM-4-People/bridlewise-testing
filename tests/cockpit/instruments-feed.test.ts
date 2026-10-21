@@ -203,12 +203,25 @@ describe("monitors — references with a real asOf, ≤4, persisted", () => {
     expect(m!.asOf).toBe(signalCurrent.get()["context.utilization"]!.t);
   });
 
-  test("an unmeasured pin says 'collecting' and still carries a real asOf", () => {
+  test("an unmeasured pin says 'collecting' and carries NO asOf", () => {
     acquireInstrumentsFeed();
     pinMonitor("tools.callCount");
     const [m] = projectMonitors(pinnedMonitors.get(), signalCurrent.get(), () => {});
     expect(m!.value).toBe("collecting");
-    expect(m!.asOf).toBe(collectingSince.get());
+    // A collection start is not a measurement instant. Pinning it beside
+    // "collecting" claimed the value had been measured then.
+    expect("asOf" in m!).toBe(false);
+  });
+
+  test("a sample that REPORTED absence renders 'not measured' with no asOf", () => {
+    setUiSchemaValues({
+      signals: [{ id: "context.utilization", value: null }],
+      customizations: [],
+    } as never);
+    pinMonitor("context.utilization");
+    const [m] = projectMonitors(pinnedMonitors.get(), signalCurrent.get(), () => {});
+    expect(m!.value).toBe("not measured");
+    expect("asOf" in m!, "an absent measurement has no measurement instant").toBe(false);
   });
 
   test("the projection never exceeds the cap even if the store were over it", () => {
