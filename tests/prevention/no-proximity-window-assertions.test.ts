@@ -166,12 +166,45 @@ function scannedFiles(): string[] {
  *
  * The exemption is COUNTED below, with a ceiling, because "a file that imports
  * the detector may write a window" is a claim about the world and a third such
- * file must be a deliberate decision rather than an unnoticed one.
+ * file must be a deliberate decision rather than an unnoticed one. It is also
+ * LIVE-TESTED: a file only receives the exemption while it actually carries a
+ * gap pattern the scan would otherwise classify, so an import that suppresses
+ * nothing cannot keep a silent waiver.
  */
 const DETECTOR_IMPORT = /import\s*\{[^}]*\b(?:windowGapIn|windowedPatternsIn|patternGapIn)\b[^}]*\}\s*from/;
 
 function drivesTheDetector(source: string): boolean {
   return DETECTOR_IMPORT.test(source);
+}
+
+/**
+ * A DETECTOR-DRIVER EXEMPTION MUST STILL SUPPRESS A FINDING.
+ *
+ * `drivesTheDetector` recognises the IMPORT and the scan skips the file. The
+ * liveness arm below then requires that file to carry at least one gap pattern
+ * the scan would otherwise classify (bounded, greedy, lazy, or trailing). A
+ * file that keeps the import but stops writing windows is therefore RED, not
+ * silently un-exempted: the waiver suppressed NOTHING and the previous rule
+ * could not tell that state from a live one. (The version before that listed
+ * paths, and one of them did not exist, which nothing could notice either.)
+ *
+ * The exemption is per-file by construction: the classification asks each
+ * source, so a window written WITHOUT the import still lands in the offender
+ * list below. A driver whose fixtures are strings the regex scan cannot see
+ * carries no gap and is reported stale — the honest state is to have no waiver
+ * to measure.
+ */
+function detectorFixtureGaps(source: string, path: string): number {
+  let gaps = 0;
+  for (const { pattern } of regexLiteralsIn(source, path)) {
+    if (patternGapIn(pattern) !== undefined) gaps += 1;
+  }
+  return gaps;
+}
+
+/** Exempted drivers that suppress nothing — a stale exemption. */
+function inertDetectorExemptions(files: readonly string[]): readonly string[] {
+  return files.filter((file) => detectorFixtureGaps(readFileSync(file, "utf8"), file) === 0);
 }
 
 /**
@@ -692,22 +725,84 @@ describe("no guard bounds the distance between two anchors", () => {
   });
 
   test("the exemption for detector-driving files is measured, not assumed", () => {
-    // AN EXEMPTION IS A CLAIM ABOUT THE WORLD. Two files drive the detector and
-    // therefore have to be able to write the shapes it detects: this one, and
-    // the harness's owner test. A third is not automatically wrong, but it must
-    // be seen.
+    // AN EXEMPTION IS A CLAIM ABOUT THE WORLD. The files granted it both drive
+    // the detector AND carry a gap the scan would otherwise classify; the next
+    // test proves that second condition is what grants the waiver. A third file
+    // is not automatically wrong, but it must be seen.
     expect(
       detectorDrivers.length,
-      `files exempted because they DRIVE the detector: ${detectorDrivers.length}\n${detectorDrivers.join("\n")}`,
+      `files granted the detector-driver exemption: ${detectorDrivers.length}\n${detectorDrivers.join("\n")}`,
     ).toBeLessThanOrEqual(2);
     expect(
       detectorDrivers.length,
-      "no file drives the detector — the exemption is inert, which means this scan is not reading what it thinks",
+      "no file is granted the exemption — the exemption is inert, which means this scan is not reading what it thinks",
     ).toBeGreaterThan(0);
     // …and the property really is a property of the SOURCE, not of the path.
     expect(drivesTheDetector('import { windowGapIn } from "../helpers/function-scope.ts";')).toBe(true);
     expect(drivesTheDetector('import { functionBody } from "../helpers/function-scope.ts";')).toBe(false);
     expect(drivesTheDetector("// a comment mentioning windowGapIn is not an import")).toBe(false);
+  });
+
+  test("a detector-driver exemption that suppresses nothing is STALE, and it suppresses only its own file", () => {
+    // THE STALE-EXEMPTION DEFECT. The rule skips ANY file importing the
+    // detector. If the import survives but the file stops writing a gap the
+    // scan would classify, the waiver suppresses NOTHING and no assertion could
+    // notice. This arm is the one that reds; the import-only probe below drives
+    // the same liveness function the real population passes through.
+    const stale = inertDetectorExemptions(detectorDrivers);
+    expect(
+      stale,
+      `files granted the detector-driver exemption while suppressing nothing:\n${stale.join("\n")}`,
+    ).toEqual([]);
+    const suppressed = detectorDrivers.reduce(
+      (total, file) => total + detectorFixtureGaps(readFileSync(file, "utf8"), file),
+      0,
+    );
+    expect(suppressed, "the detector-driver exemption as a whole suppresses no finding — it is inert").toBeGreaterThan(0);
+    for (const file of detectorDrivers) {
+      expect(drivesTheDetector(readFileSync(file, "utf8")), `${file} is in the exemption set but no longer imports the detector`).toBe(true);
+      expect(detectorFixtureGaps(readFileSync(file, "utf8"), file), `${file} is exempted but carries no gap to suppress`).toBeGreaterThan(0);
+    }
+
+    const probeDir = createTempDir("ch-detector-exemption-");
+    const staleProbe = join(probeDir, "__stale-driver.probe.ts");
+    const liveProbe = join(probeDir, "__live-driver.probe.ts");
+    const windowProbe = join(probeDir, "__window-only.probe.ts");
+    writeFileSync(staleProbe, 'import { windowGapIn } from "../helpers/function-scope.ts";\n', "utf8");
+    writeFileSync(
+      liveProbe,
+      'import { windowGapIn } from "../helpers/function-scope.ts";\nexport const live = /openDoor[\\s\\S]{0,600}closeDoor/;\n',
+      "utf8",
+    );
+    writeFileSync(windowProbe, "export const unexempted = /openDoor[\\s\\S]{0,600}closeDoor/;\n", "utf8");
+
+    expect(
+      inertDetectorExemptions([staleProbe]),
+      "a driver-shaped file with no gap must be reported stale (it suppresses nothing)",
+    ).toEqual([staleProbe]);
+    expect(
+      inertDetectorExemptions([liveProbe]),
+      "a driver that really writes a gap is live, not stale",
+    ).toEqual([]);
+
+    // THE SCOPE. One classification pass over all three files: both importers
+    // are exempt by the import rule, and the window WITHOUT the import is an
+    // offender in the same pass. The stale probe's own bucket is empty, which
+    // is exactly why the liveness arm above has to red it — an exemption that
+    // suppresses nothing is not a clean file, it is a dead claim.
+    const classified = classifyEstate([staleProbe, liveProbe, windowProbe]);
+    expect(classified.detectorDrivers).toEqual([staleProbe, liveProbe]);
+    expect(
+      classified.offenders.filter((row) => row.includes(windowProbe)),
+      "a window in a file that does NOT import the detector must still be an offender",
+    ).toHaveLength(1);
+    expect(
+      classified.offenders.filter((row) => row.includes(staleProbe)),
+      "the stale import carries no finding for the exemption to hide",
+    ).toHaveLength(0);
+
+    // The probe is outside the committed universe and removed by its temp dir.
+    expect(files.includes(staleProbe), "the stale-exemption plant must not enter the judged universe").toBe(false);
   });
 
   test("the exempted production trees are measured, not merely excused", () => {

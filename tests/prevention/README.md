@@ -101,6 +101,7 @@ The `tests/prevention/` folder of the development surface.
 - `gitignore-anchoring.test.ts` — @vitest-environment node.
 - `graph-wire-shape.test.ts` — @vitest-environment node.
 - `guard-dossier.test.ts` — @vitest-environment node.
+- `dossier-floor.json` — the tracked content floor for `guard-dossier.test.ts` (generated facts, not a test; regenerated only by `npm run dossier-floor:update`).
 - `hallucination-safety-gate-owner.test.ts` — @vitest-environment node.
 - `harvested-fixes-prevention.test.ts` — @vitest-environment node.
 - `history-cursor-owner.test.ts` — tHE HISTORY CURSOR — the bound that makes a 20,000-message conversation openable.

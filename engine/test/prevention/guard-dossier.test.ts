@@ -24,8 +24,6 @@
  * discovery is non-empty.
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -37,7 +35,6 @@ import {
 } from "../../../tests/helpers/prevention-dossier.ts";
 import {
   discoverPreventionGuards,
-  REPO_ROOT,
   validateAllDossiers,
 } from "../../scripts/tooling/verification/guard-dossier.ts";
 
@@ -89,19 +86,17 @@ test("every discovered engine guard with a dossier is well-formed", () => {
   );
 });
 
-test("the engine estate is discovered non-empty", () => {
+test("the engine estate is discovered non-empty, and the door REFUSES an empty universe", () => {
   const all = discoverPreventionGuards();
   const engine = all.filter((p) => p.startsWith("engine/test/prevention/"));
   assert.ok(engine.length > 0, "the engine prevention estate must not be empty");
-  // Liveness on the door's refusal: the door throws on an empty universe; a
-  // universe that came back empty would have thrown above, so reaching this
-  // line with a non-empty engine population is the refusal's witness.
-  const doorSource = readFileSync(
-    join(REPO_ROOT, "engine/scripts/tooling/verification/guard-dossier.ts"),
-    "utf8",
-  );
-  assert.ok(
-    doorSource.includes("empty universe"),
-    "the door must refuse an empty universe, and the refusal must not rot",
+  // DRIVE the refusal, do not read its source: an empty universe is a broken
+  // discovery, and this is the behaviour the door must keep. (The previous
+  // version asserted the file contained the string "empty universe", which
+  // stayed green when the branch was disabled but its message left in place.)
+  assert.throws(
+    () => validateAllDossiers([]),
+    /empty universe/,
+    "the door must throw on an empty universe rather than report a clean zero",
   );
 });

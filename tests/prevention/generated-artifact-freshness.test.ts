@@ -61,6 +61,7 @@ import { readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
 import { read, stripCommentsOnly } from "../helpers/source-scan.ts";
+import { freshnessExemptions, validateFreshnessExemptions } from "../helpers/freshness-exemption.ts";
 import { STATE_DIRECTORY_NAME } from "../../engine/src/kernel/product-identity.ts";
 
 const ROOT = process.cwd();
@@ -308,9 +309,11 @@ function readsIgnoredArtifact(code: string, fileRel: string): boolean {
   return false;
 }
 
-/** True if the source carries a `@freshness-exempt <reason>` JSDoc marker. */
+/** True if the source carries a `@freshness-exempt <reason>` JSDoc marker.
+ * The marker shape is parsed by the shared reason-quality owner, so the census
+ * and the dossier ratchet cannot disagree about what counts as a marker. */
 function hasExemptionMarker(rawSrc: string): boolean {
-  return /^\s*\*\s*@freshness-exempt(?:\s|$)/m.test(rawSrc);
+  return freshnessExemptions(rawSrc).length > 0;
 }
 
 /** True if the source binds the artifact to a CONTENT identity. The
@@ -437,19 +440,49 @@ describe("generated-artifact freshness — every gitignored-artifact reader bind
     expect(hasExemptionMarker(corrupted), "a corrupted marker must NOT count").toBe(false);
   });
 
-  test("every @freshness-exempt marker in the tree carries a non-empty reason", () => {
-    const bare: string[] = [];
+  test("every @freshness-exempt marker in the tree carries a reason that names what the reader needs", () => {
+    // The reason-quality owner is shared with the dossier ratchet: one parser,
+    // one verdict. An empty reason, a placeholder, and a sentence that names
+    // nothing the reader uses are all refused; the generic test vocabulary is
+    // excluded from the overlap so "because the test needs it" cannot borrow
+    // `test` and pass.
+    const problems: string[] = [];
     for (const f of guardSources()) {
-      const raw = read(f);
-      const markers = raw.match(/^\s*\*\s*@freshness-exempt\s*(.*)$/gm) ?? [];
-      for (const m of markers) {
-        const reason = m.replace(/^\s*\*\s*@freshness-exempt\s*/, "").trim();
-        if (reason.length === 0) bare.push(relative(ROOT, f).split("\\").join("/"));
+      const rel = relative(ROOT, f).split("\\").join("/");
+      for (const problem of validateFreshnessExemptions(read(f), rel)) {
+        problems.push(`${rel}:${problem.line} — ${problem.message}`);
       }
     }
     expect(
-      bare,
-      `@freshness-exempt markers with no reason: ${bare.join(", ")} — an exemption must say WHY the artifact needs no content binding`,
+      problems,
+      `@freshness-exempt markers without a real reason:\n  ${problems.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  test("the reason-quality owner refuses empty, placeholder, and content-free reasons (mutation-liveness)", () => {
+    // The shared owner is driven directly, so a quality rule deleted from it
+    // reds here even when every marker currently in the tree happens to be
+    // honest — the vacuous-arm shape this estate keeps finding.
+    const source =
+      `import { readFileSync } from "node:fs";\n` +
+      `const DOSSIER_FLOOR_PATH = "tests/prevention/dossier-floor.json";\n` +
+      `const floor = JSON.parse(readFileSync(DOSSIER_FLOOR_PATH, "utf8"));\n` +
+      `export const facts = floor.facts;\n`;
+    const withReason = (reason: string): string =>
+      `${source}/**\n * @freshness-exempt${reason.length > 0 ? ` ${reason}` : ""}\n */\n`;
+    const messages = (reason: string): string =>
+      validateFreshnessExemptions(withReason(reason), "plant").map((problem) => problem.message).join("\n");
+
+    expect(messages(""), "an empty reason must be refused").toContain("has no reason");
+    expect(messages("n/a"), "a placeholder must be refused").toContain("placeholder");
+    expect(messages("because the test needs it"), "a three-word reason must be refused").toContain("too short");
+    expect(
+      messages("it was always done this way and the behaviour is unchanged by any future edit at all"),
+      "a long reason naming nothing the reader uses must be refused",
+    ).toContain("names nothing");
+    expect(
+      messages("the tracked dossier floor is a reviewed baseline, re-recorded only by the update command"),
+      "an honest reason that names the floor must pass",
+    ).toBe("");
   });
 });

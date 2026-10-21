@@ -15,8 +15,10 @@ The `tests/helpers/` folder of the development surface.
 - `budget-verdict.ts` — tHE VERDICT MOVED; THE DOOR STAYED. The runtime budget's decision logic — summary judgment, the three run-cost gates, the sustained-condition streak,….
 - `client-writes.ts` — tHE WRITE-DOOR SCANNERS — one owner for "which `client.ts` calls change the world, and which module owes the read-only assertion". WHY THIS EXISTS AS….
 - `data-loss-helpers.ts` — shared helpers for the data-loss mechanical tests.
+- `dossier-floor.ts` — the guard-dossier ratchet's tracked content floor: canonical per-guard fact lines, absent/corrupt refusals, and the pure judge. The only writer is `npm run dossier-floor:update` (`scripts/testing/update-dossier-floor.ts`); a test run never writes it.
 - `egress-id-corpus.ts` — the settings ids whose own egress is at risk — the shared oracle for the wire-level redaction arms (the served settings ids the raw detector would corrupt), consumed by the schema-wire suite and the block-door suite.
 - `error-scan.ts` — shared error-mapping scan helpers for the prevention test suite.
+- `freshness-exemption.ts` — the one owner of `@freshness-exempt <reason>` quality: the marker shape and the refusal of empty, placeholder, and content-free reasons, shared by the freshness census and the dossier ratchet.
 - `fresh-mtime.ts` — sINGLE-PARTY OWNER of "write a file, then force its mtime so an mtime-keyed cache observes the write". ── The defect this exists to make impossible….
 - `function-scope.ts` — sTRUCTURAL SCOPES FOR SOURCE ASSERTIONS — this suite's door to the shared owner, which is `integration/src/shared/source-structure.ts`. The matcher….
 - `git-spawn-owner.ts` — wHO CAN MAKE GIT RUN — derived from the owner's own source, not spelled. ── WHY THIS EXISTS ──────────────────────────────────────────────────────….

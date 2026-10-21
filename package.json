@@ -45,6 +45,7 @@
     "test:public": "node --test tests/public/*.test.mjs",
     "test:list": "node scripts/test-shard-manifest.mjs list --out node_modules/.cache/bridlewise/test-listing.json",
     "test:verify-shards": "node scripts/test-shard-manifest.mjs verify --manifest tests/test-shards.json --live node_modules/.cache/bridlewise/test-listing.json",
+    "dossier-floor:update": "node --experimental-strip-types scripts/testing/update-dossier-floor.ts",
     "check:secrets": "node scripts/check-secrets.mjs",
     "verify:public": "npm run typecheck && npm run check:secrets && npm run test:public",
     "docs:links": "node scripts/check-docs-links.mjs",

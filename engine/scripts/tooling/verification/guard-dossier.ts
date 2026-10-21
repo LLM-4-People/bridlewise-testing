@@ -87,6 +87,12 @@ export interface GuardDossierVerdict {
   readonly path: string;
   readonly dossier: Dossier | null;
   readonly problems: readonly DossierProblem[];
+  /**
+   * The guard's own source. Carried so the ratchet can judge the guard's
+   * `@freshness-exempt` reason without a second file read that could race a
+   * writer — one read at the door is the source the whole judgement sees.
+   */
+  readonly source: string;
 }
 
 /** The full population verdict, with the universe never allowed to be empty. */
@@ -105,9 +111,12 @@ export interface DossierUniverse {
  * THROWS when the universe is empty: a discovery that found no guards is a
  * broken discovery (a renamed directory, a wrong root), and an empty
  * universe must fail loudly rather than report "0 guards, 0 violations".
+ *
+ * `guards` is injectable so the refusal can be DRIVEN with an empty list
+ * rather than inferred from a source substring. The default is the real
+ * discovery; production callers never pass anything else.
  */
-export function validateAllDossiers(): DossierUniverse {
-  const guards = discoverPreventionGuards();
+export function validateAllDossiers(guards: readonly string[] = discoverPreventionGuards()): DossierUniverse {
   if (guards.length === 0) {
     throw new Error(
       `guard-dossier: discovery found no prevention guards under ${PREVENTION_ESTATES.map((e) => e.dir).join(", ")} — ` +
@@ -122,7 +131,7 @@ export function validateAllDossiers(): DossierUniverse {
     if (dossier === null) {
       withoutDossier.push(path);
     } else {
-      withDossier.push({ path, dossier, problems: validateDossier(dossier, path) });
+      withDossier.push({ path, dossier, problems: validateDossier(dossier, path), source });
     }
   }
   return { total: guards.length, withDossier, withoutDossier };

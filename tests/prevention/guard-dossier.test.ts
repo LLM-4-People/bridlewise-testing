@@ -5,17 +5,10 @@
  * liveness precondition, and the owning behaviour.
  *
  * GUARD SUBJECT: prevention guards carry a structured `GUARD …:` dossier in the leading doc comment
- * GUARD OWNS: tests/helpers/prevention-dossier.ts (the parser/validator) + engine/scripts/verification/guard-dossier.ts (the discovery door)
- * GUARD PLANT: delete the `GUARD PLANT:` line from a dossier-bearing guard, or rewrite a `GUARD SUBJECT:` value to the empty string, in a temp copy — the floor refuses the drop and the validator names the missing/empty field
- * GUARD DRIVEN: this file's tests drive parseDossier + validateDossier over real guard sources and the ratchet's verdict computation over a planted floor drop; the engine mirror drives the same through node:test
- * GUARD LIVENESS: the discovery floor is asserted non-empty (a discovery that finds no guards throws) and the ratchet asserts the observed dossier population is AT LEAST the recorded floor — a guard cannot silently lose its dossier
- *
- * @freshness-exempt the ratchet floor snapshot is a SELF-WRITTEN run flag,
- * not a generated artifact about the tree: it is written by this guard's own
- * run and read by the next, and "stale" is its designed state — a floor that
- * does not match the tree is exactly the refusal the ratchet exists to make.
- * Its content binding is the population list it carries, judged set-wise by
- * the ratchet test, never by clock or presence.
+ * GUARD OWNS: tests/helpers/prevention-dossier.ts (the parser/validator) + tests/helpers/dossier-floor.ts (the ratchet judge and its tracked floor) + engine/scripts/tooling/verification/guard-dossier.ts (the discovery door)
+ * GUARD PLANT: delete the `GUARD PLANT:` line from a dossier-bearing guard, drop a guard from the observed population, swap a dossier line between two guards, or corrupt/remove the tracked floor — each is refused by content, and the dropped-guard plant reds if `judgeDossierFloor` is mutated to answer `ok: true`
+ * GUARD DRIVEN: this file drives parseDossier + validateDossier over real guard sources, and judgeDossierFloor over the TRACKED content floor: the real population, a dropped guard, a line moved between guards, an empty universe, an all-ignored universe, an absent floor in a temp root, a corrupt floor, and the retired count-only format
+ * GUARD LIVENESS: the discovery is asserted non-empty; the floor is asserted to be a committed git file; absent and corrupt floors refuse WITHOUT writing; the update command is asserted to be a separate registered command, and the judge leaves the tracked floor byte-identical
  *
  * ── THE DEFECT THIS EXISTS FOR, AS IT WAS FLAGGED ────────────────────────
  *
@@ -33,14 +26,23 @@
  *
  * The dossier lives IN the guard file it describes (single source of truth —
  * a central registry would be a second answer that drifts). Presence is
- * enforced as a RATCHET, not a sweep: guards that carry the dossier now are
- * the ratcheted set, and a floor snapshot records how many that is. A guard
- * ADDING a dossier raises the floor on the next run; a guard REMOVING one
- * drops the observed count below the floor and fails here. A brand-new guard
- * carrying no dossier does not lower the floor — but the same file's second
- * test makes "a new guard may be added without a dossier" a state the suite
- * cannot sit in: the un-dossiered population is reported, by name, on every
- * run, and the floor mechanism means the covered fraction never retreats.
+ * enforced as a RATCHET, not a sweep: the guards that carry the dossier now
+ * are the ratcheted set, and a TRACKED floor records their factual content.
+ * A guard that loses a dossier, changes a fact, or arrives new without the
+ * floor being rebased is refused; a guard adding a dossier is recorded by the
+ * explicit `npm run dossier-floor:update` command, never as a side effect of
+ * a test run.
+ *
+ * ── WHY THE FLOOR IS TRACKED, AND WHY IT IS CONTENT ──────────────────────
+ *
+ * The first version kept the floor in the gitignored `.bridlewise/run-flags/`
+ * directory and wrote the observed count when it was absent. On a fresh clone
+ * that made the ratchet VACUOUS: deleting a dossier from a real guard with the
+ * flag absent left the suite 12/12 green and wrote a lower floor. It also
+ * compared only counts, so a dossier line moved from one guard to another was
+ * invisible. The floor is now committed, absent/corrupt floors are REFUSALS,
+ * and each record is the guard's canonical `GUARD <FIELD>:` lines — content,
+ * not a number. The only writer is `scripts/testing/update-dossier-floor.ts`.
  *
  * ── WHY NOT "EVERY GUARD, TODAY" ─────────────────────────────────────────
  *
@@ -54,7 +56,7 @@
  * already re-derive these answers — which is the work this index exists to
  * save.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -65,53 +67,46 @@ import {
   validateDossier,
 } from "../helpers/prevention-dossier.ts";
 import {
-  discoverPreventionGuards,
+  canonicalSnapshot,
+  createJudge,
+  floorPathFor,
+  FLOOR_RELATIVE_PATH,
+  judgeDossierFloor,
+  judgeFloorSnapshot,
+  observeDossiers,
+  readFloorSnapshot,
+  writeFloorSnapshot,
+  type ObservedGuard,
+} from "../helpers/dossier-floor.ts";
+import {
   PREVENTION_ESTATES,
   REPO_ROOT,
   validateAllDossiers,
 } from "../../engine/scripts/tooling/verification/guard-dossier.ts";
 
+import { gitTrackedPaths } from "../helpers/source-scan.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
 import { modulePath } from "../helpers/module-resolver.ts";
-const FLOOR_DIR = join(REPO_ROOT, ".bridlewise", "run-flags");
-const FLOOR_PATH = join(FLOOR_DIR, "guard-dossier-ratchet-floor.json");
 
-interface FloorSnapshot {
-  readonly flag: string;
-  readonly floor: number;
-  readonly population: readonly string[];
+const FLOOR_PATH = floorPathFor(REPO_ROOT);
+
+/** The real observed population, read once per run. */
+let discoveryCache: readonly ObservedGuard[] | undefined;
+function discovered(): readonly ObservedGuard[] {
+  discoveryCache ??= observeDossiers(validateAllDossiers().withDossier);
+  return discoveryCache;
 }
 
-function readFloor(): FloorSnapshot | null {
-  let text: string;
-  try {
-    text = readFileSync(FLOOR_PATH, "utf8");
-  } catch {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(text) as FloorSnapshot;
-    return typeof parsed.floor === "number" && Array.isArray(parsed.population) ? parsed : null;
-  } catch {
-    return null;
-  }
+/** The judged population's total fact-line count — the number a count-only floor compared. */
+function factLineCount(guards: readonly ObservedGuard[]): number {
+  return guards.reduce((total, guard) => total + guard.facts.lines.length, 0);
 }
 
-function writeFloor(floor: number, population: readonly string[]): void {
-  mkdirSync(FLOOR_DIR, { recursive: true });
-  writeFileSync(
-    FLOOR_PATH,
-    JSON.stringify(
-      {
-        flag: "guard-dossier-ratchet-floor",
-        floor,
-        population: [...population].sort(),
-        writtenAt: new Date().toISOString(),
-      },
-      null,
-      2,
-    ) + "\n",
-    "utf8",
-  );
+/** A loaded tracked floor, or a thrown failure naming why it could not be read. */
+function trackedFloor() {
+  const load = readFloorSnapshot(FLOOR_PATH);
+  if (!load.ok) throw new Error(`the tracked floor must load: ${load.detail}`);
+  return load;
 }
 
 describe("the dossier parser, driven", () => {
@@ -234,63 +229,225 @@ describe("the dossier parser, driven", () => {
   });
 });
 
-describe("the ratchet", () => {
-  test("the dossier population never retreats below its floor, and rises it when it grows", () => {
-    const universe = validateAllDossiers();
-    const observed = universe.withDossier.filter((v) => v.problems.length === 0).map((v) => v.path);
-    const floor = readFloor();
-    if (floor === null) {
-      // First run after introduction: establish the floor at the observed
-      // population. This is the ONLY write that does not raise — there is no
-      // prior floor to retreat from.
-      writeFloor(observed.length, observed);
-      return;
-    }
+describe("the tracked content floor", () => {
+  test("the floor is COMMITTED and its factual content matches the live dossiers", () => {
+    // A floor that is not in the git index is the fresh-clone hole this round
+    // closed: a checkout would not carry it, and the old test would write one.
     expect(
-      observed.length,
-      `dossier population RETREATED: floor ${floor.floor}, observed ${observed.length}. ` +
-        `Lost: ${floor.population.filter((p) => !observed.includes(p)).join(", ")}`,
-    ).toBeGreaterThanOrEqual(floor.floor);
-    if (observed.length > floor.floor) {
-      writeFloor(observed.length, observed);
-    }
+      gitTrackedPaths(REPO_ROOT).has(FLOOR_RELATIVE_PATH),
+      `${FLOOR_RELATIVE_PATH} must be tracked — a gitignored floor is absent on a fresh checkout, ` +
+        "which is exactly how the ratchet certified its own retreat",
+    ).toBe(true);
+    const load = trackedFloor();
+    const observed = discovered();
+    const verdict = judgeDossierFloor(load, observed);
+    expect(verdict.ok, verdict.detail).toBe(true);
+    expect(verdict.detail, "a green means the content was compared").toContain("content compared line by line");
+
+    // THE FLOOR IS CONTENT, NOT A COUNT. A count-only snapshot cannot see a
+    // line move between guards; these three fields are the shapes that cannot.
+    const raw = JSON.parse(readFileSync(FLOOR_PATH, "utf8")) as Record<string, unknown>;
+    expect(raw.facts, "the floor records per-guard fact sets").toBeInstanceOf(Array);
+    expect(raw.floor, "a count is not a floor").toBeUndefined();
+    expect(raw.population, "a path list cannot see content move between guards").toBeUndefined();
+    expect(raw.writtenAt, "a reviewed floor carries no clock").toBeUndefined();
+    expect(raw, "the committed file is exactly the canonical live snapshot").toEqual(
+      JSON.parse(JSON.stringify(canonicalSnapshot(observed))) as unknown,
+    );
   });
 
-  test("the ratchet refuses a floor drop (planted, in a temp copy)", () => {
-    // Drive the ratchet's verdict logic directly: a floor recorded at N with a
-    // population the tree no longer carries must fail. The plant is a floor
-    // snapshot naming a guard that carries no dossier — the tree under it is
-    // real.
-    const universe = validateAllDossiers();
-    const plantedFloor = {
-      flag: "guard-dossier-ratchet-floor",
-      floor: universe.total + 1,
-      population: [...universe.withDossier.map((v) => v.path), "tests/prevention/a-guard-that-never-existed.test.ts"],
-    };
-    const observed = universe.withDossier.map((v) => v.path);
-    const dropped = plantedFloor.population.filter((p) => !observed.includes(p));
-    expect(
-      observed.length >= plantedFloor.floor,
-      `the plant must produce a refusal: dropped members ${dropped.join(", ")}`,
-    ).toBe(false);
-  });
+  test("a fresh checkout without the floor REFUSES, and nothing writes one", () => {
+    const dir = createTempDir("ch-dossier-floor-absent-");
+    const absent = join(dir, "dossier-floor.json");
+    const load = readFloorSnapshot(absent);
+    expect(load.ok, "an absent floor must not load as a green").toBe(false);
+    if (load.ok) throw new Error("unreachable");
+    expect(load.code).toBe("floor_absent");
+    expect(load.detail, "the refusal names the committed location").toContain(FLOOR_RELATIVE_PATH);
 
-  test("the discovery floor is asserted by the door, not assumed", () => {
-    // The door's refusal is its universe check: a discovery that finds no
-    // guards must throw rather than report a clean zero. The check is driven
-    // by reading the door's own refusal (the message it throws) and proving
-    // the real root's discovery is non-empty — so the refusal cannot rot into
-    // a dead branch.
-    const source = readFileSync(
-      join(REPO_ROOT, modulePath("guard-dossier.ts")),
+    const observed = discovered();
+    const verdict = judgeDossierFloor(load, observed);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.code).toBe("floor_absent");
+    expect(existsSync(absent), "the judge MUST NOT establish a floor — that was the vacuity").toBe(false);
+
+    // Corrupt is a refusal too, and the judge does not repair it.
+    writeFileSync(absent, "{ not json", "utf8");
+    const corrupt = readFloorSnapshot(absent);
+    expect(corrupt.ok).toBe(false);
+    if (corrupt.ok) throw new Error("unreachable");
+    expect(corrupt.code).toBe("floor_corrupt");
+    expect(readFileSync(absent, "utf8"), "a corrupt floor is never silently replaced").toBe("{ not json");
+
+    // The RETIRED count-only format is corrupt, not a floor to honour: it is
+    // the shape whose blind spot this round closed.
+    writeFileSync(
+      absent,
+      JSON.stringify({ flag: "guard-dossier-ratchet-floor", floor: 16, population: ["tests/prevention/x.test.ts"] }),
       "utf8",
     );
-    expect(source).toContain("empty universe");
-    expect(discoverPreventionGuards().length, "the real root discovers guards").toBeGreaterThan(0);
-    // And the estates the door names are the two real prevention directories.
-    expect(PREVENTION_ESTATES.map((e) => e.dir)).toEqual([
+    const legacy = readFloorSnapshot(absent);
+    expect(legacy.ok).toBe(false);
+    if (legacy.ok) throw new Error("unreachable");
+    expect(legacy.code).toBe("floor_corrupt");
+    expect(legacy.detail).toContain("count-only");
+  });
+
+  test("the update mode is a SEPARATE command; a test run never writes the floor", () => {
+    // The floor changes only through a visibly different command. The test's
+    // own judge is pure, and this test proves the tracked bytes survive it.
+    const manifest = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+    expect(
+      manifest.scripts?.["dossier-floor:update"],
+      "the explicit rebase command must be registered in package.json",
+    ).toContain("scripts/testing/update-dossier-floor.ts");
+    expect(
+      existsSync(join(REPO_ROOT, "scripts/testing/update-dossier-floor.ts")),
+      "the registered rebase command must exist",
+    ).toBe(true);
+
+    const observed = discovered();
+    const before = readFileSync(FLOOR_PATH, "utf8");
+    judgeDossierFloor(trackedFloor(), observed);
+    expect(readFileSync(FLOOR_PATH, "utf8"), "the judge is not a writer").toBe(before);
+
+    // The writer itself is driven against a TEMP path: it canonicalizes order
+    // and round-trips the content, so the command cannot bless a lossy shape.
+    const dir = createTempDir("ch-dossier-floor-update-");
+    const target = join(dir, "dossier-floor.json");
+    writeFloorSnapshot(target, [...observed].reverse());
+    const reloaded = readFloorSnapshot(target);
+    expect(reloaded.ok, reloaded.ok ? "" : reloaded.detail).toBe(true);
+    if (!reloaded.ok) throw new Error("unreachable");
+    expect(reloaded.snapshot.facts).toEqual(canonicalSnapshot(observed).facts);
+  });
+});
+
+describe("the ratchet bites", () => {
+  test("the plant CALLS the ratchet: a dropped dossier is refused by judgeDossierFloor", () => {
+    // The previous plant computed `observed.length >= plantedFloor.floor` in
+    // the test body and never called the judgment. Mutating the ratchet to
+    // return `{ok: true}` left it green. This one hands the mutated population
+    // to the real judge, so that mutation reds it.
+    const load = trackedFloor();
+    const observed = discovered();
+    const victim = observed[0]!;
+    const dropped = observed.filter((guard) => guard.path !== victim.path);
+
+    const verdict = judgeDossierFloor(load, dropped);
+    expect(verdict.ok, "a population that lost a recorded guard must be refused").toBe(false);
+    expect(verdict.code).toBe("guard_missing");
+    expect(verdict.detail).toContain(victim.path);
+    expect(createJudge(load)(dropped), "the bound judge is the same judgment").toEqual(verdict);
+  });
+
+  test("a fact MOVED between guards changes no count and is still refused", () => {
+    // The old floor recorded total size, size by guard and list length. Swapping
+    // one fact line between two guards preserves all three, which is the exact
+    // content move a count-only comparison could not see.
+    const load = trackedFloor();
+    const observed = discovered();
+    const [left, right] = observed;
+    expect(left, "the plant needs two guards").toBeDefined();
+    expect(right, "the plant needs two guards").toBeDefined();
+    const leftLine = left!.facts.lines[0]!;
+    const rightLine = right!.facts.lines[0]!;
+    const moved = observed.map((guard) => {
+      if (guard.path === left!.path) return { ...guard, facts: { path: guard.path, lines: [rightLine, ...guard.facts.lines.slice(1)] } };
+      if (guard.path === right!.path) return { ...guard, facts: { path: guard.path, lines: [leftLine, ...guard.facts.lines.slice(1)] } };
+      return guard;
+    });
+
+    // The counts a number-only floor compared are IDENTICAL.
+    expect(moved.length).toBe(observed.length);
+    expect(factLineCount(moved)).toBe(factLineCount(observed));
+    expect(moved.map((guard) => guard.facts.lines.length)).toEqual(observed.map((guard) => guard.facts.lines.length));
+
+    const verdict = judgeDossierFloor(load, moved);
+    expect(verdict.ok, "a line moved between guards must be refused").toBe(false);
+    expect(verdict.code).toBe("facts_changed");
+    expect(verdict.detail).toContain(left!.path);
+  });
+
+  test("an empty universe and an all-ignored universe are REFUSED, not skipped", () => {
+    // The previous arms read the door's SOURCE for the string "empty universe"
+    // and asserted a boolean about a population length. Neither can fail when
+    // the refusal branch is disabled but its message is left in the file.
+    const load = trackedFloor();
+    const observed = discovered();
+
+    expect(() => validateAllDossiers([]), "the door must throw on an empty universe").toThrowError(/empty universe/);
+
+    const empty = judgeDossierFloor(load, []);
+    expect(empty.ok).toBe(false);
+    expect(empty.code).toBe("universe_empty");
+
+    const allIgnored = judgeDossierFloor(load, observed, { ignoredPaths: () => true });
+    expect(allIgnored.ok, "an all-ignored universe is an empty one").toBe(false);
+    expect(allIgnored.code).toBe("universe_empty");
+
+    // …and hiding ONE guard is not an empty universe, but it is still a refusal:
+    // the ignore filter cannot quietly shrink the ratcheted set.
+    const oneIgnored = judgeDossierFloor(load, observed, {
+      ignoredPaths: (path) => path === observed[0]!.path,
+    });
+    expect(oneIgnored.ok).toBe(false);
+    expect(oneIgnored.code).toBe("guard_missing");
+
+    // SECONDARY ONLY: the behaviour above is the guard; this keeps the door's
+    // diagnostic from rotting away unnoticed.
+    const door = readFileSync(join(REPO_ROOT, modulePath("guard-dossier.ts")), "utf8");
+    expect(door).toContain("empty universe");
+    expect(PREVENTION_ESTATES.map((estate) => estate.dir)).toEqual([
       "tests/prevention",
       "engine/test/prevention",
     ]);
+  });
+
+  test("a @freshness-exempt reason that explains nothing is refused by the judge", () => {
+    // The exemption that kept the old floor out of the freshness census was
+    // never judged. These are the three dishonest shapes, driven through the
+    // ratchet's own verdict, plus one honest reason that must pass.
+    const load = trackedFloor();
+    const observed = discovered();
+    const subject = observed.find((guard) => guard.path === "tests/prevention/atomic-write-owner.test.ts");
+    expect(subject, "the plant's subject must be in the ratcheted population").toBeDefined();
+    const withMarker = (reason: string): readonly ObservedGuard[] =>
+      observed.map((guard) =>
+        guard.path === subject!.path
+          ? { ...guard, source: `${guard.source}\n/**\n * @freshness-exempt${reason.length > 0 ? ` ${reason}` : ""}\n */\n` }
+          : guard,
+      );
+
+    for (const [reason, expected] of [
+      ["", "has no reason"],
+      ["n/a", "placeholder"],
+      ["it was always done this way and the behaviour is unchanged by any future edit at all", "names nothing"],
+    ] as const) {
+      const verdict = judgeDossierFloor(load, withMarker(reason));
+      expect(verdict.ok, `reason ${JSON.stringify(reason)} must be refused`).toBe(false);
+      expect(verdict.code).toBe("exemption_reason");
+      expect(verdict.detail).toContain(expected);
+    }
+
+    const honest = judgeDossierFloor(
+      load,
+      withMarker("the atomic write owner preserves permission bits on real files, so the fixture is content complete"),
+    );
+    expect(honest.ok, honest.detail).toBe(true);
+  });
+
+  test("the floor is judged against the WHOLE population, not a subset", () => {
+    // A judge that only checked the first record (or a sample) would pass the
+    // real run and every plant above. Drop the LAST guard and require refusal.
+    const load = trackedFloor();
+    const observed = discovered();
+    const last = observed[observed.length - 1]!;
+    const verdict = judgeFloorSnapshot(load.snapshot, observed.slice(0, -1));
+    expect(verdict.ok).toBe(false);
+    expect(verdict.code).toBe("guard_missing");
+    expect(verdict.detail).toContain(last.path);
   });
 });
