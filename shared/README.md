@@ -42,6 +42,11 @@ two cannot drift.
 - `markdown.ts` — THE ONE MARKDOWN PARSER: markdown → plain nodes for the
   cockpit renderer, and `extractMarkdown` (links, reference definitions, code
   spans, with lines) for the repository's dead-link and briefing checks.
+- `markup.ts` — THE ONE MARKUP ESCAPE OWNER: HTML escaping, entity decoding,
+  Markdown table-cell escaping, tag stripping and comment/element removal,
+  each in one pass (no double unescaping, no token formed across a removed
+  region). `tests/public/markup-owner.test.mjs` refuses a hand-rolled copy
+  anywhere in the tree.
 
 ## Where it lives and what consumes it
 
@@ -58,6 +63,7 @@ The folder lives at `shared/`.
 - `html-preview.ts` is consumed by `src/state/web-ui-config.ts`.
 - `input-schemas.ts` is consumed by `server/routes/auto-checks.ts`, `server/routes/chats.ts`, `server/routes/projects.ts`, `src/state/auto-checks.ts`, `src/state/chats.ts`, `src/state/projects.ts`.
 - `markdown.ts` is consumed by `engine/src/workflow/markdown-links.ts`, `engine/src/workflow/record-links.ts`, `src/cockpit/render/MdBlocks.svelte`, `src/cockpit/render/MdInline.svelte`, `src/cockpit/render/Prose.svelte`, `src/cockpit/render/StreamText.svelte`.
+- `markup.ts` is consumed by nothing yet.
 - `module-contract.ts` is consumed by `server/schema/derive-modules.ts`, `server/schema/ui-declarations.ts`, `src/cockpit/rooms/instruments-data.ts`, `src/cockpit/settings/settings-data.ts`, `src/state/schema-store.ts`.
 - `provenance.ts` is consumed by `server/blocks/provenance.ts`, `src/cockpit/lens/LensCallout.svelte`, `src/cockpit/lens/lens-callout-data.ts`, `src/data/broker.ts`, `src/data/ledger.ts`, `src/state/lens.ts`.
 - `routes.ts` is consumed by `server/tools/ui-control.ts`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/shell/RightMenuHost.svelte`, `src/cockpit/shell/right-menu.ts`, `src/cockpit/shell/view-request.ts` and 3 more.
