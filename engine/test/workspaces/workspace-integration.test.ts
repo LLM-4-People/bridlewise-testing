@@ -41,6 +41,8 @@ import {
   registryRoot,
   TEST_INTEGRATOR_IDENTITY,
   TEST_TIMEOUTS,
+  testRepository,
+  trackBranch,
   writeFile,
 } from "./workspace-test-support.ts";
 import { repositoryRegistry } from "../../src/workflow/repository-registry.ts";
@@ -67,6 +69,13 @@ const PIN_C = "c".repeat(64);
 /** A pin-bearing generated output (a hash-binding target) and a wholly generated one, repository-relative. */
 const PIN_BEARING = "engine/src/kernel/root-policy.ts";
 const WHOLESALE = "engine/src/architecture-manifest.ts";
+/**
+ * The pin-bearing file's text: a REAL binding's pin (the config contract's
+ * `sourceSha256`, located by its registry `findRegex`) and an authored body.
+ */
+function pinned(pin: string, body: string): string {
+  return `export const POLICY = {\n  configuration: { contract: {\n    sourcePath: "${ROOT_POLICY.configuration.contract.sourcePath}",\n    sourceSha256: "${pin}",\n  } },\n  body: "${body}",\n};\n`;
+}
 
 test("happy path: create -> commit -> validate -> merge lands by fast-forward in the checkout holding the target, then tears down", async () => {
   const { root } = initTempRepo("ws-happy");
@@ -197,6 +206,7 @@ test("target not checked out anywhere: the land is a compare-and-swap of the ref
   const { root } = initTempRepo("ws-cas");
   const workspaceRoot = mkWorkspaceTempDir("ws-cas-wt");
   rawGit(root, ["branch", "side"]);
+  trackBranch(root, "side");
   const sideTip = rawGit(root, ["rev-parse", "side"]);
   const headBefore = rawGit(root, ["rev-parse", "HEAD"]);
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
@@ -301,7 +311,6 @@ test("not converged: a merge gate that rewrites a tracked file refuses the land 
 test("generated-output conflicts: a pin-only change and a wholly generated file resolve to the target; an authored change is reported", async () => {
   const { root } = initTempRepo("ws-pins");
   const workspaceRoot = mkWorkspaceTempDir("ws-pins-wt");
-  const pinned = (pin: string, body: string): string => `export const POLICY = {\n  pin: "${pin}",\n  body: "${body}",\n};\n`;
   commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
   commitFile(root, WHOLESALE, "export const MANIFEST = [\"base\"];\n");
   const base = rawGit(root, ["rev-parse", "HEAD"]);
@@ -342,7 +351,6 @@ test("generated-output conflicts: a pin-only change and a wholly generated file 
 test("the lease exempts a regeneration, never a path: an authored edit of a pin-bearing file or a README's prose needs a lease, a pin or consumer-block change does not, and another workspace's lease on it holds", async () => {
   const { root } = initTempRepo("ws-genonly");
   const workspaceRoot = mkWorkspaceTempDir("ws-genonly-wt");
-  const pinned = (pin: string, body: string): string => `export const POLICY = {\n  pin: "${pin}",\n  body: "${body}",\n};\n`;
   const readme = (prose: string, block: string): string => `# Module\n\n${prose}\n\n${README_CONSUMER_BLOCK.begin}\n${block}\n${README_CONSUMER_BLOCK.end}\n`;
   commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
   commitFile(root, "src/mod/README.md", readme("Hand-written prose.", "- consumer a"));
@@ -966,7 +974,7 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
       persisted = { ...next, revision: next.revision + 1 };
       return persisted;
     } };
-    const failing = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(),
+    const failing = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), repository: testRepository,
       records,
       git: { ...git,
         worktreeRemove(options) { if (failure === "worktree-remove") throw injected; return git.worktreeRemove(options); },
@@ -988,7 +996,7 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
     } finally { source.close(); canonical.close(); }
     // The integrator is gone: recover finishes whatever teardown remained.
     inject = false;
-    const recovering = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), records, git });
+    const recovering = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), repository: testRepository, records, git });
     assert.equal((await recovering.recover(record.workspaceId)).state, "merged");
     assert.equal(existsSync(record.lease.worktreePath), false);
     assert.equal(rawGit(root, ["branch", "--list", record.lease.branch!]), "");
