@@ -11,12 +11,11 @@
  *
  * Nothing here has a DEFAULT, deliberately. See `readCpuBudget`.
  */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import { readConfigRaw } from "../../server/kernel/harness-config.ts";
 import { getConfigDocumentSchema } from "../../engine/src/kernel/config.ts";
 import { TEST_INCLUDE } from "../test-include.ts";
+import { supportedTestFiles } from "./test-manifest.ts";
 // TYPE ONLY — the shape belongs to the decision module that judges it, and a
 // second declaration here would be a second source of truth for the field
 // names the config schema requires. Erased at runtime, so this costs nothing.
@@ -309,20 +308,9 @@ export function fullRunGlobs(): readonly string[] {
   return TEST_INCLUDE;
 }
 
-const REPOSITORY_ROOT = resolve(import.meta.dirname, "../..");
-
-/** How many test files a FULL run covers. */
+/** How many test files a FULL run covers: the manifest's supported population. */
 export function fullRunModuleCount(): number {
-  // The MANIFEST owns the population: every live test file is either judged
-  // by a full run or excluded with a declared reason (the private artifacts a
-  // public snapshot does not publish). Counting the glob here would judge a
-  // population no run can be clean over, so this reads the one owner.
-  const manifest = readFileSync(resolve(REPOSITORY_ROOT, "tests", "test-shards.json"), "utf8");
-  const parsed = JSON.parse(manifest) as { files?: unknown };
-  if (!Array.isArray(parsed.files) || parsed.files.length === 0) {
-    throw new Error("tests/test-shards.json declares no supported files");
-  }
-  return parsed.files.length;
+  return supportedTestFiles().length;
 }
 
 /**

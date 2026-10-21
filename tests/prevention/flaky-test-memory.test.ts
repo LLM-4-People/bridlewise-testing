@@ -39,6 +39,7 @@ import { createTempDir } from "../helpers/temp-dir.ts";
 import { appendJudgedRun } from "../helpers/budget-history.ts";
 import type { JudgedRunRecord } from "../helpers/budget-verdict.ts";
 import { BUDGET_HISTORY_PATH } from "../helpers/budget-paths.ts";
+import { excludedTestFiles } from "../helpers/test-manifest.ts";
 import {
   flakySuspectsWithin,
   flakyVerdictWithin,
@@ -310,7 +311,18 @@ describe("flaky-test memory — the web suite's consumption of the shared verdic
     // regeneration the same way: a row the current report postdates is the
     // known pre-mint state (explained + said), and a failure at or after it
     // reds as the recurrence it is. The web suite has no live suite.
-    const entries = readRunFailureRows(BUDGET_HISTORY_PATH);
+    // A file the manifest EXCLUDES from the supported population is not a
+    // flake suspect: it was never part of the run being judged. Its failure
+    // is explained by the exclusion (a declared refusal, with a reason), not
+    // by a re-run — and the population owner is the manifest, read once.
+    const excluded = excludedTestFiles();
+    const entries = readRunFailureRows(BUDGET_HISTORY_PATH).map((entry) => ({
+      ...entry,
+      failures: entry.failures.filter((identity) => !excluded.has(identity.split("::")[0] ?? identity)),
+    }));
+    if (excluded.size > 0) {
+      console.info(`flaky-test memory: ${String(excluded.size)} file(s) excluded from the supported population are not judged here (tests/test-shards.json)`);
+    }
     const judgement = await judgeFlakyMemory({
       suite: "web", engineRoot: join(process.cwd(), "engine"), entries, ownPrefix: OWN_PREFIX, guardFile: GUARD_FILE,
       regenerated: reportRegeneration(entries.flatMap((entry) => entry.failures)), suites: null,
