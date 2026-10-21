@@ -137,14 +137,20 @@
            This gauge is the MEASURED use (what the last composed request
            actually held); the desk composes what the NEXT one will. -->
       <span class="engraved">Context used</span>
-      <span class="value">{ctx.contextTokenLimit !== undefined ? `${pct}%` : `${fmt(ctx.contextTokens)} tok`}</span>
+      <span class="value">{pct !== null ? `${pct}%` : `${fmt(ctx.contextTokens)} tok`}</span>
       {#if $isStreaming && !past}<span class="live" aria-label="run streaming">●</span>{/if}
     </span>
-    {#if ctx.contextTokenLimit !== undefined}
-      <div class="tick-track" role="img" aria-label="context {pct}% of {fmt(ctx.contextTokenLimit)} tokens">
-        <div class="tick-fill" style:width="{Math.min(PCT_FULL, pct ?? 0)}%"></div>
+    {#if pct !== null}
+      <div class="tick-track" role="img" aria-label="context {pct}% of {fmt(ctx.contextTokenLimit!)} tokens">
+        <div class="tick-fill" style:width="{Math.min(PCT_FULL, pct)}%"></div>
       </div>
-      <div class="detail">{fmt(ctx.contextTokens)} / {fmt(ctx.contextTokenLimit)} tok{liveTps !== null ? ` · ${liveTps} tok/s` : ""}</div>
+      <div class="detail">{fmt(ctx.contextTokens)} / {fmt(ctx.contextTokenLimit!)} tok{liveTps !== null ? ` · ${liveTps} tok/s` : ""}</div>
+    {:else if ctx.contextTokenLimit !== undefined}
+      <!-- ABSENCE IS NOT 0%. A reported limit that cannot yield a share (zero
+           or negative) leaves the percentage unmeasured: no `null%`, no
+           0-width fill, and the state named in words. The token count is still
+           the measured one, so it stays. -->
+      <div class="detail context-unavailable" data-context-pct="unavailable">percentage unavailable — the run reported a {fmt(ctx.contextTokenLimit)}-token limit</div>
     {/if}
     </button>
   {:else if past}

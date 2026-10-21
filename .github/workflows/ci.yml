@@ -49,8 +49,8 @@ jobs:
 
       - name: Verify the shard manifest accounts for every live test file
         run: |
-          npx vitest list --filesOnly --json > "$RUNNER_TEMP/live-manifest.json"
-          node scripts/test-shard-manifest.mjs verify \
+          npm run test:list -- --out "$RUNNER_TEMP/live-manifest.json"
+          npm run test:verify-shards -- \
             --manifest tests/test-shards.json \
             --live "$RUNNER_TEMP/live-manifest.json"
 

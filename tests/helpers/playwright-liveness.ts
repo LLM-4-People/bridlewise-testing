@@ -43,9 +43,16 @@ import {
  * nothing is the strongest form of this defect: zero candidates means zero
  * dead patterns, so a per-pattern rule would certify a declaration that
  * selects nothing at all.
+ *
+ * `configDir` is REQUIRED and is the directory of the config that declares
+ * `testDir`. Playwright resolves a relative `testDir` against the config
+ * module, not the shell's cwd; resolving it against `process.cwd()` here made
+ * both configs refuse to load from another directory (measured:
+ * `cd /tmp && node … import("playwright.config.ts")` threw
+ * `ENOENT … /tmp/tests`).
  */
-export function specPathsUnder(testDir: string): string[] {
-  const root = resolve(testDir);
+export function specPathsUnder(testDir: string, configDir: string): string[] {
+  const root = resolve(configDir, testDir);
   let entries: string[];
   try {
     entries = readdirSync(root);
@@ -84,13 +91,18 @@ export function specPathsUnder(testDir: string): string[] {
  * Throws rather than returning a verdict, because this runs while the config
  * is being loaded and a returned verdict is a verdict a caller can forget to
  * read.
+ *
+ * `configDir` is the config module's own directory (`import.meta.dirname`),
+ * so a relative `testDir` is resolved the way Playwright resolves it — from
+ * the config — and never from wherever the process was started.
  */
 export function assertSpecPatternsAreLive(
   subject: string,
   testDir: string,
   trees: readonly string[],
+  configDir: string,
 ): void {
-  const specs = specPathsUnder(testDir);
+  const specs = specPathsUnder(testDir, configDir);
   if (specs.length === 0) {
     throw new Error(
       `${subject}: testDir "${testDir}" holds no *.spec.ts files at all. Playwright would ` +

@@ -35,7 +35,7 @@ import {
   imageMediaType,
   type FileReadResult,
 } from "../filesystem/editor-bridge.ts";
-import { BadRequestError } from "../kernel/errors.ts";
+import { BadRequestError, NotFoundError } from "../kernel/errors.ts";
 import { requireUserContext } from "../auth/user-context.ts";
 import { makeFsGate, effectiveProjectRoot, assertProjectPathOwnership } from "../filesystem/fs-gate.ts";
 import { MAX_FILE_CONTENT_LENGTH } from "../../shared/constants.ts";
@@ -258,7 +258,7 @@ export function registerEditorRoutes(router: Router, db: AsyncDbClient): void {
     const body = assertValidBody(RESTORE_SCHEMA, ctx.body, "invalid_restore_body");
     const listed = listRecycledFiles().find((f) => f.id === body.id);
     if (listed === undefined) {
-      throw new BadRequestError("That recycle entry is gone", "recycle_not_found");
+      throw new NotFoundError("That recycle entry is gone", "recycle_not_found");
     }
     const gate = await makeFsGate(user.userId, db, listed.projectRoot);
     const result = restoreFile(body.id, gate);

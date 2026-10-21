@@ -92,7 +92,7 @@ import { readSettingsDocument } from "../kernel/harness-config.ts";
 import { sharedAgentStateStore } from "./agents-bridge.ts";
 import { recordLlmCall } from "../observability/metrics-recorder.ts";
 import { webWarn } from "../observability/debug-bridge.ts";
-import { ValidationError, NotFoundError } from "../kernel/errors.ts";
+import { ValidationError, AgentsNotConfiguredError } from "../kernel/errors.ts";
 import {
   parseDelegationRestrictions,
   resolveDelegationRestrictions,
@@ -144,7 +144,7 @@ function resolveAgents(): ResolvedAgents {
   }
   const agentsConfig = resolveAgentsConfig(parsed.data);
   if (agentsConfig === undefined || agentsConfig.profiles.length === 0) {
-    throw new NotFoundError(
+    throw new AgentsNotConfiguredError(
       "No agents are configured. Add an `agents` section (with at least one profile naming a provider and model the `runtime.providers` section declares) to the harness configuration to enable delegation.",
       "agents_not_configured",
     );

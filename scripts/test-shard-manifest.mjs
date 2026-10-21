@@ -20,6 +20,7 @@
  * manifest does not carry.
  */
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -178,12 +179,104 @@ export function readManifest(root, manifestPath) {
   };
 }
 
-/** Verify the checked-in manifest against a live `vitest list` output. */
-export function verifyManifest({ root = process.cwd(), manifestPath, livePath }) {
+/**
+ * The content identity of the working tree at `root`: every tracked and
+ * untracked-not-ignored file, hashed with its repository-relative path.
+ *
+ * `vitest list` never runs the global setup, so the listing process takes no
+ * source fingerprint (and no instrument lock — that gap is stated in
+ * `docs/testing.md`). The listing command below supplies the missing
+ * fingerprint: it reads this identity before and after the listing and
+ * refuses a tree that moved. Verification recomputes it and refuses a listing
+ * recorded against another tree or another checkout.
+ */
+export function treeFingerprint(root = process.cwd()) {
+  const repositoryRoot = resolve(root);
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: repositoryRoot, encoding: "utf8" });
+  if (top.status !== 0) fail(`tree identity: ${repositoryRoot} is not inside a git repository`);
+  if (resolve(top.stdout.trim()) !== repositoryRoot) {
+    fail(`tree identity: ${repositoryRoot} is not the repository root (${top.stdout.trim()})`);
+  }
+  const listed = spawnSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (listed.status !== 0) fail(`tree identity: git could not list ${repositoryRoot}: ${listed.stderr ?? ""}`);
+  const paths = [...new Set(listed.stdout.split("\0").filter((path) => path.length > 0))].sort();
+  if (paths.length === 0) fail(`tree identity: ${repositoryRoot} has no tracked or untracked file — an empty tree has no state`);
+  const hash = createHash("sha256");
+  for (const path of paths) {
+    hash.update(path);
+    hash.update("\0");
+    hash.update(readFileSync(resolve(repositoryRoot, path)));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * `vitest list --filesOnly --json`, wrapped with the tree identity it selected
+ * from. `run` is injectable so a test can drive a tree that moves mid-listing.
+ */
+export function listTestFiles({ root = process.cwd(), run = spawnSync } = {}) {
+  const repositoryRoot = resolve(root);
+  const tree = treeFingerprint(repositoryRoot);
+  const listing = run("npx", ["vitest", "list", "--filesOnly", "--json"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (listing.error !== undefined) fail(`test listing: could not start vitest: ${listing.error.message}`);
+  if (listing.status !== 0) fail(`test listing: vitest list exited ${String(listing.status)}\n${listing.stderr ?? ""}`);
+  let files;
+  try {
+    files = JSON.parse(listing.stdout);
+  } catch (error) {
+    fail(`test listing: vitest did not print JSON: ${error.message}`);
+  }
+  if (!Array.isArray(files) || files.length === 0) fail("test listing: vitest selected no files");
+  const after = treeFingerprint(repositoryRoot);
+  if (after !== tree) {
+    fail(
+      `test listing: the working tree changed while the listing ran (before ${tree}, after ${after}). ` +
+        "A listing from two trees is not a state any manifest can be verified against.",
+    );
+  }
+  return { schemaVersion: "bridlewise-test-listing/v1", tree, files };
+}
+
+/** Verify the checked-in manifest against a TREE-BOUND `vitest list` output. */
+export function verifyManifest({ root = process.cwd(), manifestPath, livePath, tree }) {
+  if (typeof tree !== "string" || tree.length === 0) {
+    fail(
+      "live manifest: a working-tree identity is required. A plain `vitest list` output is not bound " +
+        "to any tree state (the verb does not run the global setup, so it takes no lock and no " +
+        "fingerprint). Produce the listing with `npm run test:list`, which wraps it with the tree " +
+        "identity it selected from, and pass that identity as `tree`.",
+    );
+  }
   const repositoryRoot = resolve(root);
   const manifest = readManifest(repositoryRoot, manifestPath);
-  const live = readJson(livePath, "live manifest");
-  if (!Array.isArray(live) || live.length === 0) fail("live manifest: expected a non-empty array");
+  const liveDocument = readJson(livePath, "live manifest");
+  if (Array.isArray(liveDocument)) {
+    fail(
+      "live manifest: a plain array from `vitest list` is not accepted — it is bound to no tree " +
+        "state, so it could have been selected from another checkout or while the tree was moving. " +
+        "Use `npm run test:list`.",
+    );
+  }
+  if (liveDocument === null || typeof liveDocument !== "object" || liveDocument.schemaVersion !== "bridlewise-test-listing/v1") {
+    fail("live manifest: expected a `bridlewise-test-listing/v1` document from `npm run test:list`");
+  }
+  if (liveDocument.tree !== tree) {
+    fail(
+      `live manifest: the listing is bound to tree ${String(liveDocument.tree)}, not the tree being ` +
+        `verified (${tree}). A listing taken while the tree was different cannot certify this tree.`,
+    );
+  }
+  const live = liveDocument.files;
+  if (!Array.isArray(live) || live.length === 0) fail("live manifest: expected a non-empty `files` array");
   const liveFiles = live.map((entry, index) => {
     if (entry === null || typeof entry !== "object") fail(`live manifest: entry ${index} is not an object`);
     return normalizeFile(repositoryRoot, entry.file, `live manifest entry ${index}`);
@@ -449,6 +542,7 @@ function parseArgs(argv) {
     if (arg === "--root") options.root = argv[++index];
     else if (arg === "--manifest") options.manifestPath = argv[++index];
     else if (arg === "--live") options.livePath = argv[++index];
+    else if (arg === "--tree") options.tree = argv[++index];
     else if (arg === "--shards") options.shardCount = Number(argv[++index]);
     else if (arg === "--head") options.headSha = argv[++index];
     else if (arg === "--out-dir") options.outDir = argv[++index];
@@ -469,10 +563,16 @@ function parseArgs(argv) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const options = parseArgs(process.argv.slice(2));
-    if (options.command === "verify") {
+    if (options.command === "list") {
+      const listing = listTestFiles({ root: options.root });
+      const text = `${JSON.stringify(listing, null, 2)}\n`;
+      if (options.outPath) writeFileSync(resolve(options.outPath), text);
+      else process.stdout.write(text);
+    } else if (options.command === "verify") {
       if (!options.manifestPath || !options.livePath) fail("verify requires --manifest and --live");
+      if (options.tree === undefined) options.tree = treeFingerprint(options.root);
       const verdict = verifyManifest(options);
-      process.stdout.write(`shard manifest: ${verdict.fileCount} supported, ${verdict.excludedCount} excluded, ${verdict.liveCount} live, ${verdict.manifestHash.slice(0, 12)}\n`);
+      process.stdout.write(`shard manifest: ${verdict.fileCount} supported, ${verdict.excludedCount} excluded, ${verdict.liveCount} live, ${verdict.manifestHash.slice(0, 12)} at tree ${options.tree.slice(0, 12)}\n`);
     } else if (options.command === "plan") {
       if (!options.manifestPath || !options.outDir || !options.headSha || !options.shardCount) {
         fail("plan requires --manifest, --shards, --head, and --out-dir");
@@ -499,7 +599,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       wrapShardReport(options);
       process.stdout.write(`shard report: shard ${options.shard} wrapped\n`);
     } else {
-      fail("command must be verify, plan, measure, or wrap");
+      fail("command must be list, verify, plan, measure, or wrap");
     }
   } catch (error) {
     process.stderr.write(`shard manifest refused: ${error.message}\n`);

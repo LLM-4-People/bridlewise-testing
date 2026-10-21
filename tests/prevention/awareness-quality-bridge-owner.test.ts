@@ -76,6 +76,7 @@ import { makeFsGate, type FsGate } from "../../server/filesystem/fs-gate.ts";
 import { ForbiddenError, BadRequestError, AwarenessNotReadyError } from "../../server/kernel/errors.ts";
 import { walkTs, valueReferencesModule, referencesModule } from "../helpers/source-scan.ts";
 import { bodyCallsWith, exportedFunctionParameters, functionBody, type SourceScope } from "../helpers/function-scope.ts";
+import { escapeRe } from "../helpers/control-floor.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
 // The run path is FIVE modules since the executor was split out of the GET
 // handler that used to be it. This guard asks about the run path, not about
@@ -178,10 +179,6 @@ afterAll(() => {
 });
 
 // ── helpers ──
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 // ── A. source-scan: the bridges are the single owners ──
 
@@ -455,14 +452,14 @@ describe("E. route-level: routes go through the bridges + gate", () => {
     const src = readFileSync(join(ROUTES_DIR, "awareness.ts"), "utf8");
     expect(src).toContain("../awareness/awareness-bridge.ts");
     // No direct import of the canonical awareness subsystem.
-    expect(src).not.toMatch(new RegExp(`from\\s*["'][^"']*${escapeRegex(CANONICAL_AWARENESS_PREFIX)}`));
+    expect(src).not.toMatch(new RegExp(`from\\s*["'][^"']*${escapeRe(CANONICAL_AWARENESS_PREFIX)}`));
   });
 
   test("routes/quality.ts imports quality ops from the bridge, NOT the canonical source", () => {
     const src = readFileSync(join(ROUTES_DIR, "quality.ts"), "utf8");
     expect(src).toContain("../awareness/quality-bridge.ts");
     // No direct import of the canonical quality subsystem.
-    expect(src).not.toMatch(new RegExp(`from\\s*["'][^"']*${escapeRegex(CANONICAL_QUALITY_PREFIX)}`));
+    expect(src).not.toMatch(new RegExp(`from\\s*["'][^"']*${escapeRe(CANONICAL_QUALITY_PREFIX)}`));
   });
 
   test("routes/awareness.ts constructs the gate via makeFsGate + requireUserContext", () => {
@@ -584,7 +581,7 @@ describe("G. runner bypass: server-verified paths omit the gate BY DESIGN", () =
     // the bridge (not the canonical source — that would be a bypass).
      const src = readFileSync(join(SERVER_DIR, "awareness/auto-check-runner.ts"), "utf8");
      expect(src).toContain("./quality-bridge.ts");
-    expect(src).not.toMatch(new RegExp(`from\\s*["'][^"']*${escapeRegex(CANONICAL_QUALITY_PREFIX)}`));
+    expect(src).not.toMatch(new RegExp(`from\\s*["'][^"']*${escapeRe(CANONICAL_QUALITY_PREFIX)}`));
     // THE RUNNER NOW FORWARDS THE GATE, and this assertion is inverted
     // deliberately rather than deleted. It used to pin the opposite —
     // "getQualityIndicatorAsync(projectPath)", the runner omitting the gate BY
@@ -610,7 +607,7 @@ describe("G. runner bypass: server-verified paths omit the gate BY DESIGN", () =
     // there. A guard keyed to the number of dots measures where a file lives,
     // not what it depends on.
     expect(src).toContain("awareness/quality-bridge.ts");
-    expect(src).not.toMatch(new RegExp(`from\\s*["'][^"']*${escapeRegex(CANONICAL_QUALITY_PREFIX)}`));
+    expect(src).not.toMatch(new RegExp(`from\\s*["'][^"']*${escapeRe(CANONICAL_QUALITY_PREFIX)}`));
   });
 
   test("routes/run.ts verifies project ownership via db.getProject(id, userId) BEFORE binding active.projectPath (the authoritative binding point)", () => {

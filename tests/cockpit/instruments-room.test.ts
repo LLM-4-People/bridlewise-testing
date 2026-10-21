@@ -695,6 +695,43 @@ describe("the actions fold — the module's act-on-the-system surface", () => {
     });
   });
 
+  test("an action that returned NOTHING renders absence, never the string \"null\"", async () => {
+    // THE DEFECT THIS PINS: `compactActionResult` ended
+    // `JSON.stringify(result) ?? "null"`, and `JSON.stringify(undefined)` is
+    // `undefined` — so an action whose execute returned nothing printed
+    // "Retrieve Memory — done · null", a value nobody sent.
+    executeActionMock.mockResolvedValueOnce(undefined);
+    const { container } = openAllFolds();
+    const retrieve = container.querySelector<HTMLButtonElement>(
+      '[data-verb-id="actions/context.retrieveMemory"]',
+    )!;
+    fireEvent.click(retrieve);
+    await waitFor(() => {
+      expect(
+        container.querySelector('[data-action-id="context.retrieveMemory"] [role="status"]')
+          ?.textContent,
+      ).toContain("the action ran and returned no result");
+    });
+    const line = container.querySelector('[data-action-id="context.retrieveMemory"] [role="status"]')!;
+    expect(line.textContent).not.toContain("null");
+    expect(line.textContent).toContain("Retrieve Memory — done");
+  });
+
+  test("a JSON null result is still shown as the value the action returned", async () => {
+    // The other half: a real `null` result is a measured value, not absence.
+    executeActionMock.mockResolvedValueOnce(null);
+    const { container } = openAllFolds();
+    fireEvent.click(
+      container.querySelector<HTMLButtonElement>('[data-verb-id="actions/context.retrieveMemory"]')!,
+    );
+    await waitFor(() => {
+      expect(
+        container.querySelector('[data-action-id="context.retrieveMemory"] [role="status"]')
+          ?.textContent,
+      ).toContain("done · null");
+    });
+  });
+
   test("an action with REQUIRED arguments renders disabled with its reason and runs nothing", () => {
     const { container } = openAllFolds();
     const setTier = container.querySelector<HTMLButtonElement>(

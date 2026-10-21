@@ -16,49 +16,10 @@
 import { describe, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
-import { SOURCE_EXTS, walk } from "../helpers/source-scan.ts";
+import { SOURCE_EXTS, matchBrace, skipString, walk } from "../helpers/source-scan.ts";
 
 const ROOTS = ["src", "server", "scripts"] as const;
 const MIN_BODY_LEN = 150;
-
-function matchBrace(src: string, openIdx: number): number {
-  let depth = 1;
-  let i = openIdx + 1;
-  while (i < src.length && depth > 0) {
-    const ch = src[i]!;
-    if (ch === "/" && src[i + 1] === "/") {
-      const nl = src.indexOf("\n", i);
-      i = nl === -1 ? src.length : nl + 1;
-      continue;
-    }
-    if (ch === "/" && src[i + 1] === "*") {
-      const close = src.indexOf("*/", i + 2);
-      i = close === -1 ? src.length : close + 2;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") { i = skipString(src, i, ch); continue; }
-    if (ch === "{") depth += 1;
-    else if (ch === "}") depth -= 1;
-    i += 1;
-  }
-  return depth === 0 ? i - 1 : -1;
-}
-
-function skipString(src: string, i: number, quote: string): number {
-  let j = i + 1;
-  while (j < src.length) {
-    const c = src[j]!;
-    if (c === "\\") { j += 2; continue; }
-    if (quote === "`" && c === "$" && src[j + 1] === "{") {
-      const close = matchBrace(src, j + 1);
-      j = close === -1 ? src.length : close + 1;
-      continue;
-    }
-    if (c === quote) return j + 1;
-    j += 1;
-  }
-  return src.length;
-}
 
 /** Normalize a body: strip comments, collapse all whitespace runs to one space. */
 function normalize(body: string): string {

@@ -17,6 +17,7 @@ import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./mod
 import { currentConfigContractArtifact, generateAutoGeneratorReport, type AutoGeneratorReport } from "./auto-generator.ts";
 import {
   generatedOutputPaths,
+  generatedReadmePaths,
   repairAllBindings,
   verifyAllBindings,
   type BindingRepairReport,
@@ -1126,8 +1127,22 @@ export function regenerateReadmeConsumers(root: string, write: boolean): ReadmeC
   const absent = deepFreeze({ status: "absent" as const, converged: true, readmes: 0, changed: [] });
   const repositoryRoot = repositoryToplevel(root, "directory");
   if (repositoryRoot === undefined) return absent;
+  // THE POPULATION IS THE MARKED READMES, NOT THE GENERATOR'S EXISTENCE. A
+  // missing generator used to answer `absent`/converged no matter how many
+  // marked READMEs were waiting — the checker's absence was read as the
+  // subject's absence. Only a tree with NO marked README has nothing to
+  // generate; a tree that has them and lost the generator is stale, named.
+  const readmes = generatedReadmePaths(repositoryRoot);
   const generator = resolve(repositoryRoot, README_CONSUMER_BLOCK.generator);
-  if (!existsSync(generator)) return absent;
+  if (!existsSync(generator)) {
+    if (readmes.length === 0) return absent;
+    return deepFreeze({
+      status: "stale" as const,
+      converged: false,
+      readmes: readmes.length,
+      changed: [`${README_CONSUMER_BLOCK.generator} (missing; ${String(readmes.length)} marked README(s) still need it)`],
+    });
+  }
   const report = generatorReport<"current" | "regenerated" | "stale">(root, generator, [write ? "--write" : "--check", `--root=${repositoryRoot}`], "the README consumer generator", "readme_consumers_no_result");
   return deepFreeze({ status: report.status, converged: report.allCurrent, readmes: typeof report["readmes"] === "number" ? report["readmes"] : 0, changed: report.changed });
 }

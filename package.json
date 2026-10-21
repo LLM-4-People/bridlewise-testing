@@ -43,6 +43,8 @@
     "bridlewise": "node bin/bridlewise.mjs",
     "preflight": "node bin/bridlewise.mjs preflight",
     "test:public": "node --test tests/public/*.test.mjs",
+    "test:list": "node scripts/test-shard-manifest.mjs list",
+    "test:verify-shards": "node scripts/test-shard-manifest.mjs verify",
     "check:secrets": "node scripts/check-secrets.mjs",
     "verify:public": "npm run typecheck && npm run check:secrets && npm run test:public",
     "docs:links": "node scripts/check-docs-links.mjs",

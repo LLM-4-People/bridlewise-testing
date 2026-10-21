@@ -76,11 +76,11 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=no)"
 
       - name: Enumerate what the runner actually selects
-        run: npx vitest list --filesOnly --json > "$RUNNER_TEMP/live-manifest.json"
+        run: npm run test:list -- --out "$RUNNER_TEMP/live-manifest.json"
 
       - name: Verify the checked-in manifest accounts for every live file
         run: |
-          node scripts/test-shard-manifest.mjs verify \
+          npm run test:verify-shards -- \
             --manifest tests/test-shards.json \
             --live "$RUNNER_TEMP/live-manifest.json"
 

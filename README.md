@@ -143,10 +143,12 @@ The supported shard set is `tests/test-shards.json`. Verify it against the runne
 
 ```bash
 mkdir -p .bridlewise/shard-plan
-npx vitest list --filesOnly --json > .bridlewise/shard-plan/live-manifest.json
-node scripts/test-shard-manifest.mjs verify --manifest tests/test-shards.json --live .bridlewise/shard-plan/live-manifest.json
+npm run test:list -- --out .bridlewise/shard-plan/live-manifest.json
+npm run test:verify-shards -- --manifest tests/test-shards.json --live .bridlewise/shard-plan/live-manifest.json
 node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
 ```
+
+`test:list` records a content fingerprint of the working tree before and after `vitest list`; `test:verify-shards` recomputes it and refuses a listing from another tree, another checkout, or a tree that moved while the listing ran. A bare `vitest list` does not run the global setup, so it takes no instrument lock or source fingerprint; its raw output is not accepted.
 
 The shard workflow is `.github/workflows/test-shards.yml`; CI calls it as the `shards` job on pushes and pull requests to `main`, and it remains dispatchable. Making it a required check is a branch-protection setting. See [docs/testing.md](docs/testing.md) for the full matrix, the named exclusions, and the receipt contract.
 

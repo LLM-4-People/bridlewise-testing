@@ -254,21 +254,61 @@ export function pinAuthorities(): readonly PinAuthority[] {
  * product tree whose authority file is missing is a defect the run reports
  * as an error, never a silent skip.
  */
-export function authoritiesOwedByTree(root: string): readonly PinAuthority[] {
-  return pinAuthorities().filter(
+export function authoritiesOwedByTree(
+  root: string,
+  authorities: readonly PinAuthority[] = pinAuthorities(),
+): readonly PinAuthority[] {
+  return authorities.filter(
     (authority) => !authority.testingOnly || existsSync(resolve(root, authority.targetPath)),
   );
 }
 
-function run(argv: readonly string[]): number {
-  const mode = argv[0] ?? "--check";
-  if (argv.length !== 1 || (mode !== "--check" && mode !== "--write")) {
-    throw new InputError("Usage: pin-authority-regeneration [--check|--write]", "input_error");
+/** One authority's verdict in a regeneration report. */
+export type PinAuthorityArmResult = Readonly<{
+  id: string;
+  status: "current" | "regenerated" | "stale" | "error";
+  pins: number;
+  stale: number;
+  changed: boolean;
+  projection?: "current" | "regenerated" | "absent";
+  message?: string;
+}>;
+
+/** The whole regeneration report: one verdict per OWED registered authority. */
+export type PinAuthorityReport = Readonly<{
+  schemaVersion: string;
+  mode: "--check" | "--write";
+  allCurrent: boolean;
+  results: readonly PinAuthorityArmResult[];
+}>;
+
+/**
+ * Judge every pin authority this tree owes — the ONE report the CLI prints and
+ * the guard drives. `authorities` is injectable so the POPULATION can be
+ * planted in a test: an emptied registration refuses instead of converging by
+ * the absence of its own subject (a checker that returns zero verdicts and
+ * `allCurrent: true` is a gate over nothing).
+ */
+export function judgePinAuthorities(
+  root: string,
+  options: Readonly<{ write?: boolean; authorities?: readonly PinAuthority[] }> = {},
+): PinAuthorityReport {
+  const write = options.write === true;
+  const registered = options.authorities ?? pinAuthorities();
+  if (registered.length === 0) {
+    throw new InputError(
+      "no pin authorities are registered — an empty population would converge by absence and own no pin",
+      "input_error",
+    );
   }
-  const root = fileURLToPath(new URL("../", import.meta.url));
-  const write = mode === "--write";
-  const authorities = authoritiesOwedByTree(root);
-  const results = authorities.map((authority) => {
+  const owed = authoritiesOwedByTree(root, registered);
+  if (owed.length === 0) {
+    throw new InputError(
+      "no registered pin authority is owed by this tree — every registration is testing-only and absent, so a green report would certify no pin",
+      "input_error",
+    );
+  }
+  const results = owed.map((authority): PinAuthorityArmResult => {
     try {
       const { verdicts, changed } = rederiveObjectPins(root, authority.targetPath, write);
       const stale = verdicts.filter((v) => v.status === "stale");
@@ -302,13 +342,23 @@ function run(argv: readonly string[]): number {
     }
   });
   const allCurrent = results.every((r) => r.status === "current" || r.status === "regenerated");
-  process.stdout.write(`${canonicalJson({
+  return deepFreeze({
     schemaVersion: "bridlewise-pin-authority-regeneration/v1",
-    mode,
+    mode: write ? "--write" : "--check",
     allCurrent,
-    results,
-  })}\n`);
-  return allCurrent ? 0 : 1;
+    results: deepFreeze(results),
+  });
+}
+
+function run(argv: readonly string[]): number {
+  const mode = argv[0] ?? "--check";
+  if (argv.length !== 1 || (mode !== "--check" && mode !== "--write")) {
+    throw new InputError("Usage: pin-authority-regeneration [--check|--write]", "input_error");
+  }
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const report = judgePinAuthorities(root, { write: mode === "--write" });
+  process.stdout.write(`${canonicalJson(report)}\n`);
+  return report.allCurrent ? 0 : 1;
 }
 
 if (isEntryPoint(import.meta.url)) {

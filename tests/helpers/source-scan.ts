@@ -270,6 +270,65 @@ export function sourceFilesMentioning(
  */
 
 /**
+ * Skip one quoted string / template starting at `i`, returning the index just
+ * past its closing quote (or the end of the source when it is unterminated).
+ *
+ * A template's `${…}` is an EXPRESSION, not text: it is skipped by balancing
+ * braces, so a quote inside an interpolation does not close the template. This
+ * is a lexical primitive shared by the scans that have to walk a source body
+ * without a parser — it is deliberately not exported from a product module.
+ */
+export function skipString(src: string, i: number, quote: string): number {
+  let j = i + 1;
+  while (j < src.length) {
+    const c = src[j]!;
+    if (c === "\\") { j += 2; continue; }
+    if (quote === "`" && c === "$" && src[j + 1] === "{") {
+      const close = matchBrace(src, j + 1);
+      j = close === -1 ? src.length : close + 1;
+      continue;
+    }
+    if (c === quote) return j + 1;
+    j += 1;
+  }
+  return src.length;
+}
+
+/**
+ * Match the brace that closes the `{` at `openIdx`, skipping comments and
+ * string/template/regex literals so a brace in prose or in a literal is not
+ * structure. Returns the closing brace's index, or `-1` when unbalanced.
+ *
+ * THE SHARED LEXICAL OWNER. Two test files carried byte-identical private
+ * copies (`skipString` in `error-scan.ts` and the duplicate-code guard), which
+ * no duplicate-helper scan could see while it read only helper EXPORTS. The
+ * primitive lives here, exported, so both consumers import it and a copy is
+ * visible to that scan.
+ */
+export function matchBrace(src: string, openIdx: number): number {
+  let depth = 1;
+  let i = openIdx + 1;
+  while (i < src.length && depth > 0) {
+    const ch = src[i]!;
+    if (ch === "/" && src[i + 1] === "/") {
+      const nl = src.indexOf("\n", i);
+      i = nl === -1 ? src.length : nl + 1;
+      continue;
+    }
+    if (ch === "/" && src[i + 1] === "*") {
+      const close = src.indexOf("*/", i + 2);
+      i = close === -1 ? src.length : close + 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") { i = skipString(src, i, ch); continue; }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") depth -= 1;
+    i += 1;
+  }
+  return depth === 0 ? i - 1 : -1;
+}
+
+/**
  * WHAT A DROP VIEW PRINTS FOR A SPAN IT DROPS: its newlines, and nothing
  * else. Every view below removes spans but keeps the file's LINES, so a line
  * any caller counts on its output is the line the file holds (a4-design H1:

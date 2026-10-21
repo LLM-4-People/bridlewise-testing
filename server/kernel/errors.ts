@@ -52,6 +52,25 @@ export class ProviderNotConfiguredError extends WebError {
 }
 
 /**
+ * The GUIDED state for agent delegation: the config carries no `agents`
+ * section (or no profiles), so the remedy is a configuration edit only the
+ * user can make. 428 for the same reason as
+ * {@link ProviderNotConfiguredError} — 404 would say the resource does not
+ * exist, while the map and the sentence both say "add this section first".
+ *
+ * The class exists so the thrown class and `CODE_STATUS_MAP` agree from one
+ * declaration; the mismatch guard in `error-handling-consistency.test.ts`
+ * refuses a mapped code carried by a class with a different status.
+ */
+export class AgentsNotConfiguredError extends WebError {
+  readonly statusCode = 428;
+  constructor(message: string, code = "agents_not_configured") {
+    super(message, code, false);
+    this.name = "AgentsNotConfiguredError";
+  }
+}
+
+/**
  * A run start on a conversation that already has a run in flight. Two
  * executors writing one transcript race each other and corrupt the history
  * both are reading — the cockpit's composer routes a plain send under a live

@@ -29,7 +29,7 @@ const TEST_DIR = "./tests";
 // place `vitest.config.ts` refuses a dead runner glob, for the same reason.
 // A whole-declaration floor would not do: total loss is loud (`No tests
 // found`), partial loss is silent, and partial loss is the one that happens.
-assertSpecPatternsAreLive("playwright.config.ts", TEST_DIR, SPEC_TREES);
+assertSpecPatternsAreLive("playwright.config.ts", TEST_DIR, SPEC_TREES, import.meta.dirname);
 
 // ARMED LIKE EVERY RUNNER (UD-S15): this checkout is under test for the run and
 // everything it starts, so no database door opened under it reaches a real

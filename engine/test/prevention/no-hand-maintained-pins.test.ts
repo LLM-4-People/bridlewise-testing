@@ -43,14 +43,14 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
 
 import { createTempDir } from "../support/temp-dir.ts";
 import { listAllBindings } from "../../src/workflow/hash-binding-registry.ts";
-import { authoritiesOwedByTree, pinAuthorities } from "../../scripts/pin-authority-regeneration.ts";
+import { authoritiesOwedByTree, judgePinAuthorities, pinAuthorities, rederiveObjectPins } from "../../scripts/pin-authority-regeneration.ts";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const HEX64 = /[0-9a-f]{64}/u;
@@ -153,6 +153,21 @@ test("a testing-only pin authority with no subject on the tree is converged by a
   // unreachable through the choke point.
   const productOnlyRoot = createTempDir("pin-authority-product-tree-");
   {
+    // A PRODUCT-ONLY TREE still carries the product authority and the files it
+    // measures; only the declared test surface is absent. Planting the real
+    // product authority makes the report executable instead of an assertion
+    // about a filter over an empty directory.
+    const handoff = pinAuthorities().find((authority) => !authority.testingOnly);
+    assert.ok(handoff !== undefined, "no product pin authority is registered — the product-tree arm has no subject");
+    const copyInto = (relativePath: string): void => {
+      const destination = join(productOnlyRoot, relativePath);
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(join(ROOT, relativePath), destination);
+    };
+    copyInto(handoff.targetPath);
+    for (const pin of rederiveObjectPins(ROOT, handoff.targetPath, false).verdicts) copyInto(pin.path);
+    if (handoff.projection !== undefined) copyInto(handoff.projection.targetPath);
+
     const owed = authoritiesOwedByTree(productOnlyRoot);
     const owedIds = owed.map((authority) => authority.id);
     for (const authority of pinAuthorities()) {
@@ -181,6 +196,53 @@ test("a testing-only pin authority with no subject on the tree is converged by a
       pinAuthorities().some((authority) => authority.testingOnly),
       "no testing-only authority is registered — the converged-by-absence arm has no subject",
     );
+
+    // ── THE POPULATION, NOT THE CHECKER'S EXISTENCE ─────────────────────
+    // The assertions above ask whether the FILTER is right for each
+    // registration; they never ask the checker to produce a verdict. A
+    // registered list that lost its entries, or a driver that returned zero
+    // results, would leave every assertion above vacuously green. Drive the
+    // report and require one verdict per OWED entry, plus the actual pin
+    // count — an authority whose pins were lost reports 0 pins and must not
+    // be certified current.
+    const productReport = judgePinAuthorities(productOnlyRoot);
+    assert.deepEqual(
+      productReport.results.map((result) => result.id),
+      owedIds,
+      "the checker must return one verdict for every OWED registered authority, in registration order",
+    );
+    for (const result of productReport.results) {
+      assert.notEqual(result.status, "error", `${result.id} produced an error verdict instead of a measurement: ${result.message ?? ""}`);
+      assert.ok(result.pins > 0, `${result.id} reported zero pins — a verdict over no pin certifies nothing`);
+    }
+    const testingOnlyIds = pinAuthorities().filter((authority) => authority.testingOnly).map((authority) => authority.id);
+    for (const id of testingOnlyIds) {
+      assert.ok(
+        !productReport.results.some((result) => result.id === id),
+        `testing-only ${id} must have no verdict on a tree without its subject`,
+      );
+    }
+
+    // THE PLANT: an emptied population must REFUSE, never converge by
+    // absence. This is the shape the old arm could not see — zero registered
+    // entries made every loop empty and every assertion pass.
+    assert.throws(
+      () => judgePinAuthorities(productOnlyRoot, { authorities: [] }),
+      /no pin authorities are registered/u,
+      "an emptied population must refuse rather than return a green report over nothing",
+    );
+    // THE OTHER PLANT: the registration loses its PRODUCT half, leaving only
+    // the testing-only authority that this tree converges by absence. That is
+    // the "losing the data" arm: zero OWED authorities must refuse too, or a
+    // truncated registration list reports green while measuring nothing.
+    assert.throws(
+      () =>
+        judgePinAuthorities(productOnlyRoot, {
+          authorities: pinAuthorities().filter((authority) => authority.testingOnly),
+        }),
+      /no registered pin authority is owed/u,
+      "a registration that lost its product authority must refuse, not converge by absence",
+    );
   }
 
   // The full tree (this checkout) carries the testing subject, so the SAME
@@ -190,4 +252,17 @@ test("a testing-only pin authority with no subject on the tree is converged by a
   for (const authority of pinAuthorities()) {
     assert.ok(owedHere.includes(authority.id), `authority ${authority.id} must be owed on the full tree`);
   }
+  // And every registration has a REAL verdict here, not merely an owed flag:
+  // an emptied or truncated registration list cannot make the gate green.
+  const fullReport = judgePinAuthorities(ROOT);
+  assert.deepEqual(
+    fullReport.results.map((result) => result.id),
+    pinAuthorities().map((authority) => authority.id),
+    "the full tree owes every registered authority, and each must have a verdict",
+  );
+  for (const result of fullReport.results) {
+    assert.notEqual(result.status, "error", `${result.id} produced an error verdict on the full tree: ${result.message ?? ""}`);
+    assert.ok(result.pins > 0, `${result.id} reported zero pins on the full tree`);
+  }
+  assert.ok(fullReport.allCurrent, "the full tree's registered pin authorities must converge");
 });

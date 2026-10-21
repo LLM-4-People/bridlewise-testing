@@ -26,6 +26,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/svelte";
 
 import DeskPanel from "../../src/cockpit/desk/DeskPanel.svelte";
 import ChannelScope from "../../src/cockpit/desk/ChannelScope.svelte";
+import Gauge from "../../src/cockpit/desk/Gauge.svelte";
 import { SCOPE_BODY_FOLD_LINES } from "../../src/cockpit/desk/desk-config.ts";
 import { resetDeskFeed, setDeskIo } from "../../src/cockpit/desk/desk-feed.ts";
 import { resetDeskBus } from "../../src/cockpit/desk/desk-bus.ts";
@@ -970,6 +971,66 @@ describe("the two context labels carry distinguishing words", () => {
     expect(gauge).toContain('>Context used<');
     expect(gauge).not.toMatch(/>context</i);
     expect(panel).toContain(">Next turn</span>");
+  });
+});
+
+describe("the closed-desk context gauge — an absent percentage is ABSENCE", () => {
+  const CONFINEMENT = {
+    state: "confined",
+    sentence: "commands reach this project only",
+    reason: "the sandbox declares a project grant",
+    measuredAt: 1,
+  } as const;
+
+  function gaugeFor(context: Readonly<{ contextTokens: number; contextTokenLimit: number }>): ReturnType<typeof render> {
+    setDeskIo({
+      breaker: async () => [],
+      confinement: async () => CONFINEMENT,
+    });
+    setMessages([
+      {
+        id: "assistant-context",
+        role: "assistant",
+        content: "",
+        timestamp: 1,
+        context: {
+          systemPrompt: "",
+          toolNames: [],
+          historyLength: 0,
+          contextTokens: context.contextTokens,
+          contextTokenLimit: context.contextTokenLimit,
+        },
+      },
+    ]);
+    return render(Gauge, { shell: shellStub() });
+  }
+
+  test("a limit that cannot give a share renders no percent, an explicit unavailable state, and NO fabricated 0% fill", async () => {
+    // THE DEFECT THIS PINS: `contextPctOf` returns null for a 0-token limit,
+    // and the gauge interpolated `${pct}%` (`null%`) while clamping
+    // `pct ?? 0` into a 0%-wide bar. Absence must read as absence.
+    const { container } = gaugeFor({ contextTokens: 5, contextTokenLimit: 0 });
+    await waitFor(() => expect(container.textContent).toContain("Context used"));
+    const text = container.textContent!.replace(/\s+/g, " ");
+    expect(text, "a null percentage must never reach the wire as null%").not.toContain("null");
+    expect(text, "no percent sign is invented when no share was measured").not.toContain("%");
+    expect(text, "the measured token count is still shown").toContain("5 tok");
+    expect(text).toContain("percentage unavailable");
+    expect(container.querySelector(".tick-fill"), "a 0-width fill would fabricate 0%").toBeNull();
+    expect(container.querySelector('[data-context-pct="unavailable"]')).not.toBeNull();
+  });
+
+  test("a measured pair still renders its share and its fill bar", async () => {
+    // THE POSITIVE HALF: absence handling must not swallow a real reading.
+    const { container } = gaugeFor({ contextTokens: 25, contextTokenLimit: 100 });
+    await waitFor(() => expect(container.textContent).toContain("Context used"));
+    const text = container.textContent!.replace(/\s+/g, " ");
+    expect(text).toContain("25%");
+    expect(text).not.toContain("percentage unavailable");
+    const fill = container.querySelector<HTMLElement>(".tick-fill");
+    expect(fill, "a measured pair draws its fill").not.toBeNull();
+    expect(fill!.style.width).toBe("25%");
+    expect(container.querySelector(".tick-track")!.getAttribute("aria-label")).toContain("context 25% of 100 tokens");
   });
 });
 

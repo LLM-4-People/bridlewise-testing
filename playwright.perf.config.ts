@@ -25,7 +25,7 @@ const TEST_DIR = "./tests/performance";
 // event here — but `testDir` is the half that can go quiet without a sound,
 // and a directory that stops existing is what the helper's own refusal names.
 // Measured: 2 of the 7 tracked `*.spec.ts` in the repository reach this run.
-assertSpecPatternsAreLive("playwright.perf.config.ts", TEST_DIR, []);
+assertSpecPatternsAreLive("playwright.perf.config.ts", TEST_DIR, [], import.meta.dirname);
 
 // ARMED LIKE EVERY RUNNER (UD-S15): no database door opened under this run
 // reaches a real database, and the global setup refuses a server that serves

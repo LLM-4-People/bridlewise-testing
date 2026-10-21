@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,11 +9,13 @@ import {
   MANIFEST_SCHEMA,
   SHARD_REPORT_SCHEMA,
   assignShards,
+  listTestFiles,
   manifestHash,
   measureManifest,
   planShards,
   readManifest,
   requireGreenReport,
+  treeFingerprint,
   verifyManifest,
   wrapShardReport,
 } from "../../scripts/test-shard-manifest.mjs";
@@ -211,21 +214,105 @@ test("the manifest verifier accounts for every live file exactly once", () => {
     ]));
     writeFileSync(join(work, "tests/a.test.ts"), "");
     writeFileSync(join(work, "tests/b.test.ts"), "");
-    writeJson(live, [
-      { file: join(work, "tests/a.test.ts"), projectName: "node" },
-      { file: join(work, "tests/b.test.ts"), projectName: "node" },
-      { file: join(work, "tests/private.test.ts"), projectName: "node" },
-    ]);
-    const verdict = verifyManifest({ root: work, manifestPath: manifest, livePath: live });
+    writeJson(live, {
+      schemaVersion: "bridlewise-test-listing/v1",
+      tree: "planted-tree",
+      files: [
+        { file: join(work, "tests/a.test.ts"), projectName: "node" },
+        { file: join(work, "tests/b.test.ts"), projectName: "node" },
+        { file: join(work, "tests/private.test.ts"), projectName: "node" },
+      ],
+    });
+    const verdict = verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: "planted-tree" });
     assert.equal(verdict.fileCount, 2);
     assert.equal(verdict.excludedCount, 1);
     assert.equal(verdict.liveCount, 3);
 
-    writeJson(live, [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/unclassified.test.ts") }]);
+    // A LISTING FROM ANOTHER TREE IS REFUSED: the wrapper records the working
+    // tree it selected from, and a different tree cannot be certified by it.
+    assert.throws(
+      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: "another-tree" }),
+      /bound to tree planted-tree/,
+    );
+    // And the UNBOUND shape — a plain `vitest list` array — is refused too:
+    // it carries no tree identity, so it could have come from anywhere.
+    writeJson(live, [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }]);
+    assert.throws(
+      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: "planted-tree" }),
+      /not accepted/,
+    );
+    // A caller that omits the tree cannot verify a listing, because there is
+    // nothing to compare its recorded identity against.
+    writeJson(live, {
+      schemaVersion: "bridlewise-test-listing/v1",
+      tree: "planted-tree",
+      files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
+    });
     assert.throws(
       () => verifyManifest({ root: work, manifestPath: manifest, livePath: live }),
+      /working-tree identity is required/,
+    );
+
+    writeJson(live, {
+      schemaVersion: "bridlewise-test-listing/v1",
+      tree: "planted-tree",
+      files: [
+        { file: join(work, "tests/a.test.ts") },
+        { file: join(work, "tests/unclassified.test.ts") },
+      ],
+    });
+    assert.throws(
+      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: "planted-tree" }),
       /unclassified file/,
     );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("a listing is bound to the working tree it selected from, and a tree that moves during it is refused", () => {
+  // THE GAP THIS CLOSES: `vitest list` does not run the vitest global setup,
+  // so the listing process itself takes no source fingerprint (and no lock).
+  // The `list` command reads one before and after; a tree that moves is not a
+  // state anything can be verified against.
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-tree-binding-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: work, stdio: "pipe" });
+    mkdirSync(join(work, "tests"), { recursive: true });
+    writeFileSync(join(work, "tests/a.test.ts"), "");
+    const first = treeFingerprint(work);
+    assert.match(first, /^[0-9a-f]{64}$/u);
+
+    // A new file changes the identity: the population is content, not a path
+    // list someone can restate.
+    writeFileSync(join(work, "tests/b.test.ts"), "");
+    const second = treeFingerprint(work);
+    assert.notEqual(second, first);
+
+    // A listing over a still tree records that identity.
+    const listing = listTestFiles({
+      root: work,
+      run: () => ({ status: 0, stdout: JSON.stringify([{ file: join(work, "tests/a.test.ts") }]), stderr: "" }),
+    });
+    assert.equal(listing.tree, second);
+    assert.equal(listing.schemaVersion, "bridlewise-test-listing/v1");
+
+    // A listing that writes while it runs is refused, not quietly recorded.
+    assert.throws(
+      () =>
+        listTestFiles({
+          root: work,
+          run: () => {
+            writeFileSync(join(work, "tests/c.test.ts"), "");
+            return { status: 0, stdout: JSON.stringify([{ file: join(work, "tests/a.test.ts") }]), stderr: "" };
+          },
+        }),
+      /working tree changed while the listing ran/,
+    );
+
+    // A subdirectory is not the tree root: its fingerprint would silently omit
+    // every file above it.
+    assert.throws(() => treeFingerprint(join(work, "tests")), /not the repository root/);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

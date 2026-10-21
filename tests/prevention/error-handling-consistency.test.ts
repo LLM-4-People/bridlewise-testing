@@ -50,7 +50,7 @@ import { describe, test, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
 import { walk, SOURCE_EXTS } from "../helpers/source-scan.ts";
-import { parseErrorClassStatusCode, scanDynamicErrorCodeFallbacks, scanThrownErrorCodes, findUnmapped500DefaultCodes, findUnmappedThrownCodes, isInsideStringOrComment } from "../helpers/error-scan.ts";
+import { parseErrorClassStatusCode, scanDynamicErrorCodeFallbacks, scanThrownErrorCodes, findStatusDisagreements, findUnmapped500DefaultCodes, findUnmappedThrownCodes, isInsideStringOrComment } from "../helpers/error-scan.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -282,6 +282,34 @@ describe("error-handling consistency — (E3) error mapping completeness", () =>
     expect(
       unmapped,
       `every dynamic error-code fallback must be declared in CODE_STATUS_MAP — unmapped: ${[...new Set(unmapped)].join(", ")}`,
+    ).toEqual([]);
+  });
+
+  test("a mapped code carried by a class with a different status is refused at its owner", () => {
+    // THE LIVE DEFECT: `recycle_not_found` is mapped 404, but
+    // POST /api/editor/restore threw `BadRequestError` (400) and the wire
+    // answered 400. The class and the map are two owners of one status, so a
+    // disagreement is refused here even though the code IS mapped.
+    const errorsSrc = readFileSync(ERRORS_FILE, "utf-8");
+    const classStatusCode = parseErrorClassStatusCode(errorsSrc);
+    const plant = (name: string, source: string): string[] => {
+      const dir = createTempDir("err-status-agreement-plant-");
+      writeFileSync(join(dir, name), source, "utf8");
+      return findStatusDisagreements(scanThrownErrorCodes(dir), classStatusCode, statusForCode);
+    };
+    expect(
+      plant("planted.ts", 'throw new BadRequestError("gone", "recycle_not_found");\n'),
+      "a 400 class carrying a 404 code is the exact mismatch this guard names",
+    ).toEqual(["BadRequestError(400):recycle_not_found maps to 404"]);
+    // The benign half: a class with NO statusCode defers to the map, and a
+    // class whose declared status equals the map is the contract.
+    expect(plant("deferring.ts", 'throw new ValidationError("gone", "recycle_not_found");\n')).toEqual([]);
+    expect(plant("agreeing.ts", 'throw new NotFoundError("gone", "recycle_not_found");\n')).toEqual([]);
+
+    const live = [...scanThrownErrorCodes(SERVER_ROOT), ...scanDynamicErrorCodeFallbacks(SERVER_ROOT)];
+    expect(
+      findStatusDisagreements(live, classStatusCode, statusForCode),
+      "every thrown mapped code must agree with its class's declared status — the map and the class have one owner",
     ).toEqual([]);
   });
 

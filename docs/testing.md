@@ -184,10 +184,12 @@ The ten-shard `ubuntu-24.04` receipt at `f54df4a5` (CI run `39470087124`, artifa
 
 ```bash
 mkdir -p .bridlewise/shard-plan
-npx vitest list --filesOnly --json > .bridlewise/shard-plan/live-manifest.json
-node scripts/test-shard-manifest.mjs verify --manifest tests/test-shards.json --live .bridlewise/shard-plan/live-manifest.json
+npm run test:list -- --out .bridlewise/shard-plan/live-manifest.json
+npm run test:verify-shards -- --manifest tests/test-shards.json --live .bridlewise/shard-plan/live-manifest.json
 node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
 ```
+
+`vitest list` does not run the vitest global setup, so a raw listing takes neither the host's instrument lock nor a source fingerprint and is not accepted as evidence about a tree. `test:list` records a content fingerprint of the working tree before and after the listing; `test:verify-shards` recomputes that fingerprint and refuses a listing from another tree, another checkout, or a tree that moved while the listing ran. The listing still takes no instrument lock — that gap is stated rather than hidden; the fingerprint binding is what keeps the population evidence honest.
 
 A complete green run's wrapped reports are the weight measurement; pass the head so a report from another commit cannot be measured by mistake:
 

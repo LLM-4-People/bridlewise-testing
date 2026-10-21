@@ -17,6 +17,7 @@ The `engine/test/support/` folder of the development surface.
 - `foundation-cascade-test-catalog.ts` — the `foundation-cascade-test-catalog` module.
 - `git-fixtures.ts` — the `git-fixtures` module.
 - `guardian-apply.ts` — test-only `applySelfProtection`: runs a payload under the real guardian with a compiled spec (the product's CLI re-exec it replaced is deleted).
+- `guardian-build-stamp.ts` — copy the guardian's sealed build inputs (the one spec and every source it names) into another harness root, so a test that builds or places a guardian binary has them beside it.
 - `handoff-continuity-hostile-worker.test.ts` — the `handoff-continuity-hostile-worker.test` module.
 - `handoff-continuity-test-catalog.ts` — the `handoff-continuity-test-catalog` module.
 - `handoff-continuity-test-oracles.ts` — the `handoff-continuity-test-oracles` module.

@@ -29,6 +29,7 @@ import { describe, expect, test } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { globSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   checkRepository,
   checkTsconfigIncludeLiveness,
@@ -326,5 +327,33 @@ describe("every test file this repository holds is executed by something", () =>
     expect(none.status).toBe(0);
     expect(none.passedNames).toEqual(["empty.test.mjs"]);
     expect(ranSomething("empty.test.mjs", none.passedNames)).toBe(false);
+  }, 120_000);
+});
+
+describe("the fourth declaration class resolves testDir from its CONFIG, not the caller's cwd", () => {
+  test("both Playwright configs load from a foreign directory and still select their own specs", () => {
+    // THE DEFECT THIS PINS: `specPathsUnder` resolved a relative `testDir`
+    // with `process.cwd()`. Both configs therefore refused to load from
+    // anywhere else (`ENOENT … /tmp/tests`), and a runner started one
+    // directory up would have judged the wrong tree if a directory happened
+    // to exist there. The child below is the caller from elsewhere: the config
+    // must load, name its own testDir, and resolve it against its own module.
+    const foreign = createTempDir("playwright-foreign-cwd-");
+    const expected: ReadonlyArray<readonly [string, string]> = [
+      ["playwright.config.ts", "./tests"],
+      ["playwright.perf.config.ts", "./tests/performance"],
+    ];
+    for (const [config, testDir] of expected) {
+      const moduleUrl = pathToFileURL(join(WEB_ROOT, config)).href;
+      const script = `import(${JSON.stringify(moduleUrl)}).then((m) => console.log(JSON.stringify(m.default.testDir)))`;
+      const stdout = execFileSync(process.execPath, ["--experimental-strip-types", "-e", script], {
+        cwd: foreign,
+        encoding: "utf8",
+        // The runner-side arming would otherwise create a per-run state folder
+        // under the checkout just to load a config; a worker arm is inert.
+        env: { ...process.env, TEST_WORKER_INDEX: "1" },
+      });
+      expect(JSON.parse(stdout.trim()), `${config} must load from ${foreign}`).toBe(testDir);
+    }
   }, 120_000);
 });

@@ -8,23 +8,27 @@
  * json-request). Before these modules existed, those primitives were
  * re-implemented in 40+ test files as byte-identical + near-duplicate copies
  * that had drifted. This test prevents re-introduction: a test file that
- * defines a function whose body is byte-identical (after whitespace
- * normalization) to a function exported from ANY helper module must import
- * it instead.
+ * defines a function whose body matches (after whitespace and own-name
+ * normalisation) ANY top-level function in a helper module must import it
+ * instead — PRIVATE helpers included. Reading only `export function` left a
+ * byte-identical private copy (`skipString`) live in the duplicate-code guard
+ * while this gate stayed green.
  *
  * A local function with a DIFFERENT body (a genuinely distinct variant) is
- * allowed — the test only flags exact duplicates, so a scan that needs a
+ * allowed — the test only flags normalised duplicates, so a scan that needs a
  * different stripper semantics can keep its local copy. This is DYNAMIC
- * (no allowlist): the shared helpers + their exports are DISCOVERED at
- * run time by walking `tests/helpers/`, and the test files are discovered
- * by walking `tests/`. A newly added helper module is automatically
- * covered — no hand-maintained mirror that can rot when the helpers grow.
+ * (no allowlist): the shared helpers + their top-level functions are
+ * DISCOVERED at run time by walking `tests/helpers/`, and the test files are
+ * discovered by walking `tests/`. A newly added helper module is
+ * automatically covered — no hand-maintained mirror that can rot when the
+ * helpers grow.
  */
 import { describe, test, expect } from "vitest";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 
 import { blankStringLiterals, stripCommentsOnlyFor, walk } from "../helpers/source-scan.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
 
 const HELPERS_DIR = "tests/helpers";
 
@@ -117,9 +121,13 @@ function findClose(lines: readonly string[], start: number): number {
 /** Extract + normalize a top-level function body (the lines BETWEEN the
  * signature line and the closing `}` at column 0, excluding the signature
  * itself so `export function foo` and `function foo` with the same body
- * compare equal). Returns "" if not found. Normalization trims trailing
- * whitespace per line + drops leading/trailing blank lines so a reformat
- * does not evade the check. */
+ * compare equal). Returns "" if not found.
+ *
+ * NORMALISATION IS WHITESPACE-INSENSITIVE AND NAME-INDEPENDENT, deliberately:
+ * a copy that is re-indented, or a recursive helper renamed on copy, is the
+ * same duplication as a byte-identical one. The function's OWN name is replaced
+ * by `__SELF__` in its body so a renamed recursion still matches; other
+ * identifiers stay, because they are the calls a copy is actually making. */
 function bodyOf(src: string, name: string): string {
   const lines = src.split("\n");
   const fn = findFn(lines, name);
@@ -129,25 +137,67 @@ function bodyOf(src: string, name: string): string {
   const body = lines.slice(fn + 1, close).map((l) => l.replace(/\s+$/, ""));
   while (body.length > 0 && body[0]!.trim() === "") body.shift();
   while (body.length > 0 && body[body.length - 1]!.trim() === "") body.pop();
-  return body.join("\n");
+  const selfRe = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gu");
+  return body.join("\n").replace(selfRe, "__SELF__").replace(/\s+/gu, " ").trim();
 }
 
-// Dynamically parse every helper module's exports (name -> normalized body),
-// keyed by the helper file path so a duplicate's report can name the owner.
+/** Every top-level function NAME a source declares — exported OR private. A
+ * helper file's private primitive is shared code too, and used to be invisible
+ * to this scan while only `export function` was read. */
+function declaredFunctions(src: string): string[] {
+  return Array.from(src.matchAll(/^(?:export\s+)?(?:async\s+)?function (\w+)\b/gm)).map((m) => m[1]!);
+}
+
+interface DuplicateHelper { readonly file: string; readonly name: string; readonly sharedMatch: string; readonly owner: string; }
+
+/**
+ * The scan over explicit file lists, so the guard can be DRIVEN over a plant
+ * (a helper's private body copied into a test) instead of being trusted. It
+ * discovers each helper's top-level functions — private ones included — and
+ * reports every test-file top-level function whose normalised body is one of
+ * them.
+ */
+function findDuplicateHelpers(
+  helperFiles: readonly string[],
+  testFiles: readonly string[],
+): DuplicateHelper[] {
+  const helpers: HelperExport[] = helperFiles.flatMap((file) => {
+    const src = readFileSync(file, "utf8");
+    const own = declaredFunctions(src).map((name) => ({ file, name, body: bodyOf(src, name) }));
+    const reExported = Array.from(src.matchAll(/^export \{([^}]*)\} from "(\.[^"]+)";/gm)).flatMap((m) => {
+      const owner = join(dirname(file), m[2]!);
+      const ownerSource = readFileSync(owner, "utf8");
+      return m[1]!.split(",").map((name) => name.trim()).filter((name) => /^\w+$/u.test(name))
+        .map((name) => ({ file: owner, name, body: bodyOf(ownerSource, name) }));
+    });
+    return [...own, ...reExported];
+  });
+  const byBody = new Map<string, HelperExport>();
+  for (const helper of helpers) if (helper.body !== "") byBody.set(helper.body, helper);
+  const duplicates: DuplicateHelper[] = [];
+  for (const file of testFiles) {
+    const src = readFileSync(file, "utf8");
+    const rel = file.split(sep).join("/");
+    for (const name of declaredFunctions(src)) {
+      const body = bodyOf(src, name);
+      if (body === "") continue;
+      const match = byBody.get(body);
+      if (match !== undefined) {
+        duplicates.push({ file: rel, name, sharedMatch: match.name, owner: match.file });
+      }
+    }
+  }
+  return duplicates;
+}
+
+// Dynamically parse every helper module's top-level functions (name ->
+// normalized body), keyed by the helper file path so a duplicate's report can
+// name the owner. PARSED ONCE through the same scan the self-test drives.
 interface HelperExport { readonly file: string; readonly name: string; readonly body: string; }
 const HELPER_FILES = discoverHelperFiles();
-// A helper may RE-EXPORT a primitive whose one implementation lives in a
-// shared module both suites use (`walk` lives in
-// engine/scripts/verification/source-walk.ts). The re-exported names are
-// helpers too, owned by that module's bytes, so a test that copies them is
-// still a duplicate.
 const HELPER_EXPORTS: ReadonlyArray<HelperExport> = HELPER_FILES.flatMap((file) => {
   const src = readFileSync(file, "utf8");
-  const own = Array.from(src.matchAll(/^export (?:async\s+)?function (\w+)\b/gm)).map((m) => ({
-    file,
-    name: m[1]!,
-    body: bodyOf(src, m[1]!),
-  }));
+  const own = declaredFunctions(src).map((name) => ({ file, name, body: bodyOf(src, name) }));
   const reExported = Array.from(src.matchAll(/^export \{([^}]*)\} from "(\.[^"]+)";/gm)).flatMap((m) => {
     const owner = join(dirname(file), m[2]!);
     const ownerSource = readFileSync(owner, "utf8");
@@ -158,9 +208,6 @@ const HELPER_EXPORTS: ReadonlyArray<HelperExport> = HELPER_FILES.flatMap((file) 
 });
 const HELPER_NAME_TO_OWNER = new Map<string, string>(
   HELPER_EXPORTS.filter((e) => e.body !== "").map((e) => [e.name, e.file]),
-);
-const HELPER_BODIES = new Map<string, string>(
-  HELPER_EXPORTS.filter((e) => e.body !== "").map((e) => [e.body, e.file]),
 );
 const ALL_HELPER_NAMES = new Set(HELPER_EXPORTS.map((e) => e.name));
 
@@ -183,29 +230,54 @@ describe("test helpers are not duplicated across test files (single owner: tests
     }
   });
 
-  const duplicates: { file: string; name: string; sharedMatch: string; owner: string }[] = [];
-  for (const file of TEST_FILES) {
-    const src = readFileSync(file, "utf8");
-    const rel = file.split(sep).join("/");
-    // Any top-level `function NAME(` in a test file whose body matches a
-    // shared export body is an exact duplicate (should import instead).
-    const localFns = Array.from(src.matchAll(/^(?:export\s+)?function (\w+)\b/gm)).map((m) => m[1]!);
-    for (const name of localFns) {
-      const body = bodyOf(src, name);
-      if (body === "") continue;
-      const owner = HELPER_BODIES.get(body);
-      if (owner !== undefined) {
-        const sharedName = [...HELPER_EXPORTS].find((e) => e.body === body && e.file === owner)!.name;
-        duplicates.push({ file: rel, name, sharedMatch: sharedName, owner });
-      }
-    }
-  }
+  const duplicates = findDuplicateHelpers(HELPER_FILES, TEST_FILES);
 
-  test("no test file defines a function byte-identical to ANY helper export (dynamic — covers all tests/helpers/*.ts)", () => {
+  test("no test file defines a function body matching ANY helper function, private ones included (normalised whitespace + own name)", () => {
     expect(
       duplicates,
       duplicates.map((d) => `${d.file}: function ${d.name} duplicates ${d.owner} ${d.sharedMatch} (import it instead)`).join("\n"),
     ).toEqual([]);
+  });
+
+  test("the private-body scan is not vacuous: a planted private helper copy is caught, a distinct body is not", () => {
+    // THE PLANT IS A SYNTHETIC PAIR, supplied from outside the live tree: the
+    // helper's private function is copied into a test under a different name
+    // and different indentation. The old guard read only `export function`
+    // bodies, so this plant was invisible; the body below is the shape that
+    // was live (`skipString` in tests/helpers/error-scan.ts copied into
+    // no-duplicate-code.test.ts).
+    const dir = createTempDir("helper-dedup-plant-");
+    const helper = join(dir, "private-helper.ts");
+    writeFileSync(
+      helper,
+      [
+        "function sharedPrimitive(value: string): string {",
+        "  const trimmed = value.trim();",
+        "  return trimmed.replace(/\\s+/gu, \" \");",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    const testFile = join(dir, "copy.test.ts");
+    writeFileSync(
+      testFile,
+      [
+        "function renamedCopy(value: string): string {",
+        "    const trimmed = value.trim();",
+        "    return trimmed.replace(/\\s+/gu, \" \");",
+        "}",
+        "",
+        "function distinct(value: string): string {",
+        "  return value;",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    const found = findDuplicateHelpers([helper], [testFile]);
+    expect(found.map((d) => `${d.name}<-${d.sharedMatch}`)).toEqual(["renamedCopy<-sharedPrimitive"]);
+    // A GUARD THAT FLAGS EVERYTHING IS NOT A GUARD: the distinct body stays
+    // clean.
+    expect(found.some((d) => d.name === "distinct")).toBe(false);
   });
 
   test("at least 55 test files import from tests/helpers/source-scan.ts (the migration is not regressed)", () => {

@@ -158,4 +158,18 @@ describe("the taxonomy-owned typed contract still travels", () => {
     expect(res.status).toBe(404);
     expect(res.body).toMatchObject({ error: "file_not_found" });
   });
+
+  test("a recycle entry that is gone answers 404 — the status its code declares, not the class's 400", async () => {
+    // THE DEFECT THIS PINS: `recycle_not_found` is mapped 404 in the one
+    // taxonomy, but POST /api/editor/restore threw `BadRequestError`, whose
+    // class status is 400 and wins in the router. The class and the map are
+    // one owner of the status; the wire must answer the map's 404.
+    const res = await jsonRequest(srv.baseUrl, "/api/editor/restore", {
+      method: "POST",
+      body: { id: "00000000-0000-4000-8000-000000000000" },
+      cookie: user.cookie,
+    });
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: "recycle_not_found", message: "That recycle entry is gone" });
+  });
 });

@@ -4,7 +4,9 @@ import { read } from "./source-scan.ts";
 /** The one token that owns the pointer target floor (tokens.css §12.5). */
 export const HIT_TOKEN = "var(--hit-min)";
 
-function escapeRe(s: string): string {
+/** Escape a literal for use inside a `RegExp` source (the one copy every
+ * pointer/floor scan imports). */
+export function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 

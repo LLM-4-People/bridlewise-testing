@@ -216,7 +216,7 @@ test("HarnessCommands: harnessRegenerate produces valid result", () => {
   assert.ok(result.result.readmeConsumers.readmes > 0, "the README consumer arm judged no README");
 });
 
-test("HarnessCommands: the README consumer arm drives the generator — a check finds a stale block and names it, a write regenerates it, a tree without the generator is converged by absence", () => {
+test("HarnessCommands: the README consumer arm drives the generator — a check finds a stale block and names it, a write regenerates it, and a missing generator with marked READMEs is STALE, never converged by absence", () => {
   // A synthetic repository: `engine/src/feature/` holds a module, its
   // consumer, and a README whose generated block is empty (stale); the
   // generator is the real one (its folder linked in, so it resolves its own
@@ -240,7 +240,18 @@ test("HarnessCommands: the README consumer arm drives the generator — a check 
     writeFileSync(sharedReadme, before.replace("feature", "shared"));
     execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
     const engineRoot = join(repository, "engine");
-    assert.deepEqual(regenerateReadmeConsumers(engineRoot, false), { status: "absent", converged: true, readmes: 0, changed: [] }, "a tree without the generator is converged by absence");
+
+    // THE POPULATION, NOT THE CHECKER'S EXISTENCE: two marked READMEs wait,
+    // and the generator is absent. The old arm asserted `absent`/converged
+    // here — the checker's absence read as the subject's absence.
+    const missing = regenerateReadmeConsumers(engineRoot, false);
+    assert.deepEqual(
+      [missing.status, missing.converged, missing.readmes],
+      ["stale", false, 2],
+      "a missing generator with marked READMEs must be STALE and name the population it abandons",
+    );
+    assert.match(missing.changed[0] ?? "", /tests\/helpers\/readme-consumers\.ts \(missing; 2 marked README\(s\) still need it\)/u);
+
     mkdirSync(join(repository, "tests"), { recursive: true });
     symlinkSync(join(ROOT, "..", "tests", "helpers"), join(repository, "tests", "helpers"));
     const stale = regenerateReadmeConsumers(engineRoot, false);
@@ -251,6 +262,24 @@ test("HarnessCommands: the README consumer arm drives the generator — a check 
     assert.match(readFileSync(readme, "utf8"), /`provider\.ts` is consumed by `engine\/src\/feature\/user\.ts`/u);
     assert.match(readFileSync(sharedReadme, "utf8"), /`lib\.ts` is consumed by `engine\/src\/feature\/shared-user\.ts`/u);
     assert.deepEqual(regenerateReadmeConsumers(engineRoot, false), { status: "current", converged: true, readmes: 2, changed: [] });
+  } finally {
+    rmSync(repository, { recursive: true, force: true });
+  }
+});
+
+test("HarnessCommands: the README consumer arm is absent ONLY when the tree carries no marked README at all", () => {
+  // The positive absence: no marked README is a population of zero, so there
+  // is nothing to generate. This is the one state `absent` may describe; it
+  // is not the state a missing generator describes when READMEs are waiting.
+  const repository = createTempDir("readme-consumers-none-");
+  try {
+    mkdirSync(join(repository, "engine"), { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
+    assert.deepEqual(
+      regenerateReadmeConsumers(join(repository, "engine"), false),
+      { status: "absent", converged: true, readmes: 0, changed: [] },
+      "a tree with no marked README has nothing to converge",
+    );
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }
@@ -880,7 +909,13 @@ let cachedSync: HarnessCommandResult<HarnessSyncOutput> | null = null;
 
 function syncOnce(): Promise<HarnessCommandResult<HarnessSyncOutput>> {
   if (cachedSync) return Promise.resolve(cachedSync);
-  const copy = createRepositoryWorkingCopy("harness-sync-", { include: engineGeneratorPopulation });
+  // A FULL COPY, not the narrowed generator population: `harness sync` also
+  // runs the README consumer generator, whose import graph covers the web
+  // tests. A narrowed copy now makes that generator report every engine
+  // README stale (a missing generator with marked READMEs is refused, not
+  // converged by absence), and a sync that only passes because its subject is
+  // absent is exactly the vacuous convergence this suite exists to refuse.
+  const copy = createRepositoryWorkingCopy("harness-sync-");
   return harnessSync(copy.engineRoot)
     .then((result) => { cachedSync = result; return result; })
     .finally(() => removeRepositoryLocalTemporaryDirectory(copy.root));

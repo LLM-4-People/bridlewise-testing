@@ -97,6 +97,18 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * THE SUITE'S ROOT, FROM THIS MODULE'S OWN LOCATION — never the caller's cwd.
+ *
+ * The global setup used to fingerprint `process.cwd()`. Driven: running the
+ * suite with a foreign working directory made it guard that directory (or
+ * refuse because it was not a repository), while the checkout under test went
+ * unsupervised. The module lives at `<root>/tests/setup/`, so its own URL is
+ * the one fact that names the tree no matter where the runner was started.
+ */
+export const SUITE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 /**
  * The one exclusion, and it applies to the suite's OWN repository only.
@@ -150,6 +162,51 @@ function repositoryRootOf(dir: string): string | null {
     if (parent === current) return null;
     current = parent;
   }
+}
+
+/**
+ * The answer AND the reason it cannot be believed, for one candidate suite
+ * root. A setup module that resolves into a REPOSITORY but not at its root is
+ * refused too: fingerprinting a subdirectory would silently drop every tracked
+ * file above it.
+ *
+ * Exported so a test can drive the real answer, a planted non-repository, and
+ * a nested repository directory without touching the live checkout.
+ */
+export type SuiteRootAnswer = Readonly<{
+  root: string;
+  failure: string | null;
+}>;
+
+export function judgeSuiteRoot(candidate: string = SUITE_ROOT): SuiteRootAnswer {
+  const absolute = resolve(candidate);
+  const repository = repositoryRootOf(absolute);
+  if (repository === null) {
+    return {
+      root: absolute,
+      failure:
+        `source-tree-immutable: ${absolute} is not inside a git repository, so there is no index ` +
+        "to fingerprint. The setup module derives its root from its own location; a checkout " +
+        "where that path is not a repository cannot certify anything.",
+    };
+  }
+  if (resolve(repository) !== absolute) {
+    return {
+      root: repository,
+      failure:
+        `source-tree-immutable: ${absolute} resolves inside the repository ${repository} but is ` +
+        "not its root. Fingerprinting a nested directory would miss every tracked file above it; " +
+        "the setup module must live at <root>/tests/setup/.",
+    };
+  }
+  return { root: repository, failure: null };
+}
+
+/** The suite root, or a refusal that names why the location cannot be believed. */
+export function requireSuiteRoot(candidate: string = SUITE_ROOT): string {
+  const answer = judgeSuiteRoot(candidate);
+  if (answer.failure !== null) throw new Error(answer.failure);
+  return answer.root;
 }
 
 /**
@@ -371,7 +428,7 @@ export function judgeRequiredInnerRoots(home: string): RequiredInnerRootsAnswer 
   return { roots: [...roots].sort(), failure: null };
 }
 
-export function requiredInnerRoots(home: string = process.cwd()): string[] {
+export function requiredInnerRoots(home: string = SUITE_ROOT): string[] {
   const answer = judgeRequiredInnerRoots(home);
   if (answer.failure !== null) throw new Error(answer.failure);
   return [...answer.roots];
@@ -382,7 +439,7 @@ export function requiredInnerRoots(home: string = process.cwd()): string[] {
  * reach, with its stamp.
  */
 function fingerprint(): Map<string, string> {
-  const home = process.cwd();
+  const home = requireSuiteRoot();
   const out = new Map<string, string>();
   const candidates = new Set<string>();
   stampRepository(home, home, WRITABLE_PREFIX, out, candidates);
@@ -442,6 +499,7 @@ export function withVerdict(body: () => void): void {
 
 export function setup(): void {
   withVerdict(() => {
+    const home = requireSuiteRoot();
     before = fingerprint();
     if (before.size === 0) {
       // A fingerprint of nothing agrees with every later fingerprint of
@@ -449,7 +507,7 @@ export function setup(): void {
       // refuses rather than certifying an empty universe.
       throw new Error(
         "source-tree-immutable: fingerprinted ZERO tracked files. " +
-        `Expected the git index of ${process.cwd()} to hold files outside ` +
+        `Expected the git index of ${home} to hold files outside ` +
         `${WRITABLE_PREFIX}; either this is not the repository root, or this ` +
         "check has gone blind.",
       );
@@ -482,7 +540,7 @@ export function setup(): void {
     // evidence that it is a repository in its own right — two declarations
     // that already have to be correct for the product to work.
     const stampedKeys = [...before.keys()];
-    const requiredInner = requiredInnerRoots();
+    const requiredInner = requiredInnerRoots(home);
     const missingInner = requiredInner.filter(
       (root) => !stampedKeys.some((key) => key.startsWith(`${root}/`)),
     );

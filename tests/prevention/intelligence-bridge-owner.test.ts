@@ -54,6 +54,7 @@ import { DbClient } from "../../server/db/client.ts";
 import { AsyncDbClient } from "../../server/db/async-client.ts";
 import { createTestUser } from "../helpers/multi-user.ts";
 import { walkTs, valueReferencesModule, reExportedValuesFrom } from "../helpers/source-scan.ts";
+import { escapeRe } from "../helpers/control-floor.ts";
 import {
   getRepositoryMapAsync,
   getRepositoryMapSummary,
@@ -459,7 +460,7 @@ describe("E. route-level: routes/intelligence.ts goes through the bridge + gate"
     const src = readFileSync(join(ROUTES_DIR, "intelligence.ts"), "utf8");
     expect(src).toContain("../intelligence/intelligence-bridge.ts");
     // No direct import of the canonical intelligence subsystem.
-    expect(src).not.toMatch(new RegExp(`from\\s*["'][^"']*${escapeRegex(CANONICAL_INTEL_PREFIX)}`));
+    expect(src).not.toMatch(new RegExp(`from\\s*["'][^"']*${escapeRe(CANONICAL_INTEL_PREFIX)}`));
   });
 
   test("routes/intelligence.ts constructs the gate via makeFsGate + requireUserContext", () => {
@@ -574,7 +575,3 @@ describe("G. adaptive: repository-map summary derives languages dynamically", ()
 });
 
 // ── helpers ──
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

@@ -5033,7 +5033,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-pin-authority-regeneration", path: "scripts/pin-authority-regeneration.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 6, namesSha256: "945e05f2aed67919185b38cf87dc8b15b9b859a94fea53dbeb384c48f1c002fe" },
+      owner: "verification", publicApi: { exportCount: 9, namesSha256: "c6e61b7e005c1c93800799a14abdbad8f515a33e04ce674b1852cc4e0fcc21e9" },
       dependencies: ["@babel/parser","node:fs","node:path","node:url","scripts/regenerate-handoff-manifest.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/runtime/cli-debug.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
     }),

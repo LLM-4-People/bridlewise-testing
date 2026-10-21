@@ -74,7 +74,7 @@ import {
   type GesturePath,
 } from "../../src/cockpit/shell/mouse-paths.ts";
 
-import { HIT_TOKEN, floorClassesFrom, sizesToFloor, styleBlock } from "../helpers/control-floor.ts";
+import { HIT_TOKEN, escapeRe, floorClassesFrom, sizesToFloor, styleBlock } from "../helpers/control-floor.ts";
 
 const COCKPIT_ROOT = "src/cockpit";
 const SHELL_ROUTER = "src/cockpit/Cockpit.svelte";
@@ -181,10 +181,6 @@ export type ClickPath = Readonly<{
   /** First class token on the element — the CSS rule that must size it. */
   cls: string | null;
 }>;
-
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 
 /**

@@ -640,13 +640,20 @@ export function actionVerbId(actionId: string): string {
  * action's own execute returned, truncated honestly with an ellipsis past
  * the fold's cap (a result longer than the line is still the result — the
  * fold is not the place to dump it, and nothing about it is invented here).
+ *
+ * ABSENCE IS ABSENCE. `JSON.stringify(undefined)` is `undefined`, and the old
+ * `?? "null"` turned an action that returned NOTHING into the string "null" —
+ * a value nobody sent. A JSON `null` result still stringifies to `"null"` and
+ * is shown as what it is; only an absent result gets the plain-words line.
  */
 export function compactActionResult(result: unknown, cap: number): string {
+  if (result === undefined) return "the action ran and returned no result";
   let text: string;
   try {
-    text = JSON.stringify(result) ?? "null";
+    text = JSON.stringify(result);
   } catch {
     return "the action ran but its result is not showable as text";
   }
+  if (text === undefined) return "the action ran and returned no result";
   return text.length > cap ? `${text.slice(0, Math.max(0, cap - 1))}…` : text;
 }

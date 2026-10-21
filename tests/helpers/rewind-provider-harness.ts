@@ -6,17 +6,13 @@
  * fresh harness, keep the population exact while resetting that state. The
  * provider measurement point and every request helper live here once.
  */
-import { createServer, type Server } from "node:http";
-import { join } from "node:path";
 import { expect } from "vitest";
 
-import { createTempDir } from "./temp-dir.ts";
 import { createTestUser } from "./multi-user.ts";
+import { jsonRequest } from "./json-request.ts";
+import { startHttpTestServer, type HttpTestServer } from "./http-server.ts";
 import { rewindProvider, type RewindProvider } from "./rewind-provider-state.ts";
-import { createRouter } from "../../server/router/router.ts";
-import { isPublicPath } from "../../server/routes/registry.ts";
-import { DbClient } from "../../server/db/client.ts";
-import { AsyncDbClient } from "../../server/db/async-client.ts";
+import type { DbClient } from "../../server/db/client.ts";
 import { registerChatRoutes } from "../../server/routes/chats.ts";
 import { registerProjectRoutes } from "../../server/routes/projects.ts";
 import { registerRunRoutes } from "../../server/routes/run.ts";
@@ -47,9 +43,7 @@ export type RewindHarness = {
 };
 
 export function createRewindHarness(provider: RewindProvider = rewindProvider): RewindHarness {
-  let tmpRoot = "";
-  let server: Server | undefined;
-  let baseUrl = "";
+  let http: HttpTestServer | undefined;
   let db: DbClient | undefined;
   let authCookie = "";
   let ownerUserId = "";
@@ -60,21 +54,20 @@ export function createRewindHarness(provider: RewindProvider = rewindProvider): 
   };
 
   async function api(method: "GET" | "POST", path: string, body?: unknown, cookie = authCookie): Promise<{ status: number; body: unknown }> {
-    const res = await fetch(`${baseUrl}${path}`, {
+    // ONE HTTP CORE: the shared `jsonRequest` owns the CSRF header, the
+    // JSON-stringified body and the body parse. The harness's only local
+    // contract is the session cookie it appends to every call.
+    const response = await jsonRequest(http?.baseUrl ?? "", path, {
       method,
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: `${cookie}; ${SESSION_COOKIE}`,
-        "X-Requested-With": "test",
-      },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      body,
+      cookie: `${cookie}; ${SESSION_COOKIE}`,
     });
-    const text = await res.text();
-    return { status: res.status, body: text.length > 0 ? JSON.parse(text) : undefined };
+    return { status: response.status, body: response.body };
   }
 
   async function drainRunStream(runId: string, timeoutMs = 10_000): Promise<string> {
-    const res = await fetch(`${baseUrl}/api/run/${runId}/stream`, { headers: { Cookie: `${authCookie}; ${SESSION_COOKIE}` } });
+    if (http === undefined) throw new Error("rewind harness has not started");
+    const res = await fetch(`${http.baseUrl}/api/run/${runId}/stream`, { headers: { Cookie: `${authCookie}; ${SESSION_COOKIE}` } });
     if (!res.ok || res.body === null) {
       const detail = res.body === null ? "<no body>" : (await res.text()).slice(0, 400);
       throw new Error(`stream failed: ${res.status} url=/api/run/${runId}/stream body=${detail}`);
@@ -156,35 +149,31 @@ export function createRewindHarness(provider: RewindProvider = rewindProvider): 
   return {
     provider,
     async start() {
-      tmpRoot = createTempDir("ch-rewind-");
-      db = new DbClient({ path: join(tmpRoot, "rewind.db") });
+      // ONE SERVER LIFECYCLE: `startHttpTestServer` owns the tmpdir, DB,
+      // router, ephemeral port and teardown (including the in-memory
+      // customization store an integration server must install). The rewind
+      // suite supplies only its route/compose registration.
+      http = await startHttpTestServer({
+        prefix: "ch-rewind-",
+        register: (router, _startedDb, adb) => {
+          registerProjectRoutes(router, adb);
+          registerChatRoutes(router, adb);
+          registerRunRoutes(router, adb);
+          registerRunStreamRoutes(router, adb);
+          clearBlocks();
+          defineComposeBlocks(adb);
+          mountBlockRoutes(router);
+        },
+      });
+      db = http.db;
       const user = createTestUser(db, "rewind-tester");
       authCookie = user.cookie;
       ownerUserId = user.userId;
-      const adb = AsyncDbClient.inline(db);
-      const router = createRouter({ db: adb, isPublicPath });
-      registerProjectRoutes(router, adb);
-      registerChatRoutes(router, adb);
-      registerRunRoutes(router, adb);
-      registerRunStreamRoutes(router, adb);
-      clearBlocks();
-      defineComposeBlocks(adb);
-      mountBlockRoutes(router);
-      server = createServer((req, res) => router.dispatch(req, res));
-      await new Promise<void>((resolve) => {
-        server!.listen(0, "127.0.0.1", () => {
-          const address = server!.address();
-          const port = typeof address === "object" && address !== null ? address.port : 0;
-          baseUrl = `http://127.0.0.1:${port}`;
-          resolve();
-        });
-      });
       return { db: requireDb(), ownerUserId, authCookie };
     },
     async stop() {
-      if (server !== undefined) await new Promise<void>((resolve) => server!.close(() => resolve()));
-      if (db !== undefined) db.close();
-      server = undefined;
+      if (http !== undefined) await http.stop();
+      http = undefined;
       db = undefined;
     },
     api,

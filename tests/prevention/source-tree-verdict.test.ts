@@ -25,13 +25,17 @@
 import { describe, expect, test } from "vitest";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
+  SUITE_ROOT,
   compareFingerprints,
   foreignRepositories,
   judgeRequiredInnerRoots,
+  judgeSuiteRoot,
   requiredInnerRoots,
+  requireSuiteRoot,
   stampOf,
   withVerdict,
 } from "../setup/source-tree-immutable.ts";
@@ -324,5 +328,55 @@ describe("the required-inner-roots instrument refuses an empty universe", () => 
     const messages = [unreadable.failure, unnamed.failure, noPackage.failure];
     expect(messages.every((m) => m !== null)).toBe(true);
     expect(new Set(messages).size).toBe(3);
+  });
+});
+
+describe("the suite root comes from the setup module, not the caller's cwd", () => {
+  test("SUITE_ROOT is this checkout's repository root and is accepted", () => {
+    // tests/prevention/../../ is the same root; deriving it from the setup
+    // module's own URL is what makes a foreign invocation guard the right tree.
+    expect(SUITE_ROOT).toBe(resolve(import.meta.dirname, "../.."));
+    expect(requireSuiteRoot()).toBe(SUITE_ROOT);
+    expect(requiredInnerRoots()).toEqual(["engine"]);
+  });
+
+  test("a foreign cwd cannot move the root: a child process still fingerprints THIS checkout", () => {
+    // THE DEFECT THIS PINS: the module read `process.cwd()`, so a run started
+    // from /tmp fingerprinted /tmp (and refused), while this checkout went
+    // unsupervised. Drive the real module from a temp cwd: the root, and the
+    // engine tree it declares, must not move.
+    const foreign = createTempDir("source-tree-foreign-cwd-");
+    const moduleUrl = pathToFileURL(join(SUITE_ROOT, "tests/setup/source-tree-immutable.ts")).href;
+    const script =
+      `import(${JSON.stringify(moduleUrl)}).then((m) => ` +
+      `console.log(JSON.stringify({ root: m.SUITE_ROOT, required: m.requiredInnerRoots(), ` +
+      `cwd: process.cwd(), refused: m.judgeSuiteRoot(process.cwd()).failure })))`;
+    const stdout = execFileSync(process.execPath, ["--experimental-strip-types", "-e", script], {
+      cwd: foreign,
+      encoding: "utf8",
+    });
+    const answer = JSON.parse(stdout.trim()) as {
+      root: string;
+      required: string[];
+      cwd: string;
+      refused: string | null;
+    };
+    expect(answer.root).toBe(SUITE_ROOT);
+    expect(answer.required).toEqual(["engine"]);
+    expect(answer.cwd).toBe(foreign);
+    expect(answer.refused).toMatch(/not inside a git repository/u);
+  });
+
+  test("a nested directory of a repository is refused as a root, naming the repository it resolves into", () => {
+    const answer = judgeSuiteRoot(join(SUITE_ROOT, "tests"));
+    expect(answer.root).toBe(SUITE_ROOT);
+    expect(answer.failure).toMatch(/not its root/u);
+  });
+
+  test("a directory with no repository above it is refused, never fingerprinted as an empty universe", () => {
+    const noRepository = createTempDir("source-tree-no-repo-");
+    const answer = judgeSuiteRoot(noRepository);
+    expect(answer.failure).toMatch(/not inside a git repository/u);
+    expect(() => requireSuiteRoot(noRepository)).toThrow(/not inside a git repository/u);
   });
 });

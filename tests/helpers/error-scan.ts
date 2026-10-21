@@ -14,7 +14,7 @@
  * new test gets a tested helper instead of a fresh copy.
  */
 import { readFileSync } from "node:fs";
-import { walkTs } from "./source-scan.ts";
+import { matchBrace, skipString, walkTs } from "./source-scan.ts";
 
 /**
  * The error class → statusCode map. `undefined` means the class has no
@@ -64,46 +64,6 @@ export function isInsideStringOrComment(src: string, idx: number): boolean {
     i += 1;
   }
   return false;
-}
-
-function skipString(src: string, i: number, quote: string): number {
-  let j = i + 1;
-  while (j < src.length) {
-    const c = src[j]!;
-    if (c === "\\") { j += 2; continue; }
-    if (quote === "`" && c === "$" && src[j + 1] === "{") {
-      const close = matchBrace(src, j + 1);
-      j = close === -1 ? src.length : close + 1;
-      continue;
-    }
-    if (c === quote) return j + 1;
-    j += 1;
-  }
-  return src.length;
-}
-
-function matchBrace(src: string, openIdx: number): number {
-  let depth = 1;
-  let i = openIdx + 1;
-  const n = src.length;
-  while (i < n && depth > 0) {
-    const ch = src[i]!;
-    if (ch === "/" && src[i + 1] === "/") {
-      const nl = src.indexOf("\n", i);
-      i = nl === -1 ? n : nl + 1;
-      continue;
-    }
-    if (ch === "/" && src[i + 1] === "*") {
-      const close = src.indexOf("*/", i + 2);
-      i = close === -1 ? n : close + 2;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") { i = skipString(src, i, ch); continue; }
-    if (ch === "{") depth += 1;
-    else if (ch === "}") depth -= 1;
-    i += 1;
-  }
-  return depth === 0 ? i - 1 : -1;
 }
 
 /**
@@ -387,4 +347,33 @@ export function findUnmappedThrownCodes(
     unmapped.push(`${className}${classStatus === undefined ? "" : `(${String(classStatus)})`}:${code}`);
   }
   return unmapped;
+}
+
+/**
+ * Every thrown code whose DECLARING CLASS carries a statusCode that disagrees
+ * with the shared `CODE_STATUS_MAP`.
+ *
+ * The router honours a class's `statusCode` first, so a mapped code carried by
+ * a class with the wrong status is two owners answering one question — the LIVE
+ * defect was `recycle_not_found`: the map declares 404, the route threw
+ * `BadRequestError` (400), and the wire answered 400. The guard is separate
+ * from `findUnmappedThrownCodes` because a mapped code is exactly what the
+ * unmapped scan accepts: this checks that the two declarations AGREE.
+ */
+export function findStatusDisagreements(
+  thrownCodes: readonly ThrownCode[],
+  classStatusCode: ClassStatusCodeMap,
+  statusForCode: (code: string) => number | undefined,
+): string[] {
+  const disagreements: string[] = [];
+  for (const { className, code } of thrownCodes) {
+    const classStatus = classStatusCode.get(className);
+    if (classStatus === undefined) continue; // No class override: the map is the one owner.
+    const mapped = statusForCode(code);
+    if (mapped === undefined) continue; // Unmapped codes have their own guard.
+    if (mapped !== classStatus) {
+      disagreements.push(`${className}(${String(classStatus)}):${code} maps to ${String(mapped)}`);
+    }
+  }
+  return [...new Set(disagreements)];
 }
