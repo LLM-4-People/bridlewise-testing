@@ -51,6 +51,7 @@ import {
   getAction,
   getCustomization,
   setCustomizationValue,
+  withConfigDocumentSnapshot,
   listExposureModules,
   type Signal,
   type Action,
@@ -246,6 +247,16 @@ export function buildUiSchema(decls: UiDeclarations = UI_DECLARATIONS): UiSchema
  * signal/customization values without N round-trips.
  */
 export function buildUiSchemaValues(viewer: Readonly<{ isAdmin: boolean }>): UiSchemaValues {
+  // ONE config document for the whole build: every config-bound customization
+  // used to read the store's document itself, so this endpoint paid one file
+  // read and parse per customization (~284 of them, measured 755ms warm while
+  // building the metadata-only schema takes 68ms) and could observe a
+  // different file version per value. The scope also makes the served values
+  // a single consistent snapshot.
+  return withConfigDocumentSnapshot(() => buildUiSchemaValuesWithinSnapshot(viewer));
+}
+
+function buildUiSchemaValuesWithinSnapshot(viewer: Readonly<{ isAdmin: boolean }>): UiSchemaValues {
   const signals: SignalValueEntry[] = [];
   for (const s of listSignals()) {
     try {

@@ -353,9 +353,39 @@ function withoutPathValue(doc: Record<string, unknown>, path: string): Record<st
  * case — see `readNumberCustomization` and `seedFromConfig`.
  */
 export function readConfigCustomization(configPath: string): CustomizationValue {
-  const store = requireStore();
-  const value = readPathValue(store.readDocument(), configPath);
+  const value = readPathValue(configDocumentForRead(), configPath);
   return value as CustomizationValue;
+}
+
+/**
+ * ONE DOCUMENT PER BUILD — the read scope a caller that reads MANY
+ * config-bound customizations opens, so N values cost one document read.
+ *
+ * It is also the consistent-snapshot rule: without it, a build that reads
+ * 284 customizations can observe 284 different file versions if a write
+ * lands mid-build, and serve a settings surface that never existed. The
+ * scope's document is the one the installed store returned at entry.
+ *
+ * Writes are refused inside the scope: a mutator passing through it would
+ * edit the snapshot, and the snapshot is not the store's document.
+ */
+let readScope: Readonly<Record<string, unknown>> | undefined;
+
+export function withConfigDocumentSnapshot<T>(run: () => T): T {
+  if (readScope !== undefined) return run();
+  const store = requireStore();
+  readScope = store.readDocument();
+  try {
+    return run();
+  } finally {
+    readScope = undefined;
+  }
+}
+
+/** The document a read sees: the open scope's snapshot, else the store's. */
+function configDocumentForRead(): Record<string, unknown> {
+  if (readScope !== undefined) return readScope as Record<string, unknown>;
+  return requireStore().readDocument();
 }
 
 /**
@@ -476,7 +506,10 @@ export function writeConfigCustomization(configPath: string, value: Customizatio
  */
 export function seedFromConfig(configPath: string, defaultValue: CustomizationValue): CustomizationValue {
   if (installedStore === undefined) return defaultValue;
-  const value = readPathValue(installedStore.readDocument(), configPath);
+  // The same read door every other config read uses, so a values build's
+  // snapshot covers this reader too: it is what a config-bound
+  // customization's `current()` calls on EVERY read.
+  const value = readPathValue(configDocumentForRead(), configPath);
   return value === undefined ? defaultValue : (value as CustomizationValue);
 }
 

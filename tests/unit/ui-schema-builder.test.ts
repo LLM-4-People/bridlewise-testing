@@ -16,6 +16,7 @@ import {
   installCustomizationConfigStore,
 } from "../../server/kernel/canonical.ts";
 import { readConfigRaw } from "../../server/kernel/harness-config.ts";
+import { withConfigDocumentSnapshot } from "../../engine/src/shared/exposure/config-binding.ts";
 import { serverConfig } from "../../server/kernel/config.ts";
 import { NotFoundError } from "../../server/kernel/errors.ts";
 
@@ -152,6 +153,56 @@ describe("buildUiSchemaValues", () => {
   test("returns current customization values", () => {
     const values = buildUiSchemaValues(ADMIN_VIEWER);
     expect(values.customizations.length).toBeGreaterThan(0);
+  });
+
+  test("one values build reads the config document ONCE, not once per customization", () => {
+    // The endpoint serves every config-bound customization. Before the
+    // snapshot scope each value read the store's document itself (a file
+    // read and parse per customization), which made the route the profile's
+    // slowest API call. Count the store's reads: one build, one document.
+    let doc: Record<string, unknown> = readConfigRaw();
+    let reads = 0;
+    installCustomizationConfigStore({
+      configFilePath: serverConfig.harnessConfigPath,
+      readDocument: () => {
+        reads += 1;
+        return JSON.parse(JSON.stringify(doc)) as Record<string, unknown>;
+      },
+      writeDocument: (next) => {
+        doc = next;
+      },
+    });
+    resetAllRegistrations();
+    registerAllExposure();
+    // Registration seeds each knob from the document — that cost belongs to
+    // boot, not to a values build. Count only the build.
+    reads = 0;
+    const customizations = listCustomizations().length;
+    expect(customizations).toBeGreaterThan(10);
+    const values = buildUiSchemaValues(ADMIN_VIEWER);
+    expect(values.customizations.length).toBeGreaterThan(0);
+    expect(reads, `${String(customizations)} customizations must not cost ${String(reads)} document reads`).toBe(1);
+  });
+
+  test("the snapshot scope is cleared by a throw and never leaks into the next read", () => {
+    let doc: Record<string, unknown> = readConfigRaw();
+    let reads = 0;
+    installCustomizationConfigStore({
+      configFilePath: serverConfig.harnessConfigPath,
+      readDocument: () => {
+        reads += 1;
+        return JSON.parse(JSON.stringify(doc)) as Record<string, unknown>;
+      },
+      writeDocument: (next) => {
+        doc = next;
+      },
+    });
+    expect(() => withConfigDocumentSnapshot(() => {
+      throw new Error("the build failed mid-scope");
+    })).toThrow("the build failed mid-scope");
+    const before = reads;
+    listCustomizations()[0]!.current();
+    expect(reads, "the scope must not outlive its build").toBe(before + 1);
   });
 
   test("values are frozen", () => {

@@ -241,7 +241,12 @@ export type RouteProfile = {
   readonly method: string;
   readonly path: string;
   readonly status: number;
+  /** The measured (steady-state) call — what the API budget judges. */
   readonly responseMs: number;
+  /** The un-measured warm-up call: the difference from responseMs is the
+   * one-time cost the route pays on first touch (module import, seeding,
+   * first query). Recorded so a budget claim can name which it hit. */
+  readonly warmupMs: number;
   readonly bytes: number;
   readonly ok: boolean;
   readonly note: string;
@@ -1461,11 +1466,14 @@ export async function profileApiRoutes(
       // request's post-response tail. A timeout here means the route is an
       // SSE-class stream: record the finding from the warmup and move on
       // (a second call would only spend the timeout again).
+      let warmupMs = Number.NaN;
       try {
+        const warmupT0 = Date.now();
         await callRoute();
+        warmupMs = Date.now() - warmupT0;
       } catch (warmupErr) {
         results.push({
-          method: r.method, path: resolved, status: 0, responseMs: NaN, bytes: 0, ok: false,
+          method: r.method, path: resolved, status: 0, responseMs: NaN, warmupMs: Number.NaN, bytes: 0, ok: false,
           note: `warmup: ${String((warmupErr as Error)?.message ?? warmupErr).slice(0, 60)}`,
         });
         continue;
@@ -1476,11 +1484,11 @@ export async function profileApiRoutes(
       const { status, bytes } = await callRoute();
       const responseMs = Date.now() - t0;
       results.push({
-        method: r.method, path: resolved, status, responseMs, bytes, ok: true, note: "",
+        method: r.method, path: resolved, status, responseMs, warmupMs, bytes, ok: true, note: "",
       });
     } catch (err) {
       results.push({
-        method: r.method, path: resolved, status: 0, responseMs: NaN, bytes: 0, ok: false,
+        method: r.method, path: resolved, status: 0, responseMs: NaN, warmupMs: Number.NaN, bytes: 0, ok: false,
         note: String((err as Error)?.message ?? err).slice(0, 80),
       });
     }

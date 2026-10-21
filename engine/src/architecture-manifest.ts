@@ -4529,7 +4529,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-shared-exposure-config-binding", path: "src/shared/exposure/config-binding.ts", realm: "shared", layer: "domain",
-      owner: "shared-exposure", publicApi: { exportCount: 15, namesSha256: "a5cf0743e7f39be5509983916e786719475f363f989cc41d7a55d64e918fbc6b" },
+      owner: "shared-exposure", publicApi: { exportCount: 16, namesSha256: "b2fb97be4a3ba5e0a82367a1fb747a1d3390af01a32d39c8bc493be5944dfccb" },
       dependencies: ["src/filesystem/atomic-write.ts","src/kernel/config-contracts.ts","src/kernel/config-write-lock.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts"],
     }),
     moduleContract({

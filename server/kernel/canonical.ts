@@ -142,7 +142,7 @@ export const {
 // source the server's reader falls back to when the document omits the
 // leaf, so the reader and the settings row can never state it twice.
 export const { DEFAULT_TOOL_CALL_ARGUMENTS_CACHE_ENTRIES } = engineSpans(kernelConfigContracts, "src-kernel-config-contracts");
-export const { isConfigPathDeclared } = engineSpans(sharedExposureConfigBinding, "src-shared-exposure-config-binding");
+export const { isConfigPathDeclared, withConfigDocumentSnapshot } = engineSpans(sharedExposureConfigBinding, "src-shared-exposure-config-binding");
 // The `tools.mcp` section schema — the single bounds owner for the section
 // (floors AND ceilings), re-validated on the read path so a document that
 // bypassed the write gate is refused loudly instead of flowing an
