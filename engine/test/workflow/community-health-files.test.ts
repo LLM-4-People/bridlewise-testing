@@ -131,6 +131,11 @@ test("sync writes every generated file, check names a hand edit and a stale form
     const conduct = readFileSync(join(root, "CODE_OF_CONDUCT.md"), "utf8");
     assert.doesNotMatch(conduct, /INSERT CONTACT|\{\{/u, "the conduct contact comes from the role table");
     assert.match(readFileSync(join(root, "GOVERNANCE.md"), "utf8"), /\| Reviewer \| team `reviewers`/u);
+    edit(root, ROLES_PATH, (json) => { const list = json.roles as Record<string, unknown>[]; list[1]!.earnedBy = "a|b\\c\nd"; });
+    syncCommunityFiles(root, true);
+    assert.ok(readFileSync(join(root, "GOVERNANCE.md"), "utf8").includes("| a\\|b\\\\c d |"), "a table cell escapes a pipe and a backslash and folds a line break");
+    plant(root);
+    syncCommunityFiles(root, true);
     assert.match(readFileSync(join(root, ".github/ISSUE_TEMPLATE/bug.yml"), "utf8"), /^type: "Bug"$/mu);
     assert.doesNotMatch(readFileSync(join(root, ".github/ISSUE_TEMPLATE/bug.yml"), "utf8"), /^labels:/mu, "labels are the projector's, never a form's");
 
