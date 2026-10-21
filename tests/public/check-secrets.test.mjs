@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
+const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
   const dir = mkdtempSync(join(tmpdir(), "bridlewise-secret-scan-"));
@@ -52,7 +53,7 @@ test("the scanner fails on a provider-shaped key outside a fixture path", () => 
     execFileSync("git", ["add", "config.txt"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /provider-token-shape/);
+    assert.match(result.stderr, /: token-prefix: /);
     assert.doesNotMatch(result.stderr, /C{24}/, "the scanner must not print the candidate value");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -66,7 +67,7 @@ test("the scanner fails on an internal absolute path", () => {
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /forbidden-path/);
+    assert.match(result.stderr, /: home-path: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -81,7 +82,7 @@ test("the scanner fails on a BARE home directory", () => {
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /forbidden-path/);
+    assert.match(result.stderr, /: home-path: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -109,7 +110,7 @@ test("the scanner fails on a private-key block outside a fixture path", () => {
     execFileSync("git", ["add", "config.ts"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /private-key-block/);
+    assert.match(result.stderr, /: private-key: /);
     assert.match(result.stderr, /config\.ts:1/);
     assert.doesNotMatch(result.stderr, /BEGIN OPENSSH PRIVATE KEY/, "the header itself must not be printed");
     assert.doesNotMatch(result.stdout, /secret scan: clean/, "a hard finding cannot print the clean line");
@@ -125,7 +126,7 @@ test("an EXAMPLE keyword on the line does not allowlist a provider-shaped key", 
     execFileSync("git", ["add", "config.ts"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /provider-token-shape/);
+    assert.match(result.stderr, /: token-prefix: /);
     assert.doesNotMatch(result.stderr, /Z{24}/, "the scanner must not print the candidate value");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -142,7 +143,7 @@ test("a key in a SHIPPED source directory is not a fixture", () => {
       execFileSync("git", ["add", shipped], { cwd: dir });
       const result = scan(dir);
       assert.equal(result.status, 1, `${shipped} must not be allowlisted: ${result.stderr}`);
-      assert.match(result.stderr, /provider-token-shape/);
+      assert.match(result.stderr, /: token-prefix: /);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -157,19 +158,20 @@ test("a key under docs/ is not a fixture", () => {
     execFileSync("git", ["add", "docs/guide.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /provider-token-shape/);
+    assert.match(result.stderr, /: token-prefix: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("an EXACT placeholder token is allowlisted without a keyword", () => {
-  const dir = makeRepo();
+test("a placeholder-looking key outside the fixture trees is a finding like any other", () => {
+  // The scanner once excused seven exact "placeholder" spellings anywhere in
+  // the tree; a value is never excused for its spelling.
+  const dir = repoWith({ "example.md": `reference: sk-${"A".repeat(24)}\n` });
   try {
-    writeFileSync(join(dir, "example.md"), "reference: sk-AAAAAAAAAAAAAAAAAAAAAAAA\n");
-    execFileSync("git", ["add", "example.md"], { cwd: dir });
     const result = scan(dir);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /example\.md:1: token-prefix: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -207,21 +209,6 @@ test("every format the canonical owner calls a secret file fails the scan", asyn
   }
 });
 
-test("a key pasted into .gitleaks.toml fails like a key anywhere else", () => {
-  // `.gitleaks.toml` is shipped configuration, not a fixture. It used to be in
-  // the fixture allowlist, so a real key there was counted synthetic.
-  const dir = repoWith({ ".gitleaks.toml": `regexes = ["sk-${"Z".repeat(24)}"]\n` });
-  try {
-    const result = scan(dir);
-    assert.equal(result.status, 1, result.stdout);
-    assert.match(result.stderr, /provider-token-shape/);
-    assert.doesNotMatch(result.stderr, /Z{24}/, "the scanner must not print the candidate value");
-    assert.doesNotMatch(result.stdout, /secret scan: clean/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => {
   const headers = [
     "-----BEGIN ENCRYPTED PRIVATE KEY-----",
@@ -232,7 +219,7 @@ test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => 
     try {
       const result = scan(dir);
       assert.equal(result.status, 1, `${header} certified clean:\n${result.stdout}`);
-      assert.match(result.stderr, /private-key-block/);
+      assert.match(result.stderr, /: private-key: /);
       assert.doesNotMatch(result.stderr, /BEGIN [A-Z ]*PRIVATE KEY/, "the header must not be printed");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -247,8 +234,8 @@ test("a text blob named .png is scanned by content, not by extension", () => {
   try {
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
-    assert.match(result.stderr, /private-key-block/);
-    assert.match(result.stderr, /forbidden-path/);
+    assert.match(result.stderr, /: private-key: /);
+    assert.match(result.stderr, /: home-path: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -260,7 +247,7 @@ test("a file above the old 2 MiB cap has its tail scanned", () => {
   try {
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
-    assert.match(result.stderr, /private-key-block/);
+    assert.match(result.stderr, /: private-key: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -274,7 +261,7 @@ test("a symlink is scanned through its committed target string, never followed",
     execFileSync("git", ["add", "docs/profile"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
-    assert.match(result.stderr, /forbidden-path/);
+    assert.match(result.stderr, /: home-path: /);
     assert.match(result.stderr, /docs\/profile/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -289,7 +276,7 @@ test("a dotted account name is not a documented placeholder", () => {
     try {
       const result = scan(dir);
       assert.equal(result.status, 1, `${line.trim()} certified clean`);
-      assert.match(result.stderr, /forbidden-path/);
+      assert.match(result.stderr, /: home-path: /);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -314,7 +301,7 @@ test("repeated slashes and JSON slash escapes name the same forbidden path", () 
     try {
       const result = scan(dir);
       assert.equal(result.status, 1, `${line.trim()} certified clean:\n${result.stdout}`);
-      assert.match(result.stderr, /forbidden-path/);
+      assert.match(result.stderr, /: home-path: /);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -326,9 +313,98 @@ test("a credential shape in a tracked file NAME is a path finding", () => {
   try {
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
-    assert.match(result.stderr, /path-content/);
-    assert.match(result.stderr, /provider-token shape in a file path/);
+    assert.match(result.stderr, /: github-personal-token: GitHub personal access token in a file path/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── the scanner reads the ONE catalogue ─────────────────────────────────
+//
+// Every row of `engine/src/privacy/secret-signals.ts` either is applied by the
+// scanner (`treeScan: true`) or says why not; each applied row's own
+// fixtures, assembled at runtime, are found and reported BY THE ROW ID, in a
+// shipped file and in a file name, while every row's negatives pass.
+test("every tree-scanned catalogue row is found by its id; the others say why not", () => {
+  const scanned = SECRET_TEXT_SIGNAL_CATALOG.filter((signal) => signal.treeScan === true);
+  assert.ok(scanned.length >= 12, `only ${String(scanned.length)} rows are tree-scanned`);
+  for (const signal of SECRET_TEXT_SIGNAL_CATALOG) {
+    if (signal.treeScan !== true) {
+      assert.ok(signal.treeScan.reason.length > 20, `${signal.id} skips the tree scan without a reason`);
+      continue;
+    }
+    signal.fixtures.positive.forEach((_parts, index) => {
+      const value = signalFixture(signal.id, index);
+      const dir = repoWith({ "src/shipped.ts": `const value = ${JSON.stringify(value)};\n` });
+      try {
+        const result = scan(dir);
+        assert.equal(result.status, 1, `${signal.id}[${String(index)}] certified clean:\n${result.stdout}`);
+        assert.match(result.stderr, new RegExp(`src/shipped\\.ts:1: ${signal.id}: `, "u"), `${signal.id}[${String(index)}]`);
+        assert.ok(!result.stderr.includes(value), `${signal.id}: the scanner printed the value`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+  const negatives = SECRET_TEXT_SIGNAL_CATALOG.flatMap((signal) => signal.fixtures.negative);
+  const clean = repoWith({ "src/near-misses.ts": `${negatives.map((value) => JSON.stringify(value)).join("\n")}\n` });
+  try {
+    const result = scan(clean);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(clean, { recursive: true, force: true });
+  }
+});
+
+test("a 520-character installation token with dots is found by its row id, outside and inside a fixture tree", () => {
+  const token = signalFixture("github-installation-token", 0);
+  assert.equal(token.length, 520);
+  assert.equal(token.split(".").length, 3, "the fixture is a three-part JWT");
+  const dir = repoWith({ "docs/run.log": `GITHUB_TOKEN ${token}.\n`, "tests/fixture.txt": `${token}\n` });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /docs\/run\.log:1: github-installation-token: GitHub App installation token/);
+    assert.doesNotMatch(result.stderr, /tests\/fixture\.txt/, "a fixture tree is still allowlisted until P0.6 removes it");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("each publication-privacy row is reported by its id; database state by file name", () => {
+  const planted = {
+    "home-path": "see /home/private-user/work\n",
+    "internal-git-host": "remote: https://git.localserver.ca/x.git\n",
+    "internal-provider-host": "base: https://api.neuralwatt.com/v1\n",
+    "internal-scratch-path": "scratch: /tmp/opencode/run\n",
+    "local-evidence-state": "state: ~/.local/state/code-harness.fresh-evidence/x\n",
+  };
+  const textRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => signal.appliesTo === "text").map((signal) => signal.id);
+  assert.deepEqual(Object.keys(planted).sort(), [...textRows].sort(), "every text privacy row has a planted case");
+  for (const [id, line] of Object.entries(planted)) {
+    const dir = repoWith({ "src/notes.md": line });
+    try {
+      const result = scan(dir);
+      assert.equal(result.status, 1, `${id} certified clean`);
+      assert.match(result.stderr, new RegExp(`src/notes\\.md:1: ${id}: `, "u"));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  for (const name of ["data/state.db", "data/app.sqlite", "data/app.sqlite3-wal", "data/.db"]) {
+    const dir = repoWith({ [name]: "x\n" });
+    try {
+      const result = scan(dir);
+      assert.equal(result.status, 1, `${name} certified clean`);
+      assert.match(result.stderr, /forbidden-file: database state/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  const nearMiss = repoWith({ "src/db.ts": "export const db = 1;\n", "docs/sqlite.md": "# SQLite\n" });
+  try {
+    assert.equal(scan(nearMiss).status, 0);
+  } finally {
+    rmSync(nearMiss, { recursive: true, force: true });
   }
 });

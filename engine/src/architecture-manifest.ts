@@ -4714,7 +4714,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-privacy-secret-signals", path: "src/privacy/secret-signals.ts", realm: "shared", layer: "domain",
-      owner: "privacy-and-redaction", publicApi: { exportCount: 9, namesSha256: "a7b30711dc617a2edc07384e96b0a8c486feb447ef84e8dc87dbcbe02288bf84" },
+      owner: "privacy-and-redaction", publicApi: { exportCount: 14, namesSha256: "898be30af8fcd937944f98b2127331eb530f431b92ec9233dc4250fc73ea13ad" },
       dependencies: ["src/kernel/integrity.ts"],
     }),
     moduleContract({
