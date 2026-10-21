@@ -4125,6 +4125,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workspaces/workspace-forge.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workspaces/workspace-integration.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4189,5 +4197,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "67dc32eea419917973a2e0479f0d0469444b44a38a7a4ac13cc7a5406ac6a85f"
+  "integrityHash": "fe6712be34a7b847b94afa27e8807418a1b42ba20799398518d0cdbca8f9b1b2"
 }

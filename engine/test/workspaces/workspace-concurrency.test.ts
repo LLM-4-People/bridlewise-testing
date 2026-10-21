@@ -19,6 +19,7 @@ import {
   mkWorkspaceTempDir,
   rawGit,
   registryRoot,
+  trackBranch,
 } from "./workspace-test-support.ts";
 
 /**
@@ -72,6 +73,7 @@ test("a manager rooted in another worktree of the repository sees the same regis
   const { root } = initTempRepo("ws-common");
   const linked = join(mkWorkspaceTempDir("ws-common-linked"), "other");
   rawGit(root, ["worktree", "add", "-q", "-b", "other", linked]);
+  trackBranch(root, "other");
   const config = makeTestConfig(mkWorkspaceTempDir("ws-common-wt"));
   const fromMain = makeManager(root, { config }).manager;
   const fromLinked = makeManager(linked, { config }).manager;

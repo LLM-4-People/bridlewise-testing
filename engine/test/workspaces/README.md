@@ -9,8 +9,15 @@ The `engine/test/workspaces/` folder of the development surface.
 - `workspace-concurrency.test.ts` — one registry and lock pair per repository seen from every worktree, concurrent
   admission (exactly one of two overlapping creates), read-only workspaces, `extend`, merge-lock contention and
   stale-lock recovery, a destroyed worktree, lease expiry and the sweep of quarantined (locked) worktrees.
-- `workspace-contracts.test.ts` — the closed v2 records, the state machine, the receipt hash, the derived
+- `workspace-contracts.test.ts` — the closed v3 records (the forge state among them), the state machine, the receipt hash, the derived
   never-leasable set and the read-only lease invariants.
+- `fake-forge.ts` — a fake forge over a real bare repository (the workspace's remote): the Git Data API writes real
+  objects there, pull requests are kept in memory with the forge's own refusals, every call is recorded.
+- `workspace-forge.test.ts` — publishing on the forge: signed twins with the local trees (modes, links, nested paths),
+  no identity in a commit request, the local branch moved to the twins, one draft pull request with a generated body,
+  later rounds (only new blobs), merges of the trunk and rebases, a crashed round's pull request adopted, `ready`,
+  and every refusal (no forge, read-only, dirty, unleased, empty, forge branch ahead, unsigned, wrong object, a
+  changed or missing upstream).
 - `workspace-integration.test.ts` — the flow on real git: create, validate (`--full`), the merge in the workspace,
   the land (fast-forward into a DIRTY checkout that keeps every entry, refusal on overlap or a moved target, the
   ref compare-and-swap, `merge.autostash` ignored, a refused land kept `validating`), land targets, a base off the

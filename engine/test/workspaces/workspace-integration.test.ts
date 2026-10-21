@@ -42,6 +42,8 @@ import {
   registryRoot,
   TEST_INTEGRATOR_IDENTITY,
   TEST_TIMEOUTS,
+  testRepository,
+  trackBranch,
   writeFile,
 } from "./workspace-test-support.ts";
 import { repositoryRegistry } from "../../src/workflow/repository-registry.ts";
@@ -205,6 +207,7 @@ test("target not checked out anywhere: the land is a compare-and-swap of the ref
   const { root } = initTempRepo("ws-cas");
   const workspaceRoot = mkWorkspaceTempDir("ws-cas-wt");
   rawGit(root, ["branch", "side"]);
+  trackBranch(root, "side");
   const sideTip = rawGit(root, ["rev-parse", "side"]);
   const headBefore = rawGit(root, ["rev-parse", "HEAD"]);
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
@@ -972,7 +975,7 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
       persisted = { ...next, revision: next.revision + 1 };
       return persisted;
     } };
-    const failing = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(),
+    const failing = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), repository: testRepository,
       records,
       git: { ...git,
         worktreeRemove(options) { if (failure === "worktree-remove") throw injected; return git.worktreeRemove(options); },
@@ -994,7 +997,7 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
     } finally { source.close(); canonical.close(); }
     // The integrator is gone: recover finishes whatever teardown remained.
     inject = false;
-    const recovering = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), records, git });
+    const recovering = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), repository: testRepository, records, git });
     assert.equal((await recovering.recover(record.workspaceId)).state, "merged");
     assert.equal(existsSync(record.lease.worktreePath), false);
     assert.equal(rawGit(root, ["branch", "--list", record.lease.branch!]), "");

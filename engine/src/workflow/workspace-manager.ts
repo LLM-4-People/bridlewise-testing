@@ -14,6 +14,7 @@ import {
   type ExactWriteEffect,
 } from "../modules/effect-boundary/domain/write-lease.ts";
 import type { GitIdentity } from "../git/git-port.ts";
+import { gitOutput, type GitRepository } from "../git/tree-reader.ts";
 import type { StatusEntry, WorktreeGitPort } from "../git/worktree-port.ts";
 import { snapshotWorkingTree, type WorkingTreeSnapshot } from "../git/working-copy.ts";
 import { indexFilePath } from "../git/repository-ownership.ts";
@@ -32,6 +33,7 @@ import { applyCheckoutFiles, assertSameFilesystem, removeGateLogs, runCheckoutPh
 import { LandingError, branchCheckout, commitCandidate, landCommit, refuseUndeclaredWrites } from "./tree-landing.ts";
 import { importWorkspaceTimelineShard, openWorkspaceTimelineShard } from "./timeline-shard.ts";
 import { createWorkspaceRecordStore, type WorkspaceRecordStore } from "./workspace-registry.ts";
+import { fetchForgeBranches, publishBranch, resolveForgeTarget, trackingRef, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry, workspaceRootOf, type RepositoryRegistry } from "./repository-registry.ts";
 import { DEFAULT_MAXIMUM_PERSISTED_GATE_STRING_CHARACTERS } from "./workflow-config.ts";
 import {
@@ -53,6 +55,7 @@ import {
   type WorkspaceGateResult,
   type WorkspaceLanding,
   type WorkspaceOverlay,
+  type WorkspaceForgeState,
   type WorkspaceRecord,
   type WorkspaceState,
   type WorkspaceTransition,
@@ -110,6 +113,13 @@ export { createWorkspaceRecordStore, type WorkspaceRecordStore } from "./workspa
  *   authored changes ⊆ lease), the `validate` phase; with `--full` also
  *   `regenerate`, the `converged` check (nothing left uncommitted) and the
  *   `merge` phase.
+ * PUBLISH and READY (`workspace-forge.ts`): a feature workspace's target has
+ *   an upstream (resolved at create, refused when it has none); a round
+ *   publishes the branch's new commits as forge-signed twins (the same trees)
+ *   once the worktree is clean and its changes since the fetched trunk are
+ *   inside the lease, moves the local branch to them, and opens the DRAFT pull
+ *   request on the first round (regenerating its body on every one); `ready`
+ *   takes it out of draft once the published tree passed `validate`.
  * LEDGER GATES (a command that declares its suite `ledger`) are judged like
  *   a qualification: the run's row against the BASELINE of the target's tip —
  *   a non-mutation run of the target's TREE (a row's `treeId`, the tree the
@@ -176,6 +186,8 @@ export type WorkspaceManagerTimeouts = Readonly<{
   inspectMs: number;
   /** The merge commit, which runs the repository's commit hooks. */
   mergeMs: number;
+  /** A fetch from the forge's remote. */
+  fetchMs: number;
 }>;
 
 export type WorkspaceTimelineHooks = Readonly<{
@@ -191,6 +203,14 @@ export type WorkspaceManagerOptions = Readonly<{
   engineRelative: string;
   config: WorkspaceIsolationConfig;
   git: WorktreeGitPort;
+  /** The binary-safe git of a checkout (`configuredGitRepository`: the configured executable and ceiling). */
+  repository: (root: string) => GitRepository;
+  /**
+   * The forge client of a land target (`workspace-forge.ts`). Absent: every
+   * verb that reaches the forge (publish, ready) is refused
+   * `workspace_forge_unavailable`; the local verbs work.
+   */
+  forge?: WorkspaceForgeFactory;
   commands: WorkspaceCommands;
   timeouts: WorkspaceManagerTimeouts;
   /** The integrator's commit identity; absent: the repository's configured identity. */
@@ -220,6 +240,10 @@ export type WorkspaceManager = Readonly<{
   create(request: WorkspaceCreateRequest): Promise<WorkspaceRecord>;
   extend(workspaceId: string, writeSet: readonly string[]): Promise<WorkspaceRecord>;
   validate(workspaceId: string, options?: Readonly<{ full?: boolean }>): Promise<ValidationReport>;
+  /** Publishes the branch's new commits as signed twins and opens (or regenerates) its draft pull request. */
+  publish(workspaceId: string): Promise<WorkspacePublication>;
+  /** Marks the pull request ready for review: the published head is the validated tree. */
+  ready(workspaceId: string): Promise<WorkspaceRecord>;
   merge(workspaceId: string): Promise<MergeReceipt>;
   /** Finishes or rolls back a merge whose integrator died (see `recover` below). */
   recover(workspaceId: string): Promise<WorkspaceRecord>;
@@ -229,6 +253,9 @@ export type WorkspaceManager = Readonly<{
   status(workspaceId: string): WorkspaceRecord;
   sweep(): Promise<readonly string[]>;
 }>;
+
+/** What `publish` did: the record as saved and the round. */
+export type WorkspacePublication = Readonly<{ record: WorkspaceRecord; round: PublishedRound }>;
 
 export class WorkspaceConflictError extends HarnessError {
   readonly report: ConflictReport;
@@ -931,6 +958,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const generated = generatedOutputPaths(checkoutRoot);
 
     let targetBranch: string | null = null;
+    let forgeState: WorkspaceForgeState | null = null;
     let baseSha: string;
     let overlay: WorkspaceOverlay | null = null;
     let writeSet: readonly string[] = [];
@@ -967,6 +995,9 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
         writeSet = [...new Set(request.writeSet.map(canonicalizeWriteSetPath))].toSorted();
       }
       assertLeasableWriteSet(writeSet);
+      // Where it will land: the target's upstream (refused when it has none: it could never land).
+      const upstream = resolveForgeTarget(options.repository(checkoutRoot), targetBranch);
+      forgeState = deepFreeze({ remote: upstream.remote, trunk: upstream.trunk, pullRequest: null, publishedHead: null, ready: false });
     }
 
     const branch = readOnly ? null : `${config.branchNamespace}${request.agentName}/${nonce}`;
@@ -1000,6 +1031,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       mergeReceipt: null,
       abortReason: null,
       history: deepFreeze([]),
+      forge: forgeState,
       revision: 0,
     });
     // ADMISSION: the static check and the reservation are one step under the
@@ -1219,7 +1251,8 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       const branch = record.lease.branch!;
       const target = record.lease.targetBranch!;
       const head = git.revParse(worktreePath, "HEAD", timeouts.inspectMs);
-      if (head !== validated.headSha) {
+      // The tree, not the commit: a published round moves the branch to its signed twin, the same tree.
+      if (git.revParse(worktreePath, `${head}^{tree}`, timeouts.inspectMs) !== validated.tree) {
         saveTransition(record, "active", "worktree HEAD moved after validation; re-validate");
         throw new InputError(`workspace ${workspaceId} validation is stale (HEAD moved)`, "workspace_validation_stale");
       }
@@ -1477,6 +1510,149 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     return active;
   }
 
+  /**
+   * The forge client of a feature workspace's target, and the target as git
+   * names it now: an upstream changed since create (another remote or trunk)
+   * is refused, never followed (`workspace_target_upstream_changed`).
+   */
+  function forgeOf(record: WorkspaceRecord): Readonly<{ forge: WorkspaceForge; target: ForgeTarget; state: WorkspaceForgeState }> {
+    const state = record.forge;
+    if (state === null) throw new InputError(`workspace ${record.workspaceId} is read-only: it never reaches the forge`, "workspace_read_only");
+    if (options.forge === undefined) {
+      throw new HarnessError("no forge client is configured: the forge port's GitHub adapter (engine/src/workflow/forge/) provides it to the workspace CLI", "workspace_forge_unavailable", false, { workspaceId: record.workspaceId });
+    }
+    const target = resolveForgeTarget(options.repository(checkoutRoot), record.lease.targetBranch!);
+    if (target.remote !== state.remote || target.trunk !== state.trunk) {
+      throw new InputError(`${record.lease.targetBranch!}'s upstream is ${target.remote}/${target.trunk} now, but the workspace was created for ${state.remote}/${state.trunk}: abort it and create a new one`, "workspace_target_upstream_changed");
+    }
+    // Frozen shallowly: the client is the composition root's object, never the manager's to freeze.
+    return Object.freeze({ forge: options.forge(target), target, state });
+  }
+
+  /** A feature workspace a forge verb may act on: not read-only, not terminal, not merging; its lease live and its worktree intact. */
+  function requireForgeable(workspaceId: string, verb: string): WorkspaceRecord {
+    const record = requireRecord(workspaceId);
+    if (record.lease.kind === "read-only") throw new InputError(`workspace ${workspaceId} is read-only: it never reaches the forge`, "workspace_read_only");
+    if (isTerminalWorkspaceState(record.state)) throw new InputError(`workspace ${workspaceId} is terminal (${record.state})`, "workspace_terminal");
+    if (record.state !== "active" && record.state !== "validating") {
+      throw new InputError(`workspace ${workspaceId} cannot ${verb} from ${record.state}`, "workspace_precondition_failed");
+    }
+    assertLeaseLive(record);
+    assertWorktreeIntact(record);
+    return record;
+  }
+
+  /** The tracked trunk as last fetched, in the workspace's repository. */
+  function trunkTip(record: WorkspaceRecord, target: ForgeTarget): string {
+    return git.revParse(record.lease.worktreePath, trackingRef(target.remote, target.trunk), timeouts.inspectMs);
+  }
+
+  /**
+   * PUBLISH one round (see `workspace-forge.ts`): a clean worktree whose
+   * changes since the trunk are inside the lease (judged against the trunk as
+   * fetched now: what the pull request carries) is published as signed twins;
+   * the first round opens the DRAFT pull request (or adopts the one a crashed
+   * round opened), every later one regenerates its title and body.
+   */
+  async function publish(workspaceId: string): Promise<WorkspacePublication> {
+    const record = requireForgeable(workspaceId, "publish");
+    const worktreePath = record.lease.worktreePath;
+    const branch = record.lease.branch!;
+    const { forge, target, state } = forgeOf(record);
+    const dirty = git.status(worktreePath, timeouts.inspectMs);
+    if (dirty.length > 0) {
+      throw new InputError(`workspace ${workspaceId} has uncommitted changes (${statusPaths(dirty).slice(0, 8).join(", ")}): a round publishes commits`, "workspace_publish_dirty");
+    }
+    fetchForgeBranches(git, worktreePath, target, [target.trunk], timeouts.fetchMs);
+    const head = git.revParse(worktreePath, "HEAD", timeouts.inspectMs);
+    const { changed, exempt } = branchChange(worktreePath, git.mergeBase(worktreePath, trunkTip(record, target), head, timeouts.inspectMs), head);
+    const unleased = computeUnleasedPaths(changed, record.lease.writeSet, exempt);
+    if (unleased.length > 0) {
+      throw new WorkspaceConflictError(buildConflictReport("dynamic-overlap", workspaceId, unleased.map((path) => deepFreeze({ path, otherWorkspaceId: null, reason: "changed path is outside the declared write set" }))));
+    }
+    progress(`publish: ${branch} to ${target.remote}`);
+    const round = await publishBranch({ forge, repository: options.repository(worktreePath), git, target, branch, fetchMs: timeouts.fetchMs });
+    const published: WorkspaceRecord = deepFreeze({ ...record, forge: deepFreeze({ ...state, publishedHead: round.head }) });
+    const { title, body } = pullRequestText(published, target);
+    let pullRequest = state.pullRequest;
+    if (pullRequest === null) {
+      const opened = await forge.findPullRequest(branch) ?? await forge.openDraftPullRequest({ head: branch, base: target.trunk, title, body });
+      pullRequest = deepFreeze({ number: opened.number, url: opened.url });
+    }
+    await forge.updatePullRequest(pullRequest.number, { title, body });
+    const saved = store.save(deepFreeze({ ...published, forge: deepFreeze({ ...published.forge!, pullRequest }) }));
+    recordTimelineEvent("shard", saved, `workspace-published head=${round.head} commits=${String(round.commits.length)} pr=${String(pullRequest.number)}`, "succeeded");
+    auditEvent("workspace-published", { workspaceId, head: round.head, commits: round.commits.length, blobs: round.blobs, pullRequest: pullRequest.number });
+    return deepFreeze({ record: saved, round });
+  }
+
+  /**
+   * The pull request's generated title and body: the branch's first commit
+   * subject; the workspace, its lease, its commits and the local validation of
+   * the published tree. Gate names and verdicts only, never a gate's words (a
+   * message may name a local path).
+   */
+  function pullRequestText(record: WorkspaceRecord, target: ForgeTarget): Readonly<{ title: string; body: string }> {
+    const worktreePath = record.lease.worktreePath;
+    const head = record.forge!.publishedHead!;
+    const repository = options.repository(worktreePath);
+    const commits = gitOutput(repository, ["log", "--reverse", "--format=%h%x09%s", `${trackingRef(target.remote, target.trunk)}..${head}`]).stdout.toString("utf8")
+      .split("\n").filter((line) => line.length > 0).map((line) => line.split("\t") as [string, string]);
+    const tree = git.revParse(worktreePath, `${head}^{tree}`, timeouts.inspectMs);
+    const validated = record.validationReport;
+    const validation = validated === null || validated.tree !== tree
+      ? ["Not validated at this tree yet (`ws validate`)."]
+      : [`${validated.status === "pass" ? "Passed" : "Failed"}${validated.full ? " (full)" : ""} at ${validated.validatedAt}.`, "", "| Gate | Verdict |", "|---|---|",
+        ...validated.gates.map((gate) => `| \`${gate.gate}\` | ${gate.status} |`)];
+    const body = [
+      `<!-- bridlewise:workspace ${record.workspaceId} — generated by \`ws publish\` on every round; edits are overwritten -->`,
+      `**Workspace** \`${record.workspaceId}\` · **agent** \`${record.agentName}\` · **base** \`${record.lease.baseSha.slice(0, 12)}\` on \`${target.trunk}\` · **head** \`${head.slice(0, 12)}\` (tree \`${tree.slice(0, 12)}\`)`,
+      "",
+      "### Write set",
+      ...record.lease.writeSet.map((path) => `- \`${path}\``),
+      "",
+      "### Commits",
+      ...commits.map(([sha, subject]) => `- \`${sha}\` ${subject}`),
+      "",
+      "### Local validation",
+      ...validation,
+      "",
+    ].join("\n");
+    return deepFreeze({ title: commits[0]?.[1] ?? `workspace ${record.workspaceId}`, body });
+  }
+
+  /**
+   * READY: the pull request leaves draft for review (the harness dispatches the
+   * verifier). Only a published head whose tree passed the local validation is
+   * ready; the forge's head must be the one this workspace published.
+   */
+  async function ready(workspaceId: string): Promise<WorkspaceRecord> {
+    const record = requireForgeable(workspaceId, "be marked ready");
+    const worktreePath = record.lease.worktreePath;
+    const { forge, state } = forgeOf(record);
+    if (state.pullRequest === null || state.publishedHead === null) {
+      throw new InputError(`workspace ${workspaceId} has no pull request yet: publish a round first`, "workspace_not_published");
+    }
+    const head = git.revParse(worktreePath, "HEAD", timeouts.inspectMs);
+    if (head !== state.publishedHead || git.status(worktreePath, timeouts.inspectMs).length > 0) {
+      throw new InputError(`workspace ${workspaceId} holds work its last round did not publish (published ${state.publishedHead}, HEAD ${head}): publish it first`, "workspace_unpublished_commits");
+    }
+    const validated = record.validationReport;
+    const tree = git.revParse(worktreePath, `${head}^{tree}`, timeouts.inspectMs);
+    if (validated === null || validated.status !== "pass" || validated.tree !== tree) {
+      throw new InputError(`workspace ${workspaceId}'s published tree ${tree} has no passing validation: validate it first`, "workspace_not_validated");
+    }
+    const current = await forge.pullRequest(state.pullRequest.number);
+    if (current.state !== "open") throw new InputError(`pull request #${String(current.number)} is ${current.state}`, "workspace_pull_request_closed");
+    if (current.headSha !== head) {
+      throw new InputError(`pull request #${String(current.number)}'s head is ${current.headSha}, not the published ${head}: someone else pushed to ${record.lease.branch!}`, "workspace_published_head_moved");
+    }
+    if (current.draft) await forge.markReadyForReview(current.number);
+    const saved = store.save(deepFreeze({ ...record, forge: deepFreeze({ ...state, ready: true }) }));
+    auditEvent("workspace-ready", { workspaceId, pullRequest: current.number, head });
+    return saved;
+  }
+
   function abort(workspaceId: string, abortOptions: Readonly<{ quarantine?: boolean; reason?: string }> = {}): WorkspaceRecord {
     return abortInternal(requireRecord(workspaceId), abortOptions.quarantine ?? false, abortOptions.reason ?? "operator abort");
   }
@@ -1535,6 +1711,8 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     create,
     extend,
     validate,
+    publish,
+    ready,
     merge,
     recover,
     abort,

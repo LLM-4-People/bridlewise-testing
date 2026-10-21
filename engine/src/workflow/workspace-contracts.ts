@@ -40,12 +40,16 @@ import { wholesaleGeneratedPaths } from "./hash-binding-registry.ts";
  * - `read-only`: a detached worktree for a verifier — no branch, no lease, no
  *   target; it can be validated and never merges.
  *
+ * A feature workspace's record also carries its FORGE state (the target's
+ * upstream, its pull request, the head its last round published, whether it
+ * is ready for review: `workspace-forge.ts`); a read-only one has none.
+ *
  * Every schema is a zod strict object: unknown keys are rejected so a
  * record written by a different revision fails closed instead of being
  * silently truncated.
  */
 
-export const WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 2);
+export const WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 3);
 
 export const WORKSPACE_STATES = deepFreeze([
   "admitted",
@@ -248,6 +252,33 @@ const workspaceLeaseSchema = z.strictObject({
 });
 export type WorkspaceLease = DeepReadonly<z.infer<typeof workspaceLeaseSchema>>;
 
+/**
+ * A feature workspace's place on the forge (`workspace-forge.ts`): its land
+ * target's upstream (the remote and the trunk its pull request is opened
+ * against, resolved once at create), the pull request (opened as a draft by
+ * the first published round: the forge opens none without a commit), the
+ * branch head the last round published (the local branch was moved to it: the
+ * same tree), and whether the writer marked it ready for review.
+ */
+const workspaceForgeSchema = z.strictObject({
+  remote: z.string().min(1).max(128).regex(/^[A-Za-z0-9._][A-Za-z0-9._-]*$/u),
+  trunk: BRANCH_SCHEMA,
+  pullRequest: z.strictObject({
+    number: z.number().int().positive(),
+    url: z.string().min(1).max(1024),
+  }).nullable(),
+  publishedHead: GIT_SHA_SCHEMA.nullable(),
+  ready: z.boolean(),
+}).superRefine((forge, context) => {
+  if ((forge.pullRequest === null) !== (forge.publishedHead === null)) {
+    context.addIssue({ code: "custom", path: ["pullRequest"], message: "the first published round opens the pull request: both exist, or neither" });
+  }
+  if (forge.ready && forge.pullRequest === null) {
+    context.addIssue({ code: "custom", path: ["ready"], message: "only an opened pull request is marked ready" });
+  }
+});
+export type WorkspaceForgeState = DeepReadonly<z.infer<typeof workspaceForgeSchema>>;
+
 const workspaceTransitionSchema = z.strictObject({
   from: z.enum(WORKSPACE_STATES),
   to: z.enum(WORKSPACE_STATES),
@@ -268,6 +299,8 @@ export const workspaceRecordSchema = z.strictObject({
   mergeReceipt: mergeReceiptSchema.nullable(),
   abortReason: REASON_SCHEMA.nullable(),
   history: z.array(workspaceTransitionSchema).max(4096),
+  /** The forge state of a feature workspace; null for a read-only one (it never publishes). */
+  forge: workspaceForgeSchema.nullable(),
   /**
    * How many times the record was saved: the store's compare-and-swap token
    * (`workspace-registry.ts`). A save of a record whose revision is not the
@@ -278,6 +311,9 @@ export const workspaceRecordSchema = z.strictObject({
 }).superRefine((record, context) => {
   if (record.lease.kind === "read-only" && (record.state === "merging" || record.state === "merged")) {
     context.addIssue({ code: "custom", path: ["state"], message: "a read-only workspace never merges" });
+  }
+  if ((record.lease.kind === "read-only") !== (record.forge === null)) {
+    context.addIssue({ code: "custom", path: ["forge"], message: "a feature workspace has a forge state; a read-only one has none" });
   }
 });
 export type WorkspaceRecord = DeepReadonly<z.infer<typeof workspaceRecordSchema>>;

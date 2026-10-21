@@ -14,6 +14,8 @@ node src/cli.ts harness workspace create --agent <name> --overlay [--write-set <
 node src/cli.ts harness workspace create --agent <name> --read-only [--base <ref>]
 node src/cli.ts harness workspace extend <id> --write-set <path…>
 node src/cli.ts harness workspace validate <id> [--full]
+node src/cli.ts harness workspace publish <id>
+node src/cli.ts harness workspace ready <id>
 node src/cli.ts harness workspace merge <id>
 node src/cli.ts harness workspace recover <id>
 node src/cli.ts harness workspace abort <id> [--quarantine]
@@ -27,6 +29,17 @@ stated once, in `workspace-manager.ts`'s header; the refusals and the land are
 in
 [MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land).
 
+- **The forge** (`workspace-forge.ts`): a feature workspace lands through a
+  pull request against its target's UPSTREAM (`branch.<target>.remote` and
+  `.merge`, resolved at create; a target with none is refused,
+  `workspace_target_untracked`). `publish` re-makes each new local commit
+  through the Git Data API with no author or committer (the forge signs it:
+  Verified), checks every answered blob, tree and signature, sets the
+  workspace's branch and moves the local branch to the signed twins (the same
+  tree); the first round opens the DRAFT pull request, every round
+  regenerates its body. `ready` takes it out of draft once its published tree
+  passed `validate`. The forge client is the forge port's GitHub adapter;
+  until the CLI is given one, both refuse `workspace_forge_unavailable`.
 - **Registry**: `<git common dir>/bridlewise/` (`repository-registry.ts`, the one derivation; the records in `workspace-registry.ts`):
   `workspaces/<id>.json`, `locks/` (the admission and merge locks),
   `timeline/` (the shards and the integrator's ledger) — one per repository,
@@ -249,6 +262,7 @@ The folder lives at `engine/src/workflow/`.
 - `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/git/worktree-port.ts` and 18 more.
 - `workspace-cli.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
 - `workspace-contracts.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`, `engine/src/workflow/workspace-registry.ts`.
+- `workspace-forge.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`.
 - `workspace-manager.ts` is consumed by `engine/src/workflow/workspace-cli.ts`.
 - `workspace-registry.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/workspace-manager.ts`.
 
