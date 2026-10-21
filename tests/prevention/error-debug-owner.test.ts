@@ -444,8 +444,12 @@ import {
   getWebDebugSignals,
   createConsoleSink,
   isWebDebugEnabled,
+  webConsoleError,
 } from "../../server/observability/debug-bridge.ts";
+import { resolveWebDebugBootstrap } from "../../server/kernel/harness-config.ts";
 import { DEBUG_CONFIG_DEFAULTS } from "../../engine/src/shared/debug/debug-config.ts";
+import { getAuditEvents } from "../../engine/src/shared/debug/debug-system.ts";
+import { functionBody } from "../../engine/src/shared/source-structure.ts";
 
 import { modulePath, modulePathMatching } from "../helpers/module-resolver.ts";
 describe("error-debug owner — zero overhead when off (behavioral)", () => {
@@ -602,14 +606,47 @@ describe("error-debug owner — the debug config wiring census", () => {
     ]);
   });
 
-  test("(E3) the boot configures the debug system through the resolver — never a direct env gate", () => {
+  test("(E3) the boot configures the debug system through the resolver — on its install decision, never a direct env gate", () => {
     const indexSrc = readFileSync(modulePathMatching("server/index.ts"), "utf8");
     expect(indexSrc).toContain("resolveWebDebugBootstrap()");
-    expect(indexSrc).toMatch(/configureWebDebug\(debugBootstrap\.base/);
+    expect(indexSrc).toMatch(/if \(debugBootstrap\.install\)/);
+    expect(indexSrc).toMatch(/configureWebDebug\([\s\S]{0,120}debugBootstrap\.base/);
     // The old gate — `if (debugEnabled())` deciding the bootstrap at the
     // call site — is the bypass this census exists to refuse: the env read
     // belongs to the resolver, never to the boot.
     expect(indexSrc).not.toMatch(/if \(debugEnabled\(\)\)/);
+    // And the master switch alone must not gate the install: the shipped
+    // document has `enabled: false` with `audit.enabled: true`, and gating on
+    // `enabled` counted and dropped every audit event (auditEvent returns at
+    // the `!configured` guard). The decision belongs to the resolver.
+    expect(indexSrc).not.toMatch(/if \(debugBootstrap\.base\.enabled/);
+  });
+
+  test("(E6) a boot config with the master switch off and audit on is installed and produces an audit record", () => {
+    // THE SHIPPED DOCUMENT IS THIS ARM'S FIXTURE: `debug.enabled` is false
+    // and `debug.audit.enabled` is true. The resolver must answer install=true
+    // anyway, and configuring with that resolved base must make auditEvent
+    // RECORD — not count and drop at the `!configured` guard.
+    const previous = process.env.HARNESS_WEB_DEBUG;
+    delete process.env.HARNESS_WEB_DEBUG;
+    resetWebDebug();
+    try {
+      const bootstrap = resolveWebDebugBootstrap();
+      expect(bootstrap.base.enabled, "the master switch is off in this fixture").toBe(false);
+      expect(bootstrap.base.audit?.enabled, "audit is on in this fixture").toBe(true);
+      expect(bootstrap.install, "audit alone requires the boot to install the system").toBe(true);
+      // The boot's sink list is the section's allow-list decision; with no
+      // sinks the record still lands in the audit ring buffer and counter.
+      configureWebDebug(bootstrap.base, []);
+      webAuditEvent("test.boot_audit", { detail: "recorded" });
+      expect(getWebDebugSignals().auditCount).toBe(1);
+      expect(getAuditEvents()).toHaveLength(1);
+      expect(getAuditEvents()[0]!.category).toBe("test.boot_audit");
+    } finally {
+      resetWebDebug();
+      if (previous === undefined) delete process.env.HARNESS_WEB_DEBUG;
+      else process.env.HARNESS_WEB_DEBUG = previous;
+    }
   });
 
   test("(E4) the boot resolves the debug section BEFORE the socket listens (the startup pin's order)", () => {
@@ -644,6 +681,60 @@ describe("error-debug owner — the debug config wiring census", () => {
     } finally {
       resetWebDebug();
     }
+  });
+});
+
+// ── (F) The bridge's sink contract and the always-on redactor ──
+
+describe("error-debug owner — the bridge's sink contract and the fatal sink", () => {
+  const LIVE_KEY = "sk-LIVEKEY-8f31c05a9e27b46d1a08f3c65b92d740";
+  let originalWrite: typeof process.stderr.write;
+  let captured = "";
+
+  beforeEach(() => {
+    resetWebDebug();
+    captured = "";
+    originalWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      captured += chunk.toString();
+      return true;
+    }) as never;
+  });
+  afterEach(() => {
+    process.stderr.write = originalWrite as never;
+    resetWebDebug();
+  });
+
+  test("(F1) configureWebDebug({enabled:true}) with sinks OMITTED installs the console sink (documented contract)", () => {
+    configureWebDebug({ enabled: true, categories: ["test"] });
+    webDebugLog("test", "warn", "WITNESS-F1 the default sink is installed");
+    expect(captured, "an omitted sink list must default to the console sink; events were counted and dropped").toContain("WITNESS-F1");
+  });
+
+  test("(F2) an EXPLICIT empty sink list installs nothing — the caller's decision, not a default", () => {
+    configureWebDebug({ enabled: true, categories: ["test"] }, []);
+    webDebugLog("test", "warn", "WITNESS-F2 no destination");
+    expect(captured, "an explicit [] is a decision and must not be replaced by the default").toBe("");
+    expect(getWebDebugSignals().debugCount).toBe(1);
+  });
+
+  test("(F3) webConsoleError redacts through the debug system's redactor", () => {
+    webConsoleError(`WITNESS-F3 credential rejected: ${LIVE_KEY}`);
+    expect(captured, "witness: the line was written").toContain("WITNESS-F3");
+    expect(captured, "the credential format must be masked before stderr").not.toContain(LIVE_KEY);
+    expect(captured).toContain("[REDACTED]");
+  });
+
+  test("(F4) the two caught, non-fatal sites use the error signal, not the fatal sink", () => {
+    const indexSrc = readFileSync(modulePathMatching("server/index.ts"), "utf8");
+    const shutdown = functionBody(indexSrc, "shutdown", "server/index.ts shutdown").body;
+    expect(shutdown).toContain("webHandleError");
+    expect(shutdown, "the fatal always-on sink is not for caught failures").not.toContain("webConsoleError");
+    const configSrc = readFileSync(modulePathMatching("server/kernel/harness-config.ts"), "utf8");
+    // The watch failure is a caught, non-fatal optimisation failure; its
+    // remediation is now context on the error signal.
+    expect(configSrc).toContain('operation: "settings_watch"');
+    expect(configSrc).not.toContain("the settings watch could not watch");
   });
 });
 

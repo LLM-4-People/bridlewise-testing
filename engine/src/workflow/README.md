@@ -25,7 +25,8 @@ Every command prints one JSON result (`{"result":{…}}`: the record, the
 validation report, the merge receipt) and its progress on stderr. The flow is
 stated once, in `workspace-manager.ts`'s header and in
 [WORKFLOW.md, Isolated workspaces](../../../CONTRIBUTING.md);
-the refusals and the land in [MERGE-GUIDE.md §1b](../../../CONTRIBUTING.md).
+the refusals and the land in
+[MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land).
 
 - **Registry**: `<git common dir>/bridlewise/` (`repository-registry.ts`, the one derivation; the records in `workspace-registry.ts`):
   `workspaces/<id>.json`, `locks/` (the admission and merge locks),

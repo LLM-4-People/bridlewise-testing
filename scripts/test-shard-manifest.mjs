@@ -62,24 +62,29 @@ export function requireGreenReport(report, subject) {
   if (report === null || typeof report !== "object") fail(`${subject}: report is not an object`);
   if (report.success !== true) fail(`${subject}: vitest reported success=false`);
   // ABSENT IS NOT ZERO. Every count this rule judges must be DECLARED by the
-  // report. Defaulting a missing `numFailedTestSuites` to 0 is how a report
-  // that never said it had no failing suite merged as green; the same
-  // substitution could hide a missing failed-test, skipped or todo count.
+  // report, as a NUMBER: a numeric string is a shape the report never emits
+  // and was accepted through `Number(value)`. Defaulting a missing
+  // `numFailedTestSuites` to 0 is how a report that never said it had no
+  // failing suite merged as green; the same substitution could hide a missing
+  // failed-test, skipped or todo count. `numTotalTests` and `numPassedTests`
+  // were the last two read outside this rule — a missing total became 0 and a
+  // fractional one merged as a fractional test count (3.7 is not a test).
   const declared = (field) => {
     const value = report[field];
     if (value === undefined || value === null) {
       fail(`${subject}: report does not declare ${field}; absent is not zero`);
     }
-    const count = Number(value);
-    if (!Number.isSafeInteger(count) || count < 0) {
-      fail(`${subject}: ${field} is not a non-negative integer (${String(value)})`);
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+      fail(`${subject}: ${field} is not a declared non-negative integer (${String(value)})`);
     }
-    return count;
+    return value;
   };
   const failedTests = declared("numFailedTests");
   const failedSuites = declared("numFailedTestSuites");
   const pendingTests = declared("numPendingTests");
   const todoTests = declared("numTodoTests");
+  const totalTests = declared("numTotalTests");
+  const passedTests = declared("numPassedTests");
   if (failedTests !== 0 || failedSuites !== 0) {
     fail(`${subject}: ${String(failedTests)} failed test(s) and ${String(failedSuites)} failed suite(s)`);
   }
@@ -89,7 +94,7 @@ export function requireGreenReport(report, subject) {
         `${String(todoTests)} todo test(s); a shard must run every selected test`,
     );
   }
-  return { failedTests, pendingTests, todoTests, totalTests: Number.isFinite(report.numTotalTests) ? report.numTotalTests : 0 };
+  return { failedTests, pendingTests, todoTests, totalTests, passedTests };
 }
 
 /**

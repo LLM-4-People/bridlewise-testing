@@ -72,13 +72,28 @@ import {
 // file carried them. The resolution is also the startup pin — a hand-edited
 // section that would switch the debug redactor off is a typed boot refusal
 // here (the write gate already refuses the same write on the way in), the
-// same fail-closed stance the masker's policy door takes. When the resolved
-// master switch is off (the default), the system stays in its no-op state:
-// every call returns at the `!configured` guard — zero overhead.
-import { configureWebDebug, createConsoleSink, webConsoleInfo, webConsoleError } from "./observability/debug-bridge.ts";
+// same fail-closed stance the masker's policy door takes.
+//
+// THE INSTALL DECISION IS THE RESOLVER'S, NOT THE MASTER SWITCH'S. The
+// shipped document carries `debug.enabled: false` with
+// `debug.audit.enabled: true`; gating the configure on `enabled` alone left
+// the system unconfigured, and `auditEvent` returns at `!configured` — every
+// audit call site counted and dropped. `install` is true when either the
+// master switch or audit is on; the base still carries `enabled: false`, so
+// `debugLog` stays a no-op while audit is the safety floor the section
+// declares.
+//
+// THE SINK LIST IS EXPLICIT EITHER WAY: the section's allow-list decides
+// whether the boot attaches the console sink, and an operator who emptied the
+// list gets `[]` — a configured system with no destinations, not the
+// bridge's omitted-sinks default.
+import { configureWebDebug, createConsoleSink, webConsoleInfo, webHandleError } from "./observability/debug-bridge.ts";
 const debugBootstrap = resolveWebDebugBootstrap();
-if (debugBootstrap.base.enabled === true) {
-  configureWebDebug(debugBootstrap.base, debugBootstrap.consoleSinkAllowed ? [createConsoleSink()] : []);
+if (debugBootstrap.install) {
+  configureWebDebug(
+    debugBootstrap.base,
+    debugBootstrap.consoleSinkAllowed ? [createConsoleSink()] : [],
+  );
 }
 
 // THE ONLY DOOR TO THE DATABASE IN THIS PROCESS.
@@ -309,7 +324,10 @@ function shutdown(): void {
   void stopAllMcpConnections({ final: true }).then((/* closed */) => {
     webConsoleInfo("[bridlewise web] MCP connections closed");
   }).catch((err: unknown) => {
-    webConsoleError(`[bridlewise web] MCP shutdown failed: ${err instanceof Error ? err.message : String(err)}`);
+    // A caught, non-fatal failure: the debug system's error signal (counted
+    // and emitted, redacted) rather than the fatal always-on sink. The
+    // process is already shutting down; the grace timer is the backstop.
+    webHandleError(err, { module: "process", operation: "mcp_shutdown" });
   });
   // The outbound door's pooled keep-alive connections (provider, MCP,
   // catalogue requests) close too; not awaited — the grace timer is the backstop.

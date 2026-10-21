@@ -68,6 +68,7 @@ import {
   MEASUREMENT_DOC_SOURCE,
   MEASUREMENT_FINDINGS,
   MEASUREMENT_REGISTRY,
+  NON_MEASUREMENT_CONSUMERS,
   NON_MEASUREMENT_GATES,
   NON_MEASUREMENT_PRODUCERS,
   type LoadBehaviour,
@@ -390,6 +391,70 @@ function checkAbsence(
   }
 }
 
+/**
+ * THE PRODUCER MODULE IS NOT EXEMPT FROM THE DUPLICATE SCAN — ONLY THE
+ * PRODUCER'S OWN BODY SPAN IS.
+ *
+ * The scan used to skip `entry.producer.module` wholesale, so a SECOND copy
+ * of the formula in another function of the same module was invisible (a
+ * plant with one division moved into a helper beside the producer passed).
+ * Blanking the parsed body span (length-preserving, so the scan's offsets and
+ * views stay aligned) lets the rest of the module be scanned like any other
+ * file while the one legitimate spelling cannot report itself as a
+ * duplicate.
+ */
+function withoutProducerBody(text: string, bodyOffset: number, bodyText: string): string {
+  const start = bodyOffset;
+  const end = start + bodyText.length;
+  if (start < 0 || end > text.length || end < start) return text;
+  return text.slice(0, start) + text.slice(start, end).replace(/[^\n]/gu, " ") + text.slice(end);
+}
+
+/**
+ * Every module that IMPORTS or CALLS a producer symbol, excluding the
+ * producer's own module and the registry/checker declarations.
+ *
+ * The consumer clause is TOTAL: using a registered producer without
+ * declaring what you read from it is refused, rather than being invisible
+ * because the module sits outside a hand-written root list. The scan is
+ * cached per (world, producer) because the totality and stale-exemption
+ * checks both read it.
+ */
+const CONSUMER_USE_CACHE = new WeakMap<ReadonlyMap<string, string>, Map<string, readonly string[]>>();
+
+function consumerUsers(world: MeasurementWorld, producerModule: string, symbol: string): readonly string[] {
+  let cache = CONSUMER_USE_CACHE.get(world.sources);
+  if (cache === undefined) {
+    cache = new Map();
+    CONSUMER_USE_CACHE.set(world.sources, cache);
+  }
+  const key = `${producerModule}::${symbol}`;
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached;
+  const users: string[] = [];
+  const callPattern = new RegExp(`\\b${escapeRegExp(symbol)}\\s*\\(`, "u");
+  const importPattern = /import\s+(?:type\s+)?[^"'`;]+?\s+from\s+["'](\.{1,2}\/[^"']+)["']/gu;
+  const symbolName = new RegExp(`\\b${escapeRegExp(symbol)}\\b`, "u");
+  for (const path of world.sources.keys()) {
+    if (path === producerModule || path === REGISTRY_FILE || path === CHECKER_FILE) continue;
+    if (callPattern.test(codeText(world, path))) {
+      users.push(path);
+      continue;
+    }
+    const importView = commentsOnlyText(world, path);
+    for (const match of importView.matchAll(importPattern)) {
+      if (!symbolName.test(match[0])) continue;
+      if (resolveImport(path, match[1]!, world.sources) === producerModule) {
+        users.push(path);
+        break;
+      }
+    }
+  }
+  const frozen = Object.freeze(users.sort());
+  cache.set(key, frozen);
+  return frozen;
+}
+
 function checkProducer(
   entry: MetricEntry,
   world: MeasurementWorld,
@@ -405,8 +470,11 @@ function checkProducer(
     return 0;
   }
   let rawBody: string;
+  let bodyOffset: number;
   try {
-    rawBody = functionBody(moduleText, entry.producer.symbol, `${entry.producer.module} ${entry.producer.symbol}`).body;
+    const scope = functionBody(moduleText, entry.producer.symbol, `${entry.producer.module} ${entry.producer.symbol}`);
+    rawBody = scope.body;
+    bodyOffset = scope.offset;
   } catch (error) {
     fail(
       "producer-body-unreadable",
@@ -433,32 +501,41 @@ function checkProducer(
     }
   }
   checkAbsence(entry, codeBody, bodyWords, fail);
-  // The declared spellings are ALTERNATIVES: the producer contains at least
-  // one of them, and any other module containing one is a second derivation.
-  // The module read stays comments-only so a literal-spelled derivation is
-  // found, while a doc comment cannot satisfy it (the ambient entry's legacy
-  // spelling sat in a doc comment and the raw-text check counted it).
-  const inBody = entry.producer.derivation.some((pattern) => new RegExp(pattern, "u").test(bodyViewFor(pattern)));
+  // THE BODY CLAUSE READS ONLY THE COMPUTE HALF. A `loadavg()` read is proof
+  // the producer SAMPLED the fact, not that it computed the declared
+  // quantity: a body that reads `loadavg()` and moves the division to a
+  // helper satisfied the old union and passed. The READ half is a
+  // duplicate-scan spelling only.
+  const declaredPatterns = [...entry.producer.compute, ...entry.producer.reads];
+  const inBody = entry.producer.compute.some((pattern) => new RegExp(pattern, "u").test(bodyViewFor(pattern)));
   if (!inBody) {
     fail(
       "derivation-not-in-producer",
-      `none of the declared derivations occurs in ${entry.producer.symbol}'s body, so the named producer does not compute the declared quantity`,
+      `none of the declared COMPUTE patterns occurs in ${entry.producer.symbol}'s body, so the named producer does not compute the declared quantity`,
     );
   }
   const moduleView = commentsOnlyText(world, entry.producer.module);
-  const inModule = entry.producer.derivation.some((pattern) => new RegExp(pattern, "u").test(moduleView));
+  const inModule = declaredPatterns.some((pattern) => new RegExp(pattern, "u").test(moduleView));
   if (!inModule) {
     fail(
       "derivation-not-found",
       `none of the declared derivations occurs in ${entry.producer.module}; the entry names a producer that does not compute this quantity`,
     );
   }
-  for (const pattern of entry.producer.derivation) {
+  // The union is scanned for duplicates; only the producer's own body span is
+  // exempt in its module, never the module.
+  for (const pattern of declaredPatterns) {
     const regex = new RegExp(pattern, "u");
     const duplicates: string[] = [];
     for (const path of world.sources.keys()) {
-      if (path === entry.producer.module || path === REGISTRY_FILE || path === CHECKER_FILE) continue;
-      if (regex.test(duplicateScanText(world, path, pattern))) duplicates.push(path);
+      if (path === REGISTRY_FILE || path === CHECKER_FILE) continue;
+      const view = duplicateScanText(world, path, pattern);
+      const scanText = path === entry.producer.module
+        ? withoutProducerBody(view, bodyOffset, rawBody)
+        : view;
+      if (regex.test(scanText)) {
+        duplicates.push(path === entry.producer.module ? `${path} (outside ${entry.producer.symbol}'s body)` : path);
+      }
     }
     if (duplicates.length > 0) {
       fail("duplicate-derivation", `the same quantity is derived outside ${entry.producer.module}: ${duplicates.sort().join(", ")}`);
@@ -495,6 +572,49 @@ function checkConsumers(
     }
     if (consumer.kind === "doc" && !text.includes(consumer.anchor)) {
       fail("consumer-doc-anchor-missing", `doc consumer ${consumer.id} needs the anchor phrase ${JSON.stringify(consumer.anchor)} in ${consumer.source}`);
+    }
+  }
+  // TOTALITY: a module that imports or calls the producer symbol must declare
+  // what it reads (a consumer entry) or say why it reads nothing
+  // (NON_MEASUREMENT_CONSUMERS). A hand-maintained consumer list cannot be
+  // complete by memory; this is what makes an omission a refusal.
+  const declaredSources = new Set(entry.consumers.flatMap((consumer) => "source" in consumer ? [consumer.source] : []));
+  for (const path of consumerUsers(world, entry.producer.module, entry.producer.symbol)) {
+    const exemption = NON_MEASUREMENT_CONSUMERS[`${path}::${entry.producer.symbol}`];
+    if (declaredSources.has(path)) {
+      if (exemption !== undefined) {
+        fail("consumer-double-declared", `${path} is both a declared consumer of ${entry.name} and a declared non-consumer; one module has one answer`);
+      }
+      continue;
+    }
+    if (exemption === undefined) {
+      fail(
+        "undeclared-consumer",
+        `${path} imports or calls ${entry.producer.symbol} but is neither a declared consumer of ${entry.name} nor a declared non-consumer with a reason`,
+      );
+    }
+  }
+}
+
+/**
+ * A non-consumer exemption is a sentence about a use that EXISTS: a stale
+ * entry (the module stopped touching the producer) would hide the next
+ * consumer that reuses the name.
+ */
+function checkConsumerExemptions(
+  world: MeasurementWorld,
+  registry: readonly MetricEntry[],
+  fail: (metric: string, code: string, message: string) => void,
+): void {
+  const found = new Set<string>();
+  for (const entry of registry) {
+    for (const path of consumerUsers(world, entry.producer.module, entry.producer.symbol)) {
+      found.add(`${path}::${entry.producer.symbol}`);
+    }
+  }
+  for (const key of Object.keys(NON_MEASUREMENT_CONSUMERS)) {
+    if (!found.has(key)) {
+      fail(key, "stale-consumer-exemption", `the non-consumer exemption ${JSON.stringify(key)} no longer appears in the import universe (reason: ${NON_MEASUREMENT_CONSUMERS[key]})`);
     }
   }
 }
@@ -795,6 +915,7 @@ export function validateMeasurementContract(
   }
   checkFamilies(registry, fail);
   checkBudgetCoverage(registry, fail);
+  checkConsumerExemptions(world, registry, fail);
   const gates = checkGates(world, gateSources(world, registry, placeholders), registry, placeholders, nonMeasurementGates, fail);
   const discoveredProducers = checkProducerUniverse(world, registry, placeholders, gateSources(world, registry, placeholders), fail);
   checkDocs(world, registry, fail);

@@ -152,6 +152,76 @@ test("the bench's old per-CPU division is a duplicate of the shared producer", (
   expect(failuresWith(withSource(WORLD, "bench/lib/machine.ts", planted))).toContain("duplicate-derivation");
 });
 
+test("a bare raw READ is not proof of the declared COMPUTATION", () => {
+  // The old declaration was ONE alternative list: `loadavg()` matched it, so
+  // a producer that only sampled the load and moved the division to a helper
+  // passed the body clause. COMPUTE patterns must match the body; READ
+  // patterns are duplicate-scan only.
+  const plantPath = "engine/src/shared/plant-read-only-producer.ts";
+  const plant = [
+    "export function readPlantLoad(): number | null {",
+    "  const loads = loadavg();",
+    "  return helper(loads, 2) ?? null;",
+    "}",
+    "function helper(loads: readonly number[], count: number): number | null {",
+    "  return loads[0] === undefined ? null : loads[0] / count;",
+    "}",
+    "",
+  ].join("\n");
+  const entry: MetricEntry = {
+    status: "registered",
+    name: "plant.read-only",
+    unit: "load",
+    family: null,
+    distinctFrom: [],
+    producer: {
+      module: plantPath,
+      symbol: "readPlantLoad",
+      compute: ["loads\\[0\\]\\s*/\\s*\\w+"],
+      reads: ["loadavg\\(\\)"],
+      forbids: [],
+    },
+    consumers: [],
+    load: { kind: "sensitive", sensitivity: "host load", bound: null, finding: "F-AMBIENT-NO-DEFERRAL" },
+    absent: { kind: "null", reason: "unreadable sample is null" },
+    zero: { kind: "not-numeric", reason: "not numeric" },
+  };
+  const report = validateMeasurementContract(withSource(WORLD, plantPath, plant), {
+    registry: [...MEASUREMENT_REGISTRY, entry],
+  });
+  expect(report.failures.map((failure) => failure.code)).toContain("derivation-not-in-producer");
+});
+
+test("a second copy of the formula in ANOTHER FUNCTION of the producer's module is refused", () => {
+  // The duplicate scan used to skip the whole producer module, so the one
+  // legitimate spelling and a planted second copy in a sibling function were
+  // equally invisible. Only the producer symbol's own body span is exempt.
+  const producerPath = "engine/src/shared/ambient-load.ts";
+  const source = WORLD.sources.get(producerPath);
+  expect(source).toBeDefined();
+  const planted = `${source}\nexport function plantSecondDivision(load1: number, cpuCount: number): number {\n  return load1 / cpuCount;\n}\n`;
+  expect(failuresWith(withSource(WORLD, producerPath, planted))).toContain("duplicate-derivation");
+});
+
+test("an undeclared consumer of a registered producer is refused (the clause is total)", () => {
+  // The declared consumer list is held complete by the import universe: a
+  // module that imports or calls the producer symbol must say what it reads.
+  // Removing the bench's declaration makes its import an undeclared use.
+  const ambient = MEASUREMENT_REGISTRY.find((entry) => entry.name === "ambient.load.perCpu");
+  expect(ambient).toBeDefined();
+  const withoutBench: MetricEntry = {
+    ...ambient!,
+    consumers: ambient!.consumers.filter((consumer) => !("source" in consumer) || consumer.source !== "bench/lib/machine.ts"),
+  };
+  const registry = [...MEASUREMENT_REGISTRY.filter((entry) => entry.name !== "ambient.load.perCpu"), withoutBench];
+  const failures = validateMeasurementContract(WORLD, { registry }).failures;
+  expect(failures.map((failure) => failure.code)).toContain("undeclared-consumer");
+  expect(
+    failures.find((failure) => failure.code === "undeclared-consumer")?.message,
+    "the refusal names the module whose use is undeclared",
+  ).toContain("bench/lib/machine.ts");
+});
+
 test("a producer's body is read, not its object return type", () => {
   const plantPath = "engine/src/shared/plant-object-return.ts";
   const plant = `export function readPlantLoad(): Readonly<{ value: number | null }> { const loads = loadavg(); return { value: loads[0] ?? null }; }\n`;
@@ -161,7 +231,7 @@ test("a producer's body is read, not its object return type", () => {
     unit: "load",
     family: null,
     distinctFrom: [],
-    producer: { module: plantPath, symbol: "readPlantLoad", derivation: ["loads\\[0\\]"], forbids: ["loadavg("] },
+    producer: { module: plantPath, symbol: "readPlantLoad", compute: ["loads\\[0\\]"], reads: [], forbids: ["loadavg("] },
     consumers: [],
     load: { kind: "sensitive", sensitivity: "host load", bound: null, finding: "F-AMBIENT-NO-DEFERRAL" },
     absent: { kind: "null", reason: "unreadable sample is null" },
@@ -195,7 +265,7 @@ test("a producer body is read through its code view, so a comment cannot keep th
     unit: "load",
     family: null,
     distinctFrom: [],
-    producer: { module: plantPath, symbol: "readPlantLoad", derivation: ["widgets\\[0\\]\\s*/\\s*\\w+"], forbids: [] },
+    producer: { module: plantPath, symbol: "readPlantLoad", compute: ["widgets\\[0\\]\\s*/\\s*\\w+"], reads: [], forbids: [] },
     consumers: [],
     load: { kind: "sensitive", sensitivity: "host load", bound: null, finding: "F-AMBIENT-NO-DEFERRAL" },
     absent: { kind: "null", reason: "unreadable sample is null" },

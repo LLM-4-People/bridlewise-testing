@@ -5747,7 +5747,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-shared-measurement-registry", path: "src/shared/measurement-registry.ts", realm: "shared", layer: "domain",
-      owner: "shared-abort-signals", publicApi: { exportCount: 13, namesSha256: "b4a48cb9022534385549cb487edbe5981bf2eaabcd9e4c2aa904ea00f03f0cb8" },
+      owner: "shared-abort-signals", publicApi: { exportCount: 14, namesSha256: "1ce9ad79572b53926c4f908518cc5a40ee79928f24f3396b8ed19847212fc7d5" },
       dependencies: [],
     }),
     moduleContract({

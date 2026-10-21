@@ -3,7 +3,7 @@
 Retained predecessor integration/bootstrap tooling. These files explain and
 read old round records; they are not invoked to ship current work.
 The [process index](../../CONTRIBUTING.md) routes live tasks, and
-[MERGE-GUIDE.md](../../CONTRIBUTING.md) owns current merge-back.
+[MERGE-GUIDE.md](../../docs/process/MERGE-GUIDE.md) owns current merge-back.
 
 ## What each file does
 

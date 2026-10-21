@@ -411,6 +411,25 @@ test("debug-system: handleError's MESSAGE channel is accounted the same way as i
   resetDebugSystem();
 });
 
+test("debug-system: debugLog's MESSAGE channel is redacted like its context and counted", () => {
+  // `handleError` and `reportAlwaysOn` redacted their message; `debugLog`
+  // passed it through verbatim, so a credential interpolated into the
+  // message reached the sink raw while the same value in the context was
+  // masked. One redactor, three channels.
+  const sink = setup();
+  const before = getDebugSignals();
+  debugLog("test", "error", `WITNESS-S8 retrying ${LIVE_KEY} then ${LIVE_KEY}`);
+  const msg = sink.events[0]!.message;
+  const after = getDebugSignals();
+
+  assert.ok(msg.includes("WITNESS-S8"), "witness: reading the emitted message, not a context value");
+  assert.equal(msg.split("[REDACTED]").length - 1, 2, "both occurrences masked in the message");
+  assert.equal(msg.split(LIVE_KEY).length - 1, 0, "no copy of the key survives");
+  assert.equal(after.redactedValues - before.redactedValues, 0, "a format catalogue is not a removal claim");
+  assert.equal(after.maskedWithoutRemoval - before.maskedWithoutRemoval, 1, "the redaction is counted");
+  resetDebugSystem();
+});
+
 /**
  * ── THE REMOVAL IS NO LONGER GATED ON THE VALUE'S SHAPE ───────────────────
  *

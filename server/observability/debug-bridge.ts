@@ -43,6 +43,7 @@ import {
   resetDebugSystem,
   getDebugSignals,
   createConsoleSink as backendCreateConsoleSink,
+  redactDiagnosticText,
   type DebugContextThunk,
   type DebugMessageLevel,
   type DebugConfig,
@@ -236,6 +237,16 @@ const DEFAULT_WEB_DEBUG_CATEGORIES = [
  * omitted, the default web-server module allow-list is used (the backend's
  * empty-array default would block all emission).
  *
+ * SINKS: omitting the argument installs the console sink — the documented
+ * contract ("when called, attaches a console sink so debug output is
+ * visible"). It used to install NOTHING for an omitted list, so
+ * `configureWebDebug({ enabled: true })` counted and dropped every event
+ * (driven: 0 stderr bytes). An EXPLICIT empty array means the caller decided
+ * on no destinations (the boot does this when the section's allow-list
+ * excludes the console) and installs none. A config whose `enabledSinks`
+ * allow-list excludes the console cannot have the default sink admitted; the
+ * sink door refuses it rather than silently dropping it.
+ *
  * @returns the PARSED config actually installed.
  * @throws {ConfigError} (`debug_redaction_required`) when the policy would
  *   disable redaction (deny by default).
@@ -266,7 +277,13 @@ export function configureWebDebug(
   }
 
   const cfg = DEBUG_CONFIG_SCHEMA.parse(merged);
-  const allSinks = sinks !== undefined && sinks.length > 0 ? sinks : [];
+  // OMITTED means "the default destination"; EXPLICIT [] means "none". The
+  // distinction is the caller's decision, and it is why the boot passes `[]`
+  // rather than omitting the argument when the operator's allow-list
+  // excludes the console sink.
+  const allSinks = sinks === undefined
+    ? (cfg.sinks.enabledSinks.includes("console") ? [createConsoleSink()] : [])
+    : sinks;
   configureDebugSystem(cfg, allSinks);
   webDebugConfigured = true;
   return cfg;
@@ -310,11 +327,25 @@ export function webConsoleInfo(message: string): void {
 
 /**
  * Always-on error output to stderr (NOT gated by debug mode). The single
- * owner of always-on process-level FATAL error output — an uncaught
- * exception or unhandled rejection that escapes all try/catch blocks. This
- * is NOT debug logging (which is zero-overhead when off); it is
- * unconditional error output that the operator must ALWAYS see (a fatal
- * error that is silent in production is undebuggable).
+ * owner of always-on process-level FATAL error output — a boot refusal, an
+ * unreadable settings file, a ledger that cannot be opened, a fault the
+ * process policy is about to exit for. This is NOT debug logging (which is
+ * zero-overhead when off); it is unconditional error output that the
+ * operator must ALWAYS see (a fatal error that is silent in production is
+ * undebuggable).
+ *
+ * REDACTED THROUGH THE DEBUG SYSTEM'S ONE REDACTOR. This sink used to write
+ * its argument verbatim — the one always-on channel with no redaction — and
+ * two caught, non-fatal failures were routed through it, so a credential in
+ * either message reached stderr raw. `redactDiagnosticText` is the debug
+ * system's total text redactor (the same one the process fault policy uses
+ * when no sink is configured); a text it cannot process is withheld whole,
+ * never printed raw.
+ *
+ * CAUGHT FAILURES DO NOT BELONG HERE: they go through `webHandleError` (the
+ * error signal — counted and emitted, never swallowed) or `webAlwaysOn` (the
+ * operator must see it whatever the switch says). This sink is for the fatal
+ * path only.
  *
  * Single-Party-Owner: the debug bridge owns ALL process console output —
  * debug logging (webWarn/webDebugLog, zero-overhead when off), always-on
@@ -323,5 +354,5 @@ export function webConsoleInfo(message: string): void {
  * outside this module.
  */
 export function webConsoleError(message: string): void {
-  process.stderr.write(`${message}\n`);
+  process.stderr.write(`${redactDiagnosticText(message)}\n`);
 }

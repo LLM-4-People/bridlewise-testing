@@ -15,6 +15,7 @@ function shardReport(files, { success = true, tests = 1 } = {}) {
   return {
     success,
     numTotalTests: success ? files.length * tests : 0,
+    numPassedTests: success ? files.length * tests : 0,
     numFailedTests: success ? 0 : 1,
     numFailedTestSuites: success ? 0 : 1,
     numPendingTests: 0,

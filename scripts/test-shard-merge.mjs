@@ -117,11 +117,13 @@ function readShard(root, path, index, expected = undefined, requireTiming = fals
   if (duplicates.length > 0) {
     fail(`shard ${index}: duplicate test file(s): ${[...new Set(duplicates)].join(", ")}`);
   }
+  // BOTH COUNTS COME FROM THE GREEN RULE. This used to re-read
+  // `numPassedTests` here and FALL BACK to `total - failed - skipped - todo`
+  // when it was absent — a second derivation of the same count, and one that
+  // could disagree with the report. Absence and fractions are refused by
+  // `requireGreenReport` before this line.
   const totalTests = green.totalTests;
-  const declaredPassed = Number(report.numPassedTests);
-  const passedTests = Number.isFinite(declaredPassed)
-    ? declaredPassed
-    : totalTests - failedTests - pendingTests - todoTests;
+  const passedTests = green.passedTests;
   if (passedTests < 0 || passedTests + failedTests + pendingTests + todoTests !== totalTests) {
     fail(
       `shard ${index}: test counts do not add up (${String(passedTests)} passed, ` +

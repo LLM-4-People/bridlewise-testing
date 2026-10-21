@@ -1234,14 +1234,21 @@ export function debugLog(
     return;
   }
   const rawContext = context ? context() : {};
-  const { context: redactedContext, removedSpans, maskedWithoutRemoval } = redactContext(rawContext);
-  recordRedactionOutcomes(s.signals, { removedSpans, maskedWithoutRemoval });
+  const contextOutcome = redactContext(rawContext);
+  // THE MESSAGE IS PART OF THE EVENT AND IS REDACTED LIKE THE CONTEXT.
+  // `handleError` and `reportAlwaysOn` already redacted their message; this
+  // emitter wrote it verbatim, so a caller that interpolated a
+  // credential-bearing URL into the message leaked it through the sink while
+  // the same string in the context was masked. One redactor, all three
+  // channels.
+  const messageOutcome = redactMessageText(message);
+  recordRedactionOutcomes(s.signals, contextOutcome, messageOutcome);
   const event: DebugEvent = {
     kind: level === "error" ? "error" : level === "warn" ? "warn" : "debug",
     level,
     category,
-    message,
-    context: redactedContext,
+    message: messageOutcome.message,
+    context: contextOutcome.context,
     timestamp: Date.now(),
     code: null,
     source: null,

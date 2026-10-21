@@ -25,7 +25,7 @@ import { getEnvironmentData, isMainThread, setEnvironmentData } from "node:worke
 import { basename, dirname } from "node:path";
 import { atomicWriteFile, atomicWriteTargetOf } from "../../engine/src/filesystem/atomic-write.ts";
 import { serverConfig, debugEnabled } from "./config.ts";
-import { webConsoleError, webConsoleInfo } from "../observability/debug-bridge.ts";
+import { webConsoleError, webConsoleInfo, webHandleError } from "../observability/debug-bridge.ts";
 import { registerComponent } from "../observability/component-registry.ts";
 import { readFileText, fileTextBytesEqual, type FileTextSnapshot } from "../filesystem/file-read.ts";
 // The config file's cross-process write lock: parallel processes (test
@@ -836,7 +836,16 @@ export function watchSettingsStore(): () => void {
         if (changed === null || changed === name) refreshSettingsSnapshot();
       }));
     } catch (error) {
-      webConsoleError(`[bridlewise web] the settings watch could not watch ${place} (${error instanceof Error ? error.message : String(error)}); settings are refreshed at each request and run start only`);
+      // A caught, non-fatal failure: the watch is an optimisation, and the
+      // store refreshes at each request and run start without it. Route it
+      // through the debug system's error signal (redacted, counted) rather
+      // than the fatal always-on sink — the message carried the watched path.
+      webHandleError(error, {
+        module: "harness-config",
+        operation: "settings_watch",
+        watched: place,
+        remediation: "settings are refreshed at each request and run start only",
+      });
       return;
     }
     watcher.on("error", guarded("settings.watch.error", () => {
@@ -2041,14 +2050,29 @@ export function getPrivacyPolicy(): PrivacyPolicy {
 //   switch later without re-editing the file.
 
 /** The resolved debug bootstrap: the base config the debug system is
- * configured from, and whether the boot may attach its console sink (the
- * section's own `sinks.enabledSinks` allow-list governs which destinations
- * may install — an operator who emptied the list gets a configured system
- * with no destinations, honoring "empty array = no sink may be installed at
- * all" rather than refusing a sink the operator explicitly did not name). */
+ * configured from, whether the boot must configure it, and whether the boot
+ * may attach its console sink (the section's own `sinks.enabledSinks`
+ * allow-list governs which destinations may install — an operator who
+ * emptied the list gets a configured system with no destinations, honoring
+ * "empty array = no sink may be installed at all" rather than refusing a
+ * sink the operator explicitly did not name). */
 export interface WebDebugBootstrap {
   readonly base: Partial<DebugConfig>;
+  /**
+   * Whether the boot installs the system at all. The MASTER switch alone is
+   * not the answer: audit is the safety floor and the document ships
+   * `debug.enabled: false` with `debug.audit.enabled: true`, so a boot that
+   * configured only on `enabled` counted and dropped every audit event
+   * (`auditEvent` returns at the `!configured` guard). The decision is
+   * resolved HERE, once, from the same section the base carries.
+   */
+  readonly install: boolean;
   readonly consoleSinkAllowed: boolean;
+}
+
+/** The boot install decision, resolved once from the base config. */
+function debugBootstrapInstalls(base: Partial<DebugConfig>): boolean {
+  return base.enabled === true || base.audit?.enabled === true;
 }
 
 export function resolveWebDebugBootstrap(): WebDebugBootstrap {
@@ -2057,10 +2081,13 @@ export function resolveWebDebugBootstrap(): WebDebugBootstrap {
     // No section: the env gate alone decides, and the bridge's own defaults
     // shape the system — the exact bootstrap the env var drove before the
     // section was wired.
-    return { base: { enabled: debugEnabled() }, consoleSinkAllowed: true };
+    const base: Partial<DebugConfig> = { enabled: debugEnabled() };
+    return { base, install: debugBootstrapInstalls(base), consoleSinkAllowed: true };
   }
+  const base: Partial<DebugConfig> = { ...section, enabled: section.enabled || debugEnabled() };
   return {
-    base: { ...section, enabled: section.enabled || debugEnabled() },
+    base,
+    install: debugBootstrapInstalls(base),
     consoleSinkAllowed: section.sinks.enabledSinks.includes("console"),
   };
 }

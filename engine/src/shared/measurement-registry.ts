@@ -141,11 +141,19 @@ export interface MetricEntry {
     /** The exported function that computes the quantity. */
     readonly symbol: string;
     /**
-     * Regex sources that pin the computation itself (not just the name of
-     * the function). A match outside the producer module is a second
-     * derivation and the guard refuses it.
+     * Regex sources that pin the COMPUTATION itself (not just the name of
+     * the function). At least one MUST match the producer's body; a value
+     * that only reads the raw fact (`loadavg()`) is not proof of
+     * computation and belongs in {@link reads}.
      */
-    readonly derivation: readonly string[];
+    readonly compute: readonly string[];
+    /**
+     * Regex sources for a direct READ of the raw fact. Duplicate-scan only:
+     * reading `loadavg()` outside the producer is a second sample of the
+     * same fact, but a bare read is not the declared computation, so it can
+     * never satisfy the body clause on its own.
+     */
+    readonly reads: readonly string[];
     /**
      * Tokens that would prove the producer substituted a different quantity
      * (a wall clock for CPU, a duration for load). The guard refuses them.
@@ -307,6 +315,30 @@ export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Objec
   "server/observability/metrics-recorder.ts::recordToolCall": "records one tool call into the metrics collector; a recording hook, not a computed quantity",
 });
 
+/**
+ * Modules that import or call a registered producer symbol but consume NO
+ * declared quantity from it. They are named, with a reason, because the
+ * consumer clause is TOTAL: every module the import universe shows touching
+ * a producer is either in that entry's `consumers` or here. Silence is not
+ * an exemption.
+ *
+ * THE SAME PATTERN AS {@link NON_MEASUREMENT_PRODUCERS}: the guard refuses an
+ * entry whose module no longer touches its producer (a stale exemption hides
+ * the next new consumer). Each key is `module::symbol`.
+ */
+export const NON_MEASUREMENT_CONSUMERS: Readonly<Record<string, string>> = Object.freeze({
+  "tests/prevention/measurement-contract.test.ts::readAmbientLoadPerCpu": "drives the producer's unreadable-sample branches in unit arms; it records no ambient quantity and is a test of the producer, not a consumer of a measured value",
+  "engine/scripts/tooling/test-run-lock.ts::instrumentLockStamp": "borrows the stamp for the runner's own lock decision and re-exposes it; it records no instrument-lock measurement",
+  "engine/test/process/instrument-lock.test.ts::instrumentLockStamp": "drives the stamp's held/unslotted branches; the test asserts the producer, it records no measurement",
+  "tests/prevention/flaky-test-memory.test.ts::readMeasuredSurfaceHash": "builds a synthetic profile report with the measured surface's hash; the test plants identity, it records no measurement",
+  "tests/prevention/tree-identity-owner.test.ts::readMeasuredSurfaceHash": "asserts the hash owner is single and changes with the surface; the test drives the producer, it records no measurement",
+  "tests/prevention/web-ui-runtime-budget-verdict.test.ts::readMeasuredSurfaceHash": "feeds a synthetic tree identity into the budget-verdict arms; the test plants identity, it records no measurement",
+  "tests/prevention/web-ui-runtime-budget-verdict.test.ts::performanceMeasurements": "drives the measurement reader with planted reports to prove absence/finiteness arms; it records no web budget reading",
+  "tests/prevention/performance-exposure-wired.test.ts::getTokenThroughput": "drives the throughput reading's null/non-null exposure arms; the test asserts the producer, it records no rate",
+  "tests/public/test-shard-manifest.test.mjs::mergeShardReports": "builds shard receipts in temp trees to drive the merge guard; the test consumes no CI duration it records as evidence",
+  "tests/public/test-shard-merge.test.mjs::mergeShardReports": "builds shard receipts in temp trees to drive the merge guard; the test consumes no CI duration it records as evidence",
+});
+
 /** The one document that owns the registry's reader-facing contract. */
 export const MEASUREMENT_DOC_SOURCE = "docs/testing.md";
 /** The phrase the document must carry, so the declaration is discoverable. */
@@ -322,7 +354,8 @@ const MEASURED_SURFACE: MetricEntry = {
   producer: {
     module: "engine/src/shared/tree-identity.ts",
     symbol: "readMeasuredSurfaceHash",
-    derivation: ["sha256\\(entries\\.join\\("],
+    compute: ["sha256\\(entries\\.join\\("],
+    reads: [],
     forbids: ["Date.now", "loadavg(", "performance.now(", "cpuUsage("],
   },
   consumers: [
@@ -366,7 +399,8 @@ const INSTRUMENT_LOCK: MetricEntry = {
   producer: {
     module: "engine/src/process/instrument-lock.ts",
     symbol: "instrumentLockStamp",
-    derivation: ["holdsThisProcess\\(holder\\)"],
+    compute: ["holder\\.pid === process\\.pid"],
+    reads: [],
     forbids: ["Date.now", "performance.now(", "loadavg("],
   },
   consumers: [
@@ -376,6 +410,7 @@ const INSTRUMENT_LOCK: MetricEntry = {
       source: "tests/performance/regression.test.ts",
     },
     { kind: "gate", id: "performance-report", source: "scripts/testing/performance-measurements.ts" },
+    { kind: "gate", id: "instrumentLockStamp(lockPath)", source: "tests/reporters/budget-reporter.ts" },
     {
       kind: "record",
       id: "instrumentLock",
@@ -405,7 +440,7 @@ const INSTRUMENT_LOCK: MetricEntry = {
 function perfBudget(
   budget: string,
   unit: string,
-  derivation: string,
+  compute: string,
   gateTitle: string,
   load: LoadBehaviour,
   zero: ZeroSemantics,
@@ -419,7 +454,8 @@ function perfBudget(
     producer: {
       module: "scripts/testing/performance-measurements.ts",
       symbol: "performanceMeasurements",
-      derivation: [derivation],
+      compute: [compute],
+      reads: [],
       forbids: ["Date.now", "performance.now(", "loadavg(", "cpuUsage("],
     },
     consumers: [
@@ -492,7 +528,8 @@ const PER_FILE_COLLECT: MetricEntry = {
   producer: {
     module: "engine/src/shared/test-costs.ts",
     symbol: "summarizeTestCosts",
-    derivation: ['finiteDiagnosticMs\\(diagnostic,\\s*"collectDuration"\\)'],
+    compute: ['finiteDiagnosticMs\\(diagnostic,\\s*"collectDuration"\\)'],
+    reads: [],
     forbids: ["cpuUsage(", "endTime", "startTime", "wallClockMs"],
   },
   consumers: [
@@ -525,7 +562,8 @@ const PER_FILE_OCCUPANCY: MetricEntry = {
   producer: {
     module: "engine/src/shared/test-costs.ts",
     symbol: "totalModuleOccupancyMs",
-    derivation: ["OCCUPANCY_FIELDS"],
+    compute: ["total\\s*\\+=\\s*ms"],
+    reads: [],
     forbids: ["cpuUsage(", "endTime", "startTime", "wallClockMs"],
   },
   consumers: [
@@ -555,7 +593,8 @@ const TOTAL_COLLECT: MetricEntry = {
   producer: {
     module: "engine/src/shared/test-costs.ts",
     symbol: "summarizeTestCosts",
-    derivation: ["totalCollectMs\\s*=\\s*collects"],
+    compute: ["totalCollectMs\\s*=\\s*collects"],
+    reads: [],
     forbids: ["cpuUsage(", "endTime", "startTime", "wallClockMs"],
   },
   consumers: [
@@ -585,7 +624,8 @@ const TOTAL_OCCUPANCY: MetricEntry = {
   producer: {
     module: "engine/src/shared/test-costs.ts",
     symbol: "summarizeTestCosts",
-    derivation: ["totalOccupancyMs\\s*=\\s*totals"],
+    compute: ["totalOccupancyMs\\s*=\\s*totals"],
+    reads: [],
     forbids: ["cpuUsage(", "endTime", "startTime", "wallClockMs"],
   },
   consumers: [
@@ -618,7 +658,8 @@ const SHARD_WEIGHT: MetricEntry = {
   producer: {
     module: "scripts/test-shard-manifest.mjs",
     symbol: "measuredFileDurationMs",
-    derivation: ["endTime\\s*-\\s*\\w+\\.?startTime"],
+    compute: ["endTime\\s*-\\s*\\w+\\.?startTime"],
+    reads: [],
     forbids: ["cpuUsage(", "cpuMs", "wallClockMs"],
   },
   consumers: [
@@ -652,7 +693,8 @@ const CI_TEST_PHASE: MetricEntry = {
   producer: {
     module: "scripts/test-shard-merge.mjs",
     symbol: "mergeShardReports",
-    derivation: ["testPhaseMs\\s*="],
+    compute: ["testPhaseMs\\s*="],
+    reads: [],
     forbids: ["cpuUsage(", "loadavg("],
   },
   consumers: [
@@ -684,7 +726,8 @@ const CI_SUMMED_SHARD: MetricEntry = {
   producer: {
     module: "scripts/test-shard-merge.mjs",
     symbol: "mergeShardReports",
-    derivation: ["testPhaseCpuMs\\s*="],
+    compute: ["testPhaseCpuMs\\s*="],
+    reads: [],
     forbids: ["cpuUsage(", "loadavg("],
   },
   consumers: [
@@ -708,11 +751,19 @@ const CI_SUMMED_SHARD: MetricEntry = {
  * The run-start ambient load, per CPU. The verdict consumes the 5-minute
  * leg; the 1-minute leg is recorded as a covariate and is never a normaliser.
  *
- * The last derivation spelling is the RAW READ. The producer is the one
- * owner of the sample, so a `loadavg()` call anywhere else is a second
- * reading of the same fact even when it does not divide — the two direct
- * readers this entry caught (`checkout-setup.ts`, `flake-cli.ts`) recorded
- * the raw leg and were invisible to a division-only scan.
+ * COMPUTE vs READ. The division spellings are the computation this entry
+ * declares; `loadavg()` is only the RAW READ of the fact, so it lives in
+ * `reads` and can never satisfy the body clause by itself. The producer is
+ * the one owner of the sample, so a `loadavg()` call anywhere else is a
+ * second reading of the same fact even when it does not divide — the direct
+ * readers this entry caught (`checkout-setup.ts`, `flake-cli.ts`,
+ * `bench/lib/machine.ts`) record the raw leg and were invisible to a
+ * division-only scan.
+ *
+ * CONSUMERS ARE TOTAL. Every module that imports or calls the producer
+ * symbol is declared here (gate/record/doc) or in
+ * {@link NON_MEASUREMENT_CONSUMERS} with a reason; the guard walks the
+ * import universe, so a new reader cannot stay undeclared.
  */
 const AMBIENT_LOAD: MetricEntry = {
   status: "registered",
@@ -723,12 +774,12 @@ const AMBIENT_LOAD: MetricEntry = {
   producer: {
     module: "engine/src/shared/ambient-load.ts",
     symbol: "readAmbientLoadPerCpu",
-    derivation: [
+    compute: [
       "load1\\s*/\\s*cpuCount",
       "loads?\\[0\\]\\s*/\\s*\\w+",
       "\\bl1\\s*/\\s*cores\\.length\\b",
-      "loadavg\\(\\)",
     ],
+    reads: ["loadavg\\(\\)"],
     forbids: ["wallClock", "performance.now(", "cpuUsage("],
   },
   consumers: [
@@ -738,6 +789,9 @@ const AMBIENT_LOAD: MetricEntry = {
     { kind: "record", id: "loadAverage1m", source: "src/state/metrics.ts" },
     { kind: "record", id: "loadAvg1", source: "engine/src/performance/diagnostic-modes.ts" },
     { kind: "record", id: "ambientLoadPerCpu", source: "engine/scripts/tooling/run-tests.ts" },
+    { kind: "record", id: "loadPerCpu", source: "bench/lib/machine.ts" },
+    { kind: "record", id: "ambient.loads?.[0] ?? null", source: "engine/src/workflow/checkout-setup.ts" },
+    { kind: "record", id: "readAmbientLoadPerCpu().loads?.[0] ?? null", source: "engine/src/workflow/flake-cli.ts" },
     { kind: "doc", id: "ambient load", source: MEASUREMENT_DOC_SOURCE, anchor: "ambient load" },
   ],
   load: {
@@ -771,7 +825,8 @@ const TOKEN_THROUGHPUT: MetricEntry = {
   producer: {
     module: "server/observability/metrics-recorder.ts",
     symbol: "getTokenThroughput",
-    derivation: ["totalTokens\\s*/\\s*seconds"],
+    compute: ["totalTokens\\s*/\\s*seconds"],
+    reads: [],
     forbids: ["cpuUsage("],
   },
   consumers: [
@@ -835,7 +890,8 @@ export const CPU_METRIC_PLACEHOLDERS: readonly MetricEntry[] = Object.freeze([
     producer: {
       module: "engine/src/shared/run-cpu.ts",
       symbol: "readRunCpu",
-      derivation: ["readRunCpu"],
+      compute: ["readRunCpu"],
+      reads: [],
       forbids: [],
     },
     consumers: [

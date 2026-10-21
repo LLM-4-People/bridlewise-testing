@@ -12,6 +12,7 @@ import {
   measureManifest,
   planShards,
   readManifest,
+  requireGreenReport,
   verifyManifest,
   wrapShardReport,
 } from "../../scripts/test-shard-manifest.mjs";
@@ -85,6 +86,50 @@ test("the checked-in shard manifest is complete, well-formed and self-describing
     // refused it — the check was weaker than the thing it audits.
     assert.ok(Number.isSafeInteger(file.weightMs) && file.weightMs >= 1, `${file.path} has no measured weight`);
     assert.match(file.path, /\.test\.(?:ts|mjs)$/u, `${file.path} is not a test file`);
+  }
+});
+
+test("the green rule refuses absent, fractional and string test totals and passed counts", () => {
+  // `numTotalTests` was read outside the green rule: absence fell back to 0,
+  // so a report that declared success and the four judged counts but no total
+  // merged as a green run of zero tests; 3.7 was accepted as a test count.
+  // `numPassedTests` had a SECOND derivation (total - failed - skipped - todo)
+  // when absent. Both are now declared by the same rule as the four judged
+  // counts, and a numeric string is a shape the report never emits.
+  const base = {
+    success: true,
+    numTotalTests: 2,
+    numPassedTests: 2,
+    numFailedTests: 0,
+    numFailedTestSuites: 0,
+    numPendingTests: 0,
+    numTodoTests: 0,
+  };
+  assert.deepEqual(requireGreenReport(base, "base"), {
+    failedTests: 0,
+    pendingTests: 0,
+    todoTests: 0,
+    totalTests: 2,
+    passedTests: 2,
+  });
+  for (const field of ["numTotalTests", "numPassedTests"]) {
+    for (const [shape, value] of [["absent", undefined], ["fraction", 1.5], ["string", "2"]]) {
+      const report = { ...base };
+      if (value === undefined) delete report[field];
+      else report[field] = value;
+      const subject = `${field} ${shape}`;
+      assert.throws(
+        () => requireGreenReport(report, subject),
+        (error) => {
+          assert.match(error.message, new RegExp(field, "u"));
+          assert.match(
+            error.message,
+            value === undefined ? /does not declare/u : /not a declared non-negative integer/u,
+          );
+          return true;
+        },
+      );
+    }
   }
 });
 
@@ -174,6 +219,7 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
       writeJson(raw, {
         success: true,
         numTotalTests: shard.files.length,
+        numPassedTests: shard.files.length,
         numFailedTests: 0,
         numFailedTestSuites: 0,
         numPendingTests: 0,
@@ -247,7 +293,7 @@ test("a wrapped report with the wrong commit, manifest hash or assignment hash i
     const raw = join(work, "raw.json");
     const wrapped = join(work, "wrapped.json");
     writeJson(raw, {
-      success: true, numTotalTests: 1, numFailedTests: 0, numFailedTestSuites: 0,
+      success: true, numTotalTests: 1, numPassedTests: 1, numFailedTests: 0, numFailedTestSuites: 0,
       numPendingTests: 0, numTodoTests: 0,
       testResults: [{ name: join(work, "tests/a.test.ts"), status: "passed", assertionResults: [] }],
     });
