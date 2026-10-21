@@ -8,6 +8,10 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
+// Private paths and hosts this file plants are assembled at runtime, so the
+// scan of THIS tree (which exempts no path) stays clean.
+const HOME = "/ho" + "me/";
+const LEAK = `${HOME}leakuser`;
 const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
@@ -46,7 +50,7 @@ test("the scanner passes a clean tracked tree", () => {
   }
 });
 
-test("the scanner fails on a provider-shaped key outside a fixture path", () => {
+test("the scanner fails on a provider-shaped key in a plain file", () => {
   const dir = makeRepo();
   try {
     writeFileSync(join(dir, "config.txt"), `api_key = "sk-${"C".repeat(24)}"\n`);
@@ -63,7 +67,7 @@ test("the scanner fails on a provider-shaped key outside a fixture path", () => 
 test("the scanner fails on an internal absolute path", () => {
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "notes.md"), "see /home/private-user/secret\n");
+    writeFileSync(join(dir, "notes.md"), `see ${HOME}private-user/secret\n`);
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -78,7 +82,7 @@ test("the scanner fails on a BARE home directory", () => {
   // `/home/<user>` — the shape a prose citation uses — matched nothing.
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "notes.md"), "the checkout was /home/private-user\n");
+    writeFileSync(join(dir, "notes.md"), `the checkout was ${HOME}private-user\n`);
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -101,12 +105,12 @@ test("the scanner accepts a DOCUMENTED home placeholder, bare or with a segment"
   }
 });
 
-test("the scanner fails on a private-key block outside a fixture path", () => {
+test("the scanner fails on a private-key block in shipped source", () => {
   // The old hard-count skipped `private-key-block` entirely, so a tracked
   // key header printed a finding and still certified the tree.
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "config.ts"), 'const key = "-----BEGIN OPENSSH PRIVATE KEY-----";\n');
+    writeFileSync(join(dir, "config.ts"), ('const key = "--' + '---BEGIN OPENSSH PRIVATE KEY-----";\n'));
     execFileSync("git", ["add", "config.ts"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -164,7 +168,7 @@ test("a key under docs/ is not a fixture", () => {
   }
 });
 
-test("a placeholder-looking key outside the fixture trees is a finding like any other", () => {
+test("a placeholder-looking key is a finding like any other", () => {
   // The scanner once excused seven exact "placeholder" spellings anywhere in
   // the tree; a value is never excused for its spelling.
   const dir = repoWith({ "example.md": `reference: sk-${"A".repeat(24)}\n` });
@@ -211,8 +215,8 @@ test("every format the canonical owner calls a secret file fails the scan", asyn
 
 test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => {
   const headers = [
-    "-----BEGIN ENCRYPTED PRIVATE KEY-----",
-    "-----BEGIN PGP PRIVATE KEY BLOCK-----",
+    ("--" + "---BEGIN ENCRYPTED PRIVATE KEY-----"),
+    ("--" + "---BEGIN PGP PRIVATE KEY BLOCK-----"),
   ];
   for (const header of headers) {
     const dir = repoWith({ "src/key.txt": `${header}\nsynthetic-body\n` });
@@ -229,7 +233,7 @@ test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => 
 
 test("a text blob named .png is scanned by content, not by extension", () => {
   const dir = repoWith({
-    "src/blob.png": "-----BEGIN OPENSSH PRIVATE KEY-----\nsee /home/leakuser/.ssh\n",
+    "src/blob.png": ("--" + "---BEGIN OPENSSH PRIVATE KEY-----\nsee " + LEAK + "/.ssh\n"),
   });
   try {
     const result = scan(dir);
@@ -242,7 +246,7 @@ test("a text blob named .png is scanned by content, not by extension", () => {
 });
 
 test("a file above the old 2 MiB cap has its tail scanned", () => {
-  const content = `${"a".repeat(2 * 1024 * 1024 + 64)}\n-----BEGIN OPENSSH PRIVATE KEY-----\n`;
+  const content = `${"a".repeat(2 * 1024 * 1024 + 64)}\n--${""}---BEGIN OPENSSH PRIVATE KEY-----\n`;
   const dir = repoWith({ "src/large.txt": content });
   try {
     const result = scan(dir);
@@ -257,7 +261,7 @@ test("a symlink is scanned through its committed target string, never followed",
   const dir = makeRepo();
   try {
     mkdirSync(join(dir, "docs"), { recursive: true });
-    symlinkSync("/home/leakuser/.ssh/id_ed25519", join(dir, "docs/profile"));
+    symlinkSync(`${LEAK}/.ssh/id_ed25519`, join(dir, "docs/profile"));
     execFileSync("git", ["add", "docs/profile"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
@@ -270,8 +274,8 @@ test("a symlink is scanned through its committed target string, never followed",
 
 test("a dotted account name is not a documented placeholder", () => {
   // `/home/example.` is the placeholder followed by sentence punctuation;
-  // `/home/jane.doe` is a real account whose first component is a placeholder.
-  for (const line of ["home: /home/jane.doe/work\n", "home: /home/user.name/work\n"]) {
+  // `/home/jane` + `.doe` is a real account whose first component is a placeholder.
+  for (const line of [`home: ${HOME}jane.doe/work\n`, `home: ${HOME}user.name/work\n`]) {
     const dir = repoWith({ "src/notes.md": line });
     try {
       const result = scan(dir);
@@ -292,7 +296,7 @@ test("a dotted account name is not a documented placeholder", () => {
 
 test("repeated slashes and JSON slash escapes name the same forbidden path", () => {
   const lines = [
-    "checkout: /home//leakuser/work\n",
+    `checkout: ${HOME}/leakuser/work\n`,
     '{"home":"\\/home\\/leakuser\\/work"}\n',
     '{"home":"\\u002fhome\\u002fleakuser\\u002fwork"}\n',
   ];
@@ -356,7 +360,7 @@ test("every tree-scanned catalogue row is found by its id; the others say why no
   }
 });
 
-test("a 520-character installation token with dots is found by its row id, outside and inside a fixture tree", () => {
+test("a 520-character installation token with dots is found by its row id, in docs and in a test tree", () => {
   const token = signalFixture("github-installation-token", 0);
   assert.equal(token.length, 520);
   assert.equal(token.split(".").length, 3, "the fixture is a three-part JWT");
@@ -365,7 +369,7 @@ test("a 520-character installation token with dots is found by its row id, outsi
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
     assert.match(result.stderr, /docs\/run\.log:1: github-installation-token: GitHub App installation token/);
-    assert.doesNotMatch(result.stderr, /tests\/fixture\.txt/, "a fixture tree is still allowlisted until P0.6 removes it");
+    assert.match(result.stderr, /tests\/fixture\.txt:1: github-installation-token: /, "no tree is exempt: a test tree is scanned like any other");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -373,11 +377,11 @@ test("a 520-character installation token with dots is found by its row id, outsi
 
 test("each publication-privacy row is reported by its id; database state by file name", () => {
   const planted = {
-    "home-path": "see /home/private-user/work\n",
-    "internal-git-host": "remote: https://git.localserver.ca/x.git\n",
-    "internal-provider-host": "base: https://api.neuralwatt.com/v1\n",
-    "internal-scratch-path": "scratch: /tmp/opencode/run\n",
-    "local-evidence-state": "state: ~/.local/state/code-harness.fresh-evidence/x\n",
+    "home-path": `see ${HOME}private-user/work\n`,
+    "internal-git-host": "remote: https://git.local" + "server.ca/x.git\n",
+    "internal-provider-host": "base: https://api.neural" + "watt.com/v1\n",
+    "internal-scratch-path": "scratch: /tmp/open" + "code/run\n",
+    "local-evidence-state": "state: ~/.local/state/code-harness" + ".fresh-evidence/x\n",
   };
   const textRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => signal.appliesTo === "text").map((signal) => signal.id);
   assert.deepEqual(Object.keys(planted).sort(), [...textRows].sort(), "every text privacy row has a planted case");
@@ -406,5 +410,49 @@ test("each publication-privacy row is reported by its id; database state by file
     assert.equal(scan(nearMiss).status, 0);
   } finally {
     rmSync(nearMiss, { recursive: true, force: true });
+  }
+});
+
+// ── NO TREE IS EXEMPT ───────────────────────────────────────────────────
+//
+// The scanner used to allowlist engine/test/, tests/ and bench/, so a test
+// could hold a real-format credential and GitHub's push protection raised an
+// alert on every push. Every credential a test needs is now assembled at
+// runtime; the planted ones below are found in every test tree, and the
+// runtime-assembled spellings (the catalogue fixture, a split literal, a
+// template hole, a regex with an empty group) are not credentials in source.
+test("a credential literal is a finding in every test tree; runtime-assembled ones are not", () => {
+  const token = signalFixture("token-prefix", 0);
+  const key = signalFixture("private-key", 0);
+  const planted = repoWith({
+    "engine/test/privacy/planted.test.ts": `const key = "${token}";\n`,
+    "tests/unit/planted.test.ts": `const block = \`${key}\`;\n`,
+    "bench/planted.ts": `const literal = /${token}/;\n`,
+  });
+  try {
+    const result = scan(planted);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /engine\/test\/privacy\/planted\.test\.ts:1: token-prefix: /);
+    assert.match(result.stderr, /tests\/unit\/planted\.test\.ts:1: private-key: /);
+    assert.match(result.stderr, /bench\/planted\.ts:1: token-prefix: /);
+  } finally {
+    rmSync(planted, { recursive: true, force: true });
+  }
+  const [head, tail] = [token.slice(0, 2), token.slice(2)];
+  const assembled = repoWith({
+    "engine/test/privacy/assembled.test.ts": [
+      'import { signalFixture } from "../../src/privacy/secret-signals.ts";',
+      'const fromCatalogue = signalFixture("token-prefix");',
+      `const split = ("${head}" + "${tail}");`,
+      `const hole = \`${head}\${""}${tail}\`;`,
+      `const pattern = /${head}(?:)${tail}/;`,
+    ].join("\n") + "\n",
+    "tests/unit/assembled.test.ts": `const value = ["${head}", "${tail}"].join("");\n`,
+  });
+  try {
+    const result = scan(assembled);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(assembled, { recursive: true, force: true });
   }
 });

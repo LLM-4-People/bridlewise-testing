@@ -32,7 +32,7 @@ The suite uses Node's built-in test runner and covers:
 - `bin/bridlewise.mjs` is executable, prints help/version, and lists every harness verb;
 - `harness` without a verb is a typed refusal, not a crash or a silent success;
 - `preflight` returns `harnessReady: false` and denies model invocation, repository mutation, and network egress;
-- the secret scanner passes a clean tree, fails on a provider-shaped key outside a fixture path, fails on an internal absolute path, and never prints the candidate value;
+- the secret scanner reads the one secret catalogue, exempts no path (test trees included: a test assembles any credential at runtime), fails on a credential shape or an internal absolute path, and never prints the candidate value;
 - the README carries the developer-preview and sensitive-codebase warning;
 - the CLI/testing/extending docs and the licence/community files exist.
 

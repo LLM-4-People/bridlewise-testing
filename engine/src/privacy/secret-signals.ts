@@ -168,6 +168,33 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     github: { kind: "custom", pattern: "sk-[0-9a-f]{64}" }, treeScan: true,
     fixtures: { positive: [["s", "k-", "0a1b2c3d".repeat(8)]], negative: ["sk-0a1b2c3d"] },
     category: "api-key", description: "Neuralwatt API key", admission: /\bsk-[0-9a-f]{64}\b/u, classification: /\bsk-[0-9a-f]{64}\b/u },
+  // ── PROVIDER FORMATS GITHUB DETECTS IN THIS TREE ─────────────────────────
+  //
+  // GitHub's push protection knew these and this catalogue did not: test
+  // fixtures of each raised secret-scanning alerts, while the repository scan
+  // and the redaction engine let the same values through. Each row matches
+  // GitHub's documented shape for its secret type.
+  { id: "google-api-key",
+    github: { kind: "provider", secretTypes: ["google_api_key"] }, treeScan: true,
+    fixtures: { positive: [["AI", "za", "Sy", "Gh7Jk9Lm2Np4Qr6St8Vw0Xy3Zb5Cd7Ef9"]], negative: ["AIzaShort"] },
+    category: "api-key", description: "Google API key", admission: /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/u, classification: /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/u },
+  { id: "huggingface-token",
+    github: { kind: "provider", secretTypes: ["hf_user_access_token"] }, treeScan: true,
+    fixtures: { positive: [["hf", "_", "QwErTyUiOpAsDfGhJkLzXcVbNmQwErTyUi"]], negative: ["hf_hub_download_cache_directory"] },
+    category: "token", description: "Hugging Face token", admission: /\bhf_[A-Za-z0-9]{34,40}\b/u, classification: /\bhf_[A-Za-z0-9]{34,40}\b/u },
+  { id: "doppler-token",
+    github: { kind: "provider", secretTypes: ["doppler_personal_token"] }, treeScan: true,
+    fixtures: { positive: [["dp.", "pt.", "Ab3".repeat(14), "Z"]], negative: ["dp.pt.short"] },
+    category: "token", description: "Doppler token", admission: /\bdp\.pt\.[A-Za-z0-9]{43}\b/u, classification: /\bdp\.pt\.[A-Za-z0-9]{43}\b/u },
+  { id: "slack-webhook-url",
+    github: { kind: "provider", secretTypes: ["slack_incoming_webhook_url"] }, treeScan: true,
+    fixtures: { positive: [["https://hooks.slack", ".com/services/T", "0A1B2C3D4", "/B", "5E6F7G8H9", "/", "aB1cD2eF3gH4iJ5kL6mN7oP8"]], negative: ["https://hooks.slack.com/services/T0A1B2C3D4"] },
+    category: "credential", description: "Slack incoming webhook URL", admission: /https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]{8,}\/B[A-Z0-9]{8,}\/[A-Za-z0-9]{24,}\b/u, classification: /https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]{8,}\/B[A-Z0-9]{8,}\/[A-Za-z0-9]{24,}\b/u },
+  // GitHub has no secret type for a Discord webhook URL (only the bot token).
+  { id: "discord-webhook-url",
+    github: { kind: "custom", pattern: "https://(?:ptb\\.|canary\\.)?discord(?:app)?\\.com/api/webhooks/[0-9]{17,20}/[A-Za-z0-9_-]{60,68}" }, treeScan: true,
+    fixtures: { positive: [["https://discord", ".com/api/webhooks/", "123456789012345678", "/", "Wq3-Er5_Ty7".repeat(6)]], negative: ["https://discord.com/api/webhooks/123"] },
+    category: "credential", description: "Discord webhook URL", admission: /https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/[0-9]{17,20}\/[A-Za-z0-9_-]{60,68}/u, classification: /https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/[0-9]{17,20}\/[A-Za-z0-9_-]{60,68}/u },
   { id: "aws-access-key",
     github: { kind: "provider", secretTypes: ["aws_access_key_id"] }, treeScan: true,
     fixtures: { positive: [["AK", "IA", "Q7XZ".repeat(4)]], negative: ["AKIA123"] },
@@ -324,7 +351,10 @@ const HOME_PATH_PLACEHOLDERS = deepFreeze([
 const HOME_PLACEHOLDER_GUARD = `(?!(?:${HOME_PATH_PLACEHOLDERS.join("|")})(?![A-Za-z0-9_-])(?!\\.[A-Za-z0-9]))`;
 
 export const PUBLICATION_PRIVACY_SIGNALS = deepFreeze([
-  { id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path", pattern: new RegExp(`\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u") },
+  // ABSOLUTE only: `/home/` that begins the path. `src/pages/home/widgets`,
+  // `backup/home/x` and `<root>/home/x` are relative paths that merely hold a
+  // `home` segment, and reading them as an account published nothing.
+  { id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path", pattern: new RegExp(`(?<![\\w.>}-])\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u") },
   { id: "internal-git-host", category: "privacy", appliesTo: "text", description: "internal Git host", pattern: /git\.localserver\.ca\b/u },
   { id: "internal-provider-host", category: "privacy", appliesTo: "text", description: "internal provider host", pattern: /api\.neuralwatt\.com\b/u },
   { id: "internal-scratch-path", category: "privacy", appliesTo: "text", description: "internal scratch path", pattern: /\/tmp\/opencode\b/u },

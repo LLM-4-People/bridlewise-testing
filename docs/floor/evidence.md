@@ -34,13 +34,11 @@ npm run test:public
 Expected:
 
 ```text
-secret scan: clean (201 synthetic fixture reference(s) allowlisted)
-ℹ tests 28
-ℹ pass 28
+secret scan: clean
 ℹ fail 0
 ```
 
-The typechecks exit 0 with no diagnostics. The allowlist count moves with the fixtures.
+The typechecks exit 0 with no diagnostics. The secret scan exempts no path: a test assembles any credential it needs at runtime.
 
 What this proves: the launcher is executable, the version command answers, `harness` without a verb is a typed refusal, `preflight` reports `harnessReady: false`, the secret scanner passes and fails on its own test plants, the shipped docs and community files exist, canonical JSON is stable, and a provider-shaped key is redacted before display.
 

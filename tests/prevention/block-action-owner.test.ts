@@ -477,7 +477,7 @@ describe("D. liveness — the handler really does the thing", () => {
       (c) => c.type === "string" && c.current() === "" && c.id === "awareness.monitoredModules",
     );
     expect(stringCust, "no free-form string row standing at its empty default to prove the masked answer on").toBeDefined();
-    const rawCredential = "sk-live-r48-readback-proof-7742a1c9";
+    const rawCredential = ("sk" + "-live-r48-readback-proof-7742a1c9");
     const maskedSave = await jsonRequest(srv.baseUrl, "/api/b/settings.customizations/set", {
       method: "POST",
       cookie: admin.cookie,

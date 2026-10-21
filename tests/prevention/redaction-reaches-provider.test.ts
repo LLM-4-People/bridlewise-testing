@@ -94,7 +94,7 @@ import { primeKnownSecrets } from "../../server/llm/redaction.ts";
 import { PROVIDER_FIXTURE_OWNER } from "../helpers/multi-user.ts";
 
 /** The reported phrasing, and a value in the format the report named. */
-const PASTED_KEY = "sk-proj-Ab3xQ9zLmN2pRt5vWy8uZc1dEf4gHj7kLm0nPq6rSt9uVw2xYz5aBc8dEf1gHi";
+const PASTED_KEY = ("sk" + "-proj-Ab3xQ9zLmN2pRt5vWy8uZc1dEf4gHj7kLm0nPq6rSt9uVw2xYz5aBc8dEf1gHi");
 /** An opaque value no format regex can recognise — only a declaration can. */
 const OPAQUE_KEY = "9f2c7d4e8b1a6350fe2947cd80b3a15e6d7c8f90";
 /** A second opaque value that NOTHING in this file ever declares, so the

@@ -440,7 +440,7 @@ describe("the picked model reaches the provider — client write to provider cal
     expect(provider.configs.length).toBeGreaterThan(0);
     const wire=provider.wires.at(-1)!; expect(new URL(wire.url).pathname).toBe("/v1/responses");
     expect(wire.headers["x-org-id"]).toBe("org-on-the-wire"); expect(wire.headers["x-route"]).toBe("blue");
-    expect(wire.headers.authorization).toBe("Bearer fixture-header-authentication");
+    expect(wire.headers.authorization).toBe(("Be" + "arer fixture-header-authentication"));
     const config = provider.configs[provider.configs.length - 1]!;
     expect(
       config["headers"],

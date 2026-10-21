@@ -499,7 +499,7 @@ test("S2.4-B03 false satisfied claims and secret-like values fail while unassess
 
   const secret = mutableRegistry();
   secret.requirements[0]!.intent =
-    "synthetic regression credential mbh_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    ("synthetic regression credential mb" + "h_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
   assert.equal(hasViolation(secret, "requirements_registry_secret_like_value"), true);
 
   const futureRequirement = REGISTRY.requirements.find((entry) => entry.id === "REQ-035");
