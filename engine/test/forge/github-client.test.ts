@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { classifyGithubAnswer, forgeRequestUrl, githubClient, nextPagePath } from "../../src/workflow/forge/github.ts";
+import { classifyGithubAnswer, forgeRequestUrl, githubClient, linkPaths } from "../../src/workflow/forge/github.ts";
 import { isForgeError, type ForgeCode } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import { GITHUB_API_VERSION } from "../../src/workflow/forge/port.ts";
@@ -176,19 +176,52 @@ test("GraphQL: data is answered, an errors array is a typed refusal", async () =
   }
 });
 
-test("a request names an API path, never a URL, a query, a traversal or an encoded separator", () => {
-  const endpoint = fakeGithub().endpoint();
-  for (const path of ["repos/o/r", "//evil.test/x", "https://evil.test/x", "/repos/../admin", "/repos/./x", "/a?b=1", "/a#b", "/a%2fb", "/a%2E%2E/b", "/a b", "/a\\b"]) {
-    assert.throws(() => forgeRequestUrl(endpoint, path), (error: unknown) => isForgeError(error, "forge_request_invalid"), path);
+test("a request names an API path under the base: every escape form is refused, each on its own, and real paths pass", () => {
+  for (const endpoint of [fakeGithub().endpoint(), { ...fakeGithub().endpoint(), apiUrl: "https://api.github.com" }]) {
+    const escapes: readonly (readonly [string, string])[] = [
+      ["relative", "repos/o/r"],
+      ["scheme-relative", "//evil.test/x"],
+      ["absolute URL", "https://evil.test/x"],
+      ["dot-dot", "/repos/../admin"],
+      ["dot", "/repos/./x"],
+      ["encoded dot-dot (the review's form)", "/repos/.%2e/admin"],
+      ["encoded dot-dot, both", "/repos/%2e%2e/admin"],
+      ["encoded dot-dot, upper case", "/repos/%2E%2E/admin"],
+      ["encoded dot-dot, mixed", "/repos/%2E./admin"],
+      ["encoded dot", "/repos/%2e/x"],
+      ["trailing dot-dot", "/repos/o/.."],
+      ["double-encoded dot-dot", "/repos/%252e%252e/admin"],
+      ["encoded slash", "/a%2fb"],
+      ["encoded slash, upper case", "/a%2Fb"],
+      ["encoded backslash", "/a%5cb"],
+      ["backslash", "/a\\b"],
+      ["doubled slash inside", "/repos//admin"],
+      ["trailing slash", "/repos/o/"],
+      ["query", "/a?b=1"],
+      ["fragment", "/a#b"],
+      ["space", "/a b"],
+      ["control character", "/a\u0000b"],
+      ["malformed escape", "/a%zzb"],
+    ];
+    for (const [form, path] of escapes) {
+      assert.throws(() => forgeRequestUrl(endpoint, path), (error: unknown) => isForgeError(error, "forge_request_invalid"), `${form}: ${path}`);
+    }
+    // Near misses: what the lanes really send.
+    for (const path of ["/repos/o/r.js/issues", "/repos/o/r/labels/lane%3Agh-1", "/repos/o/r/labels/area%3Aengine", "/users/a-b", "/repos/o/.github/rulesets", "/repos/o/r/git/refs/heads/agent%2Bx"]) {
+      const url = forgeRequestUrl(endpoint, path);
+      assert.ok(url.pathname.endsWith(path), path);
+    }
   }
+  const endpoint = fakeGithub().endpoint();
   assert.equal(forgeRequestUrl(endpoint, "/repos/o/r.js/issues", { state: "open", per_page: 100 }).searchParams.get("per_page"), "100");
   for (const apiUrl of ["ftp://api.github.com", "https://user:pw@api.github.com", "https://api.github.com?x=1", "not a url"]) {
     assert.throws(() => forgeRequestUrl({ ...endpoint, apiUrl }, "/x"), (error: unknown) => isForgeError(error, "forge_endpoint_invalid"), apiUrl);
   }
-  // A Link header to another host or outside the API is refused.
-  assert.throws(() => nextPagePath(endpoint, '<https://evil.test/x?page=2>; rel="next"'), (error: unknown) => isForgeError(error, "github_response_invalid"));
-  assert.equal(nextPagePath(endpoint, `<${endpoint.apiUrl}/x?page=2>; rel="next", <${endpoint.apiUrl}/x?page=9>; rel="last"`), "/x?page=2");
-  assert.equal(nextPagePath(endpoint, `<${endpoint.apiUrl}/x?page=9>; rel="last"`), undefined);
+  // A Link header to another host, outside the API, or whose path escapes, is refused; every rel is answered.
+  assert.throws(() => linkPaths(endpoint, '<https://evil.test/x?page=2>; rel="next"'), (error: unknown) => isForgeError(error, "github_response_invalid"));
+  assert.throws(() => linkPaths(endpoint, `<${endpoint.apiUrl}/x/.%2e/y?page=2>; rel="next"`), (error: unknown) => isForgeError(error, "github_response_invalid"));
+  assert.deepEqual(linkPaths(endpoint, `<${endpoint.apiUrl}/x?page=2>; rel="next", <${endpoint.apiUrl}/x?page=9>; rel="last"`), { next: "/x?page=2", last: "/x?page=9" });
+  assert.deepEqual(linkPaths(endpoint, null), {});
 });
 
 test("the credential is never sent to a request the door refuses, and a missing environment token is typed", async () => {

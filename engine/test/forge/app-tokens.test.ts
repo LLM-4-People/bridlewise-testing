@@ -96,8 +96,50 @@ test("the host custody stores a key at 0600 in the key home, answers the identit
   await refusedWith("forge_app_key_unavailable", () => harnessAppKeyCustody().identity("verifier"));
   writeFileSync(join(keyHome, "forge-apps", "verifier.json"), "{\"schemaVersion\":\"other\"}", { mode: 0o600 });
   await refusedWith("forge_app_key_invalid", () => custody.identity("verifier"));
-  chmodSync(join(keyHome, "forge-apps", "verifier.json"), 0o644);
-  await refusedWith("forge_app_key_invalid", () => custody.identity("verifier"));
+});
+
+test("the mode guard: a VALID key record readable by other accounts is refused, by its mode alone", async () => {
+  const fake = fakeGithub();
+  const app = fake.installApp({ slug: "bridlewise-verifier", permissions: FORGE_APPS.verifier.permissions, repositories: ["o/r"] });
+  const keyHome = admitHarnessKeyHome([]);
+  storeAppKey(keyHome, "verifier", { appId: app.appId, slug: app.slug, clientId: app.clientId, pem: app.pem });
+  const custody = keyHomeCustody(keyHome);
+  assert.equal(custody.identity("verifier").appId, app.appId, "the record is valid at 0600");
+  const file = join(keyHome, "forge-apps", "verifier.json");
+  for (const mode of [0o644, 0o640, 0o604, 0o660]) {
+    chmodSync(file, mode);
+    try {
+      custody.identity("verifier");
+      assert.fail(`mode ${mode.toString(8)} was accepted`);
+    } catch (error) {
+      assert.ok(isForgeError(error, "forge_app_key_invalid") && /readable by other accounts/u.test(error.message), String(error));
+    }
+    assert.throws(() => custody.signRs256("verifier", Buffer.from("x")), (error: unknown) => isForgeError(error, "forge_app_key_invalid"), "nor does it sign");
+  }
+  chmodSync(file, 0o600);
+  assert.equal(custody.identity("verifier").appId, app.appId, "0600 is read again");
+});
+
+test("the repository check: a token GitHub minted for another repository than asked is an integrity stop, even with the right permissions", async () => {
+  const keyHome = admitHarnessKeyHome([]);
+  const asked = { contents: "read", metadata: "read" } as const;
+  const minted = (repositories: readonly string[]) => () => ({ status: 201, body: {
+    token: "x", expires_at: new Date(Date.now() + 3600_000).toISOString(), permissions: asked, repositories: repositories.map((name) => ({ name })),
+  } });
+  for (const repositories of [["other"], ["r", "other"], []]) {
+    const local = fakeGithub();
+    const twin = local.installApp({ slug: "bridlewise-agent", permissions: FORGE_APPS.agent.permissions, repositories: ["o/r", "o/other"] });
+    storeAppKey(keyHome, "agent", { appId: twin.appId, slug: twin.slug, clientId: twin.clientId, pem: twin.pem });
+    local.route("POST", /^\/app\/installations\/\d+\/access_tokens$/u, minted(repositories));
+    const answer = appInstallationCredential(local.endpoint(), keyHomeCustody(keyHome), { role: "agent", owner: "o", repository: "r", permissions: { contents: "read" }, renewBeforeMs: 0 });
+    await refusedWith("forge_token_scope_mismatch", () => answer.authorization(new AbortController().signal));
+  }
+  // Near miss: exactly the one repository asked passes.
+  const exact = fakeGithub();
+  const exactApp = exact.installApp({ slug: "bridlewise-agent", permissions: FORGE_APPS.agent.permissions, repositories: ["o/r"] });
+  storeAppKey(keyHome, "agent", { appId: exactApp.appId, slug: exactApp.slug, clientId: exactApp.clientId, pem: exactApp.pem });
+  exact.route("POST", /^\/app\/installations\/\d+\/access_tokens$/u, minted(["r"]));
+  assert.equal(await appInstallationCredential(exact.endpoint(), keyHomeCustody(keyHome), { role: "agent", owner: "o", repository: "r", permissions: { contents: "read" }, renewBeforeMs: 0 }).authorization(new AbortController().signal), "Bearer x");
 });
 
 test("an installation token is minted narrowed to one repository and the action's permissions, cached, and renewed before expiry", async () => {

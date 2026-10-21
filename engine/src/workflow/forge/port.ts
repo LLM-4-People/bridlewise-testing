@@ -69,6 +69,8 @@ export type ForgeResponse<T> = Readonly<{
   notModified: boolean;
   /** The next page's API path (with its query), from the `Link` header; undefined on the last page. */
   next: string | undefined;
+  /** Every page link of the answer (`next`, `last`, `prev`, `first`) as an API path with its query. */
+  links: Readonly<Record<string, string>>;
   rate: ForgeRateFacts;
   /** GitHub's request id (`X-GitHub-Request-Id`), for a report. */
   requestId: string | undefined;

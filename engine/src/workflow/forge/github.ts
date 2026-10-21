@@ -58,13 +58,30 @@ function apiBase(endpoint: ForgeEndpoint): URL {
   return url;
 }
 
-/** The request URL of `path` under the API base (`path` checked: an API path, never a URL or a traversal). */
+/** The refusal of a path that is not an API path under the base. */
+function pathRefused(path: string, why: string): never {
+  throw new ForgeError("forge_request_invalid", `A forge request names an API path under the API base: '/'-separated, non-empty segments, no dot segment, query, fragment, backslash, control character, encoded separator or double encoding (${why}).`, { path });
+}
+
+/**
+ * The request URL of `path` under the API base. `path` is checked AS THE
+ * SERVER WILL READ IT: decoded first (a malformed escape refused), then every
+ * segment non-empty and neither `.` nor `..` (so `.%2e`, `%2E%2e` and `//`
+ * are refused, not normalised), no encoded separator (`%2f`, `%5c`), no
+ * double encoding (`%25`), and finally the URL the platform builds must keep
+ * the path byte for byte under the base: nothing resolves outside it.
+ */
 export function forgeRequestUrl(endpoint: ForgeEndpoint, path: string, query?: ForgeRequest["query"]): URL {
   const base = apiBase(endpoint);
-  if (!path.startsWith("/") || path.startsWith("//") || /[?#\\]|\/\.\.?(?:\/|$)|%2e%2e|%2f/iu.test(path) || /\s/u.test(path)) {
-    throw new ForgeError("forge_request_invalid", "A forge request names an API path starting with '/', with no query, fragment, traversal or encoded separator.", { path });
-  }
-  const url = new URL(`${base.href.replace(/\/$/u, "")}${path}`);
+  if (!path.startsWith("/")) pathRefused(path, "it does not start with '/'");
+  if (/[?#\\\s\u0000-\u001f\u007f]/u.test(path)) pathRefused(path, "a query, fragment, backslash, space or control character");
+  if (/%(?:2f|5c|25)/iu.test(path)) pathRefused(path, "an encoded separator or a double encoding");
+  let decoded: string;
+  try { decoded = decodeURIComponent(path); } catch { pathRefused(path, "a malformed escape"); }
+  if (decoded.split("/").slice(1).some((segment) => segment === "" || segment === "." || segment === "..")) pathRefused(path, "an empty or dot segment");
+  const prefix = base.pathname.replace(/\/$/u, "");
+  const url = new URL(`${base.origin}${prefix}${path}`);
+  if (url.pathname !== `${prefix}${path}`) pathRefused(path, "the URL does not keep the path as given");
   for (const [name, value] of Object.entries(query ?? {})) url.searchParams.set(name, String(value));
   return url;
 }
@@ -91,19 +108,31 @@ export function rateFactsOf(headers: Headers): ForgeRateFacts {
   return Object.freeze(facts);
 }
 
-/** The next page's API path from a `Link` header, relative to the API base; a link elsewhere is refused. */
-export function nextPagePath(endpoint: ForgeEndpoint, link: string | null): string | undefined {
-  if (link === null) return undefined;
-  const match = /<([^>]+)>\s*;\s*rel="next"/u.exec(link);
-  if (match === null) return undefined;
+/**
+ * Every link of a `Link` header (`next`, `last`, `prev`, `first`) as an API
+ * path with its query, relative to the API base; a link elsewhere, or whose
+ * path is not an API path (`forgeRequestUrl`'s checks), is refused.
+ */
+export function linkPaths(endpoint: ForgeEndpoint, header: string | null): Readonly<Record<string, string>> {
+  const links: Record<string, string> = {};
+  if (header === null) return Object.freeze(links);
   const base = apiBase(endpoint);
-  let next: URL;
-  try { next = new URL(match[1]!); } catch { throw new ForgeError("github_response_invalid", "GitHub's Link header names a next page that is not a URL.", {}); }
   const prefix = base.pathname.replace(/\/$/u, "");
-  if (next.origin !== base.origin || !next.pathname.startsWith(`${prefix}/`)) {
-    throw new ForgeError("github_response_invalid", "GitHub's Link header names a next page outside the API.", { origin: next.origin });
+  for (const part of header.split(",")) {
+    const match = /<([^>]+)>\s*;\s*rel="([a-z]+)"/u.exec(part.trim());
+    if (match === null) continue;
+    // Judged as written, never as the URL parser normalises it (`/x/.%2e/y` would become `/y`).
+    const raw = match[1]!;
+    const root = `${base.origin}${prefix}/`;
+    if (!raw.startsWith(root)) throw new ForgeError("github_response_invalid", "GitHub's Link header names a page outside the API.", {});
+    const queryAt = raw.indexOf("?");
+    const path = raw.slice(root.length - 1, queryAt === -1 ? undefined : queryAt);
+    const search = queryAt === -1 ? "" : raw.slice(queryAt);
+    try { forgeRequestUrl(endpoint, path); } catch { throw new ForgeError("github_response_invalid", "GitHub's Link header names a page whose path is not an API path.", { path }); }
+    if (/[#\s]/u.test(search)) throw new ForgeError("github_response_invalid", "GitHub's Link header names a page with a fragment or a space.", {});
+    links[match[2]!] = `${path}${search}`;
   }
-  return `${next.pathname.slice(prefix.length)}${next.search}`;
+  return Object.freeze(links);
 }
 
 type ErrorBody = Readonly<{ message: string; documentationUrl: string | undefined; errors: readonly string[] }>;
@@ -229,7 +258,8 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
       debugLog(FORGE_LOG_CATEGORY, "debug", "forge_request", () => ({ principal: credential.principal, method, path, status: response.status, ...rate }));
       if (response.status === 304 && cached !== undefined) {
         await discardBody(response, FORGE_LOG_CATEGORY, endpoint.cleanupTimeoutMs);
-        return Object.freeze({ status: 304, data: cached.data as T, etag: cached.etag, notModified: true, next: nextPagePath(endpoint, response.headers.get("link")), rate, requestId });
+        const links = linkPaths(endpoint, response.headers.get("link"));
+        return Object.freeze({ status: 304, data: cached.data as T, etag: cached.etag, notModified: true, next: links.next, links, rate, requestId });
       }
       const text = await readBody(response, lifetime.signal, endpoint.maxResponseBytes, endpoint.cleanupTimeoutMs, FORGE_LOG_CATEGORY);
       if (response.status < 200 || response.status >= 300) {
@@ -240,7 +270,8 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
       const data = parseBody(text, method, path);
       const etag = response.headers.get("etag") ?? undefined;
       if (method === "GET" && etag !== undefined) cache.set(cacheKey, { etag, data });
-      return Object.freeze({ status: response.status, data: data as T, etag, notModified: false, next: nextPagePath(endpoint, response.headers.get("link")), rate, requestId });
+      const links = linkPaths(endpoint, response.headers.get("link"));
+      return Object.freeze({ status: response.status, data: data as T, etag, notModified: false, next: links.next, links, rate, requestId });
     } finally {
       lifetime.clear();
     }

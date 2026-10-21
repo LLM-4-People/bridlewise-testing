@@ -29,6 +29,7 @@ type CodeEntry = Readonly<{ class: ForgeClass; remedy: string }>;
 
 /** Every code the forge answers with (see the header). */
 export const FORGE_CODES = deepFreeze({
+  forge_not_configured: { class: "input", remedy: "Declare the `forge` section in engine/bridlewise.config.json (its schema is `forge-config.ts`)." },
   forge_request_invalid: { class: "input", remedy: "Fix the request: the path must be an API path starting with `/`, with no scheme, host, `..` or fragment, and a query of plain values." },
   forge_endpoint_invalid: { class: "input", remedy: "Name the API as an absolute https URL (http only for a loopback test server) with no credentials, query or fragment." },
   forge_app_unknown: { class: "input", remedy: "Name one of the App registry's roles (`app-registry.ts`)." },

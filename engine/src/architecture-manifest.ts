@@ -4736,7 +4736,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-kernel-config-contracts", path: "src/kernel/config-contracts.ts", realm: "shared", layer: "trusted-kernel",
       owner: "architecture", publicApi: { exportCount: 56, namesSha256: "98bada951993bb901a84a9b34192f6e85270ac1eaee09f823c8a0e74ce8bca2f" },
-      dependencies: ["src/agents/agent-type-registry.ts","src/filesystem/path-boundary.ts","src/filesystem/self-protection/self-protection-config.ts","src/git/git-port.ts","src/intelligence/intelligence-config.ts","src/intelligence/retrieval.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/mcp/tool-name.ts","src/memory/memory-types.ts","src/performance/performance-config.ts","src/privacy/classification-catalog.ts","src/privacy/privacy-config-section.ts","src/repository-path/contracts.ts","src/safety/safety-config-section.ts","src/shared/debug/debug-config.ts","src/shared/exposure/module-config-sections.ts","src/shared/llm/config.ts","src/shared/llm/provider-endpoint.ts","src/shared/llm/responses.ts","src/shared/outbound-policy.ts","src/shared/run-history.ts","zod"],
+      dependencies: ["src/agents/agent-type-registry.ts","src/filesystem/path-boundary.ts","src/filesystem/self-protection/self-protection-config.ts","src/git/git-port.ts","src/intelligence/intelligence-config.ts","src/intelligence/retrieval.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/mcp/tool-name.ts","src/memory/memory-types.ts","src/performance/performance-config.ts","src/privacy/classification-catalog.ts","src/privacy/privacy-config-section.ts","src/repository-path/contracts.ts","src/safety/safety-config-section.ts","src/shared/debug/debug-config.ts","src/shared/exposure/module-config-sections.ts","src/shared/llm/config.ts","src/shared/llm/provider-endpoint.ts","src/shared/llm/responses.ts","src/shared/outbound-policy.ts","src/shared/run-history.ts","src/workflow/forge/forge-config.ts","zod"],
       authorityFamilies: ["configuration"], authorityIdentifiers: ["getConfigDocumentSchema", "ConfigDocument"],
     }),
     moduleContract({
@@ -5587,13 +5587,28 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-forge-github", path: "src/workflow/forge/github.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "6ecfe3b4cb10a18ed70e210d2c880f2f2f6344a2e7efb3a5f7ae23f9667b6612" },
+      owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "9afe99fc3709707a92ff8eae5f7f2d729063af013aed7372ccdba49ab4c19037" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/shared/debug/debug-system.ts","src/shared/outbound-http.ts","src/workflow/forge/codes.ts","src/workflow/forge/port.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-port", path: "src/workflow/forge/port.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 12, namesSha256: "2f3f3da3e726c078e7f43b346b99f195fba66be9f9989a7cae74b04dfe296cb4" },
       dependencies: [],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-configured-forge", path: "src/workflow/forge/configured-forge.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "ca0d18c583d2f14cc0dac0a2913edfc98d5f58099893f52017875d75a90e3069" },
+      dependencies: ["src/kernel/config.ts","src/workflow/forge/codes.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/github.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-forge-config", path: "src/workflow/forge/forge-config.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "f04dafa1287d23f03f18b49ec34c4a5aacaeb79623208b0d0a1704a4088c999c" },
+      dependencies: ["src/kernel/integrity.ts","zod"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-repository-reads", path: "src/workflow/forge/repository-reads.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 8, namesSha256: "bb15d13182d32a72deb460804bb6072f12f82a801553ad7756bcd25a7fde1d34" },
+      dependencies: ["src/workflow/forge/codes.ts"],
     }),
   ],
 });
