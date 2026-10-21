@@ -29,6 +29,7 @@ import {
   GENERATED_HEADER,
   GENERATED_WORKFLOW_PATHS,
   lintWorkflow,
+  lintWorkflowSet,
   publishWorkflow,
   syncGeneratedWorkflows,
   workflowText,
@@ -137,6 +138,10 @@ test("each lint refuses its planted violation", () => {
     "a group that always cancels": (workflow) => { (workflow.concurrency as Mutable)["cancel-in-progress"] = true; },
     "a shared group without queue: max": (workflow) => { workflow.concurrency = { group: "ci" }; },
     "a job without permissions": (workflow) => { delete ((workflow.jobs as Record<string, Mutable>).light!).permissions; },
+    "a branch filter on pull_request": (workflow) => { (workflow.on as Mutable).pull_request = { branches: ["main"] }; },
+    "a type filter on merge_group": (workflow) => { (workflow.on as Mutable).merge_group = { types: ["checks_requested"] }; },
+    "a path filter on push": (workflow) => { (workflow.on as Mutable).push = { branches: ["main"], paths: ["src/**"] }; },
+    "a push on another branch": (workflow) => { (workflow.on as Mutable).push = { branches: ["develop"] }; },
     "an expression inside run:": (workflow) => { (((workflow.jobs as Record<string, Mutable>).light!).steps as Mutable[]).push({ name: "x", run: "echo ${{ github.event.pull_request.title }}" }); },
     "an action without its pin comment": (workflow) => { (((workflow.jobs as Record<string, Mutable>).light!).steps as Mutable[]).push({ uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" }); },
     "an action pinned to a SHA the table does not hold": (workflow) => { (((workflow.jobs as Record<string, Mutable>).light!).steps as Mutable[]).push({ uses: new Commented("actions/checkout@0000000000000000000000000000000000000000", "v7") }); },
@@ -200,4 +205,9 @@ test("every command the catalogue runs is declared in the live command registry 
   const missing = catalogueCommandNames().filter((name) => !declared.has(name));
   assert.deepEqual(missing, []);
   assert.ok(catalogueCommandNames().includes("guardian-pass-log"));
+});
+
+test("no two generated workflows share a concurrency group prefix (one would cancel the other's runs)", () => {
+  assert.doesNotThrow(() => lintWorkflowSet({ "ci.yml": ciWorkflow(), "codeql.yml": codeqlWorkflow(), "publish.yml": publishWorkflow(), "audit.yml": auditWorkflow() }));
+  assert.throws(() => lintWorkflowSet({ "ci.yml": ciWorkflow(), "copy.yml": ciWorkflow() }), refusedWith("workflow_lint_refused"));
 });

@@ -26,9 +26,12 @@
  * `uses:` is a full-SHA pin from `ACTION_PINS`; every workflow and job states
  * `permissions:`; no `${{ … }}` expression inside a `run:` (untrusted text
  * reaches a step through `env:` only); no `pull_request_target`; every
- * workflow a pull request runs also runs on `merge_group`; a `main` run is
- * never cancelled (a pull request's group cancels, every other event's group
- * is its own run or queues with `queue: max`).
+ * workflow a pull request runs also runs on `merge_group`, both unfiltered
+ * (a filter would leave a required check pending on the skipped pull
+ * requests), and `push` names only `main`; a `main` run is never cancelled (a
+ * pull request's group cancels, every other event's group is its own run or
+ * queues with `queue: max`); no two workflows share a concurrency group
+ * prefix (`lintWorkflowSet`: they would cancel each other's runs).
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -252,7 +255,7 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
   return {
     name: "CI",
     on: {
-      pull_request: { branches: ["main"] },
+      pull_request: {},
       merge_group: {},
       schedule: [{ cron: "17 3 * * *" }],
       workflow_dispatch: {},
@@ -268,7 +271,7 @@ export function codeqlWorkflow(): Workflow {
   return {
     name: "CodeQL",
     on: {
-      pull_request: { branches: ["main"] },
+      pull_request: {},
       merge_group: {},
       push: { branches: ["main"] },
       schedule: [{ cron: "29 4 * * 1" }],
@@ -425,6 +428,15 @@ export function lintWorkflow(name: string, workflow: Workflow): void {
   const on = workflow.on as Readonly<Record<string, YamlValue>>;
   if ("pull_request_target" in on) refuse("pull_request_target is never used");
   if ("pull_request" in on && !("merge_group" in on)) refuse("a workflow that runs on pull_request also runs on merge_group");
+  // A GATING workflow (the queue runs it) triggers unfiltered on every pull request and merge group: a branch,
+  // type or path filter leaves its check PENDING on the pull requests it skips, so they could never land. Its
+  // `push` names only the branch it guards (`main`) and skips no commit of it.
+  for (const event of ["pull_request", "merge_group"] as const) {
+    const trigger = on[event];
+    if (trigger !== undefined && (typeof trigger !== "object" || trigger === null || Object.keys(trigger).length > 0)) refuse(`${event} carries a filter (a gating workflow runs on every one)`);
+  }
+  const push = on.push as Readonly<Record<string, YamlValue>> | undefined;
+  if (push !== undefined && (Object.keys(push).some((filter) => filter !== "branches") || JSON.stringify(push.branches) !== JSON.stringify(["main"]))) refuse("push names only branches: [main] (no path or excluded-branch filter skips a main commit)");
   if (workflow.permissions === undefined) refuse("no workflow-level permissions");
   const concurrency = workflow.concurrency as Readonly<Record<string, YamlValue>> | undefined;
   if (concurrency === undefined) refuse("no concurrency block");
@@ -444,6 +456,18 @@ export function lintWorkflow(name: string, workflow: Workflow): void {
         if (!pinned) refuse(`job ${jobId}: ${(action as Commented).value} is not a pin of ACTION_PINS`);
       }
     }
+  }
+}
+
+/** Refuses a SET of workflows two of which share a concurrency group prefix (one would cancel the other's runs). */
+export function lintWorkflowSet(workflows: Readonly<Record<string, Workflow>>): void {
+  const owners = new Map<string, string>();
+  for (const [name, workflow] of Object.entries(workflows)) {
+    const group = String((workflow.concurrency as Readonly<Record<string, YamlValue>>).group);
+    const prefix = /^\$\{\{ github\.event_name == 'pull_request' && format\('([a-z-]+)-pr-/u.exec(group)?.[1] ?? group.split("$")[0]!.replace(/-$/u, "");
+    const owner = owners.get(prefix);
+    if (owner !== undefined) throw new InputError(`generated workflows ${owner} and ${name} share the concurrency group prefix ${prefix}`, "workflow_lint_refused");
+    owners.set(prefix, name);
   }
 }
 
@@ -470,6 +494,7 @@ export type GeneratedWorkflowsReport = Readonly<{
  * generated, so a file no generator owns is drift, never a hand-kept extra.
  */
 export function syncGeneratedWorkflows(repositoryRoot: string, write: boolean, remove: (absolutePath: string) => void = defaultRemove): GeneratedWorkflowsReport {
+  lintWorkflowSet(Object.fromEntries(Object.entries(WORKFLOW_BUILDERS).map(([name, build]) => [name, build()])));
   const directory = join(repositoryRoot, WORKFLOW_DIRECTORY);
   const expected = new Map(GENERATED_WORKFLOW_PATHS.map((path) => [path, workflowText(path.slice(WORKFLOW_DIRECTORY.length + 1))]));
   const present = existsSync(directory) ? readdirSync(directory).map((name) => `${WORKFLOW_DIRECTORY}/${name}`) : [];
