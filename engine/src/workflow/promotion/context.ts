@@ -54,6 +54,7 @@ import type { PromotionRequest } from "./promote-arguments.ts";
 import { engineRelativeIn, promoterPlacement, runInPromoterHome, type PromoterPlacement } from "./promoter-home.ts";
 import { branchOf, loadPromotionProfiles, parsePromotionProfile, profileCommandNames, selectPromotionProfile, type LoadedPromotionProfile } from "./profile.ts";
 import { classifyTree, explainPaths, planPromotion, projectSource, type PromotionPlan } from "./projection.ts";
+import { planRelease } from "./release-train.ts";
 import { profileHistory, profileOfTrailer, trailerHistory } from "./trailers.ts";
 
 /** The configuration a promotion reads: the command registry, the profile directory, the git it runs, the runner's retry policy and the lock wait. */
@@ -85,7 +86,7 @@ export type PromotionContext = RepositoryContext & Readonly<{
 }>;
 
 /** The repository context of the checkout at `root` (see the header); `document` defaults to the pinned configuration. */
-function resolveRepositoryContext(root: string, document: PromotionDocument = loadPinnedConfigSnapshot().document): RepositoryContext {
+export function resolveRepositoryContext(root: string, document: PromotionDocument = loadPinnedConfigSnapshot().document): RepositoryContext {
   const isolation = document.workspaceIsolation;
   const profileDirectory = document.promotion?.profileDirectory;
   if (isolation === undefined || profileDirectory === undefined) {
@@ -477,6 +478,18 @@ export function enginePromotionSource(root: string, document?: PromotionDocument
       return [...byKind].map(([kind, count]) => `${String(count)} ${kind}`).join(", ");
     }),
     lastRunDurationMs: cached((record) => String(Object.values(record.durations).reduce((sum, ms) => sum + ms, 0))),
+    releaseTrain: () => {
+      try {
+        const context = resolveRepositoryContext(root, document);
+        const settings = context.document.promotion?.release;
+        if (settings === undefined) return "no release train declared (promotion.release)";
+        const plan = planRelease({ repository: context.repository, settings, profileDirectory: context.profileDirectory, commandNames: context.commandNames, now: new Date(), manual: false });
+        return plan.due ? `${plan.tag} due (${plan.mode})` : `${plan.tag} waits: ${plan.reasons.join(", ")}`;
+      } catch (error) {
+        if (error instanceof PromotionError) return `${error.promotionCode}: ${error.message}`;
+        throw error;
+      }
+    },
     status: (profile, source) => verb({ verb: "status", ...named(profile), ...(source === undefined ? {} : { source }) }),
     plan: (profile, source) => verb({ verb: "plan", ...named(profile), ...(source === undefined ? {} : { source }) }),
     explain: (paths, profile, source) => verb({ verb: "explain", paths, ...named(profile), ...(source === undefined ? {} : { source }) }),
