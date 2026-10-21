@@ -5451,7 +5451,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-failure-owners", path: "src/workflow/failure-owners.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 25, namesSha256: "e39879233f7a66c11780b2265106dcb70f182f8e6d94952a619f7395bbfc77c5" },
+      owner: "verification-workflow", publicApi: { exportCount: 26, namesSha256: "921b179248205857d4e27f24001fd5e29bfb60b2113a2e619d5eacd7ec2b5637" },
       dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/verification-paths.ts","src/workflow/markdown-links.ts"],
     }),
     moduleContract({
@@ -5636,6 +5636,41 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-runtime-entry-point", path: "src/runtime/entry-point.ts", realm: "shared", layer: "infrastructure",
       owner: "runtime-infrastructure", publicApi: { exportCount: 1, namesSha256: "01d7cf3d8bfb10347411a4baaf5e1738e22562aa79476ad2e221acc56eb48bca" },
       dependencies: ["node:fs","node:path","node:url"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-apply", path: "src/workflow/forge/projector/apply.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "c7f0cfef714511715183ab52936569e1035c565a9f25857f374f945ae285863e" },
+      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/shared/debug/debug-system.ts","src/workflow/forge/projector/model.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-model", path: "src/workflow/forge/projector/model.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 19, namesSha256: "886b3d6b8543fc966fac1559aa643e6ab5c7e8b6873571f5c4375c873e3ecd50" },
+      dependencies: ["src/kernel/product-identity.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-project", path: "src/workflow/forge/projector/project.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "5d7fc1307c4e148d15173534d166fd08c1665b817d7fe617a6f2977003bf21b9" },
+      dependencies: ["src/workflow/forge/projector/model.ts","src/workflow/markdown-links.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-projection", path: "src/workflow/forge/projector/projection.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "968e4e137656781b7c64d7d94f63779e01a126c481ab59b4d6dceaf752f2f130" },
+      dependencies: ["src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/workflow/failure-owners.ts","src/workflow/forge/projector/model.ts","src/workflow/forge/projector/realm.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-realm-child", path: "src/workflow/forge/projector/realm-child.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 0, namesSha256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
+      dependencies: ["node:fs","node:module","node:path","node:vm","src/workflow/forge/projector/realm.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-realm", path: "src/workflow/forge/projector/realm.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 4, namesSha256: "3114e2a3cd0749ece8e6d5ab0d4498b37dc1f0416bd43b04a01fc405b5f426a8" },
+      dependencies: ["node:child_process","node:path","node:url","src/kernel/errors.ts","src/shared/debug/debug-system.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-store", path: "src/workflow/forge/projector/store.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 3, namesSha256: "b9ff732e8b3548b25abef82813123c6616c01d7824a95b59ecf39ff0b78295e0" },
+      dependencies: [],
     }),
   ],
 });
