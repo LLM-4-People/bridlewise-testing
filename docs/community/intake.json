@@ -57,7 +57,7 @@
     { "slug": "floor-log", "name": "Floor log", "format": "announcement", "postedBy": "the publisher", "use": "one thread per milestone and one comment per land" },
     { "slug": "releases", "name": "Releases", "format": "announcement", "postedBy": "the publisher", "use": "one thread per release" },
     { "slug": "decisions", "name": "Decisions", "format": "announcement", "postedBy": "the publisher", "use": "one thread per decision record; everyone can comment, and a triager can /track an objection into a record" },
-    { "slug": "rfcs", "name": "RFCs", "format": "open", "postedBy": "anyone", "use": "a proposal for a new decision; an accepted RFC becomes a decision-record pull request",
+    { "slug": "rfcs", "name": "RFCs", "format": "open-ended", "postedBy": "anyone", "use": "a proposal for a new decision; an accepted RFC becomes a decision-record pull request",
       "form": {
         "title": "rfc: ",
         "fields": [
@@ -68,7 +68,7 @@
         ]
       }
     },
-    { "slug": "ideas", "name": "Ideas", "format": "open", "postedBy": "anyone", "use": "a capability you would like; a triager can /track it into a record",
+    { "slug": "ideas", "name": "Ideas", "format": "open-ended", "postedBy": "anyone", "use": "a capability you would like; a triager can /track it into a record",
       "form": {
         "title": "idea: ",
         "fields": [
@@ -77,8 +77,8 @@
         ]
       }
     },
-    { "slug": "q-a", "name": "Q&A", "format": "answerable", "postedBy": "anyone", "use": "questions; answers are marked by maintainers and reviewers" },
-    { "slug": "show-and-tell", "name": "Show and tell", "format": "open", "postedBy": "anyone", "use": "your own uses of the harness" },
+    { "slug": "q-a", "name": "Q&A", "format": "question-answer", "postedBy": "anyone", "use": "questions; answers are marked by maintainers and reviewers" },
+    { "slug": "show-and-tell", "name": "Show and tell", "format": "open-ended", "postedBy": "anyone", "use": "your own uses of the harness" },
     { "slug": "polls", "name": "Polls", "format": "poll", "postedBy": "maintainers", "use": "sentiment checks; results are signals, never decisions" }
   ]
 }

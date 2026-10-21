@@ -65,7 +65,8 @@ const ISSUE_FORM = z.strictObject({
 const CATEGORY = z.strictObject({
   slug: z.string().regex(/^[a-z][a-z0-9-]*$/u),
   name: z.string().min(1),
-  format: z.enum(["announcement", "open", "answerable", "poll"]),
+  /** GitHub's category format, as its UI names it. */
+  format: z.enum(["announcement", "open-ended", "question-answer", "poll"]),
   postedBy: z.string().min(1),
   use: z.string().min(1),
   form: z.strictObject({ title: z.string(), fields: z.array(FIELD).min(1) }).optional(),
