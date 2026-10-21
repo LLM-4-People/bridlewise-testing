@@ -11,6 +11,7 @@ import {
   harnessRegister,
   harnessSync,
   runBundleBuildStep,
+  syncPassVerdict,
   regenerateReadmeConsumers,
   harnessNewModule,
   runArchitectureCheck,
@@ -1151,6 +1152,25 @@ test("HarnessCommands: harnessSync withBundle option type includes the bundle-bu
     ["register", "regenerate", "bundle-build", "regenerate", "check"],
     "sync --with-bundle must run register -> regenerate -> bundle-build -> regenerate -> check",
   );
+});
+
+test("HarnessCommands: syncPassVerdict judges every step except the stabilizing regenerate of a --with-bundle pass", () => {
+  const pass = (step: HarnessSyncOutput["steps"][number]["step"], status: "pass" | "fail" = "pass") => ({ step, status });
+  const withBundle = (initial: "pass" | "fail", final: "pass" | "fail", check: "pass" | "fail") => [
+    pass("register"), pass("regenerate", initial), pass("bundle-build"), pass("regenerate", final), pass("check", check),
+  ];
+  // A fresh checkout: the first regenerate has no bundle to pin yet.
+  assert.equal(syncPassVerdict(withBundle("fail", "pass", "pass"), true), true);
+  assert.equal(syncPassVerdict(withBundle("pass", "pass", "pass"), true), true);
+  // Every other step is still judged.
+  assert.equal(syncPassVerdict(withBundle("fail", "fail", "pass"), true), false);
+  assert.equal(syncPassVerdict(withBundle("pass", "pass", "fail"), true), false);
+  assert.equal(syncPassVerdict([pass("register"), pass("regenerate"), pass("bundle-build", "fail"), pass("regenerate"), pass("check")], true), false);
+  // Without the bundle there is no stabilizing step: the first regenerate is judged.
+  assert.equal(syncPassVerdict([pass("register"), pass("regenerate", "fail"), pass("check")], false), false);
+  assert.equal(syncPassVerdict([pass("register"), pass("regenerate"), pass("check")], false), true);
+  assert.equal(syncPassVerdict([], false), false, "an empty pass is not a pass");
+  assert.throws(() => syncPassVerdict([pass("register"), pass("bundle-build"), pass("regenerate"), pass("check")], true), /out of order/u);
 });
 
 test("HarnessCommands: harnessSync without withBundle omits the bundle-build step", async () => {
