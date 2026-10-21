@@ -4,6 +4,7 @@ The engine's trusted kernel: the typed error hierarchy, canonical integrity and 
 
 ## What each file does
 
+- `architecture-external-commands.ts` — the external-command inventory the architecture manifest declares (blocked Python/shell commands with their qualified source digests), kept beside the manifest so the hash-binding registry can derive the published source pins without importing the generated manifest into the measured surface.
 - `contracts.ts` — the contracts module.
 - `engine-root.ts` — THE engine checkout's root (`engineRoot`, `pinnedRepositoryRoot`: above the root-policy owner's declared location), asked by the config document's location and the key home's admission.
 - `errors.ts` — the errors module.
@@ -35,6 +36,7 @@ The engine's trusted kernel: the typed error hierarchy, canonical integrity and 
 
 The folder lives at `engine/src/kernel/`.
 
+- `architecture-external-commands.ts` is consumed by `engine/src/architecture-manifest.ts`, `engine/src/workflow/hash-binding-registry.ts`.
 - `config-contracts.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-run-lock.ts`, `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/agents/agent-config.ts`, `engine/src/editor/edit-operations.ts`, `engine/src/evaluation/matrix-generator.ts` and 31 more.
 - `config-write-lock.ts` is consumed by `engine/src/shared/exposure/config-binding.ts`, `server/kernel/harness-config.ts`.
 - `config.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/scripts/tooling/foundation.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-execution.ts` and 19 more.
@@ -42,7 +44,7 @@ The folder lives at `engine/src/kernel/`.
 - `engine-root.ts` is consumed by `engine/src/filesystem/self-protection/key-home.ts`, `engine/src/kernel/config.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/test-result-collector.ts`.
 - `errors.ts` is consumed by `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/regenerate-handoff-manifest.ts`, `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/bootstrap-permissions.ts`, `engine/scripts/tooling/candidate-checkout.ts` and 296 more.
 - `execution-closure.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/timeline/recorded-effect.ts`, `engine/src/timeline/timeline-recorder.ts`.
-- `integrity.ts` is consumed by `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/regenerate-handoff-manifest.ts`, `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/artifact-manifest.ts`, `engine/scripts/tooling/bootstrap-permissions.ts` and 311 more.
+- `integrity.ts` is consumed by `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/regenerate-handoff-manifest.ts`, `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/artifact-manifest.ts`, `engine/scripts/tooling/bootstrap-permissions.ts` and 312 more.
 - `json-integrity.ts` is consumed by `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-execution.ts` and 18 more.
 - `language-extensions.ts` is consumed by `engine/src/editor/syntax-validator.ts`, `engine/src/quality-packs/typescript-pack.ts`.
 - `ledger-canonical.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/forensic-crypto.ts`, `engine/src/forensics/forensic-normalization.ts`, `engine/src/forensics/forensic-projection.ts`, `engine/src/forensics/offline-forensics.ts`, `engine/src/timeline/ledger-primitives.ts` and 1 more.

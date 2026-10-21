@@ -36,7 +36,7 @@ import { createTempDir } from "../helpers/temp-dir.ts";
 import { createTempGitRepo } from "../helpers/temp-git-repo.ts";
 import { read } from "../helpers/source-scan.ts";
 import { measuredTreeMark, mutationRunMark, provisionalFailureMark, readMeasuredSurfaceHash, readMeasuredTree, readRepositoryHeadSha, readTrackedTreeDirty, readWorkingTreeDirty } from "../../engine/src/shared/tree-identity.ts";
-import { suiteRegeneratedPaths } from "../../engine/src/workflow/hash-binding-registry.ts";
+import { regeneratedPinRanges, suiteRegeneratedPaths } from "../../engine/src/workflow/hash-binding-registry.ts";
 
 import { modulePath, modulePathMatching } from "../helpers/module-resolver.ts";
 const ROOT = process.cwd();
@@ -344,21 +344,41 @@ describe("the tree-identity owner — one module, no second porcelain parser", (
       "no suite-regenerated member lies under a measured root — the pin-normalization drive went dead",
     ).toBeGreaterThan(0);
     writeFileSync(join(scratch, "package.json"), '{"name":"scratch"}\n');
+    // THE CONTENT IS THE REAL FILE, and the pins are the OWNER'S locators
+    // (`regeneratedPinRanges`) — never a synthetic `pinned: "a"*64` line. The
+    // round-5 narrowing made normalization locator-derived, so a synthetic
+    // literal is not a pin at all (nothing locates it), and a guard written
+    // against synthetic bytes would either demand blanket normalization again
+    // or pass while the real file's pins move. Reading the owner's ranges from
+    // the real bytes drives exactly the literals the surface hash strips.
+    const surfaceText = new Map<string, string>();
+    const surfaceRanges = new Map<string, ReturnType<typeof regeneratedPinRanges>>();
     for (const repoRelative of surfacePins) {
+      const text = readFileSync(join(ROOT, repoRelative), "utf8");
+      const ranges = regeneratedPinRanges(repoRelative, text);
+      expect(
+        ranges.length,
+        `${repoRelative} lies in the regenerated set but its owners locate no pin in it — the normalization drive would be vacuous`,
+      ).toBeGreaterThan(0);
+      surfaceText.set(repoRelative, text);
+      surfaceRanges.set(repoRelative, ranges);
       const absolute = join(scratch, repoRelative);
       mkdirSync(dirname(absolute), { recursive: true });
-      writeFileSync(absolute, `pinned: "${"a".repeat(64)}"\n`);
+      writeFileSync(absolute, text);
     }
     const before = readMeasuredSurfaceHash(scratch);
     expect(before, "the surface hash resolves with regenerated members present").not.toBeNull();
 
-    // The convergence restatement: each member's pin literal moves with the
-    // byte length and everything else identical, judged PER MEMBER so a red
-    // names the file whose restatement moved the hash. The close-out re-pins
-    // several files in one pass; driving them one at a time is the strictly
-    // stronger judgement (a batch pass is the disjunction of the members).
+    // The convergence restatement: every pin the owner locates moves to a new
+    // literal, byte length and everything else identical, judged PER MEMBER so
+    // a red names the file whose restatement moved the hash.
     for (const repoRelative of surfacePins) {
-      writeFileSync(join(scratch, repoRelative), `pinned: "${"b".repeat(64)}"\n`);
+      let restated = surfaceText.get(repoRelative)!;
+      for (const range of [...surfaceRanges.get(repoRelative)!].sort((left, right) => right.start - left.start)) {
+        restated = `${restated.slice(0, range.start)}${"b".repeat(64)}${restated.slice(range.end)}`;
+      }
+      expect(restated, `${repoRelative}'s restatement must move at least one literal`).not.toBe(surfaceText.get(repoRelative));
+      writeFileSync(join(scratch, repoRelative), restated);
       expect(
         readMeasuredSurfaceHash(scratch),
         `a regenerated pin restatement in ${repoRelative} must NOT move the surface hash — the pins are values the suite re-derives`,
@@ -378,7 +398,7 @@ describe("the tree-identity owner — one module, no second porcelain parser", (
     // is a hand-authored edit, and normalizing it away would blind the gate.
     // One member suffices — the normalization is per-file, not per-batch.
     const witness = surfacePins[0]!;
-    writeFileSync(join(scratch, witness), `pinned: "${"b".repeat(64)}" /* an authored edit */\n`);
+    writeFileSync(join(scratch, witness), `${surfaceText.get(witness)!}\n// an authored edit outside every pin\n`);
     expect(
       readMeasuredSurfaceHash(scratch),
       `a non-pin byte in ${witness} MUST move the surface hash — the normalization is pin-scoped, not file-scoped`,
