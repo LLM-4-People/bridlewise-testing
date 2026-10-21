@@ -30,11 +30,11 @@ export const SHARD_REPORT_SCHEMA = "bridlewise-test-shard-report/v1";
 /** The one per-file duration definition the weights are measured with. */
 const WEIGHT_SOURCE = "vitest-json:endTime-startTime";
 
-function fail(message) {
+export function fail(message) {
   throw new Error(message);
 }
 
-function readJson(path, subject) {
+export function readJson(path, subject) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
@@ -42,7 +42,7 @@ function readJson(path, subject) {
   }
 }
 
-function normalizeFile(root, file, subject) {
+export function normalizeFile(root, file, subject) {
   if (typeof file !== "string" || file.length === 0) fail(`${subject}: empty path`);
   const absolute = resolve(root, file);
   const rel = relative(root, absolute);
@@ -50,6 +50,33 @@ function normalizeFile(root, file, subject) {
     fail(`${subject}: path escapes the repository root: ${file}`);
   }
   return rel.split(sep).join("/");
+}
+
+/**
+ * The ONE green-report rule: a shard counts as evidence only when vitest says
+ * it succeeded and no test failed, was skipped, or was parked. The merge and
+ * the weight measurement both read a report's counts, so the rule lives here
+ * rather than being respelled at each reader.
+ */
+export function requireGreenReport(report, subject) {
+  if (report === null || typeof report !== "object") fail(`${subject}: report is not an object`);
+  if (report.success !== true) fail(`${subject}: vitest reported success=false`);
+  const failedTests = Number(report.numFailedTests ?? 0);
+  const pendingTests = Number(report.numPendingTests ?? 0);
+  const todoTests = Number(report.numTodoTests ?? 0);
+  if (failedTests !== 0 || Number(report.numFailedTestSuites ?? 0) !== 0) {
+    fail(
+      `${subject}: ${String(failedTests)} failed test(s) and ` +
+        `${String(Number(report.numFailedTestSuites ?? 0))} failed suite(s)`,
+    );
+  }
+  if (pendingTests !== 0 || todoTests !== 0) {
+    fail(
+      `${subject}: ${String(pendingTests)} skipped and ` +
+        `${String(todoTests)} todo test(s); a shard must run every selected test`,
+    );
+  }
+  return { failedTests, pendingTests, todoTests, totalTests: Number.isFinite(report.numTotalTests) ? report.numTotalTests : 0 };
 }
 
 /**
@@ -257,15 +284,17 @@ function readMeasurementReport(repositoryRoot, reportPath, index, manifest) {
   }
   const report = envelope.vitest;
   if (report === null || typeof report !== "object") fail(`shard report ${index}: vitest report is missing`);
-  if (report.success !== true) fail(`shard report ${index}: vitest reported success=false`);
-  if (Number(report.numFailedTests ?? 0) !== 0 || Number(report.numFailedTestSuites ?? 0) !== 0) {
-    fail(`shard report ${index}: the measured run has failed tests`);
-  }
-  if (Number(report.numPendingTests ?? 0) !== 0 || Number(report.numTodoTests ?? 0) !== 0) {
-    fail(`shard report ${index}: the measured run skipped or parked tests`);
-  }
+  requireGreenReport(report, `shard report ${index}`);
   if (!Array.isArray(report.testResults)) fail(`shard report ${index}: report has no testResults array`);
-  const finishedMs = envelope.timing === undefined ? undefined : timestamp(envelope.timing.finishedAt, `shard report ${index} timing.finishedAt`);
+  if (envelope.timing === undefined) {
+    // measuredAt is the moment the RUN finished, so a report without a window
+    // cannot contribute one. The old fallback wrote the invocation clock into
+    // `measuredAt`, which made a measurement with no measured time look like
+    // evidence.
+    fail(`shard report ${index}: no timing window; a measurement needs the runner's startedAt and finishedAt`);
+  }
+  timestamp(envelope.timing.startedAt, `shard report ${index} timing.startedAt`);
+  const finishedMs = timestamp(envelope.timing.finishedAt, `shard report ${index} timing.finishedAt`);
   const supported = manifest.files.map((file) => file.path);
   const entries = report.testResults.map((result, resultIndex) => {
     const subject = `shard report ${index} testResults[${resultIndex}]`;
@@ -294,7 +323,6 @@ export function measureManifest({
   headSha = undefined,
   runner = undefined,
   outPath = undefined,
-  now = new Date(),
 }) {
   const repositoryRoot = resolve(root);
   const manifest = readManifest(repositoryRoot, manifestPath);
@@ -340,10 +368,7 @@ export function measureManifest({
         `${missing.slice(0, 10).join(", ")}${missing.length > 10 ? ", ..." : ""}`,
     );
   }
-  const finished = reports.map((report) => report.finishedMs);
-  const measuredAt = finished.every((value) => value !== undefined)
-    ? new Date(Math.max(...finished))
-    : now;
+  const measuredAt = new Date(Math.max(...reports.map((report) => report.finishedMs)));
   const weightSource = `${WEIGHT_SOURCE}; ${String(manifest.files.length)} supported files from ` +
     `${String(reports.length)} green shard report(s) at ${measuredHeadSha}` +
     `${runner === undefined ? "" : ` (${runner})`}`;

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
 import { mergeShardReports } from "../../scripts/test-shard-merge.mjs";
+import { MANIFEST_SCHEMA, planShards, wrapShardReport } from "../../scripts/test-shard-manifest.mjs";
 
 function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
@@ -121,6 +122,52 @@ test("the receipt names the manifest exclusions and their evidence anchors", () 
       }),
       /manifest source: hash does not match/,
     );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("a wrapped report whose timing contradicts itself or its own run is refused", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-timing-"));
+  try {
+    const file = join(work, "tests/a.test.ts");
+    const manifest = join(work, "manifest.json");
+    const planDir = join(work, "plan");
+    const raw = join(work, "raw.json");
+    const wrapped = join(work, "wrapped.json");
+    const head = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
+    mkdirSync(join(work, "tests"), { recursive: true });
+    writeFileSync(file, "");
+    writeJson(manifest, {
+      schemaVersion: MANIFEST_SCHEMA,
+      measuredHeadSha: head,
+      measuredAt: "2026-01-01T00:00:00.000Z",
+      files: [{ path: "tests/a.test.ts", weightMs: 1 }],
+      excluded: [],
+    });
+    planShards({ root: work, manifestPath: manifest, shardCount: 1, headSha: head, outDir: planDir });
+    writeJson(raw, shardReport([file]));
+    wrapShardReport({
+      root: work, planPath: join(planDir, "plan.json"), shard: 1, vitestPath: raw, outPath: wrapped,
+      startedAt: "1000", finishedAt: "2000",
+    });
+    const clean = JSON.parse(readFileSync(wrapped, "utf8"));
+    const merge = () => mergeShardReports({
+      root: work, manifestPath: join(planDir, "manifest.json"), planPath: join(planDir, "plan.json"),
+      shardPaths: [wrapped], expectedShards: 1, headSha: head, outPath: join(work, "receipt.json"),
+    });
+    assert.equal(clean.timing.durationMs, 1000);
+    assert.equal(merge().testPhaseMs, 1000);
+
+    // durationMs is the window's length. The merge used to trust it while
+    // deriving the window from the timestamps, so the receipt could claim a
+    // critical path that no pair of timestamps supported.
+    writeJson(wrapped, { ...clean, timing: { ...clean.timing, durationMs: 9_999 } });
+    assert.throws(merge, /durationMs 9999 does not equal finishedAt - startedAt \(1000\)/u);
+
+    // vitest dates its own run; that run sits inside its job's window.
+    writeJson(wrapped, { ...clean, vitest: { ...clean.vitest, startTime: 9_000, endTime: 9_500 } });
+    assert.throws(merge, /outside the shard window/u);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
