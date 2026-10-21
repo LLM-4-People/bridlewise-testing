@@ -13,6 +13,7 @@ import {
   stripTags,
 } from "../../shared/markup.ts";
 
+import { parse as parseSvelte } from "svelte/compiler";
 import ts from "typescript5";
 
 /**
@@ -27,8 +28,8 @@ import ts from "typescript5";
  *
  * Every source is PARSED with the TypeScript compiler (`typescript5`, the
  * parser the repository's other AST guards use): `.ts`/`.js`/`.mjs`/`.cjs`
- * whole, and each `.svelte` file's `<script>` blocks and `{…}` template
- * expressions. Comments and markup are never code. The rules are about
+ * whole, and each `.svelte` file's `<script>` contents and template
+ * expressions as Svelte's own parser locates them. Comments and markup are never code. The rules are about
  * WHAT a call does, whatever its spelling, line wrapping or table:
  * - `entity`: a string or template literal, or a `+` chain folded with every
  *   non-literal operand as a hole, that spells an HTML character reference
@@ -132,50 +133,48 @@ function programViolations(path, code, lineOffsetOf) {
 }
 
 /**
- * The programs inside one Svelte file: each `<script>` block as one program
- * (other text blanked, so lines stay true), and each `{…}` template
- * expression as its own (block keywords such as `#if`, `:else if`, `@html`,
- * `#each … as` are not expression text).
+ * The programs inside one Svelte file, located by Svelte's own parser
+ * (`svelte/compiler`, the compiler the cockpit builds with): the instance
+ * and module `<script>` contents as one program each, and every template
+ * expression (a `{…}` tag, an attribute or directive value, an `{#if}` test,
+ * an `{#each}`/`{#await}`/`{#key}` expression) as its own. Each keeps its
+ * file line. A file Svelte cannot parse is unreadable, never clean.
  */
-function sveltePrograms(text) {
+function sveltePrograms(path, text) {
+  let ast;
+  try {
+    ast = parseSvelte(text, { modern: true });
+  } catch (error) {
+    return { programs: [], unreadable: [`${path}:1 unreadable: Svelte could not parse it (${String(error?.message ?? error).split("\n")[0]})`] };
+  }
+  const lineOf = (offset) => text.slice(0, offset).split("\n").length - 1;
   const programs = [];
-  const lower = text.toLowerCase();
-  const markup = text.split("");
-  let at = 0;
-  for (;;) {
-    const open = lower.indexOf("<script", at);
-    if (open === -1) break;
-    const bodyStart = lower.indexOf(">", open) + 1;
-    const close = lower.indexOf("</script", bodyStart);
-    const bodyEnd = close === -1 ? text.length : close;
-    programs.push({ code: text.slice(0, bodyStart).replace(/[^\n]/gu, " ") + text.slice(bodyStart, bodyEnd), base: 0 });
-    for (let index = open; index < bodyEnd; index += 1) if (markup[index] !== "\n") markup[index] = " ";
-    at = bodyEnd;
+  for (const script of [ast.instance, ast.module]) {
+    if (script?.content !== undefined) programs.push({ code: text.slice(script.content.start, script.content.end), base: lineOf(script.content.start) });
   }
-  const rest = markup.join("");
-  for (let index = rest.indexOf("{"); index !== -1; index = rest.indexOf("{", index + 1)) {
-    let depth = 0;
-    let end = index;
-    for (; end < rest.length; end += 1) {
-      if (rest[end] === "{") depth += 1;
-      else if (rest[end] === "}") {
-        depth -= 1;
-        if (depth === 0) break;
-      }
+  const walk = (node, key) => {
+    if (node === null || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child, key);
+      return;
     }
-    const inner = rest.slice(index + 1, end).replace(/^\s*(?:[#:@/][a-z]+(?:\s+if)?)/u, "").replace(/\s+as\s+[\s\S]*$/u, "");
-    programs.push({ code: `(${inner}\n)`, base: rest.slice(0, index).split("\n").length - 1 });
-    index = end;
-  }
-  return programs;
+    if ((key === "expression" || key === "test" || key === "key") && typeof node.type === "string" && typeof node.start === "number") {
+      programs.push({ code: `(${text.slice(node.start, node.end)}\n)`, base: lineOf(node.start) });
+      return;
+    }
+    for (const [child, value] of Object.entries(node)) if (child !== "metadata" && child !== "parent") walk(value, child);
+  };
+  walk(ast.fragment, "fragment");
+  return { programs, unreadable: [] };
 }
 
 /** The violations of one tracked source file. */
 function violations(path, text) {
   if (OWNER_FILES.has(path)) return [];
   if (!path.endsWith(".svelte")) return programViolations(path, text, (line) => line + 1);
-  return sveltePrograms(text).flatMap(({ code, base }) => programViolations(`${path.slice(0, -".svelte".length)}.svelte.ts`, code, (line) => base + line + 1)
-    .map((violation) => violation.replace(".svelte.ts:", ".svelte:")));
+  const { programs, unreadable } = sveltePrograms(path, text);
+  return [...unreadable, ...programs.flatMap(({ code, base }) => programViolations(`${path.slice(0, -".svelte".length)}.svelte.ts`, code, (line) => base + line + 1)
+    .map((violation) => violation.replace(".svelte.ts:", ".svelte:")))];
 }
 
 function trackedSources() {
