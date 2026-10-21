@@ -24,9 +24,10 @@ import { isAlias, isMap, isPair, isScalar, isSeq, LineCounter, parseDocument, vi
  * would leave its check unreported in the queue (a required one would block
  * every land). The one exemption is named below with its reason.
  *
- * A gating workflow (one the merge queue runs) never filters its `push` or
- * `pull_request` trigger by path or excluded branch: a required check it
- * produces would stay pending on every PR the filter skips.
+ * A gating workflow (one the merge queue runs) triggers unconditionally on
+ * `pull_request` and `merge_group` (no branch, type or path filter), and its
+ * `push` trigger skips no main commit: a required check it produces would
+ * otherwise stay pending on every PR a filter skips.
  *
  * Each file is READ AS YAML (the `yaml` package, the repository's one YAML
  * reader), never matched line by line: indentation, flow maps and flow lists
@@ -53,6 +54,21 @@ const PULL_REQUEST_ONLY = new Map([
     ".github/workflows/dependency-review.yml",
     "judges a pull request's dependency diff against its base; the queue composes PRs that each passed it, and the check is not required",
   ],
+]);
+
+/**
+ * The trigger filters a GATING workflow (one the merge queue runs) may not
+ * carry. Its required checks must report on every pull request and every
+ * merge group: a `branches`/`branches-ignore` filter (`[develop]`), a
+ * `types` filter (`[labeled]`) or a `paths`/`paths-ignore` filter leaves the
+ * check PENDING on the pull requests it skips, so they can never land. On
+ * `push` (main's post-land run) only the path and excluded-branch filters
+ * would skip a main commit; `branches: [main]` names the branch it guards.
+ */
+const GATE_FILTERS = new Map([
+  ["pull_request", ["branches", "branches-ignore", "types", "paths", "paths-ignore"]],
+  ["merge_group", ["branches", "branches-ignore", "types", "paths", "paths-ignore"]],
+  ["push", ["paths", "paths-ignore", "branches-ignore"]],
 ]);
 
 /** Every workflow file of the tree, as `{ path, text }`. */
@@ -105,8 +121,8 @@ function readWorkflow({ path, text }) {
       const event = String(pair.key.value);
       events.add(event);
       const settings = resolved(pair.value);
-      if ((event === "push" || event === "pull_request") && isMap(settings)) {
-        for (const filter of ["paths", "paths-ignore", "branches-ignore"]) {
+      if (isMap(settings) && GATE_FILTERS.has(event)) {
+        for (const filter of GATE_FILTERS.get(event)) {
           const node = settings.get(filter, true);
           if (node !== undefined) filters.push({ event, filter, at: at(node) });
         }
@@ -177,7 +193,7 @@ function mergeQueueViolations(workflow) {
   const violations = [];
   if (events.has("merge_group")) {
     for (const { event, filter, at } of filters) {
-      violations.push(`${at}: a gating workflow filters \`${event}\` by \`${filter}\`, so its check stays pending on the PRs the filter skips`);
+      violations.push(`${at}: a gating workflow filters \`${event}\` by \`${filter}\`, so its required check stays pending on what the filter skips`);
     }
   }
   if (events.has("pull_request") && !events.has("merge_group") && !PULL_REQUEST_ONLY.has(workflow.path)) {
@@ -248,7 +264,7 @@ test("pull-request-only workflows are refused in every YAML spelling; near misse
     assert.match(found[0], /runs on pull_request but not on merge_group/u, shape);
   }
   const nearMisses = {
-    "both, block": "on:\n  pull_request:\n  merge_group:\n    types: [checks_requested]\njobs: {}\n",
+    "both, block": "on:\n  pull_request:\n  merge_group:\njobs: {}\n",
     "both, flow": "on: [pull_request, merge_group]\njobs: {}\n",
     "both, flow map": "on: {pull_request: {}, merge_group: {}}\njobs: {}\n",
     "comment and a job named like an event": "on:\n  push:\n    branches: [main]\n  # pull_request: commented out\njobs:\n  pull_request:\n    runs-on: x\n",
@@ -301,11 +317,15 @@ test("anchors and aliases are judged as the nodes they name; a merge key is unre
   }
 });
 
-test("a gating workflow never filters its triggers by path or excluded branch", () => {
+test("a gating workflow never filters its pull_request or merge_group trigger, nor main's push by path", () => {
   const planted = {
     "paths on pull_request": "on:\n  pull_request:\n    paths: ['src/**']\n  merge_group:\njobs: {}\n",
     "paths-ignore on push": "on:\n  push:\n    paths-ignore: ['docs/**']\n  pull_request:\n  merge_group:\njobs: {}\n",
     "branches-ignore, flow map": "on: {pull_request: {branches-ignore: [wip]}, merge_group: {}}\njobs: {}\n",
+    "branches on pull_request": "on:\n  pull_request:\n    branches: [develop]\n  merge_group:\njobs: {}\n",
+    "types on pull_request": "on:\n  pull_request:\n    types: [labeled]\n  merge_group:\njobs: {}\n",
+    "types on merge_group": "on:\n  pull_request:\n  merge_group:\n    types: [checks_requested]\njobs: {}\n",
+    "branches on merge_group, flow": "on: {pull_request: {}, merge_group: {branches: [main]}}\njobs: {}\n",
   };
   for (const [shape, text] of Object.entries(planted)) {
     const found = mergeQueueViolations({ path: ".github/workflows/gate.yml", text });
@@ -313,7 +333,8 @@ test("a gating workflow never filters its triggers by path or excluded branch", 
     assert.match(found[0], /gate\.yml:\d+: a gating workflow filters/u, shape);
   }
   const nearMisses = {
-    "branches only": "on:\n  pull_request:\n    branches: [main]\n  merge_group:\njobs: {}\n",
+    "unfiltered gate, main push named": "on:\n  push:\n    branches: [main]\n  pull_request:\n  merge_group:\njobs: {}\n",
+    "an empty settings map": "on: {pull_request: {}, merge_group: {}}\njobs: {}\n",
     "a path-filtered workflow outside the queue": "on:\n  push:\n    paths: ['docs/**']\njobs: {}\n",
   };
   for (const [shape, text] of Object.entries(nearMisses)) {
