@@ -18,17 +18,20 @@ follows is [WORKFLOW.md](WORKFLOW.md).
 - **Work happens on `testing`.** Every edit, test, guard, record and tool
   lives there, and reaches it only through a workspace merge (§1b) or the
   committer's certified commits.
-- **`master` is a promotion of `testing`.** Its tree is a pure function of a
-  `testing` commit S and the promotion profile S carries
-  (`promotion/main-to-product.json`): what the product's entry points reach,
-  what the profile includes, and the derived package manifests and lockfiles.
-  Nothing is merged, so nothing conflicts and nothing is settled by hand.
-- **Never edit `master` directly**, and never use its checkout as a work tree.
-  A direct edit is refused at the next promotion (`promotion_target_edits`)
-  and handed back as a patch to land on `testing` (§4).
-- **Never merge `master` into `testing`.** The promotion refuses a source
-  that holds a promotion commit (`promotion_never_rule`): the rule is
-  structural, not a convention.
+- **`product` is a promotion of `main`** (on GitHub, the one repository;
+  [PROMO-GH](../decisions/PROMO-GH-the-product-is-promoted-on-land.md)). Its
+  tree is a pure function of a `main` commit S and the promotion profile S
+  carries (`promotion/main-to-product.json`): what the product's entry points
+  reach, what the profile includes, the files of its overlay folder, and the
+  derived package manifests and lockfiles. Nothing is merged, so nothing
+  conflicts and nothing is settled by hand.
+- **Never edit `product` directly**, and never use its checkout as a work
+  tree. A direct edit is refused at the next promotion
+  (`promotion_target_edits`) and handed back as a patch to land on `main`
+  (§4).
+- **Never merge `product` into `main`.** The promotion refuses a source that
+  holds a promotion commit (`promotion_never_rule`): the rule is structural,
+  not a convention.
 
 ## 1b. Feature → `testing`: the workspace merge — refusals and the land
 
@@ -283,7 +286,7 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_unresolved_import` | precondition | 3 | Fix on the source: the importer names a module the tree does not hold (a dangling import ships broken code). |
 | `promotion_import_into_excluded` | precondition | 3 | Fix on the source: product code must not import a path the profile excludes (move the module into the product, or the import out of it). |
 | `promotion_dependency_undeclared` | precondition | 3 | Fix on the source: declare the package in the owning package.json (`dependencies` for a runtime import). |
-| `promotion_overlay_invalid` | precondition | 3 | Fix the overlay folder on the source: each of its files ships at its path without the folder prefix, so it must be a regular file and must not name a path the projection already carries. |
+| `promotion_overlay_invalid` | precondition | 3 | Fix the overlay folder on the source: each of its files ships at its path without the folder prefix, so it must be a regular file that is not a module, at a path the profile does not exclude and the projection does not already carry. |
 | `promotion_gitlink_unsupported` | precondition | 3 | Exclude the submodule path in the profile: a gitlink cannot be projected. |
 | `promotion_manifest_script_missing` | precondition | 3 | The profile keeps a script the source manifest does not declare (a typo or a rename): correct the transform's `scripts` list, or restore the script. |
 | `promotion_manifest_script_emptied` | precondition | 3 | Every segment of a kept script was pruned: add the script's file to `boundary.entryPoints`, or drop the script from the transform's `scripts` list. |

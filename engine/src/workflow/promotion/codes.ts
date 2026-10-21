@@ -67,7 +67,7 @@ export const PROMOTION_CODES = deepFreeze({
   promotion_unresolved_import: { class: "precondition", remedy: "Fix on the source: the importer names a module the tree does not hold (a dangling import ships broken code)." },
   promotion_import_into_excluded: { class: "precondition", remedy: "Fix on the source: product code must not import a path the profile excludes (move the module into the product, or the import out of it)." },
   promotion_dependency_undeclared: { class: "precondition", remedy: "Fix on the source: declare the package in the owning package.json (`dependencies` for a runtime import)." },
-  promotion_overlay_invalid: { class: "precondition", remedy: "Fix the overlay folder on the source: each of its files ships at its path without the folder prefix, so it must be a regular file and must not name a path the projection already carries." },
+  promotion_overlay_invalid: { class: "precondition", remedy: "Fix the overlay folder on the source: each of its files ships at its path without the folder prefix, so it must be a regular file that is not a module, at a path the profile does not exclude and the projection does not already carry." },
   promotion_gitlink_unsupported: { class: "precondition", remedy: "Exclude the submodule path in the profile: a gitlink cannot be projected." },
   promotion_manifest_script_missing: { class: "precondition", remedy: "The profile keeps a script the source manifest does not declare (a typo or a rename): correct the transform's `scripts` list, or restore the script." },
   promotion_manifest_script_emptied: { class: "precondition", remedy: "Every segment of a kept script was pruned: add the script's file to `boundary.entryPoints`, or drop the script from the transform's `scripts` list." },

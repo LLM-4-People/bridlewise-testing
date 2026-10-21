@@ -78,7 +78,7 @@
 #
 # (The evidence archive `traceability/evidence/` is a tracked record, named by
 # no rule: what ships to the product branch is the promotion profile's answer
-# — `promotion/testing-to-master.json` excludes it — never an ignore rule. The
+# — `promotion/main-to-product.json` excludes it — never an ignore rule. The
 # anchored rule and its re-admission that made it "floor bytes" retired with
 # the merge door, PROMO-4.)
 /experiments/

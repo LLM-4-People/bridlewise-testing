@@ -164,7 +164,7 @@ export function fixtureProfile(overrides: FixtureProfileOverrides = {}): Record<
     ...(overrides["boundary"] as object | undefined),
   };
   return {
-    schema: "bridlewise-promotion-profile/v1",
+    schema: "bridlewise-promotion-profile/v2",
     name: PROFILE_NAME,
     source: { ref: `refs/heads/${SOURCE}` },
     target: { ref: `refs/heads/${TARGET}` },
