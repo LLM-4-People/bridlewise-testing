@@ -23,6 +23,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, posix, resolve, sep } from "node:path";
+import { decodeHtmlEntities, htmlWithout } from "../../shared/markup.ts";
 
 const HTML_TAG = /<[a-zA-Z][^>]*>/gu;
 const LINK_ATTRIBUTE = /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)')/giu;
@@ -30,15 +31,6 @@ const EXTERNAL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/iu;
 
 function toPosix(path) {
   return path.split(sep).join("/");
-}
-
-function decodeAttribute(value) {
-  return value
-    .replace(/&amp;/gu, "&")
-    .replace(/&quot;/gu, '"')
-    .replace(/&#39;|&apos;/gu, "'")
-    .replace(/&lt;/gu, "<")
-    .replace(/&gt;/gu, ">");
 }
 
 /** Every `.html` page under `siteRoot`, as site-relative POSIX paths. */
@@ -75,7 +67,7 @@ export function pageUrlForSitePath(sitePath) {
  * an internal URL, the site-root-relative path (base path removed).
  */
 export function resolveSiteHref(href, pageUrl, { baseurl = "" } = {}) {
-  const raw = decodeAttribute(href.trim());
+  const raw = decodeHtmlEntities(href.trim());
   if (raw.length === 0) return { kind: "empty" };
   if (raw.startsWith("#")) return { kind: "anchor" };
   if (EXTERNAL.test(raw)) return { kind: "external" };
@@ -140,7 +132,7 @@ export function crawlSiteLinks({ siteRoot, baseurl = "" }) {
   let links = 0;
   for (const page of pages) {
     const pageUrl = pageUrlForSitePath(page);
-    const html = readFileSync(join(resolve(siteRoot), ...page.split("/")), "utf8").replace(/<!--[\s\S]*?-->/gu, "");
+    const html = htmlWithout(readFileSync(join(resolve(siteRoot), ...page.split("/")), "utf8"), { comments: true });
     // Attributes are read from real tags only: prose or inline code can SHOW
     // the text `href="/src/x"` without linking it (a design essay quotes one),
     // and scanning the raw text would invent a broken link that is not one.

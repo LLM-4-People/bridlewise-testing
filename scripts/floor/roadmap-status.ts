@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { taskRows, type TaskRow } from "../../engine/src/workflow/failure-owners.ts";
+import { escapeHtml, escapeMarkdownTableCell, stripTags } from "../../shared/markup.ts";
 
 export const ROADMAP_PATH = "docs/floor/roadmap.md";
 export const TASKS_PATH = "docs/trackers/TASKS.md";
@@ -267,8 +268,7 @@ export function readRoadmapPlan(pageText: string): RoadmapPlan {
 
 /** The GitHub / kramdown heading id: punctuation is removed, then each remaining space becomes a hyphen. */
 export function headingSlug(heading: string): string {
-  return heading
-    .replace(/<[^>]*>/gu, "")
+  return stripTags(heading)
     .replace(/[`*_~]/gu, "")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s-]/gu, "")
@@ -508,11 +508,7 @@ function escapeRegExp(value: string): string {
 }
 
 function cell(value: string): string {
-  return normalizeProse(value).replace(/\|/gu, "\\|");
-}
-
-function html(value: string): string {
-  return value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;");
+  return escapeMarkdownTableCell(normalizeProse(value));
 }
 
 function link(evidence: string): string {
@@ -616,7 +612,7 @@ function renderPlan(plan: RoadmapPlan): string {
     const workstreams = plan.workstreams.filter((item) => item.milestone === milestone.id);
     const exits = plan.exitCriteria.filter((item) => item.milestone === milestone.id);
     lines.push("");
-    lines.push(`#### ${milestone.id} · ${html(milestone.title)} — ${cell(milestone.state)} (${done} shipped · ${open} open)`);
+    lines.push(`#### ${milestone.id} · ${escapeHtml(milestone.title)} — ${cell(milestone.state)} (${done} shipped · ${open} open)`);
     lines.push("");
     lines.push("**Workstreams**");
     lines.push("");

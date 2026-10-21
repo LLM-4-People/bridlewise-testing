@@ -447,7 +447,6 @@ export type LegitimateRawReader =
   | "web:scripts/check-secrets.mjs"
   | "web:scripts/floor/site.mjs"
   | "web:scripts/floor/site-pages.mjs"
-  | "web:scripts/floor/site-links.mjs"
   | "web:tests/prevention/agent-docs-liveness.test.ts";
 
 /**
@@ -472,13 +471,6 @@ export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
       + "document prose, and the page is written back with every other byte kept. A "
       + "code view would blank exactly the spans the rewrite must see and would "
       + "change the document it is meant to preserve.",
-  },
-  "web:scripts/floor/site-links.mjs": {
-    why:
-      "The subject is the BUILT HTML the browser receives, not repository source. "
-      + "An href or src is an attribute in emitted markup, and the crawler must see "
-      + "each attribute exactly as emitted, including ones a template produced. A "
-      + "source view models program text, not rendered HTML attributes.",
   },
   "web:scripts/floor/design-coverage.mjs": {
     why:
