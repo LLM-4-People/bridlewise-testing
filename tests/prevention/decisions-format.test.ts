@@ -14,7 +14,8 @@
 import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DECISIONS_DIRECTORY, decisionViolations, readEntries, renderDecisionIndex, withDecisionIndex } from "../../engine/scripts/verification/tracker-entries.ts";
+import { readEntries } from "../../engine/src/workflow/failure-owners.ts";
+import { DECISIONS_DIRECTORY, decisionViolations, renderDecisionIndex, withDecisionIndex } from "../../engine/scripts/verification/tracker-entries.ts";
 import { DECISION_INDEX } from "../../engine/src/kernel/verification-paths.ts";
 
 const ROOT = process.cwd();

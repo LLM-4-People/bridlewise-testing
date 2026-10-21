@@ -77,8 +77,23 @@ export const EVIDENCE_IGNORE_BLOCK = deepFreeze({
   end: ROOT_POLICY.workflow.evidenceStore.ignoreBlock.end,
 } as const);
 
+/**
+ * THE TASK BOARD (`ROOT_POLICY.workflow.failureOwners.tracker`, repository-relative):
+ * its board block, between `begin` and `end`, is rendered from the structured
+ * tracker items (`items`, one `<id>.md` per item, `bridlewise-tracker-item/v1`)
+ * by `generator` (relative to the engine: src/workflow/failure-owners.ts
+ * `syncTrackerBoard`, `harness sync`); the prose around it is hand-written.
+ */
+export const TRACKER_BOARD = deepFreeze({
+  path: ROOT_POLICY.workflow.failureOwners.tracker,
+  items: "docs/trackers/items",
+  generator: "src/workflow/failure-owners.ts",
+  begin: "<!-- BEGIN GENERATED: the task board, from the tracker items (harness sync; engine/src/workflow/failure-owners.ts) -->",
+  end: "<!-- END GENERATED: the task board -->",
+} as const);
+
 /** Every generated BLOCK a hand-written file can carry (its generator owns the text between `begin` and `end`). */
-export const GENERATED_BLOCKS = deepFreeze([README_CONSUMER_BLOCK, DECISION_INDEX, EVIDENCE_IGNORE_BLOCK] as const);
+export const GENERATED_BLOCKS = deepFreeze([README_CONSUMER_BLOCK, DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD] as const);
 
 export const SLICE_PROJECTION_PATHS = deepFreeze({
   declarations: "traceability/canonical/slice-declarations.json",

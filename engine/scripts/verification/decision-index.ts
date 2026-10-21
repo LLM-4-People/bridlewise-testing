@@ -21,7 +21,8 @@ import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { DECISION_INDEX } from "../../src/kernel/verification-paths.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
-import { DECISIONS_DIRECTORY, readEntries, renderDecisionIndex, withDecisionIndex } from "./tracker-entries.ts";
+import { readEntries } from "../../src/workflow/failure-owners.ts";
+import { DECISIONS_DIRECTORY, renderDecisionIndex, withDecisionIndex } from "./tracker-entries.ts";
 
 
 export type DecisionIndexReport = Readonly<{

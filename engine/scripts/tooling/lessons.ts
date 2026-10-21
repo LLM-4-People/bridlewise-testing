@@ -16,7 +16,8 @@
 import { canonicalJson } from "../../src/kernel/integrity.ts";
 import { InputError } from "../../src/kernel/errors.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
-import { lessonId, LESSONS_DIRECTORY, parseFrontMatter, readEntries } from "../verification/tracker-entries.ts";
+import { parseFrontMatter, readEntries } from "../../src/workflow/failure-owners.ts";
+import { lessonId, LESSONS_DIRECTORY } from "../verification/tracker-entries.ts";
 
 const DAY_MS = 86_400_000;
 

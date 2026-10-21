@@ -1,5 +1,5 @@
 /**
- * ONE-FILE-PER-ENTRY RECORDS: the one front-matter reader and the one checker.
+ * ONE-FILE-PER-ENTRY RECORDS: the lesson and decision formats and the decision index.
  *
  * Workflow lessons (`docs/trackers/workflow-lessons/`) and decisions
  * (`docs/decisions/`) are each one Markdown file per entry, opened by a front
@@ -11,126 +11,23 @@
  *     acted_in: [engine/src/a.ts, tests/b.test.ts]
  *     ---
  *
- * Both formats are read by {@link parseFrontMatter} and judged by
- * {@link entryViolations} against a per-kind {@link EntrySchema}, so a rule
- * (a required field, an enumeration, a list of tracked paths) is spelled once.
+ * Both formats are read by the tracker's one front-matter reader
+ * (src/workflow/failure-owners.ts `parseFrontMatter`, which also reads the
+ * structured tracker items) and judged by its `entryViolations` against a
+ * per-kind schema, so a rule (a required field, an enumeration, a list of
+ * tracked paths) is spelled once.
  * The format tests, the commit guard's `Lesson:` trailer check and the
  * `lessons` report all read entries through this module.
  */
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 import { DECISION_INDEX } from "../../src/kernel/verification-paths.ts";
+import { entryViolations, listValue, parseFrontMatter, type FrontMatter } from "../../src/workflow/failure-owners.ts";
 
 /** Where each kind of entry lives, repository-relative. */
 export const LESSONS_DIRECTORY = "docs/trackers/workflow-lessons";
 /** The decisions live beside their generated index (`DECISION_INDEX.path`, one spelling). */
 export const DECISIONS_DIRECTORY = dirname(DECISION_INDEX.path);
-
-/** The field names and values of one front matter, in file order. */
-export type FrontMatter = ReadonlyMap<string, string>;
-
-/**
- * The front matter of `text` (between a leading `---` line and the next), or
- * `null` when the text opens with none. `body` is everything after it;
- * `duplicates` names every field spelled twice (the first value is kept, and
- * the checker refuses the entry: a second spelling silently winning was how a
- * stale status could hide below a fresh one).
- */
-export function parseFrontMatter(text: string): { readonly fields: FrontMatter; readonly body: string; readonly duplicates: readonly string[] } | null {
-  const match = /^---\n([\s\S]*?)\n---\n/u.exec(text);
-  if (match === null) return null;
-  const fields = new Map<string, string>();
-  const duplicates: string[] = [];
-  for (const line of match[1]!.split("\n")) {
-    const colon = line.indexOf(":");
-    if (colon <= 0) continue;
-    const name = line.slice(0, colon).trim();
-    if (fields.has(name)) duplicates.push(name);
-    else fields.set(name, line.slice(colon + 1).trim());
-  }
-  return { fields, body: text.slice(match[0].length), duplicates };
-}
-
-/** A `[a, b]` list value as its items; `null` when the value is not a bracketed list. */
-export function listValue(value: string): readonly string[] | null {
-  if (!value.startsWith("[") || !value.endsWith("]")) return null;
-  return value.slice(1, -1).split(",").map((item) => item.trim()).filter((item) => item.length > 0);
-}
-
-type Condition = (fields: FrontMatter) => boolean;
-
-/** What one field of a kind of entry must be. */
-export type FieldRule = Readonly<{
-  /** `true`: always required; a function: required exactly when it answers true. */
-  required?: boolean | Condition;
-  /** The field must be absent when this answers true. */
-  forbiddenWhen?: Condition;
-  /** An enumeration the value (or each list item) must belong to. */
-  values?: readonly string[];
-  /** A shape the value (or each list item) must match. */
-  pattern?: RegExp;
-  /** The value is a `[a, b]` list (at least one item when present). */
-  list?: boolean;
-  /** A further judgement of one value or item; returns the problem, or `null`. */
-  check?: (item: string) => string | null;
-}>;
-
-/** A kind of entry: its fields and the Markdown sections its body must hold. */
-export type EntrySchema = Readonly<{
-  fields: Readonly<Record<string, FieldRule>>;
-  sections?: readonly string[];
-  /** A pattern the body must open with (e.g. a `# ` title). */
-  bodyOpens?: RegExp;
-}>;
-
-/** Every way `text` breaks `schema`, each prefixed with `label`. */
-export function entryViolations(label: string, text: string, schema: EntrySchema): readonly string[] {
-  const parsed = parseFrontMatter(text);
-  if (parsed === null) return [`${label}: no front matter`];
-  const { fields, body, duplicates } = parsed;
-  const problems: string[] = duplicates.map((name) => `${label}: ${name} is spelled twice`);
-  for (const [name, rule] of Object.entries(schema.fields)) {
-    const value = fields.get(name);
-    const required = typeof rule.required === "function" ? rule.required(fields) : rule.required === true;
-    if (value === undefined || value.length === 0) {
-      if (required) problems.push(`${label}: ${name} is required`);
-      continue;
-    }
-    if (rule.forbiddenWhen?.(fields) === true) {
-      problems.push(`${label}: ${name} does not belong on this entry`);
-      continue;
-    }
-    let items: readonly string[] = [value];
-    if (rule.list === true) {
-      const listed = listValue(value);
-      if (listed === null || listed.length === 0) {
-        problems.push(`${label}: ${name} must be a non-empty [a, b] list`);
-        continue;
-      }
-      items = listed;
-    }
-    for (const item of items) {
-      if (rule.values !== undefined && !rule.values.includes(item)) problems.push(`${label}: ${name} must be one of ${rule.values.join(", ")} (was ${item})`);
-      else if (rule.pattern !== undefined && !rule.pattern.test(item)) problems.push(`${label}: ${name} ${item} does not match ${String(rule.pattern)}`);
-      else {
-        const problem = rule.check?.(item) ?? null;
-        if (problem !== null) problems.push(`${label}: ${name} ${problem}`);
-      }
-    }
-  }
-  if (schema.bodyOpens !== undefined && !schema.bodyOpens.test(body)) problems.push(`${label}: the body must open with ${String(schema.bodyOpens)}`);
-  for (const section of schema.sections ?? []) if (!`\n${body}`.includes(`\n${section}`)) problems.push(`${label}: missing ${section}`);
-  return problems;
-}
-
-/** Each `.md` entry of `directory` (not its README) with its text. */
-export function readEntries(root: string, directory: string): readonly { readonly name: string; readonly text: string }[] {
-  return readdirSync(join(root, directory))
-    .filter((name) => name.endsWith(".md") && name !== "README.md")
-    .sort()
-    .map((name) => ({ name, text: readFileSync(join(root, directory, name), "utf8") }));
-}
 
 // ── Workflow lessons ────────────────────────────────────────────────────────
 
