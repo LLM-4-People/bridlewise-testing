@@ -68,6 +68,18 @@ export const PROJECTION_PROGRAM: ConfinedModule = Object.freeze({
   exportName: "projectText",
 });
 
+/** The roadmap feed's program: `roadmap-feed.ts`'s `roadmapFeedText`, the state owner, the product's schema names and the kernel's one key order. */
+export const ROADMAP_FEED_PROGRAM: ConfinedModule = Object.freeze({
+  entry: join(SOURCE_ROOT, "workflow/forge/projector/roadmap-feed.ts"),
+  modules: Object.freeze([
+    "workflow/forge/projector/roadmap-feed.ts",
+    "workflow/tracker-status.ts",
+    "kernel/product-identity.ts",
+    "kernel/ordered.ts",
+  ].map((path) => join(SOURCE_ROOT, path))),
+  exportName: "roadmapFeedText",
+});
+
 /** A static or literal dynamic import's specifier: `from "x"`, `import "x"`, `import("x")`. */
 const SPECIFIER = /(\bfrom\s*|\bimport\s*\(?\s*)(["'])([^"'\n]+)\2/gu;
 
