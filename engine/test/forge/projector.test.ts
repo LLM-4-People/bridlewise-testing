@@ -50,7 +50,7 @@ const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> =
 });
 const input = (items: ProjectionInput["items"], source = SOURCE): ProjectionInput => ({
   schema: PROJECTION_INPUT_SCHEMA, source, ledger: null, repositoryUrl: "https://github.com/owner/repo",
-  items, lanes: [{ lane: "floor", color: "1d76db", description: "Tracker lane: open work" }], decisions: [], recordedEvidence: [],
+  items, lanes: [{ lane: "floor", color: "1d76db", description: "Tracker lane: open work" }], decisions: [], recordedEvidence: [], mainRuns: [],
 });
 const INPUT = input([
   item("A-PARENT", { title: "The parent", type: "Workstream" }),
