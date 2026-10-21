@@ -5,14 +5,11 @@ title = "Bridlewise testing floor"
 useDefault = true
 
 [allowlist]
-description = "Synthetic test fixtures and documentation examples"
+description = "Synthetic test fixtures (test and bench trees only) and exact placeholder values"
 paths = [
   '''engine/test/.*''',
   '''tests/.*''',
   '''bench/.*''',
-  '''engine/src/privacy/.*''',
-  '''engine/src/shared/debug/.*''',
-  '''docs/.*''',
 ]
 regexes = [
   '''AKIAIOSFODNN7EXAMPLE''',

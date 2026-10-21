@@ -157,6 +157,12 @@ describe("a frame the egress door cannot redact (wf1b-design M6/M7)", () => {
       .toEqual({ runId: "r", withheld: "frame_unredactable", autoTripsReverted: true, code: "run_failed", message: WITHHELD_ERROR_MESSAGE });
     expect(withheldTerminalFrame(SSE_EVENT_TYPES.error, { runId: "r" }, { code: "not a taxonomy code sk-1" }))
       .toEqual({ runId: "r", withheld: "frame_unredactable", code: WITHHELD_FRAME_CODE, message: WITHHELD_ERROR_MESSAGE });
+    // The input-validation PREFIX is admitted for status resolution, never
+    // forwarded: a code built from a path must not become the wire code.
+    expect(withheldTerminalFrame(SSE_EVENT_TYPES.error, { runId: "r" }, { code: "invalid_/home/alice/.ssh/id_ed25519" }))
+      .toEqual({ runId: "r", withheld: "frame_unredactable", code: "validation_failed", message: WITHHELD_ERROR_MESSAGE });
+    expect(withheldTerminalFrame(SSE_EVENT_TYPES.error, { runId: "r" }, { code: "missing_/home/alice/.ssh/id_ed25519" }))
+      .toEqual({ runId: "r", withheld: "frame_unredactable", code: "bad_request", message: WITHHELD_ERROR_MESSAGE });
     expect(isKnownErrorCode(WITHHELD_FRAME_CODE)).toBe(true);
   });
 

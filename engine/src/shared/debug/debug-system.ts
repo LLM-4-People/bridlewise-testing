@@ -417,7 +417,7 @@ export function getAuditEvents(): ReadonlyArray<DebugEvent> {
  * whatever they hit, and set `redacted: true` — which the three emitters then
  * counted in `signals.redactedValues`. Three shapes were driven against that
  * arrangement, every one of them with the same key
- * `sk-LIVEKEY-8f31c05a9e27b46d1a08f3c65b92d740` — which is **43 characters**,
+ * `sk-LIVEKEY-<32 hex chars>` — which is **43 characters**,
  * not the "forty-eight" the note here used to claim:
  *
  *   1. `Incorrect API key provided: <KEY>.`

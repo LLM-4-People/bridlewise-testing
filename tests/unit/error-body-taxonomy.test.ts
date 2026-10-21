@@ -81,6 +81,22 @@ beforeAll(async () => {
           "zz_unmapped_bad_request",
         );
       });
+      // THE PREFIX CONVENTION IS NOT A WIRE CONTRACT. `isKnownErrorCode`
+      // admits any `invalid_`/`missing_` code (the input-validation naming
+      // convention), but only a DECLARED code may forward its spelling and
+      // its sentence. A code built from an absolute path is neither.
+      router.get("/api/test/prefixed-invalid-code", () => {
+        throw new ServiceUnavailableError(
+          `a typed refusal whose message names ${unreadableFile}`,
+          `invalid_${unreadableFile}`,
+        );
+      });
+      router.get("/api/test/prefixed-missing-code", () => {
+        throw new BadRequestError(
+          `a typed refusal whose message names ${unreadableFile}`,
+          `missing_${unreadableFile}`,
+        );
+      });
     },
   });
   user = createTestUser(srv.db, "error-body-user");
@@ -142,6 +158,37 @@ describe("status and body are separate decisions for a typed error", () => {
     expect(res.status).toBe(400);
     expect(res.body).toEqual(FIXED_BODY);
     expect(JSON.stringify(res.body)).not.toContain(unreadableFile);
+  });
+});
+
+describe("the input-validation PREFIX is a status convention, not a wire code", () => {
+  // `invalid_`/`missing_` are admitted by the taxonomy so a new guard gets
+  // the right STATUS without a map entry. They are not declared codes, so
+  // the router must not repeat one on the wire — especially when the suffix
+  // is an absolute path. The body gets a fixed declared code and an authored
+  // sentence; the class still chooses the status.
+  test("a 503 class keeps its status; an invalid_<path> code and sentence stay off the wire", async () => {
+    const res = await get("/api/test/prefixed-invalid-code");
+    expect(res.status, "the class owns the status").toBe(503);
+    expect(res.body).toEqual({
+      error: "validation_failed",
+      message: "The request did not pass validation.",
+    });
+    const wire = JSON.stringify(res.body);
+    expect(wire).not.toContain(unreadableFile);
+    expect(wire).not.toContain("invalid_");
+  });
+
+  test("a 400 class keeps its status; a missing_<path> code and sentence stay off the wire", async () => {
+    const res = await get("/api/test/prefixed-missing-code");
+    expect(res.status, "the class owns the status").toBe(400);
+    expect(res.body).toEqual({
+      error: "bad_request",
+      message: "The request is missing a required value.",
+    });
+    const wire = JSON.stringify(res.body);
+    expect(wire).not.toContain(unreadableFile);
+    expect(wire).not.toContain("missing_");
   });
 });
 

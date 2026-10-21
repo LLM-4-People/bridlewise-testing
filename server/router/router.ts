@@ -63,6 +63,8 @@ import {
   ServiceUnavailableError,
   statusForCode,
   isKnownErrorCode,
+  isDeclaredErrorCode,
+  inputConventionWire,
   WebError,
   BodySizeLimitError,
   BodyParseError,
@@ -537,8 +539,8 @@ export function createRouter(opts: RouterOptions): Router {
       };
     }
     if (err instanceof WebError) {
-      const code = taxonomyCode(err);
-      if (code !== undefined) {
+      if (isDeclaredErrorCode(err.code)) {
+        const code = err.code;
         // `internal_error` IS the fixed body: the router throws it for a
         // matched handler that wrote no response, and that handler's detail
         // belongs in the log, never on the wire.
@@ -554,6 +556,15 @@ export function createRouter(opts: RouterOptions): Router {
           return { status: "indexing", code, message: err.message };
         }
         return { error: code, message: err.message };
+      }
+      // The `invalid_`/`missing_` prefix is a STATUS convention for codes the
+      // taxonomy has not declared. It is NOT permission to put the caller's
+      // suffix on the wire: the suffix can be an absolute path or a field
+      // value, and the sentence beside it can name the same. Answer with the
+      // convention's FIXED declared code and an authored generic sentence.
+      const convention = inputConventionWire(err.code);
+      if (convention !== undefined) {
+        return { error: convention.code, message: convention.message };
       }
     }
     // Unknown failures are logged at the catch site; the wire gets a fixed

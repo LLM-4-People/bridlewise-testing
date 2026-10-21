@@ -107,7 +107,7 @@ export type BenchmarkRunner = Readonly<{
  * remote endpoint's wording — and it went into the frozen result verbatim.
  *
  * DRIVEN, before this function existed: an operation throwing
- * `auth failed: sk-PLANT-4d9a1f7e0c2b6853` put the WHOLE canary into
+ * `auth failed: sk-PLANT-<synthetic tail>` put the WHOLE canary into
  * `JSON.stringify(result)`, while the test named *"hostile: benchmark result
  * does not contain credentials"* stayed green — because it planted nothing.
  * An absence assertion with no canary was standing in for a claim that was

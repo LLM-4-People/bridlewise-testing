@@ -808,10 +808,22 @@ describe("error-debug owner — router error body contract", () => {
     });
   }
 
-  test("(D1) a typed WebError produces {error: code, message}", async () => {
-    const result = await dispatchAndCapture(new ValidationError("bad input", "invalid_test"));
+  test("(D1) a typed WebError with a DECLARED code produces {error: code, message}", async () => {
+    const result = await dispatchAndCapture(new ValidationError("bad input", "invalid_path"));
     expect(result.status).toBe(400);
-    expect(result.body).toEqual({ error: "invalid_test", message: "bad input" });
+    expect(result.body).toEqual({ error: "invalid_path", message: "bad input" });
+  });
+
+  test("(D1b) an UNDECLARED invalid_ code gets the fixed convention body, not its spelling or sentence", async () => {
+    // The prefix admits the code for STATUS resolution only. Forwarding its
+    // spelling was how a code built from an absolute path reached the wire.
+    const result = await dispatchAndCapture(new ValidationError("bad input at /home/alice/.ssh", "invalid_test"));
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({
+      error: "validation_failed",
+      message: "The request did not pass validation.",
+    });
+    expect(JSON.stringify(result.body)).not.toContain("invalid_test");
   });
 
   test("(D2) a 202 MapNotReadyError produces {status: 'indexing', code, message}", async () => {

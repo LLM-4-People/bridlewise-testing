@@ -31,10 +31,21 @@ import {
   explainRedaction,
   redactForLLMContext,
   redactMessagesTogether,
+  redactText,
 } from "../../engine/src/privacy/redaction-engine.ts";
 import {
   DEFAULT_PRIVACY_POLICY,
 } from "../../engine/src/privacy/privacy-policy.ts";
+import { viewFile } from "../../engine/src/privacy/file-viewer.ts";
+import { secretTextSignalIds } from "../../engine/src/privacy/secret-signals.ts";
+import { redactForUserDisplay } from "../../server/llm/redaction.ts";
+import {
+  configureDebugSystem,
+  createCollectingSink,
+  debugLog,
+  resetDebugSystem,
+} from "../../engine/src/shared/debug/debug-system.ts";
+import { DEBUG_CONFIG_DEFAULTS } from "../../engine/src/shared/debug/debug-config.ts";
 import {
   PII_TYPES,
   PRIVACY_TIERS,
@@ -846,5 +857,86 @@ describe("I. one detector — no path runs a weaker one", () => {
       const source = read(`engine/src/privacy/${f}`);
       expect(source.includes("\u0000"), `${f} contains a NUL byte`).toBe(false);
     }
+  });
+});
+
+// ── J. connection-string credentials ─────────────────────────────────────
+//
+// A DATABASE_URL's password lives in the URL's userinfo. The detector had no
+// signal for that shape: the no-`!` twin was masked only because the PII
+// email grammar saw `Summer2026@db.internal`, and one `!` or `$` in the
+// password defeated it. The catalog now owns a `connection-string` signal;
+// these arms drive every egress path the finding named, not just the
+// detector.
+describe("J. a URL userinfo password is a credential on every egress path", () => {
+  const WITH_BANG = "postgres://app:Summer2026!@db.internal:5432/app";
+  const WITH_DOLLAR = "mysql://app:S3cret$Value@db.internal:3306/app";
+  const BENIGN = "postgres://app@db.internal:5432/app";
+
+  afterEach(() => resetDebugSystem());
+
+  test("the catalog declares connection-string for a password, and vetoes the benign user@host form", () => {
+    for (const url of [WITH_BANG, WITH_DOLLAR]) {
+      expect(secretTextSignalIds(url, "admission"), url).toContain("connection-string");
+      expect(
+        detectSecretSpans(url, P).some((span) => span.signalId === "connection-string"),
+        url,
+      ).toBe(true);
+    }
+    // A URL with a user and no password is not a credential: no colon
+    // between the scheme and the `@`, so the signal must not fire.
+    expect(secretTextSignalIds(BENIGN, "admission")).not.toContain("connection-string");
+  });
+
+  test("redactForLLMContext masks the password in both the ! and $ forms", () => {
+    for (const url of [WITH_BANG, WITH_DOLLAR]) {
+      const out = redactForLLMContext(url);
+      expect(out, url).not.toContain("Summer2026");
+      expect(out, url).not.toContain("S3cret$Value");
+      expect(out, url).toContain("[REDACTED:credential]");
+    }
+  });
+
+  test("redactText masks the password and reports the span", () => {
+    const result = redactText(WITH_BANG, P);
+    expect(result.spanCount).toBeGreaterThan(0);
+    expect(result.redactedText).not.toContain("Summer2026!");
+    expect(result.redactedText).toContain("[REDACTED:credential]");
+  });
+
+  test("redactForUserDisplay masks the password as a leaf and inside a DATABASE_URL field", () => {
+    expect(JSON.stringify(redactForUserDisplay(WITH_BANG))).not.toContain("Summer2026!");
+    const out = JSON.stringify(redactForUserDisplay({ DATABASE_URL: WITH_BANG }));
+    expect(out).not.toContain("Summer2026!");
+    expect(out).toContain("[REDACTED:credential]");
+  });
+
+  test("the debug sink never receives the password", () => {
+    const sink = createCollectingSink();
+    configureDebugSystem(
+      {
+        ...DEBUG_CONFIG_DEFAULTS,
+        enabled: true,
+        level: "error",
+        categories: ["privacy"],
+        sinks: { enabledSinks: ["collecting"] },
+      },
+      [sink],
+    );
+    debugLog("privacy", "error", `database refused ${WITH_BANG}`);
+    const event = sink.events.at(-1);
+    expect(event, "the error level must reach the sink").toBeDefined();
+    expect(event!.message).not.toContain("Summer2026!");
+    expect(event!.message).toMatch(/\[REDACTED/);
+  });
+
+  test("a docker-compose.yml read masks the password", () => {
+    const yaml = `services:\n  db:\n    environment:\n      DATABASE_URL: ${WITH_BANG}\n`;
+    const view = viewFile("docker-compose.yml", yaml);
+    expect(view.outcome).toBe("viewed");
+    if (view.outcome !== "viewed") return;
+    expect(view.content).not.toContain("Summer2026!");
+    expect(view.content).toContain("[REDACTED:credential]");
+    expect(view.redactionSummary.verified).toBe(true);
   });
 });

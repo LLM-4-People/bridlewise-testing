@@ -38,7 +38,7 @@ import { guarded } from "../kernel/canonical.ts";
 import { serverConfig } from "../kernel/config.ts";
 import { webHandleError, webWarn } from "../observability/debug-bridge.ts";
 import { type ReplayGapReason, type SseEventType, type TerminalSseEventType, type WithheldTerminalFrame, isKnownSseEventType, isTerminalSseEventType, SSE_EVENT_TYPES } from "../../shared/constants.ts";
-import { isKnownErrorCode } from "../../shared/errors.ts";
+import { inputConventionWire, isDeclaredErrorCode } from "../../shared/errors.ts";
 import { noteFrameWithheld } from "./egress-failures.ts";
 import { BadRequestError, RateLimitError } from "../kernel/errors.ts";
 import { rateLimitKey } from "./rate-limiter.ts";
@@ -191,12 +191,21 @@ export const WITHHELD_ERROR_MESSAGE = "This run ended with an error whose report
 export function withheldTerminalFrame(event: TerminalSseEventType, identity: Readonly<Record<string, string>>, original: unknown): WithheldTerminalFrame {
   const facts = typeof original === "object" && original !== null ? original as Record<string, unknown> : {};
   const originalCode = facts["code"];
+  // The withheld frame may carry a code only when the taxonomy DECLARES it.
+  // The `invalid_`/`missing_` prefix is a status convention, not a wire
+  // vocabulary: its suffix can be a path, so an undeclared prefix code is
+  // replaced by the convention's fixed declared code (or withheld entirely).
+  const code = typeof originalCode === "string"
+    ? isDeclaredErrorCode(originalCode)
+      ? originalCode
+      : inputConventionWire(originalCode)?.code ?? WITHHELD_FRAME_CODE
+    : WITHHELD_FRAME_CODE;
   return Object.freeze({
     ...identity,
     withheld: "frame_unredactable",
     ...(facts["autoTripsReverted"] === true ? { autoTripsReverted: true as const } : {}),
     ...(event === SSE_EVENT_TYPES.error
-      ? { code: typeof originalCode === "string" && isKnownErrorCode(originalCode) ? originalCode : WITHHELD_FRAME_CODE, message: WITHHELD_ERROR_MESSAGE }
+      ? { code, message: WITHHELD_ERROR_MESSAGE }
       : {}),
   });
 }

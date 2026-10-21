@@ -382,3 +382,40 @@ describe("D. one visible secret must not hide the escaped ones beside it", () =>
     }
   });
 });
+
+// ── E. the LLM-bound structured redactor is FIELD-AWARE ──────────────────
+//
+// `redactToolCallArguments` parsed the JSON, walked string VALUES, and threw
+// the key names away. A 64-hex id under `apiKey` therefore reached the model
+// verbatim — it carries no intrinsic credential shape and no declaration
+// beside it — while the same value under a sensitive key was masked by the
+// user-display path. The tool-call door now masks values under sensitive KEY
+// names before the value walker, using the catalogue's single
+// `isSensitiveKeyName` owner.
+describe("E. the LLM-bound structured redactor is field-aware", () => {
+  // Synthetic high-entropy value: no provider prefix, no declaration, no
+  // checksum — exactly what a value-pattern-only walker cannot see.
+  const HEX64 = "3b1f8c2a9d4e7051bc6a2f8e3d905172ac4b6e8f1d2039485a6b7c8d9e0f1a2b";
+
+  test("a bare 64-hex value under apiKey is masked", () => {
+    const out = redactToolCallArguments(JSON.stringify({ apiKey: HEX64 }));
+    expect(out).not.toContain(HEX64);
+    expect(JSON.parse(out)).toEqual({ apiKey: "[redacted]" });
+  });
+
+  test("a nested headers.authorization value is masked", () => {
+    const out = redactToolCallArguments(
+      JSON.stringify({ headers: { authorization: HEX64 } }),
+    );
+    expect(out).not.toContain(HEX64);
+    expect(JSON.parse(out)).toEqual({ headers: { authorization: "[redacted]" } });
+  });
+
+  test("the key names survive so the caller can still read the structure", () => {
+    const out = JSON.parse(
+      redactToolCallArguments(JSON.stringify({ apiKey: HEX64, note: "ordinary prose" })),
+    ) as Record<string, unknown>;
+    expect(Object.keys(out)).toEqual(["apiKey", "note"]);
+    expect(out.note).toBe("ordinary prose");
+  });
+});

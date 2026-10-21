@@ -1005,13 +1005,14 @@ test("★ THE FATAL: every SCREAMING_SNAKE credential key name is dropped, drive
   //
   // These fourteen are the names driven in that measurement. `SK_` joined the
   // covered set when the owner's `SENSITIVE_KEY_PATTERNS` gained the
-  // separator-bounded `sk-`/`sk_` prefix; `DATABASE_URL` is NOT expected to
-  // be caught and is asserted as a survivor below rather than omitted — see
-  // the residual test.
+  // separator-bounded `sk-`/`sk_` prefix; `DATABASE_URL` joined it when the
+  // owner's `SENSITIVE_KEY_PARTS` gained `databaseurl` and `dsn` (the
+  // connection-string password finding), and is asserted in the FATAL set
+  // below rather than left as a residual.
   const covered = [
     "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "API_KEY", "STRIPE_SECRET_KEY",
     "OPENAI_API_KEY", "APIKEY", "TOKEN", "PASSWORD", "SECRET",
-    "AUTHORIZATION", "CREDENTIAL", "BEARER", "SK_",
+    "AUTHORIZATION", "CREDENTIAL", "BEARER", "SK_", "DATABASE_URL",
   ];
   const leaked: string[] = [];
   for (const key of covered) {
@@ -1028,11 +1029,9 @@ test("★ THE FATAL, at the mechanism: a key's CASING cannot change the verdict 
   // above and FAILS this one the moment any entry is written `[Ss]ecret`
   // instead of being matched case-insensitively.
   //
-  // It also correctly reports the RESIDUAL name: `DATABASE_URL` survives in
-  // BOTH casings, which is what proves the residual is a VOCABULARY gap and
-  // not the casing defect coming back. A casing regression makes a pair
-  // DISAGREE — including the `SK_`/`sk_` pair, which must now agree on
-  // "dropped" rather than on "survives".
+  // `DATABASE_URL` is covered too, so the pair agrees on "dropped"; a casing
+  // regression makes a pair DISAGREE — including the `SK_`/`sk_` and
+  // `DATABASE_URL`/`database_url` pairs.
   const pairs: ReadonlyArray<readonly [string, string]> = [
     ["API_KEY", "api_key"], ["SECRET", "secret"], ["TOKEN", "token"],
     ["PASSWORD", "password"], ["AUTHORIZATION", "authorization"],
@@ -1050,34 +1049,18 @@ test("★ THE FATAL, at the mechanism: a key's CASING cannot change the verdict 
   }
 });
 
-test("debug-system: THE RESIDUAL, measured and named — the vocabulary's gap, not the matcher's", () => {
-  // ⚠ FILED, NOT FAKED, and deliberately NOT papered over from this repo's
-  // config. `DATABASE_URL` normalises to `databaseurl`, which contains no
-  // member of `SENSITIVE_KEY_PARTS`. (`SK_` used to sit beside it here; it is
-  // covered now that the owner's `SENSITIVE_KEY_PATTERNS` carries the
-  // separator-bounded `sk-`/`sk_` prefix — asserted in the FATAL test above.)
-  //
-  // The fix belongs in `src/secret-signals.ts`, which is the SINGLE OWNER of
-  // this question for the harness classifier, the web server's redactor AND
-  // the web server's config-write gate. Adding the name to
-  // `bridlewise.config.json` instead would close this sink and leave the
-  // other three open — which is precisely the two-owners-of-one-fact drift
-  // that `secret-signals.ts` was created to end, and which once left
-  // `authorization` writable through the web API while the harness classified
-  // it a secret. One addition there serves four consumers; one addition here
-  // serves one and hides the gap from the other three. `databaseurl` is left
-  // OPEN rather than added, because the same name is a legitimate, writable
-  // configurable (a `databaseUrl` config field), and classifying the NAME
-  // sensitive would make the web write gate refuse it — that trade belongs to
-  // the write gate's owner, not to this test.
-  //
-  // Pinned so the residual is a recorded fact with a measurement, and so that
-  // widening the owner's vocabulary REDS this test and forces the note to be
-  // rewritten in the same commit rather than silently drifting.
-  for (const key of ["DATABASE_URL"]) {
+test("debug-system: the FORMER RESIDUAL is closed — DATABASE_URL and DSN are dropped by the vocabulary owner", () => {
+  // This used to pin `DATABASE_URL` as a residual: `databaseurl` contained no
+  // member of `SENSITIVE_KEY_PARTS`, so a `process.env` snapshot reached the
+  // sink verbatim. The connection-string password finding moved the fix to
+  // the SINGLE OWNER (`src/secret-signals.ts`), where `databaseurl` and `dsn`
+  // now sit — so the harness classifier, the web redactor and the config-write
+  // gate all see one answer. Driven here to keep the former gap a measured fact
+  // rather than a note that quietly rots.
+  for (const key of ["DATABASE_URL", "DSN"]) {
     const r = driveKeyName(key);
-    assert.ok(r.survives, `${key} still survives — the residual, stated`);
-    assert.equal(r.removed, 0, `${key}: and the counter honestly reads 0 rather than claiming a drop`);
+    assert.ok(!r.survives, `${key} must not reach the sink`);
+    assert.equal(r.removed, 1, `${key}: dropped whole, counted once`);
   }
 });
 
@@ -1096,21 +1079,22 @@ test("debug-system: emptying `additionalSensitiveKeyNames` CANNOT disable the co
 });
 
 test("debug-system: `additionalSensitiveKeyNames` extends the gate, and the CODE owns the casing", () => {
-  const without = driveKeyName("DATABASE_URL");
+  const KEY = "ledgerPointer";
+  const without = driveKeyName(KEY);
   assert.ok(without.survives, "witness: uncovered without the extension, or the rows below prove nothing");
 
-  const extended = driveKeyName("DATABASE_URL", {
-    redaction: { ...DEBUG_CONFIG_DEFAULTS.redaction, additionalSensitiveKeyNames: ["database_url"] },
+  const extended = driveKeyName(KEY, {
+    redaction: { ...DEBUG_CONFIG_DEFAULTS.redaction, additionalSensitiveKeyNames: ["ledger_pointer"] },
   });
   assert.ok(!extended.survives, "the extension point works");
 
   // The name is supplied in a DIFFERENT casing and with a different separator
   // from the key it must match. Under the old mechanism the operator had to
-  // hand-fold the case into a regex and got `[Dd]atabase_url`, which misses
-  // `DATABASE_URL`. Here the code normalises both sides, so neither the
+  // hand-fold the case into a regex and got `[Ll]edger_pointer`, which misses
+  // `ledgerPointer`. Here the code normalises both sides, so neither the
   // operator's casing nor the key's can matter.
-  const oddlyCased = driveKeyName("DATABASE_URL", {
-    redaction: { ...DEBUG_CONFIG_DEFAULTS.redaction, additionalSensitiveKeyNames: ["DaTaBaSe Url"] },
+  const oddlyCased = driveKeyName(KEY, {
+    redaction: { ...DEBUG_CONFIG_DEFAULTS.redaction, additionalSensitiveKeyNames: ["LeDgEr PoInTeR"] },
   });
   assert.ok(!oddlyCased.survives, "an oddly-cased, oddly-separated NAME still matches — casing is normalised away");
 });

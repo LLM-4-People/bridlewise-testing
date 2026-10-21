@@ -23,7 +23,7 @@ Public-snapshot note: the public import sanitizes local home paths in the three
 text projections that carried one (`docs/README.md`,
 `artifacts/raw/benchmark-results-project-fs.json`, and
 `expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/verify-artifacts.mjs`):
-`/home/jadorais` became `/home/example`. `content-manifest.json` is
+The local home path was sanitized to `/home/example`. `content-manifest.json` is
 re-measured against the bytes this tree carries, so the "original" digest for
 those entries is the sanitized public byte string; the `.tar.gz` archives keep
 their exact pre-sanitization bytes. The identity/append-one-LF reconstruction

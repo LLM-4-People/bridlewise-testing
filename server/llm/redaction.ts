@@ -319,10 +319,14 @@ export function redactTurnTogether(input: readonly string[] | readonly ChatMessa
  * arguments are PARSED first so JSON-escaped quotes (`\"`) are unescaped
  * before detection — otherwise the credential-assignment regex would miss
  * `{"content":"const API_KEY = \"sk-...\""}` because the backslash breaks
- * the `["']?` delimiter match. Each string VALUE in the parsed object is
- * redacted; non-string leaves (numbers, booleans, null) pass through. The
- * redacted object is re-stringified so the JSON structure stays valid.
- * Falls back to raw text redaction when the arguments are not valid JSON.
+ * the `["']?` delimiter match. The parsed object is then walked TWICE: first
+ * by KEY, masking every string leaf under a sensitive key name (so a bare
+ * high-entropy value under `apiKey` or `headers.authorization` is caught even
+ * though the value itself matches no format), then by VALUE, redacting each
+ * remaining string leaf through the canonical detector. Non-string leaves
+ * (numbers, booleans, null) pass through. The redacted object is re-stringified
+ * so the JSON structure stays valid. Falls back to raw text redaction when the
+ * arguments are not valid JSON.
  *
  * THE MEMO. Loops, retries and parallel batches replay byte-identical
  * argument payloads, and every one of N identical calls used to pay the
@@ -397,7 +401,15 @@ function redactToolCallArgumentsWithPolicy(raw: string, policy: PrivacyPolicy, c
     if (contextualRedact === undefined) toolCallArgumentsMemo.set(raw, redacted);
     return redacted;
   }
-  const redacted = JSON.stringify(redactStringValuesDeep(parsed, new WeakMap(), policy, contextualRedact));
+  // FIELD-AWARE PRE-PASS. The value walker below sees only the string, never
+  // the key it sat under, so `{"apiKey":"<64 hex>"}` used to pass verbatim:
+  // the value carries no format and no declaration, while the KEY is the
+  // evidence. `redactBySensitiveKeys` owns the key-name rule (and the
+  // catalogue's single `isSensitiveKeyName`); the value walker then runs over
+  // its output and catches credentials in arbitrary content.
+  const redacted = JSON.stringify(
+    redactStringValuesDeep(redactBySensitiveKeys(parsed), new WeakMap(), policy, contextualRedact),
+  );
   if (contextualRedact === undefined) toolCallArgumentsMemo.set(raw, redacted);
   return redacted;
 }
@@ -468,8 +480,9 @@ function redactStringValuesDeep(value: unknown, seen: WeakMap<object, unknown>, 
  * so an escaped secret like `{"content":"const API_KEY = \"sk-...\""}` is
  * caught. Non-JSON strings keep the plain `redactContent` pass. This is a
  * superset for JSON strings; the LLM-bound path handles the same case via
- * `redactToolCallArguments` (field-aware); the user-display path is
- * field-agnostic so it applies the JSON-aware pass to every JSON-looking
+ * `redactToolCallArguments`, which is FIELD-AWARE (it masks values under
+ * sensitive key names first, then runs the value walker); the user-display
+ * path is field-agnostic so it applies the JSON-aware pass to every JSON-looking
  * string value (defense-in-depth — a future tool that returns a JSON
  * string with secrets is covered without a per-field change).
  *

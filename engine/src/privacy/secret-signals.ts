@@ -22,6 +22,8 @@ export const SENSITIVE_KEY_PARTS = deepFreeze([
   "bearer",
   "cookie",
   "credential",
+  "databaseurl",
+  "dsn",
   "onetimepassword",
   "otpseed",
   "passphrase",
@@ -107,6 +109,19 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     description: "credential assignment",
     admission: /(?:api[_ -]?key|authorization|password|private[_ -]?key|secret|session[_ -]?token)\s*[:=]\s*["']?(?![A-Za-z0-9+/_-]{16,}\s*\()(?!(?:[A-Za-z]*_[A-Za-z_]*|[0-9a-f]{32,})(?:[^A-Za-z0-9_$]|$))[A-Za-z0-9+/_-]{16,}/iu,
     classification: /(?:api[_ -]?key|authorization|password|private[_ -]?key|secret|session[_ -]?token)\s*[:=]\s*\S+/iu,
+  },
+  {
+    // A URL's userinfo is a credential when it carries a PASSWORD:
+    // `scheme://user:pass@host`. The benign twin `scheme://user@host` has no
+    // colon in the userinfo and cannot match — that is the veto, and it is
+    // structural rather than a keyword. The span stops at the `@` so the host
+    // and database name stay visible after redaction, and the lookahead
+    // requires a host so `scheme://user:pass@` (no host) is not a URL.
+    id: "connection-string",
+    category: "credential",
+    description: "connection-string credential",
+    admission: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]*:[^\s@/]+@(?=[^\s/])/iu,
+    classification: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]*:[^\s@/]+@(?=[^\s/])/iu,
   },
 ] as const);
 

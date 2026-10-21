@@ -180,7 +180,7 @@ What it does not prove: a 10x factor, a clean same-commit single-host comparison
 
 ## A fresh clone
 
-On 2026-10-20 a clean clone at `b866b826` was put through the documented path (in `/home/jadorais/fresh-floor`): `npm ci` in both trees, `npm run bootstrap:hooks`, `chmod 600 engine/bridlewise.config.json`, `make -C engine/guardian all`, `npm --prefix engine run build:bundle`, and `npm run corpus:fetch`.
+On 2026-10-20 a clean clone at `b866b826` was put through the documented path (in `/home/example/fresh-floor`): `npm ci` in both trees, `npm run bootstrap:hooks`, `chmod 600 engine/bridlewise.config.json`, `make -C engine/guardian all`, `npm --prefix engine run build:bundle`, and `npm run corpus:fetch`.
 
 | Step | Result |
 |---|---|

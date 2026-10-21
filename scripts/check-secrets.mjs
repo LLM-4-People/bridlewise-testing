@@ -17,8 +17,21 @@ import { extname, relative, resolve } from "node:path";
 const ROOT = resolve(process.cwd());
 const MAX_BYTES = 2 * 1024 * 1024;
 
+// Documented placeholders for a user's home directory. The path rule below
+// matches `/home/<name>` BARE or followed by a segment, so prose that cites
+// the checkout root is covered without naming a real account. A placeholder
+// must be a whole segment: `/home/example.` (sentence punctuation) is still
+// the documented placeholder; a segment that merely BEGINS with a placeholder
+// is not.
+const HOME_PATH_PLACEHOLDERS = [
+  "example", "user", "runner", "bridlewise", "ubuntu", "node", "app",
+  "workspace", "demo", "x", "u", "me", "alice", "bob", "jane", "jdoe",
+  "username", "test", "foo", "bar", "baz",
+];
+const HOME_PLACEHOLDER_GUARD = `(?!(?:${HOME_PATH_PLACEHOLDERS.join("|")})(?![A-Za-z0-9_-]))`;
+
 const FORBIDDEN_PATH = [
-  [/\/home\/(?!example(?:\/|$)|user(?:\/|$)|runner(?:\/|$)|bridlewise(?:\/|$)|ubuntu(?:\/|$)|node(?:\/|$)|app(?:\/|$)|workspace(?:\/|$)|demo(?:\/|$)|x(?:\/|$)|u(?:\/|$)|me(?:\/|$)|alice(?:\/|$)|bob(?:\/|$)|jane(?:\/|$)|jdoe(?:\/|$)|username(?:\/|$)|test(?:\/|$)|foo(?:\/|$)|bar(?:\/|$)|baz(?:\/|$))[A-Za-z0-9._-]+\//, "absolute home path"],
+  [new RegExp(`\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u"), "absolute home path"],
   [/git\.localserver\.ca\b/, "internal Git host"],
   [/api\.neuralwatt\.com\b/, "internal provider host"],
   [/\/tmp\/opencode\b/, "internal scratch path"],
@@ -52,13 +65,34 @@ const CONTENT_RULES = [
   },
 ];
 
+// The ONLY content allowlist is a set of EXACT placeholder values. A keyword
+// anywhere on the line ("EXAMPLE", "PLANT", "placeholder") is not evidence
+// that a token is synthetic: a real key pasted beside the word that was meant
+// to excuse it must still fail.
+const PLACEHOLDER_TOKENS = new Set([
+  "AKIAIOSFODNN7EXAMPLE",
+  "sk-...",
+  "sk-AAAAAAAAAAAAAAAAAAAAAAAA",
+  "ghp_AAAAAAAAAAAAAAAAAAAAAAAA",
+  "sk_abcdefghijklmnopqrstuvwx",
+  "ghp_abcdefghijklmnopqrstuvwx",
+  "sk-abcdefghijklmnopqrstuvwxyz123456",
+]);
+
+// `String#matchAll` needs a global pattern; the catalogue stays non-global so
+// the same entry can be used for a plain `test` elsewhere.
+const CONTENT_MATCHERS = CONTENT_RULES.map((rule) => ({
+  ...rule,
+  pattern: new RegExp(rule.pattern.source, rule.pattern.flags.includes("g") ? rule.pattern.flags : `${rule.pattern.flags}g`),
+}));
+
+// Test and benchmark fixtures may plant credentials; shipped source and
+// documentation may not. `.gitleaks.toml` is configuration that carries the
+// placeholder vocabulary itself.
 const SAFE_FIXTURE_PATHS = [
   /^engine\/test\//,
   /^tests\//,
   /^bench\//,
-  /^engine\/src\/privacy\//,
-  /^engine\/src\/shared\/debug\//,
-  /^docs\//,
   /^\.gitleaks\.toml$/,
 ];
 
@@ -123,17 +157,20 @@ for (const path of trackedFiles()) {
     for (const [re, detail] of FORBIDDEN_PATH) {
       if (re.test(line)) findings.push({ path: normalized, line: i + 1, rule: "forbidden-path", detail, fixture: isSafeFixture(normalized) });
     }
-    for (const rule of CONTENT_RULES) {
-      if (!rule.pattern.test(line)) continue;
-      if (rule.id === "aws-access-key-shape" && line.includes("AKIAIOSFODNN7EXAMPLE")) continue;
-      if (/PLANT|LIVEKEY|EXAMPLE|placeholder|synthetic/i.test(line)) continue;
-      findings.push({
-        path: normalized,
-        line: i + 1,
-        rule: rule.id,
-        detail: rule.detail,
-        fixture: isSafeFixture(normalized),
-      });
+    for (const rule of CONTENT_MATCHERS) {
+      rule.pattern.lastIndex = 0;
+      for (const match of line.matchAll(rule.pattern)) {
+        // Value-exact allowlisting: only the placeholder spelling above is
+        // synthetic, never a line that happens to contain a keyword.
+        if (PLACEHOLDER_TOKENS.has(match[0])) continue;
+        findings.push({
+          path: normalized,
+          line: i + 1,
+          rule: rule.id,
+          detail: rule.detail,
+          fixture: isSafeFixture(normalized),
+        });
+      }
     }
   }
 }
@@ -152,7 +189,10 @@ for (const f of findings) {
   }
   const location = f.line > 0 ? `${f.path}:${f.line}` : f.path;
   console.error(`${location}: ${f.rule}: ${f.detail}`);
-  if (!f.fixture && f.rule !== "private-key-block") hard += 1;
+  // EVERY non-fixture finding is hard. The `fixture` early-continue above is
+  // the only allowlisting decision; a rule may not carve out a second one —
+  // that is how a private-key block outside a fixture certified a tree.
+  hard += 1;
 }
 
 if (hard === 0) {

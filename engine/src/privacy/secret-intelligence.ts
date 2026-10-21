@@ -1879,7 +1879,7 @@ function allPartsAreWords(token: string): boolean {
   // `memory-blob-XYZ-12345`, because the trailing `12345` is not
   // `[A-Za-z]+` and the whole thing therefore failed to look like a phrase.
   // Words and numbers joined by punctuation are a label; a credential's
-  // segments are neither — `sk-ant-api03-Ab3xQ9zLmN2p` has `api03`, which is
+  // segments are neither — `sk-ant-api03-<random tail>` has `api03`, which is
   // a word and a number FUSED, and that is the difference.
   const isWord = (p: string): boolean => /^[A-Za-z]+$/u.test(p);
   const isNumber = (p: string): boolean => /^[0-9]+$/u.test(p);
@@ -1890,7 +1890,7 @@ function allPartsAreWords(token: string): boolean {
   // the label veto missed and a filename was masked.
   //
   // Bounded at six characters, and that bound is what keeps a credential
-  // out: `api03` in `sk-ant-api03-Ab3xQ9zLmN2p…` is also word-then-number,
+  // out: `api03` in `sk-ant-api03-<random tail>` is also word-then-number,
   // but the segment BESIDE it is sixty random characters, and a long
   // low-vowel run is refused below whatever its neighbours look like.
   const isShortWordNumber = (p: string): boolean =>

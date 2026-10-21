@@ -91,6 +91,58 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   // code would have fallen through to a misleading 500. Mapped here so the
   // default is correct by default (deny-by-default completeness).
   validation_failed: 400,
+  // ── The DECLARED input-validation vocabulary ─────────────────────────
+  // The `invalid_`/`missing_` prefix admits a code for STATUS resolution
+  // without a map entry. That is deliberately NOT a wire vocabulary: a
+  // prefix code's suffix can be caller-shaped (a path, an id, a field), so
+  // the router forwards a code and its sentence only when this map DECLARES
+  // the exact code. The route-level schema guards and typed validation
+  // helpers below use authored codes, so they are declared here — and a
+  // dynamic `invalid_<path>` stays undeclared and gets the fixed body.
+  invalid_json: 400,
+  invalid_action_body: 400,
+  invalid_arm_predicate: 428,
+  invalid_auto_check_input: 400,
+  invalid_auto_check_scope: 400,
+  invalid_block_id: 400,
+  invalid_block_input: 400,
+  invalid_chat_input: 400,
+  invalid_config_document: 400,
+  invalid_config_update: 400,
+  invalid_confined_stdio: 400,
+  invalid_create_body: 400,
+  invalid_create_dir_body: 400,
+  invalid_custody_file: 400,
+  invalid_customization_body: 400,
+  invalid_customization_value: 428,
+  invalid_delete_body: 400,
+  invalid_direction: 400,
+  invalid_edit_body: 400,
+  invalid_git_ref: 400,
+  invalid_mcp_server: 400,
+  invalid_memory_search: 400,
+  invalid_memory_store: 400,
+  invalid_message_input: 400,
+  invalid_metrics_input: 400,
+  invalid_mkdir_input: 400,
+  invalid_performance_budget: 400,
+  invalid_project_input: 400,
+  invalid_project_update: 400,
+  invalid_query: 400,
+  invalid_recycle_id: 400,
+  invalid_restore_body: 400,
+  invalid_resume_point: 400,
+  invalid_run_id: 400,
+  invalid_run_start: 400,
+  invalid_safety_trigger: 400,
+  invalid_steer_input: 400,
+  invalid_tier: 400,
+  invalid_timeline_query: 400,
+  invalid_timeline_ref_input: 400,
+  invalid_user_id: 400,
+  invalid_write_body: 400,
+  missing_performance_budget: 400,
+  missing_server_id: 400,
   // editor-bridge / filesystem validation codes
   path_traversal: 403,
   // A file inside the project that is ALSO reachable from outside it (a second
@@ -752,6 +804,42 @@ export function isKnownErrorCode(code: string): boolean {
 }
 
 /**
+ * Whether the taxonomy DECLARES this exact code.
+ *
+ * `isKnownErrorCode` answers the wider question — "can a status be resolved
+ * for this code?" — and deliberately admits the `invalid_`/`missing_` naming
+ * conventions. That is a STATUS convention, not a wire vocabulary: the suffix
+ * of such a code is caller-shaped (it can be a path, an id, a field name), so
+ * forwarding its spelling or the sentence beside it is how an absolute path
+ * reached an error body. Projections that put a code on the wire ask THIS
+ * question and use {@link inputConventionWire} for the convention codes.
+ */
+export function isDeclaredErrorCode(code: string): boolean {
+  return KNOWN_ERROR_CODES.includes(code);
+}
+
+/** What an undeclared input-convention code is allowed to say on the wire. */
+export type InputConventionWire = Readonly<{ code: string; message: string }>;
+
+/**
+ * The fixed wire answer for a code admitted only by the input-validation
+ * convention. The code and sentence are AUTHORED here — the caller's dynamic
+ * suffix and its message (which may name a path or a value) never travel.
+ * Both fixed codes are declared members of `CODE_STATUS_MAP` (400).
+ */
+const INPUT_CONVENTION_WIRE: Readonly<Record<"invalid" | "missing", InputConventionWire>> = Object.freeze({
+  invalid: Object.freeze({ code: "validation_failed", message: "The request did not pass validation." }),
+  missing: Object.freeze({ code: "bad_request", message: "The request is missing a required value." }),
+});
+
+/** The fixed wire code+message for an undeclared `invalid_`/`missing_` code. */
+export function inputConventionWire(code: string): InputConventionWire | undefined {
+  if (code.startsWith("invalid_")) return INPUT_CONVENTION_WIRE.invalid;
+  if (code.startsWith("missing_")) return INPUT_CONVENTION_WIRE.missing;
+  return undefined;
+}
+
+/**
  * Extract the taxonomy code from a thrown value — the SINGLE extractor.
  *
  * Typed errors (the `WebError` hierarchy server-side, `ClientError`
@@ -798,10 +886,14 @@ export function isTransportCode(code: string): code is TransportCode {
 }
 
 /**
- * The status a code maps to, applying the naming conventions first and
- * falling back to 500. The single resolution used by both sides.
+ * The status a code maps to. A DECLARED code's map entry wins (including a
+ * declared code that also carries the `invalid_`/`missing_` prefix); an
+ * undeclared convention code resolves to 400; everything else falls back to
+ * 500. The single resolution used by both sides.
  */
 export function resolveStatus(code: string): number {
+  const mapped = statusForCode(code);
+  if (mapped !== undefined) return mapped;
   if (isClientInputCode(code)) return 400;
-  return statusForCode(code) ?? 500;
+  return 500;
 }
