@@ -247,7 +247,10 @@ export const MEASUREMENT_FINDINGS: readonly MeasurementFinding[] = Object.freeze
 export const NON_MEASUREMENT_GATES: Readonly<Record<string, string>> = Object.freeze({
   "command-completion": "the command runner's terminal completion, not a measured quantity",
   "current-qualification": "identity and completeness of the current invocation, not a number",
+  "engine-execution": "the engine run's independent execution outcome, not a measured quantity",
   "engine-summary": "the engine receipt's publication completeness, not a measurement",
+  "engine-test-results": "the engine receipt's test census completeness, not a measurement",
+  "engine-${reason}": "the engine receipt's reason-coded publication outcomes; each reason names a withheld or incomplete receipt, not a measurement",
   "harness-folder": "a before/after identity comparison of the harness folder",
   "module-census": "the population of terminal test modules, not a cost or duration",
   "module-errors": "presence of modules with errors, not a measured value",
@@ -259,15 +262,41 @@ export const NON_MEASUREMENT_GATES: Readonly<Record<string, string>> = Object.fr
   "web-summary": "the web receipt's publication completeness, not a measurement",
 });
 
-/** Sources whose `gate:` literals are part of the declared gate universe. */
-export const GATE_SOURCE_FILES: readonly string[] = Object.freeze([
-  "engine/src/shared/budget-verdict.ts",
-  "engine/scripts/tooling/run-tests.ts",
-  "engine/src/shared/run-history.ts",
-  "tests/reporters/budget-reporter.ts",
-  "scripts/testing/performance-measurements.ts",
-  "tests/performance/regression.test.ts",
-]);
+/**
+ * Exported functions the producer-universe scan reads as measurement-shaped
+ * but that compute no judged, recorded or quoted signal.
+ *
+ * THE SAME PATTERN AS {@link NON_MEASUREMENT_GATES}, and for the same reason:
+ * the alternative is a prefix allowlist, which is how four registered
+ * producers sat outside the scan while its failure text claimed "no opt-out
+ * list". A declaration here is a sentence a reader can argue with, and the
+ * guard refuses an entry whose function the scan no longer finds (a stale
+ * exemption hides the next new producer). Each key is `module::symbol`.
+ */
+export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Object.freeze({
+  "engine/scripts/tooling/compile-cache.ts::pruneCacheDirectory": "prunes the V8 compile cache and reports how many entries it removed; a maintenance count, not a judged signal",
+  "engine/scripts/tooling/compile-cache.ts::scanCacheDirectory": "counts cache entries so the prune can bound itself; a maintenance count, not a measurement",
+  "engine/scripts/tooling/test-run-lock.ts::testFileCountOfArgs": "parses the runner's argument vector into a test-file count; an input parse, not a measurement",
+  "engine/src/kernel/integrity.ts::sha256": "a content identity hash; not a duration, load or cost the floor judges",
+  "engine/src/kernel/integrity.ts::sha256Bytes": "a content identity hash over a buffer; identity, not a measurement",
+  "engine/src/kernel/integrity.ts::gitBlobId": "git's blob identity for content; an object id, not a measurement",
+  "engine/src/workflow/test-result-collector.ts::loadPriorTestFileDurations": "reads the engine suite's scheduling cache written by another runner; this floor neither judges nor records it",
+  "engine/src/workflow/test-result-collector.ts::writeTestFileDurations": "writes the engine suite's scheduling cache; a scheduling input, not a recorded signal",
+  "engine/src/shared/flake-reproduction.ts::readFlakeReproductions": "reads recorded flake reproductions; the file contents are evidence, not a quantity this module computes",
+  "engine/src/process/supervised-run.ts::readSupervisorReceipt": "reads the supervisor's terminal receipt; a terminal outcome, not a quantity",
+  "tests/performance/lib/perf-harness.ts::seedChatMessagesViaDb": "seeds the performance fixture's chat rows; fixture setup, not a measurement",
+  "engine/src/workflow/hash-binding-registry.ts::computeBindingHash": "content hash of a binding fixture; identity, not a measured quantity",
+  "engine/src/workflow/hash-binding-registry.ts::fixtureDigestBindings": "digests the fixture bindings for the guard's own comparison; identity, not a measurement",
+  "engine/src/workflow/hash-binding-registry.ts::repairBinding": "repairs a stored binding fixture; no measurement",
+  "src/state/chat-messages.ts::toolCallDurationMs": "the UI's tool-call elapsed time for display; not judged, recorded or quoted by the floor",
+  "src/state/chat-messages.ts::healStrandedToolCallsFromLedger": "repairs chat state from the ledger using wall-clock stamps; a state repair, not a recorded measurement",
+  "src/state/chat-messages.ts::settleHydratedRunningToolCalls": "settles hydrated running tool calls; a state repair, not a measurement",
+  "engine/src/process/process-facts.ts::startWallTimeMsOf": "reads a process start stamp for the instrument lock's identity; identity, not a duration",
+  "engine/src/process/process-facts.ts::processIdentity": "assembles the process's identity for the instrument lock; identity, not a measurement",
+  "server/observability/metrics-recorder.ts::getTokenThroughput": "returns the recorder's live token-throughput estimate for the dashboard's history point; not judged, recorded or quoted by the floor",
+  "server/observability/metrics-recorder.ts::recordLlmCall": "records one LLM call into the metrics collector; a recording hook, not a computed quantity",
+  "server/observability/metrics-recorder.ts::recordToolCall": "records one tool call into the metrics collector; a recording hook, not a computed quantity",
+});
 
 /** The one document that owns the registry's reader-facing contract. */
 export const MEASUREMENT_DOC_SOURCE = "docs/testing.md";
@@ -421,16 +450,16 @@ const PERF_STRUCTURAL: LoadBehaviour = {
 };
 
 const WEB_PERF_ENTRIES: readonly MetricEntry[] = Object.freeze([
-  perfBudget("lcpMaxMs", "milliseconds", "lcpMaxMs:\\s*measured\\(report\\.pageLoad\\?\\.lcp\\)", "page LCP was measured (its budget is judged once, by the one budget judgement)", PERF_LATENCY_FINDING, { kind: "unreachable", reason: "a paint timing of zero cannot occur with a live observer; absent is null" }),
-  perfBudget("clsMax", "unitless layout-shift score", "clsMax:\\s*measured\\(report\\.pageLoad\\?\\.cls\\)", "page CLS was measured (its budget is judged once, by the one budget judgement)", { kind: "sensitive", sensitivity: "layout-shift timing: the measured band moved with the host, so the score is timing-sensitive", bound: null, finding: "F-PERF-CLS-NO-BOUND" }, { kind: "honest", witness: "the layout-shift observer was live (clsEntries measured)", reason: "zero shifts with a live observer is a measured answer" }),
+  perfBudget("lcpMaxMs", "milliseconds", "lcpMaxMs:\\s*finiteNumber\\(report\\.pageLoad\\?\\.lcp\\)", "page LCP was measured (its budget is judged once, by the one budget judgement)", PERF_LATENCY_FINDING, { kind: "unreachable", reason: "a paint timing of zero cannot occur with a live observer; absent is null" }),
+  perfBudget("clsMax", "unitless layout-shift score", "clsMax:\\s*finiteNumber\\(report\\.pageLoad\\?\\.cls\\)", "page CLS was measured (its budget is judged once, by the one budget judgement)", { kind: "sensitive", sensitivity: "layout-shift timing: the measured band moved with the host, so the score is timing-sensitive", bound: null, finding: "F-PERF-CLS-NO-BOUND" }, { kind: "honest", witness: "the layout-shift observer was live (clsEntries measured)", reason: "zero shifts with a live observer is a measured answer" }),
   perfBudget("longTaskWorstMaxMs", "milliseconds", "longTaskWorstMaxMs:\\s*worst\\(", "the worst long task was measured (its budget is judged once, by the one budget judgement)", PERF_LATENCY_FINDING, { kind: "honest", witness: "the long-task observer was live (eventCount-style witness field)", reason: "zero long tasks with a live observer is a measured answer" }),
-  perfBudget("longTaskTotalMaxMs", "milliseconds", "longTaskTotalMaxMs:\\s*measured\\(report\\.pageLoad\\?\\.longTaskTotalMs\\)", "the total long-task time was measured (its budget is judged once, by the one budget judgement)", PERF_LATENCY_FINDING, { kind: "honest", witness: "the long-task observer was live", reason: "zero total long-task time with a live observer is a measured answer" }),
+  perfBudget("longTaskTotalMaxMs", "milliseconds", "longTaskTotalMaxMs:\\s*finiteNumber\\(report\\.pageLoad\\?\\.longTaskTotalMs\\)", "the total long-task time was measured (its budget is judged once, by the one budget judgement)", PERF_LATENCY_FINDING, { kind: "honest", witness: "the long-task observer was live", reason: "zero total long-task time with a live observer is a measured answer" }),
   perfBudget("tabSwitchMaxMs", "milliseconds", "tabSwitchMaxMs:\\s*okTabs", "every tab switch was measured (its budget is judged once, by the one budget judgement)", PERF_LATENCY_FINDING, { kind: "unreachable", reason: "a measured switch has a positive duration; absence is null" }),
   perfBudget("tabDomNodesMax", "DOM node count", "tabDomNodesMax:\\s*okTabs", "every tab DOM node count was measured (its budget is judged once, by the one budget judgement)", PERF_STRUCTURAL, { kind: "honest", witness: "a measured tab population (okTabs) and a DOM snapshot", reason: "a zero-node tab is a measured structural answer; the population arm refuses an empty tab set" }),
   perfBudget("typingMeanMaxMs", "milliseconds", "typingMeanMaxMs:\\s*typing", "chat input typing latency was measured, settle-inclusive (its budget is judged once, by the one budget judgement)", PERF_LATENCY_FINDING, { kind: "unreachable", reason: "a typing sample has a positive duration; absence is null" }),
   perfBudget("apiResponseMaxMs", "milliseconds", "apiResponseMaxMs:\\s*\\(report\\.networkSummary", "the slowest API response was measured (its budget is judged once, by the one budget judgement)", PERF_LATENCY_FINDING, { kind: "unreachable", reason: "a timed response has a positive duration; absence is null" }),
-  perfBudget("longSessionHeapGrowthMaxMb", "megabytes", "longSessionHeapGrowthMaxMb:\\s*measured\\(report\\.longSession", "long-session heap growth was measured (its budget is judged once, by the one budget judgement)", { kind: "sensitive", sensitivity: "heap growth depends on collector timing and the sampling window, not only on the tree", bound: null, finding: "F-PERF-MEMORY-NO-BOUND" }, { kind: "honest", witness: "the memory snapshots were captured", reason: "zero growth with captured snapshots is a measured answer" }),
-  perfBudget("longSessionDomGrowthMax", "DOM node count", "longSessionDomGrowthMax:\\s*measured\\(report\\.longSession", "long-session DOM growth was measured (its budget is judged once, by the one budget judgement)", { kind: "agnostic", normalization: "DOM node count between captured snapshots; a structural count, not a duration", proof: "domNodeGrowth" }, { kind: "honest", witness: "the memory/DOM snapshots were captured", reason: "zero growth with captured snapshots is a measured answer" }),
+  perfBudget("longSessionHeapGrowthMaxMb", "megabytes", "longSessionHeapGrowthMaxMb:\\s*finiteNumber\\(report\\.longSession", "long-session heap growth was measured (its budget is judged once, by the one budget judgement)", { kind: "sensitive", sensitivity: "heap growth depends on collector timing and the sampling window, not only on the tree", bound: null, finding: "F-PERF-MEMORY-NO-BOUND" }, { kind: "honest", witness: "the memory snapshots were captured", reason: "zero growth with captured snapshots is a measured answer" }),
+  perfBudget("longSessionDomGrowthMax", "DOM node count", "longSessionDomGrowthMax:\\s*finiteNumber\\(report\\.longSession", "long-session DOM growth was measured (its budget is judged once, by the one budget judgement)", { kind: "agnostic", normalization: "DOM node count between captured snapshots; a structural count, not a duration", proof: "domNodeGrowth" }, { kind: "honest", witness: "the memory/DOM snapshots were captured", reason: "zero growth with captured snapshots is a measured answer" }),
   perfBudget("longChatRenderMaxMs", "milliseconds", "longChatRenderMaxMs:\\s*longChat", "the long-chat (1000 messages) render was measured (its budget is judged once, by the one budget judgement)", PERF_LATENCY_FINDING, { kind: "unreachable", reason: "a render has a positive duration; absence is null" }),
   perfBudget("manyProjectsRenderMaxMs", "milliseconds", "manyProjectsRenderMaxMs:\\s*manyProjects", "the 10k-projects sidebar render was measured (its budget is judged once, by the one budget judgement)", PERF_LATENCY_FINDING, { kind: "unreachable", reason: "a render has a positive duration; absence is null" }),
   perfBudget("viewportLcpMaxMs", "milliseconds", "viewportLcpMaxMs:\\s*worst\\(", "every viewport LCP was measured (its budget is judged once, by the one budget judgement)", PERF_LATENCY_FINDING, { kind: "unreachable", reason: "a paint timing of zero cannot occur with a live observer; absence is null" }),
@@ -486,7 +515,7 @@ const PER_FILE_OCCUPANCY: MetricEntry = {
   ],
   producer: {
     module: "engine/src/shared/test-costs.ts",
-    symbol: "summarizeTestCosts",
+    symbol: "totalModuleOccupancyMs",
     derivation: ["OCCUPANCY_FIELDS"],
     forbids: ["cpuUsage(", "endTime", "startTime", "wallClockMs"],
   },
@@ -579,7 +608,7 @@ const SHARD_WEIGHT: MetricEntry = {
   ],
   producer: {
     module: "scripts/test-shard-manifest.mjs",
-    symbol: "measureManifest",
+    symbol: "measuredFileDurationMs",
     derivation: ["endTime\\s*-\\s*\\w+\\.?startTime"],
     forbids: ["cpuUsage(", "cpuMs", "wallClockMs"],
   },
@@ -679,12 +708,19 @@ const AMBIENT_LOAD: MetricEntry = {
   producer: {
     module: "engine/src/shared/ambient-load.ts",
     symbol: "readAmbientLoadPerCpu",
-    derivation: ["load1\\s*/\\s*cpuCount", "loads?\\[0\\]\\s*/\\s*\\w+"],
+    derivation: [
+      "load1\\s*/\\s*cpuCount",
+      "loads?\\[0\\]\\s*/\\s*\\w+",
+      "\\bl1\\s*/\\s*cores\\.length\\b",
+    ],
     forbids: ["wallClock", "performance.now(", "cpuUsage("],
   },
   consumers: [
     { kind: "gate", id: "cpu-per-test-file", source: "engine/src/shared/budget-verdict.ts" },
     { kind: "record", id: "load1PerCpuAtStart", source: "tests/reporters/budget-reporter.ts" },
+    { kind: "record", id: "loadAverage1m", source: "server/observability/metrics-bridge.ts" },
+    { kind: "record", id: "loadAverage1m", source: "src/state/metrics.ts" },
+    { kind: "record", id: "loadAvg1", source: "engine/src/performance/diagnostic-modes.ts" },
     { kind: "record", id: "ambientLoadPerCpu", source: "engine/scripts/tooling/run-tests.ts" },
     { kind: "doc", id: "ambient load", source: MEASUREMENT_DOC_SOURCE, anchor: "ambient load" },
   ],

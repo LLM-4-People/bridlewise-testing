@@ -9,7 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, copyFileSync,
+  mkdirSync, writeFileSync, rmSync, existsSync, readFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";

@@ -21,8 +21,6 @@ import { getTimelineQuery } from "../../server/observability/timeline-bridge.ts"
 import {
   discardedMessageIdsForChat,
   discardedRunIdsForChat,
-  recordRestore,
-  withdrawnStretchById,
 } from "../../server/run/rewind.ts";
 import { APPEND_ONLY_TRIGGERS } from "../../engine/src/timeline/timeline-schema.ts";
 import { serverConfig } from "../../server/kernel/config.ts";

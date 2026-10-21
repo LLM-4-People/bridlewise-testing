@@ -285,10 +285,19 @@ describe("the stripper family's path-required doors", () => {
     // honest witness that the path is REQUIRED, because an optional path is
     // the template-default trap reopened and the typecheck would accept
     // every 1-argument call again.
-    const helperSource = viewedSourceOf(HELPER_CANONICAL);
+    // The comments-only doors are implemented by the VIEW OWNER and
+    // re-exported here (one implementation for the engine guards and this
+    // suite). The declaration is checked where it lives, so moving the
+    // implementation does not weaken the shape: the re-export cannot widen
+    // the signature.
+    const declarationSources = [
+      viewedSourceOf(HELPER_CANONICAL),
+      viewedSourceOf(resolve("engine/scripts/verification/source-view.ts")),
+    ];
     for (const door of PATH_REQUIRED_DOORS) {
       expect(
-        new RegExp(`export function ${door}\\(src: string, path: string\\):`).test(helperSource),
+        declarationSources.some((source) =>
+          new RegExp(`export function ${door}\\(src: string, path: string\\):`).test(source)),
         `${door} must declare its path as REQUIRED — an optional path is the template-default trap reopened`,
       ).toBe(true);
     }

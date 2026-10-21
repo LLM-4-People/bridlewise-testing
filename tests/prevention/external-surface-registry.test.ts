@@ -588,6 +588,28 @@ function audit(tree: Tree): Finding[] {
     compareUsedIn(local, actualLocalFiles.get(local.id) ?? new Set<string>(), "local-workflow-usedin-mismatch");
   }
 
+  // ── one CodeQL release across every entry ─────────────────────────────
+  // The three entries are ONE release, and the registry's own drift texts
+  // say so. Each entry is checked against its workflow independently, so a
+  // half-upgraded tree (init at v4.39.0, upload-sarif still v4.38.0) used to
+  // pass: every `uses:` matched its own entry, and the two jobs silently ran
+  // different CodeQL versions. The release is a property of the SET.
+  const codeql = actions.filter((surface) => surface.id.startsWith("github/codeql-action/"));
+  const releases = new Map<string, string[]>();
+  for (const surface of codeql) {
+    const key = `${String(surface.pinned["commit"])}@${String(surface.pinned["version"])}`;
+    releases.set(key, [...(releases.get(key) ?? []), surface.id]);
+  }
+  if (codeql.length !== 3) {
+    findings.push({ rule: "codeql-release-mixed", detail: `expected the three CodeQL actions (init, analyze, upload-sarif), found ${codeql.length}` });
+  }
+  if (releases.size > 1) {
+    findings.push({
+      rule: "codeql-release-mixed",
+      detail: `CodeQL actions declare ${releases.size} releases: ${[...releases].map(([release, ids]) => `${release} (${ids.join(", ")})`).join("; ")}`,
+    });
+  }
+
   // ── images ────────────────────────────────────────────────────────────
   const images = ofKind("container-image");
   const actualImageFiles = new Map<string, Set<string>>();
@@ -650,6 +672,33 @@ function audit(tree: Tree): Finding[] {
     for (let index = 0; index < lines.length; index += 1) {
       const match = /^\s*(?:image|container):\s*(\S+)\s*$/.exec(lines[index] ?? "");
       if (match?.[1] !== undefined && !path.endsWith("devcontainer.json")) checkImage(path, index + 1, match[1]);
+    }
+  }
+  // Workflow-level containers are images too. The scan used to walk `build`
+  // only, so a job's `container: image:` was outside the checked population
+  // entirely: no digest requirement, no declaration, no usedIn accounting.
+  for (const path of workflows) {
+    if (!tree.has(path)) continue;
+    const lines = tree.read(path).split(/\r?\n/);
+    let containerIndent: number | null = null;
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index] ?? "";
+      const indent = /^\s*/u.exec(line)?.[0].length ?? 0;
+      if (containerIndent !== null && line.trim().length > 0 && indent <= containerIndent) containerIndent = null;
+      const inline = /^(\s*)container:\s*(\S+)\s*$/.exec(line);
+      if (inline?.[2] !== undefined && inline[2] !== "{}") {
+        checkImage(path, index + 1, inline[2]);
+        continue;
+      }
+      const block = /^(\s*)container:\s*$/.exec(line);
+      if (block !== null) {
+        containerIndent = block[1]?.length ?? 0;
+        continue;
+      }
+      const image = /^(\s+)image:\s*(\S+)\s*$/.exec(line);
+      if (image?.[2] !== undefined && containerIndent !== null && (image[1]?.length ?? 0) > containerIndent) {
+        checkImage(path, index + 1, image[2]);
+      }
     }
   }
   if (images.length === 0) findings.push({ rule: "image-undeclared", detail: "the registry declares no container image" });
@@ -726,26 +775,47 @@ function audit(tree: Tree): Finding[] {
           findings.push({ rule: "node-range", detail: `${path} declares ${JSON.stringify(engine)}, which is outside the floor range ${JSON.stringify(floorRange)}` });
         }
       }
+      // ONE pin, read from .nvmrc. The exact version used to be a literal in
+      // eight workflow sites, so a Node move touched nine files and a missed
+      // site was caught only by comparing each literal — the copies were the
+      // drift. Every setup-node call now names the pin FILE and a workflow
+      // that spells an exact `node-version:` is refused.
+      const pinFile = ".nvmrc";
+      if (!pinFiles.includes(pinFile)) {
+        findings.push({ rule: "node-range", detail: `the node-runtime surface must list ${pinFile} in pinFiles` });
+      }
       for (const path of workflows) {
         if (!tree.has(path)) continue;
         const text = tree.read(path);
         const lines = text.split(/\r?\n/);
+        let pinFileRefs = 0;
         for (let index = 0; index < lines.length; index += 1) {
-          const match = /^\s*node-version:\s*(\S+)\s*$/.exec(lines[index] ?? "");
-          if (match?.[1] === undefined) continue;
-          const value = match[1].replace(/^["']|["']$/g, "");
-          if (value.includes("${{")) {
-            findings.push({ rule: "node-range", detail: `${path}:${index + 1} node-version is computed at run time: ${value}` });
-          } else if (value !== exact) {
-            findings.push({ rule: "node-range", detail: `${path}:${index + 1} pins Node ${value}, but the floor pin is ${exact}` });
+          const literal = /^\s*node-version:\s*(\S+)\s*$/.exec(lines[index] ?? "");
+          if (literal?.[1] !== undefined) {
+            findings.push({
+              rule: "node-range",
+              detail: `${path}:${index + 1} spells node-version ${JSON.stringify(literal[1].replace(/^["']|["']$/g, ""))}; the pin lives in ${pinFile}, so say node-version-file: ${pinFile}`,
+            });
           }
+          const ref = /^\s*node-version-file:\s*(\S+)\s*$/.exec(lines[index] ?? "");
+          if (ref?.[1] !== undefined) {
+            const value = ref[1].replace(/^["']|["']$/g, "");
+            if (value !== pinFile) {
+              findings.push({ rule: "node-range", detail: `${path}:${index + 1} reads Node from ${value}, not ${pinFile}` });
+            } else {
+              pinFileRefs += 1;
+            }
+          }
+        }
+        if (/uses:\s*actions\/setup-node@/u.test(text) && pinFileRefs === 0) {
+          findings.push({ rule: "node-range", detail: `${path} sets up Node but does not read ${pinFile}` });
         }
       }
 
       const actualNodeFiles = new Set<string>([...pinFiles, ...floorManifests]);
       for (const path of workflows) {
         if (!tree.has(path)) continue;
-        if (/^\s*node-version:\s*\S+\s*$/m.test(tree.read(path))) actualNodeFiles.add(path);
+        if (/^\s*node-version-file:\s*\.nvmrc\s*$/m.test(tree.read(path))) actualNodeFiles.add(path);
       }
       compareUsedIn(node, actualNodeFiles, "node-usedin-mismatch");
 
@@ -968,11 +1038,23 @@ function audit(tree: Tree): Finding[] {
   }
 
   // ── apt packages ─────────────────────────────────────────────────────
+  // The declaration carries the whole install command, flags included. The
+  // guard used to read only the package tokens, so a line that added
+  // `--no-install-recommends` or dropped `-y` still "matched" a declaration
+  // whose `install` string said something else. Normalise both sides to the
+  // same command text and compare them as text.
+  const normalizeInstall = (command: string): string =>
+    command.replace(/\\\s*$/u, "").trim().replace(/\s+/gu, " ").replace(/^sudo\s+/u, "");
   const declaredPackages = new Set<string>();
+  const declaredInstalls = new Map<string, string>();
   for (const surface of ofKind("system-package")) {
     const name = surface.pinned["package"];
-    if (typeof name === "string") declaredPackages.add(name);
-    else findings.push({ rule: "registry-schema", detail: `${surface.id} needs a package name` });
+    const install = surface.pinned["install"];
+    if (typeof name === "string") {
+      declaredPackages.add(name);
+      if (typeof install === "string" && install.trim().length > 0) declaredInstalls.set(name, normalizeInstall(install));
+      else findings.push({ rule: "registry-schema", detail: `${surface.id} needs the install command it declares` });
+    } else findings.push({ rule: "registry-schema", detail: `${surface.id} needs a package name` });
   }
   const actualPackageFiles = new Map<string, Set<string>>();
   for (const { path, text } of universeTexts) {
@@ -987,6 +1069,14 @@ function audit(tree: Tree): Finding[] {
             detail: `${path}:${lineOf(text, match[0])} installs ${token}, which the registry does not declare`,
           });
         } else {
+          const actualInstall = normalizeInstall(`apt-get install ${captured}`);
+          const declared = declaredInstalls.get(token);
+          if (declared !== undefined && declared !== actualInstall) {
+            findings.push({
+              rule: "system-package-install-drift",
+              detail: `${path}:${lineOf(text, match[0])} installs with ${JSON.stringify(actualInstall)}, but ${token} declares ${JSON.stringify(declared)}`,
+            });
+          }
           const set = actualPackageFiles.get(token) ?? new Set<string>();
           set.add(path);
           actualPackageFiles.set(token, set);
@@ -1136,6 +1226,44 @@ describe("external surfaces — plants fail for the defect they name", () => {
     const changed = original.replace("npm ci --no-audit --no-fund", "npm install --no-audit --no-fund");
     expect(changed).not.toBe(original);
     expectRule(planted({ ".github/workflows/ci.yml": changed }), "install-not-ci", "ci.yml");
+  });
+
+  test("a workflow-level container image is checked like any other image", () => {
+    // The image population used to be walked from the build files only, so a
+    // job's `container:` block was outside the guard entirely.
+    const original = LIVE.read(".github/workflows/ci.yml");
+    const digestless = `${original}\n  containerised:\n    runs-on: ubuntu-24.04\n    container:\n      image: ghcr.io/example/tool:1.0\n`;
+    expectRule(planted({ ".github/workflows/ci.yml": digestless }), "image-digest", "ghcr.io/example/tool:1.0");
+    const undeclared = `${original}\n  containerised:\n    runs-on: ubuntu-24.04\n    container:\n      image: ghcr.io/example/tool@sha256:${"a".repeat(64)}\n`;
+    expectRule(planted({ ".github/workflows/ci.yml": undeclared }), "image-undeclared", "ghcr.io/example/tool");
+  });
+
+  test("a workflow that spells the Node pin instead of reading .nvmrc is refused", () => {
+    const original = LIVE.read(".github/workflows/ci.yml");
+    const changed = original.replace("node-version-file: .nvmrc", "node-version: 24.20.0");
+    expect(changed).not.toBe(original);
+    expectRule(planted({ ".github/workflows/ci.yml": changed }), "node-range", "spells node-version");
+  });
+
+  test("an apt install line that drifted from its declaration is refused", () => {
+    const original = LIVE.read(".github/workflows/ci.yml");
+    const changed = original.replace("sudo apt-get install -y gcc-14", "sudo apt-get install -y --no-install-recommends gcc-14");
+    expect(changed).not.toBe(original);
+    expectRule(planted({ ".github/workflows/ci.yml": changed }), "system-package-install-drift", "gcc-14");
+  });
+
+  test("a half-upgraded CodeQL release is refused", () => {
+    const registry = JSON.parse(LIVE.read(REGISTRY_PATH)) as Record<string, unknown>;
+    const surfaces = registry["surfaces"];
+    if (!Array.isArray(surfaces)) throw new Error("the registry lost its surfaces");
+    const changed = JSON.stringify({
+      ...registry,
+      surfaces: surfaces.map((surface) => {
+        if (!isRecord(surface) || surface["id"] !== "github/codeql-action/upload-sarif") return surface;
+        return { ...surface, pinned: { ...(isRecord(surface["pinned"]) ? surface["pinned"] : {}), commit: "b".repeat(40), version: "v4.38.0" } };
+      }),
+    }, null, 2) + "\n";
+    expectRule(planted({ [REGISTRY_PATH]: changed }), "codeql-release-mixed", "upload-sarif");
   });
 
   test("a dependency without a lockfile integrity hash is refused", () => {

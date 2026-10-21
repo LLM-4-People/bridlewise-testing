@@ -31,8 +31,9 @@ function manifestFor(files, excluded = []) {
   };
 }
 
-function shardReportFor(work, { head, manifestHashValue, shard, shardCount, entries, finishedAt, success = true }) {
+function shardReportFor(work, { head, manifestHashValue, shard, shardCount, entries, finishedAt, success = true, timing = true }) {
   const path = join(work, `shard-${shard}.json`);
+  const startedAt = "2026-10-20T00:00:00.000Z";
   writeJson(path, {
     schemaVersion: SHARD_REPORT_SCHEMA,
     headSha: head,
@@ -40,7 +41,7 @@ function shardReportFor(work, { head, manifestHashValue, shard, shardCount, entr
     assignmentHash: "0".repeat(64),
     shard,
     shardCount,
-    timing: { startedAt: "2026-10-20T00:00:00.000Z", finishedAt, durationMs: 2000 },
+    ...(timing ? { timing: { startedAt, finishedAt, durationMs: Date.parse(finishedAt) - Date.parse(startedAt) } } : {}),
     vitest: {
       success,
       numTotalTests: entries.length,
@@ -60,6 +61,28 @@ function shardReportFor(work, { head, manifestHashValue, shard, shardCount, entr
   });
   return path;
 }
+
+test("the checked-in shard manifest is complete, well-formed and self-describing", () => {
+  // The tracked manifest is data the shard plan trusts. This was the only
+  // test that imported readManifest without ever calling it: the file could
+  // gain a malformed entry, a negative weight, or a weightSource claiming a
+  // population the file list does not have, and the suite stayed green. The
+  // prose count is part of the provenance, so it is checked like the data.
+  const manifestPath = join(process.cwd(), "tests/test-shards.json");
+  const raw = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const manifest = readManifest(process.cwd(), manifestPath);
+  assert.ok(manifest.files.length > 500, `expected the supported suite, found ${manifest.files.length} files`);
+  assert.equal(manifest.excluded.length, 4);
+  assert.match(raw.measuredHeadSha, /^[0-9a-f]{40}$/u);
+  assert.ok(Number.isFinite(Date.parse(raw.measuredAt)), "measuredAt must be a timestamp");
+  assert.equal(typeof raw.weightSource, "string");
+  const declared = /(\d+) supported files/u.exec(raw.weightSource)?.[1];
+  assert.equal(Number(declared), manifest.files.length, "weightSource must name the manifest's population");
+  for (const file of manifest.files) {
+    assert.ok(Number.isSafeInteger(file.weightMs) && file.weightMs >= 0, `${file.path} has no measured weight`);
+    assert.match(file.path, /\.test\.(?:ts|mjs)$/u, `${file.path} is not a test file`);
+  }
+});
 
 test("the shard manifest hash is the canonical sorted-path hash", () => {
   assert.equal(manifestHash(["b.test.ts", "a.test.ts"]), manifestHash([{ path: "a.test.ts" }, { path: "b.test.ts" }]));
@@ -184,7 +207,13 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
   }
 });
 
-test("a wrapped report with the wrong commit or manifest hash is refused", () => {
+test("a wrapped report with the wrong commit, manifest hash or assignment hash is refused", () => {
+  // The title used to promise three provenance mutants and the body planted
+  // one (headSha); manifestHash and assignmentHash were only ever checked
+  // against the value the plan had just written, so a test that stopped
+  // refusing either would keep the suite green. Each mutant below changes the
+  // envelope AFTER the plan's own hash is correct, so only the guard under
+  // test can refuse it.
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-wrong-provenance-"));
   try {
     const manifest = join(work, "manifest.json");
@@ -201,16 +230,27 @@ test("a wrapped report with the wrong commit or manifest hash is refused", () =>
       testResults: [{ name: join(work, "tests/a.test.ts"), status: "passed", assertionResults: [] }],
     });
     wrapShardReport({ root: work, planPath: join(planDir, "plan.json"), shard: 1, vitestPath: raw, outPath: wrapped });
-    const envelope = JSON.parse(readFileSync(wrapped, "utf8"));
-    envelope.headSha = "b1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
-    writeJson(wrapped, envelope);
-    assert.throws(
-      () => mergeShardReports({
-        root: work, manifestPath: join(planDir, "manifest.json"), planPath: join(planDir, "plan.json"),
-        shardPaths: [wrapped], expectedShards: 1, headSha: head, outPath: join(work, "receipt.json"),
-      }),
-      (error) => error instanceof Error && error.message.includes("head") && error.message.includes("is not"),
-    );
+    const clean = JSON.parse(readFileSync(wrapped, "utf8"));
+    assert.equal(clean.headSha, head);
+    assert.equal(clean.manifestHash, plan.manifestHash);
+    assert.equal(clean.assignmentHash, plan.assignmentHash);
+
+    const mutants = [
+      { field: "headSha", value: "b1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718", pattern: /head .* is not/u },
+      { field: "manifestHash", value: "c".repeat(64), pattern: /manifest hash does not match the plan/u },
+      { field: "assignmentHash", value: "d".repeat(64), pattern: /assignment hash does not match the plan/u },
+    ];
+    for (const mutant of mutants) {
+      writeJson(wrapped, { ...clean, [mutant.field]: mutant.value });
+      assert.throws(
+        () => mergeShardReports({
+          root: work, manifestPath: join(planDir, "manifest.json"), planPath: join(planDir, "plan.json"),
+          shardPaths: [wrapped], expectedShards: 1, headSha: head, outPath: join(work, "receipt.json"),
+        }),
+        mutant.pattern,
+        `a wrong ${mutant.field} must be refused`,
+      );
+    }
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
@@ -293,6 +333,16 @@ test("the weight measurement refuses a partial, duplicated, non-green, or differ
       entries: [["tests/a.test.ts", 10, 5]], finishedAt: "2026-10-20T00:00:02.000Z",
     });
     assert.throws(() => measure([backwards]), /endTime is before startTime/);
+
+    // The measurement's measuredAt is the run's finish, so a report without
+    // a timing window cannot supply one. It used to fall back to the
+    // invocation clock: an unmeasured run looked as fresh as the machine that
+    // read it.
+    const timingless = shardReportFor(work, {
+      head, manifestHashValue: hash, shard: 1, shardCount: 1,
+      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z", timing: false,
+    });
+    assert.throws(() => measure([timingless]), /no timing window/);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

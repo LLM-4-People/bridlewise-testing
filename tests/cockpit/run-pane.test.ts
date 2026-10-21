@@ -40,7 +40,6 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/svelte";
 import RunPane from "../../src/cockpit/flow/RunPane.svelte";
 import {
   agents,
-  currentRun,
   queuedSteers,
   resetRunState,
   retireRunView,
@@ -59,7 +58,6 @@ import { projects, currentProjectId } from "../../src/state/projects.ts";
 import { gitStatus, gitRefusal, setGitStatus, setGitRefusal } from "../../src/state/git.ts";
 import {
   codebaseMapLoad,
-  requestCodebaseMap,
   resetCodebaseMapLoad,
   setCodebaseMapReader,
   resetRunLedgerLoad,

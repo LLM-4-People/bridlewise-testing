@@ -92,7 +92,6 @@ import {
 import {
   censusProcesses,
   formatCensusText,
-  formatCensusJson,
 } from "../server/observability/process-census.ts";
 import {
   componentSnapshot,

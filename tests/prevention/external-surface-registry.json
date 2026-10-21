@@ -281,7 +281,7 @@
         ".github/workflows/secret-scan.yml",
         ".github/workflows/test-shards.yml"
       ],
-      "drift": "The guard requires .node-version, .nvmrc and every workflow node-version to equal 24.20.0; the two floor manifests to share >=24.18.0 <25.0.0; and every declared verification manifest to keep its exact 24.18.0 pin inside that floor range. Any tracked package.json with an engines.node outside this declaration is refused. A Node move must change all four together."
+      "drift": "The guard requires .node-version and .nvmrc to equal 24.20.0 and every workflow setup-node to read .nvmrc (node-version-file), refusing a workflow that spells an exact node-version; the two floor manifests to share >=24.18.0 <25.0.0; and every declared verification manifest to keep its exact 24.18.0 pin inside that floor range. Any tracked package.json with an engines.node outside this declaration is refused. A Node move changes the two pin files and the manifests."
     },
     {
       "id": "npm:11.19.0",
@@ -445,7 +445,7 @@
         ".github/workflows/ci.yml",
         ".github/workflows/test-shards.yml"
       ],
-      "drift": "The exact package version is runner-image-specific, so the runner label and this name are the pin. The guard refuses any apt package not declared here and any install line the declaration does not name. This is listed in knownExceptions; the owner is the shard workflow."
+      "drift": "The exact package version is runner-image-specific, so the runner label and this name are the pin. The guard refuses any apt package not declared here and any install line the declaration does not name. The compiler itself is declared once, by engine/guardian/Makefile (CC := gcc-14), and both call sites (.github/workflows/ci.yml and .github/workflows/test-shards.yml) install this package and invoke that owner without a CC= literal. This is listed in knownExceptions; the owner is the guardian build owner."
     },
     {
       "id": "apt:build-essential",
@@ -490,7 +490,7 @@
     {
       "surface": "apt:gcc-14",
       "reason": "An exact apt version string is runner-image-specific and would drift on the provider's archive; the runner label plus the declared package name is the reproducible pin available to this tree.",
-      "owner": ".github/workflows/test-shards.yml"
+      "owner": "engine/guardian/Makefile"
     },
     {
       "surface": "apt:build-essential",

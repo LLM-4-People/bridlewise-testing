@@ -54,7 +54,6 @@ import {
 } from "../../src/cockpit/flow/turn-timing.ts";
 import {
   appendAssistantMessage,
-  appendUserMessage,
   clearMessages,
   messages,
   setStreaming,

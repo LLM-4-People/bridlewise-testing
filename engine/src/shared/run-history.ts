@@ -109,7 +109,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { bestEffort } from "./best-effort.ts";
-import { finiteNumber, type GateOutcome, type JudgedRunRecord, type RunQualification, type RunQualificationTerminal } from "./budget-verdict.ts";
+import { finiteNumber, nonNegativeNumber, type GateOutcome, type JudgedRunRecord, type RunQualification, type RunQualificationTerminal } from "./budget-verdict.ts";
 import { auditEvent } from "./debug/debug-system.ts";
 import { contentKeyDigest, reproducedDigests, type CountedFlakeReproduction, type IdentityMove } from "./flake-reproduction.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
@@ -354,12 +354,12 @@ function judgedRows(entries: readonly Record<string, unknown>[]): JudgedRunRecor
     const headSha = typeof e.headSha === "string" && e.headSha.length > 0 ? e.headSha : undefined;
     const qualification = currentFailureCensus(e) ? parseRunQualification(e.qualification) : undefined;
     const treeId = typeof e.treeId === "string" && GIT_OBJECT_NAME.test(e.treeId) ? e.treeId : undefined;
-    const ambientLoadPerCpu = finiteNumber(e.ambientLoadPerCpu);
+    const ambientLoadPerCpu = nonNegativeNumber(e.ambientLoadPerCpu);
     // The pre-launch snapshot's longer legs, same optional-by-design lean:
     // entries written before the fields exist stay valid, and a malformed
     // value is treated as absent rather than poisoning the entry.
-    const ambientLoad5PerCpu = finiteNumber(e.ambientLoad5PerCpu);
-    const ambientLoad15PerCpu = finiteNumber(e.ambientLoad15PerCpu);
+    const ambientLoad5PerCpu = nonNegativeNumber(e.ambientLoad5PerCpu);
+    const ambientLoad15PerCpu = nonNegativeNumber(e.ambientLoad15PerCpu);
     // The run's own failure rows, parsed for the rolling baseline's feed
     // filter (a row carrying the budget gate's own failure never feeds).
     // ABSENT when the row predates failure recording or recorded none — an
@@ -379,8 +379,8 @@ function judgedRows(entries: readonly Record<string, unknown>[]): JudgedRunRecor
     // future ambient envelope can be derived from; the 2026-09-04 pairs
     // recorded ≈0.99 in both a quiet and an inflated run, so no consumer
     // judges by them today). Optional, finite, absent when unrecorded.
-    const wallClockMs = finiteNumber(e.wallClockMs);
-    const totalOccupancyMs = finiteNumber(e.totalOccupancyMs);
+    const wallClockMs = nonNegativeNumber(e.wallClockMs);
+    const totalOccupancyMs = nonNegativeNumber(e.totalOccupancyMs);
     // The perf budgets' measurements: a record of finite numbers or nulls; anything else is absent (never a guessed value).
     const performanceMeasurements = performanceMeasurementsOf(e[ROOT_POLICY.workflow.webPerformanceBudgets.ledgerField]);
     out.push({

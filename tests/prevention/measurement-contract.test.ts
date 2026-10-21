@@ -24,14 +24,21 @@
  *
  * ── THE PLANTS (each must produce its named failure) ─────────────────────
  *
- *   1. duplicate derivation       a second module divides load by CPU count;
- *   2. zero-for-absent            the ambient-load producer falls back to 0;
- *   3. unregistered gate metric   a new `gate:` literal appears in a
- *                                 measurement-producing source;
+ *   1. duplicate derivation       a second module divides load by CPU count,
+ *                                 INCLUDING one hidden behind a regex literal;
+ *   2. zero-for-absent            the ambient-load producer returns a zero
+ *                                 measurement from its unreadable branch;
+ *   3. unregistered gate metric   a new `gate:` literal appears in a new file
+ *                                 and in single-quoted / template spellings;
  *   4. agnostic without proof     an entry claims agnostic with no
  *                                 normalisation;
- *   5. unregistered producer      a consumer's imported module exports a new
- *                                 measurement producer the registry omits.
+ *   5. unregistered producer      a module outside the old four prefixes
+ *                                 exports a measurement producer a consumer
+ *                                 imports;
+ *   6. forbidden quantity         a producer whose return type is an object
+ *                                 still has its BODY read;
+ *   7. the shard weight producer  inserting `cpuUsage(` into the function
+ *                                 that subtracts the timestamps is refused.
  *
  * ── LIVENESS ─────────────────────────────────────────────────────────────
  *
@@ -42,6 +49,8 @@
  */
 import { expect, test } from "vitest";
 import { resolve } from "node:path";
+
+import { readAmbientLoadPerCpu } from "../../engine/src/shared/ambient-load.ts";
 import { modulePathMatching } from "../helpers/module-resolver.ts";
 
 import {
@@ -74,7 +83,14 @@ test("the clean tree satisfies every clause, and the guard looked at a populated
   expect(report.checked.budgets).toBe(13);
   expect(report.checked.sources).toBeGreaterThan(500);
   expect(report.checked.gates).toBeGreaterThanOrEqual(10);
-  expect(report.checked.producers).toBeGreaterThanOrEqual(10);
+  // The REGISTERED count and the DISCOVERED universe are reported apart: a
+  // sum of the two cannot tell "the scan found nothing" from "the scan found
+  // only registered producers", which is exactly how this assertion passed
+  // while the discovery returned zero.
+  expect(report.checked.registeredProducers).toBeGreaterThanOrEqual(20);
+  expect(report.checked.discoveredProducers.length).toBeGreaterThanOrEqual(3);
+  expect(report.checked.discoveredProducers).toContain("engine/src/shared/test-costs.ts::summarizeTestCosts");
+  expect(report.checked.discoveredProducers).toContain("scripts/testing/performance-measurements.ts::performanceMeasurements");
   // The findings are the honest load-sensitivity record, not failures.
   const findingIds = report.findings.map((finding) => finding.id);
   expect(findingIds).toContain("F-PERF-LATENCY-NO-BOUND");
@@ -98,6 +114,60 @@ test("a duplicate derivation of a registered number is refused", () => {
   expect(codes).toContain("duplicate-derivation");
 });
 
+test("a duplicate derivation hidden behind a regex literal is still a duplicate", () => {
+  const plant = withSource(
+    WORLD,
+    "engine/src/shared/plant-regex-duplicate.ts",
+    "const URL_RE = /https?:\\/\\//;\nexport function readPlantLoad(): number {\n  const loads = loadavg();\n  return loads[0] / 1;\n}\n",
+  );
+  expect(failuresWith(plant)).toContain("duplicate-derivation");
+});
+
+test("the bench's old per-CPU division is a duplicate of the shared producer", () => {
+  const bench = WORLD.sources.get("bench/lib/machine.ts");
+  expect(bench).toBeDefined();
+  const planted = `${bench}\nexport function plantBenchPerCpu(): number {\n  const l1 = 1;\n  const cores = [1, 2];\n  return cores.length > 0 ? l1 / cores.length : l1;\n}\n`;
+  expect(failuresWith(withSource(WORLD, "bench/lib/machine.ts", planted))).toContain("duplicate-derivation");
+});
+
+test("a producer's body is read, not its object return type", () => {
+  const plantPath = "engine/src/shared/plant-object-return.ts";
+  const plant = `export function readPlantLoad(): Readonly<{ value: number | null }> { const loads = loadavg(); return { value: loads[0] ?? null }; }\n`;
+  const entry: MetricEntry = {
+    status: "registered",
+    name: "plant.load",
+    unit: "load",
+    family: null,
+    distinctFrom: [],
+    producer: { module: plantPath, symbol: "readPlantLoad", derivation: ["loads\\[0\\]"], forbids: ["loadavg("] },
+    consumers: [],
+    load: { kind: "sensitive", sensitivity: "host load", bound: null, finding: "F-AMBIENT-NO-DEFERRAL" },
+    absent: { kind: "null", reason: "unreadable sample is null" },
+    zero: { kind: "not-numeric", reason: "not numeric" },
+  };
+  const codes = failuresWith(withSource(WORLD, plantPath, plant), [...MEASUREMENT_REGISTRY, entry]);
+  expect(codes).toContain("forbidden-quantity");
+});
+
+test("a zero assigned to the measurement's own field is a zero-for-absent", () => {
+  const source = WORLD.sources.get(modulePathMatching("ambient-load.ts"));
+  expect(source).toBeDefined();
+  for (const zeroed of [
+    "return { cpuCount, loads: null, perCpu: { load1: 0, load5: 0, load15: 0 } };",
+    "return { cpuCount, loads: null, perCpu: 0 };",
+  ]) {
+    const planted = source!.replace("return { cpuCount, loads: null, perCpu: null };", zeroed);
+    expect(planted).not.toBe(source);
+    expect(failuresWith(withSource(WORLD, modulePathMatching("ambient-load.ts"), planted))).toContain("zero-as-absent");
+  }
+});
+
+test("the ambient producer's injection points keep an unreadable sample absent", () => {
+  expect(readAmbientLoadPerCpu(() => [NaN, 1, 1], () => 8)).toEqual({ cpuCount: 8, loads: null, perCpu: null });
+  expect(readAmbientLoadPerCpu(() => { throw new Error("no loadavg"); }, () => 8)).toEqual({ cpuCount: 8, loads: null, perCpu: null });
+  expect(readAmbientLoadPerCpu(() => [1, 1, 1], () => { throw new Error("no cpu count"); })).toEqual({ cpuCount: null, loads: [1, 1, 1], perCpu: null });
+});
+
 test("a zero fallback for an unreadable measurement is refused", () => {
   const source = WORLD.sources.get(modulePathMatching("ambient-load.ts"));
   expect(source).toBeDefined();
@@ -118,6 +188,13 @@ test("a gate that judges an unregistered measurement is a refusal, not a warning
   expect(codes).toContain("unregistered-gate");
 });
 
+test("a gate in a new file, or in single-quoted or template spelling, is not invisible", () => {
+  const inNewFile = withSource(WORLD, "engine/src/process/plant-gate.ts", "export const outcome = { gate: 'plant-single-quoted', kind: 'pass' };\n");
+  expect(failuresWith(inNewFile)).toContain("unregistered-gate");
+  const template = withSource(WORLD, "engine/scripts/tooling/plant-gate.ts", "export const outcome = { gate: `plant-template`, kind: 'pass' };\n");
+  expect(failuresWith(template)).toContain("unregistered-gate");
+});
+
 test("an agnostic load claim with no normalisation step is refused", () => {
   const registry = MEASUREMENT_REGISTRY.map((entry): MetricEntry => entry.name === "perf.profile.measuredSurfaceHash"
     ? { ...entry, load: { kind: "agnostic", normalization: "", proof: "" } }
@@ -132,6 +209,29 @@ test("a new measurement producer read by a consumer cannot slip past the registr
   const planted = `${source}\nexport function readPlantLatencyMs(): number {\n  return performance.now();\n}\n`;
   const codes = failuresWith(withSource(WORLD, modulePathMatching("ambient-load.ts"), planted));
   expect(codes).toContain("unregistered-producer");
+});
+
+test("a measurement producer in a new product area cannot slip past the registry", () => {
+  const producerPath = "engine/src/process/plant-producer.ts";
+  const consumer = WORLD.sources.get("tests/performance/regression.test.ts");
+  expect(consumer).toBeDefined();
+  const planted = withSource(
+    withSource(WORLD, producerPath, "export function readPlantLatencyMs(): number {\n  return performance.now();\n}\n"),
+    "tests/performance/regression.test.ts",
+    `${consumer}\nimport { readPlantLatencyMs } from "../../engine/src/process/plant-producer.ts";\nvoid readPlantLatencyMs;\n`,
+  );
+  expect(failuresWith(planted)).toContain("unregistered-producer");
+});
+
+test("the shard weight producer is the function that subtracts the timestamps", () => {
+  const source = WORLD.sources.get("scripts/test-shard-manifest.mjs");
+  expect(source).toBeDefined();
+  const planted = source!.replace(
+    "return Math.max(1, Math.round(result.endTime - result.startTime));",
+    "const plantCpu = process.cpuUsage(); void plantCpu;\n  return Math.max(1, Math.round(result.endTime - result.startTime));",
+  );
+  expect(planted).not.toBe(source);
+  expect(failuresWith(withSource(WORLD, "scripts/test-shard-manifest.mjs", planted))).toContain("forbidden-quantity");
 });
 
 test("a deleted producer is named, not silently accepted", () => {

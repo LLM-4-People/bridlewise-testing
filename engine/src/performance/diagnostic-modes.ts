@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { cpus, loadavg, totalmem, freemem } from "node:os";
+import { cpus, totalmem, freemem } from "node:os";
 import { performance } from "node:perf_hooks";
 
 import { InputError } from "../kernel/errors.ts";
@@ -9,6 +9,7 @@ import type { PerformanceConfig, DiagnosticModeId } from "./performance-config.t
 import { handleError } from "../shared/debug/debug-system.ts";
 import { schemaId } from "../kernel/product-identity.ts";
 import { procfsPath } from "../process/process-facts.ts";
+import { readAmbientLoadPerCpu } from "../shared/ambient-load.ts";
 // The unit conversions the CPU and uptime snapshots perform — one shared
 // owner each, never a bare 1000 beside the reading.
 import { MS_PER_SECOND, MICROSECONDS_PER_MILLISECOND } from "../../../shared/constants.ts";
@@ -31,10 +32,10 @@ export type CpuDiagnosticSnapshot = Readonly<{
   mode: "cpu";
   processUserMs: number;
   processSystemMs: number;
-  loadAvg1: number;
-  loadAvg5: number;
-  loadAvg15: number;
-  cpuCount: number;
+  loadAvg1: number | null;
+  loadAvg5: number | null;
+  loadAvg15: number | null;
+  cpuCount: number | null;
   model: string;
   speedMhz: number;
   attribution: "exact" | "shared" | "estimated";
@@ -220,17 +221,19 @@ function collectSnapshot(
 
 function collectCpuSnapshot(): CpuDiagnosticSnapshot {
   const cpuUsage = process.cpuUsage();
-  const load = loadavg();
+  // The ambient load has ONE owner; this snapshot reports its legs rather
+  // than reading /proc/loadavg a second time and inventing zero for absence.
+  const ambient = readAmbientLoadPerCpu();
   const cpuList = cpus();
   const firstCpu = cpuList[0];
   return deepFreeze({
     mode: "cpu",
     processUserMs: cpuUsage.user / MICROSECONDS_PER_MILLISECOND,
     processSystemMs: cpuUsage.system / MICROSECONDS_PER_MILLISECOND,
-    loadAvg1: load[0] ?? 0,
-    loadAvg5: load[1] ?? 0,
-    loadAvg15: load[2] ?? 0,
-    cpuCount: cpuList.length,
+    loadAvg1: ambient.loads?.[0] ?? null,
+    loadAvg5: ambient.loads?.[1] ?? null,
+    loadAvg15: ambient.loads?.[2] ?? null,
+    cpuCount: ambient.cpuCount,
     model: firstCpu?.model ?? "unknown",
     speedMhz: firstCpu?.speed ?? 0,
     attribution: "shared",

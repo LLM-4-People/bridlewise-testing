@@ -13,7 +13,7 @@
  * first use.
  */
 
-import { cpus, freemem, totalmem, loadavg, uptime as osUptime } from "node:os";
+import { freemem, totalmem, uptime as osUptime } from "node:os";
 import { performance } from "node:perf_hooks";
 
 import {
@@ -26,6 +26,7 @@ import {
   guarded,
 } from "../kernel/canonical.ts";
 import type { MetricsSnapshot } from "../kernel/canonical.ts";
+import { readAmbientLoadPerCpu } from "../../engine/src/shared/ambient-load.ts";
 import { setMetricsCollector, getTokenThroughput } from "./metrics-recorder.ts";
 import { getTimelineRecorder, timelineReadiness } from "./timeline-bridge.ts";
 import { clientTelemetrySummary } from "../blocks/client-telemetry.ts";
@@ -77,12 +78,15 @@ import { MS_PER_SECOND, MICROSECONDS_PER_MILLISECOND } from "../../shared/consta
 export function getSystemMetrics(): SystemMetrics {
   const mem = process.memoryUsage();
   const elu = performance.eventLoopUtilization();
+  // The ambient read has ONE owner; the dashboard consumes the same reading
+  // the budget verdict does, so "the host is busy" cannot mean two things.
+  const ambient = readAmbientLoadPerCpu();
   return {
     capturedAt: new Date().toISOString(),
     processUptimeMs: process.uptime() * MS_PER_SECOND,
     osUptimeMs: osUptime() * MS_PER_SECOND,
-    cpuCount: cpus().length,
-    loadAverage1m: loadavg()[0] ?? 0,
+    cpuCount: ambient.cpuCount,
+    loadAverage1m: ambient.loads?.[0] ?? null,
     memory: {
       rss: mem.rss,
       heapUsed: mem.heapUsed,

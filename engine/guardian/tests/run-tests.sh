@@ -16,9 +16,38 @@ TP="$GUARDIAN_DIR/build/test_payload"
 
 PASS=0
 FAIL=0
+SKIP=0
 TOTAL=0
 OUT=""
 RC=0
+
+# --- accounting helpers (extracted by tests/prevention/guardian-runner-accounting.test.ts) ---
+# ONE rule for every outcome: a test that ran and passed is PASS, a test that
+# ran and failed is FAIL, and a test that did NOT run is SKIP. A skip never
+# counts as a pass, and the summary never prints ALL TESTS PASS while one
+# exists; before this rule test 20's "cc -static unavailable" skip incremented
+# PASS and the script exited 0 claiming every test passed.
+pass() { TOTAL=$((TOTAL+1)); PASS=$((PASS+1)); echo "PASS: $*"; }
+fail() { TOTAL=$((TOTAL+1)); FAIL=$((FAIL+1)); echo "FAIL: $*"; }
+skip() { TOTAL=$((TOTAL+1)); SKIP=$((SKIP+1)); echo "SKIP: $*"; }
+summary() {
+  echo "PASS $PASS/$TOTAL"
+  if [[ "$TOTAL" -ne $((PASS+FAIL+SKIP)) ]]; then
+    echo "INCOMPLETE ACCOUNTING: total $TOTAL != pass $PASS + fail $FAIL + skip $SKIP"
+    return 1
+  fi
+  if [[ "$FAIL" -ne 0 ]]; then
+    echo "FAIL $FAIL"
+    return 1
+  fi
+  if [[ "$SKIP" -ne 0 ]]; then
+    echo "SKIP $SKIP"
+    echo "NOT ALL TESTS PASSED — $SKIP test(s) did not run; a skipped test is not a passed test"
+    return 0
+  fi
+  echo "ALL TESTS PASS"
+}
+# --- end accounting helpers ---
 
 echo "=== building (make all) ==="
 if ! make -C "$GUARDIAN_DIR" all; then
@@ -100,11 +129,10 @@ run_cap() {
 
 assert_contains() {
   local name="$1" expected="$2"
-  TOTAL=$((TOTAL+1))
   if grep -qF -- "$expected" <<<"$OUT"; then
-    PASS=$((PASS+1)); echo "PASS: $name"
+    pass "$name"
   else
-    FAIL=$((FAIL+1)); echo "FAIL: $name"
+    fail "$name"
     echo "  expected substring: $expected"
     echo "  actual: $OUT (exit=$RC)"
   fi
@@ -112,11 +140,10 @@ assert_contains() {
 
 assert_exit() {
   local name="$1" expected="$2"
-  TOTAL=$((TOTAL+1))
   if [[ "$RC" == "$expected" ]]; then
-    PASS=$((PASS+1)); echo "PASS: $name (exit=$RC)"
+    pass "$name (exit=$RC)"
   else
-    FAIL=$((FAIL+1)); echo "FAIL: $name (expected exit $expected, got $RC)"
+    fail "$name (expected exit $expected, got $RC)"
     echo "  output: $OUT"
   fi
 }
@@ -168,11 +195,10 @@ assert_exit "usage no args -> exit 64" "64" "$RC"
 
 echo "=== test 11: no forgeable 'already confined' sentinel reaches the payload ==="
 run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "env" || true
-TOTAL=$((TOTAL+1))
 if grep -q "HARNESS_LANDLOCK_GUARDIAN" <<<"$OUT"; then
-  FAIL=$((FAIL+1)); echo "FAIL: the guardian set HARNESS_LANDLOCK_GUARDIAN (a sandbox decision must be measured, never read from env)"
+  fail "the guardian set HARNESS_LANDLOCK_GUARDIAN (a sandbox decision must be measured, never read from env)"
 else
-  PASS=$((PASS+1)); echo "PASS: no sentinel env var set"
+  pass "no sentinel env var set"
 fi
 
 echo "=== test 12: exec /bin/cat on protected file -> EACCES (real binary) ==="
@@ -180,11 +206,10 @@ echo "=== test 12: exec /bin/cat on protected file -> EACCES (real binary) ==="
 run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "cat" "$PROTECT/file.txt" || true
 # cat prints a "Permission denied" or "Operation not permitted" message to
 # stderr and exits non-zero. Either wording indicates Landlock blocked it.
-TOTAL=$((TOTAL+1))
 if [[ "$RC" -ne 0 ]] && (grep -qiE "permission denied|operation not permitted|EACCES" <<<"$OUT"); then
-  PASS=$((PASS+1)); echo "PASS: exec cat on protected -> blocked (exit=$RC, out=$OUT)"
+  pass "exec cat on protected -> blocked (exit=$RC, out=$OUT)"
 else
-  FAIL=$((FAIL+1)); echo "FAIL: exec cat on protected (expected blocked, exit!=0)"
+  fail "exec cat on protected (expected blocked, exit!=0)"
   echo "  exit=$RC out=$OUT"
 fi
 
@@ -316,9 +341,7 @@ printf 'console.log("SECRET SRC CLI")\n' > "$ESBUILD/src/cli.ts"
 
 NODE="$(command -v node 2>/dev/null || true)"
 if [[ -z "$NODE" ]]; then
-  echo "SKIP: test 18 (node not on PATH; cannot run esbuild-bundle scenario here)"
-  TOTAL=$((TOTAL+1)); FAIL=$((FAIL+1))
-  echo "FAIL: test 18 (node missing)"
+  skip "test 18 (node not on PATH; cannot run the esbuild-bundle scenario here)"
 else
   NODE_DIR="$(dirname "$NODE")"
   # Node's install dir parent (nvm/.../vX.Y.Z) for its modules/snapshot; resolve
@@ -344,11 +367,10 @@ else
 }
 EOF
   run_cap "$BIN" apply --spec "$WORK/spec-esbuild.json" --exec "$NODE_REAL" "$ESBUILD/dist/bundle.js" "$ESBUILD/src/cli.ts" || true
-  TOTAL=$((TOTAL+1))
   if grep -qF "BUNDLE_READ_DENIED: EACCES" <<<"$OUT"; then
-    PASS=$((PASS+1)); echo "PASS: esbuild-bundle: node read src/cli.ts -> EACCES (secret NOT leaked)"
+    pass "esbuild-bundle: node read src/cli.ts -> EACCES (secret NOT leaked)"
   else
-    FAIL=$((FAIL+1)); echo "FAIL: esbuild-bundle (expected BUNDLE_READ_DENIED: EACCES)"
+    fail "esbuild-bundle (expected BUNDLE_READ_DENIED: EACCES)"
     echo "  exit=$RC out=$OUT"
   fi
 fi
@@ -371,7 +393,7 @@ if [[ ! -r "$SYSFILE" ]]; then
   done
 fi
 if [[ -z "$SYSFILE" ]]; then
-  TOTAL=$((TOTAL+1)); FAIL=$((FAIL+1)); echo "FAIL: test 19 (no readable system file found outside allow-set to test)"
+  skip "test 19 (no readable system file found outside the allow-set on this host)"
 else
   cat > "$WORK/spec-dd.json" <<EOF
 {
@@ -397,7 +419,7 @@ EOF
     run_cap "$BIN" apply --spec "$WORK/spec-dd.json" --exec "$TP" read "$SYSFILE" || true
     assert_contains "default-deny: read $SYSFILE (outside allow-set) -> EACCES" "EACCES" "$OUT"
   else
-    TOTAL=$((TOTAL+1)); FAIL=$((FAIL+1)); echo "FAIL: test 19 (need a /var/* file to prove default-deny; got $SYSFILE)"
+    skip "test 19 (need a /var/* file to prove default-deny; got $SYSFILE)"
   fi
 fi
 
@@ -415,11 +437,10 @@ then
 {"abi_version_hint":0,"handled_access_fs":["EXECUTE","READ_FILE"],"allow_rules":[{"path":"$STATIC_BIN","access":["EXECUTE"]}],"protected_subtrees":[]}
 EOF
   run_cap "$BIN" apply --spec "$WORK/spec-static-exec-only.json" --exec "$STATIC_BIN" || true
-  TOTAL=$((TOTAL+1))
   if [[ "$RC" -ne 0 ]] && grep -qiE "permission denied|EACCES" <<<"$OUT"; then
-    PASS=$((PASS+1)); echo "PASS: static binary EXECUTE-only -> EACCES (research-confirmed: kernel needs READ_FILE)"
+    pass "static binary EXECUTE-only -> EACCES (research-confirmed: kernel needs READ_FILE)"
   else
-    FAIL=$((FAIL+1)); echo "FAIL: static EXECUTE-only (expected EACCES, got exit=$RC out=$OUT)"
+    fail "static EXECUTE-only (expected EACCES, got exit=$RC out=$OUT)"
   fi
   # 20b: EXECUTE+READ on the static binary -> expect OK (prints STATIC_OK)
   cat > "$WORK/spec-static-er.json" <<EOF
@@ -428,8 +449,7 @@ EOF
   run_cap "$BIN" apply --spec "$WORK/spec-static-er.json" --exec "$STATIC_BIN" || true
   assert_contains "static binary EXECUTE+READ -> STATIC_OK" "STATIC_OK" "$OUT"
 else
-  echo "SKIP: test 20 (cc -static unavailable; static libc not installed). Research finding documented in RESEARCH-EXECUTE-VS-READ.md."
-  TOTAL=$((TOTAL+1)); PASS=$((PASS+1)); echo "PASS: test 20 SKIP (cc -static unavailable; research-confirmed separately)"
+  skip "test 20 (cc -static unavailable; static libc not installed) — research finding documented in RESEARCH-EXECUTE-VS-READ.md"
 fi
 
 echo "=== test 21: dynamic binary (/bin/cat) — EXECUTE-only -> EACCES; EXECUTE+READ + libs -> OK ==="
@@ -438,28 +458,26 @@ cat > "$WORK/spec-cat-exec-only.json" <<EOF
 {"abi_version_hint":0,"handled_access_fs":["EXECUTE","READ_FILE","READ_DIR"],"allow_rules":[{"path":"$R_BIN/cat","access":["EXECUTE"]}],"protected_subtrees":[]}
 EOF
 run_cap "$BIN" apply --spec "$WORK/spec-cat-exec-only.json" --exec "/bin/cat" "/dev/null" || true
-TOTAL=$((TOTAL+1))
 if [[ "$RC" -ne 0 ]] && grep -qiE "permission denied|EACCES" <<<"$OUT"; then
-  PASS=$((PASS+1)); echo "PASS: /bin/cat EXECUTE-only -> EACCES (dynamic linker needs READ_FILE)"
+  pass "/bin/cat EXECUTE-only -> EACCES (dynamic linker needs READ_FILE)"
 else
-  FAIL=$((FAIL+1)); echo "FAIL: /bin/cat EXECUTE-only (expected EACCES, got exit=$RC out=$OUT)"
+  fail "/bin/cat EXECUTE-only (expected EACCES, got exit=$RC out=$OUT)"
 fi
 # 21b: EXECUTE+READ on /bin/cat + /usr /lib EXECUTE+READ + /etc /dev READ -> expect OK (exit 0)
 cat > "$WORK/spec-cat-er.json" <<EOF
 {"abi_version_hint":0,"handled_access_fs":["EXECUTE","READ_FILE","READ_DIR","WRITE_FILE"],"allow_rules":[{"path":"$R_BIN/cat","access":["EXECUTE","READ_FILE"]},{"path":"/usr","access":["EXECUTE","READ_FILE","READ_DIR"]},{"path":"$R_LIB","access":["EXECUTE","READ_FILE","READ_DIR"]},{"path":"/etc","access":["READ_FILE"]},{"path":"/dev","access":["READ_FILE","WRITE_FILE","READ_DIR"]}],"protected_subtrees":[]}
 EOF
 run_cap "$BIN" apply --spec "$WORK/spec-cat-er.json" --exec "/bin/cat" "/dev/null" || true
-TOTAL=$((TOTAL+1))
 if [[ "$RC" -eq 0 ]]; then
-  PASS=$((PASS+1)); echo "PASS: /bin/cat EXECUTE+READ + libs -> OK (exit 0)"
+  pass "/bin/cat EXECUTE+READ + libs -> OK (exit 0)"
 else
-  FAIL=$((FAIL+1)); echo "FAIL: /bin/cat EXECUTE+READ (expected exit 0, got $RC: $OUT)"
+  fail "/bin/cat EXECUTE+READ (expected exit 0, got $RC: $OUT)"
 fi
 
 echo "=== test 22: node-bundle default-deny — bundle readFileSync('/var/lib/dpkg/status') -> EACCES ==="
 NODE_BIN="$(command -v node 2>/dev/null || true)"
 if [[ -z "$NODE_BIN" ]]; then
-  TOTAL=$((TOTAL+1)); FAIL=$((FAIL+1)); echo "FAIL: test 22 (node not on PATH)"
+  skip "test 22 (node not on PATH; cannot run the node-bundle default-deny scenario)"
 else
   NODE_REAL="$(readlink -f "$NODE_BIN")"
   NODE_DIR="$(dirname "$NODE_REAL")"; NODE_PARENT="$(dirname "$NODE_DIR")"
@@ -493,11 +511,10 @@ BUNDLE
 }
 EOF
   run_cap "$BIN" apply --spec "$WORK/spec-node-dd.json" --exec "$NODE_REAL" "$ESBUILD2/dist/bundle.js" "$TARGET" || true
-  TOTAL=$((TOTAL+1))
   if grep -qF "BUNDLE_READ_DENIED: EACCES" <<<"$OUT"; then
-     PASS=$((PASS+1)); echo "PASS: node-bundle default-deny: readFileSync('$TARGET') -> EACCES (outside allow-set)"
+     pass "node-bundle default-deny: readFileSync('$TARGET') -> EACCES (outside allow-set)"
   else
-    FAIL=$((FAIL+1)); echo "FAIL: node-bundle default-deny (expected BUNDLE_READ_DENIED: EACCES)"
+    fail "node-bundle default-deny (expected BUNDLE_READ_DENIED: EACCES)"
     echo "  exit=$RC out=$OUT"
   fi
 fi
@@ -644,15 +661,15 @@ EOF
   assert_exit "alias containing protected -> exit 4" "4" "$RC"
   assert_contains "alias containing protected names the refusal" "contains protected_subtree"
 else
-  echo "SKIP: tests 35-36 need unshare -rm (a private mount namespace)"
+  # One skip per test that did not run, not one for the pair: the denominator
+  # has to count what the script would have run.
+  skip "test 35 (bind-mount alias under a protected subtree) needs unshare -rm"
+  skip "test 36 (bind-mount alias containing a protected subtree) needs unshare -rm"
 fi
 
 echo ""
 echo "================ SUMMARY ================"
-echo "PASS $PASS/$TOTAL"
-if [[ "$FAIL" -ne 0 ]]; then
-  echo "FAIL $FAIL"
-  exit 1
+if summary; then
+  exit 0
 fi
-echo "ALL TESTS PASS"
-exit 0
+exit 1

@@ -16,9 +16,9 @@
 import { describe, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
-import { walk } from "../helpers/source-scan.ts";
+import { SOURCE_EXTS, walk } from "../helpers/source-scan.ts";
 
-const ROOTS = ["src", "server"] as const;
+const ROOTS = ["src", "server", "scripts"] as const;
 const MIN_BODY_LEN = 150;
 
 function matchBrace(src: string, openIdx: number): number {
@@ -166,7 +166,7 @@ describe("no duplicate function bodies", () => {
   const byBody = new Map<string, { file: string; preview: string }[]>();
 
   for (const root of ROOTS) {
-    for (const file of walk(root)) {
+    for (const file of walk(root, { exts: SOURCE_EXTS })) {
       const rel = relative(process.cwd(), file);
       for (const body of extractBodies(readFileSync(file, "utf-8"))) {
         const norm = normalize(body);

@@ -393,8 +393,9 @@ export type BudgetVerdict =
       readonly cpuMsPerTestFile: number;
       readonly testModuleCount: number;
       readonly slowestCollects: readonly CollectCost[];
-      /** Every file's `collectDuration` summed — reported for diagnosis. */
-      readonly totalCollectMs: number;
+      /** Every file's `collectDuration` summed — reported for diagnosis, or
+       *  null when no file reported one (absence, never a zero total). */
+      readonly totalCollectMs: number | null;
       /**
        * `slowestCollects[0].ms / wallClockMs` — the figure the collect gate
        * bounds, and the reason it survives a busy machine.
@@ -402,16 +403,18 @@ export type BudgetVerdict =
       readonly worstCollectShare: number;
       /** Worst TOTAL per-file occupancy (collect + setup + env + tests). */
       readonly slowestFiles: readonly CollectCost[];
-      /** Every file's occupancy summed, or 0 when the reporter predates it. */
-      readonly totalOccupancyMs: number;
-      readonly load1PerCpuAtStart: number;
+      /** Every file's occupancy summed, or null when the reporter recorded
+       *  none (absence, never a zero denominator). */
+      readonly totalOccupancyMs: number | null;
+      readonly load1PerCpuAtStart: number | null;
       /**
        * The run-start loadavg snapshot's longer legs, per CPU — the
-       * 15-minute ghost's witnesses. Same `-1` unreadable sentinel as the
-       * 1-minute leg.
+       * saturation ghost's witnesses. Null when unreadable: absence, never
+       * the historical `-1` sentinel, which a reader (and the ledger) could
+       * not tell from a measured value.
        */
-      readonly load5PerCpuAtStart: number;
-      readonly load15PerCpuAtStart: number;
+      readonly load5PerCpuAtStart: number | null;
+      readonly load15PerCpuAtStart: number | null;
       /**
        * When the judged run FINISHED, ISO-8601, or null when absent.
        *
@@ -437,6 +440,17 @@ export interface JudgeOptions {
  */
 export function finiteNumber(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * A finite number a measurement's magnitude can be (`>= 0`), or null. Load
+ * averages, durations and counts have no negative reading: a negative value
+ * is the absence sentinel a past writer invented (`-1`), and accepting it
+ * as a number is how a reader mistakes "unreadable" for "measured".
+ */
+export function nonNegativeNumber(v: unknown): number | null {
+  const n = finiteNumber(v);
+  return n !== null && n >= 0 ? n : null;
 }
 
 function collectCosts(v: unknown): CollectCost[] {
@@ -658,16 +672,16 @@ export function judgeRuntimeBudget(summary: unknown, opts: JudgeOptions): Budget
     cpuMsPerTestFile: runCpuMs / testModuleCount,
     testModuleCount,
     slowestCollects,
-    totalCollectMs: finiteNumber(rec.totalCollectMs) ?? 0,
+    totalCollectMs: nonNegativeNumber(rec.totalCollectMs),
     // Wall clock is the denominator rather than total collect: the question is
     // "can the sequencer hide this file's cost inside the run", and the run's
     // length is what decides whether a tail is absorbed or exposed.
     worstCollectShare: wallClockMs > 0 ? worstCollectMs / wallClockMs : 0,
     slowestFiles: collectCosts(rec.slowestFiles),
-    totalOccupancyMs: finiteNumber(rec.totalOccupancyMs) ?? 0,
-    load1PerCpuAtStart: finiteNumber(rec.load1PerCpuAtStart) ?? -1,
-    load5PerCpuAtStart: finiteNumber(rec.load5PerCpuAtStart) ?? -1,
-    load15PerCpuAtStart: finiteNumber(rec.load15PerCpuAtStart) ?? -1,
+    totalOccupancyMs: nonNegativeNumber(rec.totalOccupancyMs),
+    load1PerCpuAtStart: nonNegativeNumber(rec.load1PerCpuAtStart),
+    load5PerCpuAtStart: nonNegativeNumber(rec.load5PerCpuAtStart),
+    load15PerCpuAtStart: nonNegativeNumber(rec.load15PerCpuAtStart),
     summaryTimestamp: typeof rec.timestamp === "string" ? rec.timestamp : null,
   };
 }
@@ -756,7 +770,7 @@ export type JudgedRunRecord = {
    * evidence, and because a reader of the row can see the launch-minute
    * context beside the leg that actually adjusts.
    */
-  readonly ambientLoadPerCpu?: number;
+  readonly ambientLoadPerCpu?: number | null;
   /**
    * THE PRE-LAUNCH SNAPSHOT'S LONGER LEGS — the 5- and 15-minute averages
    * from the SAME run-start `loadavg()` read, per CPU. The 5-MINUTE leg is
@@ -770,8 +784,8 @@ export type JudgedRunRecord = {
    * no adjustment — absence never loosens a line), and an unreadable
    * reading is absent, never a fabricated zero.
    */
-  readonly ambientLoad5PerCpu?: number;
-  readonly ambientLoad15PerCpu?: number;
+  readonly ambientLoad5PerCpu?: number | null;
+  readonly ambientLoad15PerCpu?: number | null;
   /**
    * The run's WALL CLOCK and POOL OCCUPANCY, recorded so a future
    * calibration can separate cohorts the ambient legs cannot: the pair
@@ -783,8 +797,8 @@ export type JudgedRunRecord = {
    * that predate the fields stay valid, and the verdict consumes neither
    * today.
    */
-  readonly wallClockMs?: number;
-  readonly totalOccupancyMs?: number;
+  readonly wallClockMs?: number | null;
+  readonly totalOccupancyMs?: number | null;
   /**
    * The web-UI performance budgets' measurements of the profile the run
    * judged (`webPerformanceBudgets.ledgerField`): each budget's value, null
@@ -1252,6 +1266,17 @@ function ageOf(timestamp: string | null): string {
   return `which finished ${String(seconds)}s ago, at ${timestamp}`;
 }
 
+/** A recorded number for a message, or the words for its absence. Never a
+ *  fabricated zero or sentinel: "-1/cpu" read as a measured reading. */
+function recordedFixed(value: number | null, digits: number): string {
+  return value === null ? "not measured" : value.toFixed(digits);
+}
+
+/** A recorded millisecond figure in seconds, or the words for its absence. */
+function recordedSeconds(value: number | null): string {
+  return value === null ? "not measured" : `${(value / 1000).toFixed(1)}s`;
+}
+
 /**
  * Everything a judged run recorded, on one line.
  *
@@ -1265,9 +1290,10 @@ export function provenanceLine(v: Extract<BudgetVerdict, { kind: "measured" }>):
     `[runtime-budget] this run: cpu ${(v.runCpuMs / 1000).toFixed(1)}s over ` +
     `${String(v.testModuleCount)} test files = ${v.cpuMsPerTestFile.toFixed(1)} ms/file · ` +
     `wall clock ${(v.wallClockMs / 1000).toFixed(2)}s (reported, not judged) · pool occupancy ` +
-    `${(v.totalOccupancyMs / 1000).toFixed(1)}s · worst collect ` +
+    `${recordedSeconds(v.totalOccupancyMs)} · worst collect ` +
     `${(v.worstCollectShare * 100).toFixed(1)}% of wall · ambient load ` +
-    `${String(v.load1PerCpuAtStart)}/cpu (5-minute leg ${v.load5PerCpuAtStart.toFixed(3)}/cpu)`
+    `${v.load1PerCpuAtStart === null ? "not measured" : String(v.load1PerCpuAtStart)}/cpu ` +
+    `(5-minute leg ${recordedFixed(v.load5PerCpuAtStart, 3)}/cpu)`
   );
 }
 
@@ -1395,16 +1421,16 @@ function cpuGate(
     timestamp: v.summaryTimestamp,
     cpuMsPerTestFile: v.cpuMsPerTestFile,
     testModuleCount: v.testModuleCount,
-    ...(v.load5PerCpuAtStart >= 0 ? { ambientLoad5PerCpu: v.load5PerCpuAtStart } : {}),
+    ...(v.load5PerCpuAtStart !== null ? { ambientLoad5PerCpu: v.load5PerCpuAtStart } : {}),
   };
   const { pass, cap } = cpuCap(current, budget);
   const inflation = ambientInflationFraction(v.load5PerCpuAtStart, budget);
   const arithmetic =
     inflation > 0
       ? ` = baseline ${budget.msPerTestFile.toFixed(1)} × ${(1 + inflation).toFixed(3)} ambient ` +
-        `adjustment (5-minute load ${v.load5PerCpuAtStart.toFixed(3)}/cpu × the declared envelope)`
+        `adjustment (5-minute load ${recordedFixed(v.load5PerCpuAtStart, 3)}/cpu × the declared envelope)`
       : ` (no ambient adjustment earned: 5-minute load ` +
-        `${v.load5PerCpuAtStart >= 0 ? v.load5PerCpuAtStart.toFixed(3) : "not recorded"}/cpu)`;
+        `${recordedFixed(v.load5PerCpuAtStart, 3)}/cpu)`;
   const allowance = ambientAllowanceStatement(budget, inflation);
   if (pass) {
     return {
@@ -1420,8 +1446,9 @@ function cpuGate(
     `That run (${ageOf(v.summaryTimestamp)}): ${(v.runCpuMs / 1000).toFixed(1)}s of CPU across ` +
     `${String(v.testModuleCount)} test files, wall clock ` +
     `${(v.wallClockMs / 1000).toFixed(2)}s (reported, not judged), pool occupancy ` +
-    `${(v.totalOccupancyMs / 1000).toFixed(1)}s, ambient load ` +
-    `${String(v.load1PerCpuAtStart)}/cpu (5-minute leg ${v.load5PerCpuAtStart.toFixed(3)}/cpu).\n\n` +
+    `${recordedSeconds(v.totalOccupancyMs)}, ambient load ` +
+    `${v.load1PerCpuAtStart === null ? "not measured" : String(v.load1PerCpuAtStart)}/cpu ` +
+    `(5-minute leg ${recordedFixed(v.load5PerCpuAtStart, 3)}/cpu).\n\n` +
     `Fix the regression — do not raise the budget to meet it (a budget changes only through ` +
     `its measuring tool, D-17).\n\nWorst files by pool occupancy: ` +
     v.slowestFiles.map((f) => `${f.file} ${(f.ms / 1000).toFixed(1)}s`).join(", ");
@@ -1450,7 +1477,7 @@ function collectTailGate(v: Extract<BudgetVerdict, { kind: "measured" }>): GateO
       `${worst.file} spends ${(worst.ms / 1000).toFixed(2)}s OUTSIDE its tests — ` +
       `${(v.worstCollectShare * 100).toFixed(1)}% of this run's ` +
       `${(v.wallClockMs / 1000).toFixed(1)}s wall clock (vitest's collectDuration: import + ` +
-      `suite callbacks; ${(v.totalCollectMs / 1000).toFixed(1)}s across all files).\n\n` +
+      `suite callbacks; ${recordedSeconds(v.totalCollectMs)} across all files).\n\n` +
       `Vitest orders files by TEST duration, so this cost is invisible to the scheduler: the ` +
       `file gets sorted by a number that does not include it, and lands wherever — sometimes ` +
       `overlapping the run, sometimes as a naked tail at the end. That is exactly what made ` +
@@ -1474,10 +1501,10 @@ function perFileShareGate(
   if (typeof fileShareMax !== "number") {
     return { gate, kind: "not-judged", message: fileShareMax.missing };
   }
-  if (v.totalOccupancyMs <= 0) {
+  if (v.totalOccupancyMs === null || v.totalOccupancyMs <= 0) {
     // Refusing to judge is right; inventing a share from a zero denominator
-    // is not.
-    return { gate, kind: "not-judged", message: "the run recorded no pool total" };
+    // is not, and an unmeasured total is not a zero.
+    return { gate, kind: "not-judged", message: "the run recorded no pool total (not measured, not zero)" };
   }
   const worst = v.slowestFiles[0];
   if (worst === undefined) {
@@ -1498,7 +1525,7 @@ function perFileShareGate(
     kind: "fail",
     message:
       `${worst.file} occupies ${(share * 100).toFixed(1)}% of the whole suite's worker time ` +
-      `(${(worst.ms / 1000).toFixed(1)}s of ${(v.totalOccupancyMs / 1000).toFixed(1)}s across ` +
+      `(${(worst.ms / 1000).toFixed(1)}s of ${recordedSeconds(v.totalOccupancyMs)} across ` +
       `${String(v.testModuleCount)} files), over the ${(fileShareMax * 100).toFixed(1)}% cap.\n\n` +
       `The suite is throughput-bound: every second one file spends is a second of the whole ` +
       `pool's budget, so a file this size sets the wall clock no matter where it is ` +

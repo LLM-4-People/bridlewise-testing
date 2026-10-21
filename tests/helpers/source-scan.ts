@@ -26,7 +26,6 @@ import {
   readSourceView,
   renderSpans,
   sourceViewOf,
-  type SpanKind,
 } from "../../engine/scripts/verification/source-view.ts";
 // The ownership-pruned walk, its index-coverage oracle and the owned-entry
 // door live engine-side so both suites share ONE implementation.
@@ -316,47 +315,21 @@ export function stripCommentsAndStringsDropFor(src: string, path: string): strin
 }
 
 /**
- * The COMMENTS-ONLY view of the source AT THIS PATH: every comment the file's
- * mode carries removed, string and template literals preserved whole. In
- * template mode that is markup comments AND script comments removed — the
- * view a control-shaped scan needs over a `.svelte` template (a comment
- * SPELLING a tag is not a rendered control); in code mode it is the flat
- * `stripCommentsOnly` view. This is the path-aware form of the two
- * mode-hardcoded comments-only doors below; a mixed walk takes it per file
- * so each member is read in its own mode.
- */
-export function stripCommentsOnlyFor(src: string, path: string): string {
-  return renderSpans(src, isTemplateSource(path), (kind, text) =>
-    kind === "line-comment" || kind === "block-comment" || kind === "html-comment"
-      ? droppedLines(text)
-      : text,
-  );
-}
-
-/**
- * Strip JS/TS line + block comments ONLY, preserving string-literal contents.
- * Used for checks that match a pattern INSIDE a string literal (e.g. a CSP
- * meta string, or a module specifier) where the string-blanking strippers
- * would empty the string and produce a false pass.
+ * The COMMENTS-ONLY views: every comment the file's mode carries blanked,
+ * string and template literals preserved whole. `stripCommentsOnlyFor` picks
+ * the mode from the path (markup comments exist only in template files);
+ * `stripCommentsOnly` is the flat code-mode fragment door.
  *
- * A FRAGMENT DOOR: the flat code walk, hardcoded. A caller whose content
- * came from a file may use it only over non-template files (`.ts` and
- * friends, where the flat walk IS the file's mode); template-file content
- * and mixed populations take `stripCommentsOnlyFor(src, path)` so each
- * member is read in its own mode.
- *
- * A SECOND NAME FOR THIS FUNCTION USED TO EXIST. `stripCommentsKeepStrings`
- * had its own state machine and its own docstring promising that `${…}`
- * interpolation was "copied verbatim so a `//` inside it is not stripped" —
- * which is simply what preserving a template literal means, and is what this
- * function already did. Two names for one question is the duplication this
- * module exists to end, so the eleven callers now ask it here.
+ * THE IMPLEMENTATION LIVES ENGINE-SIDE, and this module re-exports it. The
+ * copy that used to live here had its own state machine, and it read the `//`
+ * inside a regex literal (`/https?:\/\//`) as the start of a line comment —
+ * so a guard scanning for a token after that line saw a smaller file than the
+ * one on disk. The view owner already lexes regex literals; two implementations
+ * of "what is a comment" were always going to disagree, so there is now one.
+ * A caller whose content came from a file still holds `stripCommentsOnlyFor`,
+ * because a `.svelte` template and a `.ts` module are read in different modes.
  */
-export function stripCommentsOnly(src: string): string {
-  return renderSpans(src, false, (kind, text) =>
-    kind === "string" || kind === "template" || kind === "regex" ? text : droppedLines(text),
-  );
-}
+export { stripCommentsOnly, stripCommentsOnlyFor } from "../../engine/scripts/verification/source-view.ts";
 
 /**
  * Remove Svelte-template HTML comments (`<!-- … -->`) only, keeping code

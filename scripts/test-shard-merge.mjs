@@ -17,41 +17,21 @@
  * missing report is not an empty shard. The caller must pass exactly the
  * expected number of reports or the merge fails.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   PLAN_SCHEMA,
   SHARD_REPORT_SCHEMA,
+  fail,
   manifestHash as hashManifest,
+  normalizeFile,
+  readJson,
   readManifest as readSourceManifest,
+  requireGreenReport,
 } from "./test-shard-manifest.mjs";
 
 export const RECEIPT_SCHEMA = "bridlewise-test-shard-receipt/v1";
-
-function fail(message) {
-  throw new Error(message);
-}
-
-function normalizeFile(root, file, subject) {
-  if (typeof file !== "string" || file.length === 0) {
-    fail(`${subject}: a test result has no file name`);
-  }
-  const absolute = resolve(root, file);
-  const rel = relative(root, absolute);
-  if (rel.length === 0 || rel.startsWith("..") || isAbsolute(rel)) {
-    fail(`${subject}: test file escapes the repository root: ${file}`);
-  }
-  return rel.split(sep).join("/");
-}
-
-function readJson(path, subject) {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch (error) {
-    fail(`${subject}: cannot read JSON at ${path}: ${error.message}`);
-  }
-}
 
 function readManifest(root, path) {
   const entries = readJson(path, "manifest");
@@ -119,24 +99,10 @@ function readShard(root, path, index, expected = undefined, requireTiming = fals
   if (report === null || typeof report !== "object") {
     fail(`shard ${index}: report is not an object`);
   }
-  if (report.success !== true) {
-    fail(`shard ${index}: vitest reported success=false`);
-  }
-  const failedTests = Number(report.numFailedTests ?? 0);
-  const pendingTests = Number(report.numPendingTests ?? 0);
-  const todoTests = Number(report.numTodoTests ?? 0);
-  if (failedTests !== 0 || report.numFailedTestSuites !== 0) {
-    fail(
-      `shard ${index}: ${String(failedTests)} failed test(s) and ` +
-        `${String(report.numFailedTestSuites)} failed suite(s)`,
-    );
-  }
-  if (pendingTests !== 0 || todoTests !== 0) {
-    fail(
-      `shard ${index}: ${String(pendingTests)} skipped and ` +
-        `${String(todoTests)} todo test(s); a shard must run every selected test`,
-    );
-  }
+  const green = requireGreenReport(report, `shard ${index}`);
+  const failedTests = green.failedTests;
+  const pendingTests = green.pendingTests;
+  const todoTests = green.todoTests;
   const results = report.testResults;
   if (!Array.isArray(results)) {
     fail(`shard ${index}: report has no testResults array`);
@@ -151,7 +117,7 @@ function readShard(root, path, index, expected = undefined, requireTiming = fals
   if (duplicates.length > 0) {
     fail(`shard ${index}: duplicate test file(s): ${[...new Set(duplicates)].join(", ")}`);
   }
-  const totalTests = Number.isFinite(report.numTotalTests) ? report.numTotalTests : 0;
+  const totalTests = green.totalTests;
   const declaredPassed = Number(report.numPassedTests);
   const passedTests = Number.isFinite(declaredPassed)
     ? declaredPassed
@@ -171,6 +137,30 @@ function readShard(root, path, index, expected = undefined, requireTiming = fals
     const durationMs = Number(candidate?.durationMs);
     if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || !Number.isFinite(durationMs) || finishedAt < startedAt || durationMs < 0) {
       fail(`shard ${index}: timing is not a valid startedAt, finishedAt, and durationMs`);
+    }
+    // The duration is the window's LENGTH, so a contradiction between the
+    // recorded durationMs and the two timestamps is not a rounding question:
+    // it makes the receipt's critical path a number nobody measured. The
+    // merge used to take durationMs on faith while computing the window from
+    // the timestamps, so a report could claim either.
+    if (durationMs !== finishedAt - startedAt) {
+      fail(
+        `shard ${index}: timing durationMs ${String(durationMs)} does not equal ` +
+          `finishedAt - startedAt (${String(finishedAt - startedAt)})`,
+      );
+    }
+    const vitestStart = Number(report.startTime);
+    const vitestEnd = Number(report.endTime);
+    if (Number.isFinite(vitestStart) && Number.isFinite(vitestEnd)) {
+      // When vitest dates its own run, it has to sit inside the window the
+      // wrapper recorded: a test process cannot start before its job or
+      // finish after it.
+      if (vitestStart < startedAt || vitestEnd > finishedAt) {
+        fail(
+          `shard ${index}: vitest ran ${new Date(vitestStart).toISOString()}…${new Date(vitestEnd).toISOString()}, ` +
+            `outside the shard window ${new Date(startedAt).toISOString()}…${new Date(finishedAt).toISOString()}`,
+        );
+      }
     }
     timing = { startedAtMs: startedAt, finishedAtMs: finishedAt, durationMs };
   }

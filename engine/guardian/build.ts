@@ -10,10 +10,14 @@
  *   node guardian/build.ts            # node 24 strips types by default
  *   ./guardian/build.ts               # executable form (chmod +x)
  *
+ * The compiler is the Makefile's ONE declaration (CC := gcc-14), not a list
+ * here: a build with a different compiler is a different artifact, and
+ * root-policy.ts binds the binary by sha256.
+ *
  * Exit codes:
  *   0  success (absolute binary path on stdout)
- *   2  environment problem (no C compiler / no Makefile)
- *   3  make failed
+ *   2  environment problem (no Makefile)
+ *   3  make failed (including a missing or broken pinned compiler)
  *   4  binary not found after make
  *   5  expected binary path is not a regular file
  *
@@ -54,25 +58,6 @@ function main(): void {
   if (process.argv[2] === '--test-process-supervisor') {
     console.log(testProcessSupervisorBinary());
     return;
-  }
-
-  function hasCommand(cmd: string): boolean {
-    const r = spawnSync('sh', ['-c', `command -v ${cmd}`], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    if (r.status !== 0) return false;
-    const out = r.stdout ? r.stdout.toString().trim() : '';
-    return out.length > 0;
-  }
-
-  // 1. Fail fast with a clear message if no C compiler is present.
-  const compilers = ['cc', 'gcc', 'clang'];
-  if (!compilers.some(hasCommand)) {
-    console.error(
-      `landlock-guardian build: no C compiler found (checked: ${compilers.join(', ')}). ` +
-        'Install one (e.g. build-essential / gcc) before building.',
-    );
-    process.exit(2);
   }
 
   if (!existsSync(join(guardianDir, 'Makefile'))) {

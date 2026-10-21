@@ -11,8 +11,10 @@
  * is not, rather than silently producing numbers that look like findings.
  */
 
-import { cpus, loadavg, totalmem, freemem, arch, platform, release } from "node:os";
+import { cpus, totalmem, freemem, arch, platform, release } from "node:os";
 import { execFileSync } from "node:child_process";
+
+import { readAmbientLoadPerCpu } from "../../engine/src/shared/ambient-load.ts";
 
 export type MachineSnapshot = {
   readonly at: string;
@@ -20,12 +22,18 @@ export type MachineSnapshot = {
   readonly release: string;
   readonly arch: string;
   readonly cpuModel: string;
-  readonly cpuCount: number;
-  readonly load1: number;
-  readonly load5: number;
-  readonly load15: number;
-  /** load1 divided by cpu count — >0.5 means meaningful contention. */
-  readonly loadPerCpu: number;
+  /** Null when the OS would not answer; absence is never a zero. */
+  readonly cpuCount: number | null;
+  readonly load1: number | null;
+  readonly load5: number | null;
+  readonly load15: number | null;
+  /**
+   * The shared ambient reading's 1-minute leg per CPU — the SAME producer the
+   * suite runner and the budget reporter read. This module used to divide
+   * `l1 / cores.length` itself (and to default an unreadable sample to 0),
+   * which was a second derivation of a registered quantity.
+   */
+  readonly loadPerCpu: number | null;
   readonly totalMemMb: number;
   readonly freeMemMb: number;
   readonly nodeVersion: string;
@@ -56,8 +64,13 @@ function topProcesses(limit: number): readonly string[] {
 
 export function snapshotMachine(): MachineSnapshot {
   const cores = cpus();
-  const [l1 = 0, l5 = 0, l15 = 0] = loadavg();
-  const perCpu = cores.length > 0 ? l1 / cores.length : l1;
+  // ONE ambient reading, from the shared producer: the raw legs are recorded
+  // as read and the per-CPU figure is the producer's division, never a local
+  // one. An unreadable sample or CPU count is null, and the quiet verdict is
+  // then withheld (a box whose load could not be read is not shown as quiet).
+  const ambient = readAmbientLoadPerCpu();
+  const loads = ambient.loads;
+  const perCpu = ambient.perCpu?.load1 ?? null;
   // The quiet bar: less than half a core of ambient load per CPU, and no
   // single non-bench process burning a whole core.
   const top = topProcesses(8);
@@ -67,9 +80,10 @@ export function snapshotMachine(): MachineSnapshot {
     const pid = Number(parts[0] ?? 0);
     return pcpu > 80 && pid !== process.pid;
   });
-  const quiet = perCpu < 0.5 && hotOther.length === 0;
+  const quiet = perCpu !== null && perCpu < 0.5 && hotOther.length === 0;
   const notes: string[] = [];
-  if (perCpu >= 0.5) notes.push(`load1/cpu = ${perCpu.toFixed(2)} (>= 0.50)`);
+  if (perCpu === null) notes.push("ambient load unreadable (loadavg or CPU count absent)");
+  else if (perCpu >= 0.5) notes.push(`load1/cpu = ${perCpu.toFixed(2)} (>= 0.50)`);
   if (hotOther.length > 0) notes.push(`hot processes: ${hotOther.join("; ")}`);
 
   return {
@@ -78,10 +92,10 @@ export function snapshotMachine(): MachineSnapshot {
     release: release(),
     arch: arch(),
     cpuModel: cores[0]?.model ?? "unknown",
-    cpuCount: cores.length,
-    load1: l1,
-    load5: l5,
-    load15: l15,
+    cpuCount: ambient.cpuCount,
+    load1: loads?.[0] ?? null,
+    load5: loads?.[1] ?? null,
+    load15: loads?.[2] ?? null,
     loadPerCpu: perCpu,
     totalMemMb: Math.round(totalmem() / 1024 / 1024),
     freeMemMb: Math.round(freemem() / 1024 / 1024),
@@ -94,10 +108,15 @@ export function snapshotMachine(): MachineSnapshot {
 
 /** One line summarising conditions, for the top of a printed report. */
 export function machineLine(m: MachineSnapshot): string {
+  const cores = m.cpuCount === null ? "cores not measured" : `${String(m.cpuCount)} cores`;
+  const legs =
+    m.load1 === null || m.load5 === null || m.load15 === null
+      ? "load not measured"
+      : `load ${m.load1.toFixed(2)}/${m.load5.toFixed(2)}/${m.load15.toFixed(2)}`;
+  const perCpu = m.loadPerCpu === null ? "ambient/cpu not measured" : `${m.loadPerCpu.toFixed(2)}/cpu`;
   return (
-    `${m.platform} ${m.arch} · ${m.cpuCount} cores · node ${m.nodeVersion} · ` +
-    `load ${m.load1.toFixed(2)}/${m.load5.toFixed(2)}/${m.load15.toFixed(2)} ` +
-    `(${m.loadPerCpu.toFixed(2)}/cpu) · free ${m.freeMemMb}MB · ` +
+    `${m.platform} ${m.arch} · ${cores} · node ${m.nodeVersion} · ` +
+    `${legs} (${perCpu}) · free ${m.freeMemMb}MB · ` +
     `${m.quiet ? "QUIET" : "NOT QUIET — " + m.quietNote}`
   );
 }

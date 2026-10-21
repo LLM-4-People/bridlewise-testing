@@ -64,7 +64,6 @@ import {
   appendAssistantMessage,
   appendToolCall,
   clearMessages,
-  updateLastAssistantMessage,
 } from "../../src/state/chat-messages.ts";
 import { projects, currentProjectId } from "../../src/state/projects.ts";
 import { refreshCapturedRanges } from "../../src/cockpit/sweep/arm-sync.ts";
