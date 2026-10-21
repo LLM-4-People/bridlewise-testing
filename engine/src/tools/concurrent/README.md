@@ -22,7 +22,7 @@ is scheduled once and every caller goes through the same executor.
 
 The folder lives at `engine/src/tools/concurrent/`.
 
-- `dependency-graph.ts` is consumed by `engine/src/tools/concurrent/dispatcher.ts`, `engine/src/tools/concurrent/index.ts`.
+- `dependency-graph.ts` is consumed by `engine/scripts/roadmap/graph.ts`, `engine/src/tools/concurrent/dispatcher.ts`, `engine/src/tools/concurrent/index.ts`.
 - `dispatcher.ts` is consumed by `engine/src/tools/concurrent/index.ts`.
 - `index.ts` is consumed by nothing yet.
 - `long-task-runner.ts` is consumed by `engine/src/cli.mjs`, `engine/src/tools/concurrent/index.ts`.

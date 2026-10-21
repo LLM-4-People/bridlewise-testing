@@ -5570,5 +5570,10 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       owner: "verification", publicApi: { exportCount: 17, namesSha256: "f45ba27065e4540ab23fced797d550b849e255e35338691554366f223fcbf5ba" },
       dependencies: [],
     }),
+    moduleContract({
+      id: "scripts-roadmap-graph", path: "scripts/roadmap/graph.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 15, namesSha256: "a1749dd878adea8394d05d1dc39c756d65c5153dc2a151a4a72d9cfcff4c47d4" },
+      dependencies: ["../shared/markup.ts","src/kernel/errors.ts","src/tools/concurrent/dependency-graph.ts"],
+    }),
   ],
 });
