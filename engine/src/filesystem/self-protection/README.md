@@ -20,9 +20,18 @@ the spec compiler relies on. The guardian binary itself lives under
 - `self-protection-contracts.ts` — the guardian spec schema, the Landlock
   access-flag vocabulary, and the flag metadata.
 - `guardian-binary.ts` — resolving and verifying the guardian binary (its
-  path and pinned hash), and compiling the config to the spec (the keep-out
-  list's present entries become the spec's protected subtrees and `keep_out`;
-  no temp folder is granted unless the host names a private one).
+  path and its reproducible build stamp, recomputed from the sealed sources
+  and checked against the root-policy pin), and compiling the config to the
+  spec (the keep-out list's present entries become the spec's protected
+  subtrees and `keep_out`; no temp folder is granted unless the host names a
+  private one).
+- `guardian-build-stamp.ts` — THE REPRODUCIBLE GUARDIAN TRUST ANCHOR: reads
+  `guardian/build-stamp.spec`, hashes the declared sources and flags exactly
+  as the Makefile does, recomputes the stamp at runtime, and parses a binary's
+  `--stamp` answer strictly. The process call that asks the binary lives in
+  `guardian-binary.ts` (the one engine confinement owner that launches the
+  guardian). The compiler-built file's sha256 is diagnostic only; it differs
+  between toolchains for the same sources.
 - `keep-out.ts` — THE ONE KEEP-OUT LIST: the harness floor, every home's
   stores (WSL Windows profiles included, case-insensitive, short 8.3 names
   resolved to their long names), the key home and its registered stores (each
@@ -95,6 +104,7 @@ is reached (sec-e-correctness M-4):
 The folder lives at `engine/src/filesystem/self-protection/`.
 
 - `guardian-binary.ts` is consumed by `engine/src/filesystem/self-protection/index.ts`.
+- `guardian-build-stamp.ts` is consumed by `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/workflow/hash-binding-registry.ts`.
 - `index.ts` is consumed by `server/kernel/canonical.ts`.
 - `keep-out.ts` is consumed by `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/temporary-root.ts`, `engine/src/process/instrument-lock.ts`.
 - `key-home.ts` is consumed by `engine/src/filesystem/persisted-key.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/keep-out.ts`.

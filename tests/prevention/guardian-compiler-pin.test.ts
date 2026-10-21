@@ -2,14 +2,18 @@
 /**
  * THE GUARDIAN'S COMPILER IS ONE DECLARATION.
  *
- * `root-policy.ts` binds the guardian binary by sha256, so the compiler is
- * part of the measured artifact: a build with a different compiler is a
- * different binary and a different pin. The compiler used to be selected at
- * three places — `CC=gcc-14` in ci.yml, `CC=gcc-14` in test-shards.yml, and a
- * `cc | gcc | clang` search list inside engine/guardian/build.ts — while the
- * Makefile accepted any of the three. A workflow edit that dropped the prefix,
- * or a local `make` with another compiler, changed the artifact with every
- * guard still green.
+ * The compiler used to be selected at three places — `CC=gcc-14` in ci.yml,
+ * `CC=gcc-14` in test-shards.yml, and a `cc | gcc | clang` search list inside
+ * engine/guardian/build.ts — while the Makefile accepted any of the three. A
+ * workflow edit that dropped the prefix, or a local `make` with another
+ * compiler, changed the artifact with every guard still green. The binary was
+ * bound by its sha256 then, which made the compiler part of the measured
+ * artifact and made two toolchains disagree on the pin.
+ *
+ * The binary is now bound by a reproducible build stamp over the sealed
+ * sources and flags (`guardian/build-stamp.spec`), so the compiler is a
+ * build-tool pin, not a trust anchor. It is still declared ONCE here: a build
+ * host must have the package the workflows install and the docs name.
  *
  * The Makefile's `CC := …` line is the ONE declaration. Both workflows install
  * that package and invoke the Makefile without a CC= literal; build.ts invokes

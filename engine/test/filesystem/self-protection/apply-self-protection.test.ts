@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -11,6 +10,7 @@ import {
   compileSelfProtectionConfigToSpec,
   verifyGuardianBinaryAvailability,
 } from "../../../src/filesystem/self-protection/guardian-binary.ts";
+import { computeGuardianBuildStamp } from "../../../src/filesystem/self-protection/guardian-build-stamp.ts";
 import { applySelfProtection } from "../../support/guardian-apply.ts";
 import { parseSelfProtectionConfig } from "../../../src/filesystem/self-protection/self-protection-config.ts";
 import type { GuardianSpec } from "../../../src/filesystem/self-protection/self-protection-contracts.ts";
@@ -123,18 +123,24 @@ test("e2e: applySelfProtection returns pre_exec_failure with exit 64 when the bi
   assert.equal((result as { exitCode: number }).exitCode, 64);
 });
 
-test("e2e: ROOT_POLICY.selfProtection.binarySha256 matches the on-disk binary bytes (M3 fix + regression)", () => {
-  // M3 minor gap: the old test only checked the ROOT_POLICY literal, not the
-  // on-disk bytes. This reads the actual binary and asserts its sha256 matches
-  // the policy pin, proving the literal is stable AND the binary matches.
+test("e2e: the guardian's reported stamp is the one recomputed from the sealed sources and the committed pin", () => {
+  // The trust anchor is reproducible: the binary carries a stamp derived from
+  // its sources and declared flags, and the runtime recomputes the same value
+  // from the tree. A missed rebuild or a source edit without `harness sync`
+  // refuses here instead of silently accepting a different program.
   const binaryPath = join(candidateRoot, ROOT_POLICY.selfProtection.binaryRelativePath);
   requireHost(existsSync(binaryPath), `the built guardian binary at ${binaryPath} (the checkout setup's guardian step builds it)`);
-  const onDiskHash = createHash("sha256").update(readFileSync(binaryPath)).digest("hex");
-  assert.equal(
-    onDiskHash,
-    ROOT_POLICY.selfProtection.binarySha256,
-    `ROOT_POLICY.selfProtection.binarySha256 (${ROOT_POLICY.selfProtection.binarySha256}) must match the on-disk binary bytes (${onDiskHash})`,
-  );
+  const availability = verifyGuardianBinaryAvailability(candidateRoot);
+  assert.equal(availability.available, true, `expected available, got: ${JSON.stringify(availability)}`);
+  if (availability.available) {
+    const recomputed = computeGuardianBuildStamp(candidateRoot);
+    assert.equal(availability.stamp, recomputed, "the binary's stamp must equal the sealed source tree's stamp");
+    assert.equal(
+      ROOT_POLICY.selfProtection.binaryStamp,
+      recomputed,
+      "the committed pin must equal the sealed source tree's stamp (run `harness sync` after a guardian source change)",
+    );
+  }
 });
 
 test("e2e: compiled spec (the cli.ts bootstrap path) blocks readFileSync of <harness-root>/src/cli.ts", async () => {

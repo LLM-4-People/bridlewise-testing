@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { computeGuardianBuildStamp } from "../../src/filesystem/self-protection/guardian-build-stamp.ts";
 import { EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, README_CONSUMER_BLOCK, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { pinAuthorities } from "../../scripts/pin-authority-regeneration.ts";
 import { createTempDir } from "../support/temp-dir.ts";
@@ -269,7 +270,8 @@ test("HashBindingRegistry: repairAllBindings repairs all stale bindings and veri
         "    },",
         "    selfProtection: {",
         '      binaryRelativePath: "guardian/build/harness-landlock-guardian",',
-        `      binarySha256: "${"0".repeat(64)}",`,
+        '      buildStampSpecPath: "guardian/build-stamp.spec",',
+        `      binaryStamp: "${"0".repeat(64)}",`,
         '      bundleRelativePath: "dist/bundle.js",',
         `      bundleSha256: "${"0".repeat(64)}",`,
         '      specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",',
@@ -277,9 +279,20 @@ test("HashBindingRegistry: repairAllBindings repairs all stale bindings and veri
         "    },",
       ].join("\n") + "\n",
     );
-    // Stub the three Landlock self-protection binding source files so
-    // repairAllBindings can compute their hashes without file-not-found errors.
-    writeRelative(tmpRoot, "guardian/build/harness-landlock-guardian", "guardian-binary-stub\n");
+    // Stub the guardian's SEALED INPUTS (the stamp binding hashes them, not
+    // the compiler-built binary) and the other Landlock self-protection
+    // binding sources, so repairAllBindings can compute without file-not-found
+    // errors. The built binary is deliberately absent: the stamp does not read
+    // it.
+    writeRelative(
+      tmpRoot,
+      "guardian/build-stamp.spec",
+      "STAMP_FORMAT := bridlewise-guardian-build-stamp/v1\n"
+        + "STAMP_CFLAGS := -std=c11 -O2\n"
+        + "STAMP_SOURCES := landlock-guardian.c landlock-guardian.h\n",
+    );
+    writeRelative(tmpRoot, "guardian/landlock-guardian.c", "int main(void) { return 0; }\n");
+    writeRelative(tmpRoot, "guardian/landlock-guardian.h", "#ifndef STUB_H\n#define STUB_H\n#endif\n");
     // The bundle embeds its own pin (a self-pinned binding): the stub carries
     // one, so the digest is taken with it normalised out.
     writeRelative(tmpRoot, "dist/bundle.js", `const policy = { bundleSha256: "${"9".repeat(64)}" };\n`);
@@ -666,75 +679,99 @@ test("every source-authority pin target and projection a sync pass re-derives is
 });
 
 /**
- * THE GUARDIAN BINARY PIN IS A PRODUCED TRUST ANCHOR, NOT A HAND VALUE.
+ * THE GUARDIAN'S TRUST ANCHOR IS A REPRODUCIBLE BUILD STAMP, NOT THE BINARY'S
+ * BYTES.
  *
- * An alternate accepted hash that no build produces, no check verifies and no
- * regeneration path rewrites is a second trust anchor someone can edit without
- * evidence — a tampered alternate left every guard green (driven: replacing
- * the literal with 64 zeros and running the self-protection tests passed 6/6).
- * The pin is ONE anchor with its producer (`node guardian/build.ts`), its
- * binding (`file-binary-sha256`, rewritten by `harness sync`) and its check
- * (`verifyBinding`, and the availability probe's equality). The arms below
- * prove the checker fails on a tampered pin and on a removed one, and that
- * repair restores a tampered value from the binary's bytes.
+ * The old pin hashed the compiler's output, so the local and CI gcc sealed
+ * different digests for the same sources and every CI run refused confinement.
+ * The anchor is now the digest of the SEALED INPUTS (`build-stamp.spec`: the
+ * source files and declared flags), computed by the owning module exactly as
+ * the Makefile embeds it. `harness sync` rewrites the literal from that
+ * computation; no compiler and no built binary is involved.
+ *
+ * The arms below prove: no binding hashes the built binary; the live pin and
+ * the module's recomputation agree; the binding ignores the binary's bytes;
+ * and a tampered source, a tampered pin and a removed pin each refuse, with
+ * repair restoring the value from the sealed sources.
  */
-test("the guardian binary pin has one producer, one check and a regeneration path — and no unproduced alternate", () => {
-  const binding = findBinding("root-policy-self-protection-guardian-binary-sha256");
-  assert.equal(binding.sourcePath, ROOT_POLICY.selfProtection.binaryRelativePath, "the source is the built binary the floor names");
+test("the guardian anchor is a reproducible stamp over sealed sources with one check and a regeneration path", () => {
+  const binding = findBinding("root-policy-self-protection-guardian-build-stamp");
+  assert.equal(binding.sourcePath, ROOT_POLICY.selfProtection.buildStampSpecPath, "the source is the one sealed-inputs declaration");
   assert.equal(binding.targetPath, ROOT_POLICY.sourcePath, "the target is the root policy that carries the pin");
-  assert.deepEqual(binding.hashMode, { kind: "file-binary-sha256" }, "raw bytes, never a UTF-8 read");
-  assert.equal(binding.sourceOrigin.kind, "build-output");
-  assert.match(
-    binding.sourceOrigin.kind === "build-output" ? binding.sourceOrigin.producedBy : "",
-    /guardian\/build\.ts/u,
-    "the binding names the command that produces the bytes",
+  assert.equal(binding.hashMode.kind, "module-constant", "the owning module computes the multi-file digest");
+  assert.equal(binding.sourceOrigin.kind, "repository-source");
+  assert.equal(
+    "binarySha256" in ROOT_POLICY.selfProtection,
+    false,
+    "the compiler-built file's digest is not a trust anchor",
+  );
+  assert.equal(
+    listAllBindings().some((entry) => entry.sourcePath === ROOT_POLICY.selfProtection.binaryRelativePath),
+    false,
+    "no binding may hash the compiler-built binary; its bytes are not reproducible",
   );
   assert.equal(
     "binarySha256Alternates" in ROOT_POLICY.selfProtection,
     false,
-    "an alternate hash with no producer is a second trust anchor; a different toolchain is a reviewed re-pin",
+    "an alternate hash with no producer is a second trust anchor",
   );
 
-  // THE LIVE CHECK. A built binary must match the committed pin; an unbuilt
-  // one is a guided absence naming the command, never a silent pass.
-  const verdict = verifyBinding(ROOT, binding);
-  if (existsSync(join(ROOT, binding.sourcePath))) {
-    assert.equal(verdict.matches, true, `the committed pin disagrees with the binary bytes: ${verdict.expected} != ${verdict.actual}`);
-  } else {
-    assert.match(verdict.error ?? "", /has not been built yet/u);
-    assert.match(verdict.error ?? "", /node guardian\/build\.ts/u);
-  }
+  // THE LIVE CHECK: the committed pin is exactly the source tree's stamp.
+  const live = verifyBinding(ROOT, binding);
+  assert.equal(live.matches, true, `the committed stamp disagrees with the sealed sources: ${live.expected} != ${live.actual}`);
+  assert.equal(computeBindingHash(ROOT, binding), computeGuardianBuildStamp(ROOT));
+  assert.equal(computeGuardianBuildStamp(ROOT), ROOT_POLICY.selfProtection.binaryStamp);
 
-  // TAMPER, REMOVAL AND REGENERATION, driven from outside the checker: the
-  // same binding and the real repair function, over planted bytes.
+  // TAMPER, BYTES-IRRELEVANCE, REMOVAL AND REGENERATION over planted inputs.
   const tmpRoot = makeTempRoot();
   try {
-    const binaryBytes = "guardian-binary-stub\n";
-    writeRelative(tmpRoot, binding.sourcePath, binaryBytes);
-    const binaryHash = sha256(binaryBytes);
+    const specRelative = ROOT_POLICY.selfProtection.buildStampSpecPath;
+    writeRelative(
+      tmpRoot,
+      specRelative,
+      "STAMP_FORMAT := bridlewise-guardian-build-stamp/v1\n"
+        + "STAMP_CFLAGS := -std=c11 -O2\n"
+        + "STAMP_SOURCES := landlock-guardian.c landlock-guardian.h\n",
+    );
+    writeRelative(tmpRoot, "guardian/landlock-guardian.c", "int main(void) { return 0; }\n");
+    writeRelative(tmpRoot, "guardian/landlock-guardian.h", "#ifndef STUB_H\n#define STUB_H\n#endif\n");
     const target = join(tmpRoot, binding.targetPath);
     mkdirSync(join(tmpRoot, "src", "kernel"), { recursive: true });
-    const pinned = `export const P = { selfProtection: { binarySha256: "${binaryHash}" } };\n`;
-    writeFileSync(target, pinned, "utf8");
-    assert.equal(verifyBinding(tmpRoot, binding).matches, true, "control: the matching pin is green");
+    const firstStamp = computeGuardianBuildStamp(tmpRoot);
+    writeFileSync(target, `export const P = { selfProtection: { binaryStamp: "${firstStamp}" } };\n`, "utf8");
+    assert.equal(verifyBinding(tmpRoot, binding).matches, true, "control: the matching stamp is green");
 
-    writeFileSync(target, pinned.replace(binaryHash, "0".repeat(64)), "utf8");
+    // THE BYTES ARE NOT THE ANCHOR: an arbitrary file at the binary's path
+    // does not change the binding's answer.
+    writeRelative(tmpRoot, ROOT_POLICY.selfProtection.binaryRelativePath, "not the compiler's output\n");
+    assert.equal(verifyBinding(tmpRoot, binding).matches, true, "the built binary's bytes must not decide the binding");
+
+    // A TAMPERED SOURCE changes the recomputed stamp and refuses the old pin.
+    writeRelative(tmpRoot, "guardian/landlock-guardian.c", "int main(void) { return 1; }\n");
+    assert.equal(verifyBinding(tmpRoot, binding).matches, false, "a source edit must move the stamp");
+
+    // REGENERATION restores it from the sources (no compiler, no binary).
+    const repaired = repairBinding(tmpRoot, binding);
+    assert.equal(repaired.repaired, true, repaired.error ?? "repair must rewrite a stale stamp");
+    const secondStamp = computeGuardianBuildStamp(tmpRoot);
+    assert.equal(repaired.newHash, secondStamp);
+    assert.equal(verifyBinding(tmpRoot, binding).matches, true, "after repair the pin matches the sealed sources");
+
+    // A TAMPERED PIN refuses and is repaired from the sources.
+    writeFileSync(
+      target,
+      `export const P = { selfProtection: { binaryStamp: "${"0".repeat(64)}" } };\n`,
+      "utf8",
+    );
     assert.equal(verifyBinding(tmpRoot, binding).matches, false, "a tampered pin must refuse");
+    assert.equal(repairBinding(tmpRoot, binding).newHash, secondStamp);
 
+    // A REMOVED literal is a refusal (sync has no literal to rewrite), never a
+    // value conjured from nothing.
     writeFileSync(target, "export const P = { selfProtection: {} };\n", "utf8");
     const removed = verifyBinding(tmpRoot, binding);
     assert.equal(removed.matches, false, "a removed pin must refuse");
     assert.match(removed.error ?? "", /hash literal not found/u);
-
-    // REGENERATION: a wrong value is repaired from the bytes by the binding
-    // `harness sync` runs; a removed field is a refusal (sync has no literal
-    // to rewrite), never a value conjured from nothing.
-    writeFileSync(target, pinned.replace(binaryHash, "0".repeat(64)), "utf8");
-    const repaired = repairBinding(tmpRoot, binding);
-    assert.equal(repaired.repaired, true, repaired.error ?? "repair must rewrite a wrong pin");
-    assert.equal(repaired.newHash, binaryHash);
-    assert.equal(verifyBinding(tmpRoot, binding).matches, true, "after repair the pin matches the bytes again");
-    assert.equal(repairBinding(tmpRoot, binding).repaired, false, "an unchanged pin is not rewritten");
   } finally {
     rmSync(tmpRoot, { recursive: true, force: true });
   }

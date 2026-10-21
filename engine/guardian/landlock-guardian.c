@@ -9,6 +9,12 @@
  *
  * CLI:
  *   harness-landlock-guardian apply --spec <spec.json> --exec <payload> [args...]
+ *   harness-landlock-guardian --stamp
+ *
+ * `--stamp` prints the reproducible build stamp the Makefile embedded (the
+ * digest of the sealed inputs in build-stamp.spec). It is a build stamp, not
+ * a digest of this binary: the same sources and declared flags stamp alike
+ * under any compiler, which is what the runtime compares against.
  *
  * See DESIGN.md for the full contract and error codes.
  */
@@ -33,6 +39,16 @@
 #include <linux/version.h>
 
 #include "landlock-guardian.h"
+
+/*
+ * The reproducible build stamp, embedded by the Makefile from
+ * build-stamp.spec. Empty when the binary was built outside the Makefile
+ * (e.g. a direct `cc` invocation), so `--stamp` refuses instead of printing
+ * an empty or partial value the runtime might mistake for a digest.
+ */
+#ifndef GUARDIAN_BUILD_STAMP
+#define GUARDIAN_BUILD_STAMP ""
+#endif
 
 /* ---- typed error reporting ------------------------------------------- */
 
@@ -1176,13 +1192,46 @@ static void usage(void) __attribute__((noreturn));
 static void usage(void)
 {
     fflush(stdout);
-    fputs("landlock-guardian: 64: usage: harness-landlock-guardian apply --spec <spec.json> --exec <payload> [payload-args...]\n", stderr);
+    fputs("landlock-guardian: 64: usage: harness-landlock-guardian apply --spec <spec.json> --exec <payload> [payload-args...] | harness-landlock-guardian --stamp\n", stderr);
     exit(64);
+}
+
+/* A build stamp is 64 lowercase hex characters or it is not a stamp. */
+static int is_stamp(const char *value)
+{
+    if (strlen(value) != 64) return 0;
+    for (size_t i = 0; i < 64; i++) {
+        char c = value[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return 0;
+    }
+    return 1;
+}
+
+/*
+ * Print the embedded stamp on stdout. The runtime parses this strictly
+ * (`^[0-9a-f]{64}\n?$`), so a binary built without the Makefile's -D — or one
+ * whose stamp was corrupted — refuses HERE rather than printing bytes that
+ * could be mistaken for a valid answer.
+ */
+static void print_build_stamp(void)
+{
+    const char *stamp = GUARDIAN_BUILD_STAMP;
+    if (!is_stamp(stamp)) {
+        fail(64, "no valid build stamp is embedded (build through the Makefile's guardian target)");
+    }
+    if (printf("%s\n", stamp) < 0 || fflush(stdout) != 0) {
+        fail(64, "writing the build stamp failed (errno=%d: %s)", errno, strerror(errno));
+    }
 }
 
 int main(int argc, char **argv)
 {
     if (argc < 2) usage();
+    if (strcmp(argv[1], "--stamp") == 0) {
+        if (argc != 2) fail(64, "--stamp takes no arguments");
+        print_build_stamp();
+        return 0;
+    }
     if (strcmp(argv[1], "apply") != 0) usage();
 
     const char *spec_path = NULL;

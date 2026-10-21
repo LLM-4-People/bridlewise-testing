@@ -9,6 +9,8 @@ import {
   resolveGuardianBinaryPath,
   verifyGuardianBinaryAvailability,
 } from "../../../src/filesystem/self-protection/guardian-binary.ts";
+import { computeGuardianBuildStamp } from "../../../src/filesystem/self-protection/guardian-build-stamp.ts";
+import { copyGuardianSealedInputs } from "../../support/guardian-build-stamp.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
 import { requireLinuxHost } from "../../support/host-requirement.ts";
 
@@ -37,12 +39,17 @@ test("guardian-binary: resolveGuardianBinaryPath rejects a relative root", () =>
   assert.equal(resolved, undefined);
 });
 
-test("guardian-binary: verifyGuardianBinaryAvailability returns available:true with the frozen sha256 on this Linux host", () => {
+test("guardian-binary: verifyGuardianBinaryAvailability admits the binary whose build stamp matches the sealed sources on this Linux host", () => {
   requireLinuxHost();
   const availability = verifyGuardianBinaryAvailability(candidateRoot);
   assert.equal(availability.available, true, `expected available, got: ${JSON.stringify(availability)}`);
   if (availability.available) {
-    assert.equal(availability.sha256, ROOT_POLICY.selfProtection.binarySha256);
+    // The trust anchor: the binary's reported stamp, the source tree's
+    // recomputation and the committed pin are one value. The file sha256 is
+    // carried for diagnostics only, and is deliberately not equal to a pin.
+    assert.equal(availability.stamp, computeGuardianBuildStamp(candidateRoot));
+    assert.equal(availability.stamp, ROOT_POLICY.selfProtection.binaryStamp);
+    assert.match(availability.sha256, /^[0-9a-f]{64}$/u);
     assert.equal(availability.binaryPath, expectedBinaryPath());
     assert.ok(availability.kernelAbi >= 1, `kernelAbi should be >= 1, got ${availability.kernelAbi}`);
   }
@@ -55,14 +62,15 @@ test("guardian-binary: verifyGuardianBinaryAvailability reports binary_missing w
   assert.equal(availability.fallbackAttempted, false);
 });
 
-test("guardian-binary: verifyGuardianBinaryAvailability reports binary_hash_mismatch when the sha256 pin is wrong", () => {
+test("guardian-binary: verifyGuardianBinaryAvailability reports binary_hash_mismatch when the binary reports no stamp", () => {
   requireLinuxHost();
-  // The real binary's sha256 matches the pin (verified above). To exercise the
-  // mismatch path WITHOUT mutating the frozen binary, point at a harness root
-  // whose guardian binary is a different file with a different hash. Build a
-  // fake harness root layout with a stub binary at the relative path.
+  // To exercise the refusal WITHOUT mutating the frozen binary, point at a
+  // harness root whose guardian binary is a stub with no `--stamp` mode. The
+  // source tree is copied too, so the refusal is about the binary's answer,
+  // not about missing sealed inputs.
   const fakeRoot = createTempDir("harness-guardian-mismatch-");
   try {
+    copyGuardianSealedInputs(candidateRoot, fakeRoot);
     mkdirSync(join(fakeRoot, "guardian", "build"), { recursive: true });
     writeFileSync(join(fakeRoot, "guardian", "build", "harness-landlock-guardian"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     const availability = verifyGuardianBinaryAvailability(fakeRoot);

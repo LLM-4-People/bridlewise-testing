@@ -771,6 +771,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/filesystem/self-protection/guardian-build-stamp.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/filesystem/self-protection/hostile/binary-tampering.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4165,5 +4173,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "d8b242e1f67273f74b804a9824b8e8a74302aeefbfecb9ecb5afd53da3b5816e"
+  "integrityHash": "687f190a5271b26a76b6f998b808bd2182bc0f1b2d79174630cb9db83b4e156b"
 }

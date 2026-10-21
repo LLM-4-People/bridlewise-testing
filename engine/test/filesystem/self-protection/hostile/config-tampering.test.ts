@@ -18,7 +18,7 @@ const EMPTY_KEEP_OUT = emptyKeepOutFacts();
 /**
  * Config-tampering hostile tests. The operator config is additive-only: the
  * floor (`minimumProtectedSubtrees`, `minimumAllowSet`, `handledAccessFs`,
- * `blockRead`, `blockWrite`, `mayNotBeDisabled`, `binarySha256`) lives in
+ * `blockRead`, `blockWrite`, `mayNotBeDisabled`, `binaryStamp`) lives in
  * `ROOT_POLICY.selfProtection` and MUST NOT appear in the config document. The
  * `strictObject` schema rejects any floor field in the config; the root-policy
  * floor is non-overridable (deepFrozen).
@@ -29,9 +29,9 @@ test("hostile config-tampering: root-policy floor is non-overridable (deepFrozen
   assert.equal(ROOT_POLICY.selfProtection.mayNotBeDisabled, true);
   assert.equal(ROOT_POLICY.selfProtection.blockRead, true);
   assert.equal(ROOT_POLICY.selfProtection.blockWrite, true);
-  // The pin itself is GENERATED (harness sync hashes the built binary); a
-  // literal copy here was a second, hand-edited owner of it.
-  assert.match(ROOT_POLICY.selfProtection.binarySha256, /^[0-9a-f]{64}$/u);
+  // The pin itself is GENERATED (`harness sync` recomputes it from the sealed
+  // guardian sources); a literal copy here was a second, hand-edited owner.
+  assert.match(ROOT_POLICY.selfProtection.binaryStamp, /^[0-9a-f]{64}$/u);
   // The operator cannot remove 'src' from minimumProtectedSubtrees — it is not
   // a config field at all.
   assert.throws(
@@ -60,12 +60,12 @@ test("hostile config-tampering: operator cannot set blockRead/blockWrite in conf
   );
 });
 
-test("hostile config-tampering: operator cannot set binarySha256 in config (floor-only field)", () => {
+test("hostile config-tampering: operator cannot set binaryStamp in config (floor-only field)", () => {
   assert.throws(
     () => parseSelfProtectionConfig({
       schemaVersion: "bridlewise-self-protection-config/v1",
       enabled: true,
-      binarySha256: "0000000000000000000000000000000000000000000000000000000000000000",
+      binaryStamp: "0000000000000000000000000000000000000000000000000000000000000000",
     } as unknown),
   );
 });

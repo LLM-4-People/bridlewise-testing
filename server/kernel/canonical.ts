@@ -192,6 +192,10 @@ export const {
   compileSelfProtectionConfigToSpec,
   verifyGuardianBinaryAvailability,
   resolveGuardianBinaryPath,
+  // The probe cache must notice a changed SEALED SOURCE TREE as well as changed
+  // binary bytes: the expected stamp is recomputed from these sources, so a
+  // source edit without a rebuild has to invalidate a cached "confined".
+  computeGuardianBuildStamp,
   classifyGuardianResult,
   guardianNoticeLinePattern,
   GUARDIAN_FAILURE_MARKER,

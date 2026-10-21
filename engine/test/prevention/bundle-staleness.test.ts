@@ -172,7 +172,7 @@ test("BundleStaleness: the published bundle and its pin are a pure function of t
 
   // Every other byte counts: a changed non-self integrity field republishes
   // under a new pin.
-  const changedField = rebuilt.replace(/(binarySha256: ")[0-9a-f]{64}/, `$1${"c".repeat(64)}`);
+  const changedField = rebuilt.replace(/(binaryStamp: ")[0-9a-f]{64}/, `$1${"c".repeat(64)}`);
   assert.notEqual(changedField, rebuilt);
   assert.notEqual(publishBundle(changedField, fresh).bundleSha256, freshResult.bundleSha256);
 

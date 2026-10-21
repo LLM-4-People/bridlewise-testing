@@ -117,17 +117,20 @@ the caller-supplied `wait_seconds` input (a wait, not a measurement).
 
 ## Other findings
 
-- **The guardian's compiler is one declaration, in the build owner (fixed 2026-10-20).**
+- **The guardian's compiler is one declaration, in the build owner (fixed 2026-10-20; anchor superseded 2026-10-21).**
   `.github/workflows/ci.yml` ran `make -C engine/guardian all` with the runner's
-  default `cc`, while `test-shards.yml` ran `CC=gcc-14 make -C engine/guardian all`,
-  and `root-policy.ts` binds the guardian binary by sha256. `engine/guardian/Makefile`
-  now declares `CC := gcc-14`, both jobs install that package and invoke the
-  Makefile without a `CC=` literal, `engine/guardian/build.ts` carries no compiler
-  search list, and `tests/prevention/guardian-compiler-pin.test.ts` refuses a
-  workflow that spells `CC=` or installs another package. Both jobs append the
-  built binary's digest to the job summary, so the two builds are comparable after
-  the fact. Measured locally with the pinned compiler: `28ee831d1359c87d339f3689...`.
-  Capturing the digest into the qualification receipt itself (rather than the
+  default `cc`, while `test-shards.yml` ran `CC=gcc-14 make -C engine/guardian all`.
+  `engine/guardian/Makefile` now declares `CC := gcc-14`, both jobs install that
+  package and invoke the Makefile without a `CC=` literal, and
+  `engine/guardian/build.ts` carries no compiler search list.
+  `tests/prevention/guardian-compiler-pin.test.ts` refuses a workflow that spells
+  `CC=` or installs another package. The binary was initially bound by its sha256,
+  measured locally at `28ee831d1359c87d339f3689...`; that anchor was not
+  reproducible — the CI runner's gcc sealed `2e9e4ead...` for the same sources and
+  every CI run refused confinement. It is now bound by a reproducible build stamp
+  over the sealed sources and declared flags (`guardian/build-stamp.spec`), and
+  both jobs record `--stamp` beside the diagnostic file digest in the job summary.
+  Capturing either value into the qualification receipt itself (rather than the
   summary) is still open.
 - **The Jekyll config and plugin set are product-owned.** The Pages workflow
   copies `_config.yml` from the product docs checkout at run time; this repo

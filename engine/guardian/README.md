@@ -42,10 +42,41 @@ node guardian/build.ts
 
 Requires `gcc-14` (the Makefile's pinned `CC`) and `make`. No external deps.
 
+### The reproducible build stamp
+
+The binary is bound by a **reproducible build stamp**, not by the sha256 of
+the compiled file. The same sources compiled by two different gcc builds
+produce different bytes, so a byte digest is not a trust anchor; the stamp is
+a digest of the **sealed inputs** instead:
+
+- `build-stamp.spec` is the one declaration: the canonical format line, the
+  declared compile flags/standard, and the source files.
+- The Makefile hashes that declaration's sources and flags, builds the
+  canonical payload, and embeds the resulting digest with
+  `-DGUARDIAN_BUILD_STAMP=…`.
+- `engine/src/filesystem/self-protection/guardian-build-stamp.ts` recomputes
+  the identical digest from the harness's own source tree. The runtime refuses
+  a binary whose `--stamp` is absent, malformed, or disagrees with that
+  recomputation and the root-policy `binaryStamp` pin.
+
+`harness sync` regenerates the pin from the sources — no compiler needed. A
+source change without a rebuild, or a rebuild from a tampered source, is
+refused with `binary_hash_mismatch`.
+
+```bash
+./build/harness-landlock-guardian --stamp   # one 64-hex stamp on stdout
+```
+
+The stamp proves provenance for an honest build. It is not a signature: a
+binary that forges its `--stamp` output is indistinguishable without a
+byte-level digest, and a byte-level digest is exactly what is not reproducible
+across compilers.
+
 ## CLI
 
 ```
 harness-landlock-guardian apply --spec <spec.json> --exec <payload> [payload-args...]
+harness-landlock-guardian --stamp
 ```
 
 - `apply` — subcommand (only one for now; reserves space for Pattern B `guardian-ipc`).

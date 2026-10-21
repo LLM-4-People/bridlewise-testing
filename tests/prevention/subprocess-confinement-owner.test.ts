@@ -68,6 +68,7 @@ import { bodyCalls, functionBody } from "../helpers/function-scope.ts";
 // Temp directories have ONE owner, which also sweeps them when a test fails
 // part-way — the reason the hand-rolled try/finally pairs are gone.
 import { createTempDir } from "../helpers/temp-dir.ts";
+import { copyGuardianSealedInputs } from "../../engine/test/support/guardian-build-stamp.ts";
 import { harnessView, harnessViewConfig, realHarnessRoot } from "../helpers/isolated-config.ts";
 // Imported directly, unlike the probes below: the derivation is a pure
 // function of a project path and this process, so it needs no child to
@@ -1784,28 +1785,36 @@ describe("D2. the guardian runner may spawn, and only the guardian", () => {
     return out;
   }
 
-  test("every subprocess it creates is the pinned guardian, launched with the apply verb", () => {
+  test("every subprocess it creates is the pinned guardian, launched to apply or to report its stamp", () => {
     const calls = spawnCallArguments(guardianSource);
     // POPULATION AS A RUNTIME NUMBER: the module really does hold the spawns
     // this exemption is about. Without this the loop below is vacuous.
-    // (One: the CLI's own re-exec spawn was deleted with the re-exec.)
     expect(calls.length, `subprocess calls in the guardian runner: ${calls.length}`).toBeGreaterThanOrEqual(1);
+    let applyCalls = 0;
     for (const call of calls) {
       expect(
         /^\s*binaryPath\s*,/.test(call),
         `a subprocess in the guardian runner must launch the pinned guardian, not ${call.slice(0, 60)}`,
       ).toBe(true);
-      // Strings are blanked by the stripper, so the `apply` verb is read from
-      // the ORIGINAL text of the same call — the arguments array is a literal
-      // there and is what makes this the guardian's apply mode rather than
-      // some other invocation of the same binary.
-      expect(call).toMatch(/\bspecPath\b/);
+      // The apply arm is identified by the spec identifier, which survives
+      // the stripper's blanking; the `--stamp` arm is counted below from the
+      // original source.
+      if (/\bspecPath\b/.test(call)) applyCalls += 1;
     }
-    // The verb itself, in the untouched source, once per call.
-    expect(guardianSource.match(/"apply", "--spec"/g)?.length ?? 0).toBeGreaterThanOrEqual(calls.length);
-    // …and the path it launches comes from the resolver that checks the pin.
+    expect(applyCalls, "the confinement path must still launch the guardian's apply mode").toBeGreaterThanOrEqual(1);
+    // The verb itself, in the untouched source, once per apply call.
+    expect(guardianSource.match(/"apply", "--spec"/g)?.length ?? 0).toBeGreaterThanOrEqual(applyCalls);
+    // THE OTHER ARM IS A STAMP READ, NOT A SECOND PROGRAM: the probe asks the
+    // same pinned binary for its reproducible build stamp. One `--stamp` spawn
+    // is expected; any other call-shaped spawn above still had to be
+    // `binaryPath`.
+    expect(calls.length - applyCalls, "one subprocess may read the build stamp").toBe(1);
+    expect(guardianSource.match(/"--stamp"/g)?.length ?? 0).toBe(1);
+    // …and the path it launches comes from the resolver that checks the
+    // reproducible build stamp against the sealed sources and the pin.
     expect(guardianSource).toMatch(/resolveGuardianBinaryPath\s*\(/);
-    expect(guardianSource).toMatch(/ROOT_POLICY\.selfProtection\.binarySha256/);
+    expect(guardianSource).toMatch(/ROOT_POLICY\.selfProtection\.binaryStamp/);
+    expect(guardianSource).toMatch(/computeGuardianBuildStamp\s*\(/);
   });
 
   test("the exemption's detector rejects a spawn of anything else", () => {
@@ -2675,10 +2684,12 @@ describe("E. derived rules with their own bounds", () => {
     ).toBe(true);
 
     // AND WHY THAT CANNOT SHIP: the floor's root is not free. The guardian
-    // binary and the bundle are resolved against the SAME root and pinned by
-    // sha256, so a root that is not the harness has no guardian under it and
-    // self-protection fails closed instead of protecting the wrong `src`.
-    // Measured here rather than asserted from the comment.
+    // binary and the bundle are resolved against the SAME root; the guardian
+    // must reproduce the sealed source tree's build stamp and the bundle is
+    // pinned by sha256, so a root that is not the harness has no guardian (and
+    // no sealed inputs) under it and self-protection fails closed instead of
+    // protecting the wrong `src`. Measured here rather than asserted from the
+    // comment.
     for (const relative of [
       ROOT_POLICY.selfProtection.binaryRelativePath,
       ROOT_POLICY.selfProtection.bundleRelativePath,
@@ -2751,19 +2762,28 @@ describe("E. derived rules with their own bounds", () => {
     expect(run([present]).status).not.toBe(4);
   });
 
-  test("swapping the guardian for a same-size copy with the timestamp restored is RE-CHECKED", () => {
-    // THE CACHE KEY IS THE BINARY'S CONTENT, and it was its size and its
-    // modification time — both of which an attacker who can write the file can
-    // set. A replacement of the same length with the timestamp restored
-    // produced the same key, so the process kept answering "verified" for a
-    // binary it had never seen, and the root-policy sha256 pin (consulted only
-    // on a cache MISS) was never asked. The comment claimed a stale answer was
-    // unreachable, which was true of waiting and not of content.
+  test("swapping the guardian's stamp for a same-size copy with the timestamp restored is RE-CHECKED", () => {
+    // THE CACHE KEY IS THE GUARDIAN'S CONTENT AND ITS RECOMPUTED SOURCE STAMP,
+    // and it was the binary's size and modification time — both of which an
+    // attacker who can write the file can set. A replacement of the same length
+    // with the timestamp restored produced the same key, so the process kept
+    // answering "verified" for a binary it had never seen, and the trust anchor
+    // (consulted only on a cache MISS) was never asked. The comment claimed a
+    // stale answer was unreachable, which was true of waiting and not of
+    // content.
+    //
+    // THE TAMPER EDITS THE EMBEDDED STAMP. The anchor is now the reproducible
+    // build stamp, not the file digest, so the lie a tampered binary would have
+    // to tell is a different stamp; a byte swap that leaves the stamp intact is
+    // the stated residual of a stamp anchor (guardian-build-stamp.ts), not
+    // something this test can distinguish. Planting the edited stamp keeps the
+    // arm about the cache AND the anchor instead of about the old digest.
     requireHost(hostCanCompile(), "a host that compiles a confinement spec (Landlock and the built guardian)");
     const harness = createTempDir("probe-cache-harness-");
     const realGuardian = join(realHarnessRoot(), "guardian", "build", "harness-landlock-guardian");
     requireHost(existsSync(realGuardian), `the built guardian at ${realGuardian}`);
     mkdirSync(join(harness, "src"), { recursive: true });
+    copyGuardianSealedInputs(realHarnessRoot(), harness);
     mkdirSync(join(harness, "guardian", "build"), { recursive: true });
     const guardian = join(harness, "guardian", "build", "harness-landlock-guardian");
     copyFileSync(realGuardian, guardian);
@@ -2781,12 +2801,15 @@ describe("E. derived rules with their own bounds", () => {
       `const m = await import("./server/safety/landlock-runner.ts");
        const fs = await import("node:fs");
        const path = ${JSON.stringify(guardian)};
+       const stamp = ${JSON.stringify(ROOT_POLICY.selfProtection.binaryStamp)};
        const before = m.selfProtectionStatus();
        // The swap an attacker who can write the file would perform: the SAME
        // number of bytes, and the timestamps put back exactly as they were.
        const st = fs.statSync(path);
        const bytes = fs.readFileSync(path);
-       bytes[bytes.length - 1] = bytes[bytes.length - 1] ^ 0xff;
+       const at = bytes.indexOf(Buffer.from(stamp, "utf8"));
+       if (at < 0) throw new Error("the embedded stamp literal was not found");
+       bytes[at] = bytes[at] === 0x61 ? 0x62 : 0x61; // 'a' <-> 'b': still hex, still 64 chars
        fs.writeFileSync(path, bytes, { mode: st.mode });
        // The NUMERIC form: passing the Date objects rounds to whole
        // milliseconds and would leave a detectable difference, which would

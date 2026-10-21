@@ -1323,27 +1323,41 @@ const ROOT_POLICY_VALUE = {
     specSchemaVersion: schemaId("self-protection-spec", 1),
     binaryRelativePath: "guardian/build/harness-landlock-guardian",
     /**
+     * THE GUARDIAN'S SEALED INPUTS — the one declaration the Makefile embeds
+     * and the runtime recomputes (`guardian-build-stamp.ts`). It names the
+     * source files and the declared compile flags/standard; the format string
+     * is the first line of the canonical payload.
+     */
+    buildStampSpecPath: "guardian/build-stamp.spec",
+    /**
      * THE ONE GUARDIAN TRUST ANCHOR — and it has a producer, a check and a
      * regeneration path, all in `hash-binding-registry.ts`
-     * (`root-policy-self-protection-guardian-binary-sha256`):
+     * (`root-policy-self-protection-guardian-build-stamp`):
      *
-     *   producer / regenerator  `node guardian/build.ts` builds the binary;
-     *                           `harness sync` re-runs the file-binary binding
-     *                           and rewrites THIS literal from the bytes.
+     *   producer / regenerator  `harness sync` recomputes the stamp from
+     *                           `buildStampSpecPath`'s sources and flags and
+     *                           rewrites THIS literal (no compiler needed).
      *   check                   `harness check` verifies the binding, and
      *                           `verifyGuardianBinaryAvailability` refuses a
-     *                           binary whose sha256 disagrees.
+     *                           binary whose `--stamp` disagrees with the
+     *                           stamp recomputed from the sealed source tree
+     *                           or with this literal.
      *
-     * There is deliberately NO alternate list. An alternate is a second trust
-     * anchor, and a trust anchor that no build produces and no check
+     * WHY THIS IS NOT THE BINARY'S SHA256. The bytes of a compiler-built file
+     * are not reproducible: the local gcc and the CI runner's gcc produced
+     * different digests for the same sources, so every CI run refused git
+     * with `binary_hash_mismatch`. A stamp derived from the sealed inputs is
+     * identical on any compiler, so a binary built elsewhere is admitted when
+     * its sources match.
+     *
+     * There is deliberately NO alternate hash list. An alternate is a second
+     * trust anchor, and a trust anchor that no build produces and no check
      * regenerates is a value someone can add or edit without evidence — the
-     * exact shape this floor refuses. A binary built by another toolchain is
-     * a reviewed re-pin through the same binding (`harness sync`), never a
-     * hash appended beside the pin.
+     * exact shape this floor refuses.
      */
-    binarySha256: "28ee831d1359c87d339f36899de33d5de9c246d1294f556430c3b6d1a30fb9c1",
+    binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "6cb338ce6949157f47114ba4419d751b7443a807ded9231a784f23905d1df805",
+    bundleSha256: "011cdf028cf3677a37e7884f6a82f65aef41d6ad2b7e07aa836a3a17ace5b2c4",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
@@ -1368,10 +1382,12 @@ const ROOT_POLICY_VALUE = {
      * `src/` and stop protecting the harness's, because both exist and the
      * subtree set is a `Set` that would simply de-duplicate. It cannot ship
      * that way: `binaryRelativePath` and `bundleRelativePath` are resolved
-     * against the SAME root and pinned by sha256 here, so a root that is not
-     * the harness produces `binary_missing` and self-protection refuses to
-     * run rather than running over the wrong tree. The pins are what make the
-     * root unambiguous; this comment says so, and
+     * against the SAME root, the guardian's build stamp is recomputed from
+     * that root's sealed sources and the bundle is pinned by sha256 here, so
+     * a root that is not the harness produces `binary_missing` /
+     * `binary_hash_mismatch` and self-protection refuses to run rather than
+     * running over the wrong tree. Those bindings are what make the root
+     * unambiguous; this comment says so, and
      * `tests/prevention/subprocess-confinement-owner.test.ts` drives it.
      */
     minimumProtectedSubtrees: ["src"],
@@ -2200,10 +2216,10 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "3efc71b4350454c2f9dd1623318426f8428b5fdbbb7b4b41e0e0ea94bfe764c5",
+    testInventoryHash: "16e5044e41de14f592fc2f5535805b7a602773a02463a0adbcb4f404873c2252",
     testSurfaceDispositionBinding: {
-      fileSha256: "aa7cffb0cb54b3954acbd416af3ddfb8c37163e80578c9b0184923cc2539f071",
-      identityHash: "d8b242e1f67273f74b804a9824b8e8a74302aeefbfecb9ecb5afd53da3b5816e",
+      fileSha256: "89792952ec83f3450dbefcaab3c4323a630f0253a922de1023dcf1c5e5f4fc56",
+      identityHash: "687f190a5271b26a76b6f998b808bd2182bc0f1b2d79174630cb9db83b4e156b",
     },
     testDiscovery: {
       inventoryScope: {

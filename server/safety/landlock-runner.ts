@@ -38,8 +38,10 @@
  *   - `resolveSelfProtectionConfig` — what the operator asked for;
  *   - `compileSelfProtectionConfigToSpec` — the operator's config plus the
  *     non-overridable floor in `ROOT_POLICY.selfProtection` becomes a spec;
- *   - `verifyGuardianBinaryAvailability` — binary present, its sha256 equal
- *     to the root-policy pin, and this kernel actually enforcing Landlock;
+ *   - `verifyGuardianBinaryAvailability` — binary present, its reproducible
+ *     build stamp equal to the stamp recomputed from the sealed guardian
+ *     sources and to the root-policy pin, and this kernel actually enforcing
+ *     Landlock;
  *   - `canonicalJson` — the bytes of the spec file.
  * This module decides only WHERE the result is applied and WHAT HAPPENS when
  * it cannot be.
@@ -62,9 +64,11 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import {
+  bestEffort,
   canonicalJson,
   classifyGuardianResult,
   compileSelfProtectionConfigToSpec,
+  computeGuardianBuildStamp,
   createOwnedTemporaryDirectory,
   removeOwnedTemporaryDirectory,
   DEFAULT_TEMP_DIR_ACCESS,
@@ -122,7 +126,11 @@ export type SelfProtectionStatus = Readonly<{
   measuredAt: number;
   /** The kernel's Landlock generation, when it was measured. */
   kernelAbi: number | null;
-  /** The sha256 of the guardian actually found, when one was. */
+  /**
+   * The sha256 of the guardian file actually found, when one was. DIAGNOSTIC
+   * ONLY: it changes between compilers for the same sources, so it is not the
+   * trust anchor and is never compared to a pin.
+   */
   guardianSha256: string | null;
   /** The harness's own code for an unavailability, or null. */
   code: string | null;
@@ -158,15 +166,20 @@ function unavailabilitySentence(code: GuardianUnavailableCode): string {
  * The availability probe spawns the guardian several times (once to check it
  * runs, then once per Landlock generation to find the kernel's), so it is far
  * too expensive for the per-command path. It is cached on the IDENTITY OF THE
- * BINARY — the sha256 of its CONTENT — rather than on a timer: rebuild the
- * guardian and the next command re-probes, leave it alone and nothing is
- * re-spawned. A stale answer is therefore not reachable by waiting, which a
- * time-to-live would have made reachable by construction.
+ * GUARDIAN'S INPUTS — the binary's CONTENT and the stamp recomputed from the
+ * sealed source tree — rather than on a timer: rebuild the guardian, edit a
+ * sealed source, or re-pin and the next command re-probes; leave all of them
+ * alone and nothing is re-spawned. A stale answer is therefore not reachable
+ * by waiting, which a time-to-live would have made reachable by construction.
  *
- * THE KEY IS THE CONTENT, AND IT WAS THE SIZE AND THE MODIFICATION TIME. Both
- * of those are attacker-settable: a replacement of the same length with the
+ * WHY THE SOURCE STAMP IS IN THE KEY. The trust anchor is the reproducible
+ * build stamp, not the binary's digest: a source edit without a rebuild must
+ * invalidate the cached "confined" even though the binary bytes did not move.
+ *
+ * THE KEY IS CONTENT, AND IT WAS THE SIZE AND THE MODIFICATION TIME. Both of
+ * those are attacker-settable: a replacement of the same length with the
  * timestamp restored produced the same key, so the process kept answering
- * "verified" for a binary it had never seen, and the root-policy sha256 pin —
+ * "verified" for a binary it had never seen, and the root-policy anchor —
  * which is only consulted on a cache MISS — was never asked. The comment here
  * claimed a stale answer was unreachable, which was true of waiting and not of
  * content. Hashing 30 KB is nothing beside the process this cache exists to
@@ -193,12 +206,17 @@ let probeCache: ProbeCacheEntry | null = null;
 function binaryIdentity(root: string): string {
   const path = resolveGuardianBinaryPath(root);
   if (path === undefined) return `${root}\0absent`;
+  // The expected stamp is recomputed from the sealed sources on every
+  // command, so an edited source is a cache MISS even when the binary's bytes
+  // are unchanged. An unreadable source tree is its own marker (and the probe
+  // refuses it) rather than a throw out of the per-command path.
+  const expectedStamp = bestEffort(() => computeGuardianBuildStamp(root)) ?? "sources-unreadable";
   try {
-    return `${root}\0${path}\0${sha256OfBytes(readFileSync(path))}`;
+    return `${root}\0${path}\0${expectedStamp}\0${sha256OfBytes(readFileSync(path))}`;
   } catch {
     // A key that can never equal a previous one, so an unreadable binary
     // always re-probes rather than reusing whatever was measured last.
-    return `${root}\0${path}\0unreadable\0${Date.now()}\0${Math.random()}`;
+    return `${root}\0${path}\0${expectedStamp}\0unreadable\0${Date.now()}\0${Math.random()}`;
   }
 }
 

@@ -10,6 +10,7 @@ import { REQUIREMENTS_REGISTRY_IDENTITY_HASH, REQUIREMENTS_REGISTRY_SOURCE_PATH 
 import { FORENSIC_SCHEMA_BUNDLE_HASH } from "../forensics/forensic-contracts.ts";
 import { S3_OFFLINE_FORENSIC_HASH } from "../forensics/offline-forensics.ts";
 import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
+import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
 import { ownedFiles } from "../git/repository-ownership.ts";
 
 /**
@@ -47,7 +48,6 @@ export const HASH_BINDING_REGISTRY_VERSION = schemaId("hash-binding-registry", 1
 
 export type HashMode =
   | Readonly<{ kind: "file-sha256" }>
-  | Readonly<{ kind: "file-binary-sha256" }>
   /**
    * The SOURCE embeds the very literal the binding writes into the target:
    * the bundle compiles `root-policy.ts`, which holds the bundle's own pin.
@@ -63,11 +63,11 @@ export type HashMode =
   | Readonly<{ kind: "self-pinned-sha256" }>
   | Readonly<{ kind: "json-field"; fieldName: string }>
   /**
-   * The expected literal is a value a named MODULE computes (not derivable
-   * from a file's bytes) — e.g. the requirements registry identity, which
-   * changes when the schema-id namespace rotates. `compute` resolves it live.
-   * This is the mode for a projection that must track a derived constant, not
-   * a file's bytes.
+   * The expected literal is a value a named MODULE computes — a derived
+   * constant (e.g. the requirements registry identity) or a digest over
+   * several sealed files plus declared flags (the guardian's reproducible
+   * build stamp). `compute` resolves it live, so there is one owner of the
+   * derivation and `harness sync` can rewrite the target from it.
    */
   | Readonly<{ kind: "module-constant"; compute: (root: string) => string }>;
 
@@ -393,14 +393,19 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     findRegex: String.raw`(?<=sha256\(schemaBytes\)\s*!==\s*")${SHA256_HEX}(?=")`,
   },
   {
-    id: "root-policy-self-protection-guardian-binary-sha256",
-    description: "guardian/build/harness-landlock-guardian bytes -> root-policy.ts selfProtection.binarySha256",
-    sourcePath: ROOT_POLICY.selfProtection.binaryRelativePath,
-    sourceOrigin: { kind: "build-output", producedBy: "node guardian/build.ts" },
+    id: "root-policy-self-protection-guardian-build-stamp",
+    description: "guardian/build-stamp.spec (its sealed sources and declared flags) -> root-policy.ts selfProtection.binaryStamp; the REPRODUCIBLE anchor, not the compiler-built binary's bytes",
+    sourcePath: ROOT_POLICY.selfProtection.buildStampSpecPath,
+    sourceOrigin: { kind: "repository-source" },
     targetPath: ROOT_POLICY.sourcePath,
     targetKind: "typescript",
-    hashMode: { kind: "file-binary-sha256" },
-    findRegex: String.raw`(?<=binarySha256: ")${SHA256_HEX}(?=")`,
+    // The stamp is a function of several sealed files, not of one source's
+    // bytes, so the owning module computes it (exactly as the Makefile embeds
+    // it). `harness sync` rewrites the literal from that computation; no
+    // compiler and no built binary is involved, which is what makes it
+    // reproducible on any toolchain.
+    hashMode: { kind: "module-constant", compute: (root) => computeGuardianBuildStamp(root) },
+    findRegex: String.raw`(?<=binaryStamp: ")${SHA256_HEX}(?=")`,
   },
   {
     id: "root-policy-self-protection-bundle-sha256",
@@ -569,9 +574,12 @@ function generatedReadmePathsOf(paths: readonly string[], readText: (path: strin
 
 /**
  * The ignored build outputs the registry PINS (its `build-output` bindings,
- * e.g. the bundle and the guardian binary), repository-relative. A copy of the
- * repository that carries the pins but not these answers a different question;
- * the test working copies and the candidate checkout's copy-back carry both.
+ * e.g. the bundle), repository-relative. The guardian binary is deliberately
+ * not here: it is bound by a reproducible stamp over its SOURCES, not by its
+ * bytes, so a working copy needs the sources (committed) and a build, not a
+ * copied artifact. A copy of the repository that carries the pins but not
+ * these answers a different question; the test working copies and the
+ * candidate checkout's copy-back carry both.
  */
 export function pinnedBuildOutputPaths(): readonly string[] {
   return listAllBindings()
@@ -685,13 +693,6 @@ export function computeBindingHash(root: string, binding: HashBinding): string {
   const sourceAbsolutePath = resolve(root, binding.sourcePath);
   if (!existsSync(sourceAbsolutePath)) {
     throw new InputError(missingSourceMessage(binding), "input_error");
-  }
-  if (binding.hashMode.kind === "file-binary-sha256") {
-    // Binary files (e.g. the guardian executable) MUST be hashed as raw bytes;
-    // reading them as UTF-8 text corrupts non-ASCII bytes and yields a
-    // different digest than the bytes on disk. This mode reads a Buffer.
-    const sourceBytes = readFileSync(sourceAbsolutePath);
-    return sha256(sourceBytes);
   }
   const sourceText = readFileSync(sourceAbsolutePath, "utf8");
   if (binding.hashMode.kind === "file-sha256") {

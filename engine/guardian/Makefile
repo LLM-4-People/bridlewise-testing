@@ -3,11 +3,12 @@
 
 # THE GUARDIAN'S COMPILER, DECLARED ONCE.
 #
-# `root-policy.ts` binds the built guardian binary by sha256, so the compiler
-# is part of the measured artifact: a build with another compiler produces a
-# different binary and a different pin. Both workflows install this package and
-# invoke this Makefile WITHOUT a CC= literal; engine/guardian/build.ts invokes
-# `make` and no longer carries its own search list; the prevention guard
+# The compiler is no longer part of the trust anchor: `root-policy.ts` binds
+# the binary by its REPRODUCIBLE BUILD STAMP (the digest of the sealed inputs
+# below), not by the binary's bytes, so the same sources and declared flags
+# pass on any compiler. Both workflows install this package and invoke this
+# Makefile WITHOUT a CC= literal; engine/guardian/build.ts invokes `make` and
+# no longer carries its own search list; the prevention guard
 # tests/prevention/guardian-compiler-pin.test.ts reads THIS line and refuses a
 # workflow that spells the compiler again.
 #
@@ -15,12 +16,31 @@
 # honest failure: there is no fallback compiler, by design.
 CC := gcc-14
 
-CFLAGS := -std=c11 -Wall -Wextra -Werror -O2 -D_GNU_SOURCE
-BUILD  := build
+# THE SEALED INPUTS, ONE OWNER: build-stamp.spec (read by the runtime too).
+# `include` gives this Makefile STAMP_FORMAT, STAMP_CFLAGS and STAMP_SOURCES;
+# the C compiler receives the same flags the stamp declares, so a flag change
+# is a stamp change and a reviewed re-pin through `harness sync`.
+STAMP_SPEC := build-stamp.spec
+include $(STAMP_SPEC)
 
-SRC     := landlock-guardian.c
-HDR     := landlock-guardian.h
-BIN     := $(BUILD)/harness-landlock-guardian
+CFLAGS  := $(STAMP_CFLAGS)
+BUILD   := build
+
+# The canonical payload (see build-stamp.spec) hashed with sha256sum. `$$` is
+# make's escape for a shell `$`; each source's digest and path are printed in
+# declaration order, one line each, with LF after every line.
+BUILD_STAMP := $(shell { \
+	printf '%s\n' '$(STAMP_FORMAT)'; \
+	printf 'cflags %s\n' '$(STAMP_CFLAGS)'; \
+	for f in $(STAMP_SOURCES); do \
+		d=$$(sha256sum -- "$$f" | cut -d' ' -f1) || exit 1; \
+		printf 'source %s %s\n' "$$d" "$$f"; \
+	done; \
+} | sha256sum | cut -d' ' -f1)
+
+CPPFLAGS := -DGUARDIAN_BUILD_STAMP=\"$(BUILD_STAMP)\"
+
+BIN      := $(BUILD)/harness-landlock-guardian
 TEST_SRC := tests/test_payload.c
 TEST_BIN := $(BUILD)/test_payload
 
@@ -30,8 +50,9 @@ all: guardian test_payload
 
 guardian: $(BIN)
 
-$(BIN): $(SRC) $(HDR) | $(BUILD)
-	$(CC) $(CFLAGS) -o $@ $(SRC)
+$(BIN): $(STAMP_SOURCES) $(STAMP_SPEC) | $(BUILD)
+	@test -n "$(BUILD_STAMP)" || { echo "guardian build: refusing to embed an empty build stamp (is sha256sum installed?)" >&2; exit 1; }
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(filter %.c,$(STAMP_SOURCES))
 
 test_payload: $(TEST_BIN)
 

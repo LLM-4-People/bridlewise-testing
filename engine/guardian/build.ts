@@ -11,8 +11,9 @@
  *   ./guardian/build.ts               # executable form (chmod +x)
  *
  * The compiler is the Makefile's ONE declaration (CC := gcc-14), not a list
- * here: a build with a different compiler is a different artifact, and
- * root-policy.ts binds the binary by sha256.
+ * here. The compiler is not part of the trust anchor: root-policy.ts binds the
+ * binary by a reproducible build stamp over the sealed sources and declared
+ * flags (build-stamp.spec), so the same sources pass on any gcc.
  *
  * Exit codes:
  *   0  success (absolute binary path on stdout)

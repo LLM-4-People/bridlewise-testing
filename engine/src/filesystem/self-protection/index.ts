@@ -56,6 +56,8 @@ export {
   type ProtectedNameWalk,
 } from "./guardian-binary.ts";
 
+export { computeGuardianBuildStamp } from "./guardian-build-stamp.ts";
+
 export {
   keepOutInForce,
   keepOutPolicyFor,

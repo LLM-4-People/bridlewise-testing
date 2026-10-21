@@ -241,7 +241,14 @@ export type GuardianBinaryAvailability =
   | Readonly<{
     available: true;
     binaryPath: string;
+    /**
+     * The binary file's sha256 — DIAGNOSTIC ONLY. It differs between compilers
+     * for the same sources, so it is never compared to a pin; the trust anchor
+     * is `stamp`.
+     */
     sha256: string;
+    /** The reproducible build stamp: recomputed from the sealed sources and reported by the binary. */
+    stamp: string;
     kernelAbi: number;
   }>
   | Readonly<{

@@ -1841,7 +1841,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "hash-binding-registry", path: "src/workflow/hash-binding-registry.ts", realm: "shared",
       layer: "domain", owner: "verification-workflow",
       publicApi: { exportCount: 26, namesSha256: "21addbecf2fdf6e273387ecb3a86a95e83985461691a9028ffee46b65ffd62e1" },
-      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/forensics/forensic-contracts.ts","src/forensics/offline-forensics.ts","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/requirements.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts"],
+      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/filesystem/self-protection/guardian-build-stamp.ts","src/forensics/forensic-contracts.ts","src/forensics/offline-forensics.ts","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/requirements.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts"],
       executionBoundary: "effect-adapter",
       effects: ["filesystem-read", "filesystem-write"],
       ports: { requires: [], provides: ["hash-binding-registry"] },
@@ -2833,8 +2833,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "self-protection-guardian-binary", path: "src/filesystem/self-protection/guardian-binary.ts",
       realm: "runtime", layer: "infrastructure", owner: "self-protection",
-      publicApi: { exportCount: 9, namesSha256: "0b678d7e75e5e799425a5fcb8d73e53b13a07782d7bae2aaa89057934e4eae9e" },
-      dependencies: ["node:child_process","node:fs","node:os","node:path","src/filesystem/link-containment.ts","src/filesystem/path-identity.ts","src/filesystem/private-state.ts","src/filesystem/self-protection/keep-out.ts","src/filesystem/self-protection/self-protection-contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/shared/best-effort.ts"],
+      publicApi: { exportCount: 10, namesSha256: "bee44c8c305ef7cc66fbac7c8951205bc575dcf02432eba8e5d1a7a4dda081f0" },
+      dependencies: ["node:child_process","node:fs","node:os","node:path","src/filesystem/link-containment.ts","src/filesystem/path-identity.ts","src/filesystem/private-state.ts","src/filesystem/self-protection/guardian-build-stamp.ts","src/filesystem/self-protection/keep-out.ts","src/filesystem/self-protection/self-protection-contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/shared/best-effort.ts"],
       effects: ["child-process","filesystem-read","process-control","process-status"],
       executionBoundary: "effect-adapter",
       ports: { requires: ["self-protection-config", "root-policy-self-protection-floor"], provides: ["guardian-binary-wrapper"] },
@@ -2848,8 +2848,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "self-protection-index", path: "src/filesystem/self-protection/index.ts",
       realm: "shared", layer: "interface", owner: "self-protection",
-      publicApi: { exportCount: 77, namesSha256: "c71f2bdd0db34b1ad6dfb4194e2c2310b56cffce5c10b7625c3bbdd3dbf50c38" },
-      dependencies: ["src/filesystem/link-containment.ts","src/filesystem/path-identity.ts","src/filesystem/self-protection/guardian-binary.ts","src/filesystem/self-protection/keep-out.ts","src/filesystem/self-protection/key-home.ts","src/filesystem/self-protection/self-protection-config.ts","src/filesystem/self-protection/self-protection-contracts.ts"],
+      publicApi: { exportCount: 78, namesSha256: "14ddd7ba668f29a320022279b3cc5ea7b7e5b640d7818324d56eae173f4c5f36" },
+      dependencies: ["src/filesystem/link-containment.ts","src/filesystem/path-identity.ts","src/filesystem/self-protection/guardian-binary.ts","src/filesystem/self-protection/guardian-build-stamp.ts","src/filesystem/self-protection/keep-out.ts","src/filesystem/self-protection/key-home.ts","src/filesystem/self-protection/self-protection-config.ts","src/filesystem/self-protection/self-protection-contracts.ts"],
       responsibilities: ["self-protection-public-barrel-explicit-named-re-exports"],
     }),
     moduleContract({
@@ -5754,6 +5754,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-shared-test-costs", path: "src/shared/test-costs.ts", realm: "shared", layer: "domain",
       owner: "shared-abort-signals", publicApi: { exportCount: 9, namesSha256: "ad3bc2190af43122fcbfd058fa833ba484fbace3939a4d1b2983f74d2cb7c927" },
       dependencies: ["src/shared/budget-verdict.ts"],
+    }),
+    moduleContract({
+      id: "src-filesystem-self-protection-guardian-build-stamp", path: "src/filesystem/self-protection/guardian-build-stamp.ts", realm: "shared", layer: "trusted-kernel",
+      owner: "self-protection", publicApi: { exportCount: 6, namesSha256: "943446b21d01053ddefbf88668db7fc2f24d914f28c277e2026b302238372ff9" },
+      dependencies: ["node:fs","node:path","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts"],
     }),
   ],
 });

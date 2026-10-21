@@ -144,8 +144,10 @@ jobs:
           npm --prefix engine run build:bundle
           make -C engine/guardian all
 
-      - name: Record the guardian binary digest
-        run: sha256sum engine/guardian/build/harness-landlock-guardian | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Record the guardian build stamp and diagnostic digest
+        run: |
+          engine/guardian/build/harness-landlock-guardian --stamp | tee -a "$GITHUB_STEP_SUMMARY"
+          sha256sum engine/guardian/build/harness-landlock-guardian | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Require the exact commit and a clean tracked tree
         run: |
