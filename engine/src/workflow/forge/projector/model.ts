@@ -22,8 +22,8 @@ import { schemaId } from "../../../kernel/product-identity.ts";
 export const PROJECTION_SCHEMA = schemaId("projection", 1);
 export const PROJECTION_INPUT_SCHEMA = schemaId("projection-input", 1);
 
-/** The projected classes, in write order (a label exists before an issue carries it). */
-export const PROJECTION_CLASSES = Object.freeze(["label", "issue"] as const);
+/** The projected classes, in write order (a label and a milestone exist before an issue carries them). */
+export const PROJECTION_CLASSES = Object.freeze(["label", "milestone", "issue"] as const);
 export type ProjectionClass = typeof PROJECTION_CLASSES[number];
 
 export type Json = null | boolean | number | string | readonly Json[] | { readonly [field: string]: Json };
@@ -53,12 +53,14 @@ export type WritePhase = typeof WRITE_PHASES[number];
 /** Every class's git-owned fields and the phase each is written in (a field not named here is GitHub-owned). */
 export const FIELD_PHASES: Readonly<Record<ProjectionClass, Readonly<Record<string, WritePhase>>>> = Object.freeze({
   label: Object.freeze({ color: "create", description: "create" }),
+  milestone: Object.freeze({ title: "create", description: "create", state: "state" }),
   issue: Object.freeze({
     title: "create",
     /** The generated block: the projector's marker and everything below it (the reporter's text above it is GitHub-owned). */
     block: "create",
     type: "create",
     labels: "create",
+    milestone: "create",
     parent: "link",
     blockedBy: "link",
     state: "state",
@@ -69,19 +71,24 @@ export const FIELD_PHASES: Readonly<Record<ProjectionClass, Readonly<Record<stri
 /** What GitHub holds for a just-created object before its `link` and `state` writes: a field D gives this value needs no write. */
 export const BORN_FIELDS: Readonly<Record<ProjectionClass, Fields>> = Object.freeze({
   label: Object.freeze({}),
+  milestone: Object.freeze({ state: "open" }),
   issue: Object.freeze({ parent: null, blockedBy: Object.freeze([]), state: "open", stateReason: null }),
 });
 
-/** A tracker item as the projection reads it (the parser's `TrackerItem`, src/workflow/failure-owners.ts, plus its path). */
+/** A tracker item as the projection reads it (the parser's `TrackerItem`, src/workflow/failure-owners.ts, plus its path); a Milestone has no state or lane. */
 export type InputItem = Readonly<{
   id: string;
   type: string;
   title: string | null;
-  state: "open" | "closed";
+  state: "open" | "closed" | null;
   resolution: "completed" | "not-planned" | "duplicate" | null;
-  lane: string;
+  lane: string | null;
+  milestone: string | null;
   parent: string | null;
   blockedBy: readonly string[];
+  decisions: readonly string[];
+  tests: readonly string[];
+  evidence: string | null;
   body: string;
   /** Repository-relative path of the item's file. */
   path: string;
@@ -103,6 +110,10 @@ export type ProjectionInput = Readonly<{
   repositoryUrl: string;
   items: readonly InputItem[];
   lanes: readonly InputLane[];
+  /** The decision records' progress facts (an item's state reads them, src/workflow/tracker-status.ts). */
+  decisions: readonly Readonly<{ id: string; status: string; implementation: string }>[];
+  /** The evidence paths recorded in tracked manifests at S (a close's proof, src/workflow/tracker-status.ts). */
+  recordedEvidence: readonly string[];
 }>;
 
 /** The projector's marker opening an item's generated block; `digest` is filled in by the host (the confined program imports no hash). */
