@@ -650,7 +650,14 @@ assert_exit "a linked rule path is refused (opened without following links) -> e
 
 # A bind mount is a second spelling no realpath() removes; the guardian
 # compares (device, inode). Made for real in a private mount namespace.
-if unshare -rm true 2>/dev/null; then
+# A passwordless sudo can create the namespace where unprivileged user
+# namespaces are restricted (the CI runner), so the capability is probed
+# against the strongest form available before a test is declared skipped.
+UNSHARE="unshare -rm"
+if ! $UNSHARE true 2>/dev/null && sudo -n unshare -rm true 2>/dev/null; then
+  UNSHARE="sudo -n unshare -rm"
+fi
+if $UNSHARE true 2>/dev/null; then
   ALIAS="$WORK/alias"; mkdir -p "$ALIAS"
   cat > "$WORK/spec-alias-under.json" <<EOF
 {"abi_version_hint":0,"handled_access_fs":["READ_FILE","READ_DIR"],"allow_rules":[{"path":"$ALIAS/sub","access":["READ_FILE"]}],"protected_subtrees":["$PROTECT"]}
@@ -659,11 +666,11 @@ EOF
 {"abi_version_hint":0,"handled_access_fs":["READ_FILE","READ_DIR"],"allow_rules":[{"path":"$ALIAS","access":["READ_FILE"]}],"protected_subtrees":["$PROTECT/sub"]}
 EOF
   echo "=== test 35 (hostile): an allow-rule under a protected subtree by a bind-mount alias -> exit 4 ==="
-  run_cap unshare -rm sh -c 'mount --bind "$1" "$2" && exec "$3" apply --spec "$4" --exec /bin/true' sh "$PROTECT" "$ALIAS" "$BIN" "$WORK/spec-alias-under.json" || true
+  run_cap $UNSHARE sh -c 'mount --bind "$1" "$2" && exec "$3" apply --spec "$4" --exec /bin/true' sh "$PROTECT" "$ALIAS" "$BIN" "$WORK/spec-alias-under.json" || true
   assert_exit "alias under protected -> exit 4" "4" "$RC"
   assert_contains "alias under protected names the refusal" "is under protected_subtree"
   echo "=== test 36 (hostile): an allow-rule containing a protected subtree by a bind-mount alias -> exit 4 ==="
-  run_cap unshare -rm sh -c 'mount --bind "$1" "$2" && exec "$3" apply --spec "$4" --exec /bin/true' sh "$PROTECT" "$ALIAS" "$BIN" "$WORK/spec-alias-contains.json" || true
+  run_cap $UNSHARE sh -c 'mount --bind "$1" "$2" && exec "$3" apply --spec "$4" --exec /bin/true' sh "$PROTECT" "$ALIAS" "$BIN" "$WORK/spec-alias-contains.json" || true
   assert_exit "alias containing protected -> exit 4" "4" "$RC"
   assert_contains "alias containing protected names the refusal" "contains protected_subtree"
 else

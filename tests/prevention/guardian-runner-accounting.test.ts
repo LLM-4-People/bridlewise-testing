@@ -18,8 +18,8 @@
  * (`false | tee -a …` exits 0 under `bash -e` without it).
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createTempDir } from "../helpers/temp-dir.ts";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -41,7 +41,7 @@ function runAgainstHelpers(body: string): { readonly stdout: string; readonly st
 }
 
 function runPassCheck(logBody: string | null): { readonly stdout: string; readonly stderr: string; readonly status: number } {
-  const directory = mkdtempSync(join(tmpdir(), "bw-guardian-pass-"));
+  const directory = createTempDir("bw-guardian-pass-");
   try {
     const log = join(directory, "guardian-tests.log");
     if (logBody !== null) writeFileSync(log, logBody);
