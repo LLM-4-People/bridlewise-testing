@@ -130,8 +130,13 @@ function get(path: string): ReturnType<typeof jsonRequest> {
 describe("a raw OS error never reaches the wire", () => {
   test("GET /api/editor/read on a mode-000 file answers the fixed body, with no errno and no path", async () => {
     const res = await get(`/api/editor/read?path=${encodeURIComponent(unreadableFile)}&root=${encodeURIComponent(projectPath)}`);
-    expect(res.status).toBe(500);
-    expect(res.body).toEqual(FIXED_BODY);
+    // A permission failure is a DECLARED refusal now, not an unnamed 500: the
+    // taxonomy owns the status and the sentence, and neither names the file.
+    expect(res.status).toBe(403);
+    expect((res.body as { error: string }).error).toBe("file_read_denied");
+    expect((res.body as { message: string }).message).toBe(
+      "The operating system would not let this server read that file. Check its permissions.",
+    );
     const wire = JSON.stringify(res.body);
     expect(wire).not.toContain("EACCES");
     expect(wire).not.toContain(unreadableFile);

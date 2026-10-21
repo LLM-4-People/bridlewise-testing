@@ -54,6 +54,7 @@ The `tests/unit/` folder of the development surface.
 - `tool-execution-root-scoping.test.ts` — the `tool-execution-root-scoping.test` module.
 - `chat-message-data-exposure.test.ts` — @vitest-environment node.
 - `filesystem-routes.test.ts` — @vitest-environment node.
+- `floor-site-links.test.ts` — the published site's link owner: the publish plan and link map, the Jekyll front matter a copied page needs, the legacy URL shapes served as redirect pages, and the crawler that refuses an internal link the built site does not answer.
 - `harness-config-webui.test.ts` — @vitest-environment node.
 - `harness-config.test.ts` — @vitest-environment node.
 - `harvested-fixes-adversarial.test.ts` — @vitest-environment node.

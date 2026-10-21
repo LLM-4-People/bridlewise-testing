@@ -427,7 +427,9 @@ export function isWithinAllowedRoots(absPath: string): boolean {
  * unresolvable path returns null — the caller already refused it at
  * `resolveLocation`.
  */
-export function projectRootRefusals(): (resolvedPath: string) => string | null {
+export function projectRootRefusals(
+  options: { readonly allowContainedHarnessState?: boolean } = {},
+): (resolvedPath: string) => string | null {
   const harness = resolveLocation(serverConfig.projectRoot, "harness root");
   const identity = identityOverlapIndex();
   // One operation for the whole listing: a folder about to become a project
@@ -453,6 +455,14 @@ export function projectRootRefusals(): (resolvedPath: string) => string | null {
     }
     const verdict = keepOut.grantVerdict(candidate);
     if (verdict === undefined) return null;
+    // A folder that CONTAINS another install's state or a credential store is
+    // not a project the door will register, but an existing project that later
+    // gains such a folder still serves ITS OWN files: the per-path choke point
+    // refuses the protected paths themselves (`path_harness_state`,
+    // `path_credential_store`). Only the door refuses the whole folder.
+    if (options.allowContainedHarnessState === true && verdict.relation === "contains") {
+      return null;
+    }
     const where = verdict.relation === "under" ? "lies inside" : "contains";
     if (verdict.entry.source === "home" || verdict.entry.source === "operator") {
       return `Path '${resolvedPath}' ${where} ${verdict.entry.path}, which holds credentials or keys — choose a folder that neither contains it nor lies inside it.`;
@@ -503,7 +513,7 @@ function assertProjectRootUsable(root: string): void {
   if (!isWithinAllowedRoots(root)) {
     throw new PathTraversalError(wireMessage("path_outside_roots"), "path_outside_roots");
   }
-  const refusal = projectRootRefusals()(root);
+  const refusal = projectRootRefusals({ allowContainedHarnessState: true })(root);
   if (refusal !== null) {
     // The debug document's category allow-list owns the emit names; this is
     // the filesystem gate speaking for a project folder, which is the
@@ -643,7 +653,7 @@ export async function makeFsGate(
       ),
     ),
   ];
-  const refusals = projectRootRefusals();
+  const refusals = projectRootRefusals({ allowContainedHarnessState: true });
   const resolved = await Promise.all(
     wanted.map(async (path) => [path, await decisionForPath(userId, db, path, refusals)] as const),
   );
@@ -672,7 +682,7 @@ export async function makeFsGateForRow(
       paths.filter((p): p is string => typeof p === "string" && p.length > 0 && !p.includes("\0")),
     ),
   ];
-  const refusals = projectRootRefusals();
+  const refusals = projectRootRefusals({ allowContainedHarnessState: true });
   let rowLocation: string | null = null;
   try {
     rowLocation = resolveLocation(row.path, "the project's stored path");

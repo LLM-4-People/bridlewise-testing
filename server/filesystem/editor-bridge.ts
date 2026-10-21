@@ -1047,8 +1047,11 @@ function removeRecycleSlot(slotDir: string): void {
     // A leftover pending folder is not the retry's entry; clear what we can.
     try {
       rmSync(pending, { recursive: true, force: true });
-    } catch {
-      /* best effort: the slot under its id is the record that matters */
+    } catch (cleanupErr) {
+      webWarn("editor-bridge", "pending cleanup folder could not be removed", () => ({
+        pending,
+        error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+      }));
     }
     throw err;
   }
