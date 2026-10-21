@@ -158,7 +158,7 @@ test("a missing source is a typed failure once any community surface exists; onl
       plant(root);
       rmSync(join(root, source));
       writeFileSync(join(root, "CONTRIBUTING.md"), "hand edit with the source gone\n");
-      assert.throws(() => syncCommunityFiles(root, false), refusedWith("community_source_invalid", new RegExp(`${source.replace(/\./gu, "\\.")}.*missing`, "u")), source);
+      assert.throws(() => syncCommunityFiles(root, false), (error: unknown) => error instanceof HarnessError && error.code === "community_source_invalid" && error.message.includes(source) && error.message.includes("missing"), source);
     }
     // The whole folder gone, a generated file left behind: still refused, never "absent".
     rmSync(join(root, "docs/community"), { recursive: true });
@@ -179,7 +179,7 @@ test("every place GitHub reads a health file or template is the generator's: a s
       writeFileSync(join(root, shadow), "a hand-made page GitHub would show\n");
       const report = syncCommunityFiles(root, false);
       assert.deepEqual(report, { status: "stale", converged: false, changed: [shadow] }, shadow);
-      assert.throws(() => syncCommunityFiles(root, true), refusedWith("community_shadow_file", new RegExp(shadow.replace(/\./gu, "\\.").replace(/\//gu, "\\/"), "u")), shadow);
+      assert.throws(() => syncCommunityFiles(root, true), (error: unknown) => error instanceof HarnessError && error.code === "community_shadow_file" && error.message.includes(shadow), shadow);
       assert.ok(existsSync(join(root, shadow)), "a person's file is never deleted");
       rmSync(join(root, shadow));
     }
