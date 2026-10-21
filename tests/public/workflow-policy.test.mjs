@@ -16,6 +16,12 @@ import { fileURLToPath } from "node:url";
  * and never cancels. Shorthand `concurrency: <group>` (a shared group with the
  * single-slot queue) is refused.
  *
+ * Every check a pull request runs also runs in the merge queue. `main` is
+ * guarded by a merge queue, which judges the composed tree on `merge_group`
+ * events; a workflow that runs on `pull_request` but not on `merge_group`
+ * would leave its check unreported in the queue (a required one would block
+ * every land). The one exemption is named below with its reason.
+ *
  * The scan covers every workflow file of the tree, not a list of names.
  */
 
@@ -24,6 +30,17 @@ const WORKFLOW_DIRECTORY = ".github/workflows";
 
 const PER_RUN_GROUP = "github.event_name == 'pull_request' && github.ref || github.run_id";
 const PULL_REQUEST_ONLY_CANCEL = "${{ github.event_name == 'pull_request' }}";
+
+/**
+ * Workflows that run on pull requests only, each with its reason. Nothing
+ * else may be listed: a stale entry fails the live test.
+ */
+const PULL_REQUEST_ONLY = new Map([
+  [
+    ".github/workflows/dependency-review.yml",
+    "judges a pull request's dependency diff against its base; the queue composes PRs that each passed it, and the check is not required",
+  ],
+]);
 
 /** Every workflow file of the tree, as `{ path, text }`. */
 function liveWorkflows(root = ROOT) {
@@ -87,6 +104,33 @@ function concurrencyViolations({ path, text }) {
   return violations;
 }
 
+/**
+ * The events a workflow triggers on: the keys of a block `on:`, or the
+ * names of an inline `on: push` / `on: [push, pull_request]`.
+ */
+function triggers(text) {
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) => /^(on|"on"|'on'):/u.test(line));
+  if (start === -1) return new Set();
+  const inline = lines[start].replace(/^[^:]+:/u, "").replace(/\s+#.*$/u, "").trim();
+  if (inline !== "") return new Set(inline.replace(/[[\]]/gu, "").split(",").map((name) => name.trim()).filter(Boolean));
+  const events = new Set();
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() === "" || line.trim().startsWith("#")) continue;
+    if (!line.startsWith(" ")) break;
+    const event = /^ {2}([a-z_]+):/u.exec(line);
+    if (event !== null) events.add(event[1]);
+  }
+  return events;
+}
+
+/** A workflow that gates pull requests but not merge groups. */
+function mergeQueueViolations({ path, text }) {
+  const events = triggers(text);
+  if (!events.has("pull_request") || events.has("merge_group") || PULL_REQUEST_ONLY.has(path)) return [];
+  return [`${path}: runs on pull_request but not on merge_group, so the merge queue never reports its checks`];
+}
+
 /** Literal group prefixes shared by two workflows cancel each other's pull-request runs. */
 function sharedGroupPrefixes(workflows) {
   const owners = new Map();
@@ -118,6 +162,34 @@ test("every live workflow keeps main runs uncancelled", () => {
   );
   assert.deepEqual(workflows.flatMap(concurrencyViolations), []);
   assert.deepEqual(sharedGroupPrefixes(workflows), []);
+});
+
+test("every live workflow that gates a pull request also runs in the merge queue", () => {
+  const workflows = liveWorkflows();
+  assert.ok(workflows.some((entry) => triggers(entry.text).has("merge_group")), "no workflow runs on merge_group");
+  assert.deepEqual(workflows.flatMap(mergeQueueViolations), []);
+  const paths = new Set(workflows.map((entry) => entry.path));
+  for (const [path] of PULL_REQUEST_ONLY) {
+    assert.ok(paths.has(path), `the exemption ${path} names no workflow`);
+    const events = triggers(workflows.find((entry) => entry.path === path).text);
+    assert.ok(events.has("pull_request") && !events.has("merge_group"), `the exemption ${path} is stale`);
+  }
+});
+
+test("planted pull-request-only workflows are refused; near misses pass", () => {
+  const planted = [
+    { path: ".github/workflows/a.yml", text: "on:\n  push:\n  pull_request:\n    branches: [main]\njobs: {}\n" },
+    { path: ".github/workflows/b.yml", text: "on: [push, pull_request]\njobs: {}\n" },
+    { path: ".github/workflows/c.yml", text: "on: pull_request\njobs: {}\n" },
+  ];
+  for (const entry of planted) assert.equal(mergeQueueViolations(entry).length, 1, entry.path);
+  const nearMisses = [
+    { path: ".github/workflows/a.yml", text: "on:\n  pull_request:\n  merge_group:\n    types: [checks_requested]\njobs: {}\n" },
+    { path: ".github/workflows/b.yml", text: "on: [pull_request, merge_group]\njobs: {}\n" },
+    { path: ".github/workflows/c.yml", text: "on:\n  push:\n    branches: [main]\n  # pull_request: commented out\njobs:\n  pull_request:\n    runs-on: x\n" },
+    { path: ".github/workflows/dependency-review.yml", text: "on:\n  pull_request:\njobs: {}\n" },
+  ];
+  assert.deepEqual(nearMisses.flatMap(mergeQueueViolations), []);
 });
 
 test("planted cancelling groups are refused at workflow and job level", () => {

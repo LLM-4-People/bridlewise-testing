@@ -7,7 +7,7 @@ These tests cover the surfaces that a public clone can actually verify without t
 - the secret/privacy scanner, including its failure modes;
 - the required safety warning and documentation set;
 - the licence and community files;
-- the workflow policy: no workflow can cancel a `main` run.
+- the workflow policy: no workflow can cancel a `main` run, and every pull-request check also runs in the merge queue.
 
 Run them with:
 
