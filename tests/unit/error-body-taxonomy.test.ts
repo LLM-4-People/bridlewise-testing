@@ -30,7 +30,7 @@ import { isolateHarnessConfig } from "../helpers/isolated-config.ts";
 import { createTestUser, type TestUser } from "../helpers/multi-user.ts";
 import { startHttpTestServer, type HttpTestServer } from "../helpers/http-server.ts";
 import { jsonRequest } from "../helpers/json-request.ts";
-import { ForbiddenError, BadRequestError, ServiceUnavailableError, WebError } from "../../server/kernel/errors.ts";
+import { ForbiddenError, BadRequestError, ProjectPathError, ServiceUnavailableError, WebError } from "../../server/kernel/errors.ts";
 
 isolateHarnessConfig("ch-error-body-config-");
 
@@ -64,6 +64,15 @@ beforeAll(async () => {
       // the contract and must survive.
       router.get("/api/test/declared-typed-error", () => {
         throw new ForbiddenError("this refusal is the contract", "forbidden_config_path");
+      });
+      // A DECLARED code whose throw site interpolates runtime detail. The
+      // code is in the taxonomy; the sentence is not authored, so the
+      // taxonomy's fixed sentence must replace it on the wire.
+      router.get("/api/test/declared-runtime-sentence", () => {
+        throw new ProjectPathError(
+          `Project path is not accessible: ${projectPath} (EACCES: permission denied, stat '${projectPath}')`,
+          "project_path_inaccessible",
+        );
       });
       // A typed error whose CODE is not declared, but whose CLASS declares a
       // status: the status is still the class's answer. The body is not.
@@ -218,5 +227,62 @@ describe("the taxonomy-owned typed contract still travels", () => {
     });
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: "recycle_not_found", message: "That recycle entry is gone" });
+  });
+});
+
+// ── a declared code is a vocabulary, not an authored sentence ───────────
+//
+// `isDeclaredErrorCode` proves the code belongs to the taxonomy. It does not
+// prove the message beside it is safe: `project_path_inaccessible`
+// interpolated `err.message` (EACCES + `stat '/abs/path'`) and
+// `file_not_found` interpolated the resolved absolute path. Both reached the
+// wire because the code was declared. The taxonomy now owns a fixed sentence
+// for these codes, and the throw-site detail goes to the log.
+describe("a declared code whose throw site carries runtime detail answers a fixed sentence", () => {
+  test("project_path_inaccessible carries no errno and no absolute path", async () => {
+    const res = await get("/api/test/declared-runtime-sentence");
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({
+      error: "project_path_inaccessible",
+      message: "The project folder is not accessible. Check its permissions and re-create the project.",
+    });
+    const wire = JSON.stringify(res.body);
+    expect(wire).not.toContain("EACCES");
+    expect(wire).not.toContain("permission denied");
+    expect(wire).not.toContain("stat");
+    expect(wire).not.toContain(projectPath);
+  });
+
+  test("GET /api/intelligence/map on an inaccessible project answers the fixed sentence", async () => {
+    const lockedParent = join(srv.tmpRoot, "locked-parent");
+    const lockedProject = join(lockedParent, "project");
+    mkdirSync(lockedProject, { recursive: true });
+    srv.db.createProject({ name: "locked-project", path: lockedProject }, user.userId);
+    chmodSync(lockedParent, 0o000);
+    try {
+      const res = await get(`/api/intelligence/map?path=${encodeURIComponent(lockedProject)}`);
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({
+        error: "project_path_inaccessible",
+        message: "The project folder is not accessible. Check its permissions and re-create the project.",
+      });
+      const wire = JSON.stringify(res.body);
+      expect(wire).not.toContain("EACCES");
+      expect(wire).not.toContain("permission denied");
+      expect(wire).not.toContain(lockedProject);
+    } finally {
+      chmodSync(lockedParent, 0o755);
+    }
+  });
+
+  test("a missing editor file names the fixed sentence, never the absolute path", async () => {
+    const missing = join(projectPath, "not-there.ts");
+    const res = await get(`/api/editor/read?path=${encodeURIComponent(missing)}&root=${encodeURIComponent(projectPath)}`);
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({
+      error: "file_not_found",
+      message: "That file no longer exists. It may have been moved or deleted.",
+    });
+    expect(JSON.stringify(res.body)).not.toContain(projectPath);
   });
 });

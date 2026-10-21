@@ -38,7 +38,12 @@ import {
 } from "../../engine/src/privacy/privacy-policy.ts";
 import { viewFile } from "../../engine/src/privacy/file-viewer.ts";
 import { secretTextSignalIds } from "../../engine/src/privacy/secret-signals.ts";
-import { redactForUserDisplay } from "../../server/llm/redaction.ts";
+import { redactForUserDisplay, redactToolCallArguments } from "../../server/llm/redaction.ts";
+import { openSseStream } from "../../server/router/sse.ts";
+import { ForbiddenError } from "../../server/kernel/errors.ts";
+import { SSE_EVENT_TYPES } from "../../shared/constants.ts";
+import { createMockRes } from "../helpers/mock-http.ts";
+import { startHttpTestServer } from "../helpers/http-server.ts";
 import {
   configureDebugSystem,
   createCollectingSink,
@@ -970,5 +975,182 @@ describe("J. a URL userinfo password is a credential on every egress path", () =
     expect(view.content).not.toContain("Summer2026!");
     expect(view.content).toContain("[REDACTED:credential]");
     expect(view.redactionSummary.verified).toBe(true);
+  });
+});
+
+// ── K. the authority delimiter is the LAST `@` ───────────────────────────
+//
+// WHATWG delimits URL userinfo at the LAST `@` before `/`, `?` or `#`. The
+// first-`@` regex read `mark@user:pass@host` as one already-concealed mark
+// (the veto matched the mark before the first `@` and excused the whole
+// authority) and `user@host:pass@host` as no URL at all. Both reached the
+// model, the user, the file viewer, tool arguments, the debug sink, SSE and
+// an HTTP error body. These arms drive every one of those egresses.
+describe("K. the connection-string credential follows the LAST @ in the authority", () => {
+  const KEPT = "postgres://‹keep:url.userinfo›@app:S3cret!@db.internal:5432/app";
+  const EMAIL = "https://user@host:S3cret!@evil.example/x";
+  const SHAPES = [KEPT, EMAIL];
+
+  afterEach(() => resetDebugSystem());
+
+  test("the catalog sees a credential in both shapes", () => {
+    for (const shape of SHAPES) {
+      expect(secretTextSignalIds(shape, "admission"), shape).toContain("connection-string");
+      expect(
+        detectSecretSpans(shape, P).some((span) => span.signalId === "connection-string"),
+        shape,
+      ).toBe(true);
+    }
+  });
+
+  test("LLM context, display, file viewer and tool arguments mask the password", () => {
+    for (const shape of SHAPES) {
+      const llm = redactForLLMContext(shape);
+      expect(llm, shape).not.toContain("S3cret!");
+      expect(llm).toContain("[REDACTED:credential]");
+
+      expect(JSON.stringify(redactForUserDisplay(shape)), shape).not.toContain("S3cret!");
+
+      const view = viewFile("notes.txt", shape);
+      expect(view.outcome).toBe("viewed");
+      if (view.outcome !== "viewed") continue;
+      expect(view.content, shape).not.toContain("S3cret!");
+      expect(view.redactionSummary.verified).toBe(true);
+
+      const args = redactToolCallArguments(JSON.stringify({ url: shape }));
+      expect(args, shape).not.toContain("S3cret!");
+    }
+    // The keep mark is the write-back contract: it must survive the redaction
+    // of the credential that follows it.
+    expect(redactForLLMContext(KEPT)).toContain("‹keep:url.userinfo›");
+  });
+
+  test("the debug sink never receives the password", () => {
+    const sink = createCollectingSink();
+    configureDebugSystem(
+      {
+        ...DEBUG_CONFIG_DEFAULTS,
+        enabled: true,
+        level: "error",
+        categories: ["privacy"],
+        sinks: { enabledSinks: ["collecting"] },
+      },
+      [sink],
+    );
+    for (const shape of SHAPES) debugLog("privacy", "error", `database refused ${shape}`);
+    expect(sink.events.length).toBe(SHAPES.length);
+    for (const event of sink.events) {
+      expect(event.message).not.toContain("S3cret!");
+      expect(event.message).toMatch(/\[REDACTED/);
+    }
+  });
+
+  test("the SSE wire never receives the password", async () => {
+    const res = createMockRes();
+    const stream = await openSseStream(res, { keepaliveMs: 60_000, gapIdentity: { runId: "privacy-last-at" } });
+    try {
+      for (const [index, shape] of SHAPES.entries()) {
+        stream.send(SSE_EVENT_TYPES.model, { type: "text_delta", delta: shape }, index + 1);
+      }
+    } finally {
+      stream.close();
+    }
+    const wire = res.chunks.join("");
+    expect(wire).not.toContain("S3cret!");
+    expect(wire).toContain("‹keep:url.userinfo›");
+  });
+
+  test("an HTTP error body never receives the password", async () => {
+    const srv = await startHttpTestServer({
+      prefix: "privacy-last-at-",
+      isPublicPath: () => true,
+      register: (router) => {
+        router.get("/api/probe/kept-error", () => {
+          throw new ForbiddenError(`upstream refused: ${KEPT}`, "forbidden_config_path");
+        });
+        router.get("/api/probe/email-error", () => {
+          throw new ForbiddenError(`upstream refused: ${EMAIL}`, "forbidden_config_path");
+        });
+      },
+    });
+    try {
+      for (const path of ["/api/probe/kept-error", "/api/probe/email-error"]) {
+        const response = await fetch(srv.baseUrl + path);
+        const body = await response.text();
+        expect(response.status).toBe(403);
+        expect(body, path).not.toContain("S3cret!");
+      }
+      const kept = await (await fetch(`${srv.baseUrl}/api/probe/kept-error`)).text();
+      expect(kept).toContain("‹keep:url.userinfo›");
+    } finally {
+      await srv.stop();
+    }
+  });
+});
+
+// ── L. the other standard connection-string grammars ────────────────────
+//
+// A credential is not only `scheme://user:pass@host`. These are the shapes
+// the 16-character admission rule and the URL-only signal both missed: a DSN
+// key/value list (`Password=`, and the standard alias `Pwd=`), Oracle
+// EZConnect (`thin:user/pass@host`), JDBC SQL Server's `;password=` list, and
+// a PostgreSQL URL whose credential is a query parameter.
+describe("L. DSN, Oracle and URL-query connection strings are credentials too", () => {
+  const CASES = [
+    ["jdbc:sqlserver://db:1433;databaseName=app;user=sa;password=Hunter2!;", "dsn-credential"],
+    ["Server=db;User Id=app;Pwd=Hunter2!;", "dsn-credential"],
+    ["jdbc:oracle:thin:scott/Hunter2!@db:1521:orcl", "oracle-connection-string"],
+    ["postgresql://db/app?user=app&password=Hunter2!", "dsn-credential"],
+  ] as const;
+
+  afterEach(() => resetDebugSystem());
+
+  test("each shape carries its catalog signal", () => {
+    for (const [shape, signal] of CASES) {
+      expect(secretTextSignalIds(shape, "admission"), shape).toContain(signal);
+      expect(detectSecretSpans(shape, P).length, shape).toBeGreaterThan(0);
+    }
+  });
+
+  test("every shape is masked on LLM context, display, file viewer and tool arguments", () => {
+    for (const [shape] of CASES) {
+      const llm = redactForLLMContext(shape);
+      expect(llm, shape).not.toContain("Hunter2!");
+      expect(llm).toContain("[REDACTED:credential]");
+      expect(JSON.stringify(redactForUserDisplay(shape)), shape).not.toContain("Hunter2!");
+      const view = viewFile("connection.txt", shape);
+      expect(view.outcome).toBe("viewed");
+      if (view.outcome !== "viewed") continue;
+      expect(view.content, shape).not.toContain("Hunter2!");
+      expect(view.redactionSummary.verified).toBe(true);
+      const args = redactToolCallArguments(JSON.stringify({ url: shape }));
+      expect(args, shape).not.toContain("Hunter2!");
+    }
+  });
+
+  test("the debug sink and the SSE wire never receive the short password", async () => {
+    const sink = createCollectingSink();
+    configureDebugSystem(
+      {
+        ...DEBUG_CONFIG_DEFAULTS,
+        enabled: true,
+        level: "error",
+        categories: ["privacy"],
+        sinks: { enabledSinks: ["collecting"] },
+      },
+      [sink],
+    );
+    const dsn = CASES[0][0];
+    debugLog("privacy", "error", `database refused ${dsn}`);
+    expect(sink.events.at(-1)!.message).not.toContain("Hunter2!");
+
+    const res = createMockRes();
+    const stream = await openSseStream(res, { keepaliveMs: 60_000, gapIdentity: { runId: "privacy-dsn" } });
+    try {
+      stream.send(SSE_EVENT_TYPES.model, { type: "text_delta", delta: CASES[3][0] }, 1);
+    } finally {
+      stream.close();
+    }
+    expect(res.chunks.join("")).not.toContain("Hunter2!");
   });
 });

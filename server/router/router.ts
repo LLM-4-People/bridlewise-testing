@@ -65,6 +65,7 @@ import {
   isKnownErrorCode,
   isDeclaredErrorCode,
   inputConventionWire,
+  wireMessageForCode,
   WebError,
   BodySizeLimitError,
   BodyParseError,
@@ -555,7 +556,14 @@ export function createRouter(opts: RouterOptions): Router {
         if (typedStatusForError(err) === INDEXING_STATUS) {
           return { status: "indexing", code, message: err.message };
         }
-        return { error: code, message: err.message };
+        // A DECLARED CODE CAN STILL CARRY A RUNTIME SENTENCE. Several throw
+        // sites interpolate an OS errno, an absolute path or a measured size
+        // (`project_path_inaccessible`, `file_not_found`, …). Declaring the
+        // code proves the vocabulary, not the sentence, so the taxonomy owns
+        // a fixed sentence for those codes; the original error — with its
+        // detail — is already at the log from the dispatch catch. Codes with
+        // an authored sentence and no entry here keep forwarding it.
+        return { error: code, message: wireMessageForCode(code) ?? err.message };
       }
       // The `invalid_`/`missing_` prefix is a STATUS convention for codes the
       // taxonomy has not declared. It is NOT permission to put the caller's

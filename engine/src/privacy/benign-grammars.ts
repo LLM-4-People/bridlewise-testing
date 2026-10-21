@@ -709,3 +709,39 @@ export function withinBenignRegion(
   }
   return null;
 }
+
+/**
+ * Whether `[start, end)` sits in a CREDENTIAL PARAMETER SEGMENT of a benign
+ * URL region: its query (after `?`, before `#`) or a DSN parameter list
+ * (after `;`).
+ *
+ * A URL's authority and path name a LOCATION, which is why the declaration
+ * layer vetoes a cue inside one; its query names SETTINGS, and
+ * `?user=app&password=…` is the standard way a connection string carries a
+ * credential. The same is true of the `;`-separated parameter list JDBC SQL
+ * Server and ADO.NET use. Allowing the cue there is what lets the declaration
+ * layer see `password=Hunter2!` without weakening the veto for
+ * `https://…/api/…`, which is the defect the region was introduced for.
+ */
+export function credentialParameterRegionAt(
+  text: string,
+  regions: readonly BenignRegion[],
+  start: number,
+  end: number,
+): boolean {
+  for (const region of regions) {
+    if (region.startUtf16 > start) break;
+    if (start < region.startUtf16 || end > region.endUtf16) continue;
+    if (region.id !== "url") return false;
+    const fragment = text.indexOf("#", region.startUtf16);
+    const authorityEnd = fragment === -1 || fragment > region.endUtf16
+      ? region.endUtf16
+      : Math.min(fragment, region.endUtf16);
+    const query = text.indexOf("?", region.startUtf16);
+    if (query !== -1 && query < authorityEnd && start > query) return true;
+    const parameter = text.lastIndexOf(";", start);
+    if (parameter >= region.startUtf16 && parameter < start && parameter < authorityEnd) return true;
+    return false;
+  }
+  return false;
+}

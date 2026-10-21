@@ -835,6 +835,58 @@ export function isDeclaredErrorCode(code: string): boolean {
   return KNOWN_ERROR_CODES.includes(code);
 }
 
+/**
+ * THE WIRE SENTENCE FOR A DECLARED CODE WHOSE THROW SITE CARRIES RUNTIME
+ * DETAIL — an OS errno, an absolute path, a size measured from the file.
+ *
+ * Declaring a code proves the VOCABULARY is authored; it does not prove the
+ * SENTENCE beside it is. `project_path_inaccessible` interpolated
+ * `err.message` and answered `EACCES … stat '/abs/path'`; `file_not_found`
+ * interpolated the resolved path. Both travelled through the router because
+ * their codes are declared.
+ *
+ * The taxonomy therefore owns the sentence for these codes. A throw site may
+ * keep its detailed message for the log (the router logs the original error
+ * at the catch site); the wire answer comes from here. Codes not listed keep
+ * their authored sentence: this table is the exception for runtime detail,
+ * not a second error vocabulary.
+ */
+export const WIRE_MESSAGE_FOR_CODE: Readonly<Record<string, string>> = Object.freeze({
+  project_path_empty: "The project folder path is empty. Re-create the project with a valid folder.",
+  project_path_stale_encrypted: "The project's saved folder path is stale. Re-create the project with the correct folder.",
+  project_path_missing: "The project folder does not exist on disk. Re-create the project with a valid folder.",
+  project_path_inaccessible: "The project folder is not accessible. Check its permissions and re-create the project.",
+  project_path_not_directory: "The project path is not a folder. Re-create the project with a folder path.",
+  project_path_not_owned: "That project belongs to another account, so it is not available here.",
+  gate_path_undecided: "That folder could not be verified for this request. Try again.",
+  path_traversal: "That path escapes the project folder, so it was refused.",
+  path_second_name: "That file is also stored outside the project folder under another name, so opening it here would reach outside the project. It was refused.",
+  path_harness_state: "That file is this program's own data (a database, its key or its history), not part of the project, so it was refused.",
+  path_credential_store: "That file is in a place that holds credentials (keys, tokens or a browser profile), so it is never opened here, even inside a project folder.",
+  path_outside_roots: "That path is outside the project. Pick a file inside the project folder.",
+  file_not_found: "That file no longer exists. It may have been moved or deleted.",
+  not_a_file: "That path is a folder, not a file.",
+  file_too_large: "That file is too large to open here.",
+  already_exists: "Something with that name already exists here. Choose a different name.",
+  parent_not_found: "The containing folder doesn't exist.",
+  cannot_delete_root: "The project root can't be deleted.",
+});
+
+/** A fixed wire sentence for a code that declares one, or `undefined`. */
+export function wireMessageForCode(code: string): string | undefined {
+  return WIRE_MESSAGE_FOR_CODE[code];
+}
+
+/**
+ * The fixed sentence for a declared code that has one. A throw site names a
+ * code it declares, so the map is expected to answer; the generic fallback is
+ * unreachable for those callers and keeps a future unlisted code from putting
+ * a dynamic sentence on the wire anyway.
+ */
+export function wireMessage(code: string): string {
+  return WIRE_MESSAGE_FOR_CODE[code] ?? "The request was refused.";
+}
+
 /** What an undeclared input-convention code is allowed to say on the wire. */
 export type InputConventionWire = Readonly<{ code: string; message: string }>;
 

@@ -63,7 +63,8 @@ import { statSync } from "node:fs";
 import { ROOT_POLICY, resolveLocation, pathHasSecondName, identityOverlapIndex, type KeepOutQuestions, type KeepOutVerdict } from "../kernel/canonical.ts";
 import { serverKeepOutPolicy } from "../safety/host-facts.ts";
 
-import { ForbiddenError, PathTraversalError, BadRequestError, WebError, ProjectPathError } from "../kernel/errors.ts";
+import { ForbiddenError, PathTraversalError, BadRequestError, WebError, ProjectPathError, wireMessage } from "../kernel/errors.ts";
+import { webWarn } from "../observability/debug-bridge.ts";
 import { serverConfig } from "../kernel/config.ts";
 import type { AsyncDbClient } from "../db/async-client.ts";
 import type { ProjectRow } from "../db/schema.ts";
@@ -74,13 +75,10 @@ import type { ProjectRow } from "../db/schema.ts";
  * project. The scan still owns failures that occur after this admission. */
 export function assertValidProjectPath(projectPath: string): void {
   if (typeof projectPath !== "string" || projectPath.length === 0) {
-    throw new ProjectPathError("Project path is empty. Re-create the project with a valid folder.", "project_path_empty");
+    throw new ProjectPathError(wireMessage("project_path_empty"), "project_path_empty");
   }
   if (projectPath.startsWith("enc:")) {
-    throw new ProjectPathError(
-      "Project path is a stale encrypted value (enc:…) from a previous server session. Re-create the project with the correct folder path.",
-      "project_path_stale_encrypted",
-    );
+    throw new ProjectPathError(wireMessage("project_path_stale_encrypted"), "project_path_stale_encrypted");
   }
   let isDirectory: boolean;
   try {
@@ -88,21 +86,19 @@ export function assertValidProjectPath(projectPath: string): void {
   } catch (err) {
     const code = (err as { code?: string } | null)?.code;
     if (code === "ENOENT" || code === "ENOTDIR") {
-      throw new ProjectPathError(
-        `Project path does not exist on disk: ${projectPath}. Re-create the project with a valid folder.`,
-        "project_path_missing",
-      );
+      throw new ProjectPathError(wireMessage("project_path_missing"), "project_path_missing");
     }
-    throw new ProjectPathError(
-      `Project path is not accessible: ${projectPath} (${err instanceof Error ? err.message : String(err)}).`,
-      "project_path_inaccessible",
-    );
+    // The OS detail — errno, the stat argument, and therefore the absolute
+    // path — belongs in the log. webWarn is the centralized debug owner and
+    // redacts its context; the wire answer is the fixed sentence.
+    webWarn("file-tree", "project path could not be inspected", () => ({
+      projectPath,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    throw new ProjectPathError(wireMessage("project_path_inaccessible"), "project_path_inaccessible");
   }
   if (!isDirectory) {
-    throw new ProjectPathError(
-      `Project path is not a directory: ${projectPath}. Re-create the project with a folder path.`,
-      "project_path_not_directory",
-    );
+    throw new ProjectPathError(wireMessage("project_path_not_directory"), "project_path_not_directory");
   }
 }
 
@@ -183,6 +179,9 @@ export function assertProjectPathOwnership(projectPath: string, gate: FsGate): P
     throw new BadRequestError("Path contains invalid characters", "invalid_path");
   }
   if (!gate.decisions.has(projectPath)) {
+    // The detailed sentence is a DEVELOPER diagnostic (it names the path the
+    // route forgot to resolve); the router substitutes the taxonomy's fixed
+    // sentence on the wire, so this detail never becomes a response body.
     throw new WebError(
       `No ownership decision was resolved for project path '${projectPath}' on this ` +
         "request. The gate carries decisions, not a database: the route must name " +
@@ -194,10 +193,7 @@ export function assertProjectPathOwnership(projectPath: string, gate: FsGate): P
   }
   const project = gate.decisions.get(projectPath) ?? null;
   if (project === null) {
-    throw new ForbiddenError(
-      `Project path '${projectPath}' is not available. Only projects you own are accessible.`,
-      "project_path_not_owned",
-    );
+    throw new ForbiddenError(wireMessage("project_path_not_owned"), "project_path_not_owned");
   }
   return project;
 }
@@ -255,10 +251,7 @@ export function resolveWithinProject(
   // the same place by another string (`path-identity.ts`), and the root `/`
   // needs no special case.
   if (!identityOverlapIndex().atOrUnder(abs, root)) {
-    throw new PathTraversalError(
-      `Path '${filePath}' is outside the project root`,
-      "path_traversal",
-    );
+    throw new PathTraversalError(wireMessage("path_traversal"), "path_traversal");
   }
   // ── THE OTHER WAY OUT, WHICH RESOLVING CANNOT SEE ──────────────────────
   //
@@ -289,10 +282,7 @@ export function resolveWithinProject(
   // its own bytes and whether a user's path may reach outside the user's
   // project are two invariants, and one switch must not answer both.
   if (pathHasSecondName(abs)) {
-    throw new PathTraversalError(
-      `Path '${filePath}' cannot be used: the file it names is also reachable from outside the project, so reading or writing it here would reach outside the project.`,
-      "path_second_name",
-    );
+    throw new PathTraversalError(wireMessage("path_second_name"), "path_second_name");
   }
   // NOTHING ON THE KEEP-OUT LIST IS PROJECT CONTENT (cred-audit CRED-F11):
   // the same list every confined spawn is held to — a harness database, a key
@@ -303,7 +293,7 @@ export function resolveWithinProject(
   // A folder that merely CONTAINS an entry is still project content (its
   // listing names files; opening one of them is refused here).
   const keptOut = keepOut.verdict(abs);
-  if (keptOut?.relation === "under") throw keptOutFileError(filePath, keptOut);
+  if (keptOut?.relation === "under") throw keptOutFileError(keptOut);
   return abs;
 }
 
@@ -318,18 +308,12 @@ export function projectKeepOut(projectRoot: string): KeepOutQuestions {
 }
 
 /** A kept-out file, in its reader's words: the harness's own state, or someone's credentials. */
-function keptOutFileError(filePath: string, verdict: KeepOutVerdict): PathTraversalError {
+function keptOutFileError(verdict: KeepOutVerdict): PathTraversalError {
   const source = verdict.entry.source;
   if (source === "home" || source === "operator") {
-    return new PathTraversalError(
-      `Path '${filePath}' is inside a folder that holds credentials or keys (${verdict.entry.path}), which is never read or written as project content.`,
-      "path_credential_store",
-    );
+    return new PathTraversalError(wireMessage("path_credential_store"), "path_credential_store");
   }
-  return new PathTraversalError(
-    `Path '${filePath}' is part of the harness's own state or code (a database, a key, a ledger or its program), which is never read or written as project content.`,
-    "path_harness_state",
-  );
+  return new PathTraversalError(wireMessage("path_harness_state"), "path_harness_state");
 }
 
 /**
@@ -349,10 +333,7 @@ function keptOutFileError(filePath: string, verdict: KeepOutVerdict): PathTraver
  */
 export function assertWithinAllowedRoots(absPath: string): void {
   if (!isWithinAllowedRoots(absPath)) {
-    throw new PathTraversalError(
-      `Path is outside the allowed browsing roots: ${absPath}`,
-      "path_outside_roots",
-    );
+    throw new PathTraversalError(wireMessage("path_outside_roots"), "path_outside_roots");
   }
 }
 

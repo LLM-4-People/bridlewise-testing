@@ -27,7 +27,7 @@ import {
   effectiveProjectRoot,
   type FsGate,
 } from "./fs-gate.ts";
-import { ForbiddenError, ValidationError } from "../kernel/errors.ts";
+import { ForbiddenError, ValidationError, wireMessage } from "../kernel/errors.ts";
 import { readFileText } from "./file-read.ts";
 import { webWarn } from "../observability/debug-bridge.ts";
 import { movePath } from "../../engine/src/filesystem/move-path.ts";
@@ -481,17 +481,14 @@ export function readFileBytes(
 ): Readonly<{ abs: string; bytes: Buffer; size: number }> {
   const abs = resolveAndCheckGate(filePath, projectRoot, gate);
   if (!existsSync(abs)) {
-    throw new ValidationError(`File not found: ${filePath}`, "file_not_found");
+    throw new ValidationError(wireMessage("file_not_found"), "file_not_found");
   }
   const st = statSync(abs);
   if (!st.isFile()) {
-    throw new ValidationError(`Not a file: ${filePath}`, "not_a_file");
+    throw new ValidationError(wireMessage("not_a_file"), "not_a_file");
   }
   if (st.size > maxBytes) {
-    throw new ValidationError(
-      `File too large (${st.size} bytes). Max ${Math.round(maxBytes / 1024)}KB.`,
-      "file_too_large",
-    );
+    throw new ValidationError(wireMessage("file_too_large"), "file_too_large");
   }
   // A BINARY read: no encoding argument, so this returns a Buffer. The
   // text-read owner (server/file-read.ts) decides the ENCODING of text reads
@@ -516,17 +513,14 @@ export function readFileRaw(
 ): FileReadRawResult {
   const abs = resolveAndCheckGate(filePath, projectRoot, gate);
   if (!existsSync(abs)) {
-    throw new ValidationError(`File not found: ${filePath}`, "file_not_found");
+    throw new ValidationError(wireMessage("file_not_found"), "file_not_found");
   }
   const st = statSync(abs);
   if (!st.isFile()) {
-    throw new ValidationError(`Not a file: ${filePath}`, "not_a_file");
+    throw new ValidationError(wireMessage("not_a_file"), "not_a_file");
   }
   if (maxBytes !== undefined && st.size > maxBytes) {
-    throw new ValidationError(
-      `File too large (${st.size} bytes). Max ${Math.round(maxBytes / 1024)}KB.`,
-      "file_too_large",
-    );
+    throw new ValidationError(wireMessage("file_too_large"), "file_too_large");
   }
   const content = readFileText(abs);
   return { abs, content, size: st.size };
@@ -680,11 +674,11 @@ export type FileCreateResult = Readonly<{
 export function createFile(filePath: string, content: string, projectRoot?: string, gate?: FsGate): FileCreateResult {
   const abs = resolveAndCheckGate(filePath, projectRoot, gate);
   if (existsSync(abs)) {
-    throw new ValidationError(`A file or folder already exists at ${filePath}`, "already_exists");
+    throw new ValidationError(wireMessage("already_exists"), "already_exists");
   }
   const parentDir = dirname(abs);
   if (!existsSync(parentDir)) {
-    throw new ValidationError(`Parent directory does not exist: ${dirname(filePath)}. Create the directory first.`, "parent_not_found");
+    throw new ValidationError(wireMessage("parent_not_found"), "parent_not_found");
   }
   // Atomic write (writeFileRaw writes to a temp file + renames) so a
   // crash mid-create never leaves a partial file at the target path.
@@ -702,11 +696,11 @@ export function createFile(filePath: string, content: string, projectRoot?: stri
 export function createDirectory(dirPath: string, projectRoot?: string, gate?: FsGate): FileCreateResult {
   const abs = resolveAndCheckGate(dirPath, projectRoot, gate);
   if (existsSync(abs)) {
-    throw new ValidationError(`A file or folder already exists at ${dirPath}`, "already_exists");
+    throw new ValidationError(wireMessage("already_exists"), "already_exists");
   }
   const parentDir = dirname(abs);
   if (!existsSync(parentDir)) {
-    throw new ValidationError(`Parent directory does not exist: ${dirname(dirPath)}. Create the parent directory first.`, "parent_not_found");
+    throw new ValidationError(wireMessage("parent_not_found"), "parent_not_found");
   }
   mkdirSync(abs, { recursive: false });
   // A directory has no content on either side, so both digests are the digest
@@ -823,7 +817,7 @@ export function deleteFile(filePath: string, projectRoot?: string, gate?: FsGate
     );
   }
   if (!existsSync(abs)) {
-    throw new ValidationError(`File not found: ${filePath}`, "file_not_found");
+    throw new ValidationError(wireMessage("file_not_found"), "file_not_found");
   }
   const st = statSync(abs);
   const wasDirectory = st.isDirectory();

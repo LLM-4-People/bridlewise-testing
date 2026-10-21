@@ -129,11 +129,62 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     // matches. The marker spelling is the MCP owner's contract
     // (`engine/src/privacy/secret-parts.ts`); this signal is the owner of
     // deciding it is not a credential.
+    //
+    // ── THE DELIMITER IS THE LAST `@`, NOT THE FIRST ──
+    //
+    // WHATWG URL delimits the userinfo at the LAST `@` before `/`, `?` or
+    // `#`; a username may itself contain one (`alice@example.com`) and a
+    // kept userinfo followed by a real password is `mark@user:pass@host`.
+    // The first/@ grammar below split at the first colon-before-at, so it
+    // read `user@host:pass@host` as no URL at all and read
+    // `‹keep:x›@user:pass@host` as one already-concealed mark.
+    //
+    // The alternative therefore runs the userinfo GREEDILY to the authority's
+    // last `@` and carries the host after it, for two reasons: the userinfo
+    // may itself contain an `@` (a password written raw), and a span that
+    // stopped at `@` can be shorter than an email-shaped fragment inside the
+    // password (`Real!Pass123@db.internal`) — the overlap resolver keeps the
+    // longest span, so the shorter one would leave `Real!` on the wire. The
+    // second alternative starts at the `@` AFTER a keep mark and preserves
+    // the mark; the mark's own `:` is not re-read as a password separator.
     id: "connection-string",
     category: "credential",
     description: "connection-string credential",
-    admission: /\b[a-z][a-z0-9+.-]*:\/\/(?!(?:‹keep:[^›\s]{1,200}›)@)[^\s:@/]*:[^\s@/]+@(?=[^\s/])/iu,
-    classification: /\b[a-z][a-z0-9+.-]*:\/\/(?!(?:‹keep:[^›\s]{1,200}›)@)[^\s:@/]*:[^\s@/]+@(?=[^\s/])/iu,
+    admission: /\b[a-z][a-z0-9+.-]*:\/\/(?!(?:‹keep:[^›\s]{1,200}›)@)[^\s/?#]*:[^\s/?#]+@[^\s/?#]+|@[^\s/?#]*:[^\s/?#]+@[^\s/?#]+/iu,
+    classification: /\b[a-z][a-z0-9+.-]*:\/\/(?!(?:‹keep:[^›\s]{1,200}›)@)[^\s/?#]*:[^\s/?#]+@[^\s/?#]+|@[^\s/?#]*:[^\s/?#]+@[^\s/?#]+/iu,
+  },
+  {
+    // ── THE OTHER STANDARD CONNECTION STRINGS ──
+    //
+    // `scheme://user:pass@host` is one spelling of a credential, not the
+    // only one. ADO.NET/SQL Server (and every DSN that copied it) uses
+    // `Password=` / the standard alias `Pwd=`; Oracle's EZConnect form is
+    // `thin:user/pass@host`; a JDBC SQL Server URL carries the same keys in
+    // its `;` parameter list; and a PostgreSQL URL can put credentials in
+    // its query (`?user=app&password=…`). The 16-character admission floor
+    // of `credential-assignment` is not a licence to miss a short password:
+    // these grammars name the credential structurally, so the VALUE may be
+    // any non-empty token.
+    //
+    // The value is matched without its key so the key and separators stay
+    // readable after redaction, and a keep mark or an existing mask is not
+    // re-read as a value (the write-back contract again).
+    id: "dsn-credential",
+    category: "credential",
+    description: "connection-string credential",
+    admission: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)[^\s;&"'`]+/iu,
+    classification: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)[^\s;&"'`]+/iu,
+  },
+  {
+    // Oracle EZConnect: `[jdbc:]oracle:(thin|oci):user/pass@host`. There is
+    // no key=value noun to cue on and no `://` for the URL grammar, so the
+    // `user/pass@` segment itself is the evidence. A userinfo without the
+    // slash (no password) cannot match.
+    id: "oracle-connection-string",
+    category: "credential",
+    description: "Oracle connection-string credential",
+    admission: /\b(?:jdbc:)?oracle:(?:thin|oci):[^\s@/:]+\/[^\s@/?#]+@(?=[^\s/?#])/iu,
+    classification: /\b(?:jdbc:)?oracle:(?:thin|oci):[^\s@/:]+\/[^\s@/?#]+@(?=[^\s/?#])/iu,
   },
 ] as const);
 

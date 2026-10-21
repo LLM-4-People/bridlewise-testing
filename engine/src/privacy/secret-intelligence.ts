@@ -84,7 +84,8 @@ import {
   type RegisterCache,
 } from "./value-intrinsic.ts";
 import { lexiconWeight, type LexiconEntry } from "./credential-lexicon.ts";
-import { benignRegions, withinBenignRegion, type BenignRegion } from "./benign-grammars.ts";
+import { isKeepMark } from "./secret-parts.ts";
+import { benignRegions, credentialParameterRegionAt, withinBenignRegion, type BenignRegion } from "./benign-grammars.ts";
 
 /**
  * Shannon entropy in bits per character. Owned by `value-intrinsic.ts` (the
@@ -1399,7 +1400,17 @@ function valueIntroducedAt(
   // because a region can end before the value does — the fragment after `#`
   // is outside the path region, so a value-only check let exactly this case
   // through.
-  if (withinBenignRegion(regions, cueStart, cueEnd) !== null) return null;
+  //
+  // THE QUERY AND THE DSN PARAMETER LIST ARE THE EXCEPTION. A URL's
+  // authority/path names a location; `?user=app&password=…` and a JDBC
+  // `;password=…` list name settings, and a credential noun there introduces
+  // a value. The region predicate says which part of the URL a position is
+  // in, so the veto stays exactly as wide as it was for the path.
+  const cueRegion = withinBenignRegion(regions, cueStart, cueEnd);
+  if (
+    cueRegion !== null &&
+    !(cueRegion === "url" && credentialParameterRegionAt(text, regions, cueStart, cueEnd))
+  ) return null;
   const clause = unmatchedCloserIn(text.slice(cueEnd, windowEnd));
   if (clause !== -1) {
     windowEnd = cueEnd + clause;
@@ -1641,8 +1652,14 @@ function valueIntroducedAt(
   const absoluteStart = cueEnd + at;
   // A LOCATION IS NOT A CREDENTIAL, whatever introduced it. Checked here,
   // after the token has been read, because the region a value falls in is a
-  // fact about the value rather than about the cue.
-  if (withinBenignRegion(regions, absoluteStart, absoluteStart + token.length) !== null) return null;
+  // fact about the value rather than about the cue. The query/DSN parameter
+  // segment is the same exception as on the cue side: the value there is a
+  // setting, not a path.
+  const valueRegion = withinBenignRegion(regions, absoluteStart, absoluteStart + token.length);
+  if (
+    valueRegion !== null &&
+    !(valueRegion === "url" && credentialParameterRegionAt(text, regions, absoluteStart, absoluteStart + token.length))
+  ) return null;
   return {
     startUtf16: absoluteStart,
     endUtf16: absoluteStart + token.length,
@@ -1960,6 +1977,12 @@ export function valueShapeSupport(
   // silent failures this one predicate went through.
   if (isRedactionMarker(rawToken, policy)) return "veto";
   const token = unwrap(rawToken);
+  // A KEEP MARK IS A WRITE-BACK TOKEN, NOT A CREDENTIAL. The composite secret
+  // primitive serves `‹keep:place›` in place of a concealed part, and a write
+  // that sends it back keeps that part. It is long and mixed-alphabet exactly
+  // as a credential is, so the shape rules would mask it and destroy the
+  // round trip when the cue sits in a URL query or a DSN parameter list.
+  if (isKeepMark(token)) return "veto";
   if (token.length < tuning.minValueLength) return "veto";
   if (token.length > MAX_DECLARED_VALUE_LENGTH) return "veto";
   if (/\s/u.test(token)) return "veto";

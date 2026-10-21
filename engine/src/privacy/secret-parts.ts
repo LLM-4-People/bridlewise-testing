@@ -63,6 +63,19 @@ export function carriesKeepMark(value: string): boolean {
   return value.includes(KEEP_OPEN);
 }
 
+const KEEP_MARK_EXACT = new RegExp(`^(?:${KEEP_MARK.source})$`, "u");
+
+/**
+ * Whether `value` IS one keep mark, rather than a value that merely contains
+ * one. The declaration scanner asks this before judging a token's shape: a
+ * mark is the WRITE-BACK TOKEN for a concealed part, not a credential, and
+ * masking it would destroy the round trip (MCP SECC-V S3). Its length and
+ * mixed alphabet are exactly what makes it look credential-shaped.
+ */
+export function isKeepMark(value: string): boolean {
+  return KEEP_MARK_EXACT.test(value);
+}
+
 /** Short names that mark a credential in a flag or a query even where a key-name list does not know them. */
 const SECRET_PART_NAMES: ReadonlySet<string> = new Set([
   "p", "k", "pass", "passwd", "pwd", "pw", "pat", "sig", "signature", "code", "key", "keys", "psk", "otp", "hmac", "salt", "nonce",

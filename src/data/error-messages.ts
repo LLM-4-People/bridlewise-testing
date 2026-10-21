@@ -35,6 +35,7 @@
  */
 
 import {
+  WIRE_MESSAGE_FOR_CODE,
   isClientInputCode,
   isKnownErrorCode,
   resolveStatus,
@@ -56,6 +57,12 @@ export type ErrorContext = {
  * a comment or a renamed local cannot fool it.
  */
 export const MESSAGE_FOR_CODE: Readonly<Record<string, string>> = Object.freeze({
+  // The wire sentences for declared codes whose throw sites carry runtime
+  // detail (a path, an errno, a measured size) are OWNED by the taxonomy:
+  // the router answers with them, and this projection spreads the same map
+  // instead of keeping a second copy of the sentence. The table below only
+  // adds the human context the wire does not need.
+  ...WIRE_MESSAGE_FOR_CODE,
   // access
   // Reached only after the fetch choke point (src/data/broker.ts) already
   // retried the blocked request once — this sentence is the fallback for a
@@ -64,28 +71,17 @@ export const MESSAGE_FOR_CODE: Readonly<Record<string, string>> = Object.freeze(
   auth_failed: "Sign-in failed. Check your username and password.",
   setup_required: "No account exists yet. Create the first account to continue.",
   forbidden: "You don't have access to this. It belongs to another account.",
-  path_outside_roots: "That path is outside the project. Pick a file inside the project folder.",
-  path_traversal: "That path escapes the project folder, so it was refused.",
-  path_second_name: "That file is also stored outside the project folder under another name, so opening it here would reach outside the project. It was refused.",
   workspace_commands_not_editable_here: "The commands a workspace or a new checkout runs, and the branches a workspace may land on, can only be changed in the settings file on this machine, not from here.",
-  path_harness_state: "That file is this program's own data (a database, its key or its history), not part of the project, so it was refused.",
-  path_credential_store: "That file is in a place that holds credentials (keys, tokens or a browser profile), so it is never opened here, even inside a project folder.",
   mcp_credential_env_refused: "This tool server's settings name an environment variable that is not on the list of credentials tool servers may use, so it was not started. Add the name to that list or remove it from the server.",
   // editing conflicts
   preimage_mismatch: "The file changed on disk since you opened it. Reload it and reapply your edit.",
-  already_exists: "Something with that name already exists here. Choose a different name.",
   no_change: "The edit would not change the file, so nothing was saved.",
   empty_preimage: "The text to replace was empty, so there was nothing to match.",
-  cannot_delete_root: "The project root can't be deleted.",
   // lookup
-  file_not_found: "That file no longer exists. It may have been moved or deleted.",
-  parent_not_found: "The containing folder doesn't exist.",
-  not_a_file: "That path is a folder, not a file.",
   not_a_directory: "That path is a file, not a folder.",
   // input
   invalid_name: "That name isn't allowed. Avoid path separators and reserved characters.",
   invalid_path: "That path isn't valid.",
-  file_too_large: "That file is too large to open here.",
   // service
   project_path_invalid: "The project folder is missing or unreadable. Re-open the project to fix its path.",
   config_unreadable: "The settings file can't be read (it may be half-saved or hand-edited into something that isn't valid), so settings are unavailable and no change can be saved. Retrying won't help: fix or restore the file — the error details and the server log name its path — then reload.",

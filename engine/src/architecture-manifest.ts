@@ -4300,7 +4300,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-privacy-benign-grammars", path: "src/privacy/benign-grammars.ts", realm: "shared", layer: "domain",
-      owner: "privacy-and-redaction", publicApi: { exportCount: 8, namesSha256: "57622e2a2f9a90d4b2af1db79063674b922c2ce5e418bfc0429ec9596fbdb1f2" },
+      owner: "privacy-and-redaction", publicApi: { exportCount: 9, namesSha256: "d3b6998b2e809f5676c5961a32318636b3267c2e69b8b838fa31e5aef51598f7" },
       dependencies: ["src/kernel/integrity.ts","src/privacy/credential-lexicon.ts"],
     }),
     moduleContract({
@@ -4326,7 +4326,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-privacy-secret-intelligence", path: "src/privacy/secret-intelligence.ts", realm: "shared", layer: "domain",
       owner: "privacy-and-redaction", publicApi: { exportCount: 26, namesSha256: "ad37776c3b4061057f890953e2f2bc36ebda753002c8bcaa4074d4a682643182" },
-      dependencies: ["src/kernel/integrity.ts","src/privacy/benign-grammars.ts","src/privacy/credential-lexicon.ts","src/privacy/detection-span.ts","src/privacy/text-normalize.ts","src/privacy/value-intrinsic.ts","src/shared/best-effort.ts"],
+      dependencies: ["src/kernel/integrity.ts","src/privacy/benign-grammars.ts","src/privacy/credential-lexicon.ts","src/privacy/detection-span.ts","src/privacy/secret-parts.ts","src/privacy/text-normalize.ts","src/privacy/value-intrinsic.ts","src/shared/best-effort.ts"],
     }),
     moduleContract({
       id: "src-privacy-text-normalize", path: "src/privacy/text-normalize.ts", realm: "shared", layer: "domain",
@@ -5152,7 +5152,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-privacy-secret-parts", path: "src/privacy/secret-parts.ts", realm: "shared", layer: "domain",
-      owner: "privacy-and-redaction", publicApi: { exportCount: 10, namesSha256: "9c2129438e23b02c59aea96af4ef442ee20aaf26c2b7b691c1d361ad5dbcddb1" },
+      owner: "privacy-and-redaction", publicApi: { exportCount: 11, namesSha256: "dbd833d6fcae56b2fd5ce3a868956ae5d3a60f327ad4e05c433f988a58664aea" },
       dependencies: ["src/kernel/ordered.ts","src/privacy/data-policy.ts","src/privacy/secret-signals.ts"],
     }),
     moduleContract({
