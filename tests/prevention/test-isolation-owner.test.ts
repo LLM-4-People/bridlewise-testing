@@ -69,7 +69,8 @@
  */
 import { describe, test, expect, vi } from "vitest";
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, statSync, writeFileSync } from "node:fs";
+import { readSourceView } from "../../engine/scripts/verification/source-view.ts";
 import { request as httpRequest } from "node:http";
 import { connect as netConnect, Socket } from "node:net";
 import { dirname, join, resolve, relative, isAbsolute } from "node:path";
@@ -102,9 +103,10 @@ function testFiles(): { path: string; rel: string; source: string }[] {
       out.push({
         path: full,
         rel: relative(REPO_ROOT, full),
-        // The views below blank prose and string interiors themselves, so a
-        // comment naming a banned pattern cannot convict this guard.
-        source: readFileSync(full, "utf8"),
+        // Quoted strings stay: a bracket write's key IS a string literal, so a
+        // view that blanks strings would go blind to that spelling. Comments and
+        // prose are blanked, so a comment naming a pattern cannot convict.
+        source: readSourceView(full).codeWithStrings(),
       });
     }
   };
@@ -321,7 +323,7 @@ describe("B. no test file leaks a global to the next file", () => {
     // the node project actually runs must take the snapshot BEFORE the test
     // file is imported, and call the door after the cleanup that must still
     // run. This is the wiring half of the same guarantee.
-    const setup = readFileSync(join(TESTS_ROOT, "setup", "test-setup.ts"), "utf8");
+    const setup = readSourceView(join(TESTS_ROOT, "setup", "test-setup.ts")).code();
     expect(setup).toMatch(/^captureGlobals\(\);$/mu);
     const captureIndex = setup.indexOf("\ncaptureGlobals();");
     const hookIndex = setup.indexOf("beforeAll(() => {");
