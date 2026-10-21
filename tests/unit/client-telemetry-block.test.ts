@@ -208,6 +208,20 @@ describe("client telemetry ingest — auth + validation at the door", () => {
     expect(event.traceId, "an unclaimed batch still hangs off the ingest request's own trace").toBeTruthy();
   });
 
+  test("a caught warning is recorded as a warning and does not inflate the client-error count", async () => {
+    const mod = await import("../../server/blocks/client-telemetry.ts");
+    const before = mod.clientTelemetrySummary().clientErrors;
+    const res = await ingest(userA, batch([
+      errorEvent({ severity: "warn", category: "sse", message: "stream error: socket closed" }),
+    ]));
+    expect(res.status).toBe(200);
+    const event = clientErrorsFor(userA.userId).find((e) => e.description.includes("stream error: socket closed"));
+    expect(event, "the warning is a recorded fact, not a dropped one").toBeDefined();
+    expect(event!.description).toContain("browser warning");
+    expect(event!.errorCode).toBe("client_warning");
+    expect(mod.clientTelemetrySummary().clientErrors, "a warning is not an uncaught error").toBe(before);
+  });
+
   test("a client-stated dropped count is recorded as its own fact (the hole is never silent)", async () => {
     const res = await ingest(userA, batch([metricEvent({ bootMs: 1234 })], undefined, 5));
     expect(res.status).toBe(200);

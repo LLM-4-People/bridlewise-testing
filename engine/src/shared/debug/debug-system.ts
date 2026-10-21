@@ -1160,6 +1160,32 @@ function terminalFallback(): void {
   }
 }
 
+/**
+ * THE ONE LINE FORMAT. The console sink and the always-on stderr fallback
+ * both render a `DebugEvent` through this, so the two destinations cannot
+ * disagree about what an event looks like (or silently lose a field one of
+ * them forgot to print).
+ */
+function formatEventLine(event: DebugEvent): string {
+  const ts = new Date(event.timestamp).toISOString();
+  const codeStr = event.code ? ` [${event.code}]` : "";
+  const ctxStr = Object.keys(event.context).length > 0 ? ` ${JSON.stringify(event.context)}` : "";
+  return `[${ts}] ${event.level}${codeStr} (${event.category}): ${event.message}${ctxStr}`;
+}
+
+/** The terminal destination of an event that has no configured sink to reach. */
+function writeEventStderr(event: DebugEvent): void {
+  try {
+    process.stderr.write(formatEventLine(event) + "\n");
+  } catch {
+    // The terminal write itself failed; the content-free fallback is the last
+    // destination, and the caller returns rather than pretending the write
+    // happened.
+    terminalFallback();
+    return;
+  }
+}
+
 function writeSink(sink: DebugSink, event: DebugEvent): boolean {
   const signals = getSystem().signals;
   signals.sinkWriteAttempts++;
@@ -1193,6 +1219,26 @@ function emit(event: DebugEvent): void {
   if (failed || reentrantEmission) terminalFallback();
 }
 
+/**
+ * DELIVER AN EVENT THAT THE DEBUG SWITCH MAY NOT SUPPRESS.
+ *
+ * A configured system with at least one destination takes the normal sink
+ * path; an unconfigured system (or one whose operator declared no sink)
+ * writes the same redacted event to stderr. This is the one delivery door for
+ * warn/error from `debugLog` and `handleError`, so neither emitter can quietly
+ * count a message and drop it. `reportAlwaysOn` keeps its own
+ * `[bridlewise …]` fallback format, which operator-facing fault reports and
+ * their tests already name.
+ */
+function emitAlwaysReported(event: DebugEvent): void {
+  const s = getSystem();
+  if (s.configured && s.sinks.length > 0) {
+    emit(event);
+    return;
+  }
+  writeEventStderr(event);
+}
+
 function pushAuditRing(event: DebugEvent): void {
   const sys = getSystem();
   const buf = sys.auditRingBuffer;
@@ -1208,11 +1254,13 @@ function pushAuditRing(event: DebugEvent): void {
 /**
  * Emit a debug message. The `context` argument is a THUNK (zero-argument
  * function) so it is only evaluated when the message is actually emitted.
- * When debug is disabled, the level is below the configured floor, or the
- * category is not in the allow-list, this function returns immediately
- * WITHOUT calling `context` — zero overhead.
+ * Debug/info/trace return immediately — WITHOUT calling `context` — when the
+ * master switch is off, the level is below the configured floor, or the
+ * category is not in the allow-list. Warn/error are never filtered: they go
+ * to a configured sink, or to stderr when no sink is configured.
  *
- * @param category Debug category (must be in `config.categories` to emit).
+ * @param category Debug category (must be in `config.categories` to emit at
+ *   debug/info/trace; warn/error are emitted whatever the list says).
  * @param level Message severity (`error`/`warn`/`info`/`debug`/`trace`).
  * @param message Human-readable message.
  * @param context Optional thunk building the context payload. Only called when emitting.
@@ -1224,14 +1272,27 @@ export function debugLog(
   context?: DebugContextThunk,
 ): void {
   const s = getSystem();
-  if (!s.configured || !s.config.enabled) return;
-  if (!shouldEmitLevel(level, s.config.level)) {
-    s.signals.suppressedByLevel++;
-    return;
-  }
-  if (!s.config.categories.includes(category)) {
-    s.signals.suppressedByCategory++;
-    return;
+  // WARN AND ERROR ARE NEVER SUPPRESSED (UD-LOG-NEVER-DISABLED).
+  //
+  // The master switch, the level floor and the category allow-list govern
+  // DEBUG output — the level the decision calls optional. They do not govern
+  // warn or error: this function returned at `!enabled` before doing anything,
+  // so `webWarn` sites whose own comments say "never silent" (a transaction
+  // rollback that failed, a confined spawn running unconfined) emitted nothing
+  // in the default configuration, and the shipped document's `enabled: false`
+  // made that the normal state. The decision's LG guard is what makes this
+  // permanent: an unconfigured system still reports both levels.
+  const alwaysReported = level === "warn" || level === "error";
+  if (!alwaysReported) {
+    if (!s.configured || !s.config.enabled) return;
+    if (!shouldEmitLevel(level, s.config.level)) {
+      s.signals.suppressedByLevel++;
+      return;
+    }
+    if (!s.config.categories.includes(category)) {
+      s.signals.suppressedByCategory++;
+      return;
+    }
   }
   const rawContext = context ? context() : {};
   const contextOutcome = redactContext(rawContext);
@@ -1255,7 +1316,9 @@ export function debugLog(
   };
   s.signals.debugCount++;
   if (level === "warn") s.signals.warnCount++;
-  emit(event);
+  if (level === "error") s.signals.errorCount++;
+  if (alwaysReported) emitAlwaysReported(event);
+  else emit(event);
 }
 
 // ── auditEvent: always recorded (safety floor) ────────────────────────────
@@ -1371,7 +1434,11 @@ export function reportBestEffortFailure(): void {
  */
 export function handleError(error: unknown, context: ErrorContext): void {
   const s = getSystem();
-  if (!s.configured) return;
+  // NO `!configured` RETURN. An error caught by a process that never installed
+  // the debug system is exactly the failure an operator must still see; the
+  // old guard made it a counter that never moved, on the path installed as the
+  // uncaught-failure handler. Abort errors remain `info` (expected
+  // cancellation, not a failure) and follow the ordinary debug delivery.
   const code = error instanceof HarnessError ? error.code : "internal_error";
   const retryable = error instanceof HarnessError ? error.retryable : false;
   // Abort errors are expected (cancellation), not real failures: classify
@@ -1412,7 +1479,15 @@ export function handleError(error: unknown, context: ErrorContext): void {
     code,
     source,
   };
-  emitErrorReport(event);
+  if (level === "error") {
+    // An error is counted whether it reaches a sink or the terminal fallback;
+    // `emitErrorReport` owns that count on the ordinary path, and this is the
+    // same unit on the always-on path.
+    s.signals.errorCount++;
+    emitAlwaysReported(event);
+  } else {
+    emitErrorReport(event);
+  }
 }
 
 // ── Built-in sinks ────────────────────────────────────────────────────────
@@ -1422,17 +1497,7 @@ export function createConsoleSink(): DebugSink {
   return sanctionSink({
     kind: "console",
     write(event: DebugEvent): void {
-      const ts = new Date(event.timestamp).toISOString();
-      const codeStr = event.code ? ` [${event.code}]` : "";
-      const ctxStr = Object.keys(event.context).length > 0 ? ` ${JSON.stringify(event.context)}` : "";
-      const line = `[${ts}] ${event.level}${codeStr} (${event.category}): ${event.message}${ctxStr}`;
-      if (event.kind === "error") {
-        process.stderr.write(line + "\n");
-      } else if (event.kind === "warn") {
-        process.stderr.write(line + "\n");
-      } else {
-        process.stderr.write(line + "\n");
-      }
+      process.stderr.write(formatEventLine(event) + "\n");
     },
   });
 }
@@ -1523,6 +1588,9 @@ export function redactDiagnosticText(text: string): string {
 /** @returns `true` when `debugLog(category, level,...)` would actually emit (for conditional expensive context). */
 export function wouldEmit(category: string, level: DebugMessageLevel): boolean {
   const s = getSystem();
+  // Mirrors `debugLog`: warn and error are never suppressed, the rest follow
+  // the master switch, the level floor and the category allow-list.
+  if (level === "warn" || level === "error") return true;
   if (!s.configured || !s.config.enabled) return false;
   if (!shouldEmitLevel(level, s.config.level)) return false;
   if (!s.config.categories.includes(category)) return false;

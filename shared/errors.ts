@@ -171,6 +171,11 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   // deny by default on the redactor, with no spelling that changes the
   // answer.
   debug_redaction_required: 403,
+  // The web boot refused to install the debug system because the resolved
+  // config document supplied no category allow-list (`configureWebDebug`).
+  // 403 for the same deny-by-default reason as the redaction refusal above:
+  // the request/config is understood and the server will not invent a policy.
+  debug_categories_undeclared: 403,
   // keyset paging cursor unreadable (server/db/client.ts) — a paged history
   // read came back without the cursor column it advances on. Explicitly 500
   // because it IS a server defect (a misdeclared `PagedRead`), not anything

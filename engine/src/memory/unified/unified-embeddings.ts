@@ -17,6 +17,7 @@
  */
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { InputError } from "../../kernel/errors.ts";
+import { debugLog } from "../../shared/debug/debug-system.ts";
 
 export type EmbeddingsConfig = Readonly<{
   modelId: string;
@@ -123,8 +124,13 @@ export function createEmbeddingsProvider(options?: Partial<EmbeddingsConfig> & {
           loadMs = Date.now() - t0;
         } catch (err) {
           unavailable = true;
+          // The optional peer is missing; the retriever falls back to TF-IDF.
+          // That is a WARNING about a degraded capability, not a private
+          // stderr line: warn is never suppressed, so the operator sees it
+          // with debug off, and the debug system's redactor owns what the
+          // message may contain.
           const msg = err instanceof Error ? err.message : String(err);
-          process.stderr.write(`[embeddings] unavailable: ${msg}\n`);
+          debugLog("memory", "warn", `embeddings unavailable: ${msg}`);
         }
       })();
       await loadingPromise;

@@ -73,7 +73,7 @@ The folder lives at `src/state/`.
 - `run-state.ts` is consumed by `src/client.ts`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/composer-router.ts`, `src/cockpit/flow/rewind.ts`, `src/cockpit/shell/RightMenuHost.svelte`, `src/cockpit/sweep/Sweep.svelte` and 1 more.
 - `schema-store.ts` is consumed by `src/client.ts`, `src/cockpit/computer/commands.ts`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/ingest.ts`, `src/cockpit/lens/LensCallout.svelte`, `src/cockpit/rooms/InstrumentsRoom.svelte` and 7 more.
 - `store-registry.ts` is consumed by `src/cockpit/desk/desk-bus.ts`, `src/cockpit/desk/desk-feed.ts`, `src/cockpit/editor/buffer.ts`, `src/cockpit/flow/flow-view.ts`, `src/cockpit/flow/rewind.ts`, `src/cockpit/flow/thinking-fold.ts` and 41 more.
-- `telemetry.ts` is consumed by `src/client.ts`, `src/cockpit/boot/probes.ts`.
+- `telemetry.ts` is consumed by `src/client-debug.ts`, `src/client.ts`, `src/cockpit/boot/probes.ts`.
 - `timeline-event-documents.ts` is consumed by `src/cockpit/flow/BeatScope.svelte`.
 - `timeline-query.ts` is consumed by `src/client.ts`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/spectrum-load.ts`, `src/cockpit/sweep/sweep-data.ts`.
 - `timeline-refs.ts` is consumed by `src/client.ts`.

@@ -72,30 +72,33 @@ function readPlan(path) {
   return plan;
 }
 
-function readShard(root, path, index, expected = undefined, requireTiming = false) {
+function readShard(root, path, index, expected, requireTiming) {
   const envelope = readJson(path, `shard ${index}`);
   if (envelope === null || typeof envelope !== "object") {
     fail(`shard ${index}: report is not an object`);
   }
-  const wrapped = envelope.schemaVersion === SHARD_REPORT_SCHEMA;
-  if (expected !== undefined && !wrapped) {
+  // A RAW VITEST REPORT IS NOT EVIDENCE. Its provenance used to be checked
+  // only when a plan happened to be supplied, so a plan-less merge accepted
+  // raw reports and wrote a receipt naming the caller's `--head` with nothing
+  // binding the files to that commit. Refused unconditionally: only the
+  // wrapper records the head, manifest/assignment hashes, shard identity and
+  // timing window this receipt claims.
+  if (envelope.schemaVersion !== SHARD_REPORT_SCHEMA) {
     fail(`shard ${index}: report has no ${SHARD_REPORT_SCHEMA} provenance envelope`);
   }
-  if (wrapped) {
-    if (envelope.shard !== index || envelope.shardCount !== expected?.shardCount) {
-      fail(`shard ${index}: shard identity or count does not match the plan`);
-    }
-    if (String(envelope.headSha).toLowerCase() !== expected?.headSha) {
-      fail(`shard ${index}: head ${String(envelope.headSha)} is not ${String(expected?.headSha)}`);
-    }
-    if (envelope.manifestHash !== expected?.manifestHash) {
-      fail(`shard ${index}: manifest hash does not match the plan`);
-    }
-    if (envelope.assignmentHash !== expected?.assignmentHash) {
-      fail(`shard ${index}: assignment hash does not match the plan`);
-    }
+  if (envelope.shard !== index || envelope.shardCount !== expected.shardCount) {
+    fail(`shard ${index}: shard identity or count does not match the plan`);
   }
-  const report = wrapped ? envelope.vitest : envelope;
+  if (String(envelope.headSha).toLowerCase() !== expected.headSha) {
+    fail(`shard ${index}: head ${String(envelope.headSha)} is not ${String(expected.headSha)}`);
+  }
+  if (envelope.manifestHash !== expected.manifestHash) {
+    fail(`shard ${index}: manifest hash does not match the plan`);
+  }
+  if (envelope.assignmentHash !== expected.assignmentHash) {
+    fail(`shard ${index}: assignment hash does not match the plan`);
+  }
+  const report = envelope.vitest;
   if (report === null || typeof report !== "object") {
     fail(`shard ${index}: report is not an object`);
   }
@@ -132,7 +135,7 @@ function readShard(root, path, index, expected = undefined, requireTiming = fals
     );
   }
   let timing;
-  if (wrapped && envelope.timing !== undefined) {
+  if (envelope.timing !== undefined) {
     const candidate = envelope.timing;
     const startedAt = Date.parse(String(candidate?.startedAt));
     const finishedAt = Date.parse(String(candidate?.finishedAt));
@@ -179,7 +182,7 @@ export function mergeShardReports({
   planPath = undefined,
   manifestSourcePath = undefined,
   runnerClass = undefined,
-  requireTiming = false,
+  requireTiming = true,
   outPath,
   now = new Date(),
 }) {
@@ -196,17 +199,22 @@ export function mergeShardReports({
   if (typeof headSha !== "string" || !/^[0-9a-f]{7,64}$/i.test(headSha)) {
     fail("headSha must be a commit SHA");
   }
+  // THE PLAN IS REQUIRED. It is the only thing that binds the receipt's head,
+  // manifest hash, assignment hash and exact per-shard file assignment to the
+  // reports being merged. Without it the merge used to accept raw reports and
+  // stamp them with whatever `--head` the caller passed.
+  if (planPath == null) {
+    fail("plan: --plan is required; a merge without the plan has nothing binding its receipt to the reports");
+  }
 
   const manifest = readManifest(repositoryRoot, manifestPath);
-  const plan = planPath == null ? undefined : readPlan(planPath);
-  if (plan !== undefined) {
-    if (plan.headSha.toLowerCase() !== headSha.toLowerCase()) {
-      fail(`plan: head ${plan.headSha} is not ${headSha}`);
-    }
-    if (plan.shardCount !== expectedShards) fail("plan: shard count does not match expectedShards");
+  const plan = readPlan(planPath);
+  if (plan.headSha.toLowerCase() !== headSha.toLowerCase()) {
+    fail(`plan: head ${plan.headSha} is not ${headSha}`);
   }
+  if (plan.shardCount !== expectedShards) fail("plan: shard count does not match expectedShards");
   const computedManifestHash = hashManifest(manifest);
-  if (plan !== undefined && plan.manifestHash !== computedManifestHash) {
+  if (plan.manifestHash !== computedManifestHash) {
     fail("plan: manifest hash does not match the supplied manifest");
   }
   const manifestSource = manifestSourcePath == null
@@ -216,20 +224,19 @@ export function mergeShardReports({
     if (manifestSource.hash !== computedManifestHash) {
       fail("manifest source: hash does not match the supplied manifest");
     }
-    if (plan !== undefined && plan.manifestHash !== manifestSource.hash) {
+    if (plan.manifestHash !== manifestSource.hash) {
       fail("manifest source: hash does not match the plan");
     }
     if (manifestSource.files.length !== manifest.length) {
       fail("manifest source: supported file count does not match the supplied manifest");
     }
   }
-  const shards = shardPaths.map((path, index) => readShard(repositoryRoot, path, index + 1,
-    plan === undefined ? undefined : {
-      headSha: plan.headSha.toLowerCase(),
-      manifestHash: plan.manifestHash,
-      assignmentHash: plan.assignmentHash,
-      shardCount: plan.shardCount,
-    }, requireTiming));
+  const shards = shardPaths.map((path, index) => readShard(repositoryRoot, path, index + 1, {
+    headSha: plan.headSha.toLowerCase(),
+    manifestHash: plan.manifestHash,
+    assignmentHash: plan.assignmentHash,
+    shardCount: plan.shardCount,
+  }, requireTiming));
   const expected = new Set(manifest);
   const seen = new Map();
 
@@ -253,13 +260,11 @@ export function mergeShardReports({
     );
   }
 
-  if (plan !== undefined) {
-    for (const [index, planned] of plan.shards.entries()) {
-      const actual = shards[index].files;
-      const expectedFiles = [...planned.files].sort();
-      if (actual.join("\n") !== expectedFiles.join("\n")) {
-        fail(`shard ${index + 1}: files do not match the plan's exact assignment`);
-      }
+  for (const [index, planned] of plan.shards.entries()) {
+    const actual = shards[index].files;
+    const expectedFiles = [...planned.files].sort();
+    if (actual.join("\n") !== expectedFiles.join("\n")) {
+      fail(`shard ${index + 1}: files do not match the plan's exact assignment`);
     }
   }
 
@@ -279,7 +284,7 @@ export function mergeShardReports({
     shardCount: expectedShards,
     ...(runnerClass === undefined ? {} : { runnerClass }),
     manifestHash,
-    ...(plan === undefined ? {} : { assignmentHash: plan.assignmentHash }),
+    assignmentHash: plan.assignmentHash,
     fileCount: manifest.length,
     testCount: shards.reduce((sum, shard) => sum + shard.totalTests, 0),
     passedTests: shards.reduce((sum, shard) => sum + shard.passedTests, 0),
@@ -321,7 +326,7 @@ function parseArgs(argv) {
     expectedShards: null,
     headSha: process.env.GITHUB_SHA ?? null,
     runnerClass: undefined,
-    requireTiming: false,
+    requireTiming: true,
     outPath: null,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -340,6 +345,7 @@ function parseArgs(argv) {
   }
   if (!options.manifestPath) fail("--manifest is required");
   if (!options.manifestSourcePath) fail("--manifest-source is required");
+  if (!options.planPath) fail("--plan is required");
   if (!options.outPath) fail("--out is required");
   return options;
 }

@@ -253,10 +253,15 @@ function recordClientEvent(
 ): void {
   const redactedFacts = redactStringValues(event.facts) as Record<string, unknown>;
   const isMetric = event.kind === "client-metric";
+  // SEVERITY IS A FACT, NOT A SECOND EVENT KIND. `clientWarn` and
+  // `clientError` share the browser-failure channel; the logger's warn level
+  // rides as `severity: "warn"` so a warning is still recorded without
+  // pretending it was an uncaught exception (and without counting it as one).
+  const isWarning = !isMetric && redactedFacts["severity"] === "warn";
   const description = isMetric
     ? truncateForLedger(`browser metric: ${Object.keys(redactedFacts).sort().join(", ")}`)
     : truncateForLedger(
-        `browser error: ${typeof redactedFacts["message"] === "string" ? redactedFacts["message"] : "(no message)"}`,
+        `browser ${isWarning ? "warning" : "error"}: ${typeof redactedFacts["message"] === "string" ? redactedFacts["message"] : "(no message)"}`,
       );
   const factsJson = JSON.stringify(redactedFacts);
   const input = {
@@ -265,7 +270,7 @@ function recordClientEvent(
     outcome: (isMetric ? "succeeded" : "failed") as "succeeded" | "failed",
     ...(isMetric
       ? {}
-      : { error: { category: "client", code: "client_error", message: description, retryable: false } }),
+      : { error: { category: "client", code: isWarning ? "client_warning" : "client_error", message: description, retryable: false } }),
     documents: [
       {
         name: TIMELINE_CLIENT_FACTS_DOCUMENT,
@@ -344,7 +349,10 @@ export function defineClientTelemetryBlocks(db: AsyncDbClient): void {
               ...(verified.runId !== undefined ? { runId: verified.runId } : {}),
               ...(verified.traceId !== undefined ? { traceId: verified.traceId } : {}),
             });
-            if (event.kind === "client-error") summary.clientErrors += 1;
+            // A caught WARNING is a recorded failure report, not an
+            // uncaught exception: it must not inflate the client-error count
+            // the performance exposure signal serves.
+            if (event.kind === "client-error" && event.facts["severity"] !== "warn") summary.clientErrors += 1;
             const worst = claimedWorstLongTaskMs(event.facts);
             if (worst > summary.worstLongTaskMs) summary.worstLongTaskMs = worst;
           }

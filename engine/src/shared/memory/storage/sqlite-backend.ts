@@ -6,6 +6,7 @@
 
 import { createRequire } from "node:module";
 import type { MemoryEntry } from "../memory-entry.ts";
+import { debugLog } from "../../debug/debug-system.ts";
 import type { BackendStorageOptions, MemoryStoragePort } from "./backend.ts";
 import { safeFromWire, toWire, type WireRecord } from "./serde.ts";
 import { InputError } from "../../../kernel/errors.ts";
@@ -91,7 +92,7 @@ export function createSqliteStorage(options: BackendStorageOptions): MemoryStora
         if (e) out.push(e);
         else corrupt += 1;
       }
-      if (corrupt > 0) process.stderr.write(`sqlite-backend: dropped ${corrupt} corrupt entries\n`);
+      if (corrupt > 0) debugLog("memory", "warn", `sqlite-backend: dropped ${corrupt} corrupt entries`);
       return out;
     },
     bytesWritten() { return bytes; },

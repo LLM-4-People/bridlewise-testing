@@ -452,7 +452,22 @@ import { getAuditEvents } from "../../engine/src/shared/debug/debug-system.ts";
 import { functionBody } from "../../engine/src/shared/source-structure.ts";
 
 import { modulePath, modulePathMatching } from "../helpers/module-resolver.ts";
-describe("error-debug owner — zero overhead when off (behavioral)", () => {
+describe("error-debug owner — warn/error are never suppressed; debug stays lazy (LG)", () => {
+  function captureStderr(fn: () => void): string {
+    const origWrite = process.stderr.write.bind(process.stderr);
+    let captured = "";
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      captured += chunk.toString();
+      return true;
+    }) as never;
+    try {
+      fn();
+    } finally {
+      process.stderr.write = origWrite as never;
+    }
+    return captured;
+  }
+
   beforeEach(() => {
     resetWebDebug();
   });
@@ -460,29 +475,43 @@ describe("error-debug owner — zero overhead when off (behavioral)", () => {
     resetWebDebug();
   });
 
-  test("(C1) before configureWebDebug, webWarn does NOT evaluate the context thunk", () => {
+  test("(C1) before configureWebDebug, webWarn IS reported (thunk evaluated, stderr fallback)", () => {
+    // UD-LOG-NEVER-DISABLED: a warn site whose comment says "never silent"
+    // emitted nothing at the old `!configured` guard. Warn is independent of
+    // the master switch, so the unconfigured system uses its stderr fallback.
     let evaluated = false;
-    webWarn("test", "should not emit", () => {
-      evaluated = true;
-      return { secret: "leak" };
+    const captured = captureStderr(() => {
+      webWarn("test", "REPRO-WARN unconfigured", () => {
+        evaluated = true;
+        return { detail: "x" };
+      });
     });
-    expect(evaluated).toBe(false);
+    expect(evaluated, "a reported warning evaluates its context").toBe(true);
+    expect(captured).toContain("REPRO-WARN unconfigured");
+    expect(getWebDebugSignals().warnCount).toBe(1);
   });
 
-  test("(C2) before configureWebDebug, webDebugLog does NOT evaluate the context thunk", () => {
+  test("(C2) before configureWebDebug, webDebugLog info remains zero-overhead (thunk not evaluated)", () => {
     let evaluated = false;
+    const before = getWebDebugSignals();
     webDebugLog("test", "info", "should not emit", () => {
       evaluated = true;
       return { secret: "leak" };
     });
     expect(evaluated).toBe(false);
+    expect(getWebDebugSignals().debugCount).toBe(before.debugCount);
   });
 
-  test("(C3) before configureWebDebug, webHandleError does NOT extract or move errorCount", () => {
+  test("(C3) before configureWebDebug, webHandleError IS reported and counts", () => {
+    // An error caught before (or without) the debug system's installation is
+    // exactly the failure an operator must see; the old guard dropped it.
     const before = getWebDebugSignals();
-    webHandleError(new Error("boom"), { module: "test", operation: "test" });
+    const captured = captureStderr(() => {
+      webHandleError(new Error("REPRO-ERROR unconfigured"), { module: "test", operation: "test" });
+    });
     const after = getWebDebugSignals();
-    expect(after.errorCount).toBe(before.errorCount);
+    expect(after.errorCount).toBe(before.errorCount + 1);
+    expect(captured).toContain("REPRO-ERROR unconfigured");
   });
 
   test("(C4) before configureWebDebug, webAuditEvent does NOT emit or move counters", () => {
@@ -492,41 +521,29 @@ describe("error-debug owner — zero overhead when off (behavioral)", () => {
     expect(after.auditCount ?? 0).toBe(before.auditCount ?? 0);
   });
 
-  test("(C5) after configureWebDebug, webWarn DOES evaluate the thunk + the signal moves", () => {
-    // Configure with the "test" category allowed — the backend debug
-    // system filters by category (categories.includes(category)), so a
-    // category not in the allow-list suppresses emission AND skips thunk
-    // evaluation (zero-overhead when filtered). Use the test category.
+  test("(C5) after configureWebDebug, webWarn DOES evaluate the thunk + the sink receives it", () => {
     configureWebDebug({ enabled: true, categories: ["test"] }, [createConsoleSink()]);
     let evaluated = false;
-    // Capture stderr to avoid polluting test output.
-    const origWrite = process.stderr.write.bind(process.stderr);
-    let captured = "";
-    process.stderr.write = ((chunk: string | Uint8Array) => {
-      captured += chunk.toString();
-      return true;
-    }) as never;
-    try {
+    const captured = captureStderr(() => {
       webWarn("test", "should emit", () => {
         evaluated = true;
         return { detail: "x" };
       });
-    } finally {
-      process.stderr.write = origWrite as never;
-    }
+    });
     expect(evaluated).toBe(true);
     expect(captured).toContain("should emit");
   });
 
-  test("(C6) resetWebDebug returns to zero-overhead (thunk not evaluated)", () => {
-    configureWebDebug({ enabled: true }, [createConsoleSink()]);
-    resetWebDebug();
-    let evaluated = false;
-    webWarn("test", "should not emit after reset", () => {
-      evaluated = true;
-      return {};
+  test("(C6) a configured system with the master switch OFF still reports warn and error", () => {
+    // The shipped document is `enabled: false`; the old debugLog returned at
+    // the master switch, so every warn/error site was silent in production.
+    configureWebDebug({ enabled: false, categories: ["test"] }, [createConsoleSink()]);
+    const captured = captureStderr(() => {
+      webWarn("test", "warn while disabled");
+      webDebugLog("test", "error", "error while disabled");
     });
-    expect(evaluated).toBe(false);
+    expect(captured).toContain("warn while disabled");
+    expect(captured).toContain("error while disabled");
   });
 });
 
@@ -546,21 +563,12 @@ describe("error-debug owner — zero overhead when off (behavioral)", () => {
 // one resolver, and the boot consults the resolver before the socket listens.
 
 describe("error-debug owner — the debug config wiring census", () => {
-  test("(E1) the default category allow-list covers the set of category literals the server emits (derived, never a hand list)", () => {
-    // Derive the emission categories from the server's own sources: the
-    // `webWarn("<category>"` / `webDebugLog("<category>"` call-site literals
-    // plus the `module: "<category>"` literals webHandleError derives its
-    // category from. Dynamically discovered (deny-by-default): a new call
-    // site whose category is missing from the declared list reds here until
-    // the list covers it — the grow direction only. A name that stops being
-    // emitted falls off the derived set, but a stale name left in the
-    // declared list stays green here, so the shrink direction is not
-    // enforced by this arm.
-    // Comment lines are skipped (the suite's own (A)-scan discipline) so a
-    // doc example is not a call site. Honestly stated limit: a category
-    // built from a runtime value (not a literal) is invisible to a static
-    // census; every emission site today spells its category literally, and
-    // the floor count below reds if that ever shrinks to a vacuous pass.
+  test("(E1) the CONFIG DOCUMENT's category allow-list covers what the server emits (one owner, derived census)", () => {
+    // The allow-list had three owners: this bridge's own array, the config
+    // document's copy, and this census's regex-derived set (which read every
+    // quoted lowercase token in the bridge file, so `warn` — a LEVEL — counted
+    // as a category). The document is the one owner now; the bridge carries no
+    // list, and this census reads the document a person can edit.
     const codeOnly = (file: string): string =>
       readFileSync(file, "utf8").split("\n").filter((line) => !isCommentLine(line)).join("\n");
     const derived = new Set<string>();
@@ -571,16 +579,24 @@ describe("error-debug owner — the debug config wiring census", () => {
       for (const m of src.matchAll(/module:\s*"([^"]+)"/gu)) derived.add(m[1]!);
     }
     expect(derived.size, "the derived category set must be real — a census over zero call sites proves nothing").toBeGreaterThanOrEqual(30);
-    const bridgeSrc = readFileSync(BRIDGE_FILE, "utf8");
-    const declared = new Set<string>();
-    for (const m of bridgeSrc.matchAll(/"([a-z][a-z0-9-]*)"/gu)) declared.add(m[1]!);
+    const document = JSON.parse(readFileSync(join(process.cwd(), "engine", "bridlewise.config.json"), "utf8")) as {
+      debug?: { categories?: unknown };
+    };
+    expect(Array.isArray(document.debug?.categories), "the config document must declare debug.categories").toBe(true);
+    const declaredList = document.debug!.categories as string[];
+    expect(declaredList.length).toBeGreaterThanOrEqual(30);
+    const declared = new Set(declaredList);
     const missing = [...derived].filter((c) => !declared.has(c));
-    expect(missing, `emitted categories the default allow-list does not cover (they would be silently category-suppressed with debug on): ${missing.join(", ")}`).toEqual([]);
-    // The declared list is read from the bridge file's own text (doc prose
-    // rides beside the constant), so the equality direction is the one-sided
-    // coverage check above plus this witness: the declared set is not empty
-    // and not smaller than what the server emits.
-    expect(declared.size).toBeGreaterThanOrEqual(derived.size);
+    expect(missing, `emitted categories the document's allow-list does not cover (they would be silently category-suppressed with debug on): ${missing.join(", ")}`).toEqual([]);
+    // A LEVEL is not a category. The old bridge-file scan admitted `warn`
+    // because the prose beside the list spells it; the document's list must
+    // hold emission categories only.
+    for (const level of ["off", "error", "warn", "info", "debug", "trace"]) {
+      expect(declared.has(level), `${level} is a level, not a category`).toBe(false);
+    }
+    // And the bridge no longer owns a second copy to drift from the document.
+    const bridgeSrc = readFileSync(BRIDGE_FILE, "utf8");
+    expect(bridgeSrc, "the bridge must not reintroduce a category list").not.toContain("DEFAULT_WEB_DEBUG_CATEGORIES");
   });
 
   test("(E2) the debug env var is read at exactly ONE owner and consulted by exactly ONE resolver (no consumer bypasses the precedence design)", () => {
@@ -709,17 +725,39 @@ describe("error-debug owner — the bridge's sink contract and the fatal sink", 
     resetWebDebug();
   });
 
+  test("(F0) configureWebDebug refuses an omitted category list — the resolved document is the owner", () => {
+    resetWebDebug();
+    try {
+      expect(
+        () => configureWebDebug({ enabled: true }, []),
+        "omitting the list must not fall back to a bridge-owned copy",
+      ).toThrowError(expect.objectContaining({ code: "debug_categories_undeclared" }));
+      expect(isWebDebugEnabled(), "a refused config installs nothing").toBe(false);
+      // An EXPLICIT empty list is a declared decision, not a fallback; warn
+      // and error remain reported through the always-on path.
+      expect(() => configureWebDebug({ enabled: true, categories: [] }, [])).not.toThrow();
+    } finally {
+      resetWebDebug();
+    }
+  });
+
   test("(F1) configureWebDebug({enabled:true}) with sinks OMITTED installs the console sink (documented contract)", () => {
     configureWebDebug({ enabled: true, categories: ["test"] });
     webDebugLog("test", "warn", "WITNESS-F1 the default sink is installed");
     expect(captured, "an omitted sink list must default to the console sink; events were counted and dropped").toContain("WITNESS-F1");
   });
 
-  test("(F2) an EXPLICIT empty sink list installs nothing — the caller's decision, not a default", () => {
+  test("(F2) an EXPLICIT empty sink list installs no sink — warn still uses the always-on fallback", () => {
     configureWebDebug({ enabled: true, categories: ["test"] }, []);
-    webDebugLog("test", "warn", "WITNESS-F2 no destination");
-    expect(captured, "an explicit [] is a decision and must not be replaced by the default").toBe("");
-    expect(getWebDebugSignals().debugCount).toBe(1);
+    webDebugLog("test", "warn", "WITNESS-F2 no configured sink");
+    // The caller's [] is honored: no sink was installed, so no sink write was
+    // attempted. Warn is nevertheless reported through the terminal fallback —
+    // the decision's always-reported half, not a substituted default sink.
+    expect(getWebDebugSignals().sinkWriteAttempts).toBe(0);
+    expect(captured, "warn is never silent, even with no configured sink").toContain("WITNESS-F2 no configured sink");
+    const debugBefore = captured.length;
+    webDebugLog("test", "debug", "WITNESS-F2 debug stays off");
+    expect(captured.length, "debug remains optional").toBe(debugBefore);
   });
 
   test("(F3) webConsoleError redacts through the debug system's redactor", () => {

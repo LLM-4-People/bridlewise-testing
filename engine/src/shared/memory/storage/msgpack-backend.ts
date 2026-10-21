@@ -8,6 +8,7 @@
 
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import type { MemoryEntry } from "../memory-entry.ts";
+import { debugLog } from "../../debug/debug-system.ts";
 import type { BackendStorageOptions, MemoryStoragePort } from "./backend.ts";
 import { fromWire, safeFromWire, toWire, type WireRecord } from "./serde.ts";
 import { InputError } from "../../../kernel/errors.ts";
@@ -160,7 +161,7 @@ export function createMsgpackStorage(options: BackendStorageOptions): MemoryStor
         if (e) out.push(e);
         else corrupt += 1;
       }
-      if (corrupt > 0) process.stderr.write(`msgpack-backend: dropped ${corrupt} corrupt entries\n`);
+      if (corrupt > 0) debugLog("memory", "warn", `msgpack-backend: dropped ${corrupt} corrupt entries`);
       return out;
     },
     bytesWritten() { return bytes; },

@@ -136,54 +136,6 @@ export function webAlwaysOn(
   backendReportAlwaysOn(category, message, context);
 }
 
-/** The web-server debug categories (module names that emit debug/warn/error).
- * When `configureWebDebug` is called WITHOUT an explicit `categories`
- * override, these are the default allow-list — so a plain
- * `configureWebDebug({ enabled: true })` actually emits (the backend's
- * default `categories: []` would block everything). The list is the FULL set
- * of category literals the server's own `webWarn`/`webHandleError` call sites
- * emit, and the debug-owner census derives that set from the sources and reds
- * when a call site appears that the list does not cover — a hand list here
- * rotted before (six names while the server emitted ~30, silently
- * category-suppressing the rest), so the list is now held to the call sites
- * mechanically rather than by memory. */
-const DEFAULT_WEB_DEBUG_CATEGORIES = [
-  "agent-runtime-bridge",
-  "atomic-write",
-  "auto-check-runner",
-  "auto-heal",
-  "blocks",
-  "db",
-  "db-crypto",
-  "dedup-bridge",
-  "editor-bridge",
-  "file-tree",
-  "git-bridge",
-  "harness-config",
-  "history-cursor",
-  "intelligence",
-  "landlock",
-  "llm",
-  "llm-bridge",
-  "mcp-bridge",
-  "mcp-runtime",
-  "memory",
-  "migration",
-  "process",
-  "rewind",
-  "router",
-  "run",
-  "run-feed",
-  "safety-runtime",
-  "sse",
-  "timeline-bridge",
-  "tool",
-  "tool-executor",
-  "tools-bridge",
-  "ui-schema",
-  "worker-pool",
-] as const;
-
 /**
  * Configure the web-server debug system. Called once at startup (when
  * debug is enabled — e.g. via an env flag or a future settings toggle).
@@ -232,10 +184,10 @@ const DEFAULT_WEB_DEBUG_CATEGORIES = [
  *     door does not have to know about it.
  *
  * `baseConfig` overrides the canonical defaults (`DEBUG_CONFIG_DEFAULTS`);
- * when omitted, the defaults are used with `enabled: true` so a plain
- * `configureWebDebug` call turns debug on. When `baseConfig.categories` is
- * omitted, the default web-server module allow-list is used (the backend's
- * empty-array default would block all emission).
+ * when omitted, the defaults are used with `enabled: true`. `categories` has
+ * no bridge-owned default any more: the resolved config document's
+ * `debug.categories` is the one allow-list, and omitting it is a typed
+ * refusal (`debug_categories_undeclared`) rather than a silent fallback.
  *
  * SINKS: omitting the argument installs the console sink — the documented
  * contract ("when called, attaches a console sink so debug output is
@@ -250,6 +202,8 @@ const DEFAULT_WEB_DEBUG_CATEGORIES = [
  * @returns the PARSED config actually installed.
  * @throws {ConfigError} (`debug_redaction_required`) when the policy would
  *   disable redaction (deny by default).
+ * @throws {ConfigError} (`debug_categories_undeclared`) when `categories` is
+ *   omitted — the config document's `debug.categories` is the one owner.
  * @throws {ZodError} when any field fails the canonical schema.
  */
 export function configureWebDebug(
@@ -260,7 +214,7 @@ export function configureWebDebug(
     ...DEBUG_CONFIG_DEFAULTS,
     ...baseConfig,
     enabled: baseConfig?.enabled !== false,
-    categories: baseConfig?.categories ?? [...DEFAULT_WEB_DEBUG_CATEGORIES],
+    categories: baseConfig?.categories,
     redaction: { ...DEBUG_CONFIG_DEFAULTS.redaction, ...baseConfig?.redaction },
   };
 
@@ -273,6 +227,24 @@ export function configureWebDebug(
       "configureWebDebug: refusing a debug policy with redaction.enabled=false — " +
       "the web debug bridge may not disable credential redaction (deny by default).",
       "debug_redaction_required",
+    );
+  }
+
+  // THE CONFIG DOCUMENT OWNS THE CATEGORY ALLOW-LIST. This bridge used to
+  // ship its own 34-name copy, the config file carried a second copy, and the
+  // guard census derived a third set by regexing this file's prose (which
+  // included `warn`, a level). An OMITTED list now refuses instead of falling
+  // back to a bridge-owned default: the boot passes the section the document
+  // resolved, so the one list that exists is the one an operator can read and
+  // edit. An EXPLICIT `categories: []` is a declared decision (emit no debug
+  // category) and is honoured; only the silent fallback is refused. Warn and
+  // error remain reported either way (UD-LOG-NEVER-DISABLED).
+  if (baseConfig?.categories === undefined) {
+    throw new ConfigError(
+      "configureWebDebug: refusing to invent a debug category allow-list — " +
+      "the resolved config document's debug.categories is the single owner; pass it explicitly (" +
+      'the boot resolves the section, and an explicit `categories: []` declares "no debug categories").',
+      "debug_categories_undeclared",
     );
   }
 

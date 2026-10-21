@@ -59,6 +59,7 @@ import {
   resetWebDebug,
   getWebDebugSignals,
   isWebDebugEnabled,
+  webDebugLog,
   webWarn,
   webHandleError,
 } from "../../server/observability/debug-bridge.ts";
@@ -453,20 +454,35 @@ describe("context injection chain is fully wired (via the context owner)", () =>
 // — Centralized debug/error system (zero overhead + no swallow)
 // ════════════════════════════════════════════════════════════════════════
 
-describe("centralized debug system — zero overhead when off", () => {
+describe("centralized debug system — warn/error never suppressed, debug lazy", () => {
   beforeEach(() => { resetWebDebug(); });
   afterEach(() => { resetWebDebug(); });
 
-  test("before configureWebDebug: webWarn + webHandleError are no-ops (zero signals, zero thunk evaluation)", () => {
-    expect(isWebDebugEnabled()).toBe(false); // zero-overhead default
+  test("before configureWebDebug: warn/error are reported; debug/info stay lazy", () => {
+    expect(isWebDebugEnabled()).toBe(false);
     const before = getWebDebugSignals();
     let thunkCalled = false;
-    webWarn("test", "should be a no-op", () => { thunkCalled = true; return {}; });
-    webHandleError(new Error("no-op"), { module: "test", operation: "noop" });
+    let infoThunkCalled = false;
+    const original = process.stderr.write.bind(process.stderr);
+    let captured = "";
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      captured += chunk.toString();
+      return true;
+    }) as never;
+    try {
+      webWarn("test", "WITNESS-LG warn with no config", () => { thunkCalled = true; return {}; });
+      webHandleError(new Error("WITNESS-LG error with no config"), { module: "test", operation: "noop" });
+      webDebugLog("test", "info", "debug stays lazy", () => { infoThunkCalled = true; return {}; });
+    } finally {
+      process.stderr.write = original as never;
+    }
     const after = getWebDebugSignals();
-    expect(thunkCalled).toBe(false); // zero overhead — thunk NOT evaluated
-    expect(after.errorCount).toBe(before.errorCount);
-    expect(after.warnCount).toBe(before.warnCount);
+    expect(thunkCalled, "a reported warning evaluates its context").toBe(true);
+    expect(infoThunkCalled, "the optional level remains zero-overhead").toBe(false);
+    expect(captured).toContain("WITNESS-LG warn with no config");
+    expect(captured).toContain("WITNESS-LG error with no config");
+    expect(after.errorCount).toBe(before.errorCount + 1);
+    expect(after.warnCount).toBe(before.warnCount + 1);
   });
 
   test("after configureWebDebug: webWarn evaluates the thunk + increments the warn signal", () => {
@@ -517,7 +533,7 @@ describe("centralized debug system — zero overhead when off", () => {
   test("configureWebDebug PARSES instead of casting: an invalid level is a ZodError naming the field, nothing installed", () => {
     let thrown: unknown;
     try {
-      configureWebDebug({ level: "NOT-A-LEVEL" as never });
+      configureWebDebug({ enabled: true, categories: ["test"], level: "NOT-A-LEVEL" as never });
     } catch (err) {
       thrown = err;
     }
@@ -529,7 +545,7 @@ describe("centralized debug system — zero overhead when off", () => {
   test("configureWebDebug refuses an unknown top-level key (strictObject) — a smuggled field is an error, not a passenger", () => {
     let thrown: unknown;
     try {
-      configureWebDebug({ forbiddenPatterns: ["smuggled"] } as never);
+      configureWebDebug({ enabled: true, categories: ["test"], forbiddenPatterns: ["smuggled"] } as never);
     } catch (err) {
       thrown = err;
     }

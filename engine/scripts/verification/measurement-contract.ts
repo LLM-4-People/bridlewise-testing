@@ -340,6 +340,88 @@ function checkLoad(
 }
 
 /**
+ * ZERO-FOR-ABSENT CAN HIDE ONE REFERENCE DEEP.
+ *
+ * `checkAbsence` reads the producer body, which catches a zero written in the
+ * returned literal — but not a module-scope constant that the absent branch
+ * returns: `const ZERO_READING = { load1: 0, … }; … return { …, perCpu:
+ * ZERO_READING }`. The body then carries no zero vocabulary at all, and the
+ * absent reading becomes a measurement of an idle machine. Resolve the
+ * module-scope constants the producer RETURNS and apply the same vocabulary
+ * to the initializer that defines them.
+ *
+ * Only module scope is read: a local `const` is inside the body already. A
+ * const that is not returned by any `return` expression is not this clause's
+ * subject (it may be an unrelated table).
+ */
+function moduleConstInitializer(moduleCode: string, name: string): string | null {
+  const declaration = new RegExp(`^(?:export\\s+)?const\\s+${escapeRegExp(name)}\\b`, "mu").exec(moduleCode);
+  if (declaration === null) return null;
+  const equals = moduleCode.indexOf("=", declaration.index + declaration[0].length);
+  if (equals < 0) return null;
+  const start = equals + 1;
+  let depth = 0;
+  for (let index = start; index < moduleCode.length; index += 1) {
+    const ch = moduleCode[index]!;
+    if (ch === "{" || ch === "[" || ch === "(") depth += 1;
+    else if (ch === "}" || ch === "]" || ch === ")") {
+      if (depth > 0) depth -= 1;
+    } else if ((ch === ";" || ch === "\n") && depth === 0) {
+      return moduleCode.slice(start, index);
+    }
+  }
+  return moduleCode.slice(start);
+}
+
+/** The expression of every `return` in a body, bounded by its statement end. */
+function returnedExpressions(body: string): readonly string[] {
+  const expressions: string[] = [];
+  for (const match of body.matchAll(/\breturn\b/gu)) {
+    const start = match.index + match[0].length;
+    let depth = 0;
+    let index = start;
+    for (; index < body.length; index += 1) {
+      const ch = body[index]!;
+      if (ch === "{" || ch === "[" || ch === "(") depth += 1;
+      else if (ch === "}" || ch === "]" || ch === ")") {
+        if (depth > 0) depth -= 1;
+      } else if ((ch === ";" || ch === "\n") && depth === 0) break;
+    }
+    expressions.push(body.slice(start, index));
+  }
+  return expressions;
+}
+
+/**
+ * The zero vocabulary for an initializer: a zero-valued field
+ * (`{ load1: 0, … }`), a zero array entry, or a bare zero. `0.5` is a
+ * measurement, not a zero.
+ */
+const ZERO_INITIALIZER = /^\s*-?0(?:\.0+)?\s*$|[{,\[]\s*(?:[A-Za-z_$][\w$]*\s*:\s*)?0(?![\d.])/u;
+
+function returnedModuleConstZero(moduleCode: string, body: string): string | null {
+  const returns = returnedExpressions(body);
+  for (const declaration of moduleCode.matchAll(/^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\b/gmu)) {
+    const name = declaration[1]!;
+    // A local binding of the same name shadows the module constant; the body
+    // owns that value and this resolver must not claim it.
+    if (new RegExp(`\\b(?:const|let|var)\\s+${escapeRegExp(name)}\\b`, "u").test(body)) continue;
+    // The constant has to BE the returned value — `field: NAME` or
+    // `return NAME`. `tokenAccumulator.input` reads a field OF a returned
+    // accumulator and is not this clause's subject; the accumulator's zero
+    // initialization is an object's initial state, not an absent reading.
+    const returnedAsValue = new RegExp(
+      `(?:\\breturn\\s+|[{,]\\s*[A-Za-z_$][\\w$]*\\s*:\\s*)${escapeRegExp(name)}\\b(?!\\s*[.[(])`,
+      "u",
+    );
+    if (!returns.some((expression) => returnedAsValue.test(expression))) continue;
+    const initializer = moduleConstInitializer(moduleCode, name);
+    if (initializer !== null && ZERO_INITIALIZER.test(initializer)) return name;
+  }
+  return null;
+}
+
+/**
  * ZERO FOR ABSENT, ACROSS THE WHOLE PRODUCER BODY.
  *
  * The check used to read a 240-byte window before and 360 bytes after the
@@ -359,6 +441,7 @@ function checkAbsence(
   entry: MetricEntry,
   body: string,
   bodyWithStrings: string,
+  moduleCode: string,
   fail: (code: string, message: string) => void,
 ): void {
   // A `?? 0` used only as a COUNT precondition (e.g. `totalCalls ?? 0) > 0`)
@@ -368,8 +451,16 @@ function checkAbsence(
     /(?:\?\?|\|\|)\s*0\b(?!\s*\)?\s*[<>=!])|return\s+0\s*;|[{,]\s*[A-Za-z_$][\w$]*\s*:\s*0\b/u
       .test(body);
   const declaredFloor = entry.zero.kind === "floor";
-  if (zeroFallback && !declaredFloor) {
-    fail("zero-as-absent", "the producer carries a zero fallback or zero-valued measurement field; unreadable must be null, a refusal or the declared sentinel");
+  // An `honest` zero is a MEASURED zero (the entry says so); only a zero
+  // standing in for an absent reading is refused.
+  const zeroConstant = entry.zero.kind === "honest" ? null : returnedModuleConstZero(moduleCode, body);
+  if ((zeroFallback || zeroConstant !== null) && !declaredFloor) {
+    fail(
+      "zero-as-absent",
+      zeroConstant === null
+        ? "the producer carries a zero fallback or zero-valued measurement field; unreadable must be null, a refusal or the declared sentinel"
+        : `the producer returns module constant ${zeroConstant} from an absent branch and its initializer carries a zero; unreadable must be null, a refusal or the declared sentinel`,
+    );
   }
   if (declaredFloor) {
     const floor = entry.zero.kind === "floor" ? entry.zero.value : 1;
@@ -460,13 +551,22 @@ function checkProducer(
   world: MeasurementWorld,
   fail: (code: string, message: string) => void,
 ): number {
+  // THE COUNT IS "CLEAN", NOT "VISITED". This returned 1 unconditionally, so
+  // `checked.registeredProducers` counted a producer whose every clause had
+  // failed; the liveness assertion could not tell a passing registry from one
+  // that merely named the entries. Any refusal below clears `clean`.
+  let clean = true;
+  const refuse = (code: string, message: string): void => {
+    clean = false;
+    fail(code, message);
+  };
   const moduleText = world.sources.get(entry.producer.module);
   if (moduleText === undefined) {
-    fail("producer-missing", `producer module ${entry.producer.module} is not in the declared source universe`);
+    refuse("producer-missing", `producer module ${entry.producer.module} is not in the declared source universe`);
     return 0;
   }
   if (!exportsSymbol(moduleText, entry.producer.symbol)) {
-    fail("producer-not-exported", `${entry.producer.module} does not export ${entry.producer.symbol}`);
+    refuse("producer-not-exported", `${entry.producer.module} does not export ${entry.producer.symbol}`);
     return 0;
   }
   let rawBody: string;
@@ -476,7 +576,7 @@ function checkProducer(
     rawBody = scope.body;
     bodyOffset = scope.offset;
   } catch (error) {
-    fail(
+    refuse(
       "producer-body-unreadable",
       `cannot extract the body of ${entry.producer.symbol}: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -497,10 +597,13 @@ function checkProducer(
     pattern.includes('"') || pattern.includes("'") ? bodyWords : codeBody;
   for (const forbidden of entry.producer.forbids) {
     if (codeBody.includes(forbidden)) {
-      fail("forbidden-quantity", `the producer reads ${JSON.stringify(forbidden)} — a different quantity than the entry declares`);
+      refuse("forbidden-quantity", `the producer reads ${JSON.stringify(forbidden)} — a different quantity than the entry declares`);
     }
   }
-  checkAbsence(entry, codeBody, bodyWords, fail);
+  // Absence and floor clauses are producer clauses too: their refusal must
+  // clear `clean`, or a producer that only fails the zero-for-absent rule is
+  // still counted as registered.
+  checkAbsence(entry, codeBody, bodyWords, codeText(world, entry.producer.module), refuse);
   // THE BODY CLAUSE READS ONLY THE COMPUTE HALF. A `loadavg()` read is proof
   // the producer SAMPLED the fact, not that it computed the declared
   // quantity: a body that reads `loadavg()` and moves the division to a
@@ -509,7 +612,7 @@ function checkProducer(
   const declaredPatterns = [...entry.producer.compute, ...entry.producer.reads];
   const inBody = entry.producer.compute.some((pattern) => new RegExp(pattern, "u").test(bodyViewFor(pattern)));
   if (!inBody) {
-    fail(
+    refuse(
       "derivation-not-in-producer",
       `none of the declared COMPUTE patterns occurs in ${entry.producer.symbol}'s body, so the named producer does not compute the declared quantity`,
     );
@@ -517,7 +620,7 @@ function checkProducer(
   const moduleView = commentsOnlyText(world, entry.producer.module);
   const inModule = declaredPatterns.some((pattern) => new RegExp(pattern, "u").test(moduleView));
   if (!inModule) {
-    fail(
+    refuse(
       "derivation-not-found",
       `none of the declared derivations occurs in ${entry.producer.module}; the entry names a producer that does not compute this quantity`,
     );
@@ -538,10 +641,10 @@ function checkProducer(
       }
     }
     if (duplicates.length > 0) {
-      fail("duplicate-derivation", `the same quantity is derived outside ${entry.producer.module}: ${duplicates.sort().join(", ")}`);
+      refuse("duplicate-derivation", `the same quantity is derived outside ${entry.producer.module}: ${duplicates.sort().join(", ")}`);
     }
   }
-  return 1;
+  return clean ? 1 : 0;
 }
 
 function checkConsumers(

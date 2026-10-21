@@ -133,6 +133,38 @@ test("the green rule refuses absent, fractional and string test totals and passe
   }
 });
 
+test("the green rule refuses every non-number a truthiness coercion would turn into zero", () => {
+  // `declared()` rejected only undefined/null and then called `Number(value)`.
+  // `false`, `""`, `"0"` and `[]` therefore all became 0 and merged green: a
+  // report could declare `numFailedTestSuites: false` and the merge would
+  // record a suite that never said it had no failing suite. The rule now
+  // requires `typeof value === "number"` BEFORE the integer check.
+  const base = {
+    success: true,
+    numTotalTests: 2,
+    numPassedTests: 2,
+    numFailedTests: 0,
+    numFailedTestSuites: 0,
+    numPendingTests: 0,
+    numTodoTests: 0,
+  };
+  const fields = ["numFailedTests", "numFailedTestSuites", "numPendingTests", "numTodoTests", "numTotalTests", "numPassedTests"];
+  const coercions = [["false", false], ["empty string", ""], ["numeric string", "0"], ["empty array", []]];
+  for (const field of fields) {
+    for (const [shape, value] of coercions) {
+      assert.throws(
+        () => requireGreenReport({ ...base, [field]: value }, `${field}=${shape}`),
+        (error) => {
+          assert.match(error.message, new RegExp(field, "u"));
+          assert.match(error.message, /is not a declared non-negative integer/u, `${field}=${shape} must name the number requirement`);
+          return true;
+        },
+        `${field}=${shape} must not coerce to 0`,
+      );
+    }
+  }
+});
+
 test("a zero weight is refused by the owner, not read as a measured weight", () => {
   // The self-check above audits the tracked manifest; this arm drives the
   // owner's own floor so the two cannot drift apart again.

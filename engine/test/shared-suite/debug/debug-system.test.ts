@@ -78,6 +78,36 @@ test("debug-system: debugLog is zero-overhead when category not in allow-list (c
   resetDebugSystem();
 });
 
+test("debug-system: warn and error are reported with NO configuration (UD-LOG-NEVER-DISABLED)", () => {
+  resetDebugSystem();
+  const original = process.stderr.write.bind(process.stderr);
+  let captured = "";
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    captured += chunk.toString();
+    return true;
+  }) as never;
+  try {
+    debugLog("lg", "warn", "LG-WARN no configuration");
+    debugLog("lg", "error", "LG-ERROR no configuration");
+  } finally {
+    process.stderr.write = original as never;
+  }
+  assert.match(captured, /LG-WARN no configuration/u);
+  assert.match(captured, /LG-ERROR no configuration/u);
+  assert.equal(getDebugSignals().warnCount, 1);
+  assert.equal(getDebugSignals().errorCount, 1);
+  resetDebugSystem();
+});
+
+test("debug-system: a configured system with the master switch off still delivers warn and error to its sink", () => {
+  const sink = createCollectingSink();
+  configureDebugSystem(testConfig({ enabled: false, level: "error", categories: ["other"] }), [sink]);
+  debugLog("lg", "warn", "LG-WARN disabled");
+  debugLog("lg", "error", "LG-ERROR disabled");
+  assert.deepEqual(sink.events.map((event) => event.level), ["warn", "error"]);
+  resetDebugSystem();
+});
+
 test("debug-system: debugLog emits when enabled + level + category match", () => {
   const sink = setup();
   debugLog("test", "info", "hello", () => ({ key: "value" }));
@@ -651,9 +681,11 @@ test("debug-system: redaction redacts nested objects and arrays", () => {
   resetDebugSystem();
 });
 
-test("debug-system: wouldEmit returns false when disabled", () => {
+test("debug-system: wouldEmit returns false for debug when disabled, and true for warn/error", () => {
   configureDebugSystem(testConfig({ enabled: false }), [createCollectingSink()]);
   assert.equal(wouldEmit("test", "debug"), false);
+  assert.equal(wouldEmit("test", "warn"), true, "warn is never suppressed");
+  assert.equal(wouldEmit("test", "error"), true, "error is never suppressed");
   resetDebugSystem();
 });
 
