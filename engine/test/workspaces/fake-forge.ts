@@ -49,7 +49,7 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
     calls.push(deepFreeze({ op, request }));
   };
   const view = (pull: FakePull): ForgePullRequest => deepFreeze({
-    number: pull.number, url: `https://forge.test/pull/${String(pull.number)}`, headSha: headOf(pull.head) ?? "", draft: pull.draft,
+    number: pull.number, url: `https://forge.test/pull/${String(pull.number)}`, headSha: headOf(pull.head) ?? "", base: pull.base, draft: pull.draft,
     state: pull.state, merged: pull.merged, mergeCommitSha: pull.mergeCommitSha,
   });
   const requirePull = (number: number): FakePull => {
@@ -87,10 +87,11 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
       record("branchHead", { branch });
       return headOf(branch);
     },
-    async setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null }>): Promise<void> {
+    async setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null }>): Promise<Readonly<{ applied: boolean }>> {
       record("setBranch", request);
-      if (request.previous === null && headOf(request.branch) !== null) throw new HarnessError(`reference refs/heads/${request.branch} already exists`, "forge_validation_failed");
-      git(["update-ref", `refs/heads/${request.branch}`, request.sha]);
+      // A compare-and-swap, as GraphQL `updateRefs` with `beforeOid` (and a create only while absent): git's own.
+      const swapped = gitOutput(repository, ["update-ref", `refs/heads/${request.branch}`, request.sha, request.previous ?? "0".repeat(40)], { allowed: [0, 1, 128] });
+      return deepFreeze({ applied: swapped.status === 0 });
     },
     async findPullRequest(branch: string): Promise<ForgePullRequest | null> {
       record("findPullRequest", { branch });
@@ -116,6 +117,10 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
     async markReadyForReview(number: number): Promise<void> {
       record("markReadyForReview", { number });
       requirePull(number).draft = false;
+    },
+    async convertToDraft(number: number): Promise<void> {
+      record("convertToDraft", { number });
+      requirePull(number).draft = true;
     },
     async closePullRequest(number: number, comment: string): Promise<void> {
       record("closePullRequest", { number, comment });

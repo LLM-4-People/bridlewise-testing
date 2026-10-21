@@ -4141,6 +4141,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workspaces/workspace-migration.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workspaces/workspace-overlay.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4197,5 +4205,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "fe6712be34a7b847b94afa27e8807418a1b42ba20799398518d0cdbca8f9b1b2"
+  "integrityHash": "73b2a9070e94886a42200bf169557ef9c8944cd9b229d83187414b1a78875acd"
 }

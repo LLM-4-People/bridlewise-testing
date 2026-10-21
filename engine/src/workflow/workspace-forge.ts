@@ -5,10 +5,13 @@
  * THE PORT ({@link WorkspaceForge}) is the narrow, semantic surface the
  * workspace manager consumes: the Git Data API (blobs, trees, commits, the
  * branch ref), the pull request (open as a draft, regenerate its body, mark it
- * ready, close it) and the land (the async merge request). It is STRUCTURAL:
- * the forge port's GitHub adapter (`engine/src/workflow/forge/`, on the ONE
- * outbound HTTP door, App tokens minted through the broker) satisfies it, and
- * tests drive a fake backed by a real bare repository. A request type carries
+ * ready, return it to draft, close it). It is STRUCTURAL. Its GitHub
+ * implementation is THIS lane's (GH-3) typed operations written on the forge
+ * port's client (`engine/src/workflow/forge/`, PR #52: the one REST/GraphQL
+ * client on the ONE outbound HTTP door, App tokens minted through the
+ * broker); until it is wired, the CLI gives the manager no forge and every
+ * forge verb refuses `workspace_forge_unavailable`. Tests drive a fake backed
+ * by a real bare repository. A request type carries
  * no author, committer or signature field at all, so an API commit made
  * through this port is GitHub's to sign (web-flow, "Verified") by
  * construction, never by a caller's discipline.
@@ -19,8 +22,13 @@
  * and the trunk branch the pull request is opened against. A target with no
  * upstream can never land, so `create` refuses it (`workspace_target_untracked`).
  *
- * THE PUBLISHER ({@link publishBranch}): each new local commit of the
- * workspace's branch is re-made on the forge through the Git Data API, in
+ * THE PUBLISHER ({@link publishBranch}): the forge branch must be where this
+ * workspace last left it (`expectedHead`: the head its last round published,
+ * or absent before the first) — anything else is another writer's work and
+ * is never overwritten (`branch_moved_by_another_writer`), with ONE exception,
+ * a crashed round: a forge head whose commits are, one for one, twins of the
+ * local commits (the same trees) is adopted. Then each new local commit of
+ * the workspace's branch is re-made on the forge through the Git Data API, in
  * topological order:
  *   1. `createBlob` for each blob the commit's tree diff (against its first
  *      parent) adds or changes, once per round — the answered id must be the
@@ -31,8 +39,10 @@
  *      naming the local author, git's own trailer rules) and the parents
  *      mapped to their published twins — the answer must be verified
  *      (`workspace_publish_unverified`: V-6);
- *   4. the branch ref set to the last twin (created, or moved — the agent's
- *      own branch is its to rewrite after a rebase);
+ *   4. the branch ref set to the last twin by COMPARE-AND-SWAP from the
+ *      expected head (created only while absent; moved only from where this
+ *      workspace left it — an agent's rebase moves its own branch, never
+ *      another writer's commits), then read back;
  *   5. the twin fetched back and the LOCAL branch moved to it by
  *      compare-and-swap: the twin holds the same tree, so the worktree, its
  *      index and every tree-keyed reuse are untouched, and the next round
@@ -40,18 +50,22 @@
  *      checkout's index.
  * Every refusal is typed; nothing is retried here, and a half-published round
  * is simply re-published (the objects are content-addressed, the ref is set
- * last).
+ * last). The tree delta is read through the one raw-diff reader
+ * (`treeDiff`, src/git/tree-reader.ts).
  */
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
-import { gitOutput, type GitRepository } from "../git/tree-reader.ts";
+import { gitOutput, treeDiff, type GitRepository } from "../git/tree-reader.ts";
 import type { WorktreeGitPort } from "../git/worktree-port.ts";
+import { remoteTrackingRef } from "../git/git-port.ts";
 
 /** A pull request as the workspace reads it. */
 export type ForgePullRequest = Readonly<{
   number: number;
   url: string;
   headSha: string;
+  /** The branch it is opened against. */
+  base: string;
   draft: boolean;
   state: "open" | "closed";
   merged: boolean;
@@ -78,16 +92,24 @@ export type WorkspaceForge = Readonly<{
   createCommit(request: Readonly<{ message: string; tree: string; parents: readonly string[] }>): Promise<ForgeCommit>;
   /** The branch's head on the forge, or null when it does not exist. */
   branchHead(branch: string): Promise<string | null>;
-  /** Creates the branch (`previous: null`) or moves it, forced, from `previous` to `sha`. */
-  setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null }>): Promise<void>;
+  /**
+   * A COMPARE-AND-SWAP of the branch: created at `sha` only while absent
+   * (`previous: null`: `POST /git/refs`), else moved to `sha` only while it is
+   * at `previous` (GraphQL `updateRefs` with `beforeOid` — REST `PATCH
+   * /git/refs` has no compare-and-swap and is never used). Answers whether it
+   * applied; a branch found elsewhere is `applied: false`, never an overwrite.
+   */
+  setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null }>): Promise<Readonly<{ applied: boolean }>>;
   /** The open pull request whose head is `branch`, or null. */
   findPullRequest(branch: string): Promise<ForgePullRequest | null>;
   /** Opens a DRAFT pull request `head` → `base`. */
   openDraftPullRequest(request: Readonly<{ head: string; base: string; title: string; body: string }>): Promise<ForgePullRequest>;
   /** Regenerates the pull request's title and body. */
   updatePullRequest(number: number, request: Readonly<{ title: string; body: string }>): Promise<void>;
-  /** Marks a draft ready for review. */
+  /** Marks a draft ready for review (GraphQL `markPullRequestReadyForReview`). */
   markReadyForReview(number: number): Promise<void>;
+  /** Returns a ready pull request to draft (GraphQL `convertPullRequestToDraft`). */
+  convertToDraft(number: number): Promise<void>;
   /** Closes the pull request with `comment` (the branch is kept). */
   closePullRequest(number: number, comment: string): Promise<void>;
   /** The pull request as it is now. */
@@ -107,11 +129,6 @@ export type ForgeTarget = Readonly<{
 /** Builds the forge client of a target (the composition root's choice: the GitHub adapter, or a test's fake). */
 export type WorkspaceForgeFactory = (target: ForgeTarget) => WorkspaceForge;
 
-/** The remote-tracking ref a forge branch is fetched into (the port's fetch writes only these). */
-export function trackingRef(remote: string, branch: string): string {
-  return `refs/remotes/${remote}/${branch}`;
-}
-
 function configValue(repository: GitRepository, key: string): string | null {
   const answered = gitOutput(repository, ["config", "--get", key], { allowed: [0, 1] });
   return answered.status === 0 ? answered.stdout.toString("utf8").trim() : null;
@@ -130,12 +147,15 @@ export function resolveForgeTarget(repository: GitRepository, targetBranch: stri
       "workspace_target_untracked",
     );
   }
+  return deepFreeze({ remote, remoteUrl: remoteUrlOf(repository, remote), trunk: merge.slice("refs/heads/".length) });
+}
+
+/** The URL of the configured remote `remote` as git resolves it, or `workspace_target_untracked`. */
+export function remoteUrlOf(repository: GitRepository, remote: string): string {
   const url = gitOutput(repository, ["remote", "get-url", remote], { allowed: [0, 2, 128] });
   const remoteUrl = url.stdout.toString("utf8").trim().split("\n")[0] ?? "";
-  if (url.status !== 0 || remoteUrl === "") {
-    throw new InputError(`${targetBranch}'s upstream remote ${remote} is not configured`, "workspace_target_untracked");
-  }
-  return deepFreeze({ remote, remoteUrl, trunk: merge.slice("refs/heads/".length) });
+  if (url.status !== 0 || remoteUrl === "") throw new InputError(`the remote ${remote} is not configured`, "workspace_target_untracked");
+  return remoteUrl;
 }
 
 /** One local commit as the publisher re-makes it. */
@@ -160,6 +180,8 @@ export type PublishRequest = Readonly<{
   target: ForgeTarget;
   /** The workspace's branch (local and on the forge: the same name). */
   branch: string;
+  /** Where this workspace last left the forge branch (its last round's head), or null before its first round. */
+  expectedHead: string | null;
   fetchMs: number;
 }>;
 
@@ -171,10 +193,10 @@ function text(repository: GitRepository, argv: readonly string[]): string {
   return gitOutput(repository, argv).stdout.toString("utf8");
 }
 
-/** Fetches `branches` of the target's remote into their tracking refs, or refuses typed. */
-export function fetchForgeBranches(git: WorktreeGitPort, root: string, target: ForgeTarget, branches: readonly string[], timeoutMs: number): void {
-  const fetched = git.fetchRefs(root, target.remote, branches.map((branch) => `+refs/heads/${branch}:${trackingRef(target.remote, branch)}`), timeoutMs);
-  if (fetched.refusal !== null) fail("workspace_forge_fetch_refused", `fetching ${branches.join(", ")} from ${target.remote} was refused: ${fetched.refusal}`, { remote: target.remote });
+/** Fetches `branches` of `remote` into their tracking refs, or refuses typed. */
+export function fetchForgeBranches(git: WorktreeGitPort, root: string, remote: string, branches: readonly string[], timeoutMs: number): void {
+  const fetched = git.fetchRefs(root, remote, branches.map((branch) => `+refs/heads/${branch}:${remoteTrackingRef(remote, branch)}`), timeoutMs);
+  if (fetched.refusal !== null) fail("workspace_forge_fetch_refused", `fetching ${branches.join(", ")} from ${remote} was refused: ${fetched.refusal}`, { remote });
 }
 
 /** A commit object's tree, parents, author and message (UTF-8 only: a re-encoded message would be another commit's). */
@@ -198,57 +220,70 @@ function twinMessage(repository: GitRepository, commit: LocalCommit): string {
   return gitOutput(repository, ["interpret-trailers", "--if-exists", "addIfDifferent", "--trailer", `Co-authored-by: ${commit.author}`], { input: Buffer.from(commit.message, "utf8") }).stdout.toString("utf8");
 }
 
-/** The entries `commit`'s tree changes against its first parent's (recursive, no renames): each file's new mode and id, or its deletion. */
+/**
+ * The entries `commit`'s tree changes against its first parent's (the one
+ * raw-diff reader, `treeDiff`: recursive, no renames, each path checked
+ * UTF-8): each file's new mode and id, or its deletion (sent with the mode it
+ * had: a link's or a gitlink's deletion is a link's or a gitlink's).
+ */
 function treeDelta(repository: GitRepository, parent: string, commit: string): readonly ForgeTreeEntry[] {
-  const raw = gitOutput(repository, ["diff-tree", "-r", "-z", "--no-renames", "--no-abbrev", "--raw", parent, commit]).stdout;
-  // `:<src mode> <dst mode> <src id> <dst id> <status>\0<path>\0`, the path's bytes as git keeps them.
-  const fields: Buffer[] = [];
-  for (let start = 0, end = raw.indexOf(0); end !== -1; start = end + 1, end = raw.indexOf(0, start)) fields.push(raw.subarray(start, end));
-  const entries: ForgeTreeEntry[] = [];
-  for (let index = 0; index + 1 < fields.length; index += 2) {
-    const header = fields[index]!.toString("utf8");
-    const path = fields[index + 1]!.toString("utf8");
-    if (!header.startsWith(":")) continue;
-    const [, dstMode, , dstSha, status] = header.slice(1).split(" ");
-    if (!Buffer.from(path, "utf8").equals(fields[index + 1]!)) {
-      fail("workspace_publish_path_not_utf8", `commit ${commit} holds a path that is not UTF-8 (${fields[index + 1]!.toString("hex")}): rename it on the branch`, { commit });
-    }
-    if (status === "D") {
-      entries.push(deepFreeze({ path, mode: "100644", sha: null }));
-      continue;
-    }
-    if (dstMode !== "100644" && dstMode !== "100755" && dstMode !== "120000" && dstMode !== "160000") {
-      fail("workspace_publish_mode", `commit ${commit} records ${path} with the mode ${String(dstMode)}, which a forge tree cannot hold`, { commit });
-    }
-    entries.push(deepFreeze({ path, mode: dstMode, sha: dstSha! }));
-  }
-  return deepFreeze(entries);
+  const forgeMode = (mode: string, path: string): ForgeTreeEntry["mode"] => {
+    if (mode === "100644" || mode === "100755" || mode === "120000" || mode === "160000") return mode;
+    return fail("workspace_publish_mode", `commit ${commit} records ${path} with the mode ${mode}, which a forge tree cannot hold`, { commit });
+  };
+  return deepFreeze(treeDiff(repository, parent, commit).map((entry) => (entry.status === "D"
+    ? deepFreeze({ path: entry.path, mode: forgeMode(entry.srcMode, entry.path), sha: null })
+    : deepFreeze({ path: entry.path, mode: forgeMode(entry.dstMode, entry.path), sha: entry.dstOid }))));
+}
+
+/** The commits of `head` beyond `excluded`, oldest first. */
+function commitsBeyond(repository: GitRepository, head: string, excluded: readonly string[]): readonly string[] {
+  return text(repository, ["rev-list", "--reverse", "--topo-order", head, "--not", ...excluded]).split("\n").filter((line) => line.length > 0);
+}
+
+/**
+ * Whether the forge head `remoteHead` is a crashed round of THIS workspace:
+ * its commits beyond `excluded` (the trunk and the expected head) are, one
+ * for one in order, twins of the local ones — each the same tree.
+ */
+function isTwinOfLocal(repository: GitRepository, remoteHead: string, head: string, excluded: readonly string[]): boolean {
+  const remote = commitsBeyond(repository, remoteHead, excluded);
+  const local = commitsBeyond(repository, head, excluded);
+  const treeOf = (commit: string): string => text(repository, ["rev-parse", `${commit}^{tree}`]).trim();
+  return remote.length > 0 && remote.length === local.length && remote.every((commit, index) => treeOf(commit) === treeOf(local[index]!));
 }
 
 /**
  * Publishes the workspace branch's new commits as signed twins (see the
  * header) and answers the round. A branch with no commit beyond the trunk is
  * refused (`workspace_publish_empty`: the forge opens no pull request without
- * one); a forge branch that holds commits the local branch does not (someone
- * else pushed to it) is never rewound (`workspace_publish_remote_ahead`).
+ * one); a forge branch anywhere but where this workspace left it is another
+ * writer's and is never overwritten (`branch_moved_by_another_writer`), save
+ * a crashed round's twins, which are adopted.
  */
 export async function publishBranch(request: PublishRequest): Promise<PublishedRound> {
-  const { forge, repository, git, target, branch } = request;
+  const { forge, repository, git, target, branch, expectedHead } = request;
   const root = repository.root;
+  const moved = (current: string | null): never => fail("branch_moved_by_another_writer",
+    `${branch} on ${target.remote} is at ${current ?? "(absent)"}, not where this workspace left it (${expectedHead ?? "absent"}): another writer pushed to it, and its work is never overwritten — integrate it locally (fetch and rebase onto it), or take the pull request over by hand`,
+    { branch, current: current ?? "", expected: expectedHead ?? "" });
   const remoteHead = await forge.branchHead(branch);
-  fetchForgeBranches(git, root, target, remoteHead === null ? [target.trunk] : [target.trunk, branch], request.fetchMs);
-  const trunkRef = trackingRef(target.remote, target.trunk);
-  if (remoteHead !== null && git.revParse(root, trackingRef(target.remote, branch), request.fetchMs) !== remoteHead) {
+  fetchForgeBranches(git, root, target.remote, remoteHead === null ? [target.trunk] : [target.trunk, branch], request.fetchMs);
+  const trunkRef = remoteTrackingRef(target.remote, target.trunk);
+  if (remoteHead !== null && git.revParse(root, remoteTrackingRef(target.remote, branch), request.fetchMs) !== remoteHead) {
     fail("workspace_publish_remote_moved", `${branch} moved on ${target.remote} while it was read: publish again`, { branch });
   }
   const head = git.revParse(root, "HEAD", request.fetchMs);
   const headTree = git.revParse(root, `${head}^{tree}`, request.fetchMs);
-  if (head === remoteHead) return deepFreeze({ head, tree: headTree, commits: deepFreeze([]), blobs: 0 });
-  if (remoteHead !== null && git.isAncestor(root, head, remoteHead, request.fetchMs)) {
-    fail("workspace_publish_remote_ahead", `${branch} on ${target.remote} holds commits the workspace does not (${remoteHead}): it is never rewound — inspect who pushed to it`, { branch, remoteHead });
+  if (remoteHead !== expectedHead) {
+    if (remoteHead === null || !isTwinOfLocal(repository, remoteHead, head, [trunkRef, ...(expectedHead === null ? [] : [expectedHead])])) return moved(remoteHead);
+    // A crashed round: the forge already holds this workspace's twins. Adopt them.
+    const adopted = git.updateRef(root, `refs/heads/${branch}`, remoteHead, head, request.fetchMs);
+    if (adopted.refusal !== null) fail("workspace_publish_local_moved", `${branch} moved locally while a crashed round was adopted (${adopted.refusal})`, { branch });
+    return deepFreeze({ head: remoteHead, tree: headTree, commits: deepFreeze([]), blobs: 0 });
   }
-  const excluded = remoteHead === null ? [trunkRef] : [trunkRef, remoteHead];
-  const listed = text(repository, ["rev-list", "--reverse", "--topo-order", head, "--not", ...excluded]).split("\n").filter((line) => line.length > 0);
+  if (head === remoteHead) return deepFreeze({ head, tree: headTree, commits: deepFreeze([]), blobs: 0 });
+  const listed = commitsBeyond(repository, head, [trunkRef, ...(remoteHead === null ? [] : [remoteHead])]);
   if (listed.length === 0) {
     fail("workspace_publish_empty", `${branch} holds no commit beyond ${target.remote}/${target.trunk}: commit the round's work first`, { branch });
   }
@@ -277,14 +312,18 @@ export async function publishBranch(request: PublishRequest): Promise<PublishedR
     published.push({ local: sha, twin: made.sha });
   }
   const twinHead = twins.get(head)!;
-  await forge.setBranch({ branch, sha: twinHead, previous: remoteHead });
-  fetchForgeBranches(git, root, target, [branch], request.fetchMs);
-  if (git.revParse(root, trackingRef(target.remote, branch), request.fetchMs) !== twinHead) {
+  const set = await forge.setBranch({ branch, sha: twinHead, previous: remoteHead });
+  if (!set.applied) return moved(await forge.branchHead(branch));
+  // Read back: the forge's own answer, then the fetched ref.
+  const readBack = await forge.branchHead(branch);
+  if (readBack !== twinHead) return moved(readBack);
+  fetchForgeBranches(git, root, target.remote, [branch], request.fetchMs);
+  if (git.revParse(root, remoteTrackingRef(target.remote, branch), request.fetchMs) !== twinHead) {
     fail("workspace_publish_remote_moved", `${branch} on ${target.remote} is not the published ${twinHead} after the round: publish again`, { branch });
   }
-  const moved = git.updateRef(root, `refs/heads/${branch}`, twinHead, head, request.fetchMs);
-  if (moved.refusal !== null) {
-    fail("workspace_publish_local_moved", `${branch} was published as ${twinHead}, but the local branch moved from ${head} meanwhile (${moved.refusal}): rebase the new commits onto ${twinHead}`, { branch, twinHead });
+  const local = git.updateRef(root, `refs/heads/${branch}`, twinHead, head, request.fetchMs);
+  if (local.refusal !== null) {
+    fail("workspace_publish_local_moved", `${branch} was published as ${twinHead}, but the local branch moved from ${head} meanwhile (${local.refusal}): rebase the new commits onto ${twinHead}`, { branch, twinHead });
   }
   return deepFreeze({ head: twinHead, tree: headTree, commits: deepFreeze(published.map((entry) => deepFreeze(entry))), blobs: uploaded.size });
 }

@@ -473,7 +473,7 @@ test("an integrator that died mid-merge is recovered: before the land the worktr
   const lockDirectory = join(registryRoot(root), "locks");
   const held = await acquireLock(registryRoot(root), "workspace-merge", { lockDirectory, owner: "a live integrator" });
   await assert.rejects(() => manager.recover(before.workspaceId), throwsCode("workspace_recover_denied"));
-  assert.deepEqual(await manager.sweep(), [], "the sweep leaves a running integrator's workspace to it");
+  assert.deepEqual((await manager.sweep()).swept, [], "the sweep leaves a running integrator's workspace to it");
   held.release();
   const recovered = await manager.recover(before.workspaceId);
   assert.equal(recovered.state, "active");
@@ -482,7 +482,7 @@ test("an integrator that died mid-merge is recovered: before the land the worktr
   assert.equal(existsSync(join(root, "src/before/f.ts")), false, "nothing landed");
 
   const after = await dieMidMerge("after", true);
-  assert.deepEqual(await manager.sweep(), [after.workspaceId], "the sweep recovers a dead integrator's workspace");
+  assert.deepEqual((await manager.sweep()).swept, [after.workspaceId], "the sweep recovers a dead integrator's workspace");
   const merged = manager.status(after.workspaceId);
   assert.equal(merged.state, "merged");
   assert.equal(existsSync(after.lease.worktreePath), false);
@@ -1463,7 +1463,7 @@ test("a workspace's snapshot refs go with it at abort (A5-design L4), and stay w
   assert.equal(refsOf(kept.workspaceId).length, 2, "a quarantined workspace keeps its recovery points");
   // Its quarantine expired: the sweep removes the worktree, the branch and the recovery points (A5-correctness L2).
   const later = makeManager(root, { config, now: () => new Date(Date.now() + 2 * config.quarantineTtlMs) }).manager;
-  assert.deepEqual(await later.sweep(), [kept.workspaceId]);
+  assert.deepEqual((await later.sweep()).swept, [kept.workspaceId]);
   assert.equal(existsSync(kept.lease.worktreePath), false);
   assert.equal(rawGit(root, ["branch", "--list", kept.lease.branch!]), "", "the expired quarantine's branch is gone");
   assert.deepEqual(refsOf(kept.workspaceId), []);

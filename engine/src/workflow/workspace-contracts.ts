@@ -50,6 +50,8 @@ import { wholesaleGeneratedPaths } from "./hash-binding-registry.ts";
  */
 
 export const WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 3);
+/** The version before the forge: records of it are migrated on read ({@link migrateWorkspaceRecord}). */
+const WORKSPACE_SCHEMA_V2 = schemaId("workspace", 2);
 
 export const WORKSPACE_STATES = deepFreeze([
   "admitted",
@@ -279,6 +281,23 @@ const workspaceForgeSchema = z.strictObject({
 });
 export type WorkspaceForgeState = DeepReadonly<z.infer<typeof workspaceForgeSchema>>;
 
+/**
+ * The forge state of a feature workspace created BEFORE the forge (a migrated
+ * v2 record): it has no upstream recorded and never reaches the forge — a
+ * forge verb refuses it (`workspace_legacy_record`: abort it and create a new
+ * one); every local verb works.
+ */
+const legacyForgeSchema = z.strictObject({ legacy: z.literal(true) });
+export type LegacyForgeState = DeepReadonly<z.infer<typeof legacyForgeSchema>>;
+
+/** Whether a record's forge state is a migrated legacy one ({@link legacyForgeSchema}). */
+export function isLegacyForgeState(forge: WorkspaceForgeState | LegacyForgeState): forge is LegacyForgeState {
+  return "legacy" in forge;
+}
+
+/** A merge receipt written before the forge (v2): kept verbatim (its hash binds its own version), never re-tagged. */
+const legacyMergeReceiptSchema = mergeReceiptSchema.extend({ schemaVersion: z.literal(WORKSPACE_SCHEMA_V2) });
+
 const workspaceTransitionSchema = z.strictObject({
   from: z.enum(WORKSPACE_STATES),
   to: z.enum(WORKSPACE_STATES),
@@ -296,11 +315,11 @@ export const workspaceRecordSchema = z.strictObject({
   changedPaths: z.array(RELATIVE_PATH_SCHEMA).max(100_000),
   validationReport: validationReportSchema.nullable(),
   conflictReport: conflictReportSchema.nullable(),
-  mergeReceipt: mergeReceiptSchema.nullable(),
+  mergeReceipt: z.union([mergeReceiptSchema, legacyMergeReceiptSchema]).nullable(),
   abortReason: REASON_SCHEMA.nullable(),
   history: z.array(workspaceTransitionSchema).max(4096),
-  /** The forge state of a feature workspace; null for a read-only one (it never publishes). */
-  forge: workspaceForgeSchema.nullable(),
+  /** The forge state of a feature workspace (or its legacy marker); null for a read-only one (it never publishes). */
+  forge: z.union([workspaceForgeSchema, legacyForgeSchema]).nullable(),
   /**
    * How many times the record was saved: the store's compare-and-swap token
    * (`workspace-registry.ts`). A save of a record whose revision is not the
@@ -505,6 +524,37 @@ export function finalizeMergeReceipt(unsigned: UnsignedMergeReceipt): MergeRecei
 
 export function parseWorkspaceRecord(value: unknown): WorkspaceRecord {
   return parseClosed(workspaceRecordSchema, value, "workspace record", "workspace_record_invalid");
+}
+
+/**
+ * THE ONE MIGRATION of a stored record (the record store runs it on every
+ * read and writes a migrated record back): a v2 record (before the forge)
+ * becomes v3 deterministically — the record, its lease and its reports
+ * re-tagged; a merge receipt kept verbatim (its hash binds its own version);
+ * the forge state `null` for a read-only workspace and the legacy marker for a
+ * feature one ({@link legacyForgeSchema}). A current record is answered as it
+ * is; any other version is refused (`workspace_record_invalid`). Answers the
+ * parsed record and whether it was migrated.
+ */
+export function migrateWorkspaceRecord(value: unknown): Readonly<{ record: WorkspaceRecord; migrated: boolean }> {
+  const stored = value !== null && typeof value === "object" ? value as Readonly<Record<string, unknown>> : {};
+  if (stored["schemaVersion"] === WORKSPACE_SCHEMA_VERSION) return deepFreeze({ record: parseWorkspaceRecord(value), migrated: false });
+  if (stored["schemaVersion"] !== WORKSPACE_SCHEMA_V2) {
+    throw new InputError(`workspace record of version ${String(stored["schemaVersion"])} is neither ${WORKSPACE_SCHEMA_VERSION} nor the migrated ${WORKSPACE_SCHEMA_V2}`, "workspace_record_invalid");
+  }
+  const retag = (part: unknown): unknown => (part !== null && typeof part === "object" ? { ...part, schemaVersion: WORKSPACE_SCHEMA_VERSION } : part);
+  const lease = stored["lease"] as Readonly<Record<string, unknown>> | undefined;
+  return deepFreeze({
+    record: parseWorkspaceRecord({
+      ...stored,
+      schemaVersion: WORKSPACE_SCHEMA_VERSION,
+      lease: retag(lease),
+      validationReport: retag(stored["validationReport"]),
+      conflictReport: retag(stored["conflictReport"]),
+      forge: lease?.["kind"] === "read-only" ? null : { legacy: true },
+    }),
+    migrated: true,
+  });
 }
 
 export function parseValidationReport(value: unknown): ValidationReport {

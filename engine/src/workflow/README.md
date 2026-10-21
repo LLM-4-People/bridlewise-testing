@@ -35,11 +35,21 @@ in
   `workspace_target_untracked`). `publish` re-makes each new local commit
   through the Git Data API with no author or committer (the forge signs it:
   Verified), checks every answered blob, tree and signature, sets the
-  workspace's branch and moves the local branch to the signed twins (the same
-  tree); the first round opens the DRAFT pull request, every round
-  regenerates its body. `ready` takes it out of draft once its published tree
-  passed `validate`. The forge client is the forge port's GitHub adapter;
-  until the CLI is given one, both refuse `workspace_forge_unavailable`.
+  workspace's branch by compare-and-swap from where the workspace left it
+  (another writer's commits are refused, `branch_moved_by_another_writer`; a
+  crashed round's twins are adopted) and moves the local branch to the signed
+  twins (the same tree); the first round opens the DRAFT pull request, every
+  round regenerates its body, and a round that publishes a new head returns a
+  ready pull request to draft. `ready` takes it out of draft once its
+  published tree passed `validate`. The forge client is this lane's GitHub
+  implementation of the port, on the forge client of
+  `engine/src/workflow/forge/`; until the CLI is given one, both refuse
+  `workspace_forge_unavailable`.
+- **Records** are migrated on read by the one record reader
+  (`migrateWorkspaceRecord`, written back atomically): a v2 record (before the
+  forge) becomes v3, a feature one with the legacy marker that refuses every
+  forge verb (`workspace_legacy_record`). `sweep` reports a live record whose
+  worktree is gone (`orphaned`) and leaves it to its owner.
 - **Registry**: `<git common dir>/bridlewise/` (`repository-registry.ts`, the one derivation; the records in `workspace-registry.ts`):
   `workspaces/<id>.json`, `locks/` (the admission and merge locks),
   `timeline/` (the shards and the integrator's ledger) — one per repository,

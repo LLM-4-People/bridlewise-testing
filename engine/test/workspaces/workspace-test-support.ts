@@ -28,6 +28,7 @@ import {
 import { repositoryRegistry, type RepositoryRegistry } from "../../src/workflow/repository-registry.ts";
 import type { GitRepository } from "../../src/git/tree-reader.ts";
 import type { WorkspaceForgeFactory } from "../../src/workflow/workspace-forge.ts";
+import { isLegacyForgeState, type WorkspaceForgeState, type WorkspaceRecord } from "../../src/workflow/workspace-contracts.ts";
 import { createFakeForge, type FakeForge } from "./fake-forge.ts";
 
 /**
@@ -89,6 +90,13 @@ export function initTempRepo(prefix: string): Readonly<{ root: string; baseSha: 
 /** Publishes `branch` to `origin` (the forge's remote) and makes it the branch's upstream: a land target. */
 export function trackBranch(root: string, branch: string): void {
   rawGit(root, ["push", "-q", "-u", "origin", `${branch}:${branch}`]);
+}
+
+/** A feature record's forge state (refused for a read-only or a legacy record: a test that asks expects one). */
+export function forgeStateOf(record: WorkspaceRecord): WorkspaceForgeState {
+  const forge = record.forge;
+  if (forge === null || isLegacyForgeState(forge)) throw new Error(`workspace ${record.workspaceId} has no forge state`);
+  return forge;
 }
 
 /** The binary-safe git of a test checkout (PATH's git, the inspect ceiling). */

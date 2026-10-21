@@ -66,7 +66,7 @@ export type WorkspaceCliOutput =
   | Readonly<{ action: "merge"; receipt: MergeReceipt }>
   | Readonly<{ action: "snapshot"; snapshot: WorkingTreeSnapshot }>
   | Readonly<{ action: "list"; records: readonly WorkspaceRecord[] }>
-  | Readonly<{ action: "sweep"; swept: readonly string[] }>
+  | Readonly<{ action: "sweep"; swept: readonly string[]; orphaned: readonly string[] }>
   | Readonly<{ conflict: ConflictReport }>;
 
 function progress(line: string): void {
@@ -185,7 +185,7 @@ async function dispatch(
   }
   if (args.length > 0) throw new InputError(`unknown workspace ${action} flag: ${args[0]!}`, "unknown_flag");
   if (action === "list") return wrapResult("workspace list", deepFreeze({ action: "list", records: manager.list() }), { status: "pass" });
-  return wrapResult("workspace sweep", deepFreeze({ action: "sweep", swept: await manager.sweep() }), { status: "pass" });
+  return wrapResult("workspace sweep", deepFreeze({ action: "sweep", ...await manager.sweep() }), { status: "pass" });
 }
 
 function requireSingleId(args: readonly string[], action: string): string {

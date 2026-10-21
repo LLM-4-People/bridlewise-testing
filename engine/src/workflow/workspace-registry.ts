@@ -6,7 +6,7 @@ import { canonicalJson, deepFreeze } from "../kernel/integrity.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { withFileLock } from "../filesystem/file-lock.ts";
 import { ensurePrivateStateDirectory } from "../filesystem/private-state.ts";
-import { assertWorkspaceId, isTerminalWorkspaceState, parseWorkspaceRecord, type WorkspaceRecord } from "./workspace-contracts.ts";
+import { assertWorkspaceId, isTerminalWorkspaceState, migrateWorkspaceRecord, parseWorkspaceRecord, type WorkspaceRecord } from "./workspace-contracts.ts";
 import { repositoryRegistryArea, type RepositoryRegistry } from "./repository-registry.ts";
 
 /**
@@ -37,14 +37,30 @@ export type WorkspaceRecordStore = Readonly<{
 
 export function createWorkspaceRecordStore(directory: string): WorkspaceRecordStore {
   ensurePrivateStateDirectory(directory);
-  const read = (path: string, workspaceId: string): WorkspaceRecord => {
+  const busy = (workspaceId: string) => (message: string): HarnessError => new HarnessError(`workspace record ${workspaceId} is being written (${message}); try again`, "workspace_record_busy", true, { workspaceId });
+  const parseFile = (path: string, workspaceId: string): Readonly<{ record: WorkspaceRecord; migrated: boolean }> => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(readFileSync(path, "utf8"));
     } catch {
       throw new HarnessError(`workspace record ${workspaceId} is not valid JSON`, "workspace_record_corrupt", false, { workspaceId });
     }
-    return parseWorkspaceRecord(parsed);
+    return migrateWorkspaceRecord(parsed);
+  };
+  // THE ONE RECORD READER: a record of an older version is migrated
+  // (`migrateWorkspaceRecord`) and written back atomically under its file
+  // lock — re-read there, so a concurrent writer's newer record is never
+  // overwritten — with its revision unchanged (the same record, re-tagged).
+  const read = (path: string, workspaceId: string): WorkspaceRecord => {
+    const first = parseFile(path, workspaceId);
+    if (!first.migrated) return first.record;
+    return withFileLock(`${path}.lock`, busy(workspaceId), () => {
+      const current = parseFile(path, workspaceId);
+      if (!current.migrated) return current.record;
+      const written = atomicWriteFile(path, `${canonicalJson(current.record)}\n`);
+      if (!written.success) throw written.error ?? new HarnessError(`could not write the migrated workspace record ${workspaceId}: ${written.reason ?? "unknown"}`, "workspace_record_write_failed");
+      return current.record;
+    });
   };
   const load = (workspaceId: string): WorkspaceRecord | null => {
     assertWorkspaceId(workspaceId);
@@ -54,9 +70,8 @@ export function createWorkspaceRecordStore(directory: string): WorkspaceRecordSt
   return deepFreeze({
     save(record: WorkspaceRecord): WorkspaceRecord {
       const path = join(directory, `${record.workspaceId}.json`);
-      const busy = (message: string): HarnessError => new HarnessError(`workspace record ${record.workspaceId} is being written (${message}); try again`, "workspace_record_busy", true, { workspaceId: record.workspaceId });
-      return withFileLock(`${path}.lock`, busy, () => {
-        const stored = load(record.workspaceId)?.revision ?? 0;
+      return withFileLock(`${path}.lock`, busy(record.workspaceId), () => {
+        const stored = existsSync(path) ? parseFile(path, record.workspaceId).record.revision : 0;
         if (stored !== record.revision) {
           throw new HarnessError(
             `workspace record ${record.workspaceId} changed since it was read (revision ${String(record.revision)}, now ${String(stored)}): another command (an extend, an abort, a sweep) wrote it meanwhile — read its status and run the command again`,

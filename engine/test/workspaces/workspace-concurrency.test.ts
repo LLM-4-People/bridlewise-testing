@@ -188,12 +188,12 @@ test("an expired lease aborts through validation and through the sweep; the swee
   clock += 2_000;
   await assert.rejects(() => manager.validate(first.workspaceId), WorkspaceLeaseExpiredError);
   assert.equal(manager.status(first.workspaceId).state, "quarantined");
-  assert.deepEqual(await manager.sweep(), [second.workspaceId]);
+  assert.deepEqual((await manager.sweep()).swept, [second.workspaceId]);
   assert.equal(manager.status(second.workspaceId).state, "quarantined");
   assert.ok(existsSync(first.lease.worktreePath) && existsSync(second.lease.worktreePath), "quarantine preserves the worktrees");
   assert.match(rawGit(root, ["worktree", "list", "--porcelain"]), /locked/u, "a quarantined worktree is locked");
 
   clock += 10_000;
-  assert.deepEqual([...await manager.sweep()].toSorted(), [first.workspaceId, second.workspaceId].toSorted());
+  assert.deepEqual([...(await manager.sweep()).swept].toSorted(), [first.workspaceId, second.workspaceId].toSorted());
   assert.ok(!existsSync(first.lease.worktreePath) && !existsSync(second.lease.worktreePath), "past its retention a quarantined (locked) worktree is removed");
 });
