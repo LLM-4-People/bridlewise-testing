@@ -15,7 +15,10 @@ permissions:
   contents: read
 
 concurrency:
+  # Deployments are serialised, and every pending one waits its turn: the
+  # default single-slot queue would cancel a pending main deployment.
   group: pages
+  queue: max
   cancel-in-progress: false
 
 jobs:

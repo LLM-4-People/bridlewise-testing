@@ -35,7 +35,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: test-shards-${{ github.ref }}
+  # A pull request's runs share one group (CI, the caller, cancels the
+  # superseded one). Every other event (main pushes, merge groups, dispatches)
+  # gets a group of its own, so a main run is never cancelled, even pending.
+  group: test-shards-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: false
 
 jobs:

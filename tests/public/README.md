@@ -6,7 +6,8 @@ These tests cover the surfaces that a public clone can actually verify without t
 - the typed `harness` refusal and the honest `preflight` receipt;
 - the secret/privacy scanner, including its failure modes;
 - the required safety warning and documentation set;
-- the licence and community files.
+- the licence and community files;
+- the workflow policy: no workflow can cancel a `main` run.
 
 Run them with:
 
