@@ -1,12 +1,14 @@
 // @vitest-environment node
 /**
- * TEST-ISOLATION OWNER — the mechanical guard on the `isolate: false` contract.
+ * TEST-ISOLATION OWNER — the mechanical guard on the suite's isolation contract.
  *
  * ── What this file exists to make impossible ─────────────────────────────
  *
- * The suite shares one module registry, one `process.env` and one `globalThis`
- * per worker (`vitest.config.ts`: `isolate: false`). Three defect classes come
- * out of that, and all three were live in this suite. Each was invisible in
+ * The node project runs a single worker with `isolate: true` (a fresh module
+ * registry per file, but the same `process.env` and `globalThis` for the
+ * worker's lifetime); the dom project shares one registry per worker
+ * (`isolate: false`). Three defect classes come out of that sharing, and all
+ * three were live in this suite. Each was invisible in
  * the file that caused it and surfaced somewhere else, which is why they were
  * diagnosed as "flakes" for so long:
  *
