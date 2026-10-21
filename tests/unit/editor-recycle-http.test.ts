@@ -25,7 +25,7 @@
  * from before the create door refused it.
  */
 import { describe, test, expect, beforeAll, afterAll, vi } from "vitest";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // The recycle bin's location derives from `serverConfig.dbPath`, and the
@@ -51,6 +51,7 @@ await vi.hoisted(async () => {
 });
 
 import { registerEditorRoutes } from "../../server/routes/editor.ts";
+import { installRecycleSlotRemover } from "../../server/filesystem/editor-bridge.ts";
 import { registerProjectRoutes } from "../../server/routes/projects.ts";
 import { createTestUser, type TestUser } from "../helpers/multi-user.ts";
 import { startHttpTestServer, type HttpTestServer } from "../helpers/http-server.ts";
@@ -156,6 +157,49 @@ describe("recycle-bin authorization over real HTTP", () => {
     const ownerRestore = await call(alice, "/api/editor/restore", { method: "POST", body: { id: recycleId } });
     expect(ownerRestore.status).toBe(200);
     expect(readFileSync(join(alicePath, "alice-secret.ts"), "utf8")).toBe("alice-secret\n");
+  });
+
+  test("the owner's restore is judged by the project ROW id, not the spelling of its path", async () => {
+    const projectPath = join(createTempDir("ch-recycle-spelling-"), "project");
+    await newProject(alice, "alice-spelling", projectPath);
+    const recycleId = await recycleOne(alice, projectPath, "spelled.ts", "spelled-bytes\n");
+    // ONE PLACE, TWO SPELLINGS: a link beside the project names the same
+    // folder, and `resolve()` cannot see it — only identity (or the row id)
+    // can. The project row is reached BY ID below, so the spelling is not the
+    // ownership question.
+    const alias = `${projectPath}-alias`;
+    symlinkSync(projectPath, alias, "dir");
+
+    // Catch the slot on the committed restore; the injected failure keeps it
+    // (and its commit marker) so the retry below can be driven.
+    let slotDir = "";
+    installRecycleSlotRemover((dir) => {
+      slotDir = dir;
+      throw new Error("injected recycle-slot cleanup failure keeps the commit marker");
+    });
+    try {
+      const first = await call(alice, "/api/editor/restore", { method: "POST", body: { id: recycleId } });
+      expect(first.status, "the owner's first restore must land").toBe(200);
+      expect(slotDir).not.toBe("");
+    } finally {
+      installRecycleSlotRemover(null);
+    }
+    // Re-spell the recycle record's root through the link. The row probe finds
+    // the SAME project by id; the old path comparison refused this owner.
+    const metaPath = join(slotDir, "meta.json");
+    const meta = JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>;
+    meta["projectRoot"] = alias;
+    writeFileSync(metaPath, `${JSON.stringify(meta)}\n`);
+
+    const listed = await call(alice, "/api/editor/recycle");
+    expect((listed.body.files ?? []).map((f) => f.id)).toContain(recycleId);
+
+    const retried = await call(alice, "/api/editor/restore", { method: "POST", body: { id: recycleId } });
+    expect(
+      retried.status,
+      "the same project row reached through another spelling is the same project",
+    ).toBe(200);
+    expect(readFileSync(join(projectPath, "spelled.ts"), "utf8")).toBe("spelled-bytes\n");
   });
 
   test("a project path another user already registered is refused at the create door (409)", async () => {

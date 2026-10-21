@@ -132,8 +132,9 @@ export function readCpuBudget(): CpuBudgetDeclaration | { readonly missing: stri
     return {
       missing:
         `webUiSuiteCpuBudget.derivedAtTestFileCount under ${CONFIG_SITE} must be the ` +
-        `positive population this declaration was measured against. A threshold without ` +
-        `its population keeps its authority and loses its meaning.`,
+        `positive population this declaration is judged against — its floor's population, ` +
+        `or (in accumulation) the population its clean-run window is filled at. A threshold ` +
+        `without its population keeps its authority and loses its meaning.`,
     };
   }
   if (rec.phase === "accumulation") {

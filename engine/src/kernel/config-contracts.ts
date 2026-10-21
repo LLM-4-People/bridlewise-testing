@@ -1463,6 +1463,30 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     // old number, and no legacy row feeds the new window
     // (`budget-verdict.ts` `eligibleBudgetRows`).
     //
+    // POPULATION RE-BASED AT THE TREE'S OWN COUNT, AND THE FLOOR RECORDED AS
+    // WHAT IT IS (2026-10-21). The declared full run now covers 537 test
+    // files (`fullRunModuleCount()` over `test.include`; 533 of them carry a
+    // shard weight, the four documented exclusions do not), past the declared
+    // 3% drift from the 521 the retired floor was measured on. So
+    // `derivedAtTestFileCount` moves to 537 — the population the
+    // calibrated-work window is now being filled at — while
+    // `legacy.derivedAtTestFileCount` stays 521: a measured floor's
+    // population is history and is never re-spelled to look current.
+    //
+    // NO FLOOR IS RE-DERIVED HERE, BECAUSE THERE IS NO CALIBRATED WINDOW TO
+    // RE-DERIVE ONE FROM. The ledger holds exactly two full-run rows, both at
+    // 521: `qualification-8fd2f2a2-e051-49d8-8e51-cfbdaaf49168`
+    // (2124.7 ms/file) and `qualification-9db4b555-05a7-45bd-9963-560c1d021c68`
+    // (2183.7 ms/file). Both carry NO metric — they are `raw-cpu-ms/v0`, no
+    // calibration reading was taken, and no arithmetic turns them into
+    // calibrated work. `npm run budget:measure -- --check` therefore answers
+    // `migrating` with 0 of 12 eligible rows and writes nothing. The live
+    // declaration has no `baselineFloorUnitsPerTestFile` to move; inventing
+    // one is the defect D-17 exists to refuse. When twelve clean full runs at
+    // 537 exist, the tool derives the floor from that window's median and the
+    // derivation (the run ids, the readings and the arithmetic) is recorded
+    // here beside the value.
+    //
     // THE AMBIENT ENVELOPE IS RETIRED (slope 0 in the rolling shape): the
     // calibration already absorbs the load effect, so paying the old envelope
     // on top would double-count it. The fields remain for a future residual.

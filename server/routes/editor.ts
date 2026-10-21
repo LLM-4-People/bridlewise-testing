@@ -20,7 +20,6 @@ import { z } from "zod";
 import type { Router } from "../router/router.ts";
 import { sendJson, sendJsonRaw } from "../router/router.ts";
 import { assertValidBody } from "../router/validate.ts";
-import { resolve } from "node:path";
 import {
   readFile,
   writeFile,
@@ -278,10 +277,13 @@ export function registerEditorRoutes(router: Router, db: AsyncDbClient): void {
     // authority; a legacy entry with no row id is refused rather than guessed
     // from its path.
     const project = listed.projectId === null ? null : await db.getProjectIncludingTrash(listed.projectId, user.userId);
-    if (
-      project === null ||
-      resolve(project.path) !== resolve(listed.projectRoot)
-    ) {
+    // THE ROW ID IS THE IDENTITY, THE PATH IS A SPELLING. The probe above
+    // returned the row this record stamped; asking whether that row's path is
+    // spelled like the record's root is a second answer to a question the id
+    // already settled, and a spelling cannot see a link, a bind mount or a
+    // case-folded segment. Compare the owning ids, never `resolve(a) !==
+    // resolve(b)`.
+    if (project === null || project.id !== listed.projectId) {
       throw new ForbiddenError(
         "That recycled file belongs to a project this account no longer holds.",
         "recycle_not_owned",

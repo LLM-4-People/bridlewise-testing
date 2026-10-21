@@ -902,6 +902,15 @@ const RESTORE_MARKER = "restored.json";
 
 type RestoreMarker = Readonly<{
   recycleId: string;
+  /**
+   * The owning project ROW id stamped by the forward restore (`null` for an
+   * internal write with no acting user). The marker is judged by this id,
+   * never by the spelling of `restoredPath`: a retry names the same place
+   * through a link, a bind mount or a different separator and is still the
+   * same restore. A marker written before this stamp existed carries none and
+   * is refused rather than guessed from its path.
+   */
+  projectId: string | null;
   restoredPath: string;
   relativePath: string;
   wasDirectory: boolean;
@@ -915,8 +924,10 @@ function readRestoreMarker(slotDir: string, recycleId: string): RestoreMarker | 
     const raw: unknown = JSON.parse(readFileText(path));
     if (raw === null || typeof raw !== "object") return null;
     const rec = raw as Record<string, unknown>;
+    const projectId = rec["projectId"] ?? null;
     if (
       rec["recycleId"] !== recycleId ||
+      (projectId !== null && typeof projectId !== "string") ||
       typeof rec["restoredPath"] !== "string" ||
       typeof rec["relativePath"] !== "string" ||
       typeof rec["wasDirectory"] !== "boolean" ||
@@ -926,6 +937,7 @@ function readRestoreMarker(slotDir: string, recycleId: string): RestoreMarker | 
     }
     return {
       recycleId,
+      projectId,
       restoredPath: rec["restoredPath"],
       relativePath: rec["relativePath"],
       wasDirectory: rec["wasDirectory"],
@@ -986,8 +998,13 @@ export function restoreFile(recycleId: string, gate?: FsGate): FileRestoreResult
   if (!existsSync(payload)) {
     // A payload-less slot is either the retry after a committed restore
     // (marker present, file on disk) or an entry with nothing to restore.
+    // THE MARKER IS JUDGED BY THE OWNING PROJECT ROW ID, never by the path it
+    // spells: `restoredPath` is a response spelling of a destination the gate
+    // above already authorised, and two spellings of one place (a link, a bind
+    // mount, `//` or `./`) are the same restore. A marker stamped with another
+    // project's row is refused even at this same spelling.
     const marker = readRestoreMarker(slotDir, recycleId);
-    if (marker === null || marker.recycleId !== recycleId || marker.restoredPath !== dest || !existsSync(dest)) {
+    if (marker === null || marker.recycleId !== recycleId || marker.projectId !== meta.projectId || !existsSync(dest)) {
       throw new ValidationError("That recycle entry has no file to restore", "recycle_not_found");
     }
     outcome = {
@@ -1019,7 +1036,7 @@ export function restoreFile(recycleId: string, gate?: FsGate): FileRestoreResult
     try {
       writeFileSync(
         join(slotDir, RESTORE_MARKER),
-        `${JSON.stringify({ recycleId, restoredPath: dest, relativePath: meta.relativePath, wasDirectory: meta.wasDirectory, restoredAt: Date.now() })}\n`,
+        `${JSON.stringify({ recycleId, projectId: meta.projectId, restoredPath: dest, relativePath: meta.relativePath, wasDirectory: meta.wasDirectory, restoredAt: Date.now() })}\n`,
         "utf8",
       );
     } catch (err) {

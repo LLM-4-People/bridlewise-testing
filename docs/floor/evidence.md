@@ -91,7 +91,7 @@ Every run now pairs its CPU delta with a fixed deterministic calibration benchma
 workUnitsPerTestFile = (runCpuMs / calibrationMs) / testFileCount
 ```
 
-computed once by `computeRunWork` and read by every consumer. The declaration is in `testExecution.webUiSuiteCpuBudget` (`calibrated-work/v1`), currently in its ACCUMULATION phase until twelve clean full runs exist, when the window's clean median is derived into the floor; the retired 1926 ms/file floor is recorded there under `legacy` with `incomparable: true` and is never rescaled.
+computed once by `computeRunWork` and read by every consumer. The declaration is in `testExecution.webUiSuiteCpuBudget` (`calibrated-work/v1`), currently in its ACCUMULATION phase until twelve clean full runs exist, when the window's clean median is derived into the floor; its population is the 537 test files a full run now covers (re-based 2026-10-21 from the 521 the retired floor was measured on), and the retired 1926 ms/file floor is recorded there under `legacy` with `incomparable: true` and is never rescaled.
 
 On 2026-10-20, on this 12-core WSL2 host, a four-file/68-test run of the supported suite was measured three times in the ambient background and twice with eight CPU burners. The host was NOT idle during the ambient runs: `/proc/pressure/cpu` `some avg10` read 75%, 22.8% and 5.5% before them, and other agents' work was still running. The calibrated figures are from the exact production calibrant (5,000,000 iterations, six chunks, 256 KiB).
 

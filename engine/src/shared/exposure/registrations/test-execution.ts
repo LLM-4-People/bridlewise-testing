@@ -224,13 +224,13 @@ export function registerTestExecutionExposure(): void {
   registerSignal({
     id: "testExecution.webSuiteCpuPopulation",
     module: "testExecution",
-    name: "Test files the web-suite budget was measured against",
+    name: "Test files the web-suite budget is judged against",
     description:
-      "The suite size the budget's recorded floor was derived on. The gate refuses when the suite grows or shrinks past its declared drift tolerance, so the population and the floor move together or not at all. Shown read-only: a settings write here would decouple the floor from the tree it was measured on.",
+      "The suite size the budget's recorded floor was derived on — or, while the metric is in accumulation, the population its clean-run window is being filled at. The gate refuses when the suite grows or shrinks past its declared drift tolerance, so the population and the floor move together or not at all. Shown read-only: a settings write here would decouple the floor from the tree it was measured on.",
     type: "string",
     value: () => {
       const count = readBudgetNumber(`${BUDGET_PATH}.derivedAtTestFileCount`);
-      return count === undefined ? NOT_DECLARED : `measured against ${count} test files`;
+      return count === undefined ? NOT_DECLARED : `judged against ${count} test files`;
     },
   });
   registerSignal({

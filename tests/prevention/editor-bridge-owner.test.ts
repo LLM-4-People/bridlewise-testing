@@ -536,6 +536,67 @@ describe("D. behavioral: bridge raw primitives enforce fs-gate", () => {
     expect(restoreFile(result.recycleId, gateA).path).toBe(join(projectAPath, "stamped-owner.ts"));
   });
 
+  test("the commit marker is judged by the owning project ROW id, and two spellings of one path are one restore", () => {
+    createFile("marker-spelling.ts", "marker-spelling\n", projectAPath, gateA);
+    const result = deleteFile("marker-spelling.ts", projectAPath, gateA);
+
+    // A SECOND PROJECT ROW, at a different folder. The gate below claims the
+    // deleted entry's path spelling with THIS row: the path is identical, so
+    // only the row id can tell the two projects apart.
+    const otherPath = join(tmpRoot, "alice-other-project");
+    mkdirSync(otherPath, { recursive: true });
+    const otherId = db.createProject({ name: "A-other-project", path: otherPath }, userA.userId).id;
+    const claimsAnotherProject: FsGate = {
+      userId: userA.userId,
+      decisions: new Map([[projectAPath, db.getProject(otherId, userA.userId)!]]),
+    };
+    expect(
+      () => restoreFile(result.recycleId, claimsAnotherProject),
+      "a different project id at the SAME path spelling must be refused",
+    ).toThrow(ForbiddenError);
+    expect(existsSync(join(projectAPath, "marker-spelling.ts"))).toBe(false);
+
+    let slotDir = "";
+    installRecycleSlotRemover((dir) => {
+      slotDir = dir;
+      throw new Error("injected recycle-slot cleanup failure keeps the commit marker");
+    });
+    try {
+      const restored = restoreFile(result.recycleId, gateA);
+      expect(restored.cleanup).toBe("retained");
+      expect(readFileSync(restored.path, "utf8")).toBe("marker-spelling\n");
+      const markerPath = join(slotDir, "restored.json");
+      const marker = JSON.parse(readFileSync(markerPath, "utf8")) as Record<string, unknown>;
+
+      // TWO SPELLINGS OF ONE PATH ARE ONE RESTORE. `//` collapses to the same
+      // place; the marker's id, not its path text, decides. (Before the fix
+      // this was `marker.restoredPath !== dest` and the retry 404'd.)
+      const respelled = `${projectAPath}//marker-spelling.ts`;
+      writeFileSync(markerPath, `${JSON.stringify({ ...marker, restoredPath: respelled })}\n`);
+      expect(
+        restoreFile(result.recycleId, gateA).path,
+        "a retry that spells the restored path another way is still this restore",
+      ).toBe(respelled);
+      expect(marker["projectId"], "the marker carries the owning project row id").toBe(projectAId);
+
+      // THE SAME SPELLING, ANOTHER PROJECT ID, IS REFUSED.
+      writeFileSync(markerPath, `${JSON.stringify({ ...marker, projectId: otherId })}\n`);
+      expect(
+        () => restoreFile(result.recycleId, gateA),
+        "a marker stamped with another project row must not answer for this one",
+      ).toThrow(ValidationError);
+
+      // The owning id again answers idempotently.
+      writeFileSync(markerPath, `${JSON.stringify(marker)}\n`);
+      expect(restoreFile(result.recycleId, gateA).path).toBe(restored.path);
+    } finally {
+      installRecycleSlotRemover(null);
+    }
+    // With cleanup working again the slot is removed and the entry is gone.
+    expect(restoreFile(result.recycleId, gateA).cleanup).toBe("removed");
+    expect(listRecycledFiles().some((f) => f.id === result.recycleId)).toBe(false);
+  });
+
   test("a failed slot cleanup is not a failed restore, and a payload-less retry answers idempotently", () => {
     const contents = "cleanup-failure\n";
     createFile("cleanup-failure.ts", contents, projectAPath, gateA);

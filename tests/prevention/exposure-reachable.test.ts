@@ -1419,7 +1419,7 @@ describe("exposure is declared and reachable", () => {
       "1616 calibration units of work per test file (calibrated-work/v1) — the cap",
     );
     expectSignal("testExecution.webSuiteBaselineWindow", "the stale-floor check reads the median of the last 13 clean judged runs");
-    expectSignal("testExecution.webSuiteCpuPopulation", "measured against 481 test files");
+    expectSignal("testExecution.webSuiteCpuPopulation", "judged against 481 test files");
     expectSignal("testExecution.webSuitePopulationDriftTolerance", "3.1% suite-size drift before re-deriving");
     expectSignal("testExecution.webSuiteNoiseSpread", "2.7% same-tree spread decides which runs feed the baseline");
     // No streak count is exposed: one judged run over the cap fails (UR-24-BUDGETS).

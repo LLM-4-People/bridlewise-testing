@@ -279,6 +279,29 @@ describe("web-UI test-runtime budget", () => {
     ).toBe("current");
   });
 
+  test("a population beyond the declared drift still reds at the re-based population", () => {
+    // The arm above only says the tree is INSIDE the tolerance. A re-base
+    // that silently disarmed the guard would look identical, so the tolerance
+    // is re-driven against the live population: one file past the allowed
+    // drift is stale, and the boundary itself is still current.
+    if ("missing" in cpuBudget) throw new Error(`the CPU budget is not declared: ${cpuBudget.missing}`);
+    const drift = cpuBudget.maxPopulationDriftFraction;
+    const judgeAt = (count: number) =>
+      judgePopulationDrift(
+        { derivedAtTestFileCount: discovered, maxPopulationDriftFraction: drift },
+        count,
+        "testExecution.webUiSuiteCpuBudget",
+      ).kind;
+    expect(
+      judgeAt(Math.ceil(discovered * (1 + drift)) + 1),
+      `one test file past the ${(drift * 100).toFixed(1)}% drift must red`,
+    ).toBe("stale");
+    expect(
+      judgeAt(Math.floor(discovered * (1 + drift))),
+      `the far edge of the ${(drift * 100).toFixed(1)}% drift is still current`,
+    ).toBe("current");
+  });
+
   test("the per-file share cap is a real cap, not a formality", () => {
     if (typeof fileShareMax !== "number") throw new Error(`the per-file share cap is not declared: ${fileShareMax.missing}`);
     // A cap at or above 1 would admit a suite that is one file, which is the

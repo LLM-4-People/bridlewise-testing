@@ -1924,8 +1924,11 @@ export interface AccumulatingCpuBudget {
   readonly maxPopulationDriftFraction: number;
   /** The population the window is being filled at; the drift guard's base.
    *  Optional: a suite whose accumulation was never tied to a declared
-   *  population (the integration suite) omits it; the web declaration states
-   *  the population the legacy floor was measured at. */
+   *  population (the integration suite) omits it. The web declaration states
+   *  the population its new-metric window is filled at, re-based when the
+   *  suite moves past the drift tolerance — the retired floor's own
+   *  population lives under `legacy.derivedAtTestFileCount` and never moves
+   *  with it. */
   readonly derivedAtTestFileCount?: number | undefined;
   /** See `RollingCpuBudget.calibrationDriftMaxFraction`. */
   readonly calibrationDriftMaxFraction: number;

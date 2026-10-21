@@ -902,7 +902,9 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
     expect(report.measurement.reason).toContain("1926.0 ms/file");
     expect(report.measurement.reason).toContain("INCOMPARABLE");
     expect(report.declared.floorUnitsPerTestFile).toBeNull();
-    expect(report.declared.derivedAtTestFileCount).toBe(521);
+    // The LIVE population, not a frozen literal: re-basing the declaration
+    // must not make this assertion pin the old tree.
+    expect(report.declared.derivedAtTestFileCount).toBe(fullRunModuleCount());
   });
 
   test("the TOOL writes only the document it measured: a HARNESS_CONFIG_PATH elsewhere is refused before any write (WF-1b3b design LOW 12)", () => {
