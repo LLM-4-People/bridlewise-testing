@@ -30,6 +30,13 @@ source, and every promotion commit names the exact profile blob it used.
   - `spawnCalls`: calls whose string argument names a script the program runs
     as a subprocess (`{callee, argument, base}`; `base` is `""` or a folder
     prefix ending in `/`).
+  - `overlay`: a folder prefix (or `null`) holding the target-only files:
+    each file under it ships at its path without the prefix
+    (`product-only/README.md` is the product's `README.md`). The folder must
+    be excluded, and an overlay file may not name a path the projection
+    already carries (`promotion_overlay_invalid`): a path ships for one
+    reason. Write its links as absolute URLs, since they are read at the
+    target path.
   Everything else does NOT ship (deny by default).
 - `transforms` — files derived for the target (never also excluded): a
   `package-manifest` keeps the listed `scripts` (each must exist on the source;

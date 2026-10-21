@@ -160,6 +160,7 @@ export function fixtureProfile(overrides: FixtureProfileOverrides = {}): Record<
     exclude: ["dev/", "promotion/"],
     companions: ["README.md"],
     spawnCalls: [{ callee: "runScript", argument: 1, base: "product/" }],
+    overlay: null,
     ...(overrides["boundary"] as object | undefined),
   };
   return {

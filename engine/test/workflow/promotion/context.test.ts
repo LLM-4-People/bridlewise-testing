@@ -60,7 +60,7 @@ test("§5.1: from a checkout of the TARGET (no profile), the target tip's last p
   const missing = await runPromotionVerb(fixture.root, { verb: "status" }, fixture.document);
   assert.equal(missing.code, "promotion_profile_missing");
   const source = fixture.tip(SOURCE);
-  const promoted = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nPromoted-From: ${source}\nPromotion-Profile: ${PROFILE_NAME}@${fixture.loaded().blob!}`]);
+  const promoted = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nProjected-From: ${source}\nPromotion-Profile: ${PROFILE_NAME}@${fixture.loaded().blob!}`]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, promoted]);
   fixture.git(["checkout", "-q", TARGET]);
   const context = resolvePromotionContext(fixture.root, undefined, undefined, fixture.document);

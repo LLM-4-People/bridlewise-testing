@@ -33,6 +33,8 @@ const pathOrPrefix = z.string().refine((value) => {
   const path = value.endsWith("/") ? value.slice(0, -1) : value;
   return path !== "" && path !== "." && REPOSITORY_RELATIVE_PATH_SCHEMA.safeParse(path).success;
 }, "must be a repository-relative path, or a folder prefix ending in /");
+/** A folder prefix: a repository-relative folder path with its trailing `/`. */
+const folderPrefix = z.string().refine((value) => value.endsWith("/") && pathOrPrefix.safeParse(value).success, "must be a repository folder prefix ending in /");
 
 const promotionProfileShape = z.strictObject({
   schema: z.literal(PROMOTION_PROFILE_SCHEMA_VERSION),
@@ -56,8 +58,14 @@ const promotionProfileShape = z.strictObject({
       callee: z.string().regex(/^[A-Za-z_$][\w$]*$/u),
       argument: z.number().int().min(0).max(8),
       /** The folder the literal is relative to: the repository top (`""`) or a folder prefix (`a/b/`). */
-      base: z.string().refine((value) => value === "" || (value.endsWith("/") && pathOrPrefix.safeParse(value).success), "must be \"\" or a repository folder prefix ending in /"),
+      base: z.string().refine((value) => value === "" || folderPrefix.safeParse(value).success, "must be \"\" or a repository folder prefix ending in /"),
     })).max(8),
+    /**
+     * The target-only files: a folder of the source whose every file ships at
+     * its path with the prefix removed (`product/README.md` → `README.md`);
+     * `null`: none. The folder itself never ships (the boundary excludes it).
+     */
+    overlay: folderPrefix.nullable(),
   }),
   transforms: z.array(z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("package-manifest"), path: REPOSITORY_RELATIVE_PATH_SCHEMA, scripts: z.array(z.string().min(1)).max(128) }),
@@ -117,6 +125,11 @@ function profileViolations(
   if (excludedBy(profile, `${directoryPrefix}${profile.name}.json`) === null) {
     violations.push(["/boundary/exclude", `the profile directory ${directoryPrefix} must be excluded by the profile's own boundary (a profile never ships)`]);
   }
+  const { overlay } = profile.boundary;
+  if (overlay !== null) {
+    if (excludedBy(profile, `${overlay}x`) === null) violations.push(["/boundary/overlay", `the overlay folder ${overlay} must be excluded by the profile's own boundary (it ships only through the overlay, at its paths without the prefix)`]);
+    if (overlay.startsWith(directoryPrefix) || directoryPrefix.startsWith(overlay)) violations.push(["/boundary/overlay", `the overlay folder ${overlay} and the profile directory ${directoryPrefix} overlap (a profile never ships)`]);
+  }
   profile.transforms.forEach((transform, index) => {
     const by = excludedBy(profile, transform.path);
     if (by !== null) violations.push([`/transforms/${String(index)}/path`, `${transform.path} is derived and also excluded (by ${by}): a derived file ships, so it cannot be excluded`]);
@@ -154,7 +167,8 @@ function profileViolations(
  * unknown or missing keys, a value of the wrong shape, a duplicated key, a
  * name that is not the file's basename, the same ref twice, a ref git refuses,
  * a profile directory the boundary does not exclude, a path both excluded and
- * included (or derived), a duplicate, two transforms of one path, a lockfile
+ * included (or derived), an overlay folder the boundary does not exclude or
+ * that overlaps the profile directory, a duplicate, two transforms of one path, a lockfile
  * whose manifest no transform derives, and a command the registry does not
  * declare.
  */

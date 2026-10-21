@@ -5299,7 +5299,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-promotion-projection", path: "src/workflow/promotion/projection.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 13, namesSha256: "b5c2942de5f953b0cb067171faa98e156fb891e162c960434afda54c05d71345" },
+      owner: "verification-workflow", publicApi: { exportCount: 15, namesSha256: "6e28305517233a22fb4e75676d8bebf565224f7bed5382f72cb5ce7fd0cd7daf" },
       dependencies: ["node:fs","node:path","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/checkout-setup.ts","src/workflow/hash-binding-registry.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/trailers.ts","src/workflow/promotion/transforms.ts","src/workflow/reachability.ts"],
     }),
     moduleContract({
