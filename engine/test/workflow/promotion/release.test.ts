@@ -130,7 +130,7 @@ test("the notes: landed pull requests, decision records and credited names betwe
   const first = project(fixture, { "package.json": manifest(fixture, "1.0.0") });
   const firstPlan = plan(fixture);
   const firstNotes = renderReleaseNotes(fixture.repository, firstPlan, SETTINGS, "owner/name");
-  assert.match(firstNotes, /first release from this repository/u);
+  assert.match(firstNotes, /first release projected from `main`/u);
   assert.match(firstNotes, /https:\/\/example\.invalid\/prior-releases/u);
   assert.doesNotMatch(firstNotes, /Developer preview/u, "1.0.0 is no pre-release");
   fixture.git(["tag", "v1.0.0", first]);
@@ -151,6 +151,21 @@ test("the notes: landed pull requests, decision records and credited names betwe
   for (const expected of ["- Add a decision (#8)", "- Ship the topic (#9)", "added: [Decide the thing]", "Ada Writer, Bo Pair, Cy Third, Dee Plain", "gh release verify v1.1.0 --repo owner/name", "compare/v1.0.0...v1.1.0"]) assert.ok(notes.includes(expected), `${expected}\n${notes}`);
   assert.doesNotMatch(notes, /example\.invalid/u, "no address is published");
   assert.equal(renderReleaseNotes(fixture.repository, next, SETTINGS, "owner/name"), notes, "the same plan gives the same notes");
+});
+
+test("a product seeded with earlier previews: their tags are previous releases, and the first projected release reads no records across them", () => {
+  const fixture = promotionFixture("release-seeded");
+  fixture.git(["tag", "v0.0.3-preview", fixture.tip(TARGET)]);
+  fixture.commit(SOURCE, { "docs/decisions/D-91-older.md": "# Older\n" }, "An old change (#3)\n\nSigned-off-by: Old Author <old@example.invalid>");
+  project(fixture, { "package.json": manifest(fixture, "0.1.0") });
+  const seeded = plan(fixture, { settings: { minIntervalHours: 0 } });
+  assert.deepEqual([seeded.due, seeded.previous?.tag, seeded.previous?.source, seeded.productChanged], [true, "v0.0.3-preview", null, true]);
+  const notes = renderReleaseNotes(fixture.repository, seeded, SETTINGS, "owner/name");
+  assert.match(notes, /first release projected from `main`/u);
+  assert.match(notes, /\[v0\.0\.3-preview\]\(https:\/\/github\.com\/owner\/name\/releases\/tag\/v0\.0\.3-preview\), predates the projection/u);
+  for (const absent of ["An old change", "Old Author", "## Landed", "## Decisions"]) assert.ok(!notes.includes(absent), `${absent}: no history is read across a seeded preview`);
+  project(fixture, { "package.json": manifest(fixture, "0.0.2") });
+  refusedWith("promotion_release_version_invalid", () => plan(fixture));
 });
 
 test("the assets: every input required, canonical names, the source archive of the product commit, and checksums that verify", () => {

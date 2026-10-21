@@ -11,11 +11,17 @@
  *   - the product changed since the last release (P's tree differs from the
  *     tree the last release tag names);
  *   - the version P declares (its root `package.json`, the ONE version source
- *     until per-module versioning generates it, decision Q6) has no tag yet;
+ *     until per-module versioning generates it, decision Q6: issue #101) has
+ *     no tag yet;
  *   - `release.minIntervalHours` have passed since the last release;
  *   - the mode allows it: `auto` departs, `manual` departs only when asked
  *     (`--manual`, a person's dispatch), `approval` departs and says the run
  *     needs an approving reviewer (the release environment's).
+ * ("At least one public record closed since the last release" joins these
+ * once the structured tracker exists: issue #102.)
+ * A release before the projection (the product branch keeps the previews
+ * it was seeded with) is a previous release like any other; it has no
+ * source (`previous.source` is null), so the notes compare nothing across it.
  * A condition that does not hold is a REASON in a `promotion_release_not_due` answer
  * (each named, so the dashboard can say what the next release waits for),
  * never an error. A product with no `Projected-From`, a version that is not

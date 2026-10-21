@@ -87,8 +87,11 @@ export function renderReleaseNotes(repository: GitRepository, plan: ReleasePlan,
     lines.push("> [!WARNING]", "> **Developer preview. Not production-ready.** Do not use Bridlewise with sensitive, proprietary, regulated or production codebases. Read SECURITY.md before running anything.", "");
   }
   lines.push(`The product \`${plan.version}\` is the \`product\` commit [\`${plan.product.commit.slice(0, 12)}\`](${url}/commit/${plan.product.commit}), projected from \`main\` at [\`${to.slice(0, 12)}\`](${url}/commit/${to}).`, "");
-  if (plan.previous === null) {
-    lines.push("This is the first release from this repository.");
+  if (plan.previous === null || from === null) {
+    // No earlier release, or one from before the product was a projection of
+    // main (a seeded preview): there is no source range to read records from.
+    lines.push("This is the first release projected from `main`.");
+    if (plan.previous !== null) lines.push(`The previous release, [${plan.previous.tag}](${url}/releases/tag/${plan.previous.tag}), predates the projection.`);
     if (settings.priorReleasesUrl !== null) lines.push(`The earlier previews are kept at ${settings.priorReleasesUrl}.`);
     lines.push("");
   } else {
