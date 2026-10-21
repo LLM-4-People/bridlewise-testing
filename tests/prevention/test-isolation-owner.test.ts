@@ -54,23 +54,29 @@
  *
  * ── Mutation-verified ────────────────────────────────────────────────────
  * Dropping the `await` from any `vi.hoisted(async …)` fails A.
- * A file that replaces a watched global without restoring it fails its OWN
- *   file at teardown (the setup calls the throwing door), and the planted-arm
- *   test above drives exactly that door — under `isolate: true`, where the
- *   old cross-file ledger read was always empty.
+ * A file that replaces ANY own property of `globalThis` without restoring it
+ *   fails its OWN file at teardown (the setup calls the throwing door), and
+ *   the planted-arm test below drives exactly that door — under `isolate:
+ *   true`, where the old cross-file ledger read was always empty. A REAL
+ *   fixture, written to a temp dir and run through the suite's own setup,
+ *   proves the module-scope dot and bracket shapes now fail too.
+ * Moving `captureGlobals()` out of the setup module's scope (back into a
+ *   `beforeAll`) fails the wiring test: the baseline would be taken after the
+ *   test file's module body, which is exactly where the leak hides.
  * Removing the `HARNESS_WEB_TIMELINE_DB_PATH` redirection from the setup
  *   owner fails C (the resolved path returns to the repo's `.bridlewise/`).
  * Each was run and observed to fail; see the report accompanying this change.
  */
-import { describe, test, expect } from "vitest";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { describe, test, expect, vi } from "vitest";
+import { spawnSync } from "node:child_process";
+import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { connect as netConnect, Socket } from "node:net";
 import { dirname, join, resolve, relative, isAbsolute } from "node:path";
-import { blankSourceText } from "../../engine/scripts/verification/source-view.ts";
+import { sourceViewOf } from "../../engine/scripts/verification/source-view.ts";
 import { serverConfig } from "../../server/kernel/config.ts";
 import { outboundFetch } from "../../engine/src/shared/outbound-http.ts";
-import { assertGlobalsRestored, captureGlobals, WATCHED_GLOBALS } from "../helpers/global-boundary.ts";
+import { assertGlobalsRestored, captureGlobals } from "../helpers/global-boundary.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
 
 const TESTS_ROOT = resolve(import.meta.dirname, "..");
@@ -81,18 +87,6 @@ const REPO_ROOT = resolve(TESTS_ROOT, "..");
 // every other file from reaching the temp root directly, and that ban is
 // right: one door in, one door out.
 const TEMP_ROOT = resolve(dirname(createTempDir("ch-isolation-probe-")));
-
-/**
- * Blank out `//` and block comments, keeping every newline so reported line
- * numbers still point at the real line. Prose about a defect must not be
- * mistaken for the defect — this file's own header names every pattern it
- * bans, and would otherwise convict itself.
- */
-function blankComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => blankSourceText(m))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (_m, lead: string) => lead);
-}
 
 /** Every `*.test.ts` under `tests/`, with its source. */
 function testFiles(): { path: string; rel: string; source: string }[] {
@@ -108,7 +102,9 @@ function testFiles(): { path: string; rel: string; source: string }[] {
       out.push({
         path: full,
         rel: relative(REPO_ROOT, full),
-        source: blankComments(readFileSync(full, "utf8")),
+        // The views below blank prose and string interiors themselves, so a
+        // comment naming a banned pattern cannot convict this guard.
+        source: readFileSync(full, "utf8"),
       });
     }
   };
@@ -131,7 +127,9 @@ describe("A. hoisted setup is awaited (no fire-and-forget env writes)", () => {
     // file imports, which read config at module-evaluation time.
     const offenders: string[] = [];
     for (const { rel, source } of FILES) {
-      const lines = source.split("\n");
+      // Comments are blanked first: this file's own header names the banned
+      // pattern, and a declaration quoted in prose is not a declaration.
+      const lines = sourceViewOf(source, rel).codeWithStringsAndTemplates().split("\n");
       lines.forEach((line, i) => {
         if (!/\bvi\.hoisted\s*\(\s*async\b/.test(line)) return;
         // Accept `await vi.hoisted(async …)` and the destructuring form
@@ -148,6 +146,85 @@ describe("A. hoisted setup is awaited (no fire-and-forget env writes)", () => {
   });
 });
 
+/**
+ * Every write to an own property of `globalThis` that has no restore in the
+ * same file. The view blanks comments, quoted-string interiors and template
+ * interiors, so prose and source-as-data cannot convict a file; bracket keys
+ * are recovered from the strings-intact view at the same offset (every view
+ * preserves the source's offsets).
+ */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+/**
+ * `globalThis` as a write target, including a parenthesised type cast:
+ * `globalThis`, `(globalThis as any)` and `(globalThis as unknown as {x})`.
+ */
+const GLOBAL_ACCESS = String.raw`\(?\s*globalThis\s*(?:!\s*)?(?:\s+as\s+[^)\]\n]+)?\s*\)?\s*`;
+
+function globalWriteOffenders(source: string, rel: string): string[] {
+  const view = sourceViewOf(source, rel);
+  const assigned = new Set<string>();
+  const computed: string[] = [];
+  for (const match of view.matches(
+    // `(globalThis as any)["fetch"] = …` is the same write as the dot form;
+    // allow the parenthesised cast between the object and the accessor.
+    new RegExp(GLOBAL_ACCESS + String.raw`(?:\.\s*([A-Za-z_$][\w$]*)|\[([^\]]*?)\]\s*)\s*=(?!=)`, "gu"),
+    "code",
+  )) {
+    const dot = match.match[1];
+    if (dot !== undefined) {
+      assigned.add(dot);
+      continue;
+    }
+    const inner = match.match[2] ?? "";
+    const bracketStart = match.index + match.text.indexOf("[") + 1;
+    const rawKey = view.codeWithStringsAndTemplates().slice(bracketStart, bracketStart + inner.length).trim();
+    const literal = /^(["'`])([A-Za-z_$][\w$]*)\1$/u.exec(rawKey)?.[2];
+    if (literal !== undefined) assigned.add(literal);
+    else computed.push(`${rel}:${match.line}`);
+  }
+  // `Object.defineProperty(globalThis, "window", …)` installs a global too.
+  for (const match of view.matches(
+    new RegExp(
+      String.raw`Object\.defineProperty\s*\(\s*` + GLOBAL_ACCESS +
+        String.raw`\s*,\s*["']([A-Za-z_$][\w$]*)["']`,
+      "gu",
+    ),
+    "codeWithStrings",
+  )) {
+    assigned.add(match.match[1]!);
+  }
+  for (const match of view.matches(/vi\.stubGlobal\s*\(\s*["']([A-Za-z_$][\w$]*)["']/gu, "codeWithStrings")) {
+    assigned.add(match.match[1]!);
+  }
+  const restoresAll = /vi\.unstubAllGlobals\s*\(/u.test(view.code());
+  const quoteClass = "([\"'`])";
+  const offenders: string[] = [];
+  for (const name of [...assigned].sort()) {
+    // A restore is an assignment of a captured original back to the global,
+    // through either access spelling and either cast form; deleting the
+    // property is the restore for a global this file did not inherit.
+    const access = "(?:\\.\\s*" + escapeRegExp(name) + "|\\[\\s*" + quoteClass +
+      "\\s*" + escapeRegExp(name) + "\\1\\s*\\])";
+    const restore = new RegExp(
+      GLOBAL_ACCESS + access + "\\s*=\\s*(?:original|real|pristine|saved|prev)\\w*",
+      "iu",
+    );
+    const removed = new RegExp("delete\\s+" + GLOBAL_ACCESS + access, "u");
+    if (
+      !restoresAll &&
+      view.matches(restore, "codeWithStrings").length === 0 &&
+      view.matches(removed, "code").length === 0
+    ) {
+      offenders.push(`${rel}: ${name}`);
+    }
+  }
+  if (!restoresAll) offenders.push(...computed);
+  return offenders;
+}
+
 describe("B. no test file leaks a global to the next file", () => {
   test("the per-file door FAILS a planted leak the old cross-file guard could not observe", () => {
     // ── The defect this arm exists for ──
@@ -160,31 +237,96 @@ describe("B. no test file leaks a global to the next file", () => {
     //
     // So the leak is planted HERE, the way the old guard could not see it,
     // and the door the setup file calls is asked to fail this file.
-    const name = WATCHED_GLOBALS[0];
-    const bag = globalThis as unknown as Record<string, unknown>;
-    const original = bag[name];
+    const name = "fetch";
+    const original = Object.getOwnPropertyDescriptor(globalThis, name);
     try {
       captureGlobals();
-      bag[name] = () => { throw new Error("planted global leak"); };
+      Object.defineProperty(globalThis, name, {
+        value: () => { throw new Error("planted global leak"); },
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
       // The observation point the old guard used — a later file's read — is
       // a fresh registry and has nothing to report. There is no "so far"
       // ledger anymore, which is the point: the file itself must be failed.
       expect(() => assertGlobalsRestored("planted-leak.test.ts")).toThrow(
-        /planted-leak\.test\.ts replaced fetch on globalThis/u,
+        /planted-leak\.test\.ts changed fetch on globalThis/u,
       );
       // The door repaired what it found before failing, so the worker is not
-      // poisoned by the arm itself.
-      expect(bag[name]).toBe(original);
+      // poisoned by the arm itself. A DESCRIPTOR compare, not a value compare:
+      // the fix reports a changed writable/enumerable/configurable triple too.
+      expect(Object.getOwnPropertyDescriptor(globalThis, name)).toEqual(original);
     } finally {
-      bag[name] = original;
+      if (original === undefined) delete (globalThis as unknown as Record<string, unknown>)[name];
+      else Object.defineProperty(globalThis, name, original);
     }
   });
 
-  test("the suite's REAL configuration calls the throwing door at each file's teardown", () => {
+  test("a REAL module-scope leak fixture fails its own file at teardown", () => {
+    // The runtime door is only real if the suite's own setup reaches it. Two
+    // fixture files are written outside the checkout and run through
+    // `tests/setup/test-setup.ts`: one leaks at MODULE scope with a dot
+    // assignment (which the old `beforeAll` snapshot recorded as pristine),
+    // the other through a BRACKET assignment (invisible to the old static
+    // scan). Both must be blamed by name at their own teardown.
+    const dir = createTempDir("ch-isolation-leak-fixture-");
+    const fixtures = [
+      {
+        name: "module-scope.fixture.ts",
+        source:
+          `const realFetch = globalThis.fetch;\n` +
+          `globalThis.fetch = (() => { throw new Error("module-scope dot leak"); }) as typeof fetch;\n` +
+          `test("leaks at module scope", () => { expect(globalThis.fetch).not.toBe(realFetch); });\n`,
+      },
+      {
+        name: "bracket-scope.fixture.ts",
+        source:
+          `const realFetch = globalThis.fetch;\n` +
+          `(globalThis as any)["fetch"] = (() => { throw new Error("module-scope bracket leak"); }) as typeof fetch;\n` +
+          `test("leaks through a bracket write", () => { expect(globalThis.fetch).not.toBe(realFetch); });\n`,
+      },
+    ];
+    for (const fixture of fixtures) writeFileSync(join(dir, fixture.name), fixture.source);
+    const config = join(dir, "vitest.config.mjs");
+    writeFileSync(config, `export default ${JSON.stringify({
+      root: REPO_ROOT,
+      test: {
+        environment: "node",
+        globals: true,
+        pool: "forks",
+        isolate: true,
+        setupFiles: [join(TESTS_ROOT, "setup", "test-setup.ts")],
+        include: fixtures.map((fixture) => join(dir, fixture.name)),
+        passWithNoTests: false,
+      },
+    })};\n`);
+    const child = spawnSync(
+      process.execPath,
+      [join(REPO_ROOT, "node_modules", "vitest", "vitest.mjs"), "run", "--config", config],
+      { cwd: REPO_ROOT, encoding: "utf8", timeout: 180_000 },
+    );
+    const output = `${child.stdout ?? ""}\n${child.stderr ?? ""}`;
+    expect(child.error, output).toBeUndefined();
+    expect(child.status, output).not.toBe(0);
+    for (const fixture of fixtures) {
+      expect(output, `${fixture.name} must be blamed by name`).toMatch(
+        new RegExp(`${fixture.name.replaceAll(".", "\\.")} changed fetch on globalThis and did not restore`, "u"),
+      );
+    }
+  });
+
+  test("the suite's REAL configuration snapshots at module scope and calls the throwing door at teardown", () => {
     // An arm that proves the helper can throw is not enough: the setup file
-    // the node project actually runs must call it, after the cleanup that
-    // must still run. This is the wiring half of the same guarantee.
+    // the node project actually runs must take the snapshot BEFORE the test
+    // file is imported, and call the door after the cleanup that must still
+    // run. This is the wiring half of the same guarantee.
     const setup = readFileSync(join(TESTS_ROOT, "setup", "test-setup.ts"), "utf8");
+    expect(setup).toMatch(/^captureGlobals\(\);$/mu);
+    const captureIndex = setup.indexOf("\ncaptureGlobals();");
+    const hookIndex = setup.indexOf("beforeAll(() => {");
+    expect(captureIndex, "the snapshot must run at setup module scope").toBeGreaterThan(-1);
+    expect(captureIndex).toBeLessThan(hookIndex);
     expect(setup).toMatch(/assertGlobalsRestored\(expect\.getState\(\)\.testPath/u);
     // ...and it is the LAST statement of the afterAll hook, so a thrown leak
     // does not skip the temp-dir/env/schema repairs above it.
@@ -196,31 +338,62 @@ describe("B. no test file leaks a global to the next file", () => {
     expect(hook.lastIndexOf("assertGlobalsRestored")).toBeGreaterThan(hook.lastIndexOf("resetServerConfig"));
   });
 
+  test("the static scan recognises bracket and computed writes, not just dot assignments", () => {
+    // The old pattern was `globalThis\.(\w+)\s*=`, so a bracket write passed
+    // silently. These plants drive the replacement and prove it is not
+    // vacuous; the restore and `vi.stubGlobal` controls prove it does not
+    // convict the sanctioned shapes.
+    expect(globalWriteOffenders("globalThis.fetch = fake;", "planted.test.ts")).toEqual([
+      "planted.test.ts: fetch",
+    ]);
+    expect(globalWriteOffenders('(globalThis as any)["fetch"] = fake;', "planted.test.ts")).toEqual([
+      "planted.test.ts: fetch",
+    ]);
+    expect(
+      globalWriteOffenders('const key = "fetch";\n(globalThis as any)[key] = fake;', "planted.test.ts"),
+    ).toEqual(["planted.test.ts:2"]);
+    expect(
+      globalWriteOffenders(
+        '(globalThis as any)["fetch"] = fake;\nglobalThis.fetch = realFetch;',
+        "planted.test.ts",
+      ),
+    ).toEqual([]);
+    expect(
+      globalWriteOffenders(
+        '(globalThis as any)["fetch"] = fake;\nglobalThis["fetch"] = originalFetch;',
+        "planted.test.ts",
+      ),
+    ).toEqual([]);
+    expect(
+      globalWriteOffenders('vi.stubGlobal("fetch", fake);\nvi.unstubAllGlobals();', "planted.test.ts"),
+    ).toEqual([]);
+    // Source-as-data is not a write: the quoted interior is blanked by the view.
+    expect(
+      globalWriteOffenders("const sample = 'globalThis[\"fetch\"] = fake';", "planted.test.ts"),
+    ).toEqual([]);
+  });
+
   test("a file that replaces a global captures and restores it in the same file", () => {
-    // Static half: a file that writes `globalThis.X = …` must also contain a
-    // restoring assignment. This catches the shape the runtime check cannot —
-    // a leak in a file that happens to run last in its worker.
-    const offenders: string[] = [];
-    for (const { rel, source } of FILES) {
-      const assigned = new Set<string>();
-      for (const m of source.matchAll(/globalThis\.(\w+)\s*=/g)) assigned.add(m[1]!);
-      for (const m of source.matchAll(/vi\.stubGlobal\s*\(\s*["'](\w+)["']/g)) assigned.add(m[1]!);
-      if (assigned.size === 0) continue;
-      const restoresAll = /vi\.unstubAllGlobals\s*\(/.test(source);
-      for (const name of assigned) {
-        // A restore is an assignment of a captured original back to the global.
-        const restores = new RegExp(
-          `globalThis\\.${name}\\s*=\\s*(original|real|pristine|saved|prev)\\w*`,
-          "i",
-        ).test(source);
-        if (!restores && !restoresAll) offenders.push(`${rel}: ${name}`);
-      }
-    }
+    // Static half: a file that writes a global — dot, bracket or computed —
+    // must also contain a restoring assignment. This catches the shape the
+    // runtime check cannot: a leak in a file that happens to run last in its
+    // worker.
+    const offenders = FILES.flatMap(({ rel, source }) => globalWriteOffenders(source, rel));
     expect(
       offenders,
       "a test file replaces a global with no restore in the same file — under " +
         "`isolate: false` the stub outlives the file and poisons the next one",
     ).toEqual([]);
+  });
+
+  test("the sanctioned vi.stubGlobal / unstubAllGlobals pair is not reported as a leak", () => {
+    // The fix must not fail the shape fourteen cockpit files use. The setup
+    // calls unstubAllGlobals before its descriptor compare, so the exact
+    // entry descriptor must be back in place.
+    const original = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    vi.stubGlobal("fetch", vi.fn());
+    vi.unstubAllGlobals();
+    expect(Object.getOwnPropertyDescriptor(globalThis, "fetch")).toEqual(original);
   });
 });
 

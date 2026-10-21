@@ -68,7 +68,13 @@ if (!Number.isSafeInteger(REPORT_CAP) || REPORT_CAP < 1 || REPORT_CAP > 20) {
   );
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // The harness appends real iframes; jsdom mirrors each one as a numeric
+  // accessor on `globalThis`. Removing the elements removes those accessors,
+  // so the global boundary this file inherited is restored exactly.
+  document.body.replaceChildren();
+});
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
 

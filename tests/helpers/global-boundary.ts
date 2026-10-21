@@ -20,6 +20,21 @@
  * `Failed to parse URL from /api/run/start`: the real undici `fetch` refusing
  * a relative URL, i.e. no stub in place at all.
  *
+ * ── The TWO observations the old shape could not make ────────────────────
+ *
+ * A finite watchlist (`fetch`, `EventSource`, …) misses every global it does
+ * not name. A module-scope leak misses even a watched one: `captureGlobals()`
+ * used to run from the setup file's `beforeAll`, which fires AFTER the test
+ * file's module body, so a `globalThis.fetch = fake` written at module scope
+ * was stored as that file's pristine entry value. And a bracket / computed
+ * write, `(globalThis as any)["fetch"] = fake`, was invisible to the static
+ * scan's `globalThis.\w+ =` pattern.
+ *
+ * So the snapshot is taken from the setup MODULE's own scope (before vitest
+ * imports the test file) and is a descriptor snapshot of EVERY own property of
+ * `globalThis`, not a list of names. A replacement is a changed descriptor,
+ * whether it was spelled with a dot, a bracket or a computed key.
+ *
  * ── Where the snapshot lives, and who fails ──────────────────────────────
  *
  * Vitest RE-EXECUTES setup files for every test file. Module-scope state in
@@ -38,32 +53,20 @@
  * leaked stub as its own pristine entry value.
  */
 
-/**
- * The globals tests actually replace. A watchlist rather than "diff all of
- * `globalThis`" because the jsdom and node environments legitimately differ,
- * and vitest itself installs globals — a blanket diff would report the
- * environment, not the test.
- */
-export const WATCHED_GLOBALS = [
-  "fetch",
-  "EventSource",
-  "WebSocket",
-  "ResizeObserver",
-  "IntersectionObserver",
-  "requestAnimationFrame",
-  "cancelAnimationFrame",
-  "matchMedia",
-] as const;
+/** One own property of `globalThis` as it stood when the file started. */
+type GlobalDescriptor = PropertyDescriptor;
 
-/** The value each watched global held when the current test file started. */
-const entryGlobals = new Map<string, unknown>();
+/** Every own property descriptor, keyed by property name or symbol. */
+const entryDescriptors = new Map<PropertyKey, GlobalDescriptor>();
 
-const bag = globalThis as unknown as Record<string, unknown>;
+function snapshotDescriptors(): Map<PropertyKey, GlobalDescriptor> {
+  const descriptors = Object.getOwnPropertyDescriptors(globalThis) as Record<PropertyKey, GlobalDescriptor>;
+  return new Map(Reflect.ownKeys(descriptors).map((key) => [key, descriptors[key]!]));
+}
 
 /**
- * Record the globals a test file inherits. Called from the setup file's
- * `beforeAll`, i.e. after the environment is installed and after the file's
- * own module scope, but before its first test.
+ * Record the complete `globalThis` state a test file inherits. Called from the
+ * setup file's module scope, i.e. before vitest imports the test file.
  *
  * The comparison is against the file's OWN entry state rather than a
  * worker-wide "pristine" snapshot, because vitest switches environment between
@@ -72,27 +75,64 @@ const bag = globalThis as unknown as Record<string, unknown>;
  * hands the next one a global it did not inherit itself.
  */
 export function captureGlobals(): void {
-  entryGlobals.clear();
-  for (const name of WATCHED_GLOBALS) entryGlobals.set(name, bag[name]);
+  entryDescriptors.clear();
+  for (const [name, descriptor] of snapshotDescriptors()) entryDescriptors.set(name, descriptor);
+}
+
+function sameDescriptor(left: GlobalDescriptor | undefined, right: GlobalDescriptor | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return (
+    Object.is(left.value, right.value) &&
+    Object.is(left.get, right.get) &&
+    Object.is(left.set, right.set) &&
+    left.writable === right.writable &&
+    left.enumerable === right.enumerable &&
+    left.configurable === right.configurable
+  );
 }
 
 /**
- * Put every watched global back to its entry value. Called from the setup
- * file's `afterAll`. Returns the globals this file leaked, already repaired.
+ * Put every own property of `globalThis` back to its entry descriptor. Called
+ * from the setup file's `afterAll`. Returns the properties this file changed,
+ * already repaired where the runtime allows a repair.
  *
  * Repairing AND reporting is deliberate: the repair stops the run cascading
  * into failures that read as bugs in innocent files, and the report stops the
- * repair from hiding the defect.
+ * repair from hiding the defect. A property the runtime refuses to repair is
+ * still reported.
  */
-export function restoreGlobals(): string[] {
-  const leaked: string[] = [];
-  for (const [name, entryValue] of entryGlobals) {
-    if (bag[name] === entryValue) continue;
-    leaked.push(name);
-    if (entryValue === undefined) delete bag[name];
-    else bag[name] = entryValue;
+export function restoreGlobals(): PropertyKey[] {
+  const changed: PropertyKey[] = [];
+  const current = snapshotDescriptors();
+  const names = [...new Set<PropertyKey>([...entryDescriptors.keys(), ...current.keys()])].sort((a, b) =>
+    String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0);
+  for (const name of names) {
+    const before = entryDescriptors.get(name);
+    const now = current.get(name);
+    if (sameDescriptor(before, now)) continue;
+    // Node registers its undici global-dispatcher symbols lazily in the test
+    // worker, after the setup snapshot but before the first test. They are
+    // runtime environment, not a global the file replaced, and they carry no
+    // useful string name to report. A symbol a TEST writes is still caught by
+    // the static scan (a computed `globalThis[...] =` write).
+    if (before === undefined && typeof name === "symbol") continue;
+    changed.push(name);
+    try {
+      if (before === undefined) Reflect.deleteProperty(globalThis, name);
+      else Object.defineProperty(globalThis, name, before);
+    } catch {
+      // A non-configurable accessor cannot be redefined. The leak is still
+      // reported; there is no repair the language permits.
+      if (before !== undefined && "value" in before) {
+        try {
+          (globalThis as unknown as Record<PropertyKey, unknown>)[name] = before.value;
+        } catch {
+          // Reported below either way.
+        }
+      }
+    }
   }
-  return leaked;
+  return changed;
 }
 
 /**
@@ -110,7 +150,7 @@ export function restoreGlobals(): string[] {
  * stub as its own entry value, so the victim can never identify it.
  *
  * The file that leaks is the only one that can be blamed, and it can always
- * be blamed: its `beforeAll` snapshot and its `afterAll` comparison live in
+ * be blamed: its module-scope snapshot and its `afterAll` comparison live in
  * the SAME registry. So the report belongs at that file's teardown, and it
  * has to THROW: a repair that only logs is a silent repair, and the defect
  * then surfaces as an unrelated failure in the next file.
@@ -122,8 +162,9 @@ export function restoreGlobals(): string[] {
 export function assertGlobalsRestored(testFile: string): void {
   const leaked = restoreGlobals();
   if (leaked.length === 0) return;
+  const shown = leaked.slice(0, 10).map(String).join(", ") + (leaked.length > 10 ? ", …" : "");
   throw new Error(
-    `${testFile} replaced ${leaked.join(", ")} on globalThis and did not restore ` +
+    `${testFile} changed ${shown} on globalThis and did not restore ` +
       `${leaked.length === 1 ? "it" : "them"}; under the suite's single worker the stub ` +
       `outlives the file and poisons the next one. Capture the original and restore it ` +
       `(or use vi.stubGlobal and vi.unstubAllGlobals).`,

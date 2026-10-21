@@ -68,7 +68,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  globalThis.EventSource = originalEventSource;
+  // Node has no EventSource; assigning `undefined` would leave an own
+  // property this file never inherited. Delete it to restore the boundary.
+  if (originalEventSource === undefined) delete (globalThis as { EventSource?: unknown }).EventSource;
+  else globalThis.EventSource = originalEventSource;
   currentChatId.set(null);
   clearMessages();
   vi.useRealTimers();

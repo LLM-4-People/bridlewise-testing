@@ -8,6 +8,7 @@ import { mergeShardReports } from "../../scripts/test-shard-merge.mjs";
 import {
   MANIFEST_SCHEMA,
   SHARD_REPORT_SCHEMA,
+  assignmentHash,
   planShards,
   wrapShardReport,
 } from "../../scripts/test-shard-manifest.mjs";
@@ -18,16 +19,32 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+/**
+ * A REAL PASSING ROW IS THE DEFAULT. This builder used to emit
+ * `assertionResults: []`, so every merge arm exercised a report shape the
+ * real JSON reporter never writes — and the empty row was exactly the
+ * omission the merge failed to judge. `tests` is the number of tests per
+ * file, and the assertion rows now carry them.
+ */
 function shardReport(files, { success = true, tests = 1 } = {}) {
+  const total = files.length * tests;
   return {
     success,
-    numTotalTests: success ? files.length * tests : 0,
-    numPassedTests: success ? files.length * tests : 0,
-    numFailedTests: success ? 0 : 1,
-    numFailedTestSuites: success ? 0 : 1,
+    numTotalTests: total,
+    numPassedTests: success ? total : 0,
+    numFailedTests: success ? 0 : total,
+    numFailedTestSuites: success ? 0 : files.length,
     numPendingTests: 0,
     numTodoTests: 0,
-    testResults: files.map((name) => ({ name, status: "passed", assertionResults: [] })),
+    testResults: files.map((name) => ({
+      name,
+      status: success ? "passed" : "failed",
+      message: success ? "" : "planted suite failure",
+      assertionResults: Array.from({ length: tests }, () => ({
+        status: success ? "passed" : "failed",
+        failureMessages: success ? [] : ["planted test failure"],
+      })),
+    })),
   };
 }
 
@@ -93,6 +110,7 @@ function merge(work, fixture, shardPaths, overrides = {}) {
     root: work,
     manifestPath: fixture.manifest,
     planPath: fixture.planPath,
+    manifestSourcePath: fixture.source,
     shardPaths,
     expectedShards: fixture.plan.shardCount,
     headSha: fixture.plan.headSha,
@@ -296,6 +314,144 @@ test("the shard merge refuses a row that records a failed suite while the summar
     wrappedClean.vitest.testResults[0].assertionResults = [{ status: "passed" }, { status: "passed" }];
     writeJson(clean, wrappedClean);
     assert.equal(merge(work, fixture, [clean]).failedTests, 0);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("the shard merge derives its counts from the rows and refuses an omitted row", () => {
+  // The defect: the summary integers were judged beside the rows, so a
+  // report could declare ten green tests next to an empty `assertionResults`
+  // array — or three tests next to one passing row — and merge green. The
+  // rows are the only record of what ran; the integers are a claim about it.
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-row-counts-"));
+  try {
+    const fixture = planFixture(work, ["tests/a.test.ts"]);
+
+    // Two claimed tests, one suite row, no assertion rows.
+    const omitted = writeWrapped(work, fixture, 1, { tests: 2 });
+    const omittedDoc = JSON.parse(readFileSync(omitted, "utf8"));
+    omittedDoc.vitest.testResults[0].assertionResults = [];
+    writeJson(omitted, omittedDoc);
+    assert.throws(
+      () => merge(work, fixture, [omitted]),
+      /records zero assertions; a supported file that ran no test is not evidence/u,
+    );
+
+    // Three claimed tests, one passing row that records one of them.
+    const short = writeWrapped(work, fixture, 1, { tests: 3 });
+    const shortDoc = JSON.parse(readFileSync(short, "utf8"));
+    shortDoc.vitest.testResults[0].assertionResults = [{ status: "passed" }];
+    writeJson(short, shortDoc);
+    assert.throws(
+      () => merge(work, fixture, [short]),
+      /testResults record 1 assertion\(s\), but numTotalTests declares 3/u,
+    );
+
+    // The same report with every row present merges: the arm is not vacuous.
+    const complete = writeWrapped(work, fixture, 1, { tests: 2 });
+    assert.equal(merge(work, fixture, [complete]).testCount, 2);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("the shard merge refuses a passed row that carries a failure message", () => {
+  // `status: "passed"` with a populated `failureMessages` (or a suite
+  // `message`) is a mislabelled failure. The merge ignored both fields, so a
+  // report could keep its failure text while claiming every row passed.
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-failure-text-"));
+  try {
+    const fixture = planFixture(work, ["tests/a.test.ts"]);
+
+    const testLied = writeWrapped(work, fixture, 1);
+    const testDoc = JSON.parse(readFileSync(testLied, "utf8"));
+    testDoc.vitest.testResults[0].assertionResults[0].failureMessages = [
+      "AssertionError: expected 1 to be 2",
+    ];
+    writeJson(testLied, testDoc);
+    assert.throws(
+      () => merge(work, fixture, [testLied]),
+      /records a passed test carrying failure messages: AssertionError: expected 1 to be 2/u,
+    );
+
+    const suiteLied = writeWrapped(work, fixture, 1);
+    const suiteDoc = JSON.parse(readFileSync(suiteLied, "utf8"));
+    suiteDoc.vitest.testResults[0].message = "AssertionError: hidden in the suite message";
+    writeJson(suiteLied, suiteDoc);
+    assert.throws(
+      () => merge(work, fixture, [suiteLied]),
+      /records a passed suite carrying a failure message: AssertionError/u,
+    );
+
+    // The clean row — empty failureMessages, empty message — merges.
+    const clean = writeWrapped(work, fixture, 1);
+    assert.equal(merge(work, fixture, [clean]).testCount, 1);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("a hand-falsified plan with a recomputed assignment hash is refused", () => {
+  // The defect: `readPlan` proved only that the plan's hash described the
+  // plan's own bytes. A plan that moved a file between shards and recomputed
+  // the hash agreed with itself, and the merge compared the reports with the
+  // plan it had just read — so the canonical assignment was never consulted.
+  // Re-derive it from the measured manifest and refuse the disagreement.
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-falsified-plan-"));
+  try {
+    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts", "tests/c.test.ts"], {
+      shardCount: 2,
+    });
+    // Canonical LPT (all weights 1) is shard 1 = [a, c], shard 2 = [b].
+    fixture.plan.shards = [
+      { index: 1, weightMs: 2, files: ["tests/a.test.ts", "tests/b.test.ts"] },
+      { index: 2, weightMs: 1, files: ["tests/c.test.ts"] },
+    ];
+    fixture.plan.assignmentHash = assignmentHash(fixture.plan.shards);
+    writeJson(fixture.planPath, fixture.plan);
+    const first = writeWrapped(work, fixture, 1, { tests: 1 });
+    const second = writeWrapped(work, fixture, 2, { tests: 1 });
+    assert.throws(
+      () => merge(work, fixture, [first, second]),
+      /does not match the assignment re-derived from the measured manifest/u,
+    );
+
+    // The exact round-5 shape: every file in shard 1, shard 2 empty, hash
+    // recomputed. The old merge wrote a receipt with `shardCount: 2` while
+    // one shard had run nothing.
+    const emptyShardFixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"], { shardCount: 2 });
+    emptyShardFixture.plan.shards = [
+      { index: 1, weightMs: 2, files: ["tests/a.test.ts", "tests/b.test.ts"] },
+      { index: 2, weightMs: 0, files: [] },
+    ];
+    emptyShardFixture.plan.assignmentHash = assignmentHash(emptyShardFixture.plan.shards);
+    writeJson(emptyShardFixture.planPath, emptyShardFixture.plan);
+    const full = writeWrapped(work, emptyShardFixture, 1, { tests: 1 });
+    const empty = writeWrapped(work, emptyShardFixture, 2, { tests: 0 });
+    assert.throws(
+      () => merge(work, emptyShardFixture, [full, empty]),
+      /does not match the assignment re-derived from the measured manifest|has no files while the manifest/u,
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("a plan with a zero-file shard is refused while the manifest is non-empty", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-zero-file-"));
+  try {
+    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"], { shardCount: 2 });
+    // Keep the canonical first shard and empty the second.
+    fixture.plan.shards[1] = { index: 2, weightMs: 0, files: [] };
+    fixture.plan.assignmentHash = assignmentHash(fixture.plan.shards);
+    writeJson(fixture.planPath, fixture.plan);
+    const first = writeWrapped(work, fixture, 1, { tests: 1 });
+    const empty = writeWrapped(work, fixture, 2, { tests: 0 });
+    assert.throws(
+      () => merge(work, fixture, [first, empty]),
+      /has no files while the manifest holds 2 supported file\(s\); it ran nothing/u,
+    );
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

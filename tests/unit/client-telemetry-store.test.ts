@@ -93,12 +93,10 @@ beforeEach(() => {
 
 afterEach(() => {
   installTelemetrySink(null);
-  // Remove the fake window so later suites start clean.
-  Object.defineProperty(globalThis, "window", {
-    value: undefined,
-    configurable: true,
-    writable: true,
-  });
+  // Remove the fake window so later suites start clean. Node has no `window`
+  // at all; setting it to `undefined` would leave an own property the file
+  // never inherited.
+  delete (globalThis as { window?: unknown }).window;
   resetTelemetry();
 });
 
@@ -160,7 +158,7 @@ describe("capture wiring — the browser's error hooks feed the buffer", () => {
   });
 
   test("an attach with no window (SSR/tests) stays inert without throwing", () => {
-    Object.defineProperty(globalThis, "window", { value: undefined, configurable: true, writable: true });
+    delete (globalThis as { window?: unknown }).window;
     expect(() => attachClientTelemetry()).not.toThrow();
   });
 
@@ -368,7 +366,10 @@ describe("flush transport — the hidden page goes out through the beacon door",
   const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
 
   afterEach(() => {
-    if (originalNavigator !== undefined) {
+    if (originalNavigator === undefined) {
+      // Node has no navigator; deleting restores the absent own property.
+      delete (globalThis as { navigator?: unknown }).navigator;
+    } else {
       Object.defineProperty(globalThis, "navigator", originalNavigator);
     }
   });

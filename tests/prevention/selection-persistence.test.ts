@@ -20,12 +20,21 @@ import {
 } from "../../src/state/persistence";
 import { MemoryStorage } from "../helpers/memory-storage.ts";
 
+// Node has no localStorage; capture its exact entry descriptor so a file that
+// installs a double can put the boundary back, including deleting the property
+// when it was absent.
+const originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+
 beforeEach(() => {
   (globalThis as { localStorage: Storage }).localStorage = new MemoryStorage();
 });
 
 afterEach(() => {
-  (globalThis as { localStorage: Storage | undefined }).localStorage = undefined;
+  if (originalLocalStorage === undefined) {
+    delete (globalThis as { localStorage?: Storage }).localStorage;
+  } else {
+    Object.defineProperty(globalThis, "localStorage", originalLocalStorage);
+  }
 });
 
 describe("selection-persistence", () => {
@@ -100,7 +109,7 @@ describe("selection-persistence", () => {
   });
 
   it("helpers are safe when localStorage is absent (no throw)", () => {
-    (globalThis as { localStorage: Storage | undefined }).localStorage = undefined;
+    delete (globalThis as { localStorage?: Storage }).localStorage;
     expect(() => persistGet("x")).not.toThrow();
     expect(() => persistSet("x", "y")).not.toThrow();
     const a = atom<string | null>(null);

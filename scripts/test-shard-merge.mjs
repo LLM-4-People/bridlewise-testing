@@ -23,6 +23,7 @@ import { pathToFileURL } from "node:url";
 import {
   PLAN_SCHEMA,
   SHARD_REPORT_SCHEMA,
+  assignShards,
   assignmentHash as hashAssignment,
   fail,
   manifestHash as hashManifest,
@@ -118,7 +119,7 @@ function readShard(root, path, index, expected, requireTiming) {
   if (!Array.isArray(results)) {
     fail(`shard ${index}: report has no testResults array`);
   }
-  const files = results.map((result, resultIndex) => {
+  const rows = results.map((result, resultIndex) => {
     if (result === null || typeof result !== "object") {
       fail(`shard ${index}: testResults[${resultIndex}] is not an object`);
     }
@@ -126,40 +127,84 @@ function readShard(root, path, index, expected, requireTiming) {
     // THE SUMMARY IS A CLAIM; THE ROW IS THE RECORD. `numFailedTestSuites`
     // and `numFailedTests` are integers the report carries beside the rows,
     // and a wrapped report could claim zero on both while a row beneath them
-    // recorded a failed suite. This merge judged only the integers, so that
-    // row merged into a green receipt. Judge the test-level records too:
-    // a suite that did not pass, or a test that did not pass, refuses the
-    // shard whatever the totals say.
+    // recorded a failed suite. Worse, the rows could be OMITTED: a report
+    // declaring ten green tests beside one empty `assertionResults` array
+    // merged as green because the merge counted only the summary integers.
+    // Every suite, every test and every failure message is judged here, and
+    // the counts below are derived from these rows — never from the summary.
     if (result.status !== "passed") {
       fail(
         `shard ${index}: ${file} records a ${String(result.status)} test suite ` +
           `(the report's summary counts claimed it was green)`,
       );
     }
+    if (result.message !== undefined && result.message !== null && String(result.message).length > 0) {
+      fail(
+        `shard ${index}: ${file} records a passed suite carrying a failure message: ` +
+          `${String(result.message).slice(0, 200)}`,
+      );
+    }
     if (!Array.isArray(result.assertionResults)) {
       fail(`shard ${index}: ${file} has no assertionResults; the test-level result cannot be judged`);
     }
+    if (result.assertionResults.length === 0) {
+      fail(
+        `shard ${index}: ${file} records zero assertions; a supported file that ran no ` +
+          `test is not evidence that it passed`,
+      );
+    }
     for (const assertion of result.assertionResults) {
-      const status = assertion !== null && typeof assertion === "object" ? assertion.status : undefined;
-      if (status !== "passed") {
+      if (assertion === null || typeof assertion !== "object") {
+        fail(`shard ${index}: ${file} records a test result that is not an object`);
+      }
+      if (assertion.status !== "passed") {
         fail(
-          `shard ${index}: ${file} records a ${String(status)} test ` +
+          `shard ${index}: ${file} records a ${String(assertion.status)} test ` +
             `(the report's summary counts claimed it was green)`,
         );
       }
+      const failureMessages = assertion.failureMessages;
+      const recorded = Array.isArray(failureMessages)
+        ? failureMessages.length > 0 ? failureMessages.map(String).join("\n") : ""
+        : failureMessages === undefined || failureMessages === null ? "" : String(failureMessages);
+      if (recorded.length > 0) {
+        fail(
+          `shard ${index}: ${file} records a passed test carrying failure messages: ` +
+            `${recorded.slice(0, 200)}`,
+        );
+      }
     }
-    return file;
+    return { file, assertions: result.assertionResults.length };
   });
+  const files = rows.map((row) => row.file);
   const duplicates = files.filter((file, fileIndex) => files.indexOf(file) !== fileIndex);
   if (duplicates.length > 0) {
     fail(`shard ${index}: duplicate test file(s): ${[...new Set(duplicates)].join(", ")}`);
   }
-  // BOTH COUNTS COME FROM THE GREEN RULE. This used to re-read
-  // `numPassedTests` here and FALL BACK to `total - failed - skipped - todo`
-  // when it was absent — a second derivation of the same count, and one that
-  // could disagree with the report. Absence and fractions are refused by
-  // `requireGreenReport` before this line.
-  const totalTests = green.totalTests;
+  // THE ROWS ARE THE SINGLE SOURCE OF THE COUNTS. The summary integers used
+  // to be trusted beside the rows, so a report could declare any test count
+  // it liked while recording fewer (or no) assertions. Sum the rows, require
+  // the declaration to agree, and hand the row sum to the receipt.
+  const rowTotal = rows.reduce((sum, row) => sum + row.assertions, 0);
+  if (rowTotal !== green.totalTests) {
+    fail(
+      `shard ${index}: testResults record ${String(rowTotal)} assertion(s), but ` +
+        `numTotalTests declares ${String(green.totalTests)}; the rows are the record ` +
+        `and the total is only a claim`,
+    );
+  }
+  if (rowTotal !== green.passedTests) {
+    fail(
+      `shard ${index}: testResults record ${String(rowTotal)} assertion(s), but ` +
+        `numPassedTests declares ${String(green.passedTests)}`,
+    );
+  }
+  // BOTH COUNTS COME FROM THE ROWS. This used to re-read `numPassedTests` here
+  // and FALL BACK to `total - failed - skipped - todo` when it was absent — a
+  // second derivation of the same count, and one that could disagree with the
+  // report. Absence and fractions are refused by `requireGreenReport` before
+  // this line; the add-up check keeps the other declared counts honest.
+  const totalTests = rowTotal;
   const passedTests = green.passedTests;
   if (passedTests < 0 || passedTests + failedTests + pendingTests + todoTests !== totalTests) {
     fail(
@@ -251,19 +296,63 @@ export function mergeShardReports({
   if (plan.manifestHash !== computedManifestHash) {
     fail("plan: manifest hash does not match the supplied manifest");
   }
-  const manifestSource = manifestSourcePath == null
-    ? undefined
-    : readSourceManifest(repositoryRoot, manifestSourcePath);
-  if (manifestSource !== undefined) {
-    if (manifestSource.hash !== computedManifestHash) {
-      fail("manifest source: hash does not match the supplied manifest");
+  if (manifestSourcePath == null) {
+    fail(
+      "manifest source: --manifest-source is required to re-derive the shard assignment. " +
+        "Without the measured file list and weights the plan's own claim about its shards " +
+        "is the only account of who ran what.",
+    );
+  }
+  const manifestSource = readSourceManifest(repositoryRoot, manifestSourcePath);
+  if (manifestSource.hash !== computedManifestHash) {
+    fail("manifest source: hash does not match the supplied manifest");
+  }
+  if (plan.manifestHash !== manifestSource.hash) {
+    fail("manifest source: hash does not match the plan");
+  }
+  if (manifestSource.files.length !== manifest.length) {
+    fail("manifest source: supported file count does not match the supplied manifest");
+  }
+  // THE PLAN IS A CLAIM ABOUT THE ASSIGNMENT, NOT THE ASSIGNMENT. `readPlan`
+  // only proves the plan's hash describes the plan's own bytes: a hand-written
+  // plan could put every file in shard 1, leave shard 2 empty and carry a
+  // recomputed hash. The merge accepted that because it compared the reports
+  // with the plan it had just read. Re-derive the canonical LPT assignment
+  // from the measured manifest here, at the lowest point that has the weights,
+  // and require the plan to BE that assignment.
+  const canonicalShards = assignShards(manifestSource.files, plan.shardCount);
+  if (plan.shards.length !== canonicalShards.length) {
+    fail("plan: shard list does not match the manifest's shard count");
+  }
+  for (const [index, planned] of plan.shards.entries()) {
+    const canonical = canonicalShards[index];
+    if (planned.index !== canonical.index) {
+      fail(`plan: shard ${String(index + 1)} has index ${String(planned.index)}`);
     }
-    if (plan.manifestHash !== manifestSource.hash) {
-      fail("manifest source: hash does not match the plan");
+    if (planned.files.length === 0) {
+      fail(
+        `plan: shard ${String(index + 1)} has no files while the manifest holds ` +
+          `${String(manifestSource.files.length)} supported file(s); it ran nothing`,
+      );
     }
-    if (manifestSource.files.length !== manifest.length) {
-      fail("manifest source: supported file count does not match the supplied manifest");
+    if ([...planned.files].sort().join("\n") !== canonical.files.join("\n")) {
+      fail(
+        `plan: shard ${String(index + 1)} does not match the assignment re-derived from ` +
+          `the measured manifest`,
+      );
     }
+    if (planned.weightMs !== canonical.weightMs) {
+      fail(
+        `plan: shard ${String(index + 1)} weight ${String(planned.weightMs)} does not match ` +
+          `the measured manifest's ${String(canonical.weightMs)}`,
+      );
+    }
+  }
+  const canonicalAssignmentHash = hashAssignment(canonicalShards);
+  if (canonicalAssignmentHash !== plan.assignmentHash) {
+    fail(
+      "plan: assignmentHash does not match the assignment re-derived from the measured manifest",
+    );
   }
   const shards = shardPaths.map((path, index) => readShard(repositoryRoot, path, index + 1, {
     headSha: plan.headSha.toLowerCase(),
@@ -318,7 +407,7 @@ export function mergeShardReports({
     shardCount: expectedShards,
     ...(runnerClass === undefined ? {} : { runnerClass }),
     manifestHash,
-    assignmentHash: plan.assignmentHash,
+    assignmentHash: canonicalAssignmentHash,
     fileCount: manifest.length,
     testCount: shards.reduce((sum, shard) => sum + shard.totalTests, 0),
     passedTests: shards.reduce((sum, shard) => sum + shard.passedTests, 0),

@@ -16,7 +16,7 @@
  *      follows a real drag is swallowed — a drag must not also switch tabs.
  *      A press below the start threshold stays a click.
  */
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { flushSync, mount, unmount } from "svelte";
 
 import {
@@ -40,7 +40,18 @@ class InertResizeObserver {
   unobserve(): void {}
   disconnect(): void {}
 }
+const entryResizeObserver = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= InertResizeObserver;
+// jsdom has no ResizeObserver. The fallback is installed at module scope for
+// this file's components; put the entry descriptor back at teardown so the
+// next file inherits the environment it had, not this file's polyfill.
+afterAll(() => {
+  if (entryResizeObserver === undefined) {
+    delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  } else {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = entryResizeObserver;
+  }
+});
 
 beforeEach(() => {
   window.sessionStorage.clear();

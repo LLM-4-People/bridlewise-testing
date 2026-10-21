@@ -16,7 +16,7 @@
  *      standalone fallback (no shell above), which is the same component
  *      path minus the routing ladder.
  */
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, test, vi } from "vitest";
 import { flushSync, mount, tick, unmount } from "svelte";
 
 import Reel from "../../src/cockpit/rooms/Reel.svelte";
@@ -32,7 +32,18 @@ class InertResizeObserver {
   unobserve(): void {}
   disconnect(): void {}
 }
+const entryResizeObserver = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= InertResizeObserver;
+// jsdom has no ResizeObserver. The fallback is installed at module scope for
+// this file's components; put the entry descriptor back at teardown so the
+// next file inherits the environment it had, not this file's polyfill.
+afterAll(() => {
+  if (entryResizeObserver === undefined) {
+    delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  } else {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = entryResizeObserver;
+  }
+});
 
 let host: HTMLElement | null = null;
 let app: object | null = null;

@@ -112,12 +112,32 @@ const INITIAL_ENV: Record<string, string> = { ...process.env } as Record<string,
 // (vitest re-executes setup files per test file, so module state here is
 // per-file and a worker-scoped ledger of leaks would be wiped between files).
 //
-// The contract this pair of hooks enforces: the value each watched global
-// holds when a file starts is the value it holds when that file ends.
+// THE SNAPSHOT IS TAKEN HERE, AT MODULE SCOPE, BECAUSE THIS IS THE LAST POINT
+// BEFORE VITEST IMPORTS THE TEST FILE. A `beforeAll` snapshot runs after the
+// file's module body, so a module-scope `globalThis.fetch = fake` was stored
+// as that file's own pristine value and could never be reported. This module
+// body is re-executed for every test file, and the helper's snapshot is
+// per-file for the same reason.
+//
+// FRAMEWORK-INSTALLED GLOBALS ARE ENVIRONMENT, NOT A FILE'S LEAK. Svelte's
+// dev client defines `$state`/`$effect`/`$derived`/`$inspect`/`$props`/
+// `$bindable` on `globalThis`, and `svelte/internal/disclose-version` adds
+// `window.__svelte` the first time a component module loads. Preload both in
+// the DOM environment BEFORE the boundary snapshot, so the framework's own
+// install is part of the file's entry state; importing a component later then
+// adds nothing. Without this, every cockpit file would be blamed for the
+// framework's globals rather than for a global it replaced.
+if (typeof window !== "undefined") {
+  await import("svelte");
+  // @ts-expect-error -- the package export ships no declaration file.
+  await import("svelte/internal/disclose-version");
+}
+//
+// The contract the hooks below enforce: every own property of `globalThis`
+// holds its entry descriptor when the file ends.
+captureGlobals();
 
 beforeAll(() => {
-  captureGlobals();
-
   // The test file's `vi.hoisted`/top-level env mutation has already run (it
   // runs during the test file's module initialization, before setup hooks).
   // Re-resolve the singleton so it reflects the current env. Tests that read
@@ -133,11 +153,12 @@ afterAll(() => {
   // unaffected (it is idempotent); files that forget, or that stub inside a
   // test that throws before its teardown, are covered here.
   //
-  // Then the watchlist compare, because `unstubAllGlobals` is blind to direct
-  // `globalThis.x = …` assignment — the shape nine files actually use. The
-  // compare runs at the END of this hook (below), after the cleanup that must
-  // not be skipped by its failure, and it THROWS for the file that leaked:
-  // under `isolate: true` a later file cannot see (or blame) this one.
+  // Then the descriptor compare, because `unstubAllGlobals` is blind to direct
+  // `globalThis.x = …` (or `globalThis["x"] = …`) assignment — the shape nine
+  // files actually use. It compares EVERY own property, not a watchlist, and
+  // runs at the END of this hook (below), after the cleanup that must not be
+  // skipped by its failure, and it THROWS for the file that leaked: under
+  // `isolate: true` a later file cannot see (or blame) this one.
   vi.unstubAllGlobals();
 
   // TEMP-DIR SWEEP — the file-scope half of the temp-dir owner contract.

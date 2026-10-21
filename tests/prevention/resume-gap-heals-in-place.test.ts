@@ -105,7 +105,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  (globalThis as unknown as { EventSource: unknown }).EventSource = originalEventSource;
+  // Node has no EventSource at all. Assigning `undefined` would leave an own
+  // property the file never inherited; delete it instead so the descriptor
+  // boundary matches the entry state exactly.
+  if (originalEventSource === undefined) {
+    delete (globalThis as { EventSource?: unknown }).EventSource;
+  } else {
+    (globalThis as unknown as { EventSource: unknown }).EventSource = originalEventSource;
+  }
   globalThis.fetch = realFetch;
   currentChatId.set(null);
   clearMessages();

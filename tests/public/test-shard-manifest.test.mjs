@@ -237,34 +237,40 @@ test("the manifest verifier accounts for every live file exactly once", () => {
         { file: join(work, "tests/private.test.ts"), projectName: "node" },
       ],
     });
-    const verdict = verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: "planted-tree" });
+    // The fingerprint is injected: this fixture is not a git checkout. The
+    // verifier still computes the tree itself — a caller cannot replace it.
+    const fingerprint = () => "planted-tree";
+    const verdict = verifyManifest({
+      root: work, manifestPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
+    });
     assert.equal(verdict.fileCount, 2);
     assert.equal(verdict.excludedCount, 1);
     assert.equal(verdict.liveCount, 3);
+    assert.equal(verdict.tree, "planted-tree");
 
     // A LISTING FROM ANOTHER TREE IS REFUSED: the wrapper records the working
     // tree it selected from, and a different tree cannot be certified by it.
     assert.throws(
-      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: "another-tree" }),
-      /bound to tree planted-tree/,
+      () => verifyManifest({
+        root: work, manifestPath: manifest, livePath: live, tree: "another-tree", fingerprint,
+      }),
+      /--tree another-tree is not the working tree being verified \(planted-tree\)/u,
     );
-    // And the UNBOUND shape — a plain `vitest list` array — is refused too:
+    // The same listing with no explicit tree is still verified against the
+    // computed tree: `--tree` is a cross-check, not the source of the check.
+    assert.equal(
+      verifyManifest({ root: work, manifestPath: manifest, livePath: live, fingerprint }).liveCount,
+      3,
+    );
+
+    // And the UNBOUND shape — a plain `vitest list` array — is refused:
     // it carries no tree identity, so it could have come from anywhere.
     writeJson(live, [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }]);
     assert.throws(
-      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: "planted-tree" }),
+      () => verifyManifest({
+        root: work, manifestPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
+      }),
       /not accepted/,
-    );
-    // A caller that omits the tree cannot verify a listing, because there is
-    // nothing to compare its recorded identity against.
-    writeJson(live, {
-      schemaVersion: "bridlewise-test-listing/v1",
-      tree: "planted-tree",
-      files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
-    });
-    assert.throws(
-      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live }),
-      /working-tree identity is required/,
     );
 
     writeJson(live, {
@@ -276,8 +282,65 @@ test("the manifest verifier accounts for every live file exactly once", () => {
       ],
     });
     assert.throws(
-      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: "planted-tree" }),
+      () => verifyManifest({
+        root: work, manifestPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
+      }),
       /unclassified file/,
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("a stale listing cannot be verified by supplying the fingerprint it was written under", () => {
+  // The defect: `--tree` was the only tree the verifier compared against, so
+  // a caller passed the OLD fingerprint (the one the listing recorded) and the
+  // listing verified even though `tests/c.test.ts` had since joined the tree.
+  // The verifier now computes the working tree itself; `--tree` must agree
+  // with that computed value instead of replacing it.
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-stale-tree-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: work, stdio: "pipe" });
+    // The listing lives in a gitignored cache in real use; keep it out of the
+    // fingerprint here so rewriting it cannot move the tree it describes.
+    writeFileSync(join(work, ".gitignore"), "live.json\n");
+    mkdirSync(join(work, "tests"), { recursive: true });
+    const manifest = join(work, "manifest.json");
+    const live = join(work, "live.json");
+    writeJson(manifest, manifestFor(["tests/a.test.ts", "tests/b.test.ts"]));
+    writeFileSync(join(work, "tests/a.test.ts"), "");
+    writeFileSync(join(work, "tests/b.test.ts"), "");
+    const oldTree = treeFingerprint(work);
+    writeJson(live, {
+      schemaVersion: "bridlewise-test-listing/v1",
+      tree: oldTree,
+      files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
+    });
+    // The tree moves after the listing was written.
+    writeFileSync(join(work, "tests/c.test.ts"), "");
+    const currentTree = treeFingerprint(work);
+    assert.notEqual(currentTree, oldTree);
+
+    // The old listing with the old explicit fingerprint: refused by the
+    // computed tree, even though the caller's value matches the document.
+    assert.throws(
+      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: oldTree }),
+      /bound to tree [0-9a-f]{64}, not the working tree being verified/u,
+    );
+    // ...and without the flag, for the same reason.
+    assert.throws(
+      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live }),
+      /bound to tree [0-9a-f]{64}, not the working tree being verified/u,
+    );
+    // A current listing verifies; `--tree` agrees with the computation.
+    writeJson(live, {
+      schemaVersion: "bridlewise-test-listing/v1",
+      tree: currentTree,
+      files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
+    });
+    assert.equal(
+      verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: currentTree }).fileCount,
+      2,
     );
   } finally {
     rmSync(work, { recursive: true, force: true });
@@ -372,7 +435,12 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
         numFailedTestSuites: 0,
         numPendingTests: 0,
         numTodoTests: 0,
-        testResults: shard.files.map((file) => ({ name: join(work, file), status: "passed", assertionResults: [] })),
+        testResults: shard.files.map((file) => ({
+          name: join(work, file),
+          status: "passed",
+          message: "",
+          assertionResults: [{ status: "passed", failureMessages: [] }],
+        })),
       });
       wrapShardReport({
         root: work,
@@ -409,6 +477,7 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
       () => mergeShardReports({
         root: work,
         manifestPath: join(planDir, "manifest.json"),
+        manifestSourcePath: manifest,
         planPath: join(planDir, "plan.json"),
         shardPaths: reports,
         expectedShards: 2,
@@ -443,7 +512,12 @@ test("a wrapped report with the wrong commit, manifest hash or assignment hash i
     writeJson(raw, {
       success: true, numTotalTests: 1, numPassedTests: 1, numFailedTests: 0, numFailedTestSuites: 0,
       numPendingTests: 0, numTodoTests: 0,
-      testResults: [{ name: join(work, "tests/a.test.ts"), status: "passed", assertionResults: [] }],
+      testResults: [{
+        name: join(work, "tests/a.test.ts"),
+        status: "passed",
+        message: "",
+        assertionResults: [{ status: "passed", failureMessages: [] }],
+      }],
     });
     wrapShardReport({ root: work, planPath: join(planDir, "plan.json"), shard: 1, vitestPath: raw, outPath: wrapped });
     const clean = JSON.parse(readFileSync(wrapped, "utf8"));
@@ -460,7 +534,8 @@ test("a wrapped report with the wrong commit, manifest hash or assignment hash i
       writeJson(wrapped, { ...clean, [mutant.field]: mutant.value });
       assert.throws(
         () => mergeShardReports({
-          root: work, manifestPath: join(planDir, "manifest.json"), planPath: join(planDir, "plan.json"),
+          root: work, manifestPath: join(planDir, "manifest.json"),
+          manifestSourcePath: manifest, planPath: join(planDir, "plan.json"),
           shardPaths: [wrapped], expectedShards: 1, headSha: head, outPath: join(work, "receipt.json"),
         }),
         mutant.pattern,

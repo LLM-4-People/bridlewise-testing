@@ -20,7 +20,7 @@
  *   MUTATION: a hidden room that stays interactive fails (it would answer
  *   clicks and keys aimed at whatever is actually on screen).
  */
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { flushSync } from "svelte";
 import { cleanup, render } from "@testing-library/svelte";
 
@@ -42,6 +42,15 @@ function probe(): Probe {
     destroys: 0,
   });
 }
+
+const entryKeepAliveProbe = Object.getOwnPropertyDescriptor(globalThis, "__keepAliveProbe");
+
+// The probe is a module-scope global the fixture component also reads. Remove
+// it at teardown so the file leaves the boundary it inherited.
+afterAll(() => {
+  if (entryKeepAliveProbe === undefined) delete (globalThis as { __keepAliveProbe?: Probe }).__keepAliveProbe;
+  else Object.defineProperty(globalThis, "__keepAliveProbe", entryKeepAliveProbe);
+});
 
 const shell = {} as ShellApi;
 

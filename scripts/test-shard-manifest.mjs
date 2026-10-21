@@ -246,15 +246,26 @@ export function listTestFiles({ root = process.cwd(), run = spawnSync } = {}) {
   return { schemaVersion: "bridlewise-test-listing/v1", tree, files };
 }
 
-/** Verify the checked-in manifest against a TREE-BOUND `vitest list` output. */
-export function verifyManifest({ root = process.cwd(), manifestPath, livePath, tree }) {
-  if (typeof tree !== "string" || tree.length === 0) {
-    fail(
-      "live manifest: a working-tree identity is required. A plain `vitest list` output is not bound " +
-        "to any tree state (the verb does not run the global setup, so it takes no lock and no " +
-        "fingerprint). Produce the listing with `npm run test:list`, which wraps it with the tree " +
-        "identity it selected from, and pass that identity as `tree`.",
-    );
+/**
+ * Verify the checked-in manifest against a TREE-BOUND `vitest list` output.
+ *
+ * THE TREE IS RECOMPUTED HERE, NOT TAKEN FROM THE CALLER. The listing's
+ * `tree` used to be compared with a caller-supplied `--tree`, so anyone could
+ * pass the STALE fingerprint a listing was written under and the listing
+ * verified even after the working tree had moved. The document's tree is
+ * compared with a fresh `treeFingerprint(root)`; an explicit `tree` is only a
+ * cross-check that must equal that same computed value. `fingerprint` is
+ * injectable so a fixture can drive a tree without a real git checkout.
+ */
+export function verifyManifest({
+  root = process.cwd(),
+  manifestPath,
+  livePath,
+  tree = undefined,
+  fingerprint = treeFingerprint,
+}) {
+  if (tree !== undefined && (typeof tree !== "string" || tree.length === 0)) {
+    fail("live manifest: --tree must be a non-empty working-tree identity when supplied");
   }
   const repositoryRoot = resolve(root);
   const manifest = readManifest(repositoryRoot, manifestPath);
@@ -269,10 +280,17 @@ export function verifyManifest({ root = process.cwd(), manifestPath, livePath, t
   if (liveDocument === null || typeof liveDocument !== "object" || liveDocument.schemaVersion !== "bridlewise-test-listing/v1") {
     fail("live manifest: expected a `bridlewise-test-listing/v1` document from `npm run test:list`");
   }
-  if (liveDocument.tree !== tree) {
+  const currentTree = fingerprint(repositoryRoot);
+  if (liveDocument.tree !== currentTree) {
     fail(
-      `live manifest: the listing is bound to tree ${String(liveDocument.tree)}, not the tree being ` +
-        `verified (${tree}). A listing taken while the tree was different cannot certify this tree.`,
+      `live manifest: the listing is bound to tree ${String(liveDocument.tree)}, not the working ` +
+        `tree being verified (${currentTree}). A listing taken before the tree moved cannot certify it.`,
+    );
+  }
+  if (tree !== undefined && tree !== currentTree) {
+    fail(
+      `live manifest: --tree ${tree} is not the working tree being verified (${currentTree}); ` +
+        `the caller's identity is a cross-check, not an override.`,
     );
   }
   const live = liveDocument.files;
@@ -296,6 +314,7 @@ export function verifyManifest({ root = process.cwd(), manifestPath, livePath, t
     fileCount: manifest.files.length,
     excludedCount: manifest.excluded.length,
     liveCount: liveFiles.length,
+    tree: currentTree,
   };
 }
 
@@ -573,9 +592,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       } else process.stdout.write(text);
     } else if (options.command === "verify") {
       if (!options.manifestPath || !options.livePath) fail("verify requires --manifest and --live");
-      if (options.tree === undefined) options.tree = treeFingerprint(options.root);
+      // `--tree` is a cross-check, never an override: `verifyManifest`
+      // recomputes the working tree itself, so a stale fingerprint the caller
+      // supplies cannot make an old listing verify.
       const verdict = verifyManifest(options);
-      process.stdout.write(`shard manifest: ${verdict.fileCount} supported, ${verdict.excludedCount} excluded, ${verdict.liveCount} live, ${verdict.manifestHash.slice(0, 12)} at tree ${options.tree.slice(0, 12)}\n`);
+      process.stdout.write(`shard manifest: ${verdict.fileCount} supported, ${verdict.excludedCount} excluded, ${verdict.liveCount} live, ${verdict.manifestHash.slice(0, 12)} at tree ${verdict.tree.slice(0, 12)}\n`);
     } else if (options.command === "plan") {
       if (!options.manifestPath || !options.outDir || !options.headSha || !options.shardCount) {
         fail("plan requires --manifest, --shards, --head, and --out-dir");
