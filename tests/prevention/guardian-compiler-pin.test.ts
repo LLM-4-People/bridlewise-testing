@@ -57,7 +57,9 @@ describe("the guardian compiler pin", () => {
       const text = readFileSync(workflow, "utf8");
       expect(text, `${workflow} must install ${compiler}, the declared pin`).toContain(`sudo apt-get install -y ${compiler}`);
       expect(text, `${workflow} must not pass CC=; the Makefile owns the choice`).not.toMatch(/\bCC=/u);
-      expect(text, `${workflow} must invoke the guardian build owner`).toMatch(/make -C engine\/guardian (?:all|test)/u);
+      // The guardian build owner is its Makefile: CI reaches it through the command registry's `guardian`
+      // command (`harness gates setup guardian`, cwd engine/guardian, `make all`), CodeQL's C build directly.
+      expect(text, `${workflow} must invoke the guardian build owner`).toMatch(/make -C engine\/guardian (?:all|test)|harness gates (?:setup|run) guardian\b/u);
     }
   });
 

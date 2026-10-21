@@ -88,47 +88,37 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-14
-      - name: Build the engine bundle
-        run: npm --prefix engine run build:bundle
+      - name: "Set up: bundle"
+        run: node engine/src/cli.ts harness gates setup bundle
       - name: Download the plan
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: gate-plan
           path: ${{ runner.temp }}/gate-plan
       - name: Typecheck web, server, templates and tests
-        id: typecheck-web
-        background: true
+        if: ${{ !cancelled() }}
         run: node engine/src/cli.ts harness gates run typecheck-web --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"
       - name: Typecheck engine and engine tests
-        id: typecheck-engine
-        background: true
+        if: ${{ !cancelled() }}
         run: node engine/src/cli.ts harness gates run typecheck-engine --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"
       - name: Harness check (generated values, bindings, guards)
-        id: harness-check
-        background: true
+        if: ${{ !cancelled() }}
         run: node engine/src/cli.ts harness gates run harness-check --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"
       - name: Secret and privacy scan
-        id: secret-tree-scan
-        background: true
+        if: ${{ !cancelled() }}
         run: node engine/src/cli.ts harness gates run secret-tree-scan --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"
       - name: Relative Markdown links
-        id: docs-links
-        background: true
+        if: ${{ !cancelled() }}
         run: node engine/src/cli.ts harness gates run docs-links --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"
       - name: Public smoke tests
-        id: public-tests
-        background: true
+        if: ${{ !cancelled() }}
         run: node engine/src/cli.ts harness gates run public-tests --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"
       - name: Build the cockpit
-        id: build-web
-        background: true
+        if: ${{ !cancelled() }}
         run: node engine/src/cli.ts harness gates run build-web --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"
       - name: Build and test the guardian
-        id: guardian
-        background: true
+        if: ${{ !cancelled() }}
         run: node engine/src/cli.ts harness gates run guardian --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"
-      - name: Wait for every light gate
-        wait-all:
       - name: Upload the gate results
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -137,6 +127,14 @@ jobs:
           path: ${{ runner.temp }}/gate-results
           if-no-files-found: error
           retention-days: 90
+      - name: Upload the gate logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: gate-logs-light
+          path: ${{ runner.temp }}/tmp/**/*.log
+          if-no-files-found: ignore
+          retention-days: 30
   shard:
     name: ${{ matrix.title }}
     needs:
@@ -179,15 +177,15 @@ jobs:
           sudo apt-get install -y gcc-14
       - name: Install the tracked hooks
         run: npm run bootstrap:hooks
-      - name: Build the engine bundle
-        run: npm --prefix engine run build:bundle
-      - name: Build the guardian
-        run: make -C engine/guardian all
       - name: Fetch and verify the pinned corpus subset
         run: |
           npm run corpus:fetch
           npm run corpus:verify
         if: ${{ contains(fromJSON('["engine-suite"]'), matrix.gate) }}
+      - name: "Set up: bundle"
+        run: node engine/src/cli.ts harness gates setup bundle
+      - name: "Set up: guardian"
+        run: node engine/src/cli.ts harness gates setup guardian
       - name: Download the plan
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -205,6 +203,14 @@ jobs:
           path: ${{ runner.temp }}/gate-results
           if-no-files-found: error
           retention-days: 90
+      - name: Upload the gate logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: gate-logs-${{ matrix.cell }}
+          path: ${{ runner.temp }}/tmp/**/*.log
+          if-no-files-found: ignore
+          retention-days: 30
   dependency-review:
     name: dependency-review
     if: github.event_name == 'pull_request'

@@ -18,7 +18,8 @@ import test from "node:test";
 
 import { GATE_CATALOGUE } from "../../../src/workflow/gates/catalogue.ts";
 import { planGates, type GatePlan } from "../../../src/workflow/gates/plan.ts";
-import { GATE_LOG_PLACEHOLDER, runLightGate, runShard, type GateResult, type RunEnvironment } from "../../../src/workflow/gates/run.ts";
+import type { CheckoutCommand, CheckoutStep } from "../../../src/workflow/checkout-setup.ts";
+import { registryCommand, runLightGate, runShard, type GateResult, type RunEnvironment } from "../../../src/workflow/gates/cell-run.ts";
 import { parseJobOutcomes, readResults, renderReceipt, sealReceipt } from "../../../src/workflow/gates/seal.ts";
 import { judgeVitestReport } from "../../../src/workflow/gates/vitest-report.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
@@ -39,59 +40,80 @@ function plan(webFiles = 6, engineFiles = 2): GatePlan {
   });
 }
 
-type Spawned = Readonly<{ argv: readonly string[]; cwd: string; log: string }>;
+type Ran = Readonly<{ name: string; argv: readonly string[]; cwd: string }>;
 
-function environment(out: string, outcomes: readonly number[] = [], identity = { headSha: HEAD, treeId: TREE }, onSpawn?: (spawned: Spawned) => void): RunEnvironment & { spawned: Spawned[] } {
-  const spawned: Spawned[] = [];
-  let call = 0;
+/** The registry the tests run against: the gates' own command names, with planted argv. */
+const REGISTRY: Readonly<Record<string, CheckoutCommand>> = Object.fromEntries(
+  ["web-typecheck", "engine-typecheck", "engine-check", "secret-scan", "docs-links", "public-tests", "web-build", "guardian", "guardian-tests", "guardian-pass-log", "web-shard", "engine-suite", "bundle"]
+    .map((name) => [name, { cwd: name.startsWith("guardian") ? "engine/guardian" : ".", argv: ["planted", name], timeoutMs: 1000 }]),
+);
+
+function step(name: string, status: CheckoutStep["status"], logPath: string, cpuUs = 1234): CheckoutStep {
+  return {
+    step: name, status, message: `${name} ${status}`, details: [],
+    ...(status === "fail" ? { failure: "failed" as const } : {}),
+    evidence: { argv: [], cwd: ".", attempts: 1, durationMs: 1, load: null, parallelism: 1, logPath, terminal: { exitCode: status === "pass" ? 0 : 1, ending: "exited", elapsedMs: 1, supervision: { commandPid: 1, status: 0, timedOut: false, interrupted: false, reaped: [], commandKilled: false, waitedCpuUs: cpuUs, supervisorCpuUsBeforeReceipt: 0, killed: [], noOwnedChildren: true }, orphanedGroupKilled: false, status: 0, signal: null, outputComplete: true } },
+  };
+}
+
+function environment(out: string, failing: ReadonlySet<string> = new Set(), identity = { headSha: HEAD, treeId: TREE }, onRun?: (ran: Ran) => void): RunEnvironment & { ran: Ran[] } {
+  const ran: Ran[] = [];
   return {
     repositoryRoot: ROOT,
     outDirectory: out,
+    registry: REGISTRY,
     identity: () => identity,
-    spawned,
-    spawnStep: async (argv, cwd, log) => {
-      spawned.push({ argv, cwd, log });
-      onSpawn?.({ argv, cwd, log });
-      const exitCode = outcomes[call] ?? 0;
-      call += 1;
-      return { exitCode, signal: null };
+    ran,
+    run: async (name, command) => {
+      const entry = { name, argv: command.argv, cwd: command.cwd };
+      ran.push(entry);
+      onRun?.(entry);
+      return step(name, failing.has(name) ? "fail" : "pass", `/logs/${name}.log`);
     },
   };
 }
 
 // ── a light gate ──────────────────────────────────────────────────────────
 
-test("a light gate runs its steps from the repository root, logs, and writes a passed result", async () => {
+test("a light gate runs its registry commands in order through the runner, and writes a passed result", async () => {
   const out = createTempDir("gates-cell-");
   const env = environment(out);
   const result = await runLightGate(plan(), "guardian", env);
   assert.equal(result.status, "passed");
-  assert.equal(env.spawned.length, GATE_CATALOGUE.find((gate) => gate.id === "guardian")!.steps.length);
-  assert.ok(env.spawned.every((step) => step.cwd === ROOT));
-  const log = join(out, "guardian.log");
-  assert.deepEqual(env.spawned[2]!.argv, ["bash", "engine/guardian/tests/require-pass-log.sh", log], `${GATE_LOG_PLACEHOLDER} is the cell's own log`);
+  assert.deepEqual(env.ran.map((entry) => entry.name), GATE_CATALOGUE.find((gate) => gate.id === "guardian")!.commands.map((entry) => entry.command));
+  assert.deepEqual(env.ran[2]!.argv, ["planted", "guardian-pass-log", "/logs/guardian-tests.log"], "the pass-log check takes the test run's full log");
+  assert.deepEqual(env.ran[0]!.argv, ["planted", "guardian"], "a command without logOf runs as declared");
+  assert.deepEqual(result.steps.map((entry) => entry.cpuUs), [1234, 1234, 1234], "each command's process-tree CPU time is recorded");
   const written = JSON.parse(readFileSync(join(out, "guardian.result.json"), "utf8")) as GateResult;
   assert.deepEqual(written, JSON.parse(JSON.stringify(result)));
   assert.equal(written.headSha, HEAD);
   assert.equal(written.treeId, TREE);
 });
 
-test("the first failing step ends the cell, and the result names its exit", async () => {
+test("the first failing command ends the cell, and the result names it", async () => {
   const out = createTempDir("gates-cell-");
-  const env = environment(out, [0, 2, 0, 0]);
+  const env = environment(out, new Set(["guardian-tests"]));
   const result = await runLightGate(plan(), "guardian", env);
   assert.equal(result.status, "failed");
-  assert.equal(env.spawned.length, 2);
-  assert.equal(result.steps.at(-1)!.exitCode, 2);
+  assert.equal(env.ran.length, 2);
+  assert.equal(result.steps.at(-1)!.command, "guardian-tests");
+  assert.equal(result.steps.at(-1)!.failure, "failed");
+});
+
+test("a command the registry does not declare is a typed refusal", async () => {
+  assert.throws(() => registryCommand(REGISTRY, "no-such-command"), (error: unknown) => (error as { code?: string }).code === "gate_command_undeclared");
+  const out = createTempDir("gates-cell-");
+  const env = { ...environment(out), registry: {} };
+  await assert.rejects(runLightGate(plan(), "docs-links", env), (error: unknown) => (error as { code?: string }).code === "gate_command_undeclared");
 });
 
 test("a job on another tree runs nothing and writes a refused result", async () => {
   const out = createTempDir("gates-cell-");
-  const env = environment(out, [], { headSha: HEAD, treeId: "c".repeat(40) });
+  const env = environment(out, new Set(), { headSha: HEAD, treeId: "c".repeat(40) });
   const result = await runLightGate(plan(), "docs-links", env);
   assert.equal(result.status, "failed");
   assert.match(result.refusal ?? "", /is not the planned tree/u);
-  assert.equal(env.spawned.length, 0);
+  assert.equal(env.ran.length, 0);
 });
 
 test("only a planned light gate runs as a step list", async () => {
@@ -156,14 +178,15 @@ test("a web shard runs the web runner on exactly its files and passes only on it
   const gatePlan = plan();
   const cell = gatePlan.cells.find((entry) => entry.gate === "web-suite")!;
   const out = createTempDir("gates-shard-");
-  const env = environment(out, [0], { headSha: HEAD, treeId: TREE }, ({ argv }) => {
+  const env = environment(out, new Set(), { headSha: HEAD, treeId: TREE }, ({ argv }) => {
     const outputFile = argv.find((argument) => argument.startsWith("--outputFile="))!.slice("--outputFile=".length);
     writeFileSync(outputFile, JSON.stringify(report(cell.files)));
   });
   const result = await runShard(gatePlan, cell.cell, env);
   assert.equal(result.status, "passed", result.refusal);
-  assert.deepEqual(env.spawned[0]!.argv.slice(0, 3), ["node", "--experimental-strip-types", "scripts/run-tests.ts"]);
-  assert.deepEqual(env.spawned[0]!.argv.slice(-cell.files.length), cell.files);
+  assert.equal(env.ran[0]!.name, "web-shard");
+  assert.deepEqual(env.ran[0]!.argv.slice(0, 2), ["planted", "web-shard"]);
+  assert.deepEqual(env.ran[0]!.argv.slice(-cell.files.length), cell.files);
   assert.equal(result.suite?.tests, cell.files.length * 2);
   assert.deepEqual(result.suite?.files, cell.files);
 });
@@ -171,13 +194,13 @@ test("a web shard runs the web runner on exactly its files and passes only on it
 test("a web shard whose runner exits 0 with a lying or absent report fails", async () => {
   const gatePlan = plan();
   const cell = gatePlan.cells.find((entry) => entry.gate === "web-suite")!;
-  const lying = await runShard(gatePlan, cell.cell, environment(createTempDir("gates-shard-"), [0], { headSha: HEAD, treeId: TREE }, ({ argv }) => {
+  const lying = await runShard(gatePlan, cell.cell, environment(createTempDir("gates-shard-"), new Set(), { headSha: HEAD, treeId: TREE }, ({ argv }) => {
     const outputFile = argv.find((argument) => argument.startsWith("--outputFile="))!.slice("--outputFile=".length);
     writeFileSync(outputFile, JSON.stringify(report(cell.files.slice(1))));
   }));
   assert.equal(lying.status, "failed");
   assert.match(lying.refusal ?? "", /did not run/u);
-  const absent = await runShard(gatePlan, cell.cell, environment(createTempDir("gates-shard-"), [0]));
+  const absent = await runShard(gatePlan, cell.cell, environment(createTempDir("gates-shard-")));
   assert.equal(absent.status, "failed");
   assert.match(absent.refusal ?? "", /wrote no vitest report/u);
 });
@@ -189,9 +212,11 @@ test("the engine cell passes only when the runner exits 0 and its own summary sa
   const summaryDirectory = join(root, "engine/.bridlewise/state/test-results");
   mkdirSync(summaryDirectory, { recursive: true });
   const run = async (summary: unknown, exitCode = 0) => {
-    if (summary === undefined) writeFileSync(join(summaryDirectory, "latest-summary.json"), "{}"); else writeFileSync(join(summaryDirectory, "latest-summary.json"), JSON.stringify(summary));
-    const env = { ...environment(createTempDir("gates-engine-out-"), [exitCode]), repositoryRoot: root };
-    return runShard(gatePlan, cell.cell, env);
+    writeFileSync(join(summaryDirectory, "latest-summary.json"), JSON.stringify(summary));
+    const env = { ...environment(createTempDir("gates-engine-out-"), exitCode === 0 ? new Set<string>() : new Set(["engine-suite"])), repositoryRoot: root };
+    const result = await runShard(gatePlan, cell.cell, env);
+    assert.deepEqual(env.ran.map((entry) => entry.argv), [["planted", "engine-suite"]], "the whole inventory: the command as declared");
+    return result;
   };
   const passed = await run({ status: "passed", testCount: 10, passCount: 10, failCount: 0 });
   assert.equal(passed.status, "passed", passed.refusal);
@@ -239,7 +264,7 @@ test("each way a run can lie about its coverage fails the seal", () => {
     "an unexpected cell": { plan: gatePlan, results: [...all, { ...all[0]!, cell: "web-suite-99", gate: "web-suite" }], jobs: SUCCESS, event: "pull_request" },
     "another commit": { plan: gatePlan, results: all.map((result, index) => (index === 0 ? { ...result, headSha: "c".repeat(40) } : result)), jobs: SUCCESS, event: "pull_request" },
     "another catalogue": { plan: gatePlan, results: all.map((result, index) => (index === 0 ? { ...result, catalogueDigest: "d".repeat(64) } : result)), jobs: SUCCESS, event: "pull_request" },
-    "a failed cell": { plan: gatePlan, results: all.map((result) => (result.cell === "docs-links" ? { ...result, status: "failed" as const, steps: [{ argv: ["x"], exitCode: 1, signal: null }] } : result)), jobs: SUCCESS, event: "pull_request" },
+    "a failed cell": { plan: gatePlan, results: all.map((result) => (result.cell === "docs-links" ? { ...result, status: "failed" as const, steps: [{ command: "docs-links", status: "fail" as const, message: "x", cpuUs: 1 }] } : result)), jobs: SUCCESS, event: "pull_request" },
     "a shard that ran other files": { plan: gatePlan, results: all.map((result) => (result.cell === "web-suite-1" ? { ...result, suite: { ...result.suite!, files: ["tests/unit/other.test.ts"] } } : result)), jobs: SUCCESS, event: "pull_request" },
     "a result of another shape": { plan: gatePlan, results: [...all, { schemaVersion: "x" }], jobs: SUCCESS, event: "pull_request" },
     "an unreadable result": { plan: gatePlan, results: [...all, { unreadable: "x.result.json" }], jobs: SUCCESS, event: "pull_request" },
@@ -257,7 +282,7 @@ test("each way a run can lie about its coverage fails the seal", () => {
 test("a signal gate's failure is recorded and shown, never judged", () => {
   const gatePlan = plan();
   const catalogue = GATE_CATALOGUE.map((gate) => (gate.id === "docs-links" ? { ...gate, role: "signal" as const } : gate));
-  const failing = results(gatePlan).map((result) => (result.cell === "docs-links" ? { ...result, status: "failed" as const, steps: [{ argv: ["x"], exitCode: 1, signal: null }] } : result));
+  const failing = results(gatePlan).map((result) => (result.cell === "docs-links" ? { ...result, status: "failed" as const, steps: [{ command: "docs-links", status: "fail" as const, message: "x", cpuUs: 1 }] } : result));
   const receipt = sealReceipt({ plan: gatePlan, results: failing, jobs: SUCCESS, event: "pull_request", catalogue });
   assert.equal(receipt.verdict, "passed");
   assert.equal(receipt.gates.find((gate) => gate.id === "docs-links")!.status, "failed");

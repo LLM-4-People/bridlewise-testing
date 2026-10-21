@@ -25,7 +25,7 @@ import { canonicalHash, deepFreeze } from "../../kernel/integrity.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 import { GATE_CATALOGUE, type Gate } from "./catalogue.ts";
 import type { GatePlan } from "./plan.ts";
-import { GATE_RESULT_SCHEMA, type GateResult } from "./run.ts";
+import { GATE_RESULT_SCHEMA, type GateResult } from "./cell-run.ts";
 
 export const GATE_RECEIPT_SCHEMA = schemaId("gate-receipt", 1);
 
@@ -143,7 +143,7 @@ export function sealReceipt(inputs: SealInputs): GateReceipt {
       }
       return result.status === "passed"
         ? { cell: cellId, status: "passed" as const }
-        : { cell: cellId, status: "failed" as const, refusal: result.refusal ?? `step ${JSON.stringify(result.steps.at(-1)?.argv ?? [])} exited ${String(result.steps.at(-1)?.exitCode)}` };
+        : { cell: cellId, status: "failed" as const, refusal: result.refusal ?? `${result.steps.at(-1)?.command ?? "a command"}: ${result.steps.at(-1)?.message ?? "failed"}` };
     });
     const status = cells.length > 0 && cells.every((cell) => cell.status === "passed") ? "passed" : "failed";
     gates.push({ id: gate.id, role: gate.role, status, cells });

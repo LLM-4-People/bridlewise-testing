@@ -12,11 +12,16 @@
  *     dependency review);
  *   - its `role`: `required` gates are judged by the door, `signal` gates are
  *     recorded and shown, never judging;
- *   - its `steps`: argument vectors run WITHOUT a shell from the repository
- *     root by `harness gates run <id>` — never a shell string. `{gateLog}` in
- *     an argument is the gate's own captured log (every step's output);
- *   - the `toolchain` it needs on the runner beyond the dependency install
- *     (the generator emits the setup once per job that needs it);
+ *   - its `commands`: names in the ONE command registry
+ *     (`workspaceIsolation.commands`, `engine/bridlewise.config.json`), run
+ *     in order by the ONE command runner (`../checkout-setup.ts`: supervised,
+ *     redacted full log, the errored-class retry) — never a shell string, and
+ *     the same commands a workspace's validation runs. A command may take the
+ *     full log of an earlier command of the gate as its last argument
+ *     (`logOf`: the guardian's pass-log check reads the test run's log);
+ *   - the registry SETUP commands it needs (`setup`: the bundle, the guardian
+ *     binaries) and the system `toolchain` the generator installs (an apt
+ *     package, the hooks, the corpus);
  *   - its `reuse` eligibility (§5.4: a gate whose outcome is a pure function
  *     of the key may be reused; one that reads the network may not);
  *   - for a suite gate, its `population` (the test files it splits).
@@ -39,8 +44,16 @@ export type GateClass = "light" | "suite" | "action";
 export type GateRole = "required" | "signal";
 /** A runner class: a hosted label. `ubuntu-slim` (one CPU, a container) is for API-only jobs, never a gate. */
 export type RunnerClass = "ubuntu-24.04" | "ubuntu-slim";
-/** What a gate needs on the runner beyond Node and the installed dependencies. */
-export type Toolchain = "gcc-14" | "hooks" | "engine-bundle" | "guardian-binary" | "corpus";
+/**
+ * What a gate needs on the runner that no registry command provides, in the
+ * order the generator installs it. Every job that runs a command also gets
+ * `gcc-14`: the one runner's native supervisor is built with it.
+ */
+export const TOOLCHAINS = deepFreeze(["gcc-14", "hooks", "corpus"] as const);
+export type Toolchain = (typeof TOOLCHAINS)[number];
+
+/** One command of a gate: a registry name, and optionally the earlier command whose full log it takes as its last argument. */
+export type GateCommand = Readonly<{ command: string; logOf?: string }>;
 /** A suite's population: the test files it splits into shards. */
 export type Population = "web-tests" | "engine-tests";
 
@@ -49,7 +62,10 @@ export type Gate = Readonly<{
   title: string;
   class: GateClass;
   role: GateRole;
-  steps: readonly (readonly string[])[];
+  /** A light gate's registry commands, in order (fail-fast). */
+  commands: readonly GateCommand[];
+  /** Registry setup commands the gate's job runs first (`harness gates setup`). */
+  setup: readonly string[];
   toolchain: readonly Toolchain[];
   reuse: "eligible" | "never";
   population?: Population;
@@ -61,6 +77,12 @@ export type Gate = Readonly<{
    */
   split?: "files" | "whole";
   splitReason?: string;
+  /**
+   * For a suite gate: the registry command one cell runs. A `files` suite's
+   * cell appends the vitest JSON report path and its planned files; a
+   * `whole` suite's cell runs the command as declared.
+   */
+  cellCommand?: string;
   /** For an `action` gate: the action (a key of {@link ACTION_PINS}) and its inputs. */
   action?: Readonly<{ uses: ActionName; with: Readonly<Record<string, string>>; events: readonly ("pull_request")[] }>;
 }>;
@@ -143,81 +165,21 @@ export const POPULATION_EXCLUSIONS = deepFreeze({
 } as const satisfies Readonly<Record<Population, readonly Readonly<{ path: string; reason: string; evidence: string }>[]>>);
 
 const GATES: readonly Gate[] = [
-  {
-    id: "typecheck-web",
-    title: "Typecheck web, server, templates and tests",
-    class: "light",
-    role: "required",
-    steps: [["npm", "run", "typecheck"]],
-    toolchain: [],
-    reuse: "eligible",
-  },
-  {
-    id: "typecheck-engine",
-    title: "Typecheck engine and engine tests",
-    class: "light",
-    role: "required",
-    steps: [["npm", "--prefix", "engine", "run", "typecheck"]],
-    toolchain: [],
-    reuse: "eligible",
-  },
-  {
-    id: "harness-check",
-    title: "Harness check (generated values, bindings, guards)",
-    class: "light",
-    role: "required",
-    steps: [["node", "engine/src/cli.ts", "harness", "check", "--skip-typecheck"]],
-    toolchain: ["engine-bundle"],
-    reuse: "eligible",
-  },
-  {
-    id: "secret-tree-scan",
-    title: "Secret and privacy scan",
-    class: "light",
-    role: "required",
-    steps: [["node", "scripts/check-secrets.mjs"]],
-    toolchain: [],
-    reuse: "eligible",
-  },
-  {
-    id: "docs-links",
-    title: "Relative Markdown links",
-    class: "light",
-    role: "required",
-    steps: [["node", "scripts/check-docs-links.mjs"]],
-    toolchain: [],
-    reuse: "eligible",
-  },
-  {
-    id: "public-tests",
-    title: "Public smoke tests",
-    class: "light",
-    role: "required",
-    steps: [["npm", "run", "test:public"]],
-    toolchain: [],
-    reuse: "eligible",
-  },
-  {
-    id: "build-web",
-    title: "Build the cockpit",
-    class: "light",
-    role: "required",
-    steps: [["npm", "run", "build"]],
-    toolchain: [],
-    reuse: "eligible",
-  },
+  { id: "typecheck-web", title: "Typecheck web, server, templates and tests", class: "light", role: "required", commands: [{ command: "web-typecheck" }], setup: [], toolchain: [], reuse: "eligible" },
+  { id: "typecheck-engine", title: "Typecheck engine and engine tests", class: "light", role: "required", commands: [{ command: "engine-typecheck" }], setup: [], toolchain: [], reuse: "eligible" },
+  { id: "harness-check", title: "Harness check (generated values, bindings, guards)", class: "light", role: "required", commands: [{ command: "engine-check" }], setup: ["bundle"], toolchain: [], reuse: "eligible" },
+  { id: "secret-tree-scan", title: "Secret and privacy scan", class: "light", role: "required", commands: [{ command: "secret-scan" }], setup: [], toolchain: [], reuse: "eligible" },
+  { id: "docs-links", title: "Relative Markdown links", class: "light", role: "required", commands: [{ command: "docs-links" }], setup: [], toolchain: [], reuse: "eligible" },
+  { id: "public-tests", title: "Public smoke tests", class: "light", role: "required", commands: [{ command: "public-tests" }], setup: [], toolchain: [], reuse: "eligible" },
+  { id: "build-web", title: "Build the cockpit", class: "light", role: "required", commands: [{ command: "web-build" }], setup: [], toolchain: [], reuse: "eligible" },
   {
     id: "guardian",
     title: "Build and test the guardian",
     class: "light",
     role: "required",
-    steps: [
-      ["make", "-C", "engine/guardian", "all"],
-      ["make", "-C", "engine/guardian", "test"],
-      ["bash", "engine/guardian/tests/require-pass-log.sh", "{gateLog}"],
-      ["engine/guardian/build/harness-landlock-guardian", "--stamp"],
-    ],
-    toolchain: ["gcc-14"],
+    commands: [{ command: "guardian" }, { command: "guardian-tests" }, { command: "guardian-pass-log", logOf: "guardian-tests" }],
+    setup: [],
+    toolchain: [],
     reuse: "eligible",
   },
   {
@@ -225,30 +187,35 @@ const GATES: readonly Gate[] = [
     title: "Web suite",
     class: "suite",
     role: "required",
-    steps: [],
-    toolchain: ["gcc-14", "hooks", "engine-bundle", "guardian-binary"],
+    commands: [],
+    setup: ["bundle", "guardian"],
+    toolchain: ["hooks"],
     reuse: "eligible",
     population: "web-tests",
     split: "files",
+    cellCommand: "web-shard",
   },
   {
     id: "engine-suite",
     title: "Engine suite",
     class: "suite",
     role: "required",
-    steps: [],
-    toolchain: ["gcc-14", "hooks", "engine-bundle", "guardian-binary", "corpus"],
+    commands: [],
+    setup: ["bundle", "guardian"],
+    toolchain: ["hooks", "corpus"],
     reuse: "eligible",
     population: "engine-tests",
     split: "whole",
     splitReason: "the engine runner (engine/scripts/tooling/run-tests.ts) runs the whole inventory and takes no file subset yet; it runs as one cell until it does",
+    cellCommand: "engine-suite",
   },
   {
     id: "dependency-review",
     title: "Review dependency changes",
     class: "action",
     role: "required",
-    steps: [],
+    commands: [],
+    setup: [],
     toolchain: [],
     reuse: "never",
     action: { uses: "dependency-review", with: { "fail-on-severity": "high", "comment-summary-in-pr": "never" }, events: ["pull_request"] },
@@ -269,16 +236,24 @@ export function validateCatalogue(gates: readonly Gate[]): readonly Gate[] {
     if (isSuite !== (gate.population !== undefined) || isSuite !== (gate.split !== undefined)) throw new InputError(`gate ${gate.id}: a population and its split belong to exactly the suite gates`, "gate_catalogue_invalid");
     if ((gate.split === "whole") !== (gate.splitReason !== undefined)) throw new InputError(`gate ${gate.id}: a whole-population suite states why it cannot split (and only it)`, "gate_catalogue_invalid");
     if ((gate.class === "action") !== (gate.action !== undefined)) throw new InputError(`gate ${gate.id}: an action belongs to exactly the action gates`, "gate_catalogue_invalid");
-    if (gate.class === "light" && gate.steps.length === 0) throw new InputError(`gate ${gate.id}: a light gate runs at least one step`, "gate_catalogue_invalid");
-    if (gate.class !== "light" && gate.steps.length > 0) throw new InputError(`gate ${gate.id}: only a light gate declares steps (a suite runs its shard; an action is wired by the generator)`, "gate_catalogue_invalid");
-    for (const step of gate.steps) {
-      if (step.length === 0 || step.some((argument) => argument.length === 0)) throw new InputError(`gate ${gate.id} has an empty step or argument`, "gate_catalogue_invalid");
-    }
+    if (gate.class === "light" && gate.commands.length === 0) throw new InputError(`gate ${gate.id}: a light gate runs at least one command`, "gate_catalogue_invalid");
+    if (gate.class !== "light" && gate.commands.length > 0) throw new InputError(`gate ${gate.id}: only a light gate declares commands (a suite runs its cell command; an action is wired by the generator)`, "gate_catalogue_invalid");
+    if (isSuite !== (gate.cellCommand !== undefined)) throw new InputError(`gate ${gate.id}: a cell command belongs to exactly the suite gates`, "gate_catalogue_invalid");
+    gate.commands.forEach((entry, index) => {
+      if (entry.logOf !== undefined && !gate.commands.slice(0, index).some((earlier) => earlier.command === entry.logOf)) {
+        throw new InputError(`gate ${gate.id}: ${entry.command} takes the log of ${entry.logOf}, which does not run before it in the gate`, "gate_catalogue_invalid");
+      }
+    });
   }
   return gates;
 }
 
 export const GATE_CATALOGUE: readonly Gate[] = deepFreeze(validateCatalogue(GATES));
+
+/** Every registry command the catalogue runs (the dead-command check counts the gates as a consumer). */
+export function catalogueCommandNames(catalogue: readonly Gate[] = GATE_CATALOGUE): readonly string[] {
+  return [...new Set(catalogue.flatMap((gate) => [...gate.setup, ...gate.commands.map((entry) => entry.command), ...(gate.cellCommand === undefined ? [] : [gate.cellCommand])]))].toSorted();
+}
 
 /** The gate `id`, or a typed refusal naming the known ids. */
 export function gateById(id: string, catalogue: readonly Gate[] = GATE_CATALOGUE): Gate {

@@ -12,21 +12,17 @@
  */
 import { resolve } from "node:path";
 
-import { webPopulation, type PopulationListing } from "../../engine/src/workflow/gates/populations.ts";
+import { webPopulation } from "../../engine/src/workflow/gates/populations.ts";
 import { TEST_INCLUDE } from "../test-include.ts";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "..", "..");
 
-function listing(): PopulationListing {
-  return webPopulation(REPOSITORY_ROOT, TEST_INCLUDE);
-}
-
 /** Every file a full run judges. */
 export function supportedTestFiles(): readonly string[] {
-  return listing().files;
+  return webPopulation(REPOSITORY_ROOT, TEST_INCLUDE).files;
 }
 
 /** Every declared exclusion, keyed by path, with the reason it cannot be judged here. */
 export function excludedTestFiles(): ReadonlyMap<string, string> {
-  return new Map(listing().excluded.map((file) => [file.path, file.reason]));
+  return new Map(webPopulation(REPOSITORY_ROOT, TEST_INCLUDE).excluded.map((file) => [file.path, file.reason]));
 }

@@ -12,6 +12,7 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { resignTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
 import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES } from "../kernel/verification-paths.ts";
+import { catalogueCommandNames } from "./gates/catalogue.ts";
 import { syncGeneratedWorkflows } from "./gates/workflows.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
@@ -727,8 +728,9 @@ function pathArguments(argv: readonly string[], verb: string, usageCode: string)
 
 /**
  * DEAD COMMANDS: a registry command (`workspaceIsolation.commands`) that no
- * workspace phase and no promotion profile of this checkout runs is dead
- * config (`unconsumedCommands`). The configuration schema cannot judge it — a
+ * workspace phase, no promotion profile and no gate of the gate catalogue
+ * (`./gates/catalogue.ts`, CI's one declaration) runs is dead config
+ * (`unconsumedCommands`). The configuration schema cannot judge it — a
  * profile is a data file on the source branch — so it is judged here, at
  * every check, where both consumers are visible: the profiles the working
  * tree declares (an invalid one fails the step). A checkout that declares a
@@ -741,7 +743,7 @@ function deadCommandsStep(root: string): CheckStepResult {
   const isolation = document.workspaceIsolation;
   if (top === undefined || isolation === undefined) return skipStep("dead-commands");
   const directory = document.promotion?.profileDirectory;
-  let consumers: readonly string[] = [];
+  let consumers: readonly string[] = catalogueCommandNames();
   if (directory !== undefined) {
     let profiles: readonly LoadedPromotionProfile[];
     try {
@@ -751,15 +753,15 @@ function deadCommandsStep(root: string): CheckStepResult {
       return deepFreeze({ step: "dead-commands", status: "fail", message: `${error.promotionCode}: ${error.message}`, details: error.facts });
     }
     if (profiles.length === 0) return deepFreeze({ step: "dead-commands", status: "pass", message: `not judged: ${directory}/ holds no promotion profile here, so not every consumer of the registry is visible`, details: null });
-    consumers = profiles.flatMap((loaded) => profileCommandNames(loaded.profile));
+    consumers = [...consumers, ...profiles.flatMap((loaded) => profileCommandNames(loaded.profile))];
   }
   const dead = unconsumedCommands(isolation, consumers);
   return deepFreeze({
     step: "dead-commands",
     status: dead.length === 0 ? "pass" : "fail",
     message: dead.length === 0
-      ? `every registry command is run by a workspace phase or a promotion profile (${String(Object.keys(isolation.commands).length)} commands)`
-      : `registry commands no workspace phase and no promotion profile runs (dead config: remove them, or run them): ${dead.join(", ")}`,
+      ? `every registry command is run by a workspace phase, a promotion profile or a gate (${String(Object.keys(isolation.commands).length)} commands)`
+      : `registry commands no workspace phase, no promotion profile and no gate runs (dead config: remove them, or run them): ${dead.join(", ")}`,
     details: { dead },
   });
 }

@@ -998,6 +998,60 @@
           "--prefer-offline"
         ],
         "timeoutMs": 300000
+      },
+      "docs-links": {
+        "cwd": ".",
+        "argv": [
+          "node",
+          "scripts/check-docs-links.mjs"
+        ],
+        "timeoutMs": 300000
+      },
+      "secret-scan": {
+        "cwd": ".",
+        "argv": [
+          "node",
+          "scripts/check-secrets.mjs"
+        ],
+        "timeoutMs": 300000
+      },
+      "public-tests": {
+        "cwd": ".",
+        "argv": [
+          "npm",
+          "run",
+          "test:public"
+        ],
+        "timeoutMs": 600000
+      },
+      "guardian-tests": {
+        "cwd": "engine/guardian",
+        "argv": [
+          "make",
+          "test"
+        ],
+        "timeoutMs": 600000
+      },
+      "guardian-pass-log": {
+        "cwd": "engine/guardian",
+        "argv": [
+          "bash",
+          "tests/require-pass-log.sh"
+        ],
+        "timeoutMs": 60000
+      },
+      "web-shard": {
+        "cwd": ".",
+        "argv": [
+          "node",
+          "--experimental-strip-types",
+          "scripts/run-tests.ts",
+          "--project=node",
+          "--project=dom",
+          "--reporter=default",
+          "--reporter=json"
+        ],
+        "timeoutMs": 3600000
       }
     },
     "phases": {

@@ -10,7 +10,7 @@
  *
  * WHAT IS GENERATED (trust split, §5.2):
  *   - `ci.yml`: the untrusted compute. `plan` lists the cells, the
- *     `light` job runs every light gate as a background step, the `shard`
+ *     `light` job runs every light gate in turn, the `shard`
  *     matrix runs the suites' CPU-balanced shards, the action gates run as
  *     their own jobs, and `seal` merges every result into the one receipt and
  *     fails unless every required gate passed. Its token reads contents only;
@@ -45,6 +45,7 @@ import {
   gatesOfClass,
   type ActionName,
   type Gate,
+  TOOLCHAINS,
   type Toolchain,
 } from "./catalogue.ts";
 import { Commented, emitYaml, type YamlValue } from "./yaml.ts";
@@ -88,16 +89,13 @@ function setupNodeStep(): Step {
   };
 }
 
-/** The toolchain setup a job needs, in a fixed order, each once. */
+/** The system toolchain a job needs that no registry command provides (`TOOLCHAINS` is the order). */
 const GCC_INSTALL = "sudo apt-get update\nsudo apt-get install -y gcc-14\n";
 const TOOLCHAIN_STEPS: Readonly<Record<Toolchain, Step>> = {
   "gcc-14": { name: "Install the pinned compiler", run: GCC_INSTALL },
   hooks: { name: "Install the tracked hooks", run: "npm run bootstrap:hooks" },
-  "engine-bundle": { name: "Build the engine bundle", run: "npm --prefix engine run build:bundle" },
-  "guardian-binary": { name: "Build the guardian", run: "make -C engine/guardian all" },
   corpus: { name: "Fetch and verify the pinned corpus subset", run: "npm run corpus:fetch\nnpm run corpus:verify\n" },
 };
-const TOOLCHAIN_ORDER: readonly Toolchain[] = ["gcc-14", "hooks", "engine-bundle", "guardian-binary", "corpus"];
 
 /**
  * A temporary root of the job's own, outside the checkout (D-19: a test run's
@@ -106,28 +104,46 @@ const TOOLCHAIN_ORDER: readonly Toolchain[] = ["gcc-14", "hooks", "engine-bundle
  */
 const TMPDIR_STEP: Step = { name: "Give the job its own temporary root", run: "mkdir -p \"$RUNNER_TEMP/tmp\"\necho \"TMPDIR=$RUNNER_TEMP/tmp\" >> \"$GITHUB_ENV\"\n" };
 
+/** A step a matrix job runs only for the cells whose gate is one of `needing` (all of them: no condition). */
+function forCells(step: Step, needing: readonly string[], gates: readonly Gate[], matrix: boolean): Step {
+  return matrix && needing.length < gates.length ? { ...step, if: `\${{ contains(fromJSON('${JSON.stringify(needing)}'), matrix.gate) }}` } : step;
+}
+
 /**
  * Checkout, Node, both dependency trees, the config mode, the job's temporary
- * root, and the toolchain the job's gates need (deduplicated, in order). A
- * matrix job serving several suites runs a toolchain step only for the cells
- * whose gate needs it (`gatesNeeding`).
+ * root; then, for a job that runs gates, the pinned compiler (the one runner's
+ * native supervisor is built with it), the system toolchain the gates need,
+ * and their registry setup commands (`harness gates setup`, through the one
+ * runner). A matrix job serving several suites runs a step only for the cells
+ * whose gate needs it.
  */
-function gateJobSetup(gates: readonly Gate[], engineOnly = false, matrix = false): readonly Step[] {
-  const toolchain = TOOLCHAIN_ORDER.filter((tool) => gates.some((gate) => gate.toolchain.includes(tool)));
-  return [
+function gateJobSetup(gates: readonly Gate[], kind: "plan" | "gates", matrix = false): readonly Step[] {
+  const common: Step[] = [
     checkoutStep(),
     setupNodeStep(),
-    ...(engineOnly ? [] : [{ name: "Install web dependencies", run: "npm ci --no-audit --no-fund" }]),
+    ...(kind === "plan" ? [] : [{ name: "Install web dependencies", run: "npm ci --no-audit --no-fund" }]),
     { name: "Install engine dependencies", run: "npm --prefix engine ci --no-audit --no-fund" },
     { name: "Enforce the self-protection config mode", run: "chmod 600 engine/bridlewise.config.json" },
     TMPDIR_STEP,
-    ...toolchain.map((tool): Step => {
-      const needing = gates.filter((gate) => gate.toolchain.includes(tool)).map((gate) => gate.id);
-      return matrix && needing.length < gates.length
-        ? { ...TOOLCHAIN_STEPS[tool], if: `\${{ contains(fromJSON('${JSON.stringify(needing)}'), matrix.gate) }}` }
-        : TOOLCHAIN_STEPS[tool];
-    }),
   ];
+  if (kind === "plan") return common;
+  const toolchain = TOOLCHAINS.filter((tool) => tool === "gcc-14" || gates.some((gate) => gate.toolchain.includes(tool)));
+  const setup = [...new Set(gates.flatMap((gate) => gate.setup))];
+  return [
+    ...common,
+    ...toolchain.map((tool) => forCells(TOOLCHAIN_STEPS[tool], tool === "gcc-14" ? gates.map((gate) => gate.id) : gates.filter((gate) => gate.toolchain.includes(tool)).map((gate) => gate.id), gates, matrix)),
+    ...setup.map((name) => forCells({ name: `Set up: ${name}`, run: `${HARNESS} gates setup ${name}` }, gates.filter((gate) => gate.setup.includes(name)).map((gate) => gate.id), gates, matrix)),
+  ];
+}
+
+/** Every command's full, redacted log (the one runner writes them under the job's temporary root). */
+function uploadLogsStep(name: string): Step {
+  return {
+    name: "Upload the gate logs",
+    if: "${{ always() }}",
+    uses: uses("upload-artifact"),
+    with: { name, path: "${{ runner.temp }}/tmp/**/*.log", "if-no-files-found": "ignore", "retention-days": 30 },
+  };
 }
 
 function uploadResultsStep(name: string): Step {
@@ -152,7 +168,7 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
       permissions: { contents: "read" },
       outputs: { cells: "${{ steps.plan.outputs.cells }}" },
       steps: [
-        ...gateJobSetup([], true),
+        ...gateJobSetup([], "plan"),
         { name: "Plan the gate cells", id: "plan", run: `${HARNESS} gates plan --out "$RUNNER_TEMP/gate-plan" --github-output "$GITHUB_OUTPUT"` },
         { name: "Upload the plan", uses: uses("upload-artifact"), with: { name: "gate-plan", path: "${{ runner.temp }}/gate-plan", "if-no-files-found": "error", "retention-days": 90 } },
       ],
@@ -164,16 +180,19 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
       "timeout-minutes": 60,
       permissions: { contents: "read" },
       steps: [
-        ...gateJobSetup(light),
+        ...gateJobSetup(light, "gates"),
         { name: "Download the plan", uses: uses("download-artifact"), with: { name: "gate-plan", path: "${{ runner.temp }}/gate-plan" } },
+        // One after another, never as background steps: the gates share one
+        // checkout, and a build writing it while another gate reads it is a
+        // different tree (measured: the CLI's bootstrap refused a root that
+        // changed under it). Each still runs when an earlier one failed.
         ...light.map((gate): Step => ({
           name: gate.title,
-          id: gate.id,
-          background: true,
+          if: "${{ !cancelled() }}",
           run: `${HARNESS} gates run ${gate.id} --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"`,
         })),
-        { name: "Wait for every light gate", "wait-all": null },
         uploadResultsStep("gate-results-light"),
+        uploadLogsStep("gate-logs-light"),
       ],
     },
   };
@@ -187,7 +206,7 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
       permissions: { contents: "read" },
       strategy: { "fail-fast": false, matrix: { include: "${{ fromJSON(needs.plan.outputs.cells) }}" } },
       steps: [
-        ...gateJobSetup(suites, false, true),
+        ...gateJobSetup(suites, "gates", true),
         { name: "Download the plan", uses: uses("download-artifact"), with: { name: "gate-plan", path: "${{ runner.temp }}/gate-plan" } },
         {
           name: "Run the shard",
@@ -195,6 +214,7 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
           run: `${HARNESS} gates shard "$CELL" --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"`,
         },
         uploadResultsStep("gate-results-${{ matrix.cell }}"),
+        uploadLogsStep("gate-logs-${{ matrix.cell }}"),
       ],
     };
   }
@@ -218,7 +238,7 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
     "timeout-minutes": 10,
     permissions: { contents: "read" },
     steps: [
-      ...gateJobSetup([], true),
+      ...gateJobSetup([], "plan"),
       { name: "Download the plan", uses: uses("download-artifact"), with: { name: "gate-plan", path: "${{ runner.temp }}/gate-plan" } },
       { name: "Download every gate result", uses: uses("download-artifact"), with: { pattern: "gate-results-*", path: "${{ runner.temp }}/gate-results", "merge-multiple": true } },
       {
@@ -280,6 +300,8 @@ export function codeqlWorkflow(): Workflow {
             with: { languages: "${{ matrix.language }}", "build-mode": "${{ matrix.build-mode }}", queries: "security-extended" },
           },
           { name: "Install the pinned compiler", if: "${{ matrix.build-mode == 'manual' }}", run: GCC_INSTALL },
+          // CodeQL traces the compiler, so the C build is the guardian's own make (no harness: the runner's
+          // supervisor would need the dependency install a language scan does not).
           { name: "Build the guardian", if: "${{ matrix.build-mode == 'manual' }}", run: "make -C engine/guardian all" },
           { name: "Analyze", uses: uses("codeql-analyze"), with: { category: "/language:${{ matrix.language }}" } },
         ],

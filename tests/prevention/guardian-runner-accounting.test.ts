@@ -26,7 +26,6 @@ import { describe, expect, test } from "vitest";
 
 import { GENERATED_WORKFLOW_FILES } from "../../engine/src/kernel/verification-paths.ts";
 import { gateById } from "../../engine/src/workflow/gates/catalogue.ts";
-import { GATE_LOG_PLACEHOLDER } from "../../engine/src/workflow/gates/run.ts";
 
 const SCRIPT_PATH = "engine/guardian/tests/run-tests.sh";
 const PASS_CHECK_PATH = "engine/guardian/tests/require-pass-log.sh";
@@ -208,14 +207,15 @@ describe("the workflows cannot mask a failure behind a pipeline", () => {
   });
 
   test("the guardian gate requires a real pass count and zero skips from its own log", () => {
-    // The gate runs `make test` and then the pass-log check on the gate's
-    // captured log (`{gateLog}`), as argument vectors with no shell — so no
-    // pipeline can mask the test step's exit, and the check reads every line
-    // the test step printed.
-    const steps = gateById("guardian").steps.map((step) => step.join(" "));
-    const test = steps.indexOf("make -C engine/guardian test");
-    const check = steps.indexOf(`bash engine/guardian/tests/require-pass-log.sh ${GATE_LOG_PLACEHOLDER}`);
-    expect(test).toBeGreaterThan(-1);
-    expect(check).toBeGreaterThan(test);
+    // The gate runs the registry's `guardian-tests` and then `guardian-pass-log`
+    // on THAT command's full log (the one runner keeps it whole and redacted)
+    // — no shell, so no pipeline can mask the test run's exit, and the check
+    // reads every line the test run printed.
+    const commands = gateById("guardian").commands;
+    const tests = commands.findIndex((entry) => entry.command === "guardian-tests");
+    const check = commands.findIndex((entry) => entry.command === "guardian-pass-log");
+    expect(tests).toBeGreaterThan(-1);
+    expect(check).toBeGreaterThan(tests);
+    expect(commands[check]!.logOf).toBe("guardian-tests");
   });
 });

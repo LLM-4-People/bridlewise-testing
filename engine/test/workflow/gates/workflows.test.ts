@@ -21,7 +21,7 @@ import test from "node:test";
 
 import { GENERATED_WORKFLOW_FILES } from "../../../src/kernel/verification-paths.ts";
 import { generatedWorkflowsStep } from "../../../src/workflow/harness-commands.ts";
-import { GATE_CATALOGUE } from "../../../src/workflow/gates/catalogue.ts";
+import { catalogueCommandNames, GATE_CATALOGUE } from "../../../src/workflow/gates/catalogue.ts";
 import {
   auditWorkflow,
   ciWorkflow,
@@ -151,7 +151,7 @@ test("each lint refuses its planted violation", () => {
   }) as never));
 });
 
-test("ci.yml: plan and seal run the harness on a VM (never the slim container); every light gate is a background step the job waits for; the seal always runs and needs every job", () => {
+test("ci.yml: plan and seal run the harness on a VM (never the slim container); the light gates run in turn, each even after a failure; the seal always runs and needs every job", () => {
   const ci = ciWorkflow() as Mutable;
   const jobs = ci.jobs as Record<string, Mutable>;
   assert.equal(jobs.plan!["runs-on"], "ubuntu-24.04");
@@ -160,13 +160,16 @@ test("ci.yml: plan and seal run the harness on a VM (never the slim container); 
   assert.equal(jobs.seal!.if, "${{ always() }}");
   assert.deepEqual(jobs.seal!.needs, Object.keys(jobs).filter((id) => id !== "seal"));
   const lightSteps = jobs.light!.steps as Mutable[];
-  const backgrounds = lightSteps.filter((step) => step.background === true).map((step) => step.id);
-  assert.deepEqual(backgrounds, GATE_CATALOGUE.filter((gate) => gate.class === "light").map((gate) => gate.id));
-  const waitIndex = lightSteps.findIndex((step) => "wait-all" in step);
+  assert.ok(lightSteps.every((step) => step.background === undefined), "no background step: the gates share one checkout");
+  const gateRuns = lightSteps.filter((step) => /harness gates run /u.test(String(step.run)));
+  assert.deepEqual(gateRuns.map((step) => String(step.run).split(" ")[5]), GATE_CATALOGUE.filter((gate) => gate.class === "light").map((gate) => gate.id));
+  assert.ok(gateRuns.every((step) => step.if === "${{ !cancelled() }}"));
   const uploadIndex = lightSteps.findIndex((step) => step.name === "Upload the gate results");
-  assert.ok(waitIndex > 0 && uploadIndex > waitIndex);
+  assert.ok(uploadIndex > lightSteps.indexOf(gateRuns.at(-1)!));
   assert.equal(lightSteps[uploadIndex]!.if, "${{ always() }}");
-  assert.ok(backgrounds.length <= 10, "at most ten background steps run at once in one job");
+  // Registry setup runs through the harness, once per command the job's gates need.
+  const setups = lightSteps.filter((step) => /harness gates setup /u.test(String(step.run))).map((step) => String(step.run).split(" ").at(-1));
+  assert.deepEqual(setups, [...new Set(GATE_CATALOGUE.filter((gate) => gate.class === "light").flatMap((gate) => gate.setup))]);
   // Every action gate is its own job, gated to its events.
   for (const gate of GATE_CATALOGUE.filter((entry) => entry.class === "action")) {
     assert.ok(jobs[gate.id] !== undefined, gate.id);
@@ -175,6 +178,8 @@ test("ci.yml: plan and seal run the harness on a VM (never the slim container); 
   // A suite toolchain one suite does not need runs only for the cells that do.
   const corpus = (jobs.shard!.steps as Mutable[]).find((step) => String(step.name).startsWith("Fetch and verify the pinned corpus"));
   assert.match(String(corpus?.if), /contains\(fromJSON\('\["engine-suite"\]'\), matrix\.gate\)/u);
+  const compiler = (jobs.shard!.steps as Mutable[]).find((step) => step.name === "Install the pinned compiler");
+  assert.equal(compiler?.if, undefined, "every cell builds the runner's supervisor with the pinned compiler");
 });
 
 test("publish.yml queues every land and never cancels; codeql covers the three languages with security-extended", () => {
@@ -187,4 +192,12 @@ test("publish.yml queues every land and never cancels; codeql covers the three l
   const init = (analyze.steps as Mutable[]).find((step) => step.name === "Initialize CodeQL")!;
   assert.equal((init.with as Mutable).queries, "security-extended");
   assert.ok("merge_group" in (codeql.on as Mutable));
+});
+
+test("every command the catalogue runs is declared in the live command registry (one registry, one runner)", () => {
+  const config = JSON.parse(readFileSync(join(REPOSITORY_ROOT, "engine/bridlewise.config.json"), "utf8")) as { workspaceIsolation: { commands: Record<string, unknown> } };
+  const declared = new Set(Object.keys(config.workspaceIsolation.commands));
+  const missing = catalogueCommandNames().filter((name) => !declared.has(name));
+  assert.deepEqual(missing, []);
+  assert.ok(catalogueCommandNames().includes("guardian-pass-log"));
 });
