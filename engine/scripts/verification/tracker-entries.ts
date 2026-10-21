@@ -258,6 +258,8 @@ export function decisionViolations(entries: readonly { readonly name: string; re
     const amender = fields?.get("id") ?? "";
     for (const target of listValue(fields?.get("overrides") ?? "") ?? []) {
       const holder = fieldsOf.get(target)?.get("id") ?? target;
+      // Overriding itself is refused once, by the overrides field's own check.
+      if (holder === amender) continue;
       if (!amenders.has(holder)) amenders.set(holder, new Set());
       amenders.get(holder)!.add(amender);
     }

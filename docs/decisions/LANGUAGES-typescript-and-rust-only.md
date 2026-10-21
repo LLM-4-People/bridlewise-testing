@@ -29,12 +29,12 @@ exception is owned work, ported or removed under its issue:
 
 | Files | Language | Owned by |
 |---|---|---|
-| `engine/verification/benchmarks/code-intelligence/{inspect_existing_baseline,mcp_probe,policy_schemas,qualification}.py`, `…/code-intelligence/tests/test_qualification.py` | Python (5) | [#133](https://github.com/LLM-4-People/bridlewise-testing/issues/133) |
-| `engine/verification/benchmarks/context/{generate-scenarios,validate-suite}.py` | Python (2) | [#134](https://github.com/LLM-4-People/bridlewise-testing/issues/134) |
-| `engine/verification/benchmarks/git/{fault_transport,qualification}.py`, `…/git/tests/test_qualification.py` | Python (3) | [#135](https://github.com/LLM-4-People/bridlewise-testing/issues/135) |
-| `engine/guardian/tests/{require-pass-log,run-tests}.sh`, `engine/scripts/exp435/run-5000.sh`, `engine/verification/benchmarks/runtime/verify-node-v24.18.0-linux-x64.sh` | Shell (4) | [#136](https://github.com/LLM-4-People/bridlewise-testing/issues/136) |
-| `engine/guardian/{landlock-guardian.c,landlock-guardian.h,test-process-supervisor.c}`, `engine/guardian/tests/test_payload.c` | C (4) | [#137](https://github.com/LLM-4-People/bridlewise-testing/issues/137) (NATIVE-ONE) |
-| `engine/verification/benchmarks/security/s3-key-anchor-qualification/src/probe-{keyring,memory,mount-openat2}.c` | C (3) | [#138](https://github.com/LLM-4-People/bridlewise-testing/issues/138) |
+| `engine/verification/benchmarks/code-intelligence/inspect_existing_baseline.py`<br>`engine/verification/benchmarks/code-intelligence/mcp_probe.py`<br>`engine/verification/benchmarks/code-intelligence/policy_schemas.py`<br>`engine/verification/benchmarks/code-intelligence/qualification.py`<br>`engine/verification/benchmarks/code-intelligence/tests/test_qualification.py` | Python (5) | [#133](https://github.com/LLM-4-People/bridlewise-testing/issues/133) |
+| `engine/verification/benchmarks/context/generate-scenarios.py`<br>`engine/verification/benchmarks/context/validate-suite.py` | Python (2) | [#134](https://github.com/LLM-4-People/bridlewise-testing/issues/134) |
+| `engine/verification/benchmarks/git/fault_transport.py`<br>`engine/verification/benchmarks/git/qualification.py`<br>`engine/verification/benchmarks/git/tests/test_qualification.py` | Python (3) | [#135](https://github.com/LLM-4-People/bridlewise-testing/issues/135) |
+| `engine/guardian/tests/require-pass-log.sh`<br>`engine/guardian/tests/run-tests.sh`<br>`engine/scripts/exp435/run-5000.sh`<br>`engine/verification/benchmarks/runtime/verify-node-v24.18.0-linux-x64.sh` | Shell (4) | [#136](https://github.com/LLM-4-People/bridlewise-testing/issues/136) |
+| `engine/guardian/landlock-guardian.c`<br>`engine/guardian/landlock-guardian.h`<br>`engine/guardian/test-process-supervisor.c`<br>`engine/guardian/tests/test_payload.c` | C (4) | [#137](https://github.com/LLM-4-People/bridlewise-testing/issues/137) (NATIVE-ONE) |
+| `engine/verification/benchmarks/security/s3-key-anchor-qualification/src/probe-keyring.c`<br>`engine/verification/benchmarks/security/s3-key-anchor-qualification/src/probe-memory.c`<br>`engine/verification/benchmarks/security/s3-key-anchor-qualification/src/probe-mount-openat2.c`<br>`engine/verification/benchmarks/security/s3-key-anchor-qualification/src/probe-openat2.c` | C (4) | [#138](https://github.com/LLM-4-People/bridlewise-testing/issues/138) |
 
 Not exceptions: the evaluation fixtures under `engine/test/fixtures/eval-projects/`
 (Python, Go, Java, Ruby) are inputs the code-intelligence evaluations read in
