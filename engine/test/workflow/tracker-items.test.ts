@@ -33,10 +33,46 @@ test("a well-formed set of items is read in id order with every field typed", ()
   assert.deepEqual(items.map((entry) => entry.id), ["A-ONE", "B-TWO"]);
   assert.equal(items[0]!.title, "Give the board a source");
   assert.deepEqual({ ...items[1]!, body: undefined }, {
-    id: "B-TWO", type: "Task", title: null, state: "closed", resolution: "completed", lane: "floor", ownerRole: null, milestone: null,
+    id: "B-TWO", type: "Task", order: null, title: null, state: "closed", resolution: "completed", lane: "floor", ownerRole: null, milestone: null,
     parent: "A-ONE", blockedBy: ["A-ONE"], relates: [], severity: "P1", area: ["engine", "web"], evidence: "evidence:runs/a.json", gh: "#31",
+    decisions: [], tests: [], checks: [], rfc: null, goodFirst: false, closedBy: null,
     opened: "2026-10-20", closed: "2026-10-21", body: undefined,
   });
+});
+
+test("the roadmap fields: a Milestone with its order, a milestone reference, and the evidence links", () => {
+  const items = trackerItems([
+    item("M1", { type: "Milestone", title: "Reproducible floor", order: "1" }),
+    item("W-ONE", { milestone: "M1", decisions: "[UR-17, Q-TX1]", tests: "[engine/test/a.test.ts]", checks: "[testing.ci, web-suite]", rfc: "discussion#4", "good-first": "true" }),
+    item("W-TWO", { milestone: "M1", state: "closed", resolution: "completed", closed: "2026-10-21", "closed-by": "0123abcd" }),
+  ]);
+  const [milestone, one, two] = items;
+  assert.equal(milestone!.type, "Milestone");
+  assert.equal(milestone!.order, 1);
+  assert.equal(one!.milestone, "M1");
+  assert.deepEqual([one!.decisions, one!.tests, one!.checks, one!.rfc, one!.goodFirst], [["UR-17", "Q-TX1"], ["engine/test/a.test.ts"], ["testing.ci", "web-suite"], "discussion#4", true]);
+  assert.equal(two!.closedBy, "0123abcd");
+  assert.equal(two!.goodFirst, false);
+  for (const [entries, why] of [
+    [[item("M1", { type: "Milestone" })], /order is required/u],
+    [[item("A-ONE", { order: "2" })], /order does not belong/u],
+    [[item("M1", { type: "Milestone", order: "01" })], /order 01 does not match/u],
+    [[item("A-ONE", { milestone: "M9" })], /M9 names no Milestone item/u],
+    [[item("A-ONE", { milestone: "B-TWO" }), item("B-TWO", {})], /B-TWO names no Milestone item/u],
+    [[item("M1", { type: "Milestone", order: "1", milestone: "M1" })], /milestone does not belong/u],
+    [[item("A-ONE", { decisions: "[not-an-id]" })], /decisions not-an-id does not match/u],
+    [[item("A-ONE", { tests: "[/etc/passwd]" })], /tests \/etc\/passwd does not match/u],
+    [[item("A-ONE", { tests: "[engine/../x.ts]" })], /tests engine\/\.\.\/x\.ts does not match/u],
+    [[item("A-ONE", { checks: "[Testing CI]" })], /must be a non-empty|does not match/u],
+    [[item("A-ONE", { rfc: "#4" })], /rfc #4 does not match/u],
+    [[item("A-ONE", { "good-first": "yes" })], /good-first must be one of true/u],
+    [[item("A-ONE", { "closed-by": "0123abcd" })], /closed-by does not belong/u],
+    [[item("A-ONE", { state: "closed", resolution: "completed", closed: "2026-10-21", "closed-by": "XYZ" })], /closed-by XYZ does not match/u],
+  ] as const) {
+    assert.throws(() => trackerItems(entries), (error: unknown) => error instanceof Error && why.test(error.message), String(why));
+  }
+  // Near-misses: a three-word decision id with a lower-case suffix letter, a nested repository path, a dotted check id.
+  assert.doesNotThrow(() => trackerItems([item("A-ONE", { decisions: "[D-W1, UR-24-BUDGETS, Q6]", tests: "[tests/unit/a-b.test.ts]", checks: "[product.code_scanning]" })]));
 });
 
 test("every way an item breaks the format is refused, and the whole set is refused typed", () => {

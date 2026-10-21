@@ -11,7 +11,7 @@ import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { resignTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, README_CONSUMER_BLOCK, ROADMAP_README_BLOCK, SHIPPED_HOOK_FILES } from "../kernel/verification-paths.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
@@ -133,6 +133,8 @@ export type HarnessCheckOutput = Readonly<{
   decisionIndex: CheckStepResult;
   /** Would `harness regenerate` rewrite the task board (a tracker item changed)? */
   trackerBoard: CheckStepResult;
+  /** Would `harness regenerate` rewrite the README's roadmap summary (a tracker item or decision changed)? */
+  roadmapReadme: CheckStepResult;
   /** Does the checkout's live index still match its recorded baseline (src/git/index-baseline.ts)? */
   liveIndex: CheckStepResult;
   /** Is a multi-file transaction left for recovery (src/filesystem/journaled-commit.ts)? */
@@ -229,6 +231,11 @@ export type HarnessRegenerateOutput = Readonly<{
    * `syncTrackerBoard`), so a row is always exactly its item.
    */
   trackerBoard: DecisionIndexArm;
+  /**
+   * The README's roadmap summary (`ROADMAP_README_BLOCK`), rendered from the
+   * tracker items and decision records (scripts/roadmap/cli.ts `readme`).
+   */
+  roadmapReadme: DecisionIndexArm;
   /**
    * The shipped hooks (`SHIPPED_HOOK_FILES`): every canonical hook's whole
    * text, written by its generator (`scripts/verification/shipped-hooks.ts`)
@@ -496,6 +503,17 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the task board...");
   steps.push(trackerBoardStep(syncTrackerBoard(trackedTop(root), false)));
 
+  emitProgress(onProgress, "Checking the README's roadmap summary...");
+  const roadmapReadme = regenerateRoadmapReadme(root, false);
+  steps.push(deepFreeze({
+    step: "roadmap-readme",
+    status: roadmapReadme.converged ? "pass" : "fail",
+    message: roadmapReadme.converged
+      ? `the README's roadmap summary matches the tracker items and decision records${roadmapReadme.status === "absent" ? " (this tree carries no roadmap generator)" : ""}`
+      : `the README's roadmap summary is stale against the tracker items or decision records (run harness sync): ${roadmapReadme.changed.join(", ")}`,
+    details: roadmapReadme,
+  }));
+
   emitProgress(onProgress, "Checking the canonical artifact inventory...");
   const artifactManifest = regenerateArtifactManifest(root, false);
   steps.push(deepFreeze({
@@ -533,7 +551,8 @@ export async function harnessCheck(
     frozenRecords: steps[17]!,
     guardianSpecArtifact: steps[18]!,
     trackerBoard: steps[19]!,
-    artifactManifest: steps[20]!,
+    roadmapReadme: steps[20]!,
+    artifactManifest: steps[21]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -909,6 +928,8 @@ export function harnessRegenerate(
   const decisionIndex = regenerateDecisionIndex(root, write);
   // The task board: rendered from the structured tracker items.
   const trackerBoard = syncTrackerBoard(trackedTop(root), write);
+  // The README's roadmap summary: rendered from the items and decisions above.
+  const roadmapReadme = regenerateRoadmapReadme(root, write);
   // The shipped hooks: each canonical hook's text, from its owner.
   const shippedHooks = regenerateShippedHooks(root, write);
   // The evidence ignore rule: derived from the tracked evidence manifests.
@@ -919,7 +940,7 @@ export function harnessRegenerate(
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, frozenRecords, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, roadmapReadme, shippedHooks, evidenceIgnore, frozenRecords, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -935,7 +956,7 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && roadmapReadme.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1241,6 +1262,18 @@ export function frozenRecordsStep(frozenRecords: FrozenRecordsReport): CheckStep
 function regenerateDecisionIndex(root: string, write: boolean): DecisionIndexArm {
   if (!existsSync(resolve(root, DECISION_INDEX.generator))) return deepFreeze({ status: "absent" as const, converged: true, changed: [] });
   const report = generatorReport<DecisionIndexArm["status"]>(root, DECISION_INDEX.generator, [write ? "--write" : "--check"], "the decision index generator", "decision_index_no_result");
+  return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed });
+}
+
+/**
+ * The roadmap arm (`ROADMAP_README_BLOCK.generator`, a builder-layer
+ * generator run as its own process): the README's roadmap summary, from the
+ * tracker items and decision records. A tree without the generator is
+ * converged by absence.
+ */
+function regenerateRoadmapReadme(root: string, write: boolean): DecisionIndexArm {
+  if (!existsSync(resolve(root, ROADMAP_README_BLOCK.generator))) return deepFreeze({ status: "absent" as const, converged: true, changed: [] });
+  const report = generatorReport<DecisionIndexArm["status"]>(root, ROADMAP_README_BLOCK.generator, ["readme", write ? "--write" : "--check"], "the roadmap generator", "roadmap_readme_no_result");
   return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed });
 }
 

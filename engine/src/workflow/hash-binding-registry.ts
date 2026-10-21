@@ -9,7 +9,7 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { REQUIREMENTS_REGISTRY_IDENTITY_HASH, REQUIREMENTS_REGISTRY_SOURCE_PATH } from "../kernel/requirements.ts";
 import { FORENSIC_SCHEMA_BUNDLE_HASH } from "../forensics/forensic-contracts.ts";
 import { S3_OFFLINE_FORENSIC_HASH } from "../forensics/offline-forensics.ts";
-import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, TRACKER_BOARD, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, ROADMAP_README_BLOCK, TRACKER_BOARD, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
 import { ownedFiles } from "../git/repository-ownership.ts";
 import { ARCHITECTURE_EXTERNAL_COMMANDS } from "../kernel/architecture-external-commands.ts";
@@ -624,6 +624,9 @@ function generatedOutputPathsOfReadmes(readmes: readonly string[]): ReadonlySet<
     // The task board a regenerate pass renders from the tracker items
     // (`TRACKER_BOARD.generator`).
     TRACKER_BOARD.path,
+    // The root README's roadmap summary a regenerate pass renders from the
+    // tracker items and decision records (`ROADMAP_README_BLOCK.generator`).
+    ROADMAP_README_BLOCK.path,
     // The root ignore file's evidence block, which a sync pass rewrites from the
     // evidence manifests (`EVIDENCE_IGNORE_BLOCK.generator`).
     EVIDENCE_IGNORE_BLOCK.path,

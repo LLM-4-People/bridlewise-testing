@@ -315,6 +315,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/brand/claims.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/candidate-format.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -2501,7 +2509,39 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/roadmap/forecast.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/roadmap/graph.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/roadmap/history.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/roadmap/model.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/roadmap/render.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -4197,5 +4237,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "06f8272b1201d3c5279d3bdba68625a545d79d8875b1925fb934965eb5a597d9"
+  "integrityHash": "6ccef4ebe5315bdb882ae6171a0b2e6bf2d77eaf0bfd6966806f0beeb314b014"
 }

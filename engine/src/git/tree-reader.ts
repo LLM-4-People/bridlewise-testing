@@ -134,6 +134,43 @@ function nulRecords(output: Buffer): readonly Buffer[] {
 type CommitEntry = Readonly<{ mode: string; type: string; oid: string; size: number }>;
 
 /**
+ * The UTF-8 texts of `blobs` (each its object id and declared size), in order,
+ * read through `git cat-file --batch` in batches whose declared sizes fit half
+ * the git output bound — never one process per blob. `where` names the blobs'
+ * source in a refusal (`tree_reader_git_failed`: git answered anything but the
+ * blob asked for).
+ */
+export function readBlobTexts(repository: GitRepository, blobs: readonly Readonly<{ oid: string; size: number }>[], where: string): readonly string[] {
+  const batchBytes = Math.floor(ROOT_POLICY.runtime.limits.maximumGitOutputBytes / 2);
+  const texts: string[] = [];
+  const readBatch = (batch: readonly Readonly<{ oid: string; size: number }>[]): void => {
+    const output = gitBytes(repository, ["cat-file", "--batch"], Buffer.from(`${batch.map((blob) => blob.oid).join("\n")}\n`));
+    let offset = 0;
+    for (const blob of batch) {
+      const newline = output.indexOf(0x0a, offset);
+      const header = output.subarray(offset, newline).toString("utf8").split(" ");
+      const size = Number(header[2]);
+      if (header[0] !== blob.oid || header[1] !== "blob" || !Number.isInteger(size)) throw new HarnessError(`git cat-file --batch answered "${header.join(" ")}" for ${blob.oid} in ${where}`, "tree_reader_git_failed");
+      texts.push(output.subarray(newline + 1, newline + 1 + size).toString("utf8"));
+      offset = newline + 1 + size + 1;
+    }
+  };
+  let batch: Readonly<{ oid: string; size: number }>[] = [];
+  let bytes = 0;
+  for (const blob of blobs) {
+    if (batch.length > 0 && bytes + blob.size > batchBytes) {
+      readBatch(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(blob);
+    bytes += blob.size;
+  }
+  if (batch.length > 0) readBatch(batch);
+  return texts;
+}
+
+/**
  * The files of `commit` in `repository`. The listing is one
  * `git ls-tree -r -l -z --full-tree`; bytes are read by object id through
  * `git cat-file --batch`, in batches whose declared sizes fit half the git
@@ -148,37 +185,16 @@ export function commitTreeReader(repository: GitRepository, commit: string): Tre
   }
   const sorted = deepFreeze([...listing.keys()].sort());
   const texts = new Map<string, string | null>();
-  const batchBytes = Math.floor(ROOT_POLICY.runtime.limits.maximumGitOutputBytes / 2);
-  const readBatch = (paths: readonly string[]): void => {
-    const blobs = paths.filter((path) => listing.get(path)!.type === "blob");
-    for (const path of paths) if (listing.get(path)!.type !== "blob") texts.set(path, null);
-    if (blobs.length === 0) return;
-    const output = gitBytes(repository, ["cat-file", "--batch"], Buffer.from(`${blobs.map((path) => listing.get(path)!.oid).join("\n")}\n`));
-    let offset = 0;
-    for (const path of blobs) {
-      const newline = output.indexOf(0x0a, offset);
-      const header = output.subarray(offset, newline).toString("utf8").split(" ");
-      const size = Number(header[2]);
-      if (header[1] !== "blob" || !Number.isInteger(size)) throw new HarnessError(`git cat-file --batch answered "${header.join(" ")}" for ${path} in ${commit}`, "tree_reader_git_failed");
-      texts.set(path, output.subarray(newline + 1, newline + 1 + size).toString("utf8"));
-      offset = newline + 1 + size + 1;
-    }
-  };
   const prefetch = (wanted: Iterable<string>): void => {
-    let batch: string[] = [];
-    let bytes = 0;
+    const blobs: string[] = [];
     for (const path of new Set(wanted)) {
       const entry = listing.get(path);
       if (entry === undefined || texts.has(path)) continue;
-      if (batch.length > 0 && bytes + entry.size > batchBytes) {
-        readBatch(batch);
-        batch = [];
-        bytes = 0;
-      }
-      batch.push(path);
-      bytes += entry.size;
+      if (entry.type === "blob") blobs.push(path);
+      else texts.set(path, null);
     }
-    if (batch.length > 0) readBatch(batch);
+    const read = readBlobTexts(repository, blobs.map((path) => listing.get(path)!), commit);
+    blobs.forEach((path, index) => texts.set(path, read[index]!));
   };
   return deepFreeze({
     label: commit,

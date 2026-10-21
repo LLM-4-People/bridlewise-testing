@@ -92,8 +92,22 @@ export const TRACKER_BOARD = deepFreeze({
   end: "<!-- END GENERATED: the task board -->",
 } as const);
 
+/**
+ * THE ROADMAP SUMMARY in the root README: milestones with their computed
+ * progress and the next items, rendered from the tracker items and decision
+ * records by `generator` (relative to the engine: scripts/roadmap/cli.ts
+ * `readme`, `harness sync`); the full roadmap, with check status, is the
+ * site page the same generator builds at publish.
+ */
+export const ROADMAP_README_BLOCK = deepFreeze({
+  path: "README.md",
+  generator: "scripts/roadmap/cli.ts",
+  begin: "<!-- BEGIN GENERATED: the roadmap summary, from the tracker items and decision records (harness sync; engine/scripts/roadmap/cli.ts) -->",
+  end: "<!-- END GENERATED: the roadmap summary -->",
+} as const);
+
 /** Every generated BLOCK a hand-written file can carry (its generator owns the text between `begin` and `end`). */
-export const GENERATED_BLOCKS = deepFreeze([README_CONSUMER_BLOCK, DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD] as const);
+export const GENERATED_BLOCKS = deepFreeze([README_CONSUMER_BLOCK, DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD, ROADMAP_README_BLOCK] as const);
 
 export const SLICE_PROJECTION_PATHS = deepFreeze({
   declarations: "traceability/canonical/slice-declarations.json",

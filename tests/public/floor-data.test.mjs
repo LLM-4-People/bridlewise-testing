@@ -105,7 +105,7 @@ test("the site assembly gives the testing floor its own front door", () => {
     assert.match(readFileSync(join(out, "product.md"), "utf8"), /Product documentation/);
     assert.ok(readFileSync(join(out, "floor/index.md"), "utf8").includes("The development floor"));
     assert.ok(readFileSync(join(out, "floor/help.md"), "utf8").includes("How to help"));
-    assert.ok(readFileSync(join(out, "floor/roadmap.md"), "utf8").includes("Roadmap: build the floor"));
+    assert.ok(readFileSync(join(out, "floor/roadmap.md"), "utf8").includes("# Roadmap\n"));
     assert.ok(readFileSync(join(out, "assets/floor/floor.css"), "utf8").includes("floor-table-wrap"));
     // Jekyll renders a page only when it has front matter; the tracker pages
     // are plain Markdown, so the assembler adds it to the copy.
@@ -115,7 +115,7 @@ test("the site assembly gives the testing floor its own front door", () => {
     // The floor's own roadmap link was rewritten to the page the site builds.
     assert.match(
       readFileSync(join(out, "floor/roadmap.md"), "utf8"),
-      /\[TASKS\]\(\/bridlewise-testing\/trackers\/TASKS\/\)/u,
+      /\[task board\]\(\/bridlewise-testing\/trackers\/TASKS\/\)/u,
     );
     assert.ok(readFileSync(join(out, ".well-known/security.txt"), "utf8").includes("Contact:"));
     assert.equal(result.baseurl, "/bridlewise-testing");

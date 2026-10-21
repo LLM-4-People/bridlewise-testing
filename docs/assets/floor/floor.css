@@ -568,4 +568,115 @@ main#main .floor-status {
   }
 }
 
+/* The generated roadmap (engine/scripts/roadmap/render.ts). It reads the
+   site's tokens only: no colour, font or radius is restated here. Status hues follow
+   the cockpit's grammar: ok for done, the beam for what is moving, warn for a
+   deliberate wait, alarm (on the edge, struck through) for a retraction. */
 
+.floor-roadmap { --floor-gap: 20px; max-width: 1180px; }
+.floor-roadmap h2 { margin-top: 56px; }
+.floor-head h1 { margin-bottom: 8px; }
+.floor-lede { max-width: 72ch; color: var(--ink-2); font-size: 1.05rem; }
+.floor-facts, .floor-links, .floor-live { font-family: var(--mono); font-size: 0.82rem; color: var(--ink-3); margin: 6px 0; }
+.floor-quiet { color: var(--ink-3); font-size: 0.9rem; }
+.floor-gap { color: var(--warn); }
+.floor-count { font-family: var(--mono); color: var(--ink-3); font-weight: 400; font-size: 0.85em; }
+
+.floor-lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--floor-gap); }
+.floor-lane { border-top: 2px solid var(--ink); padding-top: 10px; min-width: 0; }
+.floor-lane h3 { margin: 0 0 10px; }
+.floor-lane-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.floor-lane-card { padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.floor-lane-card[data-status="in-flight"] { border-left-color: var(--beam); }
+.floor-lane-card[data-status="retracted"] { border-left-color: var(--alarm); }
+.floor-lane-card[data-status="blocked"] { border-left-color: var(--warn); }
+.floor-lane-card[data-status="ready"] { border-left-color: var(--ink-2); }
+.floor-lane-card-title { font-weight: 600; color: var(--ink); text-decoration: none; }
+.floor-lane-card-title:hover, .floor-lane-card-title:focus-visible { text-decoration: underline; }
+.floor-lane-card p { margin: 6px 0 0 0; padding: 0; color: var(--ink-2); font-size: 0.92rem; }
+.floor-lane-card-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+
+.floor-state, .floor-ms, .floor-impl, .floor-check, .floor-good-first { font-family: var(--mono); font-size: 0.78rem; white-space: nowrap; }
+.floor-state { padding: 1px 6px; border: 1px solid currentColor; border-radius: var(--radius-sm); }
+.floor-state[data-status="done"] { color: var(--ok); }
+.floor-state[data-status="retracted"] { color: var(--alarm); text-decoration: line-through; }
+.floor-state[data-status="in-flight"] { color: var(--beam); }
+.floor-state[data-status="ready"] { color: var(--ink-2); }
+.floor-state[data-status="blocked"] { color: var(--warn); }
+.floor-state[data-status="dropped"] { color: var(--ink-3); }
+.floor-ms { color: var(--ink-3); }
+.floor-good-first { color: var(--ok); }
+.floor-impl[data-impl="done"], .floor-check[data-check="pass"], .floor-check[data-check="success"] { color: var(--ok); }
+.floor-impl[data-impl="partial"], .floor-check[data-check="pending"] { color: var(--beam); }
+.floor-impl[data-impl="pending"], .floor-check[data-check="not-run"], .floor-check[data-check="unknown"], .floor-check[data-check="none"] { color: var(--warn); }
+.floor-impl[data-impl="standing"] { color: var(--ink-3); }
+.floor-check[data-check="fail"], .floor-check[data-check="failure"] { color: var(--alarm); }
+
+.floor-feed { list-style: none; padding: 0; font-size: 0.92rem; }
+.floor-feed li { padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.floor-feed time { font-family: var(--mono); color: var(--ink-3); margin-right: 8px; }
+
+.floor-milestone { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line-strong); }
+.floor-milestone header h3 { margin: 0; }
+.floor-ms-state { font-family: var(--mono); font-size: 0.82rem; color: var(--ink-3); margin: 4px 0 10px; }
+.floor-why { max-width: 72ch; color: var(--ink-2); }
+.floor-progress, .floor-area { display: flex; height: 8px; background: var(--surface-2); border-radius: var(--radius-sm); overflow: hidden; max-width: 560px; }
+.floor-progress span, .floor-area span { width: var(--floor-share); }
+.floor-progress-done, .floor-area [data-impl="done"] { background: var(--ok); }
+.floor-progress-retracted { background: var(--alarm); }
+.floor-area [data-impl="partial"] { background: var(--beam); }
+.floor-area [data-impl="pending"] { background: var(--warn); }
+.floor-ms-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--floor-gap); margin: 14px 0; }
+.floor-ms-grid h4 { margin: 0 0 6px; }
+.floor-path { margin: 0; padding-left: 1.4em; }
+.floor-burnup { width: 100%; max-width: 360px; height: auto; display: block; margin-top: 8px; border-bottom: 1px solid var(--line); }
+.floor-burnup-scope { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
+.floor-burnup-done { fill: none; stroke: var(--ok); stroke-width: 2.5; }
+
+.floor-item { border-bottom: 1px solid var(--line); }
+.floor-item summary { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; cursor: pointer; }
+.floor-item summary code { margin-left: auto; color: var(--ink-3); font-size: 0.78rem; }
+.floor-item[data-status="retracted"] .floor-item-title { text-decoration: line-through; text-decoration-color: var(--alarm); }
+.floor-item:target, .floor-item:focus-within { background: var(--surface); }
+.floor-item dl { display: grid; grid-template-columns: 9em minmax(0, 1fr); gap: 4px 14px; margin: 0 0 14px; font-size: 0.92rem; }
+.floor-item dt { color: var(--ink-3); }
+.floor-item dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+.floor-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.floor-table th, .floor-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.floor-table td:nth-child(n+3) { font-family: var(--mono); }
+.floor-gaps li { margin: 6px 0; }
+.floor-method li { margin: 6px 0; max-width: 80ch; }
+
+.floor-filter { display: inline-flex; gap: 8px; align-items: center; font-size: 0.9rem; margin-bottom: 8px; }
+.floor-graph { overflow-x: auto; border: 1px solid var(--line); background: var(--surface); }
+.floor-graph svg { display: block; min-width: 640px; }
+.floor-graph .node rect { fill: var(--bg-raised, var(--surface)); stroke: var(--line-strong); }
+.floor-graph .node text { fill: var(--ink); font-family: var(--sans); font-size: 12px; }
+.floor-graph .node[data-status="done"] rect { stroke: var(--ok); }
+.floor-graph .node[data-status="in-flight"] rect { stroke: var(--beam); stroke-width: 2; }
+.floor-graph .node[data-status="retracted"] rect { stroke: var(--alarm); stroke-width: 2; }
+.floor-graph .node.blocked rect { stroke: var(--warn); stroke-dasharray: 4 3; }
+.floor-graph .edge { fill: none; stroke: var(--ink-3); stroke-width: 1.2; }
+.floor-graph .critical.edge { stroke: var(--ink); stroke-width: 2.6; }
+.floor-graph .node.critical rect { stroke-width: 2.6; }
+.floor-graph svg.dimmed .node:not(.upstream):not(.downstream):not(.focus), .floor-graph svg.dimmed .edge:not(.upstream):not(.downstream) { opacity: 0.25; }
+.floor-graph .node:focus-visible rect { stroke: var(--beam); stroke-width: 3; }
+.floor-graph .hidden { display: none; }
+
+@media (max-width: 860px) {
+  .floor-lanes, .floor-ms-grid { grid-template-columns: minmax(0, 1fr); }
+  .floor-item dl { grid-template-columns: minmax(0, 1fr); }
+  .floor-item dt { margin-top: 6px; }
+  .floor-item summary { flex-wrap: wrap; }
+  .floor-item summary code { margin-left: 0; }
+}
+
+@media print {
+  .floor-links, .floor-live, .floor-graph, .floor-filter, script { display: none; }
+  .floor-lanes, .floor-print-lanes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .floor-print { font-size: 10.5pt; }
+  .floor-print h2 { margin-top: 14pt; }
+  .floor-print a { color: inherit; text-decoration: none; }
+}
+.floor-print-lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }

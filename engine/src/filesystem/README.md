@@ -40,7 +40,7 @@ The key and SQLite migration are separate effects: a failed migration can leave 
 
 The folder lives at `engine/src/filesystem/`.
 
-- `atomic-write.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/regenerate-handoff-manifest.ts`, `engine/scripts/tooling/artifact-manifest.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/scripts/tooling/run-tests.ts` and 37 more.
+- `atomic-write.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/regenerate-handoff-manifest.ts`, `engine/scripts/roadmap/cli.ts`, `engine/scripts/tooling/artifact-manifest.ts`, `engine/scripts/tooling/candidate-checkout.ts` and 38 more.
 - `checkout-write-door.ts` is consumed by `engine/scripts/tooling/test-worker.ts`, `engine/src/filesystem/atomic-write.ts`, `engine/src/filesystem/database-provenance.ts`, `engine/src/filesystem/journaled-commit.ts`, `engine/src/filesystem/move-path.ts`, `engine/src/filesystem/private-home.ts` and 1 more.
 - `database-files.ts` is consumed by `engine/src/filesystem/persisted-key.ts`, `engine/src/filesystem/self-protection/keep-out.ts`, `engine/src/filesystem/self-protection/key-home.ts`, `server/kernel/canonical.ts`.
 - `database-provenance.ts` is consumed by `engine/src/timeline/timeline-store.ts`, `server/db/client.ts`, `server/db/wire.ts`.

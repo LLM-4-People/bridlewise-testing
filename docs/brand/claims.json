@@ -1,0 +1,52 @@
+{
+  "schema": "bridlewise-claims/v1",
+  "claims": [
+    {
+      "id": "raw-corpus",
+      "kind": "not-claimed",
+      "text": "Publishing the raw 4.1 GB corpus as a repository",
+      "reason": "Mixed licenses, nested histories, duplicate checkouts and credential-shaped fixtures.",
+      "evidence": "docs/floor/evidence.md#corpus-boundary"
+    },
+    {
+      "id": "hosted-service",
+      "kind": "not-claimed",
+      "text": "A hosted multi-tenant service in the preview",
+      "reason": "The preview is a single-user developer preview and carries no hosting claim."
+    },
+    {
+      "id": "production-ready",
+      "kind": "not-claimed",
+      "text": "A production-readiness claim before the admission evidence exists",
+      "reason": "The admission gates are open and no capability beyond preflight is admitted.",
+      "evidence": "docs/floor/evidence.md#what-none-of-this-proves"
+    },
+    {
+      "id": "hidden-failures",
+      "kind": "not-claimed",
+      "text": "Skipping or hiding a failing test to make a badge green",
+      "reason": "A failing test is owned by a named task row, and a guard refuses a stale duplicate.",
+      "evidence": "docs/trackers/TASKS.md"
+    },
+    {
+      "id": "benchmark-without-method",
+      "kind": "not-claimed",
+      "text": "A benchmark number without its method",
+      "reason": "Performance claims must link to a method and a report.",
+      "evidence": "docs/floor/evidence.md#performance-probe"
+    },
+    {
+      "id": "universal-providers",
+      "kind": "not-claimed",
+      "text": "A universal provider compatibility claim",
+      "reason": "Provider conformance is proved per shape, not universally.",
+      "evidence": "docs/extending.md"
+    },
+    {
+      "id": "release-dates",
+      "kind": "not-claimed",
+      "text": "A release date",
+      "reason": "This roadmap is a statement of intent, not a schedule."
+    }
+  ]
+}

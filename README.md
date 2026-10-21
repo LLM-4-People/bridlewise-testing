@@ -57,17 +57,23 @@ The projection is described in `promotion/testing-to-master.json`. It is maintai
 
 ## Roadmap
 
-The full [build roadmap](https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/) is milestone based, with exit criteria and help lanes. The short version:
-
-| Milestone | State | What must be true |
+<!-- BEGIN GENERATED: the roadmap summary, from the tracker items and decision records (harness sync; engine/scripts/roadmap/cli.ts) -->
+| Milestone | State | Done |
 |---|---|---|
-| M0 · Public floor online | Done | Both repositories, Pages, the public gate, failure reporting, promotion, and a prerelease are live. |
-| M1 · Reproducible, sharded floor | Active | The full suite runs on shards, merges into one receipt, and every canonical test file runs once. |
-| M2 · Admission evidence | Next | Readiness is reported per capability, with evidence and a remedy attached. |
-| M3 · Product hardening | Next | Backup and restore are one verified flow; provider coverage, portability, scale, and accessibility still need tested failure paths. |
-| M4 · Sustainable contribution | Active | A new contributor can go from clone to a merged test or docs change using only public instructions. |
+| M0 · Public floor online | shipped | 6 of 6 |
+| M1 · Reproducible, sharded floor | in progress | 9 of 12 |
+| M2 · Admission evidence | in progress | 3 of 9 |
+| M3 · Product hardening | in progress | 2 of 11 |
+| M4 · Sustainable contribution | in progress | 4 of 9 |
 
-No dates. A milestone closes when its exit criteria are reproducible, not when a badge changes.
+Next up:
+
+- **A node:test shard runner that preserves the inventory contract** (`M1-NODETEST`): Nothing blocks it and M1 is the earliest open milestone.
+- **Reproducible performance report** (`M1-PERF`): Nothing blocks it and M1 is the earliest open milestone.
+- **10x test-phase factor on a documented runner class** (`M1-X5`): Nothing blocks it and M1 is the earliest open milestone.
+
+Computed from the tracker items at this commit; no date is promised. The published roadmap also applies each item's checks (a closed item whose check is red is shown retracted) and links the evidence for every item: https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/
+<!-- END GENERATED: the roadmap summary -->
 
 ## Quickstart
 

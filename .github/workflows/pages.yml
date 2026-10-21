@@ -36,6 +36,9 @@ jobs:
     steps:
       - name: Check out testing floor
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The roadmap replays the tracker's git history (burn-up, throughput, time travel).
+          fetch-depth: 0
 
       - name: Check out product docs
         id: product
@@ -71,6 +74,14 @@ jobs:
             --testing . \
             --product product \
             --out .site/floor/data
+
+      - name: Generate the roadmap
+        run: |
+          node engine/scripts/roadmap/cli.ts build \
+            --site .site \
+            --out .site/floor/roadmap \
+            --checks .site/floor/data/status.json \
+            --no-live "the projector's live snapshot is not published yet"
 
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1

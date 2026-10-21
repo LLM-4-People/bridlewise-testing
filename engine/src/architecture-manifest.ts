@@ -187,6 +187,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       "scripts/pin-authority-regeneration.ts",
       "scripts/post-commit.ts",
       "scripts/regenerate-handoff-manifest.ts",
+      "scripts/roadmap/cli.ts",
       "scripts/test-inventory.ts",
       "scripts/tooling/artifact-manifest.ts",
       "scripts/tooling/bootstrap-permissions.ts",
@@ -4698,7 +4699,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-kernel-verification-paths", path: "src/kernel/verification-paths.ts", realm: "shared", layer: "trusted-kernel",
-      owner: "architecture", publicApi: { exportCount: 10, namesSha256: "76a1359b858b51991110e66eb6f29a2069d9b7e6331c08d6dfdac6f5d09aac04" },
+      owner: "architecture", publicApi: { exportCount: 11, namesSha256: "cd93fb1d629bb75b5f288de5a22b24fa4f28dfada033c62fa6359ef8c6bc7d0d" },
       dependencies: ["src/kernel/integrity.ts","src/kernel/root-policy.ts"],
     }),
     moduleContract({
@@ -5284,7 +5285,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-git-tree-reader", path: "src/git/tree-reader.ts", realm: "shared", layer: "ports",
-      owner: "workspace-git", publicApi: { exportCount: 11, namesSha256: "374e6d57eae1c77286d2046a9052d53d690ffcee51df61b73ab9a1d0e8702399" },
+      owner: "workspace-git", publicApi: { exportCount: 12, namesSha256: "ed2445f461604ca033ece9f618f6af4290aed4e2dbd75a09e55d49105009ae59" },
       dependencies: ["node:child_process","node:fs","node:path","src/filesystem/private-state.ts","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts"],
     }),
     moduleContract({
@@ -5450,7 +5451,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-failure-owners", path: "src/workflow/failure-owners.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 25, namesSha256: "152b1246b90b08249000d3bc66b810454023b19c9464ef6e76528d9cbf5863c0" },
+      owner: "verification-workflow", publicApi: { exportCount: 26, namesSha256: "922338e34b98d190e46329638e8f178a0b7f24a08c9365fd2a832197afc58351" },
       dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/verification-paths.ts"],
     }),
     moduleContract({
@@ -5574,6 +5575,47 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "scripts-roadmap-graph", path: "scripts/roadmap/graph.ts", realm: "builder", layer: "verification",
       owner: "verification", publicApi: { exportCount: 15, namesSha256: "a1749dd878adea8394d05d1dc39c756d65c5153dc2a151a4a72d9cfcff4c47d4" },
       dependencies: ["../shared/markup.ts","src/kernel/errors.ts","src/tools/concurrent/dependency-graph.ts"],
+    }),
+    moduleContract({
+      id: "scripts-brand-claims", path: "scripts/brand/claims.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 5, namesSha256: "6a1bf0975a1eed6b998d6413229c689434725a3f146a54aef8f4b600b059d189" },
+      dependencies: ["node:fs","node:path","src/kernel/errors.ts"],
+    }),
+    moduleContract({
+      id: "scripts-brand-messaging", path: "scripts/brand/messaging.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 5, namesSha256: "32b7bd7e8765493e90694a228297d8b8c8e368f73062f64480868f50091db67f" },
+      dependencies: ["node:fs","node:path","src/kernel/errors.ts"],
+    }),
+    moduleContract({
+      id: "scripts-roadmap-cli", path: "scripts/roadmap/cli.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 3, namesSha256: "422595471890fc209c5d8aeeecd5142d4bbc4bb0e8d601ab911cd992250f663c" },
+      dependencies: ["node:fs","node:path","node:url","node:util","scripts/brand/claims.ts","scripts/brand/messaging.ts","scripts/roadmap/forecast.ts","scripts/roadmap/graph.ts","scripts/roadmap/history.ts","scripts/roadmap/inputs.ts","scripts/roadmap/model.ts","scripts/roadmap/render.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/verification-paths.ts","src/runtime/cli-debug.ts","src/workflow/failure-owners.ts"],
+      executionBoundary: "composition-root", compositionRoot: true,
+    }),
+    moduleContract({
+      id: "scripts-roadmap-forecast", path: "scripts/roadmap/forecast.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 6, namesSha256: "41c767dc676486b3e3b3d188a309a7ff37f20eb725a0c9d4bf495deb66f09f3c" },
+      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/stats.ts"],
+    }),
+    moduleContract({
+      id: "scripts-roadmap-history", path: "scripts/roadmap/history.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 19, namesSha256: "a341f8880a57247de0235a367e454f2c04007aa02a2907f5a6baf5bec164440f" },
+      dependencies: ["scripts/roadmap/forecast.ts","scripts/roadmap/types.ts","src/git/ignored-copies.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/workflow/failure-owners.ts"],
+    }),
+    moduleContract({
+      id: "scripts-roadmap-inputs", path: "scripts/roadmap/inputs.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 7, namesSha256: "12b72d7a70ada898af3ddc13f49674b5e001f6ae750faeeda5fd773460790650" },
+      dependencies: ["node:fs","node:path","scripts/roadmap/types.ts","scripts/verification/tracker-entries.ts","src/kernel/errors.ts","src/workflow/failure-owners.ts"],
+    }),
+    moduleContract({
+      id: "scripts-roadmap-model", path: "scripts/roadmap/model.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 4, namesSha256: "e16fcdd1c0e35fe0f13f248bbb860e429988e2a3524050d9f27b57e4f03ff423" },
+      dependencies: ["scripts/roadmap/types.ts"],
+    }),
+    moduleContract({
+      id: "scripts-roadmap-render", path: "scripts/roadmap/render.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 12, namesSha256: "2398dd4079731fba19ff61eee87ab35feec5fcd4424a847513471c87620de09b" },
+      dependencies: ["../shared/markup.ts","src/kernel/errors.ts"],
     }),
   ],
 });

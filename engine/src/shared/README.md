@@ -97,7 +97,7 @@ The folder lives at `engine/src/shared/`.
 - `source-extensions.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/scripts/verification/effect-surface.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/intelligence/file-slice.ts`, `engine/src/intelligence/quick-view.ts` and 3 more.
 - `source-scan.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/safe-repository-reader.ts`, `engine/scripts/verification/source-walk.ts`, `engine/src/cli.ts` and 7 more.
 - `source-structure.ts` is consumed by `engine/scripts/verification/measurement-contract.ts`.
-- `stats.ts` is consumed by `engine/src/awareness/fisher-ranking.ts`, `engine/src/evaluation/matrix-executor.ts`, `engine/src/shared/git-churn.ts`.
+- `stats.ts` is consumed by `engine/scripts/roadmap/forecast.ts`, `engine/src/awareness/fisher-ranking.ts`, `engine/src/evaluation/matrix-executor.ts`, `engine/src/shared/git-churn.ts`.
 - `string-values.ts` is consumed by `engine/src/privacy/responses-observation.ts`, `engine/src/privacy/responses-redaction.ts`, `engine/src/shared/llm/provider-observation.ts`.
 - `test-costs.ts` is consumed by nothing yet.
 - `tree-identity.ts` is consumed by `engine/scripts/tooling/run-tests.ts`.

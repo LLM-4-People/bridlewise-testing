@@ -208,9 +208,15 @@ export function readEntries(root: string, directory: string): readonly { readonl
 
 const TRACKER_ITEM_SCHEMA = schemaId("tracker-item", 1);
 /** An item id: upper-case words and numbers joined by hyphens; the file is `<id>.md`. */
-const TRACKER_ITEM_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/u;
+export const TRACKER_ITEM_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/u;
 /** The item types: each is the GitHub issue type its projection carries (github-only §9.2). */
-const TRACKER_ITEM_TYPES = Object.freeze(["Workstream", "Task", "Bug", "Flake", "Lesson", "Risk", "Finding", "Security", "Intake"] as const);
+const TRACKER_ITEM_TYPES = Object.freeze(["Milestone", "Workstream", "Task", "Bug", "Flake", "Lesson", "Risk", "Finding", "Security", "Intake"] as const);
+/** A decision record id (the decision schema's own shape, scripts/verification/tracker-entries.ts `DECISION_ID`). */
+const DECISION_REF = /^[A-Z][A-Z0-9]*[a-z]?(?:-[A-Z0-9]+[a-z]?)*$/u;
+/** A check id as the gate catalogue and the floor status name it (`testing.ci`, `product.codeql`, `web-suite`). */
+const CHECK_REF = /^[a-z][a-z0-9_]*(?:[.-][a-z0-9_]+)*$/u;
+/** A repository-relative path: no leading slash, no `..`, no whitespace. */
+const REPOSITORY_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\s]+$/u;
 const TRACKER_ITEM_STATES = Object.freeze(["open", "closed"] as const);
 /** How a closed item closed: its projection's `state_reason`. */
 const TRACKER_ITEM_RESOLUTIONS = Object.freeze(["completed", "not-planned", "duplicate"] as const);
@@ -234,6 +240,8 @@ export type TrackerLane = keyof typeof TRACKER_LANES;
 export type TrackerItem = Readonly<{
   id: string;
   type: TrackerItemType;
+  /** A milestone's place in the sequence (`type: Milestone` only; required there). */
+  order: number | null;
   /** The display title; `null` when the id is the title. */
   title: string | null;
   state: typeof TRACKER_ITEM_STATES[number];
@@ -250,6 +258,18 @@ export type TrackerItem = Readonly<{
   evidence: string | null;
   /** The GitHub object the item adopted (`#<n>` or `discussion#<n>`), when it came in from GitHub. */
   gh: string | null;
+  /** The decision records this item implements (their ids): the roadmap's "why" comes from the first. */
+  decisions: readonly string[];
+  /** Test files that prove the item (repository paths). */
+  tests: readonly string[];
+  /** Check ids whose result the item's status is computed from: a closed item whose check is red is shown retracted. */
+  checks: readonly string[];
+  /** The item's RFC discussion (`discussion#<n>`). */
+  rfc: string | null;
+  /** A good first entry point for a new contributor. */
+  goodFirst: boolean;
+  /** The commit that closed the item (`closed` items only). */
+  closedBy: string | null;
   /** `YYYY-MM-DD`. */
   opened: string;
   closed: string | null;
@@ -272,6 +292,7 @@ function yamlPlain(item: string): string | null {
  */
 export function trackerItemViolations(entries: readonly { readonly name: string; readonly text: string }[]): readonly string[] {
   const ids = new Set(entries.map(({ name }) => name.replace(/\.md$/u, "")));
+  const milestones = new Set(entries.filter(({ text }) => parseFrontMatter(text)?.fields.get("type") === "Milestone").map(({ name }) => name.replace(/\.md$/u, "")));
   const parents = new Map<string, string>();
   const problems: string[] = [];
   for (const { name, text } of entries) {
@@ -282,6 +303,8 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
     }
     const otherItem = (item: string): string | null => (item === id ? `${item} is this item itself` : ids.has(item) ? null : `${item} names no item`);
     const closed = (fields: FrontMatter): boolean => fields.get("state") === "closed";
+    const isMilestone = (fields: FrontMatter): boolean => fields.get("type") === "Milestone";
+    const aMilestone = (item: string): string | null => (milestones.has(item) ? null : `${item} names no Milestone item`);
     problems.push(...entryViolations(name, text, {
       closed: true,
       fields: {
@@ -293,7 +316,8 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
         resolution: { required: closed, forbiddenWhen: (fields) => !closed(fields), values: TRACKER_ITEM_RESOLUTIONS },
         lane: { required: true, values: Object.keys(TRACKER_LANES) },
         "owner-role": { check: yamlPlain },
-        milestone: { check: yamlPlain },
+        order: { required: isMilestone, forbiddenWhen: (fields) => !isMilestone(fields), pattern: /^(?:0|[1-9]\d{0,3})$/u },
+        milestone: { forbiddenWhen: isMilestone, pattern: TRACKER_ITEM_ID, check: aMilestone },
         parent: { pattern: TRACKER_ITEM_ID, check: otherItem },
         "blocked-by": { list: true, pattern: TRACKER_ITEM_ID, check: otherItem },
         relates: { list: true, pattern: TRACKER_ITEM_ID, check: otherItem },
@@ -301,6 +325,12 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
         area: { list: true, check: yamlPlain },
         evidence: { pattern: /^(?:evidence:\S+|https:\/\/\S+)$/u },
         gh: { pattern: /^(?:discussion)?#[1-9]\d*$/u },
+        decisions: { list: true, pattern: DECISION_REF },
+        tests: { list: true, pattern: REPOSITORY_PATH },
+        checks: { list: true, pattern: CHECK_REF },
+        rfc: { pattern: /^discussion#[1-9]\d*$/u },
+        "good-first": { values: ["true"] },
+        "closed-by": { forbiddenWhen: (fields) => !closed(fields), pattern: /^[0-9a-f]{7,40}$/u },
         opened: { required: true, pattern: DATE },
         closed: { required: closed, forbiddenWhen: (fields) => !closed(fields), pattern: DATE },
       },
@@ -335,6 +365,7 @@ export function trackerItems(entries: readonly { readonly name: string; readonly
     return {
       id: fields.get("id")!,
       type: fields.get("type") as TrackerItemType,
+      order: fields.has("order") ? Number(fields.get("order")) : null,
       title: optional("title"),
       state: fields.get("state") as TrackerItem["state"],
       resolution: optional("resolution") as TrackerItem["resolution"],
@@ -348,6 +379,12 @@ export function trackerItems(entries: readonly { readonly name: string; readonly
       area: list("area"),
       evidence: optional("evidence"),
       gh: optional("gh"),
+      decisions: list("decisions"),
+      tests: list("tests"),
+      checks: list("checks"),
+      rfc: optional("rfc"),
+      goodFirst: fields.get("good-first") === "true",
+      closedBy: optional("closed-by"),
       opened: fields.get("opened")!,
       closed: optional("closed"),
       body: body.replace(/^\n+|\n+$/gu, ""),
