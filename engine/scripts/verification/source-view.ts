@@ -923,3 +923,38 @@ export function sourceViewOf(text: string, path: string): SourceView {
 export function readSourceView(path: string): SourceView {
   return sourceViewOf(readFileSync(path, "utf8"), path);
 }
+
+/**
+ * THE COMMENTS-ONLY VIEW OF A FRAGMENT, in the mode its caller names.
+ *
+ * Comments are blanked and every string, template and regex literal is kept
+ * BYTE FOR BYTE — the view a token scan needs when its subject may live inside
+ * a literal (a module specifier, a CSP string, a derivation spelled in code
+ * beside a regex literal) but never inside prose. A comment is replaced by
+ * spaces and its newlines survive, so every index into this view is an index
+ * into the source (the offset property every view here holds).
+ *
+ * A caller holding file content uses {@link stripCommentsOnlyFor} so the path
+ * chooses the mode; a caller holding a `.ts` fragment may take the flat form.
+ * There were two spellings of this question before — this implementation and
+ * a copy in the prevention suite's helpers — and the copy disagreed about
+ * regex literals, reading `//` inside `/https?:\/\//` as the start of a line
+ * comment and deleting the rest of the line. The suite's helpers re-export
+ * this door, so the disagreement cannot return.
+ */
+export function stripCommentsOnly(src: string): string {
+  return renderSpans(src, false, (kind, text) =>
+    kind === "line-comment" || kind === "block-comment" || kind === "html-comment"
+      ? blankSourceText(text)
+      : text,
+  );
+}
+
+/** {@link stripCommentsOnly} with the mode chosen by the file's PATH (template files keep prose-mode markup comments out, and code files never had them). */
+export function stripCommentsOnlyFor(src: string, path: string): string {
+  return renderSpans(src, isTemplateSource(path), (kind, text) =>
+    kind === "line-comment" || kind === "block-comment" || kind === "html-comment"
+      ? blankSourceText(text)
+      : text,
+  );
+}

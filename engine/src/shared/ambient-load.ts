@@ -35,6 +35,8 @@
  */
 import { cpus, loadavg } from "node:os";
 
+import { bestEffort } from "./best-effort.ts";
+
 /** The three load-average legs, per CPU, rounded to the recorded precision. */
 export interface AmbientLoadPerCpu {
   readonly load1: number;
@@ -46,9 +48,16 @@ export interface AmbientLoadPerCpu {
  * One run-start ambient reading. `perCpu` is null when the load sample (or
  * the CPU count) is unreadable; `cpuCount` is null only when the machine's
  * CPU count itself cannot be read. Neither absence is a zero.
+ *
+ * `loads` is the RAW three-leg sample the division came from, so a consumer
+ * that records the unnormalised load (the bench's machine snapshot) reads it
+ * from THIS reading rather than calling `loadavg()` a second time. Recording
+ * the raw legs is not a second derivation of the per-CPU quantity; dividing
+ * them is, and that happens once below.
  */
 export interface AmbientLoadReading {
   readonly cpuCount: number | null;
+  readonly loads: readonly number[] | null;
   readonly perCpu: AmbientLoadPerCpu | null;
 }
 
@@ -67,31 +76,34 @@ export function readAmbientLoadPerCpu(
   readLoads: () => readonly number[] = loadavg,
   readCpuCount: () => number = () => cpus().length,
 ): AmbientLoadReading {
-  let cpuCount: number | null;
-  try {
-    const count = readCpuCount();
-    cpuCount = Number.isSafeInteger(count) && count > 0 ? count : null;
-  } catch {
-    cpuCount = null;
-  }
+  // An unreadable CPU count is handled: the optional read reports through the
+  // central debug owner and the reading is absent, never a fabricated count.
+  // A bare catch that only assigned `null` was itself an unhandled-error
+  // finding (engine/test/prevention/no-unhandled-errors.test.ts).
+  const count = bestEffort(readCpuCount);
+  const cpuCount = count !== undefined && Number.isSafeInteger(count) && count > 0 ? count : null;
   let loads: readonly number[];
   try {
     loads = readLoads();
   } catch {
-    return { cpuCount, perCpu: null };
+    return { cpuCount, loads: null, perCpu: null };
   }
-  if (!Array.isArray(loads) || loads.length < 3) return { cpuCount, perCpu: null };
+  if (!Array.isArray(loads) || loads.length < 3) return { cpuCount, loads: null, perCpu: null };
   const [load1, load5, load15] = loads;
   if (
     !Number.isFinite(load1) || load1 < 0
     || !Number.isFinite(load5) || load5 < 0
     || !Number.isFinite(load15) || load15 < 0
-    || cpuCount === null
   ) {
-    return { cpuCount, perCpu: null };
+    return { cpuCount, loads: null, perCpu: null };
   }
+  // The CPU count is the only unreadable fact here; the raw sample is still
+  // the sample it was read from, so it is recorded and only the PER-CPU
+  // quantity is absent.
+  if (cpuCount === null) return { cpuCount, loads, perCpu: null };
   return {
     cpuCount,
+    loads,
     perCpu: {
       load1: toThousandths(load1 / cpuCount),
       load5: toThousandths(load5 / cpuCount),

@@ -247,7 +247,10 @@ export const MEASUREMENT_FINDINGS: readonly MeasurementFinding[] = Object.freeze
 export const NON_MEASUREMENT_GATES: Readonly<Record<string, string>> = Object.freeze({
   "command-completion": "the command runner's terminal completion, not a measured quantity",
   "current-qualification": "identity and completeness of the current invocation, not a number",
+  "engine-execution": "the engine run's independent execution outcome, not a measured quantity",
   "engine-summary": "the engine receipt's publication completeness, not a measurement",
+  "engine-test-results": "the engine receipt's test census completeness, not a measurement",
+  "engine-${reason}": "the engine receipt's reason-coded publication outcomes; each reason names a withheld or incomplete receipt, not a measurement",
   "harness-folder": "a before/after identity comparison of the harness folder",
   "module-census": "the population of terminal test modules, not a cost or duration",
   "module-errors": "presence of modules with errors, not a measured value",
@@ -259,15 +262,38 @@ export const NON_MEASUREMENT_GATES: Readonly<Record<string, string>> = Object.fr
   "web-summary": "the web receipt's publication completeness, not a measurement",
 });
 
-/** Sources whose `gate:` literals are part of the declared gate universe. */
-export const GATE_SOURCE_FILES: readonly string[] = Object.freeze([
-  "engine/src/shared/budget-verdict.ts",
-  "engine/scripts/tooling/run-tests.ts",
-  "engine/src/shared/run-history.ts",
-  "tests/reporters/budget-reporter.ts",
-  "scripts/testing/performance-measurements.ts",
-  "tests/performance/regression.test.ts",
-]);
+/**
+ * Exported functions the producer-universe scan reads as measurement-shaped
+ * but that compute no judged, recorded or quoted signal.
+ *
+ * THE SAME PATTERN AS {@link NON_MEASUREMENT_GATES}, and for the same reason:
+ * the alternative is a prefix allowlist, which is how four registered
+ * producers sat outside the scan while its failure text claimed "no opt-out
+ * list". A declaration here is a sentence a reader can argue with, and the
+ * guard refuses an entry whose function the scan no longer finds (a stale
+ * exemption hides the next new producer). Each key is `module::symbol`.
+ */
+export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Object.freeze({
+  "engine/scripts/tooling/compile-cache.ts::pruneCacheDirectory": "prunes the V8 compile cache and reports how many entries it removed; a maintenance count, not a judged signal",
+  "engine/scripts/tooling/compile-cache.ts::scanCacheDirectory": "counts cache entries so the prune can bound itself; a maintenance count, not a measurement",
+  "engine/scripts/tooling/test-run-lock.ts::testFileCountOfArgs": "parses the runner's argument vector into a test-file count; an input parse, not a measurement",
+  "engine/src/kernel/integrity.ts::sha256": "a content identity hash; not a duration, load or cost the floor judges",
+  "engine/src/kernel/integrity.ts::sha256Bytes": "a content identity hash over a buffer; identity, not a measurement",
+  "engine/src/kernel/integrity.ts::gitBlobId": "git's blob identity for content; an object id, not a measurement",
+  "engine/src/workflow/test-result-collector.ts::loadPriorTestFileDurations": "reads the engine suite's scheduling cache written by another runner; this floor neither judges nor records it",
+  "engine/src/workflow/test-result-collector.ts::writeTestFileDurations": "writes the engine suite's scheduling cache; a scheduling input, not a recorded signal",
+  "engine/src/shared/flake-reproduction.ts::readFlakeReproductions": "reads recorded flake reproductions; the file contents are evidence, not a quantity this module computes",
+  "engine/src/process/supervised-run.ts::readSupervisorReceipt": "reads the supervisor's terminal receipt; a terminal outcome, not a quantity",
+  "tests/performance/lib/perf-harness.ts::seedChatMessagesViaDb": "seeds the performance fixture's chat rows; fixture setup, not a measurement",
+  "engine/src/workflow/hash-binding-registry.ts::computeBindingHash": "content hash of a binding fixture; identity, not a measured quantity",
+  "engine/src/workflow/hash-binding-registry.ts::fixtureDigestBindings": "digests the fixture bindings for the guard's own comparison; identity, not a measurement",
+  "engine/src/workflow/hash-binding-registry.ts::repairBinding": "repairs a stored binding fixture; no measurement",
+  "src/state/chat-messages.ts::toolCallDurationMs": "the UI's tool-call elapsed time for display; not judged, recorded or quoted by the floor",
+  "src/state/chat-messages.ts::healStrandedToolCallsFromLedger": "repairs chat state from the ledger using wall-clock stamps; a state repair, not a recorded measurement",
+  "src/state/chat-messages.ts::settleHydratedRunningToolCalls": "settles hydrated running tool calls; a state repair, not a measurement",
+  "engine/src/process/process-facts.ts::startWallTimeMsOf": "reads a process start stamp for the instrument lock's identity; identity, not a duration",
+  "engine/src/process/process-facts.ts::processIdentity": "assembles the process's identity for the instrument lock; identity, not a measurement",
+});
 
 /** The one document that owns the registry's reader-facing contract. */
 export const MEASUREMENT_DOC_SOURCE = "docs/testing.md";
@@ -486,7 +512,7 @@ const PER_FILE_OCCUPANCY: MetricEntry = {
   ],
   producer: {
     module: "engine/src/shared/test-costs.ts",
-    symbol: "summarizeTestCosts",
+    symbol: "totalModuleOccupancyMs",
     derivation: ["OCCUPANCY_FIELDS"],
     forbids: ["cpuUsage(", "endTime", "startTime", "wallClockMs"],
   },
@@ -579,7 +605,7 @@ const SHARD_WEIGHT: MetricEntry = {
   ],
   producer: {
     module: "scripts/test-shard-manifest.mjs",
-    symbol: "measureManifest",
+    symbol: "measuredFileDurationMs",
     derivation: ["endTime\\s*-\\s*\\w+\\.?startTime"],
     forbids: ["cpuUsage(", "cpuMs", "wallClockMs"],
   },
@@ -679,7 +705,11 @@ const AMBIENT_LOAD: MetricEntry = {
   producer: {
     module: "engine/src/shared/ambient-load.ts",
     symbol: "readAmbientLoadPerCpu",
-    derivation: ["load1\\s*/\\s*cpuCount", "loads?\\[0\\]\\s*/\\s*\\w+"],
+    derivation: [
+      "load1\\s*/\\s*cpuCount",
+      "loads?\\[0\\]\\s*/\\s*\\w+",
+      "\\bl1\\s*/\\s*cores\\.length\\b",
+    ],
     forbids: ["wallClock", "performance.now(", "cpuUsage("],
   },
   consumers: [

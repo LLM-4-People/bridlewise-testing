@@ -219,8 +219,12 @@ function timestamp(value, subject) {
  *
  * Missing, non-numeric or inverted timestamps REFUSE the measurement; they
  * never become a zero weight. A measured duration of 0 is honest (the file
- * rounded to no elapsed milliseconds) and is floored to 1 only by
- * `measureManifest`, which declares that floor in the registry.
+ * rounded to no elapsed milliseconds), and the declared floor of 1 is applied
+ * HERE rather than in the caller: the registry names this function as the one
+ * producer, and the body that derives the number is the body that owns its
+ * floor. A floor in `measureManifest` made the forbidden-quantity clause
+ * vacuous for the registry's promise (it inspected a function that computed
+ * nothing) and left two bodies sharing one definition.
  */
 export function measuredFileDurationMs(result, subject) {
   if (result === null || typeof result !== "object") fail(`${subject}: not an object`);
@@ -228,7 +232,7 @@ export function measuredFileDurationMs(result, subject) {
     fail(`${subject}: no numeric startTime and endTime`);
   }
   if (result.endTime < result.startTime) fail(`${subject}: endTime is before startTime`);
-  return result.endTime - result.startTime;
+  return Math.max(1, Math.round(result.endTime - result.startTime));
 }
 
 function readMeasurementReport(repositoryRoot, reportPath, index, manifest) {
@@ -351,7 +355,9 @@ export function measureManifest({
     weightSource,
     files: raw.files.map((entry) => {
       const path = normalizeFile(repositoryRoot, entry.path, "manifest file");
-      return { ...entry, weightMs: Math.max(1, Math.round(weights.get(path))) };
+      // Already rounded and floored by the producer; a second floor here
+      // would be a second definition of the same weight.
+      return { ...entry, weightMs: weights.get(path) };
     }),
   };
   if (outPath !== undefined) {

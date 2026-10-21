@@ -4632,7 +4632,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-verification-source-view", path: "scripts/verification/source-view.ts", realm: "builder", layer: "verification",
-      owner: "verification-foundation", publicApi: { exportCount: 13, namesSha256: "8286e367a802e2857b2bb51afc107f957c782ed5e29b5d7fe066f267e4175dcc" },
+      owner: "verification-foundation", publicApi: { exportCount: 15, namesSha256: "f7fc4ce70e900d1c0df39a8a13ea3ebedf30eb3d61547481ad1466377df00b22" },
       dependencies: ["node:fs","src/kernel/lexical-policy.ts"],
     }),
     moduleContract({
@@ -5737,17 +5737,17 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-verification-measurement-contract", path: "scripts/verification/measurement-contract.ts", realm: "builder", layer: "verification",
-      owner: "verification-foundation", publicApi: { exportCount: 11, namesSha256: "834cb4ddd0fab7a121cade1ed423b59cee25453d2050d59d558619b44da4bb72" },
-      dependencies: ["node:fs","node:path","src/kernel/root-policy.ts","src/kernel/web-performance-budgets.ts","src/shared/measurement-registry.ts"],
+      owner: "verification-foundation", publicApi: { exportCount: 9, namesSha256: "b2f5d0679c247a5002136e64e9789cf6ed28b437c5e0483f3bb9777af8a16e7f" },
+      dependencies: ["node:fs","node:path","scripts/verification/source-view.ts","scripts/verification/source-walk.ts","src/kernel/root-policy.ts","src/kernel/web-performance-budgets.ts","src/shared/measurement-registry.ts","src/shared/source-structure.ts"],
     }),
     moduleContract({
       id: "src-shared-ambient-load", path: "src/shared/ambient-load.ts", realm: "shared", layer: "domain",
       owner: "shared-abort-signals", publicApi: { exportCount: 3, namesSha256: "e8d88bffbe48df16962971d1d58fe6f460ce0ce89379325ce1ea35d5a28901f7" },
-      dependencies: ["node:os"],
+      dependencies: ["node:os","src/shared/best-effort.ts"],
     }),
     moduleContract({
       id: "src-shared-measurement-registry", path: "src/shared/measurement-registry.ts", realm: "shared", layer: "domain",
-      owner: "shared-abort-signals", publicApi: { exportCount: 13, namesSha256: "1e51a3fab33ca906a14faceaf90e3575b92b332213e52ffe1b8073fce6d7bfda" },
+      owner: "shared-abort-signals", publicApi: { exportCount: 13, namesSha256: "b4a48cb9022534385549cb487edbe5981bf2eaabcd9e4c2aa904ea00f03f0cb8" },
       dependencies: [],
     }),
     moduleContract({
