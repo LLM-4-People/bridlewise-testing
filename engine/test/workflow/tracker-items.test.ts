@@ -35,7 +35,7 @@ test("a well-formed set of items is read in id order with every field typed", ()
   assert.deepEqual({ ...items[1]!, body: undefined }, {
     id: "B-TWO", type: "Task", title: null, state: "closed", resolution: "completed", lane: "floor", ownerRole: null, milestone: null,
     parent: "A-ONE", blockedBy: ["A-ONE"], relates: [], severity: "P1", area: ["engine", "web"], evidence: "evidence:runs/a.json", gh: "issue-31",
-    opened: "2026-10-20", closed: "2026-10-21", body: undefined,
+    order: null, horizon: null, decisions: [], tests: [], rfc: null, opened: "2026-10-20", closed: "2026-10-21", body: undefined,
   });
 });
 
@@ -71,6 +71,38 @@ test("every way an item breaks the format is refused, and the whole set is refus
     const problems = trackerItemViolations(entries);
     assert.ok(problems.some((problem) => why.test(problem)), `${String(why)} in ${problems.join(" | ")}`);
     assert.throws(() => trackerItems(entries), (error: Error & { code?: string }) => error.code === "tracker_item_invalid");
+  }
+});
+
+test("the roadmap's fields: a Milestone groups by `milestone` and has no lane or state; links, ranks and horizons are judged", () => {
+  const milestone = (id: string, fields: Record<string, string> = {}): { name: string; text: string } => item(id, { type: "Milestone", state: "", lane: "", ...fields });
+  const items = trackerItems([
+    milestone("M1", { title: "Reproducible floor", order: "1" }),
+    item("M1-WORK", { type: "Workstream", lane: "roadmap", milestone: "M1", horizon: "now", order: "0", decisions: "[D-04]", tests: "[engine/test/a.test.ts]", rfc: "discussion-7", evidence: "docs/floor/evidence.md#the-sharded-gate" }),
+  ], { decisions: new Set(["D-04"]), exists: (path) => path === "engine/test/a.test.ts" });
+  assert.deepEqual([items[0]!.state, items[0]!.lane, items[0]!.order], [null, null, 1]);
+  assert.deepEqual([items[1]!.milestone, items[1]!.horizon, items[1]!.order, items[1]!.decisions, items[1]!.tests, items[1]!.rfc], ["M1", "now", 0, ["D-04"], ["engine/test/a.test.ts"], "discussion-7"]);
+  assert.equal(renderTrackerBoard(items).includes("Reproducible floor"), false, "a Milestone is no board row");
+  const context = { decisions: new Set(["D-04"]), exists: () => false };
+  for (const [entries, why] of [
+    [[milestone("M1", { state: "open" })], /state does not belong/u],
+    [[milestone("M1", { lane: "roadmap" })], /lane does not belong/u],
+    [[milestone("M1", { milestone: "M1" })], /milestone does not belong/u],
+    [[item("A-ONE", { milestone: "B-TWO" }), item("B-TWO", {})], /B-TWO names no Milestone item/u],
+    [[item("A-ONE", { parent: "M1" }), milestone("M1")], /M1 is a Milestone \(name it in milestone\)/u],
+    [[item("A-ONE", { "blocked-by": "[M1]" }), milestone("M1")], /M1 is a Milestone/u],
+    [[item("A-ONE", { "blocked-by": "[B-TWO]" }), item("B-TWO", { "blocked-by": "[A-ONE]" })], /blocked-by chain returns to/u],
+    [[item("A-ONE", { state: "closed", resolution: "completed", closed: "2026-10-21", horizon: "now" })], /horizon does not belong/u],
+    [[item("A-ONE", { horizon: "soon" })], /horizon must be one of now, next, later/u],
+    [[item("A-ONE", { order: "-1" })], /order -1 does not match/u],
+    [[item("A-ONE", { decisions: "[D-99]" })], /D-99 names no decision record/u],
+    [[item("A-ONE", { tests: "[engine/test/missing.test.ts]" })], /is not a file of the repository/u],
+    [[item("A-ONE", { tests: "[../outside.ts]" })], /is not a repository-relative path/u],
+    [[item("A-ONE", { rfc: "discussion#7" })], /rfc discussion#7 does not match/u],
+    [[item("A-ONE", { evidence: "/abs/path.md" })], /evidence \/abs\/path\.md does not match/u],
+  ] as const) {
+    const problems = trackerItemViolations(entries, context);
+    assert.ok(problems.some((problem) => why.test(problem)), `${String(why)} in ${problems.join(" | ")}`);
   }
 });
 
@@ -146,6 +178,7 @@ test("this repository's items are well formed and its board is their render, row
   const board = readFileSync(join(REPOSITORY_ROOT, TRACKER_BOARD.path), "utf8");
   const rows = boardRows(board);
   assert.equal(taskRows(board).length, rows.length, "no row sits outside the generated block");
-  assert.equal(rows.length, items.length, "every row is an item and every item a row");
-  for (const entry of items) assert.ok(rows.some((row) => row.text === itemRow(entry) && row.done === (entry.state === "closed")), `${entry.id} is on the board`);
+  const work = items.filter((entry) => entry.type !== "Milestone");
+  assert.equal(rows.length, work.length, "every row is an item and every item but a Milestone a row");
+  for (const entry of work) assert.ok(rows.some((row) => row.text === itemRow(entry) && row.done === (entry.state === "closed")), `${entry.id} is on the board`);
 });

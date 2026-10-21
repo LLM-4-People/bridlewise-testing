@@ -31,10 +31,11 @@ export function projectionInput(repository: GitRepository, source: string, ledge
     source: commit,
     ledger,
     repositoryUrl,
-    items: items.map((item) => ({
+    // A Milestone is projected as a milestone, not an issue (its state is computed from its members).
+    items: items.flatMap((item) => (item.state === null || item.lane === null ? [] : [{
       id: item.id, type: item.type, title: item.title, state: item.state, resolution: item.resolution, lane: item.lane,
       parent: item.parent, blockedBy: item.blockedBy, body: item.body, path: `${prefix}${item.id}.md`,
-    })),
+    }])),
     lanes: Object.entries(TRACKER_LANES).map(([lane, { color, description }]) => ({ lane, color, description })),
   });
 }
