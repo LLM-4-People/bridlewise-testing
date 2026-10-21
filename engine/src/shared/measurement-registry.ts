@@ -302,6 +302,7 @@ export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Objec
   "engine/src/workflow/test-result-collector.ts::writeTestFileDurations": "writes the engine suite's scheduling cache; a scheduling input, not a recorded signal",
   "engine/src/shared/flake-reproduction.ts::readFlakeReproductions": "reads recorded flake reproductions; the file contents are evidence, not a quantity this module computes",
   "engine/src/process/supervised-run.ts::readSupervisorReceipt": "reads the supervisor's terminal receipt; a terminal outcome, not a quantity",
+  "tests/helpers/budget-config.ts::fullRunModuleCount": "reads the shard manifest's declared supported-file count; the population a run judges is a declaration (the same shape as the runner's argument parse), not a sampled quantity",
   "tests/performance/lib/perf-harness.ts::seedChatMessagesViaDb": "seeds the performance fixture's chat rows; fixture setup, not a measurement",
   "engine/src/workflow/hash-binding-registry.ts::computeBindingHash": "content hash of a binding fixture; identity, not a measured quantity",
   "engine/src/workflow/hash-binding-registry.ts::fixtureDigestBindings": "digests the fixture bindings for the guard's own comparison; identity, not a measurement",

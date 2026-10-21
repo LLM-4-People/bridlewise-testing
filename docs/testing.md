@@ -118,7 +118,7 @@ node --experimental-strip-types bench/run.ts
 
 ### The performance profile (idle-host contract)
 
-The web suite's CPU window and the performance profile are measured over the SUPPORTED population:
+The web suite's CPU window and the performance profile are measured over the supported population:
 `npm run test:supported` runs exactly the manifest's files. A raw run also includes the excluded
 files (private artifacts the public snapshot does not publish), so its reds are declared exclusions,
 not a clean run. `npm run perf:profile` writes the gitignored report under `tests/performance`, the artifact the root
