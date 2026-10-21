@@ -90,7 +90,14 @@ export type ActionName = keyof typeof ACTION_PINS;
 
 /** The runner every gate job uses (four vCPU; free and unlimited on a public repository). */
 export const GATE_RUNNER: RunnerClass = "ubuntu-24.04";
-/** The runner of the API-only jobs (plan, seal, the door): one CPU, never a sandboxed gate. */
+/**
+ * The runner of an API-only job that runs NO harness command (the Pages
+ * deploy): one CPU, a container. A job that runs the harness (plan, seal, the
+ * door) uses {@link GATE_RUNNER}: the harness's S1 refuses a repository whose
+ * tree spans devices (`repository_mountpoint_denied`, src/kernel/config.ts),
+ * and the slim container's checkout does (measured on the first generated
+ * run, 2026-10-21).
+ */
 export const API_RUNNER: RunnerClass = "ubuntu-slim";
 
 /**

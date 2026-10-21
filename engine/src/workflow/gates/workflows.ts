@@ -9,7 +9,7 @@
  * generator owns. The folder holds exactly {@link GENERATED_WORKFLOW_PATHS}.
  *
  * WHAT IS GENERATED (trust split, §5.2):
- *   - `ci.yml`: the untrusted compute. `plan` (one CPU) lists the cells, the
+ *   - `ci.yml`: the untrusted compute. `plan` lists the cells, the
  *     `light` job runs every light gate as a background step, the `shard`
  *     matrix runs the suites' CPU-balanced shards, the action gates run as
  *     their own jobs, and `seal` merges every result into the one receipt and
@@ -147,7 +147,7 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
   const jobs: Record<string, YamlValue> = {
     plan: {
       name: "plan",
-      "runs-on": API_RUNNER,
+      "runs-on": GATE_RUNNER,
       "timeout-minutes": 10,
       permissions: { contents: "read" },
       outputs: { cells: "${{ steps.plan.outputs.cells }}" },
@@ -214,7 +214,7 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
     name: "seal",
     needs: sealNeeds,
     if: "${{ always() }}",
-    "runs-on": API_RUNNER,
+    "runs-on": GATE_RUNNER,
     "timeout-minutes": 10,
     permissions: { contents: "read" },
     steps: [

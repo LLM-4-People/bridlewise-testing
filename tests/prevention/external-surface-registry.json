@@ -212,10 +212,9 @@
         "toolchain": "A one-CPU GitHub-hosted container (5 GB; a 15-minute job ceiling) for the API-only jobs (plan, seal); it is never a sandboxed gate runner. Its image floats with the label."
       },
       "usedIn": [
-        ".github/workflows/ci.yml",
         ".github/workflows/publish.yml"
       ],
-      "drift": "The label is provider-managed and its container image floats. The gate catalogue (API_RUNNER) is its one declaration; only API-only jobs use it, never a gate that runs tests. Another label is a deliberate catalogue and registry edit."
+      "drift": "The label is provider-managed and its container image floats. The gate catalogue (API_RUNNER) is its one declaration; only an API-only job that runs no harness command uses it (the Pages deploy): the harness's S1 refuses the container's checkout, whose tree spans devices. Another label is a deliberate catalogue and registry edit."
     },
     {
       "id": "node:24.20.0",

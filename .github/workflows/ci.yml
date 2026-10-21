@@ -16,7 +16,7 @@ concurrency:
 jobs:
   plan:
     name: plan
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -230,7 +230,7 @@ jobs:
       - shard
       - dependency-review
     if: ${{ always() }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read

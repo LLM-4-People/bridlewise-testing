@@ -151,11 +151,12 @@ test("each lint refuses its planted violation", () => {
   }) as never));
 });
 
-test("ci.yml: plan and seal run on the one-CPU API runner; every light gate is a background step the job waits for; the seal always runs and needs every job", () => {
+test("ci.yml: plan and seal run the harness on a VM (never the slim container); every light gate is a background step the job waits for; the seal always runs and needs every job", () => {
   const ci = ciWorkflow() as Mutable;
   const jobs = ci.jobs as Record<string, Mutable>;
-  assert.equal(jobs.plan!["runs-on"], "ubuntu-slim");
-  assert.equal(jobs.seal!["runs-on"], "ubuntu-slim");
+  assert.equal(jobs.plan!["runs-on"], "ubuntu-24.04");
+  assert.equal(jobs.seal!["runs-on"], "ubuntu-24.04");
+  assert.ok(Object.values(jobs).every((job) => job["runs-on"] !== "ubuntu-slim"), "no CI job runs the harness in the slim container");
   assert.equal(jobs.seal!.if, "${{ always() }}");
   assert.deepEqual(jobs.seal!.needs, Object.keys(jobs).filter((id) => id !== "seal"));
   const lightSteps = jobs.light!.steps as Mutable[];
