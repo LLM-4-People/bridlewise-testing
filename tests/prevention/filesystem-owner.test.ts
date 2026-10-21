@@ -911,23 +911,14 @@ describe("C. behavioral: the gate enforces deny-by-default + typed errors", () =
     expect(() => resolveWithinProject("", projectAPath)).toThrow(BadRequestError);
   });
 
-  test("resolveWithinProject handles the filesystem root '/' as the project root", () => {
-    // The lexical `startsWith(root + sep)` form breaks when the root is
-    // `/`: `root + sep` is `"//"`, so `"/a.ts".startsWith("//")` is false —
-    // a false-positive PathTraversalError for every path under `/`. The
-    // `relative` form handles this correctly (`relative("/", "/a.ts")` is
-    // `"a.ts"`, not starting with `..`). Verify a path directly under the
-    // root is accepted (was falsely rejected before). Note: when the root
-    // is `/`, every absolute path is within `/` (you cannot escape the
-    // filesystem root), so `../../etc/passwd` correctly resolves to
-    // `/etc/passwd` — it IS within `/`. The ownership gate is the
-    // security boundary here (the user must own a project at `/`).
+  test("the filesystem root '/' is refused as a project root at the choke point", () => {
+    // `/` contains the harness (and every system folder), so the re-run of
+    // the project-door questions refuses it. A project root is not a durable
+    // property of a string: a root that stopped being a project folder never
+    // serves a file, and `/` was never a registrable project to begin with.
     requireHost(sep === "/", "POSIX path separators (the root `/` case)");
-    expect(resolveWithinProject("a.ts", "/")).toBe("/a.ts");
-    expect(resolveWithinProject("/a.ts", "/")).toBe("/a.ts");
-    // A `..`-escape from `/` cannot leave `/` — resolve normalizes it to
-    // a path still under `/`. This is correct (not a traversal escape).
-    expect(resolveWithinProject("../../etc/passwd", "/")).toBe("/etc/passwd");
+    expect(() => resolveWithinProject("a.ts", "/")).toThrow(ForbiddenError);
+    expect(() => resolveWithinProject("/a.ts", "/")).toThrow(/project/i);
   });
 
   test("assertWithinAllowedRoots passes when no roots configured (default dev)", () => {

@@ -12,6 +12,7 @@ import {
   existsSync,
   mkdirSync,
   rmSync,
+  renameSync,
   openSync,
   readSync,
   closeSync,
@@ -27,7 +28,7 @@ import {
   effectiveProjectRoot,
   type FsGate,
 } from "./fs-gate.ts";
-import { ForbiddenError, ValidationError, wireMessage } from "../kernel/errors.ts";
+import { ConflictError, ForbiddenError, ValidationError, wireMessage } from "../kernel/errors.ts";
 import { readFileText } from "./file-read.ts";
 import { webWarn } from "../observability/debug-bridge.ts";
 import { movePath } from "../../engine/src/filesystem/move-path.ts";
@@ -497,6 +498,29 @@ export function readFileBytes(
 }
 
 /**
+ * The two OS read failures that are ANSWERS, not server faults.
+ *
+ * The stat above answered "there is a regular file here", so a later ENOENT
+ * means the file was removed between the two calls — a fact about current
+ * state, reported as the typed `file_vanished` conflict instead of a raw
+ * errno reaching the router as an untyped 500. EACCES/EPERM mean the OS will
+ * not let this server read the bytes: a 403 `file_read_denied`, not "the
+ * server broke". Anything else is a real I/O fault and keeps propagating.
+ *
+ * Exported so the vanished arm (which a real filesystem cannot be made to
+ * lose deterministically between stat and read) is held by a test at this
+ * single owner; the permission arm is driven end to end through the route.
+ */
+export function readFailureOf(err: unknown): ConflictError | ForbiddenError | null {
+  const code = (err as NodeJS.ErrnoException | null | undefined)?.code;
+  if (code === "ENOENT") return new ConflictError(wireMessage("file_vanished"), "file_vanished");
+  if (code === "EACCES" || code === "EPERM") {
+    return new ForbiddenError(wireMessage("file_read_denied"), "file_read_denied");
+  }
+  return null;
+}
+
+/**
  * Read a file's raw content. Enforces fs-gate (ownership + traversal) at
  * the choke point. No truncation, no UI metadata — returns the full
  * content + size. When `maxBytes` is provided, rejects (file_too_large)
@@ -522,7 +546,14 @@ export function readFileRaw(
   if (maxBytes !== undefined && st.size > maxBytes) {
     throw new ValidationError(wireMessage("file_too_large"), "file_too_large");
   }
-  const content = readFileText(abs);
+  let content: string;
+  try {
+    content = readFileText(abs);
+  } catch (err) {
+    const translated = readFailureOf(err);
+    if (translated !== null) throw translated;
+    throw err;
+  }
   return { abs, content, size: st.size };
 }
 
@@ -777,9 +808,11 @@ function readRecycleMeta(id: string): RecycledFile {
   // the stamp exists to end.
   const deletedByUserId = rec["deletedByUserId"] ?? null;
   const projectId = rec["projectId"] ?? null;
+  const projectLocation = rec["projectLocation"] ?? null;
   if (
     (deletedByUserId !== null && typeof deletedByUserId !== "string") ||
-    (projectId !== null && typeof projectId !== "string")
+    (projectId !== null && typeof projectId !== "string") ||
+    (projectLocation !== null && typeof projectLocation !== "string")
   ) {
     throw new ValidationError("That recycle entry is unreadable", "recycle_corrupt");
   }
@@ -793,6 +826,7 @@ function readRecycleMeta(id: string): RecycledFile {
     deletedAt: rec["deletedAt"],
     deletedByUserId,
     projectId,
+    projectLocation,
   };
 }
 
@@ -836,6 +870,11 @@ export function deleteFile(filePath: string, projectRoot?: string, gate?: FsGate
     deletedAt: Date.now(),
     deletedByUserId: gate?.userId ?? null,
     projectId: project?.id ?? null,
+    // THE DESTINATION'S LOCATION, MEASURED AT DELETE. `projectRoot` is a
+    // spelling; a link can replace a missing path (or retarget one) after the
+    // delete, and restore would then write into whatever that spelling now
+    // means. The anchor is the resolved place the file was taken from.
+    projectLocation: resolveLocation(root, "the project root"),
   };
   writeFileSync(join(dest, "meta.json"), `${JSON.stringify(meta)}\n`, "utf8");
   mkdirSync(dirname(payload), { recursive: true });
@@ -954,6 +993,56 @@ export function installRecycleSlotRemover(remover: RecycleSlotRemover | null): v
 }
 
 /**
+ * Remove a committed recycle slot WITHOUT destroying the evidence a retry
+ * needs.
+ *
+ * THE OLD SHAPE WAS NOT IDEMPOTENT. `rmSync(slotDir, {recursive})` unlinks
+ * the slot's entries one by one; when the parent folder is not writable it
+ * fails at the final `rmdir`, after `meta.json` and `restored.json` are
+ * already gone. The request still answered `cleanup: "retained"` (the bytes
+ * did land), but the retry found an empty folder and answered 404 for a file
+ * that was back on disk — the promise "retained means retry idempotently"
+ * was false in exactly the case it exists for.
+ *
+ * The slot is therefore RENAMED first (one atomic directory operation; if it
+ * fails, nothing has been removed and the slot is untouched), then deleted
+ * under the sibling name. If that deletion fails part-way, the record is
+ * rebuilt from bytes read BEFORE any unlink, so the visible slot again holds
+ * `meta.json` and the commit marker and a retry answers idempotently.
+ */
+function removeRecycleSlot(slotDir: string): void {
+  const metaPath = join(slotDir, "meta.json");
+  const markerPath = join(slotDir, RESTORE_MARKER);
+  const metaBytes = existsSync(metaPath) ? readFileSync(metaPath) : null;
+  const markerBytes = existsSync(markerPath) ? readFileSync(markerPath) : null;
+  const pending = `${slotDir}.pending-delete-${randomUuid()}`;
+  // Throws (with the slot still intact) when the recycle root is not writable.
+  renameSync(slotDir, pending);
+  try {
+    rmSync(pending, { recursive: true, force: true });
+  } catch (err) {
+    try {
+      mkdirSync(slotDir, { recursive: true });
+      if (metaBytes !== null) writeFileSync(metaPath, metaBytes);
+      if (markerBytes !== null) writeFileSync(markerPath, markerBytes);
+    } catch (restoreErr) {
+      webWarn("editor-bridge", "recycle slot cleanup failed and its record could not be restored", () => ({
+        slot: slotDir,
+        pending,
+        error: restoreErr instanceof Error ? restoreErr.message : String(restoreErr),
+      }));
+    }
+    // A leftover pending folder is not the retry's entry; clear what we can.
+    try {
+      rmSync(pending, { recursive: true, force: true });
+    } catch {
+      /* best effort: the slot under its id is the record that matters */
+    }
+    throw err;
+  }
+}
+
+/**
  * Restore a recycled file to its original path. Refuses if that path is
  * occupied. Gates the destination as a project write, and asserts the
  * stamped owner identity BEFORE the path gate.
@@ -985,6 +1074,28 @@ export function restoreFile(recycleId: string, gate?: FsGate): FileRestoreResult
         "That recycled file belongs to another account and cannot be restored here.",
         "recycle_not_owned",
       );
+    }
+    // ── THE RECORD'S ROOT IS STILL THIS ROW'S LOCATION ──
+    // A gate can be primed with a spelling the route already checked, but the
+    // bridge is the choke point: the destination the record names must still
+    // resolve to where the owning row lives NOW. A re-link moves the row and
+    // frees the old folder, which another account can take; writing the
+    // record's bytes there would cross accounts. Identity of resolved
+    // locations (never spelling), and the delete-time anchor when the record
+    // carries one.
+    let rootLocation: string;
+    let rowLocation: string;
+    try {
+      rootLocation = resolveLocation(meta.projectRoot, "the recycle record's project root");
+      rowLocation = resolveLocation(project.path, "the project's current folder");
+    } catch {
+      throw new ConflictError(wireMessage("recycle_project_moved"), "recycle_project_moved");
+    }
+    if (rootLocation !== rowLocation) {
+      throw new ConflictError(wireMessage("recycle_project_moved"), "recycle_project_moved");
+    }
+    if (meta.projectLocation !== null && meta.projectLocation !== rootLocation) {
+      throw new ConflictError(wireMessage("recycle_project_moved"), "recycle_project_moved");
     }
   }
   const dest = resolveAndCheckGate(meta.originalPath, meta.projectRoot, gate);
@@ -1058,7 +1169,7 @@ export function restoreFile(recycleId: string, gate?: FsGate): FileRestoreResult
   let cleanup: RecycleSlotCleanup;
   try {
     if (recycleSlotRemover === null) {
-      rmSync(slotDir, { recursive: true, force: true });
+      removeRecycleSlot(slotDir);
     } else {
       recycleSlotRemover(slotDir);
     }

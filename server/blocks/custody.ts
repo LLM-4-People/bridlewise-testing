@@ -52,7 +52,7 @@ import { z } from "zod";
 import type { TimelineFileEffectFacts, TimelineFileEffectFactsFilter } from "../kernel/canonical.ts";
 import { identityOverlapIndex, resolveLocation } from "../kernel/canonical.ts";
 import { BadRequestError, NotFoundError } from "../kernel/errors.ts";
-import { gitRead, gitTextOrRefuse, isGitRepo, raiseIfNotRun } from "../intelligence/git-bridge.ts";
+import { gitRead, gitRepositoryPresence, gitTextOrRefuse, isGitRepo, raiseIfNotRun } from "../intelligence/git-bridge.ts";
 import { getGitStatus, getLog, type GitLogEntry } from "../intelligence/git-ops-bridge.ts";
 import { assertProjectPathOwnership, makeFsGate, type FsGate } from "../filesystem/fs-gate.ts";
 import { GIT_COMMIT_TIME_RESOLUTION_MS, serverConfig } from "../kernel/config.ts";
@@ -113,9 +113,13 @@ export type Parcel = Readonly<{
   id: string;
   attribution: ParcelAttribution;
   files: readonly CustodyFile[];
-  /** Sums over the files whose counts are measured. */
-  insertions: number;
-  deletions: number;
+  /** Sums over the files whose counts are measured — and NULL when any file
+   * in the parcel has no measured counts. A total over an unmeasured member
+   * would state a number the measurement does not support; absent, never 0. */
+  insertions: number | null;
+  deletions: number | null;
+  /** Present exactly when the totals are absent: why they are not numbers. */
+  countsAbsentReason?: string;
   derivation: string;
 }>;
 
@@ -325,15 +329,41 @@ export function computeParcels(
   type Group = {
     attribution: Extract<ParcelAttribution, { kind: "conversation" }>;
     files: CustodyFile[];
-    insertions: number;
-    deletions: number;
   };
   const groups = new Map<string, Group>();
   const outside: CustodyFile[] = [];
-  let outsideIns = 0;
-  let outsideDel = 0;
   const withheld = new Set<string>();
   let attributedFiles = 0;
+
+  /**
+   * The parcel's ± totals, or an honest absence. `?? 0` was the defect: a
+   * new (untracked) file has NO measured line counts, and summing it as zero
+   * made a parcel of one uncounted file read "+0 −0" — a measurement the git
+   * scan never produced. One unmeasured member makes the total absent.
+   */
+  const totalsOf = (
+    files: readonly CustodyFile[],
+  ): Readonly<{ insertions: number | null; deletions: number | null; countsAbsentReason?: string }> => {
+    let insertions = 0;
+    let deletions = 0;
+    let unmeasured = 0;
+    for (const file of files) {
+      if (file.insertions === null || file.deletions === null) {
+        unmeasured += 1;
+        continue;
+      }
+      insertions += file.insertions;
+      deletions += file.deletions;
+    }
+    if (unmeasured === 0) return { insertions, deletions };
+    return {
+      insertions: null,
+      deletions: null,
+      countsAbsentReason:
+        `${unmeasured} of ${files.length} changed file${files.length === 1 ? "" : "s"} ` +
+        "have no measured difference, so this parcel's ±totals are absent rather than zero",
+    };
+  };
 
   const fileOf = (entry: StatusEntry, touch?: string): CustodyFile => {
     const measured = counts.get(entry.path);
@@ -360,10 +390,7 @@ export function computeParcels(
     const resolved = hit === undefined ? null : resolveRun(hit.runId);
     if (hit === undefined || resolved === null || resolved === "foreign") {
       if (resolved === "foreign" && hit !== undefined) withheld.add(hit.runId);
-      const f = fileOf(entry);
-      outside.push(f);
-      outsideIns += f.insertions ?? 0;
-      outsideDel += f.deletions ?? 0;
+      outside.push(fileOf(entry));
       continue;
     }
     attributedFiles += 1;
@@ -381,53 +408,50 @@ export function computeParcels(
           lastTouchedAt: hit.wallTime,
         }),
         files: [f],
-        insertions: f.insertions ?? 0,
-        deletions: f.deletions ?? 0,
       });
     } else {
       group.files.push(f);
-      group.insertions += f.insertions ?? 0;
-      group.deletions += f.deletions ?? 0;
       if (hit.wallTime > group.attribution.lastTouchedAt) {
         group.attribution = Object.freeze({ ...group.attribution, lastTouchedAt: hit.wallTime });
       }
     }
   }
-  for (const entry of beyondCap) {
-    const f = fileOf(entry);
-    outside.push(f);
-    outsideIns += f.insertions ?? 0;
-    outsideDel += f.deletions ?? 0;
-  }
+  for (const entry of beyondCap) outside.push(fileOf(entry));
 
   const conversationParcels = [...groups.values()]
     .sort((a, b) => (a.attribution.lastTouchedAt < b.attribution.lastTouchedAt ? 1 : -1))
-    .map((g): Parcel =>
-      Object.freeze({
+    .map((g): Parcel => {
+      const totals = totalsOf(g.files);
+      return Object.freeze({
         id: g.attribution.runId,
         attribution: g.attribution,
         files: Object.freeze([...g.files]),
-        insertions: g.insertions,
-        deletions: g.deletions,
+        insertions: totals.insertions,
+        deletions: totals.deletions,
+        ...(totals.countsAbsentReason !== undefined ? { countsAbsentReason: totals.countsAbsentReason } : {}),
         derivation:
           `${g.files.length} changed file${g.files.length === 1 ? "" : "s"} whose newest recorded ` +
-          `file change carries this conversation's run; ±counts are git's own numbers against the last save`,
-      }),
-    );
+          `file change carries this conversation's run; ` +
+          (totals.countsAbsentReason ?? "±counts are git's own numbers against the last save"),
+      });
+    });
 
   const parcels: Parcel[] = [...conversationParcels];
   if (outside.length > 0) {
+    const totals = totalsOf(outside);
     parcels.push(
       Object.freeze({
         id: "outside",
         attribution: Object.freeze({ kind: "outside" as const, reason: OUTSIDE_REASON }),
         files: Object.freeze(outside),
-        insertions: outsideIns,
-        deletions: outsideDel,
+        insertions: totals.insertions,
+        deletions: totals.deletions,
+        ...(totals.countsAbsentReason !== undefined ? { countsAbsentReason: totals.countsAbsentReason } : {}),
         derivation:
           `${outside.length} changed file${outside.length === 1 ? "" : "s"} with no recorded producing ` +
           `conversation (no attributed file-change record on the exact path` +
-          `${beyondCap.length > 0 ? `; ${beyondCap.length} beyond the ${CUSTODY_MAX_FILES}-path bound were not queried` : ""})`,
+          `${beyondCap.length > 0 ? `; ${beyondCap.length} beyond the ${CUSTODY_MAX_FILES}-path bound were not queried` : ""})` +
+          (totals.countsAbsentReason === undefined ? "" : `; ${totals.countsAbsentReason}`),
       }),
     );
   }
@@ -721,8 +745,12 @@ export type GitRunner = (args: readonly string[]) => string | null;
  * and the format carries only the hash — the log entries themselves already
  * came from `getLog`.
  *
- * Merge commits report no numstat here, exactly as `git show --numstat` did
- * for them; they map to an empty file list rather than to a guess.
+ * Merge commits are spelled by their FIRST-PARENT difference, so a merge
+ * that brought real files into the branch reports those files instead of an
+ * empty list. Without `--diff-merges=first-parent`, `git log --numstat` (and
+ * `git show --numstat`) prints nothing for a merge, which this surface used
+ * to serve as a measured "0 files / 0 ±" with no reason — a merge that
+ * changed five files looked like a save that changed none.
  *
  * Getting this scan OFF the event loop is the facade's work. Making it two
  * spawns instead of twenty-four is this one's.
@@ -751,7 +779,9 @@ export function commitFilesByHash(
   // `--no-walk` takes the listed commits themselves rather than their
   // ancestry, so the answer is exactly the page `getLog` returned — a
   // `-N` window could drift from it whenever the history is not linear.
-  const args = ["log", "--no-walk", "--numstat", "--format=%x1e%H", ...hashes];
+  // `--diff-merges=first-parent` gives a merge the same first-parent
+  // numstat `git show` gives a single commit, so a merge is measured.
+  const args = ["log", "--no-walk", "--numstat", "--diff-merges=first-parent", "--format=%x1e%H", ...hashes];
   let raw: string | null;
   let absentReason: string | null = null;
   if (run !== undefined) {
@@ -880,6 +910,23 @@ async function requireRepo(
 const NOT_A_REPO_REASON =
   "this project's folder is not under version control, so there is no saved history to keep work in";
 
+/** A bare repository holds saved history but has no working tree; that is a
+ * different absence from "not under version control" and says so. */
+const BARE_REPO_REASON =
+  "this project's folder is a bare repository — it holds saved history, but it has no working tree, so there is nothing here to compare or keep";
+
+/**
+ * Why `repoPath` cannot answer a working-tree question, or null when it can.
+ * `isGitRepo` is the one probe: it raises on an UNREADABLE repository (the
+ * failure a `.git` marker turns from "no" into a 503) and answers false for a
+ * plain folder and for a bare repository. Only the two honest absences are
+ * turned into a reason here, and the bare one is the truthful sentence.
+ */
+function workTreeRefusal(repoPath: string): string | null {
+  if (isGitRepo(repoPath)) return null;
+  return gitRepositoryPresence(repoPath).kind === "bare" ? BARE_REPO_REASON : NOT_A_REPO_REASON;
+}
+
 function emptyJoin(changedFiles: number): CustodyJoinStats {
   return Object.freeze({
     changedFiles,
@@ -922,7 +969,7 @@ export function defineCustodyBlocks(db: AsyncDbClient): void {
         if (!status.repository) {
           return Object.freeze({
             repository: false,
-            reason: NOT_A_REPO_REASON,
+            reason: status.bare ? BARE_REPO_REASON : NOT_A_REPO_REASON,
             branch: null,
             parcels: Object.freeze([]),
             join: emptyJoin(0),
@@ -953,8 +1000,9 @@ export function defineCustodyBlocks(db: AsyncDbClient): void {
         invalidates: ["custody:changed"],
         handler: async (input: z.infer<typeof KeepInput>, { ctx }: BlockHandlerContext) => {
           const { repoPath, gate } = await requireRepo(db, ctx, input.projectId);
-          if (!isGitRepo(repoPath)) {
-            throw new BadRequestError(NOT_A_REPO_REASON, "not_a_repository");
+          const refusal = workTreeRefusal(repoPath);
+          if (refusal !== null) {
+            throw new BadRequestError(refusal, "not_a_repository");
           }
           const files = input.files.map((f) => normalizeRepoFile(repoPath, f));
           const changed = changedPathSet(repoPath, gate);
@@ -1018,8 +1066,9 @@ export function defineCustodyBlocks(db: AsyncDbClient): void {
         invalidates: ["custody:changed"],
         handler: async (input: z.infer<typeof UndoInput>, { ctx }: BlockHandlerContext) => {
           const { repoPath, gate } = await requireRepo(db, ctx, input.projectId);
-          if (!isGitRepo(repoPath)) {
-            throw new BadRequestError(NOT_A_REPO_REASON, "not_a_repository");
+          const refusal = workTreeRefusal(repoPath);
+          if (refusal !== null) {
+            throw new BadRequestError(refusal, "not_a_repository");
           }
           const files = input.files.map((f) => normalizeRepoFile(repoPath, f));
           const changed = changedPathSet(repoPath, gate);
@@ -1095,10 +1144,11 @@ export function defineCustodyBlocks(db: AsyncDbClient): void {
       invalidateOn: ["run:done", "custody:changed"],
       handler: async (input, { ctx }: BlockHandlerContext): Promise<CustodyHistory> => {
         const { userId, repoPath, gate } = await requireRepo(db, ctx, input.projectId);
-        if (!isGitRepo(repoPath)) {
+        const refusal = workTreeRefusal(repoPath);
+        if (refusal !== null) {
           return Object.freeze({
             repository: false,
-            reason: NOT_A_REPO_REASON,
+            reason: refusal,
             commits: Object.freeze([]),
             remoteConfigured: false,
           });

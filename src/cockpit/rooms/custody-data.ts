@@ -42,8 +42,10 @@ export type ParcelWire = Readonly<{
   id: string;
   attribution: ParcelAttributionWire;
   files: readonly CustodyFileWire[];
-  insertions: number;
-  deletions: number;
+  /** Null when any member file's counts are absent — see the reason. */
+  insertions: number | null;
+  deletions: number | null;
+  countsAbsentReason?: string;
   derivation: string;
 }>;
 
@@ -186,16 +188,26 @@ export function emptyPatchLine(state: string | undefined): string {
 
 /**
  * The measured-loss sentence an undo confirmation must state (§7.2):
- * exact ±counts summed over the files that would be restored.
+ * exact ±counts summed over the files that would be restored. A file without
+ * measured counts makes the total ABSENT, not zero — the same rule the parcel
+ * totals follow; the sentence says how many files could not be measured.
  */
 export function lossLine(files: readonly CustodyFileWire[]): string {
   let ins = 0;
   let del = 0;
+  let unmeasured = 0;
   for (const f of files) {
-    ins += f.insertions ?? 0;
-    del += f.deletions ?? 0;
+    if (f.insertions === null || f.deletions === null) {
+      unmeasured += 1;
+      continue;
+    }
+    ins += f.insertions;
+    del += f.deletions;
   }
   const n = files.length;
+  if (unmeasured > 0) {
+    return `${unmeasured} of ${n} file${n === 1 ? "" : "s"} have no measured difference, so the ±counts this returns are absent rather than zero`;
+  }
   return `returns +${ins} −${del} across ${n} file${n === 1 ? "" : "s"} to the last saved state`;
 }
 

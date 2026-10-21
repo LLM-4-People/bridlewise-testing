@@ -16,7 +16,7 @@
  *   5. Rollback honestly reports "nothing to restore" when no snapshot exists.
  */
 import { describe, test, expect, beforeAll, afterAll } from "vitest";
-import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { startHttpTestServer, type HttpTestServer } from "../helpers/http-server.ts";
@@ -156,5 +156,38 @@ describe("editor blocks over real HTTP", () => {
     const data = res.body.data!;
     expect(data.rolledBack).toBe(false);
     expect(typeof data.reason).toBe("string");
+  });
+
+  test("an OS-permission read failure is a typed 403, never an untyped 500", async () => {
+    const locked = join(projectRoot, "locked.ts");
+    writeFileSync(locked, "locked content\n");
+    chmodSync(locked, 0o000);
+    try {
+      const res = await call(user, "/api/b/editor.preview/preview", {
+        method: "POST",
+        body: { path: projectRoot, file: "locked.ts", oldString: "locked", newString: "open" },
+      });
+      expect(res.status, "the OS refusal is the caller's answer, not the server's fault").toBe(403);
+      expect((res.body as unknown as { error?: string }).error).toBe("file_read_denied");
+    } finally {
+      chmodSync(locked, 0o600);
+    }
+  });
+
+  test("the vanish-after-stat translator names the race instead of 500ing", async () => {
+    // A file removed between the stat and the read cannot be produced
+    // deterministically on a real filesystem, so the single owner of the
+    // translation is driven directly; the permission arm above is the same
+    // translator reached over the real route.
+    const { readFailureOf } = await import("../../server/filesystem/editor-bridge.ts");
+    expect(readFailureOf(Object.assign(new Error("gone"), { code: "ENOENT" }))).toMatchObject({
+      code: "file_vanished",
+      statusCode: 409,
+    });
+    expect(readFailureOf(Object.assign(new Error("denied"), { code: "EPERM" }))).toMatchObject({
+      code: "file_read_denied",
+      statusCode: 403,
+    });
+    expect(readFailureOf(Object.assign(new Error("disk"), { code: "EIO" }))).toBeNull();
   });
 });

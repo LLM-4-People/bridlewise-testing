@@ -9,7 +9,7 @@
  */
 
 import { existsSync, statSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { serverConfig } from "../kernel/config.ts";
 import { assertProjectPathOwnership, type FsGate } from "../filesystem/fs-gate.ts";
 import { webWarn } from "../observability/debug-bridge.ts";
@@ -385,6 +385,101 @@ export function runGitConfined(
 }
 
 /**
+ * WHAT A PATH IS, AS A GIT QUESTION — four answers, not two.
+ *
+ * `isGitRepo` used to answer a boolean from `rev-parse
+ * --is-inside-work-tree`: `true` only when git RAN and printed `true`, and
+ * `false` for everything else. But "git ran and said no" (a plain folder, a
+ * bare repository) and "git ran and FAILED" (a linked worktree whose gitdir
+ * lies outside what the confinement lets git read, a corrupt repository) are
+ * different facts. Folding the failure into `false` made every caller serve
+ * "this folder is not under version control" over a real repository it could
+ * not read — and a `.git` marker in the folder or an ancestor is the evidence
+ * that the folder IS meant to be a repository, so that failure is raised (503
+ * `git_read_failed`), never reported as an absence.
+ */
+export type GitRepositoryPresence =
+  | Readonly<{ kind: "repo" }>
+  | Readonly<{ kind: "bare" }>
+  | Readonly<{ kind: "not-repo" }>
+  | Readonly<{ kind: "unreadable"; reason: string }>;
+
+/** A `GitRead` that was not refused before execution (raiseIfNotRun narrowed). */
+type SettledGitRead = Exclude<GitRead, { kind: "not_run" } | { kind: "unavailable" }>;
+
+/** A `.git` marker in this folder or an ancestor, up to the filesystem root. */
+function hasGitMarker(rawPath: string): boolean {
+  let current = isAbsolute(rawPath) ? resolve(rawPath) : resolve(rawPath);
+  for (;;) {
+    if (existsSync(join(current, ".git"))) return true;
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
+/**
+ * The one classification, shared by the sync and async probes: `inside` is
+ * `rev-parse --is-inside-work-tree`, `bare` is `rev-parse
+ * --is-bare-repository` when the inside probe answered "not a work tree".
+ */
+function classifyRepositoryProbe(
+  repoPath: string,
+  inside: SettledGitRead,
+  bare: SettledGitRead | null,
+): GitRepositoryPresence {
+  if (inside.kind === "ran") {
+    if (inside.stdout === "true") return { kind: "repo" };
+    if (bare !== null && bare.kind === "ran" && bare.stdout === "true") return { kind: "bare" };
+  }
+  if (inside.kind === "failed") {
+    return hasGitMarker(repoPath)
+      ? { kind: "unreadable", reason: inside.reason }
+      : { kind: "not-repo" };
+  }
+  if (bare !== null && bare.kind === "failed") {
+    return hasGitMarker(repoPath)
+      ? { kind: "unreadable", reason: bare.reason }
+      : { kind: "not-repo" };
+  }
+  return { kind: "not-repo" };
+}
+
+/**
+ * Whether `rawPath` points at a working git repository, with the failure
+ * state separated. See {@link GitRepositoryPresence}.
+ */
+export function gitRepositoryPresence(rawPath: string): GitRepositoryPresence;
+export function gitRepositoryPresence(rawPath: string, options: Readonly<{ async: true }>): Promise<GitRepositoryPresence>;
+export function gitRepositoryPresence(
+  rawPath: string,
+  options?: Readonly<{ async: true }>,
+): GitRepositoryPresence | Promise<GitRepositoryPresence> {
+  const repoPath = isAbsolute(rawPath) ? rawPath : resolve(rawPath);
+  if (!existsSync(repoPath) || !statSync(repoPath).isDirectory()) return { kind: "not-repo" };
+  if (options?.async === true) {
+    return (async () => {
+      const inside = await gitRead(repoPath, ["rev-parse", "--is-inside-work-tree"], [], options);
+      raiseIfNotRun(inside, "project folder");
+      const bare =
+        inside.kind === "ran" && inside.stdout === "true"
+          ? null
+          : await gitRead(repoPath, ["rev-parse", "--is-bare-repository"], [], options);
+      if (bare !== null) raiseIfNotRun(bare, "project folder");
+      return classifyRepositoryProbe(repoPath, inside, bare);
+    })();
+  }
+  const inside = gitRead(repoPath, ["rev-parse", "--is-inside-work-tree"]);
+  raiseIfNotRun(inside, "project folder");
+  const bare =
+    inside.kind === "ran" && inside.stdout === "true"
+      ? null
+      : gitRead(repoPath, ["rev-parse", "--is-bare-repository"]);
+  if (bare !== null) raiseIfNotRun(bare, "project folder");
+  return classifyRepositoryProbe(repoPath, inside, bare);
+}
+
+/**
  * WHY THE PROBE RAISES INSTEAD OF ANSWERING `false`.
  *
  * This is the FIRST call in every git-backed read the web UI performs —
@@ -408,14 +503,22 @@ export function runGitConfined(
  * someone who never learns this happened. (The count that used to sit in
  * this sentence was six, and it was six when it was written; it is ten. A
  * number in prose is a measurement nothing re-takes — the guard derives it.)
+ *
+ * A FAILED PROBE OVER A `.git` MARKER IS NOT A "NO". It is an unreadable
+ * repository: the marker says this folder is version-controlled, git ran and
+ * could not answer, and `false` would claim there is no saved history. That
+ * raises the typed 503 instead. A plain folder with no marker stays `false`.
  */
 export function isGitRepo(rawPath: string): boolean {
-  const repoPath = isAbsolute(rawPath) ? rawPath : resolve(rawPath);
-  if (!existsSync(repoPath) || !statSync(repoPath).isDirectory()) return false;
-  const read = gitRead(repoPath, ["rev-parse", "--is-inside-work-tree"]);
-  raiseIfNotRun(read, "project folder");
-  // `failed` is a real answer here: git ran and said this is not a work tree.
-  return read.kind === "ran" && read.stdout === "true";
+  const presence = gitRepositoryPresence(rawPath);
+  if (presence.kind === "unreadable") {
+    throw new ServiceUnavailableError(
+      `The repository could not be read: git ran and failed (${presence.reason}), and this folder holds a .git marker. ` +
+        "Refusing to report it as not under version control.",
+      "git_read_failed",
+    );
+  }
+  return presence.kind === "repo";
 }
 
 export function getProjectGitStatus(rawPath: string, gate?: FsGate): ProjectGitStatus | null {

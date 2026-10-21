@@ -186,7 +186,9 @@
   <header class="cap">
     <span class="engraved title trunc">{parcelTitle(parcel.attribution)}</span>
     {#if whenText.length > 0}<span class="when">{whenText}</span>{/if}
-    <span class="sum">{countsLine(parcel.insertions, parcel.deletions)}</span>
+    <span class="sum" title={parcel.countsAbsentReason ?? ""}
+      >{parcel.countsAbsentReason !== undefined ? "not counted" : countsLine(parcel.insertions, parcel.deletions)}</span
+    >
     <span class="verbs">
       <button class="verb " data-verb-id="custody.state/keep" disabled={busy || past} onclick={openKeep}
         title={reasonFor("Saves these files' changes into the project's history under your message; the files stay as they are now.")}

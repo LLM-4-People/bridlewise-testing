@@ -34,9 +34,16 @@ import {
   imageMediaType,
   type FileReadResult,
 } from "../filesystem/editor-bridge.ts";
-import { BadRequestError, ForbiddenError, NotFoundError } from "../kernel/errors.ts";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, wireMessage } from "../kernel/errors.ts";
 import { requireUserContext } from "../auth/user-context.ts";
-import { makeFsGate, effectiveProjectRoot, assertProjectPathOwnership, type FsGate } from "../filesystem/fs-gate.ts";
+import {
+  makeFsGate,
+  makeFsGateForRow,
+  effectiveProjectRoot,
+  assertProjectPathOwnership,
+  type FsGate,
+} from "../filesystem/fs-gate.ts";
+import { resolveLocation } from "../kernel/canonical.ts";
 import { MAX_FILE_CONTENT_LENGTH } from "../../shared/constants.ts";
 import type { AsyncDbClient } from "../db/async-client.ts";
 
@@ -271,25 +278,71 @@ export function registerEditorRoutes(router: Router, db: AsyncDbClient): void {
       throw new NotFoundError("That recycle entry is gone", "recycle_not_found");
     }
     // ONE TRASHED-INCLUSIVE PROBE, BY ROW ID. `makeFsGate` resolves ownership
-    // by PATH through the live-project listing, so a project the owner has
-    // binned is invisible to it — the listing above includes that project,
-    // and restore must answer with the same ownership fact. The row id is the
+    // by path through the live-project listing, so a project the owner has
+    // binned is invisible to it — the listing above includes that project, and
+    // restore must answer with the same ownership fact. The row id is the
     // authority; a legacy entry with no row id is refused rather than guessed
     // from its path.
     const project = listed.projectId === null ? null : await db.getProjectIncludingTrash(listed.projectId, user.userId);
-    // THE ROW ID IS THE IDENTITY, THE PATH IS A SPELLING. The probe above
-    // returned the row this record stamped; asking whether that row's path is
-    // spelled like the record's root is a second answer to a question the id
-    // already settled, and a spelling cannot see a link, a bind mount or a
-    // case-folded segment. Compare the owning ids, never `resolve(a) !==
-    // resolve(b)`.
     if (project === null || project.id !== listed.projectId) {
       throw new ForbiddenError(
         "That recycled file belongs to a project this account no longer holds.",
         "recycle_not_owned",
       );
     }
-    const gate: FsGate = { userId: user.userId, decisions: new Map([[listed.projectRoot, project]]) };
+    // ── THE RECORD'S ROOT MUST STILL BE WHERE THE ROW LIVES ───────────────
+    //
+    // The row id says WHOSE file this is; it does not say the folder the file
+    // came from still belongs to that project. A re-link moves the row and
+    // frees the old folder, which another account can register a moment later
+    // — the old folder is then a real place, owned by somebody else. The
+    // record's `projectRoot` is the DESTINATION this restore would write to,
+    // so it must name the row's CURRENT location and that location must still
+    // resolve to this row. A spelling comparison is not enough (links and
+    // bind mounts name one place twice); the comparison is between resolved
+    // locations, and the owner question is answered by the DB's location-wide
+    // probe. If either disagrees the answer is a typed 409, never a write.
+    let recordLocation: string;
+    let projectLocation: string;
+    try {
+      recordLocation = resolveLocation(listed.projectRoot, "the recycle record's project root");
+      projectLocation = resolveLocation(project.path, "the project's current folder");
+    } catch {
+      throw new ConflictError(
+        wireMessage("recycle_project_moved"),
+        "recycle_project_moved",
+      );
+    }
+    if (recordLocation !== projectLocation) {
+      throw new ConflictError(
+        wireMessage("recycle_project_moved"),
+        "recycle_project_moved",
+      );
+    }
+    const holder = await db.projectAtPath(recordLocation);
+    if (holder === null || holder.id !== project.id || holder.userId !== user.userId) {
+      throw new ConflictError(
+        wireMessage("recycle_project_moved"),
+        "recycle_project_moved",
+      );
+    }
+    // THE GATE IS REBUILT FROM THE ROW'S CURRENT LOCATION (not the record's
+    // stale spelling) and primed for both spellings this request will use.
+    // Every spelling is held to the same location checks; an unusable one is
+    // a decided denial, so this becomes a typed refusal rather than a 500.
+    const gate: FsGate = await makeFsGateForRow(
+      user.userId,
+      db,
+      project,
+      project.path,
+      listed.projectRoot,
+    );
+    if (gate.decisions.get(listed.projectRoot) == null) {
+      throw new ConflictError(
+        wireMessage("recycle_project_moved"),
+        "recycle_project_moved",
+      );
+    }
     const result = restoreFile(body.id, gate);
     sendJson(ctx.res, result);
   });

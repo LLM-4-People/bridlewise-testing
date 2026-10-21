@@ -139,12 +139,30 @@
   let fTimeoutMs = $state("");
   let formNote = $state<{ kind: "saved" | "failed"; text: string } | null>(null);
 
-  async function refresh(): Promise<void> {
+  /**
+   * ONE READ, FENCED BY THE EPOCH THAT ASKED FOR IT.
+   *
+   * A read is not an event at landing time: it answers what the wire said
+   * when it was issued. Two revalidations can overlap (a hide/show reveal
+   * while a save's read is in flight), and the internet can resolve them out
+   * of order — the older read landing last used to assign `servers` and
+   * `load` over the newer answer, so the face settled on a list the server
+   * had already superseded. The epoch is the follow chain's fence; a read
+   * whose epoch is no longer current writes NOTHING (not even `pending` or
+   * `failed`), and its fetch is aborted when a newer revalidation starts.
+   */
+  let readAbort: AbortController | null = null;
+  async function refresh(mine: number, signal: AbortSignal): Promise<void> {
+    if (mine !== followEpoch) return;
     load = "pending";
     try {
-      servers = await listMcpServers();
+      const next = await listMcpServers(signal);
+      if (mine !== followEpoch) return;
+      servers = next;
       load = "ok";
+      loadReason = null;
     } catch (err) {
+      if (mine !== followEpoch) return;
       loadReason = refusalReason(err) ?? (err instanceof Error ? err.message : String(err));
       load = "failed";
     }
@@ -165,16 +183,24 @@
    * the wire, then, when the read observed the registry's unmeasured
    * snapshot, follows at the settle cadence until a row is measured, so the
    * face always ends at the wire's own answer without a reload.
+   *
+   * Answers the epoch its read belongs to, so a caller that prints a claim
+   * about "what the revalidation found" can say whether that read is still
+   * the current one.
    */
-  async function revalidate(): Promise<void> {
+  async function revalidate(): Promise<number> {
     followEpoch += 1;
     const mine = followEpoch;
+    // Abort the read this one supersedes: a stale response has no reader.
+    readAbort?.abort();
+    readAbort = new AbortController();
     // The read below re-decides the flight: a superseded chain's live flag
     // dies here, never by the superseded chain itself.
     followLive = false;
-    await refresh();
-    if (mine !== followEpoch) return;
+    await refresh(mine, readAbort.signal);
+    if (mine !== followEpoch) return mine;
     armFollowIfUnmeasured(mine, Date.now());
+    return mine;
   }
 
   /** Arm the follow when the read landed on the registry's unmeasured
@@ -196,8 +222,8 @@
    * superseding revalidation ends the chain: the next reveal or verb
    * re-arms it against the wire as it then stands. */
   async function followTick(mine: number, startedAt: number): Promise<void> {
-    if (mine !== followEpoch) return;
-    await refresh();
+    if (mine !== followEpoch || readAbort === null) return;
+    await refresh(mine, readAbort.signal);
     if (mine !== followEpoch) return;
     const enabled = servers.filter((s) => s.enabled);
     const measured = enabled.length === 0 || enabled.some((s) => s.status !== "stopped");
@@ -233,6 +259,7 @@
       void revalidate();
       return () => {
         followEpoch += 1;
+        readAbort?.abort();
         followLive = false;
       };
     }),
@@ -453,10 +480,16 @@
       // described a re-read that had not started. The row says what is
       // actually known, then says what the revalidation found.
       notes.set(saved.id, "saved: waiting for the server to read it back…");
-      await revalidate();
-      notes.set(saved.id, load === "ok"
+      const readEpoch = await revalidate();
+      // THE NOTE CARRIES THE READ'S OWN EPOCH. If a newer revalidation
+      // started while this save's read was landing, the list now on screen
+      // answers the newer read — this write's note must not claim it read
+      // back the value it saved.
+      notes.set(saved.id, readEpoch === followEpoch && load === "ok"
         ? "saved: the values shown are the server's own read-back"
-        : `saved: the server accepted the change, but the list could not be re-read — ${loadReason}`);
+        : readEpoch === followEpoch
+          ? `saved: the server accepted the change, but the list could not be re-read — ${loadReason}`
+          : "saved: the server accepted the change; a newer read is settling the list");
     } catch (err) {
       if (pendingSave?.token === operation.token && formOpen && formGeneration === operation.generation) {
         formNote = { kind: "failed", text: refusalReason(err) ?? (err instanceof Error ? err.message : String(err)) };

@@ -5,7 +5,7 @@
  * authority).
  */
 
-import { gitRead, gitTextOrRefuse, isGitRepo, raiseIfNotRun } from "./git-bridge.ts";
+import { gitRead, gitRepositoryPresence, gitTextOrRefuse, isGitRepo, raiseIfNotRun } from "./git-bridge.ts";
 import { assertProjectPathOwnership, type FsGate } from "../filesystem/fs-gate.ts";
 import { serverConfig } from "../kernel/config.ts";
 import { BadRequestError, ServiceUnavailableError } from "../kernel/errors.ts";
@@ -298,11 +298,15 @@ export function getDiffPatch(
 }
 
 export type GitStatus = Readonly<{
-  /** False when the path is NOT a git repository at all — a different fact
+  /** False when the path is NOT a git working tree at all — a different fact
    * from every zeroed field beside it, and the one a reader needs to say
    * "not under version control" instead of "detached and clean" (two
    * fabricated facts the zeroed shape used to collapse into). */
   repository: boolean;
+  /** True when the folder is a BARE repository: it has saved history but no
+   * working tree to compare. A different reason from "not under version
+   * control", and the custody surfaces state it. */
+  bare: boolean;
   branch: string | null;
   head: string | null;
   dirtyFiles: number;
@@ -321,23 +325,42 @@ export function getGitStatus(repoPath: string, gate?: FsGate, options?: Readonly
     const status = await gitRead(repoPath, ["status", "-b", "--porcelain=v1", "--untracked-files=all"], [], options);
     raiseIfNotRun(status, "working tree status");
     if (status.kind === "failed") {
-      const probe = await gitRead(repoPath, ["rev-parse", "--is-inside-work-tree"], [], options);
-      raiseIfNotRun(probe, "repository status");
-      // The probe is the difference: a folder that is not a work tree is an
-      // honest `repository:false`; a folder that IS one but whose status git
-      // could not produce is a FAILED MEASUREMENT, not a clean tree.
-      if (probe.kind !== "ran" || probe.stdout !== "true") return gitStatusFromReads("", null, false);
-      throw new ServiceUnavailableError(
-        `The working tree status could not be read: git ran and failed (${status.reason}), ` +
-          "and the folder is a work tree, so the changes it holds were not measured. " +
-          "Refusing to report the tree as clean.",
-        "git_read_failed",
-      );
+      // THE PROBE IS FOUR-VALUED NOW (repo / bare / not-repo / unreadable).
+      // A probe that RAN and FAILED over a `.git` marker is an unreadable
+      // repository, not an absence — see `gitRepositoryPresence`.
+      const presence = await gitRepositoryPresence(repoPath, options);
+      if (presence.kind === "unreadable") {
+        throw new ServiceUnavailableError(
+          `The working tree status could not be read: git ran and failed (${status.reason}), ` +
+            `and the folder holds a .git marker (${presence.reason}). ` +
+            "Refusing to report it as not under version control.",
+          "git_read_failed",
+        );
+      }
+      if (presence.kind === "repo") {
+        throw new ServiceUnavailableError(
+          `The working tree status could not be read: git ran and failed (${status.reason}), ` +
+            "and the folder is a work tree, so the changes it holds were not measured. " +
+            "Refusing to report the tree as clean.",
+          "git_read_failed",
+        );
+      }
+      return gitStatusFromReads("", null, false, presence.kind === "bare");
     }
     const head = await gitTextOrRefuse(repoPath, ["rev-parse", "HEAD"], "current save", [], options);
     return gitStatusFromReads(status.stdout, head?.trim() ?? null);
   })();
-  if (!isGitRepo(repoPath)) return gitStatusFromReads("", null, false);
+  const presence = gitRepositoryPresence(repoPath);
+  if (presence.kind === "unreadable") {
+    throw new ServiceUnavailableError(
+      `The project folder could not be read as a git repository: git ran and failed (${presence.reason}), ` +
+        "and the folder holds a .git marker. Refusing to report it as not under version control.",
+      "git_read_failed",
+    );
+  }
+  // A folder that is not a work tree is an honest `repository:false`; a bare
+  // repository is still false HERE (there is no working tree) but says why.
+  if (presence.kind !== "repo") return gitStatusFromReads("", null, false, presence.kind === "bare");
   // `readText` is `gitTextOrRefuse`: a refusal already raised; `null` here
   // means git RAN and reported failure. The repository probe above proved
   // this is a work tree, so reporting zeros would call a dirty tree clean.
@@ -359,15 +382,24 @@ export function getGitStatus(repoPath: string, gate?: FsGate, options?: Readonly
  * `porcelain` is the output of a status read that RAN (possibly empty when a
  * repository has no changes and no branch header); "did not run / failed" is
  * answered before this decoder, never folded into an empty string. */
-function gitStatusFromReads(porcelain: string, head: string | null, repository = true): GitStatus {
-  if (!repository) return { repository: false, branch: null, head: null, dirtyFiles: 0, stagedFiles: 0, untrackedFiles: 0, entries: [] };
+function gitStatusFromReads(porcelain: string, head: string | null, repository = true, bare = false): GitStatus {
+  if (!repository) return { repository: false, bare, branch: null, head: null, dirtyFiles: 0, stagedFiles: 0, untrackedFiles: 0, entries: [] };
   let branch: string | null = null;
   const firstLine = porcelain.split("\n")[0] ?? "";
   if (firstLine.startsWith("## ")) {
     const rest = firstLine.slice(3);
-    const tok = rest.split(/\s|\.\.\./)[0] ?? "";
-    // "HEAD (no branch)" → detached; tok would be "HEAD".
-    branch = tok === "HEAD" ? null : (tok.length > 0 ? tok : null);
+    // AN UNBORN BRANCH IS NAMED AFTER THE BRANCH, NOT AFTER THE FIRST WORD OF
+    // THE SENTENCE. `git status -b` writes `## No commits yet on main` (and
+    // older gits `## Initial commit on main`); taking the first token called
+    // the branch "No" / "Initial".
+    const unborn = /^(?:No commits yet|Initial commit) on (.+)$/u.exec(rest);
+    if (unborn !== null) {
+      branch = unborn[1] ?? null;
+    } else {
+      const tok = rest.split(/\s|\.\.\./)[0] ?? "";
+      // "HEAD (no branch)" → detached; tok would be "HEAD".
+      branch = tok === "HEAD" ? null : (tok.length > 0 ? tok : null);
+    }
   }
   let stagedFiles = 0;
   let untrackedFiles = 0;
@@ -389,6 +421,7 @@ function gitStatusFromReads(porcelain: string, head: string | null, repository =
   }
   return {
     repository: true,
+    bare: false,
     branch,
     head,
     dirtyFiles: entries.filter((e) => e.status !== "untracked").length,

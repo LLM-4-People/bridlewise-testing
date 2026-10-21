@@ -4032,9 +4032,16 @@ export async function restoreRecycledFile(id: string): Promise<{ path: string; r
  * connection state. The list is NOT stored in a client store — the settings
  * section refetches after each write so the rows always answer the server's
  * own read-back.
+ *
+ * `signal` lets a caller that has already superseded this read abort it; the
+ * list is live-served, so a stale answer has no reader and should not tie up
+ * the request or land after a newer one.
  */
-export async function listMcpServers(): Promise<readonly McpServerView[]> {
-  const data = await fetchJson<{ count?: unknown; servers?: unknown }>("/mcp/servers");
+export async function listMcpServers(signal?: AbortSignal): Promise<readonly McpServerView[]> {
+  const data = await fetchJson<{ count?: unknown; servers?: unknown }>(
+    "/mcp/servers",
+    signal === undefined ? undefined : { signal },
+  );
   const list = data?.servers;
   if (!Array.isArray(list)) {
     throw new ClientError("malformed", "Expected MCP server list");

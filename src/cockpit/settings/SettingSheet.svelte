@@ -165,11 +165,14 @@
    * the standalone read fails, the value in the store belongs to an older
    * snapshot and this mount never measured it: the sheet renders the
    * unreadable state, not that cache, and offers no write path. Only a
-   * landed read of the CURRENT value may be saved from.
+   * LANDED read of the CURRENT value may be saved from — PENDING is not
+   * landed either: the cached value still paints while the read is out, but
+   * the save door stays shut until the answer is the server's own. Local
+   * preferences are device state (no wire read to wait for) and stay usable.
    */
   const readUnavailable = $derived(!inline && load.kind === "failed");
   const readFailureReason = $derived(load.kind === "failed" ? load.reason : "");
-  const writeableRead = $derived(inline || load.kind !== "failed");
+  const writeableRead = $derived(localRow !== null || load.kind === "ready");
   let retrying = $state(false);
   async function retryRead(): Promise<void> {
     if (retrying) return;
@@ -511,8 +514,8 @@
             role="radio"
             aria-checked={displayed === option.value}
             data-verb-id={row.kind === "local" ? "cockpit.pref/set" : "settings.customizations/set"}
-            disabled={past || (row.kind === "served" && descriptor === null)}
-            aria-disabled={past || saving || (row.kind === "served" && descriptor === null)}
+            disabled={past || !writeableRead || (row.kind === "served" && descriptor === null)}
+            aria-disabled={past || !writeableRead || saving || (row.kind === "served" && descriptor === null)}
             title={past ? PAST_VIEW_ACT_REASON : `sends “${option.value}”`}
             onclick={() => void commit(option.value)}
           >{option.words}</button>
@@ -526,9 +529,9 @@
         aria-label={label}
         aria-checked={displayed === true}
         data-verb-id={row.kind === "local" ? "cockpit.pref/set" : "settings.customizations/set"}
-        disabled={past || displayed === undefined || (row.kind === "served" && descriptor === null)}
-        aria-disabled={past || saving || displayed === undefined || (row.kind === "served" && descriptor === null)}
-        title={past ? PAST_VIEW_ACT_REASON : undefined}
+        disabled={past || !writeableRead || displayed === undefined || (row.kind === "served" && descriptor === null)}
+        aria-disabled={past || !writeableRead || saving || displayed === undefined || (row.kind === "served" && descriptor === null)}
+        title={past ? PAST_VIEW_ACT_REASON : !writeableRead ? "the settings read has not landed yet: nothing can be sent from it" : undefined}
         onclick={() => void commit(!(displayed === true))}
       >
         <span class="state-path" aria-hidden="true"></span>
@@ -599,13 +602,15 @@
         <button
           class="verb save primary commit" aria-busy={saving} data-commit-state={commitState}
           data-verb-id="cockpit.pref/set"
-          disabled={past}
-          aria-disabled={past || !dirty || saving}
+          disabled={past || !writeableRead}
+          aria-disabled={past || !writeableRead || !dirty || saving}
           title={past
             ? PAST_VIEW_ACT_REASON
-            : !dirty
-              ? "nothing changed yet: edit the value first"
-              : undefined}
+            : !writeableRead
+              ? "the settings read has not landed yet: nothing can be saved from it"
+              : !dirty
+                ? "nothing changed yet: edit the value first"
+                : undefined}
           onclick={commitDraft}
         ><span class="commit-copy"><strong>{saving ? "Saving…" : commitState === "saved" ? "Saved" : "Save"}</strong></span><span class="commit-mark" use:moves={confirmationMotion} aria-hidden="true"></span></button>
       {/if}
@@ -616,15 +621,17 @@
             class="verb save primary commit" aria-busy={saving} data-commit-state={commitState}
             data-verb-id="settings.customizations/set"
             aria-describedby={`${settingId}-save-help`}
-            disabled={past}
-          aria-disabled={past || !dirty || saving}
+            disabled={past || !writeableRead}
+          aria-disabled={past || !writeableRead || !dirty || saving}
             title={past
               ? PAST_VIEW_ACT_REASON
-              : saving
-                ? "saving now"
-                : !dirty
-                  ? "nothing changed yet: edit the value first"
-                  : undefined}
+              : !writeableRead
+                ? "the settings read has not landed yet: nothing can be saved from it"
+                : saving
+                  ? "saving now"
+                  : !dirty
+                    ? "nothing changed yet: edit the value first"
+                    : undefined}
             onclick={commitDraft}
           ><span class="commit-copy"><strong>{saving ? "Saving…" : commitState === "saved" ? "Saved" : "Save"}</strong></span><span class="commit-mark" use:moves={confirmationMotion} aria-hidden="true"></span></button>
           <span class="save-help" id={`${settingId}-save-help`}>{descriptor.consequence}</span>
@@ -681,9 +688,9 @@
         <button
           class="verb "
           data-verb-id={row.kind === "local" ? "cockpit.pref/set" : "settings.customizations/set"}
-          disabled={past}
-          aria-disabled={past || saving}
-          title={past ? PAST_VIEW_ACT_REASON : saving ? "saving now" : undefined}
+          disabled={past || !writeableRead}
+          aria-disabled={past || !writeableRead || saving}
+          title={past ? PAST_VIEW_ACT_REASON : !writeableRead ? "the settings read has not landed yet: nothing can be sent from it" : saving ? "saving now" : undefined}
           onclick={() => void resetDefault()}
         >Return to default</button>
       {/if}

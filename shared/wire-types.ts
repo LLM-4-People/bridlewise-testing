@@ -726,4 +726,13 @@ export type RecycledFile = Readonly<{
   /** The project ROW that produced the entry (null for legacy/internal
    * records). Ownership is by row id, not by path, for the same reason. */
   projectId: string | null;
+  /**
+   * The measured LOCATION of `projectRoot` at delete time, stamped at the
+   * same choke point. A record's root is a destination spelling; a path can
+   * become a link after the delete, so restore requires the destination to
+   * still resolve to this location before writing anything there. Null for
+   * records written before this anchor existed (they fall back to the row's
+   * current-location check).
+   */
+  projectLocation: string | null;
 }>;

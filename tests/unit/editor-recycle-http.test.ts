@@ -25,8 +25,8 @@
  * from before the create door refused it.
  */
 import { describe, test, expect, beforeAll, afterAll, vi } from "vitest";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 // The recycle bin's location derives from `serverConfig.dbPath`, and the
 // timeline ledger from its own config path — both are pointed at a private
@@ -53,6 +53,7 @@ await vi.hoisted(async () => {
 import { registerEditorRoutes } from "../../server/routes/editor.ts";
 import { installRecycleSlotRemover } from "../../server/filesystem/editor-bridge.ts";
 import { registerProjectRoutes } from "../../server/routes/projects.ts";
+import { serverConfig } from "../../server/kernel/config.ts";
 import { createTestUser, type TestUser } from "../helpers/multi-user.ts";
 import { startHttpTestServer, type HttpTestServer } from "../helpers/http-server.ts";
 import { jsonRequest } from "../helpers/json-request.ts";
@@ -78,17 +79,26 @@ afterAll(async () => {
   if (srv) await srv.stop();
 });
 
+type CallBody = {
+  files?: { id: string }[];
+  error?: string;
+  recycleId?: string;
+  content?: string;
+  cleanup?: string;
+  [key: string]: unknown;
+};
+
 async function call(
   user: TestUser,
   path: string,
   init?: { method?: string; body?: unknown },
-): Promise<{ status: number; body: { files?: { id: string }[]; error?: string; recycleId?: string } }> {
+): Promise<{ status: number; body: CallBody }> {
   const { status, body } = await jsonRequest(srv.baseUrl, path, {
     method: init?.method,
     body: init?.body,
     cookie: user.cookie,
   });
-  return { status, body: body as { files?: { id: string }[]; error?: string; recycleId?: string } };
+  return { status, body: body as CallBody };
 }
 
 /** Create a project through the real door and answer its id. */
@@ -238,5 +248,137 @@ describe("recycle-bin authorization over real HTTP", () => {
       "a trashed-but-owned project must not be answered with project_path_not_owned",
     ).toBe(200);
     expect(readFileSync(join(trashPath, "kept.ts"), "utf8")).toBe("kept-bytes\n");
+  });
+});
+
+describe("a re-linked project cannot restore into the folder another account now holds", () => {
+  /** Move A's row to a new folder through the real PATCH door. */
+  async function relink(user: TestUser, projectId: string, path: string): Promise<void> {
+    mkdirSync(path, { recursive: true });
+    const patched = await call(user, `/api/projects/${projectId}`, {
+      method: "PATCH",
+      body: { path },
+    });
+    expect(patched.status, "the owner's re-link must succeed").toBe(200);
+  }
+
+  test("A's stale recycle record is refused with 409 and B's bytes are untouched", async () => {
+    const oldRoot = join(createTempDir("ch-recycle-relink-"), "project");
+    const projectId = await newProject(alice, "alice-relink", oldRoot);
+    // B must not be able to take the path while A still owns it.
+    expect((await call(bob, "/api/projects", { method: "POST", body: { name: "bob-too-early", path: oldRoot } })).status).toBe(409);
+    const recycleId = await recycleOne(alice, oldRoot, "planted.ts", "A-PLANTED-BYTES\n");
+
+    const newRoot = join(createTempDir("ch-recycle-relink-new-"), "project");
+    await relink(alice, projectId, newRoot);
+
+    // B now registers the folder A left behind (still on disk, now free).
+    const bobProject = await call(bob, "/api/projects", { method: "POST", body: { name: "bob-took-it", path: oldRoot } });
+    expect(bobProject.status, "the freed path is free for another account").toBe(201);
+    const bobFile = join(oldRoot, "bob-owned.ts");
+    expect((await call(bob, "/api/editor/create-file", { method: "POST", body: { path: bobFile, content: "B-OWNED\n", root: oldRoot } })).status).toBe(200);
+
+    const restored = await call(alice, "/api/editor/restore", { method: "POST", body: { id: recycleId } });
+    expect(
+      restored.status,
+      "the record's root no longer equals the row's current location, so the restore must refuse",
+    ).toBe(409);
+    expect(restored.body.error).toBe("recycle_project_moved");
+    expect(existsSync(join(oldRoot, "planted.ts")), "A's bytes must not land in B's folder").toBe(false);
+    expect(readFileSync(bobFile, "utf8")).toBe("B-OWNED\n");
+    expect((await call(bob, `/api/editor/read?path=${encodeURIComponent(bobFile)}&root=${encodeURIComponent(oldRoot)}`)).status).toBe(200);
+  });
+
+  test("PATCH on a TRASHED project answers 404 and does NOT move the row", async () => {
+    const oldRoot = join(createTempDir("ch-recycle-trash-patch-"), "project");
+    const projectId = await newProject(alice, "alice-trash-patch", oldRoot);
+    const recycleId = await recycleOne(alice, oldRoot, "kept.ts", "TRASH-BYTES\n");
+    expect((await call(alice, `/api/projects/${projectId}`, { method: "DELETE" })).status).toBe(200);
+
+    const newRoot = join(createTempDir("ch-recycle-trash-patch-new-"), "project");
+    mkdirSync(newRoot, { recursive: true });
+    const patched = await call(alice, `/api/projects/${projectId}`, { method: "PATCH", body: { path: newRoot } });
+    expect(patched.status, "a binned project is not a patch target").toBe(404);
+
+    // The row still names the folder the recycle record was made in; the old
+    // path is NOT freed by a 404 that had already moved the row.
+    const trash = await call(alice, "/api/trash");
+    const row = (trash.body as unknown as { projects?: { id: string; path: string }[] }).projects?.find((p) => p.id === projectId);
+    expect(row?.path, "the 404 must mean no mutation").toBe(oldRoot);
+
+    // B can never register the old path while A's binned row still owns it,
+    // so the enabler for the stale-record write is gone too.
+    const bobProject = await call(bob, "/api/projects", { method: "POST", body: { name: "bob-after-trash", path: oldRoot } });
+    expect(bobProject.status, "a trashed row still holds its folder").toBe(409);
+
+    const restored = await call(alice, "/api/editor/restore", { method: "POST", body: { id: recycleId } });
+    expect(restored.status, "the owner's own binned project still restores").toBe(200);
+    expect(readFileSync(join(oldRoot, "kept.ts"), "utf8")).toBe("TRASH-BYTES\n");
+  });
+
+  test("a REAL partial slot removal (read-only recycle root) still leaves a retryable entry", async () => {
+    const projectPath = join(createTempDir("ch-recycle-partial-"), "project");
+    await newProject(alice, "alice-partial", projectPath);
+    const recycleId = await recycleOne(alice, projectPath, "partial.ts", "PARTIAL-BYTES\n");
+    const recycleRoot = join(dirname(serverConfig.dbPath), "recycle");
+    const slotDir = join(recycleRoot, recycleId);
+
+    // No injected remover: the RECYCLE ROOT refuses the slot rename. The old
+    // `rmSync(slot, {recursive})` would have unlinked meta.json and the commit
+    // marker first and only then failed to rmdir the slot, so the retry found
+    // an empty folder (404) for a file that was already home.
+    chmodSync(recycleRoot, 0o500);
+    try {
+      const first = await call(alice, "/api/editor/restore", { method: "POST", body: { id: recycleId } });
+      expect(first.status, "the bytes land before cleanup is attempted").toBe(200);
+      expect(first.body.cleanup, "a failed removal is retained, not claimed removed").toBe("retained");
+      expect(readFileSync(join(projectPath, "partial.ts"), "utf8")).toBe("PARTIAL-BYTES\n");
+      expect(existsSync(join(slotDir, "meta.json")), "the record survived the failed cleanup").toBe(true);
+      expect(existsSync(join(slotDir, "restored.json")), "the commit marker survived it too").toBe(true);
+    } finally {
+      chmodSync(recycleRoot, 0o700);
+    }
+
+    // The retry finds the record and its marker and answers idempotently,
+    // then removes the retained slot now that the root is writable again.
+    const retry = await call(alice, "/api/editor/restore", { method: "POST", body: { id: recycleId } });
+    expect(retry.status, "a retained slot must remain restorable").toBe(200);
+    expect(retry.body.cleanup).toBe("removed");
+    expect(readFileSync(join(projectPath, "partial.ts"), "utf8")).toBe("PARTIAL-BYTES\n");
+  });
+});
+
+describe("a project registered while its path was MISSING cannot become a doorway", () => {
+  test("a cross-account symlink is refused for read and write, and B's bytes stand", async () => {
+    const bobRoot = join(createTempDir("ch-recycle-alias-bob-"), "project");
+    await newProject(bob, "bob-alias-target", bobRoot);
+    writeFileSync(join(bobRoot, "secret.txt"), "B-PRIVATE-BYTES\n");
+
+    const alias = join(createTempDir("ch-recycle-alias-a-"), "work");
+    // Registered while absent: the create door allows a folder that has not
+    // been created yet, and the row stores the resolved (here: missing) path.
+    const aProject = await call(alice, "/api/projects", { method: "POST", body: { name: "alice-missing-alias", path: alias } });
+    expect(aProject.status, "a not-yet-created folder is a legitimate registration").toBe(201);
+    symlinkSync(bobRoot, alias, "dir");
+
+    const read = await call(alice, `/api/editor/read?path=${encodeURIComponent(join(alias, "secret.txt"))}&root=${encodeURIComponent(alias)}`);
+    expect(read.status, "the alias now resolves into another account's project").toBe(403);
+    const write = await call(alice, "/api/editor/write", {
+      method: "PUT",
+      body: { path: join(alias, "secret.txt"), content: "OVERWRITTEN-BY-A", root: alias },
+    });
+    expect(write.status, "the write must be refused for the same reason").toBe(403);
+    expect(readFileSync(join(bobRoot, "secret.txt"), "utf8")).toBe("B-PRIVATE-BYTES\n");
+  });
+
+  test("a symlink to /etc is refused, never served", async () => {
+    const alias = join(createTempDir("ch-recycle-etc-"), "work");
+    const aProject = await call(alice, "/api/projects", { method: "POST", body: { name: "alice-missing-etc", path: alias } });
+    expect(aProject.status).toBe(201);
+    symlinkSync("/etc", alias, "dir");
+
+    const read = await call(alice, `/api/editor/read?path=${encodeURIComponent(join(alias, "debian_version"))}&root=${encodeURIComponent(alias)}`);
+    expect(read.status, "a registered path that resolves into /etc is not a project").toBe(403);
+    expect(read.body.content, "no system file bytes may travel").toBeUndefined();
   });
 });

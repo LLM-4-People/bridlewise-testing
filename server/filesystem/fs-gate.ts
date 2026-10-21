@@ -245,6 +245,17 @@ export function resolveWithinProject(
   // -> /data/work` is an ordinary layout), so the root goes through the same
   // resolver and the comparison is between two locations.
   const root = resolveLocation(resolve(projectRoot), "project root");
+  // ── THE ROOT IS RE-DECIDED HERE, ON EVERY REQUEST ─────────────────────
+  //
+  // The project door decides a folder is usable at registration. A folder (or
+  // a path that did not exist yet) can later BECOME a link to `/etc`, to the
+  // harness, or to another account's project — the create door is not a
+  // durable property of a string. So the same two questions the door asked
+  // (allowed roots, the refused-folder list) are asked again at the filesystem
+  // choke point, by location: a project root that stopped being a project
+  // folder never serves a file. This is also the path the tool-executor takes
+  // with no gate, where the route boundary cannot answer for it.
+  assertProjectRootUsable(root);
   const requested = isAbsolute(filePath) ? resolve(filePath) : resolve(root, filePath);
   const abs = resolveLocation(requested, "file path");
   // INSIDE THE ROOT BY IDENTITY, not by spelling: a bind-mount alias names
@@ -444,6 +455,69 @@ export function projectFolderPresence(path: string): ProjectFolderPresence {
 }
 
 /**
+ * The two project-door questions, asked again at the filesystem choke point:
+ * the location must be under an allowed root, and it must not be a system,
+ * harness or credential folder. A refusal is a 403 with its own code — the
+ * door's prose names the folder for a person choosing one; a gate refusal
+ * says the project's folder itself stopped being usable.
+ */
+function assertProjectRootUsable(root: string): void {
+  if (!isWithinAllowedRoots(root)) {
+    throw new PathTraversalError(wireMessage("path_outside_roots"), "path_outside_roots");
+  }
+  const refusal = projectRootRefusals()(root);
+  if (refusal !== null) {
+    // The debug document's category allow-list owns the emit names; this is
+    // the filesystem gate speaking for a project folder, which is the
+    // `file-tree` category's subject, not a new category the config must learn.
+    webWarn("file-tree", "project root is no longer a usable project folder", () => ({ root, refusal }));
+    throw new ForbiddenError(wireMessage("project_root_refused"), "project_root_refused");
+  }
+}
+
+/**
+ * One ownership decision for one path, with the location checks the request
+ * boundary owes: the path must resolve to a usable project location, that
+ * location must still be where the row's stored (already resolved) path
+ * points, and the location must not be held by another account's row.
+ *
+ * `null` is a decided DENIAL (the caller does not own a usable project at
+ * this spelling). A path that cannot even be resolved is also a denial: it is
+ * not a place this request may serve. Nothing here catches a database fault —
+ * an unreadable ownership record is a 500, not a fabricated 403.
+ */
+async function decisionForPath(
+  userId: string,
+  db: AsyncDbClient,
+  path: string,
+  refusalOf: (location: string) => string | null,
+): Promise<ProjectRow | null> {
+  let location: string;
+  try {
+    location = resolveLocation(resolve(path), "a gated project path");
+  } catch {
+    return null;
+  }
+  if (!isWithinAllowedRoots(location) || refusalOf(location) !== null) return null;
+  const owned = await db.getProjectByPath(location, userId);
+  if (owned === null) return null;
+  // THE ROW'S PATH IS THE ANCHOR STAMPED AT REGISTRATION. It was stored as a
+  // resolved location; if resolving it now answers somewhere else, a link
+  // appeared (or changed) after the row was written and this spelling no
+  // longer names the place the user registered.
+  let storedLocation: string;
+  try {
+    storedLocation = resolveLocation(owned.path, "the project's stored path");
+  } catch {
+    return null;
+  }
+  if (storedLocation !== location) return null;
+  const holder = await db.projectAtPath(location);
+  if (holder === null || holder.id !== owned.id || holder.userId !== userId) return null;
+  return owned;
+}
+
+/**
  * Build a gate by RESOLVING, once and off the request thread, whether this
  * user owns a project at each path this request will touch.
  *
@@ -457,6 +531,13 @@ export function projectFolderPresence(path: string): ProjectFolderPresence {
  * single request used to pay for it up to three times on the event loop.
  * Duplicate and empty paths are dropped, so priming the same root twice costs
  * one query.
+ *
+ * THE DECISION IS BY LOCATION. `getProjectByPath` compares resolved
+ * spellings, so the request's spelling is resolved first and the lookup asks
+ * the canonical place; the same place reached through a link (an ordinary
+ * layout, and the spelling a recycle record may carry) is still this project.
+ * A path that became a link to somebody else's folder resolves to a place
+ * this user has no row at — denied.
  */
 export async function makeFsGate(
   userId: string,
@@ -479,8 +560,67 @@ export async function makeFsGate(
       ),
     ),
   ];
+  const refusals = projectRootRefusals();
   const resolved = await Promise.all(
-    wanted.map(async (path) => [path, await db.getProjectByPath(path, userId)] as const),
+    wanted.map(async (path) => [path, await decisionForPath(userId, db, path, refusals)] as const),
   );
   return { userId, decisions: new Map(resolved) };
+}
+
+/**
+ * A gate for a project row the caller has ALREADY resolved through the
+ * owner-scoped, trashed-inclusive probe (the recycle restore door).
+ *
+ * It exists because `makeFsGate` deliberately reads the LIVE list — a binned
+ * project is invisible there, and restore must still authorise its owner.
+ * Every spelling is held to the same location checks as `makeFsGate`: it must
+ * resolve to the row's current location, the location must still be usable,
+ * and no other account's row may hold it. A spelling that fails is carried as
+ * a decided denial, never dropped (which would turn it into a 500).
+ */
+export async function makeFsGateForRow(
+  userId: string,
+  db: AsyncDbClient,
+  row: ProjectRow,
+  ...paths: readonly (string | undefined)[]
+): Promise<FsGate> {
+  const wanted = [
+    ...new Set(
+      paths.filter((p): p is string => typeof p === "string" && p.length > 0 && !p.includes("\0")),
+    ),
+  ];
+  const refusals = projectRootRefusals();
+  let rowLocation: string | null = null;
+  try {
+    rowLocation = resolveLocation(row.path, "the project's stored path");
+  } catch {
+    rowLocation = null;
+  }
+  const holder = rowLocation === null ? null : await db.projectAtPath(rowLocation);
+  const rowIsHeldHere =
+    rowLocation !== null &&
+    row.user_id === userId &&
+    holder !== null &&
+    holder.id === row.id &&
+    holder.userId === userId;
+  const decisions = new Map<string, ProjectRow | null>();
+  for (const path of wanted) {
+    let decision: ProjectRow | null = null;
+    if (rowIsHeldHere) {
+      try {
+        const location = resolveLocation(resolve(path), "a gated project path");
+        if (
+          location === rowLocation &&
+          isWithinAllowedRoots(location) &&
+          refusals(location) === null
+        ) {
+          decision = row;
+        }
+      } catch {
+        decision = null;
+      }
+    }
+    decisions.set(path, decision);
+  }
+  return { userId, decisions };
 }

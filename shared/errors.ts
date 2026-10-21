@@ -323,6 +323,25 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   // the caller can resolve (delete or rename the occupant first), so 409
   // rather than a fault on either side.
   restore_occupied: 409,
+  // THE PROJECT THIS RECYCLED FILE BELONGS TO IS NO LONGER AT THE RECORDED
+  // FOLDER. The bytes must not be written into whatever now occupies that
+  // path (another account may have registered it), so restore refuses with a
+  // conflict instead of guessing a destination. 409: the record and the
+  // project row are both real, they just no longer name one place.
+  recycle_project_moved: 409,
+  // A project folder that was usable at registration now resolves somewhere
+  // this server will not serve (a system, harness or credential location).
+  // The path itself is refusable for the same reason the create door refuses
+  // it; re-detected at every filesystem gate because a link can appear after
+  // registration. 403: understood and refused, never "not found".
+  project_root_refused: 403,
+  // The stat said the file was there and the read then found nothing: it was
+  // removed between the two. A conflict with current state (409), not a 404
+  // about the request, and never an internal 500.
+  file_vanished: 409,
+  // The OS refused the read (EACCES/EPERM). 403: the caller may not see these
+  // bytes, and the answer says so instead of blaming the server (500).
+  file_read_denied: 403,
   // ConfigError default code — the LLM/service config is invalid, so the
   // service is unavailable (503), not a generic 500. (config.ts throws at
   // startup never reach the router; llm-bridge throws in a route path.)
@@ -867,6 +886,12 @@ export const WIRE_MESSAGE_FOR_CODE: Readonly<Record<string, string>> = Object.fr
   file_not_found: "That file no longer exists. It may have been moved or deleted.",
   not_a_file: "That path is a folder, not a file.",
   file_too_large: "That file is too large to open here.",
+  file_vanished: "That file was removed while it was being opened. Reload and try again.",
+  file_read_denied: "The operating system would not let this server read that file. Check its permissions.",
+  project_root_refused:
+    "The project's folder now points somewhere this server will not serve (a system, harness or credential location). Re-create the project with a valid folder.",
+  recycle_project_moved:
+    "The project this recycled file belongs to has moved since the file was deleted, so the file cannot be put back there. Re-link the project to that folder, or restore the file yourself.",
   already_exists: "Something with that name already exists here. Choose a different name.",
   parent_not_found: "The containing folder doesn't exist.",
   cannot_delete_root: "The project root can't be deleted.",

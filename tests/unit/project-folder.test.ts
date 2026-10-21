@@ -207,4 +207,22 @@ describe("PATCH /api/projects/:id — relink", () => {
     const { json: reread } = await req("GET", `/api/projects/${made.id}`);
     expect((reread as ProjectViewWire).path).toBe(dir);
   });
+
+  test("a PATCH on a TRASHED project answers 404 and moves NOTHING", async () => {
+    const dir = join(tmpRoot, "trashed-patch");
+    mkdirSync(dir);
+    const made = await makeProject("trashed-patch", dir);
+    expect((await req("DELETE", `/api/projects/${made.id}`)).status).toBe(200);
+
+    const replacement = join(tmpRoot, "trashed-replacement");
+    mkdirSync(replacement);
+    const patched = await req("PATCH", `/api/projects/${made.id}`, { path: replacement });
+    expect(patched.status, "a binned project is not a live patch target").toBe(404);
+
+    // The false 404 used to hide a real mutation: the row had moved, which
+    // freed the old folder for another account. 404 now means no mutation.
+    const { json: trash } = await req("GET", "/api/trash");
+    const trashed = (trash as { projects: ProjectViewWire[] }).projects.find((p) => p.id === made.id);
+    expect(trashed?.path, "the trashed row still names the folder it was binned from").toBe(dir);
+  });
 });

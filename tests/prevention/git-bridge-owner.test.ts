@@ -303,10 +303,18 @@ describe("Git bridge owner — fs-gate enforcement at the bridge choke point", (
     // bridge proceeds to isGitRepo, which returns false for a non-repo
     // → empty/null result, not a throw). Proves the gate is the gate,
     // not an unconditional block.
-    const grantDb = {
-      getProjectByPath: async () => ({ id: "p1", name: "n", path: "/tmp/r13-owned" }),
-    } as unknown as AsyncDbClient;
+    //
+    // The gate now resolves the path BY LOCATION and asks which row holds
+    // that location, so the double must answer like the real DB: a row whose
+    // stored path IS the probed location, and that row as the location's
+    // holder.
     const nonRepo = "/tmp/r13-owned-nonrepo";
+    const grantDb = {
+      getProjectByPath: async (path: string) =>
+        path === nonRepo ? { id: "p1", name: "n", path: nonRepo, user_id: "user-a" } : null,
+      projectAtPath: async (path: string) =>
+        path === nonRepo ? { id: "p1", userId: "user-a" } : null,
+    } as unknown as AsyncDbClient;
     const gate = await makeFsGate("user-a", grantDb, nonRepo);
     expect(() => getBranches(nonRepo, gate)).not.toThrow();
     expect(getBranches(nonRepo, gate)).toEqual([]);
@@ -324,10 +332,13 @@ describe("Git bridge owner — fs-gate enforcement at the bridge choke point", (
   // control" (the custody room's own wording) instead.
 
   test("(b behavioral) getGitStatus answers repository:false for a non-repo — the typed absence, never a zeroed success", async () => {
-    const grantDb = {
-      getProjectByPath: async () => ({ id: "p1", name: "n", path: "/tmp/r13-owned" }),
-    } as unknown as AsyncDbClient;
     const nonRepo = "/tmp/r13-owned-nonrepo";
+    const grantDb = {
+      getProjectByPath: async (path: string) =>
+        path === nonRepo ? { id: "p1", name: "n", path: nonRepo, user_id: "user-a" } : null,
+      projectAtPath: async (path: string) =>
+        path === nonRepo ? { id: "p1", userId: "user-a" } : null,
+    } as unknown as AsyncDbClient;
     const gate = await makeFsGate("user-a", grantDb, nonRepo);
     const status = getGitStatus(nonRepo, gate);
     expect(status.repository, "a folder with no repository must say so, not read as a detached clean one").toBe(false);

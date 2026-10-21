@@ -52,6 +52,7 @@ import { createTestUser, type TestUser } from "../helpers/multi-user.ts";
 import { startHttpTestServer, type HttpTestServer } from "../helpers/http-server.ts";
 import { jsonRequest } from "../helpers/json-request.ts";
 import { createTempGitRepo } from "../helpers/temp-git-repo.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
 
 let srv: HttpTestServer;
 let user: TestUser;
@@ -80,6 +81,16 @@ function repoProject(prefix: string): { dir: string; projectId: string } {
   repo.git("commit", "-m", "base");
   const project = srv.db.createProject({ name: prefix, path: repo.dir }, user.userId);
   return { dir: repo.dir, projectId: project.id };
+}
+
+/** Register any existing folder as this user's project (the fixture door). */
+function registerProject(path: string, name: string): string {
+  return srv.db.createProject({ name, path }, user.userId).id;
+}
+
+async function readBlock(path: string): Promise<{ status: number; body: Record<string, unknown> }> {
+  const res = await jsonRequest(srv.baseUrl, path, { cookie: user.cookie });
+  return { status: res.status, body: res.body as Record<string, unknown> };
 }
 
 describe("custody block failure arms over real HTTP", () => {
@@ -126,5 +137,101 @@ describe("custody block failure arms over real HTTP", () => {
     } finally {
       numstatPlant.failNumstat = false;
     }
+  });
+
+  test("a linked worktree whose gitdir lies outside the confined folder is 503, never 'not under version control'", async () => {
+    const main = createTempGitRepo("ch-custody-worktree-main-", { initialBranch: "main" });
+    writeFileSync(join(main.dir, "base.ts"), "base\n");
+    main.git("add", ".");
+    main.git("commit", "-m", "base");
+    const wt = createTempDir("ch-custody-worktree-wt-");
+    // A linked worktree keeps its ADMIN data in the main repository's .git
+    // (outside the project), so confined git can neither read it nor answer
+    // `rev-parse`. The `.git` FILE in the worktree proves it IS a repository.
+    main.git("worktree", "add", "-q", wt, "-b", "side");
+    const projectId = registerProject(wt, "linked-worktree");
+
+    const res = await jsonRequest(srv.baseUrl, `/api/b/custody.state?projectId=${encodeURIComponent(projectId)}`, {
+      cookie: user.cookie,
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { data: unknown; refusal?: { code: string; status: number } };
+    expect(
+      body.refusal,
+      "a probe that ran and failed over a .git marker is an unreadable repository, not an absence",
+    ).toMatchObject({ code: "git_read_failed", status: 503 });
+    expect(body.data).toBeNull();
+    expect(JSON.stringify(body)).not.toContain("this project's folder is not under version control");
+  });
+
+  test("a merge commit is measured by its first-parent difference, not served as 0 files", async () => {
+    const repo = createTempGitRepo("ch-custody-merge-", { initialBranch: "main" });
+    writeFileSync(join(repo.dir, "base.ts"), "base\n");
+    repo.git("add", ".");
+    repo.git("commit", "-m", "base");
+    repo.git("checkout", "-b", "side");
+    writeFileSync(join(repo.dir, "side.txt"), "side\n");
+    repo.git("add", ".");
+    repo.git("commit", "-m", "side commit");
+    repo.git("checkout", "main");
+    writeFileSync(join(repo.dir, "main.ts"), "main\n");
+    repo.git("add", ".");
+    repo.git("commit", "-m", "main commit");
+    repo.git("merge", "--no-ff", "side", "-m", "merge side");
+    const projectId = registerProject(repo.dir, "merge-repo");
+
+    const res = await readBlock(`/api/b/custody.history?projectId=${encodeURIComponent(projectId)}`);
+    expect(res.status).toBe(200);
+    const data = res.body["data"] as {
+      commits: Array<{ message: string; files: number | null; insertions: number | null; deletions: number | null; filePaths: string[] | null }>;
+    };
+    const merge = data.commits[0]!;
+    expect(merge.message).toBe("merge side");
+    expect(merge.files, "the merge brought one file to the branch").toBe(1);
+    expect(merge.insertions).toBe(1);
+    expect(merge.deletions).toBe(0);
+    expect(merge.filePaths).toEqual(["side.txt"]);
+  });
+
+  test("an unborn branch is named after the branch and its unmeasured parcel totals are absent, not 0", async () => {
+    const repo = createTempGitRepo("ch-custody-unborn-", { initialBranch: "main" });
+    writeFileSync(join(repo.dir, "new.txt"), "new\n");
+    const projectId = registerProject(repo.dir, "unborn-repo");
+
+    const res = await readBlock(`/api/b/custody.state?projectId=${encodeURIComponent(projectId)}`);
+    expect(res.status).toBe(200);
+    const data = res.body["data"] as {
+      branch: string | null;
+      parcels: Array<{ insertions: number | null; deletions: number | null; countsAbsentReason?: string; files: Array<{ insertions: number | null }> }>;
+    };
+    expect(data.branch, "the branch is main, not the first word of 'No commits yet on main'").toBe("main");
+    expect(data.parcels).toHaveLength(1);
+    const parcel = data.parcels[0]!;
+    expect(parcel.insertions, "a total over an unmeasured file is absent, never zero").toBeNull();
+    expect(parcel.deletions).toBeNull();
+    expect(typeof parcel.countsAbsentReason, "the absence carries its reason").toBe("string");
+  });
+
+  test("a bare repository says it is bare instead of claiming no saved history", async () => {
+    const source = createTempGitRepo("ch-custody-bare-source-", { initialBranch: "main" });
+    writeFileSync(join(source.dir, "saved.ts"), "saved\n");
+    source.git("add", ".");
+    source.git("commit", "-m", "saved work");
+    const bare = createTempDir("ch-custody-bare-");
+    source.git("clone", "--bare", source.dir, bare);
+    const projectId = registerProject(bare, "bare-repo");
+
+    const state = await readBlock(`/api/b/custody.state?projectId=${encodeURIComponent(projectId)}`);
+    expect(state.status).toBe(200);
+    const stateData = state.body["data"] as { repository: boolean; reason?: string };
+    expect(stateData.repository).toBe(false);
+    expect(stateData.reason, "a bare repository has saved history; the reason says why it is not served").toMatch(/bare repository/);
+    expect(stateData.reason).not.toContain("not under version control");
+
+    const history = await readBlock(`/api/b/custody.history?projectId=${encodeURIComponent(projectId)}`);
+    expect(history.status).toBe(200);
+    const historyData = history.body["data"] as { repository: boolean; reason?: string };
+    expect(historyData.reason).toMatch(/bare repository/);
+    expect(historyData.reason).not.toContain("not under version control");
   });
 });

@@ -134,6 +134,14 @@ describe("parcel language", () => {
     expect(lossLine([FILES[0]!])).toBe("returns +42 −8 across 1 file to the last saved state");
   });
 
+  test("the loss line says a count is absent rather than adding an unmeasured file as 0", () => {
+    // n.md is a new file: its counts are null, so a "returns +53 −8" over all
+    // three would be a measurement git never produced.
+    expect(lossLine(FILES)).toBe(
+      "1 of 3 files have no measured difference, so the ±counts this returns are absent rather than zero",
+    );
+  });
+
   test("new files are never offered to undo (no earlier saved version)", () => {
     expect(undoableFiles(PARCEL).map((f) => f.path)).toEqual(["a.ts", "b.ts"]);
   });

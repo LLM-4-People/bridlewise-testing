@@ -597,6 +597,42 @@ describe("the face follows the wire", () => {
       vi.useRealTimers();
     }
   });
+
+  test("a superseded revalidation that resolves LAST cannot overwrite the newer list", async () => {
+    const unbind = bindShellVisibility();
+    try {
+      // Two reads the test lands BY HAND, newer first: the out-of-order wire a
+      // stale response produces. The section must keep the newer answer.
+      const pendingReads: Array<(rows: readonly McpServerView[]) => void> = [];
+      vi.mocked(listMcpServers).mockImplementation(
+        () => new Promise<readonly McpServerView[]>((resolve) => pendingReads.push(resolve)),
+      );
+      setVisibleRoom("settings");
+      const { container } = render(McpServersSection);
+      await waitFor(() => expect(vi.mocked(listMcpServers).mock.calls.length).toBe(1));
+
+      // Hide/show bumps the epoch: the first read is superseded by the second.
+      setVisibleRoom(null);
+      setVisibleRoom("settings");
+      await waitFor(() => expect(vi.mocked(listMcpServers).mock.calls.length).toBe(2));
+
+      pendingReads[1]!([{ ...SERVER_ONE, id: "fresh-server", status: "connected" }]);
+      await waitFor(() => expect(container.querySelector('[data-mcp-server="fresh-server"]')).not.toBeNull());
+
+      pendingReads[0]!([{ ...SERVER_ONE, id: "stale-server", status: "connected" }]);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(
+        container.querySelector('[data-mcp-server="fresh-server"]'),
+        "the newer read's list stands",
+      ).not.toBeNull();
+      expect(
+        container.querySelector('[data-mcp-server="stale-server"]'),
+        "a superseded read must not paint over the newer answer",
+      ).toBeNull();
+    } finally {
+      unbind();
+    }
+  });
 });
 
 describe("the room mount", () => {

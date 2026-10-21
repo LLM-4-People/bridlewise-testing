@@ -1,4 +1,4 @@
-import { checkpointSqlite, establishWalJournal, recordFieldsBound, type AdmittedKeyHome, guarded } from "../kernel/canonical.ts";
+import { checkpointSqlite, establishWalJournal, recordFieldsBound, resolveLocation, type AdmittedKeyHome, guarded } from "../kernel/canonical.ts";
 /**
  * Thin SQLite DB client wrapping `node:sqlite` for the web-slice
  * projection. CRUD methods for each table; inputs are Zod-validated and
@@ -1103,17 +1103,45 @@ export class DbClient {
    * The create and re-link doors use it to refuse a folder another account
    * already registered: two users on one path is what made a path-keyed
    * recycle listing disclose and restore another user's bytes.
+   *
+   * ── BY LOCATION, NOT BY SPELLING ──
+   *
+   * A stored path and the path a caller names can be two spellings of ONE
+   * place (`/home/me/work` and its link `/data/work`, or a path that did not
+   * exist when it was registered and is a link now). Comparing normalised
+   * strings answered "no project at this path" for the same folder, which is
+   * how a registration made while a sub-path was missing became a doorway
+   * onto whatever that path later pointed at. Both sides are resolved through
+   * the harness's one resolver, so a link cannot change the answer while a
+   * row still names the place it registered.
+   *
+   * The FIRST row (insertion order) at a location is returned. Duplicate rows
+   * at one location are pre-refusal legacy state; the first registration owns
+   * the answer and every later duplicate is denied by the gates that compare
+   * the full row id.
    */
   projectAtPath(path: string): Readonly<{ id: string; userId: string }> | null {
-    const resolved = normalizePath(path);
-    const rows = this.#statement`SELECT id, user_id, path FROM projects`
+    let location: string;
+    try {
+      location = resolveLocation(path, "a project path");
+    } catch {
+      return null;
+    }
+    const rows = this.#statement`SELECT id, user_id, path FROM projects ORDER BY rowid`
       .all() as ReadonlyArray<Record<string, unknown>>;
     for (const row of rows) {
       const owner = typeof row["user_id"] === "string" ? row["user_id"] : null;
       if (owner === null) continue;
       const open = openRow(this.crypto, "projects", row, owner);
       const stored = open["path"];
-      if (typeof stored === "string" && normalizePath(stored) === resolved) {
+      if (typeof stored !== "string") continue;
+      let storedLocation: string;
+      try {
+        storedLocation = resolveLocation(stored, "a stored project path");
+      } catch {
+        continue;
+      }
+      if (storedLocation === location) {
         return Object.freeze({ id: String(row["id"]), userId: owner });
       }
     }
@@ -1176,7 +1204,12 @@ export class DbClient {
     }
     sets.push("updated_at = ?");
     values.push(new Date().toISOString(), id, userId);
-    this.#statement`UPDATE projects SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`
+    // A BINNED PROJECT IS NOT A PATCH TARGET. Without this predicate the
+    // UPDATE moved a trashed row while the live-only read below answered
+    // null, so the wire said 404 and the row had already moved — the false
+    // 404 freed the old path for another account and enabled a restore into
+    // that account's folder. 404 now means no mutation.
+    this.#statement`UPDATE projects SET ${sets.join(", ")} WHERE id = ? AND user_id = ? AND trashed_at IS NULL`
       .run(...values);
     return this.getProject(id, userId);
   }

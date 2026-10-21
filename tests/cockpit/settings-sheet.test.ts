@@ -28,6 +28,7 @@ import {
   setSettingsReaders,
   bindSettingsReadback,
   saveSetting,
+  settingsLoadState,
   settingsWrites,
 } from "../../src/cockpit/settings/settings-feed.ts";
 import {
@@ -677,6 +678,31 @@ describe("served words on the sheet", () => {
     expect(view.container.querySelector(".commit")).not.toBeNull();
   });
 
+  test("a fresh read still PENDING paints the cache but offers no save from it", async () => {
+    // The values read never lands. The boot snapshot still paints (the
+    // surface is not blank), but nothing on screen has been measured by this
+    // mount yet, so no write may be offered — pending is not ready either.
+    setSettingsReaders({
+      schema: async () => setUiSchema(SCHEMA),
+      values: () => new Promise(() => {}),
+    });
+    const view = render(SettingSheet, { settingId: "tools.parallelCap" });
+    await waitFor(() => expect(settingsLoadState.get().kind).toBe("pending"));
+    const field = (await view.findByLabelText("Parallel tool calls")) as HTMLInputElement;
+    expect(field.value).toBe("4");
+    const commit = view.container.querySelector(".commit") as HTMLButtonElement | null;
+    expect(commit, "the save control may render, but it must not be usable").not.toBeNull();
+    expect(commit!.disabled, "a pending read's value is not saveable").toBe(true);
+    expect(commit!.getAttribute("aria-disabled")).toBe("true");
+
+    // Even a drafted change and a click cannot send: the gate is the read's
+    // state, not the control's disabled attribute alone.
+    await fireEvent.input(field, { target: { value: "8" } });
+    await fireEvent.click(commit!);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(posted, "no write may leave the sheet from a pending read").toHaveLength(0);
+  });
+
   test("mutation: a raw-key label refuses to render (§9.3 raw-key law)", () => {
     const rawSchema = {
       ...SCHEMA,
@@ -883,7 +909,11 @@ describe("the ONE write path — broker action, optimistic, read back", () => {
     const { getByRole, container } = render(SettingSheet, {
       settingId: "editor.atomicWriteEnabled",
     });
-    await fireEvent.click(getByRole("switch"));
+    const control = getByRole("switch");
+    // The write is armed by the sheet's OWN landed read: while the fresh read
+    // is pending the switch is disabled, so press only once it is ready.
+    await waitFor(() => expect(control.getAttribute("aria-disabled")).not.toBe("true"));
+    await fireEvent.click(control);
     await waitFor(() => expect(posted.length).toBe(1));
     expect(posted[0]!.body).toEqual({ id: "editor.atomicWriteEnabled", value: false });
     // §1.4 — one manifestation per fact: the switch prints the state, so the
