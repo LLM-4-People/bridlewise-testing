@@ -34,6 +34,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 
 import { HarnessError } from "../../kernel/errors.ts";
+import { guarded } from "../../process/fault-policy.ts";
 import { randomBytes } from "../../kernel/integrity.ts";
 import { debugLog } from "../../shared/debug/debug-system.ts";
 import type { AdmittedKeyHome } from "../../filesystem/self-protection/key-home.ts";
@@ -146,13 +147,13 @@ function readForm(request: IncomingMessage): Promise<URLSearchParams> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
-    request.on("data", (chunk: Buffer) => {
+    request.on("data", guarded("forge.apps-page.form-data", (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX_FORM_BYTES) { reject(new ForgeError("forge_apps_page_refused", "The form is larger than the page ever sends.", {})); request.destroy(); return; }
       chunks.push(chunk);
-    });
-    request.on("end", () => resolve(new URLSearchParams(Buffer.concat(chunks).toString("utf8"))));
-    request.on("error", reject);
+    }));
+    request.on("end", guarded("forge.apps-page.form-end", () => resolve(new URLSearchParams(Buffer.concat(chunks).toString("utf8")))));
+    request.on("error", guarded("forge.apps-page.form-error", reject));
   });
 }
 
@@ -279,7 +280,7 @@ export async function serveAppsPage(options: AppsPageOptions): Promise<AppsPage>
     });
   });
   await new Promise<void>((resolve, reject) => {
-    server.once("error", (error: NodeJS.ErrnoException) => reject(new ForgeError("forge_apps_page_unavailable", `The page could not listen on 127.0.0.1:${String(options.port)} (${error.code ?? error.message}).`, { port: options.port })));
+    server.once("error", guarded("forge.apps-page.listen", (error: NodeJS.ErrnoException) => reject(new ForgeError("forge_apps_page_unavailable", `The page could not listen on 127.0.0.1:${String(options.port)} (${error.code ?? error.message}).`, { port: options.port }))));
     server.listen(options.port, "127.0.0.1", resolve);
   });
   origin = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`;
