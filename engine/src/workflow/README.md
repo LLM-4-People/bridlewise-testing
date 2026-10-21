@@ -295,7 +295,7 @@ The folder lives at `engine/src/workflow/`.
 - `test-inventory-binding.ts` is consumed by `engine/src/workflow/test-result-collector.ts`.
 - `test-result-collector.ts` is consumed by `engine/scripts/tooling/flake-reproduction-reporter.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-guards.ts`, `engine/scripts/tooling/test-receipt.ts`, `engine/scripts/tooling/test-run-lock.ts` and 6 more.
 - `timeline-shard.ts` is consumed by `engine/src/workflow/workspace-manager.ts`.
-- `tracker-status.ts` is consumed by `engine/src/workflow/forge/projector/roadmap-feed.ts`.
+- `tracker-status.ts` is consumed by `engine/src/workflow/forge/projector/project.ts`, `engine/src/workflow/forge/projector/roadmap-feed.ts`.
 - `tree-landing.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/workspace-manager.ts`.
 - `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/roadmap-feed.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts` and 21 more.
 - `workspace-cli.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
