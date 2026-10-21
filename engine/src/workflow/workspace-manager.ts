@@ -30,10 +30,10 @@ import { acquireLock } from "./resource-lock.ts";
 import { generatedOutputPaths, isGenerationOnlyChange } from "./hash-binding-registry.ts";
 import { frozenAcceptancesBetween } from "./record-links.ts";
 import { applyCheckoutFiles, assertSameFilesystem, removeGateLogs, runCheckoutPhase, runDeclaredCommands, settleCheckout, type CheckoutCommand, type CheckoutPhase, type CheckoutStep } from "./checkout-setup.ts";
-import { LandingError, branchCheckout, commitCandidate, landCommit, refuseUndeclaredWrites } from "./tree-landing.ts";
+import { branchCheckout, landCommit } from "./tree-landing.ts";
 import { importWorkspaceTimelineShard, openWorkspaceTimelineShard } from "./timeline-shard.ts";
 import { createWorkspaceRecordStore, type WorkspaceRecordStore } from "./workspace-registry.ts";
-import { fetchForgeBranches, publishBranch, resolveForgeTarget, trackingRef, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
+import { fetchForgeBranches, publishBranch, remoteUrlOf, resolveForgeTarget, trackingRef, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry, workspaceRootOf, type RepositoryRegistry } from "./repository-registry.ts";
 import { DEFAULT_MAXIMUM_PERSISTED_GATE_STRING_CHARACTERS } from "./workflow-config.ts";
 import {
@@ -72,8 +72,8 @@ export { createWorkspaceRecordStore, type WorkspaceRecordStore } from "./workspa
 
 /**
  * Workspace manager — the lifecycle of isolated workspaces (git worktrees)
- * and the serialized integrator that lands them (`harness workspace`,
- * `npm run ws`).
+ * and their way onto the forge: published rounds, a draft pull request, the
+ * merge queue (`harness workspace`, `npm run ws`).
  *
  * ONE REGISTRY PER REPOSITORY, in its git common directory
  * (`<common dir>/bridlewise/`: `workspaces/` the records, `locks/` the two
@@ -135,33 +135,35 @@ export { createWorkspaceRecordStore, type WorkspaceRecordStore } from "./workspa
  *   the landed tree only) into the landing checkout's ledger.
  *   There is ONE judge (UR-17): no subset run re-judged by a full suite, and
  *   no new failure forgiven because its file passed when re-run alone.
- * MERGE (under the MERGE lock), in the WORKSPACE, never in a checkout anyone
- *   else uses: the land-target, lease, staleness, merged-since and
- *   pending-lease checks; detach at the target's tip T; `merge --no-ff
- *   --no-commit --no-autostash` of the branch; a conflict on a generated
- *   output whose branch-side change is regeneration only is resolved to T's
- *   side — any other is reported; the `regenerate` phase, whose writes must
- *   all be generated outputs; then ONE `git commit`, which runs the
- *   repository's hooks (the commit guard certifies the merge commit M like
- *   any commit); the `merge` phase (skipped when M's tree is the tree
- *   `validate --full` qualified); the convergence check; then the LAND:
- *   `merge --ff-only --no-autostash M` in the checkout that has the target
- *   checked out (git refuses, changing nothing, if that would touch its
- *   dirty, staged or untracked state, or if the target moved), a
- *   compare-and-swap `update-ref` when no checkout has it, or the overlay's
- *   adoption into the checkout it came from (only while that checkout still
- *   holds exactly the snapshot and the same index). A failure before the land
- *   that the integrator survives leaves every checkout untouched: the
- *   worktree goes back to its branch and the record to `active` (to
- *   `validating` when git refused the land itself: nothing the validation
- *   judged changed). Then the timeline import, teardown and the hashed
- *   receipt.
- * RECOVER: an integrator that DIED (killed, out of memory, a tool timeout)
- *   leaves its record `merging`. Holding the merge lock proves no integrator
- *   runs; `recover` (and `sweep`) then finish a land that happened (`merged`)
- *   or put the worktree back on its branch (`active`).
- * ABORT removes the worktree and branch (or quarantines them); SWEEP ends
- *   expired leases, recovers dead integrators' records and removes
+ * LAND (`land`): the published, ready head whose tree passed `validate`
+ *   enters the forge's MERGE QUEUE through the async merge API, its `sha`
+ *   guard the head this workspace published (a push in between cancels it);
+ *   never auto-merge, which does not enqueue on ruleset queues. Before the
+ *   request, the harness's own judgement against the trunk as fetched now:
+ *   the land target (the upstream trunk), the lease, the overlay's checkout,
+ *   the paths landed on the trunk since the fork point, the staleness budget
+ *   and the pending leases (a conflict: the record back to `active`). The
+ *   record is `merging` from just before the request; the land is awaited
+ *   (the request's result, then the pull request's own state: an `enqueued`
+ *   result is final for a queue request) every `landing.pollIntervalMs` up to
+ *   `landing.timeoutMs`. Merged: under the MERGE lock (a ref move), the trunk
+ *   is fetched (it must hold the merge commit), the local target FOLLOWS it —
+ *   the overlay's adoption into the checkout it came from, else a
+ *   fast-forward of the checkout that has the target checked out or a
+ *   compare-and-swap of the ref (`tree-landing.ts`); git's refusal is
+ *   recorded in the receipt, never thrown: the land happened — then the
+ *   qualifying runs and the timeline are imported, the worktree and the local
+ *   branch torn down, and the hashed receipt written. A refused request leaves
+ *   the record `validating`; a failed request, a dequeue or a closed pull
+ *   request leaves it `active` (the queue judged it). The gates themselves
+ *   are the forge's (CI and the door); `validate --full` is their local
+ *   pre-flight.
+ * RECOVER: one look at a `merging` workspace's land (`land` stopped waiting,
+ *   or died): merged → finished; ended → `active`; still queued → as it is.
+ *   `sweep` recovers every `merging` record.
+ * ABORT closes the pull request (its branch kept on the forge) and removes
+ *   the worktree and branch (or quarantines them); SWEEP ends
+ *   expired leases, recovers every land's record (one look at the forge) and removes
  *   quarantined worktrees past their retention.
  */
 
@@ -184,8 +186,6 @@ export type WorkspaceManagerTimeouts = Readonly<{
   worktreeMs: number;
   /** Repository inspection. */
   inspectMs: number;
-  /** The merge commit, which runs the repository's commit hooks. */
-  mergeMs: number;
   /** A fetch from the forge's remote. */
   fetchMs: number;
 }>;
@@ -213,10 +213,12 @@ export type WorkspaceManagerOptions = Readonly<{
   forge?: WorkspaceForgeFactory;
   commands: WorkspaceCommands;
   timeouts: WorkspaceManagerTimeouts;
-  /** The integrator's commit identity; absent: the repository's configured identity. */
+  /** The identity of the commits the manager makes (an overlay's snapshot); absent: the repository's configured identity. */
   identity?: GitIdentity;
   records?: WorkspaceRecordStore;
   timeline?: WorkspaceTimelineHooks | null;
+  /** Waits between two looks at a land (default: a timer; tests advance their fake forge). */
+  sleep?: (ms: number) => Promise<void>;
   /** The one snapshot of a dirty tree (tests may observe it). */
   snapshot?: typeof snapshotWorkingTree;
   now?: () => Date;
@@ -244,10 +246,11 @@ export type WorkspaceManager = Readonly<{
   publish(workspaceId: string): Promise<WorkspacePublication>;
   /** Marks the pull request ready for review: the published head is the validated tree. */
   ready(workspaceId: string): Promise<WorkspaceRecord>;
-  merge(workspaceId: string): Promise<MergeReceipt>;
-  /** Finishes or rolls back a merge whose integrator died (see `recover` below). */
+  /** Lands the published, ready, validated head through the forge's merge queue and waits for it (see `land` below). */
+  land(workspaceId: string): Promise<MergeReceipt>;
+  /** One look at a `merging` workspace's land: finished, ended, or left as it is (see `recover` below). */
   recover(workspaceId: string): Promise<WorkspaceRecord>;
-  abort(workspaceId: string, options?: Readonly<{ quarantine?: boolean; reason?: string }>): WorkspaceRecord;
+  abort(workspaceId: string, options?: Readonly<{ quarantine?: boolean; reason?: string }>): Promise<WorkspaceRecord>;
   snapshot(workspaceId: string, label: string): WorkingTreeSnapshot;
   list(): readonly WorkspaceRecord[];
   status(workspaceId: string): WorkspaceRecord;
@@ -344,10 +347,6 @@ function leaseExpired(record: WorkspaceRecord, nowMs: number): boolean {
   return nowMs > new Date(record.lease.expiresAt).getTime();
 }
 
-/** The paths whose WORKING-TREE side differs from the index (unstaged, or untracked): what ran after the staging wrote. */
-function unstagedStatusPaths(entries: readonly StatusEntry[]): readonly string[] {
-  return statusPaths(entries.filter((entry) => entry.unstaged || entry.untracked));
-}
 
 export function createWorkspaceManager(options: WorkspaceManagerOptions): WorkspaceManager {
   const { config, git, commands, timeouts } = options;
@@ -361,6 +360,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   const lockDirectory = repositoryRegistryArea(registry, "locks");
   const workspaceRoot = workspaceRootOf(registry, config.workspaceRoot);
   const snapshotIdentity = options.identity === undefined ? {} : { identity: options.identity };
+  const sleep = options.sleep ?? ((ms: number): Promise<void> => new Promise((done) => { setTimeout(done, ms); }));
 
   function iso(date: Date): string {
     return date.toISOString();
@@ -471,10 +471,23 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     }
   }
 
-  function abortInternal(record: WorkspaceRecord, quarantine: boolean, reason: string): WorkspaceRecord {
+  /**
+   * Ends a workspace: its pull request (if one was opened and is still open)
+   * is closed with the reason — the forge's branch is kept, archive-never-
+   * delete — then the worktree is removed (or quarantined). A `merging`
+   * workspace is the forge's until its land ends.
+   */
+  async function abortInternal(record: WorkspaceRecord, quarantine: boolean, reason: string): Promise<WorkspaceRecord> {
     if (isTerminalWorkspaceState(record.state)) return record;
     if (record.state === "merging") {
-      throw new InputError(`workspace ${record.workspaceId} is merging; the integrator owns it`, "workspace_abort_denied");
+      throw new InputError(`workspace ${record.workspaceId} is merging: its land is the forge's until it ends (workspace recover)`, "workspace_abort_denied");
+    }
+    const pullRequest = record.forge?.pullRequest ?? null;
+    if (pullRequest !== null) {
+      const { forge } = forgeOf(record, "recorded");
+      if ((await forge.pullRequest(pullRequest.number)).state === "open") {
+        await forge.closePullRequest(pullRequest.number, `Workspace \`${record.workspaceId}\` ended: ${recordedReason(reason)}. Its branch is kept.`);
+      }
     }
     if (quarantine) return quarantineRecord(record, reason);
     removeWorktreeAndBranch(record);
@@ -484,9 +497,9 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     return updated;
   }
 
-  function assertLeaseLive(record: WorkspaceRecord): void {
+  async function assertLeaseLive(record: WorkspaceRecord): Promise<void> {
     if (leaseExpired(record, now().getTime())) {
-      abortInternal(record, config.preserveOnFailure, "lease-expired");
+      await abortInternal(record, config.preserveOnFailure, "lease-expired");
       throw new WorkspaceLeaseExpiredError(record.workspaceId);
     }
   }
@@ -851,7 +864,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    * it can never validate, merge or renew again — and counting it refused
    * every overlapping writer until a sweep ended it, the one door that also
    * retires the worktree and branch a successor may be landing the work
-   * from. A merging record always counts: its integrator owns its paths until
+   * from. A merging record always counts: its land owns its paths until
    * the land, whatever the clock says.
    */
   function featureLeases(workspaceId: string): Readonly<{ pending: readonly WorkspaceRecord[]; expired: readonly WorkspaceRecord[] }> {
@@ -893,11 +906,11 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     }
   }
 
-  /** A workspace lands only on a declared land target (`workspaceIsolation.landTargets`). */
-  function assertLandable(targetBranch: string): void {
-    if (!config.landTargets.includes(targetBranch)) {
+  /** A workspace lands only on a declared land target (`workspaceIsolation.landTargets`): its target's upstream trunk on the forge. */
+  function assertLandable(trunk: string): void {
+    if (!config.landTargets.includes(trunk)) {
       throw new InputError(
-        `${targetBranch} is not a land target: a workspace lands only on ${config.landTargets.join(", ")} (workspaceIsolation.landTargets); a product branch changes only through its promotion door`,
+        `${trunk} is not a land target: a workspace lands only on ${config.landTargets.join(", ")} (workspaceIsolation.landTargets); a product branch changes only through its promotion door`,
         "workspace_target_not_landable",
       );
     }
@@ -972,7 +985,11 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       if (targetBranch === null) {
         throw new InputError("the checkout's HEAD is detached: name the branch the workspace lands on (--target <branch>)", "workspace_target_missing");
       }
-      assertLandable(targetBranch);
+      // Where it will land: the target's upstream (refused when it has none: it
+      // could never land), whose trunk must be a declared land target.
+      const upstream = resolveForgeTarget(options.repository(checkoutRoot), targetBranch);
+      assertLandable(upstream.trunk);
+      forgeState = deepFreeze({ remote: upstream.remote, trunk: upstream.trunk, pullRequest: null, publishedHead: null, ready: false, mergeRequest: null });
       const tip = git.revParse(checkoutRoot, `refs/heads/${targetBranch}`, timeouts.inspectMs);
       if (request.mode === "overlay") {
         if (targetBranch !== invokingBranch || request.base !== undefined) {
@@ -995,9 +1012,6 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
         writeSet = [...new Set(request.writeSet.map(canonicalizeWriteSetPath))].toSorted();
       }
       assertLeasableWriteSet(writeSet);
-      // Where it will land: the target's upstream (refused when it has none: it could never land).
-      const upstream = resolveForgeTarget(options.repository(checkoutRoot), targetBranch);
-      forgeState = deepFreeze({ remote: upstream.remote, trunk: upstream.trunk, pullRequest: null, publishedHead: null, ready: false });
     }
 
     const branch = readOnly ? null : `${config.branchNamespace}${request.agentName}/${nonce}`;
@@ -1063,13 +1077,13 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   }
 
   async function extend(workspaceId: string, paths: readonly string[]): Promise<WorkspaceRecord> {
-    return withRepositoryLock(config.admissionLock, `workspace-extend:${workspaceId}`, () => {
+    return withRepositoryLock(config.admissionLock, `workspace-extend:${workspaceId}`, async () => {
       const record = requireRecord(workspaceId);
       if (isTerminalWorkspaceState(record.state)) throw new InputError(`workspace ${workspaceId} is terminal (${record.state})`, "workspace_terminal");
       if (record.lease.kind === "read-only") throw new InputError("a read-only workspace has no lease to extend", "workspace_read_only");
-      if (record.state === "merging") throw new InputError(`workspace ${workspaceId} is merging; the integrator owns it`, "workspace_precondition_failed");
+      if (record.state === "merging") throw new InputError(`workspace ${workspaceId} is merging: its land is the forge's until it ends`, "workspace_precondition_failed");
       // An expired lease is never revived: extend ends it like every other verb.
-      assertLeaseLive(record);
+      await assertLeaseLive(record);
       const writeSet = [...new Set([...record.lease.writeSet, ...paths.map(canonicalizeWriteSetPath)])].toSorted();
       assertLeasableWriteSet(writeSet);
       assertAdmissible(workspaceId, writeSet);
@@ -1098,7 +1112,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     if (record.state !== "active" && record.state !== "validating") {
       throw new InputError(`workspace ${workspaceId} cannot be validated from ${record.state}`, "workspace_precondition_failed");
     }
-    assertLeaseLive(record);
+    await assertLeaseLive(record);
     assertWorktreeIntact(record);
     if (record.state === "active") record = saveTransition(record, "validating", full ? "full validation started" : "validation started");
 
@@ -1169,359 +1183,351 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   }
 
 
-  /** The overlay's checkout still holds exactly the snapshot and the same index, and its branch is still at the base. */
-  function assertOverlayCurrent(record: WorkspaceRecord, overlay: WorkspaceOverlay, targetTip: string): void {
+  /** Why the overlay's checkout can no longer adopt the land (empty: it still holds exactly the snapshot and the same index, and its branch is at the base). */
+  function overlayStaleness(record: WorkspaceRecord, overlay: WorkspaceOverlay, localTip: string): readonly string[] {
     const fresh = snapshot(overlay.checkout, { message: `overlay check of ${record.workspaceId}`, ...snapshotIdentity });
-    const stale = [
-      ...(targetTip === record.lease.baseSha ? [] : [`${record.lease.targetBranch} moved from ${record.lease.baseSha} to ${targetTip}`]),
+    return [
+      ...(localTip === record.lease.baseSha ? [] : [`${record.lease.targetBranch!} moved from ${record.lease.baseSha} to ${localTip}`]),
       ...(fresh.tree === overlay.tree ? [] : ["the checkout's working tree changed since the overlay"]),
       ...(indexDigest(overlay.checkout) === overlay.indexDigest ? [] : ["the checkout's index changed since the overlay"]),
     ];
-    if (stale.length > 0) {
-      saveTransition(record, "active", `overlay stale: ${stale.join("; ")}`);
-      throw new HarnessError(`the overlay of ${overlay.checkout} is stale (${stale.join("; ")}); the checkout was touched after the overlay was taken — abort this workspace and take a new overlay`, "workspace_overlay_stale", false, { workspaceId: record.workspaceId });
-    }
   }
 
   /**
-   * THE LAND (see the header). Throws `workspace_land_refused` with git's
-   * words when git declines; nothing moved in that case.
+   * THE OVERLAY'S ADOPTION of the trunk tip `trunk` into the checkout it was
+   * taken from (its local branch at `localTip`): the index becomes the
+   * snapshot's tree (the working tree already is it), a two-way switch to the
+   * trunk touches only what differs, then the branch moves by
+   * compare-and-swap. A step that fails before the branch moved gives the
+   * checkout its own index back, byte for byte (A5-correctness L1).
    */
-  function land(record: WorkspaceRecord, mergeCommit: string, targetTip: string): Readonly<{ landing: WorkspaceLanding; landedIn: string | null }> {
-    const target = record.lease.targetBranch!;
-    const overlay = record.lease.overlay;
-    if (overlay !== null) {
-      assertOverlayCurrent(record, overlay, git.revParse(overlay.checkout, `refs/heads/${target}`, timeouts.inspectMs));
-      // The index becomes the snapshot's tree (the working tree already is
-      // it), then a two-way switch to the merge touches only what the
-      // workspace changed, then the branch moves by compare-and-swap. A step
-      // that fails before the branch moved gives the checkout its own index
-      // back, byte for byte (A5-correctness L1: it was left at the snapshot's
-      // tree; the files are only rewritten by the switch, which git does all
-      // or nothing).
-      const index = indexFilePath(overlay.checkout, "directory");
-      const ownIndex = readFileSync(index);
-      try {
-        git.readTree(overlay.checkout, overlay.commit, timeouts.worktreeMs);
-        git.refreshIndex(overlay.checkout, timeouts.worktreeMs);
-        git.readTreeSwitch(overlay.checkout, overlay.commit, mergeCommit, timeouts.worktreeMs);
-        settleCheckout(overlay.checkout, options.engineRelative);
-      } catch (error) {
-        const restored = atomicWriteFile(index, ownIndex);
-        if (!restored.success) throw new HarnessError(`the overlay's adoption failed and ${index} could not be given back (${restored.reason ?? "unknown"}): restore it with git read-tree ${overlay.commit}`, "workspace_overlay_index_unrestored", false, { workspaceId: record.workspaceId });
-        throw error;
-      }
-      const moved = git.updateRef(overlay.checkout, `refs/heads/${target}`, mergeCommit, targetTip, timeouts.worktreeMs);
-      if (moved.refusal !== null) {
-        throw new HarnessError(
-          `the overlay's files and index were adopted but ${target} moved during the land (${moved.refusal}); the checkout ${overlay.checkout} now holds the merge's tree on top of the new ${target}: inspect it with git status`,
-          "workspace_overlay_adoption_incomplete",
-          false,
-          { workspaceId: record.workspaceId, mergeCommit },
-        );
-      }
-      return { landing: "overlay-adoption", landedIn: overlay.checkout };
+  function adoptOverlay(record: WorkspaceRecord, overlay: WorkspaceOverlay, trunk: string, localTip: string): void {
+    const index = indexFilePath(overlay.checkout, "directory");
+    const ownIndex = readFileSync(index);
+    try {
+      git.readTree(overlay.checkout, overlay.commit, timeouts.worktreeMs);
+      git.refreshIndex(overlay.checkout, timeouts.worktreeMs);
+      git.readTreeSwitch(overlay.checkout, overlay.commit, trunk, timeouts.worktreeMs);
+      settleCheckout(overlay.checkout, options.engineRelative);
+    } catch (error) {
+      const restored = atomicWriteFile(index, ownIndex);
+      if (!restored.success) throw new HarnessError(`the overlay's adoption failed and ${index} could not be given back (${restored.reason ?? "unknown"}): restore it with git read-tree ${overlay.commit}`, "workspace_overlay_index_unrestored", false, { workspaceId: record.workspaceId });
+      throw error;
     }
-    const outcome = landCommit(git, checkoutRoot, target, mergeCommit, targetTip, options.engineRelative, timeouts.worktreeMs);
-    if (outcome.refusal !== null) {
+    const moved = git.updateRef(overlay.checkout, `refs/heads/${record.lease.targetBranch!}`, trunk, localTip, timeouts.worktreeMs);
+    if (moved.refusal !== null) {
       throw new HarnessError(
-        `git refused to land ${record.workspaceId} on ${target}${outcome.landedIn === null ? "" : ` in ${outcome.landedIn}`}: ${outcome.refusal}`,
-        "workspace_land_refused",
-        false,
-        { workspaceId: record.workspaceId },
+        `the overlay's files and index were adopted but ${record.lease.targetBranch!} moved during the follow (${moved.refusal}); the checkout ${overlay.checkout} now holds the trunk's tree on top of the new ${record.lease.targetBranch!}: inspect it with git status`,
+        "workspace_overlay_adoption_incomplete", false, { workspaceId: record.workspaceId, trunk },
       );
     }
-    return { landing: outcome.landing, landedIn: outcome.landedIn };
-  }
-
-  async function merge(workspaceId: string): Promise<MergeReceipt> {
-    return withRepositoryLock(config.mergeLock, `workspace-merge:${workspaceId}`, async () => {
-      let record = requireRecord(workspaceId);
-      if (record.lease.kind === "read-only") throw new InputError(`workspace ${workspaceId} is read-only: it never merges`, "workspace_read_only");
-      const validated = record.validationReport;
-      if (record.state !== "validating" || validated === null || validated.status !== "pass") {
-        throw new InputError(`workspace ${workspaceId} is not validated (state=${record.state})`, "workspace_merge_precondition_failed");
-      }
-      assertLandable(record.lease.targetBranch!);
-      assertLeaseLive(record);
-      assertWorktreeIntact(record);
-      record = saveTransition(record, "merging", "the integrator took the merge lock");
-
-      const worktreePath = record.lease.worktreePath;
-      const branch = record.lease.branch!;
-      const target = record.lease.targetBranch!;
-      const head = git.revParse(worktreePath, "HEAD", timeouts.inspectMs);
-      // The tree, not the commit: a published round moves the branch to its signed twin, the same tree.
-      if (git.revParse(worktreePath, `${head}^{tree}`, timeouts.inspectMs) !== validated.tree) {
-        saveTransition(record, "active", "worktree HEAD moved after validation; re-validate");
-        throw new InputError(`workspace ${workspaceId} validation is stale (HEAD moved)`, "workspace_validation_stale");
-      }
-      if (git.status(worktreePath, timeouts.inspectMs).length > 0) {
-        saveTransition(record, "active", "worktree has uncommitted changes at merge");
-        throw new InputError(`workspace ${workspaceId} worktree is dirty at merge`, "workspace_merge_precondition_failed");
-      }
-      const generated = generatedOutputPaths(worktreePath);
-      const targetTip = git.revParse(checkoutRoot, `refs/heads/${target}`, timeouts.inspectMs);
-      // The fork point with the target: what `git merge` brings is its diff to the head.
-      const forkPoint = git.mergeBase(checkoutRoot, targetTip, head, timeouts.inspectMs);
-      const { changed: changedPaths, exempt } = branchChange(worktreePath, forkPoint, head);
-      const authored = changedPaths.filter((path) => !exempt.has(path));
-      const unleased = computeUnleasedPaths(changedPaths, record.lease.writeSet, exempt);
-      if (unleased.length > 0) {
-        refuse(record, "dynamic-overlap", unleased.map((path) => deepFreeze({ path, otherWorkspaceId: null, reason: "changed path is outside the declared write set" })), "changed set escaped the write set at merge");
-      }
-      if (record.lease.overlay !== null) assertOverlayCurrent(record, record.lease.overlay, targetTip);
-      if (forkPoint !== targetTip) {
-        const staleness = git.revListCount(checkoutRoot, forkPoint, targetTip, timeouts.inspectMs);
-        const merged = git.diffNameOnly({ cwd: checkoutRoot, refA: forkPoint, refB: targetTip, threeDot: false, timeoutMs: timeouts.inspectMs });
-        const mergedExempt = generationOnlyPaths(checkoutRoot, forkPoint, targetTip, merged, generated);
-        const mergedConflicts = computeMergedSinceConflicts(authored, merged.filter((path) => !mergedExempt.has(path)));
-        if (mergedConflicts.length > 0) refuse(record, "dynamic-overlap", mergedConflicts, "a path merged since the base; rebase and re-validate");
-        if (staleness > config.baseStalenessCommits) {
-          refuse(record, "dynamic-overlap", [deepFreeze({ path: "(base)", otherWorkspaceId: null, reason: `${target} moved ${staleness} commits since the base (budget ${config.baseStalenessCommits}); rebase required` })], "base too stale; rebase and re-validate");
-        }
-      }
-      const pending = pendingFeatureLeases(workspaceId)
-        .map((other) => deepFreeze({ workspaceId: other.workspaceId, writeSet: other.lease.writeSet }));
-      const pendingConflicts = computePendingWriteSetConflicts(authored, pending);
-      if (pendingConflicts.length > 0) refuse(record, "dynamic-overlap", pendingConflicts, "a pending workspace leases a changed path; re-sequence and re-validate");
-
-      // IN THE WORKSPACE: canonical is untouched until the land.
-      const message = `merge: workspace ${workspaceId} (${record.agentName})`;
-      const judge: LedgerJudge = { record, targetTip };
-      let mergeInProgress = false;
-      // Back to the branch, the record back to `active`: nothing landed. The
-      // worktree was verified clean when the merge began, so what the merge
-      // and its phases wrote to tracked files is discarded with it.
-      const restore = (reason: string, conflictReport: ConflictReport | null = null): void => {
-        if (mergeInProgress) git.mergeAbort(worktreePath, timeouts.worktreeMs);
-        moveWorktree(worktreePath, () => git.checkoutBranch(worktreePath, branch, timeouts.worktreeMs, true));
-        saveTransition(conflictReport === null ? record : deepFreeze({ ...record, conflictReport }), "active", reason);
-      };
-      let mergeCommit: string;
-      let mergeTree: string;
-      const gateResults: WorkspaceGateResult[] = [];
-      const resolved: string[] = [];
-      let regenerated: readonly string[];
-      let qualifiedSince: string;
-      try {
-        progress(`merge: ${branch} into ${target} at ${targetTip}, in ${worktreePath}`);
-        moveWorktree(worktreePath, () => git.checkoutDetached(worktreePath, targetTip, timeouts.worktreeMs));
-        await ensureTargetBaselines(record, worktreePath, "merge", targetTip, () => moveWorktree(worktreePath, () => git.checkoutDetached(worktreePath, targetTip, timeouts.worktreeMs, true)));
-        let merged!: ReturnType<typeof git.mergeNoCommit>;
-        moveWorktree(worktreePath, () => { merged = git.mergeNoCommit({ cwd: worktreePath, branch, message, timeoutMs: timeouts.worktreeMs, ...(options.identity === undefined ? {} : { identity: options.identity }) }); });
-        mergeInProgress = true;
-        // A conflict on a generated output whose branch-side change is
-        // regeneration only is resolved to the target's side; the regenerate
-        // phase re-derives it from the merged sources. Any other is reported.
-        const resolvable = generationOnlyPaths(worktreePath, forkPoint, head, merged.conflictPaths, generated);
-        const unresolved = merged.conflictPaths.filter((path) => !resolvable.has(path));
-        if (unresolved.length > 0) {
-          const conflictReport = buildConflictReport("textual-conflict", workspaceId, unresolved.map((path) => deepFreeze({ path, otherWorkspaceId: null, reason: "textual merge conflict" })));
-          restore("textual merge conflict; resolve it in the worktree (rebase) and re-validate", conflictReport);
-          auditEvent("workspace-merge-refused", { workspaceId, kind: "textual-conflict", paths: unresolved });
-          throw new WorkspaceConflictError(conflictReport);
-        }
-        resolved.push(...merged.conflictPaths);
-        git.resolveToOurs(worktreePath, resolved, timeouts.worktreeMs);
-        gateResults.push(...await runPhase(worktreePath, "regenerate", judge));
-        if (gateResults.some((gate) => gate.status === "fail")) throw new WorkspaceGateFailedError(workspaceId, "regenerate", gateResults);
-        // The merge staged the branch's changes; what the phase wrote is on the working-tree side.
-        regenerated = unstagedStatusPaths(git.status(worktreePath, timeouts.inspectMs));
-        try {
-          refuseUndeclaredWrites(regenerated, generated, "regenerate", "the regenerate phase", worktreePath);
-        } catch (error) {
-          if (!(error instanceof LandingError) || error.failure !== "undeclared_write") throw error;
-          throw new HarnessError(error.message, "workspace_regenerate_undeclared_write", false, { workspaceId, paths: (error.facts["paths"] as readonly string[]).join(", ") });
-        }
-        git.addPaths(worktreePath, regenerated, timeouts.worktreeMs);
-        // THE LANDING'S COMMIT (tree-landing.ts): the hooks run, then its postconditions — the staged tree, the parents [target, branch], no missing object.
-        mergeTree = git.stageAll(worktreePath, timeouts.worktreeMs);
-        try {
-          mergeCommit = commitCandidate({
-            git, root: worktreePath, message, tree: mergeTree, parents: [targetTip, head], timeoutMs: timeouts.mergeMs,
-            ...(options.identity === undefined ? {} : { identity: options.identity }),
-          }).commit;
-        } catch (error) {
-          if (!(error instanceof LandingError) || error.failure !== "commit_refused") throw error;
-          throw new HarnessError(error.message, "workspace_merge_commit_refused", false, { workspaceId });
-        }
-        mergeInProgress = false;
-        if (validated.full && validated.tree === mergeTree) {
-          qualifiedSince = validated.startedAt;
-          gateResults.push(persistedGate(builtinGate("merge-gates", "skip", `the merge's tree ${mergeTree} is the tree validate --full qualified`)));
-        } else {
-          qualifiedSince = iso(now());
-          const mergeGates = await runPhase(worktreePath, "merge", judge);
-          gateResults.push(...mergeGates);
-          if (mergeGates.some((gate) => gate.status === "fail")) throw new WorkspaceGateFailedError(workspaceId, "merge", gateResults);
-        }
-        const left = statusPaths(git.status(worktreePath, timeouts.inspectMs));
-        gateResults.push(persistedGate(builtinGate("converged", left.length === 0 ? "pass" : "fail", left.length === 0 ? "the gates left the merge as committed" : "the gates rewrote tracked paths: the merge is not converged", left)));
-        if (left.length > 0) {
-          throw new HarnessError(`the merge gates rewrote ${left.join(", ")}: the merge is not converged`, "workspace_gates_not_converged", false, { workspaceId, paths: left.join(", ") });
-        }
-      } catch (error) {
-        if (!(error instanceof WorkspaceConflictError)) {
-          restore(`merge failed before the land: ${error instanceof Error ? error.message : String(error)}`);
-          auditEvent("workspace-merge-refused", { workspaceId, code: (error as { code?: unknown }).code ?? "unknown" });
-        }
-        throw error;
-      }
-
-      let landed: Readonly<{ landing: WorkspaceLanding; landedIn: string | null }>;
-      try {
-        progress(`land: ${mergeCommit} on ${target}`);
-        landed = land(record, mergeCommit, targetTip);
-      } catch (error) {
-        if ((error as { code?: unknown }).code !== "workspace_overlay_adoption_incomplete") {
-          moveWorktree(worktreePath, () => git.checkoutBranch(worktreePath, branch, timeouts.worktreeMs, true));
-          // A land git refused (a dirty overlap, the target moved) changed
-          // nothing the validation judged: the workspace stays validated, and
-          // the next merge rebuilds and gates its merge commit.
-          const current = requireRecord(workspaceId);
-          if (current.state === "merging") saveTransition(current, "validating", `land refused: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        auditEvent("workspace-land-refused", { workspaceId, code: (error as { code?: unknown }).code ?? "unknown" });
-        throw error;
-      }
-      return finishLanded(record, {
-        mergeCommit, mergeTree, landing: landed.landing, landedIn: landed.landedIn, targetTip, changedPaths,
-        regenerated, resolved, gateResults, imported: importQualifyingRuns(record, landed.landedIn, qualifiedSince, mergeTree),
-      });
-    });
   }
 
   /**
-   * After the land: the timeline import, the teardown and the hashed
-   * receipt; the record becomes `merged`. A failure here (the land already
-   * happened) leaves the record `merging` with no integrator: `recover`
-   * finishes it.
+   * THE LOCAL FOLLOW: once the forge landed the work, the local target
+   * follows the trunk's tip — the overlay's adoption into the checkout it came
+   * from, else `tree-landing.ts`'s land (a fast-forward of the checkout that
+   * has the target checked out, or a compare-and-swap of the ref). The land
+   * already happened on the forge, so git's refusal (a dirty overlap, local
+   * commits the trunk does not hold, a stale overlay) is RECORDED, never
+   * thrown: the receipt names it.
    */
-  function finishLanded(record: WorkspaceRecord, landed: Readonly<{
-    mergeCommit: string; mergeTree: string; landing: WorkspaceLanding; landedIn: string | null; targetTip: string;
-    changedPaths: readonly string[]; regenerated: readonly string[]; resolved: readonly string[];
-    gateResults: readonly WorkspaceGateResult[]; imported: readonly string[];
-  }>): MergeReceipt {
-    const { workspaceId } = record;
-    const branch = record.lease.branch!;
+  function followTrunk(record: WorkspaceRecord, trunk: string): Readonly<{ landing: WorkspaceLanding; landedIn: string | null; refusal: string | null }> {
     const target = record.lease.targetBranch!;
-    auditEvent("workspace-landed", { workspaceId, targetBranch: target, mergeCommit: landed.mergeCommit, landing: landed.landing, importedRuns: landed.imported });
-
-    let importedEvents = 0;
-    let skippedEvents = 0;
-    if (timeline !== null) {
-      const shard = timeline.openShard(workspaceId);
+    const overlay = record.lease.overlay;
+    const localTip = git.revParse(overlay?.checkout ?? checkoutRoot, `refs/heads/${target}`, timeouts.inspectMs);
+    const refused = (refusal: string): Readonly<{ landing: WorkspaceLanding; landedIn: string | null; refusal: string }> => {
+      auditEvent("workspace-follow-refused", { workspaceId: record.workspaceId, targetBranch: target, refusal });
+      return deepFreeze({ landing: "refused", landedIn: null, refusal });
+    };
+    if (localTip === trunk) return deepFreeze({ landing: "current", landedIn: null, refusal: null });
+    if (!git.isAncestor(checkoutRoot, localTip, trunk, timeouts.inspectMs)) {
+      return refused(`${target} holds commits the trunk ${trunk} does not (${localTip}): it was not moved`);
+    }
+    if (overlay !== null) {
+      const stale = overlayStaleness(record, overlay, localTip);
+      if (stale.length > 0) return refused(`the overlay of ${overlay.checkout} is stale (${stale.join("; ")}): the checkout was touched after the overlay was taken, so it did not adopt the trunk`);
       try {
-        const canonicalStore = timeline.openCanonical();
-        try {
-          const importResult = importWorkspaceTimelineShard({ shard, canonical: canonicalStore, ...(timeline.queryDefaultLimit !== undefined ? { queryDefaultLimit: timeline.queryDefaultLimit } : {}) });
-          importedEvents = importResult.imported;
-          skippedEvents = importResult.skipped;
-        } finally {
-          canonicalStore.close();
-        }
-      } finally {
-        shard.close();
+        adoptOverlay(record, overlay, trunk, localTip);
+      } catch (error) {
+        if (!(error instanceof HarnessError)) throw error;
+        return refused(error.message);
       }
-      // Appenders do not share the merge lock. Retain the source even after
-      // a successful bounded import; a tip check cannot authorize deletion.
+      return deepFreeze({ landing: "overlay-adoption", landedIn: overlay.checkout, refusal: null });
+    }
+    const outcome = landCommit(git, checkoutRoot, target, trunk, localTip, options.engineRelative, timeouts.worktreeMs);
+    if (outcome.refusal !== null) return refused(`git refused to move ${target}${outcome.landedIn === null ? "" : ` in ${outcome.landedIn}`}: ${outcome.refusal}`);
+    return deepFreeze({ landing: outcome.landing, landedIn: outcome.landedIn, refusal: null });
+  }
+
+  /**
+   * LAND (github-only §5.3, §6.1): the published, ready, validated head enters
+   * the forge's merge queue through the async merge API, its `sha` guard the
+   * head this workspace published (a push in between cancels it), and the
+   * land is awaited: merged → the local follow, the teardown and the receipt.
+   * Before the request, the harness's own judgement against the trunk as
+   * fetched now: the lease (and the overlay's checkout), the paths landed on
+   * the trunk since the fork point, the staleness budget and the pending
+   * leases — refused as a conflict, the record back to `active`. A record
+   * already `merging` is resumed (its request, or the queue it is in).
+   */
+  async function land(workspaceId: string): Promise<MergeReceipt> {
+    let record = requireRecord(workspaceId);
+    if (record.lease.kind === "read-only") throw new InputError(`workspace ${workspaceId} is read-only: it never lands`, "workspace_read_only");
+    if (record.state !== "merging") record = await requestLand(record);
+    return awaitLand(record);
+  }
+
+  async function requestLand(initial: WorkspaceRecord): Promise<WorkspaceRecord> {
+    let record = initial;
+    const { workspaceId } = record;
+    const validated = record.validationReport;
+    if (record.state !== "validating" || validated === null || validated.status !== "pass") {
+      throw new InputError(`workspace ${workspaceId} is not validated (state=${record.state})`, "workspace_land_precondition_failed");
+    }
+    await assertLeaseLive(record);
+    assertWorktreeIntact(record);
+    const { forge, target, state } = forgeOf(record, "upstream");
+    assertLandable(target.trunk);
+    if (state.pullRequest === null || state.publishedHead === null) {
+      throw new InputError(`workspace ${workspaceId} has no pull request yet: publish a round first`, "workspace_not_published");
+    }
+    if (!state.ready) throw new InputError(`pull request #${String(state.pullRequest.number)} is not ready for review: ready it first`, "workspace_not_ready");
+    const worktreePath = record.lease.worktreePath;
+    const head = git.revParse(worktreePath, "HEAD", timeouts.inspectMs);
+    if (head !== state.publishedHead || git.status(worktreePath, timeouts.inspectMs).length > 0) {
+      throw new InputError(`workspace ${workspaceId} holds work its last round did not publish (published ${state.publishedHead}, HEAD ${head}): publish, validate and ready it again`, "workspace_unpublished_commits");
+    }
+    if (git.revParse(worktreePath, `${head}^{tree}`, timeouts.inspectMs) !== validated.tree) {
+      throw new InputError(`workspace ${workspaceId}'s validation is of another tree than its published head: validate it again`, "workspace_validation_stale");
     }
 
-    removeGateLogs(record.lease.worktreePath);
-    git.worktreeRemove({ repoRoot: checkoutRoot, worktreePath: record.lease.worktreePath, force: true, timeoutMs: timeouts.worktreeMs });
-    git.deleteBranch(checkoutRoot, branch, true, timeouts.worktreeMs);
+    // The harness's judgement, against the trunk as the forge holds it now.
+    fetchForgeBranches(git, worktreePath, target.remote, [target.trunk], timeouts.fetchMs);
+    const trunk = trunkTip(record, target);
+    const forkPoint = git.mergeBase(worktreePath, trunk, head, timeouts.inspectMs);
+    const { changed, exempt } = branchChange(worktreePath, forkPoint, head);
+    const authored = changed.filter((path) => !exempt.has(path));
+    const unleased = computeUnleasedPaths(changed, record.lease.writeSet, exempt);
+    if (unleased.length > 0) {
+      refuse(record, "dynamic-overlap", unleased.map((path) => deepFreeze({ path, otherWorkspaceId: null, reason: "changed path is outside the declared write set" })), "changed set escaped the write set at land");
+    }
+    if (record.lease.overlay !== null) {
+      const localTip = git.revParse(record.lease.overlay.checkout, `refs/heads/${record.lease.targetBranch!}`, timeouts.inspectMs);
+      const stale = overlayStaleness(record, record.lease.overlay, localTip);
+      if (stale.length > 0) {
+        saveTransition(record, "active", `overlay stale: ${stale.join("; ")}`);
+        throw new HarnessError(`the overlay of ${record.lease.overlay.checkout} is stale (${stale.join("; ")}); the checkout was touched after the overlay was taken — abort this workspace and take a new overlay`, "workspace_overlay_stale", false, { workspaceId });
+      }
+    }
+    if (forkPoint !== trunk) {
+      const staleness = git.revListCount(worktreePath, forkPoint, trunk, timeouts.inspectMs);
+      const merged = git.diffNameOnly({ cwd: worktreePath, refA: forkPoint, refB: trunk, threeDot: false, timeoutMs: timeouts.inspectMs });
+      const mergedExempt = generationOnlyPaths(worktreePath, forkPoint, trunk, merged, generatedOutputPaths(worktreePath));
+      const mergedConflicts = computeMergedSinceConflicts(authored, merged.filter((path) => !mergedExempt.has(path)));
+      if (mergedConflicts.length > 0) refuse(record, "dynamic-overlap", mergedConflicts, "a path landed on the trunk since the fork point; rebase, publish and re-validate");
+      if (staleness > config.baseStalenessCommits) {
+        refuse(record, "dynamic-overlap", [deepFreeze({ path: "(base)", otherWorkspaceId: null, reason: `${target.trunk} moved ${String(staleness)} commits since the fork point (budget ${String(config.baseStalenessCommits)}); rebase required` })], "base too stale; rebase, publish and re-validate");
+      }
+    }
+    const pending = pendingFeatureLeases(workspaceId).map((other) => deepFreeze({ workspaceId: other.workspaceId, writeSet: other.lease.writeSet }));
+    const pendingConflicts = computePendingWriteSetConflicts(authored, pending);
+    if (pendingConflicts.length > 0) refuse(record, "dynamic-overlap", pendingConflicts, "a pending workspace leases a changed path; re-sequence and re-validate");
 
-    const receipt = finalizeMergeReceipt({
-      schemaVersion: WORKSPACE_SCHEMA_VERSION,
-      workspaceId,
-      agentName: record.agentName,
-      branch,
-      targetBranch: target,
-      baseSha: record.lease.baseSha,
-      preMergeHeadSha: landed.targetTip,
-      mergeCommitSha: landed.mergeCommit,
-      mergeTree: landed.mergeTree,
-      landing: landed.landing,
-      landedIn: landed.landedIn,
-      changedPaths: deepFreeze([...landed.changedPaths]),
-      regeneratedPaths: deepFreeze([...landed.regenerated]),
-      resolvedConflicts: deepFreeze([...landed.resolved]),
-      importedRuns: deepFreeze([...landed.imported]),
-      timelineImportedEvents: importedEvents,
-      timelineSkippedEvents: skippedEvents,
-      gateResults: deepFreeze([...landed.gateResults]),
-      frozenAcceptances: frozenAcceptancesBetween(checkoutRoot, landed.targetTip, landed.mergeCommit),
-      mergedAt: iso(now()),
-    });
-    const mergedRecord = saveTransition(deepFreeze({ ...record, mergeReceipt: receipt, changedPaths: deepFreeze([...landed.changedPaths]) }), "merged", "workspace landed and torn down");
-    recordTimelineEvent("canonical", mergedRecord, `workspace-merged receipt=${receipt.receiptHash}`, "succeeded");
-    return receipt;
+    const number = state.pullRequest.number;
+    const current = await forge.pullRequest(number);
+    // Already merged (a land another tool finished): nothing to ask, only to finish.
+    if (current.merged) return saveTransition(record, "merging", `pull request #${String(number)} was already merged`);
+    if (current.state !== "open") throw new InputError(`pull request #${String(number)} is ${current.state}`, "workspace_pull_request_closed");
+    if (current.headSha !== head) {
+      throw new InputError(`pull request #${String(number)}'s head is ${current.headSha}, not the published ${head}: someone else pushed to ${record.lease.branch!}`, "workspace_published_head_moved");
+    }
+    // `merging` BEFORE the request: a land that dies after it is found by `recover` (it polls the forge).
+    record = saveTransition(record, "merging", `the land of ${head} was requested (pull request #${String(number)})`);
+    progress(`land: pull request #${String(number)} at ${head} into the ${target.trunk} merge queue`);
+    const answer = await forge.requestMerge(number, { sha: head });
+    auditEvent("workspace-land-requested", { workspaceId, pullRequest: number, head, answer: answer.kind });
+    if (answer.kind === "refused") {
+      saveTransition(record, "validating", `the forge refused the land (${String(answer.status)}): ${answer.message}`);
+      throw new HarnessError(`the forge refused to queue pull request #${String(number)} (${String(answer.status)}): ${answer.message}`, "workspace_land_refused", false, { workspaceId, status: answer.status });
+    }
+    if (answer.kind === "already-requested" && answer.expectedHeadSha !== head) {
+      saveTransition(record, "validating", `another land request guards ${answer.expectedHeadSha}`);
+      throw new HarnessError(`pull request #${String(number)} already has a pending land request for ${answer.expectedHeadSha}, not ${head}`, "workspace_land_conflicting_request", false, { workspaceId });
+    }
+    const requestId = answer.kind === "accepted" || answer.kind === "already-requested" ? answer.requestId : null;
+    return store.save(deepFreeze({ ...record, forge: deepFreeze({ ...state, mergeRequest: requestId }) }));
+  }
+
+  /** One look at a requested land: its request's result while it runs, then the pull request's own state (an `enqueued` result is final for a queue request). */
+  async function landOutcome(record: WorkspaceRecord, forge: WorkspaceForge, enqueued: boolean): Promise<
+    | Readonly<{ kind: "waiting"; enqueued: boolean }>
+    | Readonly<{ kind: "merged"; mergeCommitSha: string }>
+    | Readonly<{ kind: "ended"; code: string; reason: string }>
+  > {
+    const state = record.forge!;
+    const number = state.pullRequest!.number;
+    if (!enqueued && state.mergeRequest !== null) {
+      const result = await forge.mergeRequestResult(number, state.mergeRequest);
+      if (result.status === "pending") return { kind: "waiting", enqueued: false };
+      if (result.status === "merged") return { kind: "merged", mergeCommitSha: result.mergeCommitSha };
+      if (result.status === "failed") return { kind: "ended", code: "workspace_land_failed", reason: `the land request of pull request #${String(number)} failed: ${result.message}` };
+    }
+    const pull = await forge.pullRequest(number);
+    if (pull.merged && pull.mergeCommitSha !== null) return { kind: "merged", mergeCommitSha: pull.mergeCommitSha };
+    if (pull.state !== "open") return { kind: "ended", code: "workspace_pull_request_closed", reason: `pull request #${String(number)} was closed without landing` };
+    if (pull.queued) return { kind: "waiting", enqueued: true };
+    return { kind: "ended", code: "workspace_land_dequeued", reason: `pull request #${String(number)} left the merge queue without landing (its group failed, or it was removed): the queue judged it — fix the cause, publish, validate and ready it again` };
+  }
+
+  /** Waits on a `merging` record's land (see {@link land}); stops waiting after `landing.timeoutMs` with the record still `merging`. */
+  async function awaitLand(initial: WorkspaceRecord): Promise<MergeReceipt> {
+    const { workspaceId } = initial;
+    const { forge } = forgeOf(initial, "recorded");
+    const deadline = now().getTime() + config.landing.timeoutMs;
+    let enqueued = initial.forge!.mergeRequest === null;
+    for (;;) {
+      const outcome = await landOutcome(requireRecord(workspaceId), forge, enqueued);
+      if (outcome.kind === "merged") return finishLanded(workspaceId, outcome.mergeCommitSha);
+      if (outcome.kind === "ended") {
+        endLand(requireRecord(workspaceId), outcome.reason);
+        throw new HarnessError(outcome.reason, outcome.code, false, { workspaceId });
+      }
+      enqueued = outcome.enqueued;
+      if (now().getTime() >= deadline) {
+        throw new HarnessError(`pull request #${String(initial.forge!.pullRequest!.number)} has not landed after ${String(config.landing.timeoutMs)}ms (${enqueued ? "in the merge queue" : "its land request pending"}): workspace land ${workspaceId} resumes the wait`, "workspace_land_pending", true, { workspaceId });
+      }
+      progress(`land: pull request #${String(initial.forge!.pullRequest!.number)} ${enqueued ? "is in the merge queue" : "land request pending"}`);
+      await sleep(config.landing.pollIntervalMs);
+    }
+  }
+
+  /** A land that ended without landing: the record back to `active` (new work is needed), its request forgotten. */
+  function endLand(record: WorkspaceRecord, reason: string): WorkspaceRecord {
+    auditEvent("workspace-land-ended", { workspaceId: record.workspaceId, reason });
+    return saveTransition(deepFreeze({ ...record, forge: deepFreeze({ ...record.forge!, mergeRequest: null }) }), "active", reason);
   }
 
   /**
-   * RECOVER a workspace whose integrator died mid-merge (killed, out of
-   * memory, an agent tool timeout), leaving its record `merging` with nobody
-   * to finish it. Under the merge lock, taken WITHOUT WAITING: an integrator
-   * holds it for its whole merge, so a held lock means one is running
-   * (`workspace_recover_denied`), and the lock owner reclaims a dead
-   * holder's lock — holding it proves no integrator runs. Then: if the target
-   * already contains the branch's work (or the teardown already removed the
-   * branch), the land happened, so the teardown is finished and the record
-   * is `merged` (its receipt died with the integrator); otherwise the
-   * worktree goes back to its branch (`merge --abort`, `checkout -f`) and the
-   * record to `active` (`quarantined` when the worktree is gone). Any other
-   * state is returned as it is.
+   * After the forge merged it (under the merge lock: the local follow is a
+   * ref move): the trunk fetched (it must hold the merge commit), the local
+   * follow, the qualifying runs and the timeline imported, the teardown (the
+   * worktree and the local branch; the forge's branch is the forge's), the
+   * hashed receipt; the record becomes `merged`. Idempotent: a record another
+   * land or recover already finished answers its receipt.
+   */
+  async function finishLanded(workspaceId: string, mergeCommitSha: string): Promise<MergeReceipt> {
+    return withRepositoryLock(config.mergeLock, `workspace-land:${workspaceId}`, () => {
+      const record = requireRecord(workspaceId);
+      if (record.state === "merged" && record.mergeReceipt !== null) return record.mergeReceipt;
+      if (record.state !== "merging") throw new InputError(`workspace ${workspaceId} is ${record.state}, not merging`, "workspace_precondition_failed");
+      const state = record.forge!;
+      fetchForgeBranches(git, checkoutRoot, state.remote, [state.trunk], timeouts.fetchMs);
+      const trunk = git.revParse(checkoutRoot, trackingRef(state.remote, state.trunk), timeouts.inspectMs);
+      if (!git.isAncestor(checkoutRoot, mergeCommitSha, trunk, timeouts.inspectMs)) {
+        throw new HarnessError(`the forge reported ${mergeCommitSha} merged, but ${state.remote}/${state.trunk} (${trunk}) does not hold it`, "workspace_land_unconfirmed", true, { workspaceId });
+      }
+      const mergeTree = git.revParse(checkoutRoot, `${mergeCommitSha}^{tree}`, timeouts.inspectMs);
+      const preMergeHeadSha = git.revParse(checkoutRoot, `${mergeCommitSha}^1`, timeouts.inspectMs);
+      progress(`land: ${mergeCommitSha} landed on ${state.trunk}; following it locally`);
+      const followed = followTrunk(record, trunk);
+      const validated = record.validationReport!;
+      const imported = importQualifyingRuns(record, followed.landedIn, validated.startedAt, mergeTree);
+      auditEvent("workspace-landed", { workspaceId, trunk: state.trunk, mergeCommit: mergeCommitSha, landing: followed.landing, importedRuns: imported });
+
+      let importedEvents = 0;
+      let skippedEvents = 0;
+      if (timeline !== null) {
+        const shard = timeline.openShard(workspaceId);
+        try {
+          const canonicalStore = timeline.openCanonical();
+          try {
+            const importResult = importWorkspaceTimelineShard({ shard, canonical: canonicalStore, ...(timeline.queryDefaultLimit !== undefined ? { queryDefaultLimit: timeline.queryDefaultLimit } : {}) });
+            importedEvents = importResult.imported;
+            skippedEvents = importResult.skipped;
+          } finally {
+            canonicalStore.close();
+          }
+        } finally {
+          shard.close();
+        }
+        // Appenders do not share the merge lock. Retain the source even after
+        // a successful bounded import; a tip check cannot authorize deletion.
+      }
+      removeWorktreeAndBranch(record);
+
+      const receipt = finalizeMergeReceipt({
+        schemaVersion: WORKSPACE_SCHEMA_VERSION,
+        workspaceId,
+        agentName: record.agentName,
+        branch: record.lease.branch!,
+        targetBranch: record.lease.targetBranch!,
+        remote: state.remote,
+        trunk: state.trunk,
+        pullRequest: state.pullRequest!,
+        landedHead: state.publishedHead!,
+        mergeRequest: state.mergeRequest,
+        baseSha: record.lease.baseSha,
+        preMergeHeadSha,
+        mergeCommitSha,
+        mergeTree,
+        trunkTip: trunk,
+        landing: followed.landing,
+        landedIn: followed.landedIn,
+        localRefusal: followed.refusal === null ? null : recordedReason(followed.refusal),
+        changedPaths: deepFreeze([...validated.changedPaths]),
+        importedRuns: deepFreeze([...imported]),
+        timelineImportedEvents: importedEvents,
+        timelineSkippedEvents: skippedEvents,
+        gateResults: deepFreeze([...validated.gates]),
+        frozenAcceptances: frozenAcceptancesBetween(checkoutRoot, preMergeHeadSha, mergeCommitSha),
+        mergedAt: iso(now()),
+      });
+      const mergedRecord = saveTransition(deepFreeze({ ...record, mergeReceipt: receipt, changedPaths: deepFreeze([...validated.changedPaths]) }), "merged", "landed on the forge and torn down");
+      recordTimelineEvent("canonical", mergedRecord, `workspace-merged receipt=${receipt.receiptHash}`, "succeeded");
+      return receipt;
+    });
+  }
+
+  /**
+   * RECOVER a `merging` workspace whose `land` stopped waiting or died: ONE
+   * look at the forge — merged: finished (the follow, the teardown, the
+   * receipt); ended (failed, dequeued, closed): back to `active`; still
+   * queued or pending: returned as it is. Any other state is returned as it is.
    */
   async function recover(workspaceId: string): Promise<WorkspaceRecord> {
-    try {
-      return await withRepositoryLock({ ...config.mergeLock, timeoutMs: 0 }, `workspace-recover:${workspaceId}`, () => recoverUnderMergeLock(requireRecord(workspaceId)));
-    } catch (error) {
-      if ((error as { code?: unknown }).code !== "lock_acquisition_timeout") throw error;
-      throw new InputError(`an integrator holds the merge lock (it is running): workspace ${workspaceId} is not stuck`, "workspace_recover_denied");
-    }
-  }
-
-  function recoverUnderMergeLock(record: WorkspaceRecord): WorkspaceRecord {
+    const record = requireRecord(workspaceId);
     if (record.state !== "merging") return record;
-    const branch = record.lease.branch!;
-    const target = record.lease.targetBranch!;
-    const branchHead = git.branchTip(checkoutRoot, branch, timeouts.inspectMs);
-    const targetTip = git.revParse(checkoutRoot, `refs/heads/${target}`, timeouts.inspectMs);
-    const worktreePath = record.lease.worktreePath;
-    if (branchHead === null || git.isAncestor(checkoutRoot, branchHead, targetTip, timeouts.inspectMs)) {
-      removeWorktreeAndBranch(record);
-      const merged = saveTransition(record, "merged", `recovered: the land on ${target} had happened (${targetTip}); the teardown is finished, the receipt was lost with the integrator`);
-      auditEvent("workspace-recovered", { workspaceId: record.workspaceId, outcome: "merged", targetTip });
-      return merged;
+    const outcome = await landOutcome(record, forgeOf(record, "recorded").forge, record.forge!.mergeRequest === null);
+    if (outcome.kind === "merged") {
+      await finishLanded(workspaceId, outcome.mergeCommitSha);
+      auditEvent("workspace-recovered", { workspaceId, outcome: "merged" });
+      return requireRecord(workspaceId);
     }
-    if (!git.verifyWorktreeIntact(worktreePath, timeouts.inspectMs)) {
-      return quarantineRecord(record, "recovered: the integrator died before the land and the worktree is gone");
+    if (outcome.kind === "ended") {
+      auditEvent("workspace-recovered", { workspaceId, outcome: "active" });
+      return endLand(record, outcome.reason);
     }
-    try {
-      git.mergeAbort(worktreePath, timeouts.worktreeMs);
-    } catch (error) {
-      // No merge in progress (the integrator died before or after it).
-      if (!(error instanceof HarnessError)) throw error;
-    }
-    moveWorktree(worktreePath, () => git.checkoutBranch(worktreePath, branch, timeouts.worktreeMs, true));
-    const active = saveTransition(record, "active", "recovered: the integrator died before the land; nothing landed");
-    auditEvent("workspace-recovered", { workspaceId: record.workspaceId, outcome: "active" });
-    return active;
+    return record;
   }
 
   /**
-   * The forge client of a feature workspace's target, and the target as git
-   * names it now: an upstream changed since create (another remote or trunk)
-   * is refused, never followed (`workspace_target_upstream_changed`).
+   * The forge client of a feature workspace: for the remote its record names
+   * (`recorded`: an abort or a land already requested), or for its target's
+   * upstream as git names it NOW, which must still be the recorded one
+   * (`upstream`: publish, ready, a new land — a changed upstream is refused,
+   * never followed: `workspace_target_upstream_changed`).
    */
-  function forgeOf(record: WorkspaceRecord): Readonly<{ forge: WorkspaceForge; target: ForgeTarget; state: WorkspaceForgeState }> {
+  function forgeOf(record: WorkspaceRecord, which: "upstream" | "recorded"): Readonly<{ forge: WorkspaceForge; target: ForgeTarget; state: WorkspaceForgeState }> {
     const state = record.forge;
     if (state === null) throw new InputError(`workspace ${record.workspaceId} is read-only: it never reaches the forge`, "workspace_read_only");
     if (options.forge === undefined) {
       throw new HarnessError("no forge client is configured: the forge port's GitHub adapter (engine/src/workflow/forge/) provides it to the workspace CLI", "workspace_forge_unavailable", false, { workspaceId: record.workspaceId });
     }
-    const target = resolveForgeTarget(options.repository(checkoutRoot), record.lease.targetBranch!);
+    const repository = options.repository(checkoutRoot);
+    const target = which === "recorded"
+      ? deepFreeze({ remote: state.remote, remoteUrl: remoteUrlOf(repository, state.remote), trunk: state.trunk })
+      : resolveForgeTarget(repository, record.lease.targetBranch!);
     if (target.remote !== state.remote || target.trunk !== state.trunk) {
       throw new InputError(`${record.lease.targetBranch!}'s upstream is ${target.remote}/${target.trunk} now, but the workspace was created for ${state.remote}/${state.trunk}: abort it and create a new one`, "workspace_target_upstream_changed");
     }
@@ -1530,14 +1536,14 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   }
 
   /** A feature workspace a forge verb may act on: not read-only, not terminal, not merging; its lease live and its worktree intact. */
-  function requireForgeable(workspaceId: string, verb: string): WorkspaceRecord {
+  async function requireForgeable(workspaceId: string, verb: string): Promise<WorkspaceRecord> {
     const record = requireRecord(workspaceId);
     if (record.lease.kind === "read-only") throw new InputError(`workspace ${workspaceId} is read-only: it never reaches the forge`, "workspace_read_only");
     if (isTerminalWorkspaceState(record.state)) throw new InputError(`workspace ${workspaceId} is terminal (${record.state})`, "workspace_terminal");
     if (record.state !== "active" && record.state !== "validating") {
       throw new InputError(`workspace ${workspaceId} cannot ${verb} from ${record.state}`, "workspace_precondition_failed");
     }
-    assertLeaseLive(record);
+    await assertLeaseLive(record);
     assertWorktreeIntact(record);
     return record;
   }
@@ -1555,15 +1561,15 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    * round opened), every later one regenerates its title and body.
    */
   async function publish(workspaceId: string): Promise<WorkspacePublication> {
-    const record = requireForgeable(workspaceId, "publish");
+    const record = await requireForgeable(workspaceId, "publish");
     const worktreePath = record.lease.worktreePath;
     const branch = record.lease.branch!;
-    const { forge, target, state } = forgeOf(record);
+    const { forge, target, state } = forgeOf(record, "upstream");
     const dirty = git.status(worktreePath, timeouts.inspectMs);
     if (dirty.length > 0) {
       throw new InputError(`workspace ${workspaceId} has uncommitted changes (${statusPaths(dirty).slice(0, 8).join(", ")}): a round publishes commits`, "workspace_publish_dirty");
     }
-    fetchForgeBranches(git, worktreePath, target, [target.trunk], timeouts.fetchMs);
+    fetchForgeBranches(git, worktreePath, target.remote, [target.trunk], timeouts.fetchMs);
     const head = git.revParse(worktreePath, "HEAD", timeouts.inspectMs);
     const { changed, exempt } = branchChange(worktreePath, git.mergeBase(worktreePath, trunkTip(record, target), head, timeouts.inspectMs), head);
     const unleased = computeUnleasedPaths(changed, record.lease.writeSet, exempt);
@@ -1627,9 +1633,9 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    * ready; the forge's head must be the one this workspace published.
    */
   async function ready(workspaceId: string): Promise<WorkspaceRecord> {
-    const record = requireForgeable(workspaceId, "be marked ready");
+    const record = await requireForgeable(workspaceId, "be marked ready");
     const worktreePath = record.lease.worktreePath;
-    const { forge, state } = forgeOf(record);
+    const { forge, state } = forgeOf(record, "upstream");
     if (state.pullRequest === null || state.publishedHead === null) {
       throw new InputError(`workspace ${workspaceId} has no pull request yet: publish a round first`, "workspace_not_published");
     }
@@ -1653,7 +1659,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     return saved;
   }
 
-  function abort(workspaceId: string, abortOptions: Readonly<{ quarantine?: boolean; reason?: string }> = {}): WorkspaceRecord {
+  async function abort(workspaceId: string, abortOptions: Readonly<{ quarantine?: boolean; reason?: string }> = {}): Promise<WorkspaceRecord> {
     return abortInternal(requireRecord(workspaceId), abortOptions.quarantine ?? false, abortOptions.reason ?? "operator abort");
   }
 
@@ -1668,18 +1674,13 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const nowMs = now().getTime();
     for (const record of store.list()) {
       if (record.state === "merging") {
-        // A merging record whose integrator is gone (the merge lock is free)
-        // is recovered; a running integrator's is left to it.
-        try {
-          if ((await recover(record.workspaceId)).state !== "merging") swept.push(record.workspaceId);
-        } catch (error) {
-          if ((error as { code?: unknown }).code !== "workspace_recover_denied") throw error;
-        }
+        // A land: one look at the forge (merged → finished, ended → active).
+        if ((await recover(record.workspaceId)).state !== "merging") swept.push(record.workspaceId);
         continue;
       }
       if (!isTerminalWorkspaceState(record.state)) {
         if (leaseExpired(record, nowMs)) {
-          abortInternal(record, config.preserveOnFailure, "lease-expired");
+          await abortInternal(record, config.preserveOnFailure, "lease-expired");
           swept.push(record.workspaceId);
         }
         continue;
@@ -1713,7 +1714,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     validate,
     publish,
     ready,
-    merge,
+    land,
     recover,
     abort,
     snapshot: snapshotWorkspace,

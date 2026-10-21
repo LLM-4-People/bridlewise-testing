@@ -1181,11 +1181,20 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     leaseTtlMs: z.number().int().positive().max(31_536_000_000),
     admissionLock: workspaceLockSchema,
     mergeLock: workspaceLockSchema,
-    // The ONLY branches a workspace may land on (`workspace create` refuses
-    // any other target before anything is made, and `merge` checks again). A
-    // product branch that changes only through a promotion door is never one
-    // of them (UR-12), so no workspace can fast-forward it.
+    // The ONLY forge branches a workspace may land on: its target's UPSTREAM
+    // trunk (`workspace create` refuses any other before anything is made, and
+    // `land` checks again). A product branch that changes only through a
+    // promotion door is never one of them (UR-12), so no workspace can land
+    // on it.
     landTargets: z.array(z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u)).min(1).max(64),
+    // `workspace land` waits on the forge's merge queue: it polls the async
+    // merge request and then the pull request every `pollIntervalMs`, and
+    // stops waiting after `timeoutMs` (the record stays `merging`; `workspace
+    // land` resumes it, `workspace recover` polls it once).
+    landing: z.strictObject({
+      pollIntervalMs: z.number().int().min(1).max(600_000),
+      timeoutMs: z.number().int().positive().max(86_400_000),
+    }),
     // How long a supervised command told to stop (its ceiling, an operator's
     // Ctrl-C) has before it and every descendant are killed.
     killGraceMs: z.number().int().positive().max(60_000),
@@ -1195,7 +1204,8 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     commands: z.record(workspaceCommandName, workspaceCommandSchema),
     // Every phase has its consumer: `setup` runs when a checkout is made
     // (checkout-setup.ts), `validate` in `workspace validate`, `regenerate`
-    // and `merge` in `workspace validate --full` and `workspace merge`.
+    // and `merge` in `workspace validate --full` (the local pre-flight of
+    // what the forge's merge queue will judge).
     phases: z.strictObject({
       setup: workspacePhaseSchema,
       validate: workspacePhaseSchema,

@@ -35,9 +35,9 @@ import type { PublishedRound } from "./workspace-forge.ts";
  *   validate <id> [--full]                   the gates; --full adds regenerate, converged and the merge gates
  *   publish <id>                             a round: the new commits as signed twins on the forge; the draft pull request
  *   ready <id>                               the pull request leaves draft: its published tree passed validate
- *   merge <id>                               integrate in the workspace, gate, land on the target
- *   recover <id>                             finish or roll back a merge whose integrator died
- *   abort <id> [--quarantine]                remove (or preserve) the worktree and branch
+ *   land <id>                                the forge's merge queue lands it (async merge API); the checkout follows
+ *   recover <id>                             one look at a land: finished, ended, or still queued
+ *   abort <id> [--quarantine]                close the pull request; remove (or preserve) the worktree and branch
  *   snapshot <id> --label <label>            record the worktree's tree (a recovery point, never the commit of record)
  *   list | status <id> | sweep
  *
@@ -57,13 +57,13 @@ import type { PublishedRound } from "./workspace-forge.ts";
  */
 
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const SUBCOMMANDS = ["create", "extend", "validate", "publish", "ready", "merge", "recover", "abort", "snapshot", "list", "status", "sweep"] as const;
+const SUBCOMMANDS = ["create", "extend", "validate", "publish", "ready", "land", "recover", "abort", "snapshot", "list", "status", "sweep"] as const;
 
 export type WorkspaceCliOutput =
   | Readonly<{ action: "create" | "extend" | "ready" | "recover" | "abort" | "status"; record: WorkspaceRecord }>
   | Readonly<{ action: "publish"; record: WorkspaceRecord; round: PublishedRound }>
   | Readonly<{ action: "validate"; report: ValidationReport }>
-  | Readonly<{ action: "merge"; receipt: MergeReceipt }>
+  | Readonly<{ action: "land"; receipt: MergeReceipt }>
   | Readonly<{ action: "snapshot"; snapshot: WorkingTreeSnapshot }>
   | Readonly<{ action: "list"; records: readonly WorkspaceRecord[] }>
   | Readonly<{ action: "sweep"; swept: readonly string[] }>
@@ -87,21 +87,22 @@ export async function runWorkspaceCli(
     throw new InputError("workspaceIsolation config section is required for workspace commands", "workspace_isolation_config_missing");
   }
   const timeouts: WorkspaceManagerTimeouts = worktreeOperationTimeouts(snapshot.document);
-  // The merge path awaits its lock and its gates, so each git operation pins
-  // the executable for the duration of that call.
+  // A validate awaits its gates and a land the forge, so each git operation
+  // pins the executable for the duration of that call.
   const git = configuredWorktreeGitPort(snapshot.document);
   const checkoutRoot = git.toplevel(root, timeouts.inspectMs);
   // Built on the first command run: a subcommand that runs none never compiles the supervisor.
   let runner: CheckoutCommandRunner | null = null;
   const commandRunner = (): CheckoutCommandRunner => runner ??= configuredCheckoutCommandRunner(snapshot.document, isolation, testProcessSupervisorBinary(),
     (step: string, commandArguments: readonly string[]) => progress(`run ${step}: ${commandArguments.join(" ")}`));
-  // The integrator commits as the repository's user, resolved the way git
-  // resolves it (the pinned git reads the repository's config alone): a
-  // repository with no identity is refused before a workspace is made or a
-  // merge begins, never at the merge commit (A5-design L8).
+  // The workspace's local commits (an overlay's snapshot, the agent's rounds,
+  // whose author the published twins credit) are the repository's user,
+  // resolved the way git resolves it (the pinned git reads the repository's
+  // config alone): a repository with no identity is refused before a
+  // workspace is made (A5-design L8).
   const identity = configuredGitIdentity(checkoutRoot);
-  if (identity === null && (action === "create" || action === "merge")) {
-    throw new InputError(`${checkoutRoot} has no git identity (user.name and user.email): the integrator's merge commit would be refused — set them (git config user.name / user.email)`, "workspace_identity_missing");
+  if (identity === null && action === "create") {
+    throw new InputError(`${checkoutRoot} has no git identity (user.name and user.email): the workspace's commits would be refused — set them (git config user.name / user.email)`, "workspace_identity_missing");
   }
   const manager = createWorkspaceManager({
     checkoutRoot,
@@ -160,9 +161,9 @@ async function dispatch(
     const workspaceId = requireSingleId(args, "ready");
     return wrapResult("workspace ready", deepFreeze({ action: "ready", record: await manager.ready(workspaceId) }), { status: "pass" });
   }
-  if (action === "merge") {
-    const workspaceId = requireSingleId(args, "merge");
-    return conflictAware("workspace merge", async () => deepFreeze({ action: "merge", receipt: await withInstrumentLock(`ws merge ${workspaceId}`, () => manager.merge(workspaceId)) }));
+  if (action === "land") {
+    const workspaceId = requireSingleId(args, "land");
+    return conflictAware("workspace land", async () => deepFreeze({ action: "land", receipt: await manager.land(workspaceId) }));
   }
   if (action === "recover") {
     const workspaceId = requireSingleId(args, "recover");
@@ -172,7 +173,7 @@ async function dispatch(
     const [workspaceId, flags] = splitId(args, "abort");
     const unknown = flags.filter((flag) => flag !== "--quarantine");
     if (unknown.length > 0) throw new InputError(`unknown workspace abort flag: ${unknown[0]!} (supported: --quarantine)`, "unknown_flag");
-    const record = manager.abort(workspaceId, { quarantine: flags.includes("--quarantine"), reason: "operator abort" });
+    const record = await manager.abort(workspaceId, { quarantine: flags.includes("--quarantine"), reason: "operator abort" });
     return wrapResult("workspace abort", deepFreeze({ action: "abort", record }), { status: "pass" });
   }
   if (action === "snapshot") {
@@ -194,11 +195,11 @@ function requireSingleId(args: readonly string[], action: string): string {
   return workspaceId;
 }
 
-/** The workspace id (the first argument) and the flags after it. */
 /**
  * `run` holding the host's ONE instrument lock (src/process/instrument-lock.ts):
- * a validate or a merge runs whole suites, so it waits while another heavy run
- * holds the lock (saying who), and every suite it starts runs inside its hold.
+ * a validate runs whole suites, so it waits while another heavy run holds the
+ * lock (saying who), and every suite it starts runs inside its hold. A land
+ * runs none (the forge's queue judges it), so it never takes the lock.
  */
 async function withInstrumentLock<T>(label: string, run: () => Promise<T>): Promise<T> {
   const engineRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -214,6 +215,7 @@ async function withInstrumentLock<T>(label: string, run: () => Promise<T>): Prom
   }
 }
 
+/** The workspace id (the first argument) and the flags after it. */
 function splitId(args: readonly string[], action: string): readonly [string, readonly string[]] {
   const [workspaceId, ...flags] = args;
   if (workspaceId === undefined || workspaceId.startsWith("--")) {

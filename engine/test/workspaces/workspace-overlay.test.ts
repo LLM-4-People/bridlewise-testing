@@ -10,6 +10,8 @@ import {
   makeManager,
   makeTestConfig,
   mkWorkspaceTempDir,
+  landWorkspace,
+  pushTrunk,
   rawGit,
   trackBranch,
   writeFile,
@@ -88,7 +90,7 @@ test("create --overlay leaves the checkout's index byte-identical and its files 
   assert.equal(readFileSync(join(record.lease.worktreePath, "a.txt"), "utf8"), "a, edited\n");
 });
 
-test("adoption: the merge lands the overlay and the workspace's fixes into the checkout, which ends clean at the merge", async () => {
+test("adoption: once the forge landed the overlay and the workspace's fixes, the checkout adopts the trunk and ends clean at the merge", async () => {
   const { linked } = linkedCheckout("ws-overlay-adopt");
   dirty(linked);
   const tip = rawGit(linked, ["rev-parse", "HEAD"]);
@@ -96,13 +98,13 @@ test("adoption: the merge lands the overlay and the workspace's fixes into the c
   const record = await manager.create({ agentName: "adopt", mode: "overlay", writeSet: [] });
   commitFile(record.lease.worktreePath, "a.txt", "a, edited and fixed in the workspace\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  const receipt = await manager.merge(record.workspaceId);
+  const receipt = await landWorkspace(manager, record.workspaceId);
 
   assert.equal(receipt.landing, "overlay-adoption");
   assert.equal(receipt.landedIn, linked);
   assert.equal(rawGit(linked, ["rev-parse", "HEAD"]), receipt.mergeCommitSha);
   assert.equal(rawGit(linked, ["rev-parse", `${receipt.mergeCommitSha}^1`]), tip, "first-parent history: the old tip, then the merge");
-  rawGit(linked, ["merge-base", "--is-ancestor", record.lease.overlay!.commit, receipt.mergeCommitSha]);
+  assert.equal(rawGit(linked, ["rev-parse", `${receipt.mergeCommitSha}^2^{tree}`]), rawGit(linked, ["rev-parse", `${receipt.landedHead}^{tree}`]), "the landed head is the workspace's tree");
   assert.equal(rawGit(linked, ["status", "--porcelain"]), "", "the checkout is clean at the merge: every entry was adopted");
   assert.equal(readFileSync(join(linked, "a.txt"), "utf8"), "a, edited and fixed in the workspace\n");
   assert.equal(readFileSync(join(linked, "untracked.txt"), "utf8"), "untracked\n");
@@ -122,8 +124,10 @@ test("an adoption that fails after its read-tree gives the checkout its own inde
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
   // The switch fails once the index was already rewritten to the snapshot's tree.
   const failing = { ...git, readTreeSwitch: () => { throw new Error("injected: the two-way switch failed"); } };
+  await manager.publish(record.workspaceId);
+  await manager.ready(record.workspaceId);
   const { manager: integrator } = makeManager(linked, { config, git: failing });
-  await assert.rejects(() => integrator.merge(record.workspaceId), /injected: the two-way switch failed/u);
+  await assert.rejects(() => integrator.land(record.workspaceId), /injected: the two-way switch failed/u);
   assert.equal(sha256(readFileSync(indexPath(linked))), indexBefore, "the checkout's own index is back");
   assert.equal(rawGit(linked, ["status", "--porcelain=v2"]), statusBefore);
 });
@@ -140,7 +144,7 @@ test("a checkout touched after the overlay was taken refuses the adoption and st
   writeFileSync(join(linked, "b.txt"), "b, edited in the checkout after the overlay\n");
   const statusBefore = rawGit(linked, ["status", "--porcelain=v2"]);
   const headBefore = rawGit(linked, ["rev-parse", "HEAD"]);
-  await assert.rejects(() => manager.merge(record.workspaceId), throwsCode("workspace_overlay_stale"));
+  await assert.rejects(() => landWorkspace(manager, record.workspaceId), throwsCode("workspace_overlay_stale"));
   assert.equal(rawGit(linked, ["rev-parse", "HEAD"]), headBefore);
   assert.equal(rawGit(linked, ["status", "--porcelain=v2"]), statusBefore);
   assert.equal(readFileSync(join(linked, "b.txt"), "utf8"), "b, edited in the checkout after the overlay\n");
@@ -187,7 +191,7 @@ async function adoptionAfterOnly(touch: "index" | "target"): Promise<void> {
     const moved = rawGit(linked, ["commit-tree", "-p", "HEAD", "-m", "elsewhere", `${rawGit(linked, ["rev-parse", "HEAD"])}^{tree}`]);
     rawGit(linked, ["update-ref", "refs/heads/testing", moved]);
   }
-  await assert.rejects(() => manager.merge(record.workspaceId), (error: unknown) =>
+  await assert.rejects(() => landWorkspace(manager, record.workspaceId), (error: unknown) =>
     throwsCode("workspace_overlay_stale")(error) && String((error as Error).message).includes(touch === "index" ? "index changed" : "testing moved"));
   assert.equal(manager.status(record.workspaceId).state, "active");
 }
@@ -225,6 +229,7 @@ test("the overlay adoption's read-tree switch keeps the config's 0600 (the one s
   const configFile = "engine/bridlewise.config.json";
   commitFile(root, "a.txt", "a\n");
   commitFile(root, configFile, "{}\n");
+  pushTrunk(root);
   const linked = join(mkWorkspaceTempDir("ws-overlay-mode-linked"), "testing");
   rawGit(root, ["worktree", "add", "-q", "-b", "testing", linked]);
   trackBranch(root, "testing");
@@ -235,7 +240,7 @@ test("the overlay adoption's read-tree switch keeps the config's 0600 (the one s
   commitFile(record.lease.worktreePath, configFile, "{ }\n");
   const report = await manager.validate(record.workspaceId);
   assert.equal(report.status, "pass", JSON.stringify(report.gates.filter((gate) => gate.status !== "pass")));
-  const receipt = await manager.merge(record.workspaceId);
+  const receipt = await landWorkspace(manager, record.workspaceId);
   assert.equal(receipt.landing, "overlay-adoption");
   assert.equal(readFileSync(join(linked, configFile), "utf8"), "{ }\n", "the adoption rewrote the config");
   assert.equal(statSync(join(linked, configFile)).mode & 0o777, 0o600, "and it keeps 0600");

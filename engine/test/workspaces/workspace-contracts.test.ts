@@ -71,7 +71,7 @@ function makeRecord(): WorkspaceRecord {
     mergeReceipt: null,
     abortReason: null,
     history: [deepFreeze({ from: "admitted", to: "active", at: "2026-07-19T00:00:00.000Z", reason: "created" })],
-    forge: deepFreeze({ remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false }),
+    forge: deepFreeze({ remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false, mergeRequest: null }),
     revision: 1,
   });
 }
@@ -83,15 +83,20 @@ function makeUnsignedReceipt(): UnsignedMergeReceipt {
     agentName: "worker",
     branch: "agent/worker/abc123def456",
     targetBranch: "testing",
+    remote: "origin",
+    trunk: "main",
+    pullRequest: deepFreeze({ number: 7, url: "https://forge.test/pull/7" }),
+    landedHead: SHA_B,
+    mergeRequest: "merge-1",
     baseSha: SHA_A,
     preMergeHeadSha: SHA_B,
     mergeCommitSha: SHA_C,
     mergeTree: SHA_A,
+    trunkTip: SHA_C,
     landing: "fast-forward",
     landedIn: "/home/user/bridlewise-testing",
+    localRefusal: null,
     changedPaths: ["src/x.ts"],
-    regeneratedPaths: ["engine/src/architecture-manifest.ts"],
-    resolvedConflicts: [],
     importedRuns: ["engine/.bridlewise/state/test-results/run-history.json: 1"],
     timelineImportedEvents: 3,
     timelineSkippedEvents: 0,
@@ -275,7 +280,10 @@ test("the forge state: a feature workspace has one and a read-only one none; the
   const published = { ...forge, pullRequest: { number: 7, url: "https://forge.test/pull/7" }, publishedHead: SHA_B };
   assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), forge: published }));
   assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), forge: { ...published, ready: true } }));
+  assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), state: "merging", forge: { ...published, ready: true, mergeRequest: "merge-1" } }));
   for (const [broken, why] of [
+    [{ ...makeRecord(), forge: { ...published, mergeRequest: "merge-1" } }, "a land request of a pull request never made ready"],
+    [{ ...makeRecord(), forge: { ...published, ready: true, mergeRequest: "not a request id" } }, "a request id that is not one"],
     [{ ...makeRecord(), forge: null }, "a feature workspace without a forge state"],
     [{ ...makeRecord(), lease: readOnly, forge }, "a read-only workspace with a forge state"],
     [{ ...makeRecord(), forge: { ...forge, publishedHead: SHA_B } }, "a published head without a pull request"],

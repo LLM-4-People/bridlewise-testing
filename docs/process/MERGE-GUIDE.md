@@ -16,7 +16,7 @@ follows is [WORKFLOW.md](WORKFLOW.md).
 ## 1. The model
 
 - **Work happens on `testing`.** Every edit, test, guard, record and tool
-  lives there, and reaches it only through a workspace merge (§1b) or the
+  lives there, and reaches it only through a workspace land (§1b) or the
   committer's certified commits.
 - **`master` is a promotion of `testing`.** Its tree is a pure function of a
   `testing` commit S and the promotion profile S carries
@@ -30,53 +30,52 @@ follows is [WORKFLOW.md](WORKFLOW.md).
   that holds a promotion commit (`promotion_never_rule`): the rule is
   structural, not a convention.
 
-## 1b. Feature → `testing`: the workspace merge — refusals and the land
+## 1b. A workspace onto the trunk: publish, ready, land
 
-`npm run ws -- merge <id>` (= `node engine/src/cli.ts harness workspace merge
-<id>`, the integrator in `engine/src/workflow/workspace-manager.ts`) lands a
-validated workspace on its target branch — one of
-`workspaceIsolation.landTargets` (this repository: `testing` only; `master`
-never). It lands locally and the caller pushes. Under the repository's merge
-lock (merges queue):
+A workspace's work reaches the trunk only through a pull request on the forge
+and its merge queue (`engine/src/workflow/workspace-forge.ts`,
+`engine/src/workflow/workspace-manager.ts`). Where it lands is git's own
+answer: the land target's UPSTREAM (`branch.<target>.remote` and
+`branch.<target>.merge`), resolved at `create` and refused when absent
+(`workspace_target_untracked`); the upstream trunk must be one of
+`workspaceIsolation.landTargets` (this repository: `main`).
 
-1. **Preconditions.** Validated (`ws validate`), the target still a land
-   target, the lease live, the worktree intact and clean at the validated
-   HEAD. The changed set is the diff from the fork point (`merge-base(T,
-   HEAD)`) to HEAD; every authored change lies inside the lease (a pure
-   regeneration is exempt); nothing merged since the fork point touches an
-   authored change (`dynamic-overlap`: rebase); no other pending lease covers
-   one; the fork point within `baseStalenessCommits`.
-2. **In the workspace.** Detached at the target's tip, `git merge --no-ff
-   --no-commit --no-autostash` of the branch; a conflict on a generated output
-   whose branch side is regeneration only resolves to the target's side; any
-   other conflict is reported (`textual-conflict`). The `regenerate` phase
-   (`harness sync --with-bundle`) may write only generated outputs.
-3. **One merge commit, through the hooks** — the tree landing's commit
-   (`engine/src/workflow/tree-landing.ts`): `pre-commit` and `commit-msg` run
-   as for any commit, then the commit's tree, parents and objects are checked.
-4. **The merge gates** (`phases.merge`), unless `validate --full` qualified
-   that exact tree: a suite gate passes iff its judged run has no new and no
-   changed failure against a clean run of the target's own tree.
-5. **The land** — the tree landing's: `git merge --ff-only --no-autostash` in
-   the checkout holding the target (git refuses, nothing moved, when that
-   would touch the checkout's own work; a checkout a crash left torn mid
-   fast-forward is completed with git alone), or a compare-and-swap of the
-   ref when no checkout holds it. An `--overlay` workspace is adopted into the
-   checkout it snapshotted.
-6. **After the land**: the qualifying runs imported into the landing
-   checkout's ledgers, the timeline import, the worktree and branch removed, a
-   hashed receipt. Then push `testing`.
+1. **Publish** (`npm run ws -- publish <id>`): each new local commit is re-made
+   through the Git Data API with no author or committer, so the forge signs it
+   (Verified); every answered blob, tree and signature is checked against the
+   local objects, the workspace's branch is set, and the local branch moves to
+   the signed twins (the same trees). The first round opens the DRAFT pull
+   request; every round regenerates its body. The worktree must be clean and
+   its changes since the trunk inside the lease.
+2. **Ready** (`npm run ws -- ready <id>`): the pull request leaves draft once
+   its published tree passed `ws validate` (`--full` is the local pre-flight of
+   what the queue's CI and the door will judge).
+3. **Land** (`npm run ws -- land <id>`): the harness's own judgement against
+   the trunk as fetched now — the lease, the paths landed since the fork point
+   (`dynamic-overlap`: rebase, publish, re-validate), the staleness budget, the
+   pending leases, an overlay's checkout — then `PUT
+   /repos/{o}/{r}/pulls/{n}/merge-async` with the published head as its `sha`
+   guard and `merge_action: merge_queue` (never auto-merge). The land is
+   awaited (`workspaceIsolation.landing`): the request's result, then the pull
+   request's own state.
+4. **After the merge**: the trunk is fetched, the local target FOLLOWS it (a
+   fast-forward of the checkout holding it, a compare-and-swap of the ref, or
+   an overlay's adoption — git's refusal is recorded in the receipt, never
+   thrown: the land happened), the qualifying runs and the timeline are
+   imported, the worktree and local branch removed, a hashed receipt written.
 
-A failure before the land leaves every checkout untouched and the workspace
-`active` (or `validating` when git refused the land itself). An integrator
-that dies leaves it `merging`: `ws recover <id>` finishes or rolls back.
+A refused request leaves the workspace `validating`; a failed request, a
+dequeue or a closed pull request leaves it `active` (the queue judged it). A
+land that outlives its wait stays `merging`: `ws land <id>` resumes it and `ws
+recover <id>` (or `ws sweep`) looks once. `ws abort` closes the pull request
+with its reason; the forge's branch is kept.
 
 ## 2. The commands
 
 ```bash
 node src/cli.ts harness workspace create --agent <name> --write-set <path…> [--target <branch>] [--base <ref>]
 node src/cli.ts harness workspace validate <id> [--full]
-node src/cli.ts harness workspace merge <id>
+node src/cli.ts harness workspace publish <id> | ready <id> | land <id>
 node src/cli.ts harness workspace recover <id> | abort <id> [--quarantine]
 ```
 

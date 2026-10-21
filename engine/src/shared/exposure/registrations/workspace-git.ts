@@ -168,7 +168,7 @@ export function registerWorkspaceGitExposure(): void {
     module: "workspaceGit",
     name: "How long one commit may run",
     description:
-      "Creating a commit — the workspace command's merge commit, which runs the repository's commit hooks — is bounded by this. Lower = a hung commit is abandoned sooner, leaving the step uncommitted and reported; higher = a slow hook or large change still completes. Takes effect on the next run.",
+      "Creating a commit — a promotion's candidate commit, which runs the repository's commit hooks — is bounded by this. Lower = a hung commit is abandoned sooner, leaving the step uncommitted and reported; higher = a slow hook or large change still completes. Takes effect on the next run.",
     type: "number",
     default: DEFAULT_GIT_COMMIT_TIMEOUT_MS,
     min: 1,

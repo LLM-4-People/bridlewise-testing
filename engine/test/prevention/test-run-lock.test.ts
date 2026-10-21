@@ -428,7 +428,7 @@ test("wiring: every engine suite entry takes the lock", () => {
   assert.ok(callsWithOption(join(ENGINE_ROOT, "scripts", "tooling", "coverage.ts"), coverage, "enforceTestRunLock", "inProcess"), "the coverage run's inner path borrows the hold through the door");
 });
 
-test("wiring: every other heavy door takes the SAME one lock — the web runner, `harness slot run`, `ws validate` and `ws merge` (no second lock, no door of its own)", () => {
+test("wiring: every other heavy door takes the SAME one lock — the web runner, `harness slot run` and `ws validate` (no second lock, no door of its own); `ws land` runs no suite and takes none", () => {
   const webRunner = sourceText(join(REPO_ROOT, "scripts", "run-tests.ts"));
   assert.ok(
     webRunner.includes("engine/scripts/tooling/test-run-lock.ts") && /enforceTestRunLock\(\s*"web npm test"/u.test(webRunner),
@@ -450,9 +450,9 @@ test("wiring: every other heavy door takes the SAME one lock — the web runner,
   }
   const workspaceCli = sourceText(join(ENGINE_ROOT, "src", "workflow", "workspace-cli.ts"));
   assert.ok(/action === "validate"\) \{[^}]*?withInstrumentLock\(/u.test(workspaceCli), "`ws validate` runs inside the one lock");
-  assert.ok(/action === "merge"\) \{[^}]*?withInstrumentLock\(/u.test(workspaceCli), "`ws merge` runs inside the one lock");
+  assert.ok(/action === "land"\) \{/u.test(workspaceCli) && !/action === "land"\) \{[^}]*?withInstrumentLock\(/u.test(workspaceCli), "`ws land` runs no suite (the forge's queue judges it): it never waits for the lock");
   assert.ok(workspaceCli.includes("../process/instrument-lock.ts") && /holdInstrumentLock\(/u.test(workspaceCli), "withInstrumentLock takes the one lock");
-  assert.match(workspaceCli, /holdInstrumentLock\(\{[^}]*testFileCount: Number\.POSITIVE_INFINITY/u, "a validate or a merge is a whole instrument: heavy by kind, never light (correctness M7)");
+  assert.match(workspaceCli, /holdInstrumentLock\(\{[^}]*testFileCount: Number\.POSITIVE_INFINITY/u, "a validate is a whole instrument: heavy by kind, never light (correctness M7)");
   const guardsRunner = sourceText(join(ENGINE_ROOT, "scripts", "tooling", "test-guards.ts"));
   assert.ok(/superviseCommand\(/u.test(guardsRunner) && !/\bspawn\(/u.test(guardsRunner), "the subset runner runs node --test under the supervisor (adopted), never a bare spawn");
 });

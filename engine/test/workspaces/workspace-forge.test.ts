@@ -41,7 +41,7 @@ test("the first round publishes signed twins with the same trees, moves the loca
   const { root, bare, manager, forge } = forgeFixture("ws-forge-round");
   const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src", "bin"] });
   const worktree = record.lease.worktreePath;
-  assert.deepEqual(record.forge, { remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false }, "create resolved the target's upstream and opened nothing yet");
+  assert.deepEqual(record.forge, { remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false, mergeRequest: null }, "create resolved the target's upstream and opened nothing yet");
   writeFile(worktree, "src/deep/nested/a.ts", "export const a = 1;\n");
   writeFile(worktree, "bin/run.sh", "#!/bin/sh\necho run\n");
   chmodSync(join(worktree, "bin/run.sh"), 0o755);
@@ -89,7 +89,7 @@ test("the first round publishes signed twins with the same trees, moves the loca
   assert.ok(pull.body.includes("Tune the feature"), "the commits are listed");
   assert.ok(pull.body.includes("Not validated at this tree yet"));
   assert.ok(!pull.body.includes(worktree), "no local path reaches the forge");
-  assert.deepEqual(published.forge, { remote: "origin", trunk: "main", pullRequest: { number: 1, url: "https://forge.test/pull/1" }, publishedHead: round.head, ready: false });
+  assert.deepEqual(published.forge, { remote: "origin", trunk: "main", pullRequest: { number: 1, url: "https://forge.test/pull/1" }, publishedHead: round.head, ready: false, mergeRequest: null });
   assert.equal(manager.status(record.workspaceId).forge?.publishedHead, round.head, "the record is saved");
 });
 
@@ -246,14 +246,4 @@ test("ready: only a published head whose tree passed validation leaves draft; un
   forge.calls.length = 0;
   await manager.ready(record.workspaceId);
   assert.equal(forge.calls.filter((call) => call.op === "markReadyForReview").length, 0, "an already ready pull request is not marked again");
-});
-
-test("a validation survives the publish (the twin holds the same tree): the local merge still lands it", async () => {
-  const { manager } = forgeFixture("ws-forge-then-merge");
-  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
-  commitFile(record.lease.worktreePath, "src/a.ts", "export const a = 1;\n");
-  assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  await manager.publish(record.workspaceId);
-  const receipt = await manager.merge(record.workspaceId);
-  assert.equal(receipt.changedPaths[0], "src/a.ts");
 });

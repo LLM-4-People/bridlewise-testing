@@ -519,7 +519,7 @@ export function listAllBindings(): readonly HashBinding[] {
  *   - every generated-output question (`generatedOutputPaths` below): the
  *     promotion's projection, which judges a regenerated file of the target
  *     pins-normalized (a regeneration is never a target edit) and lets the
- *     candidate re-derive it; the workspace merge's generation-only rule; the
+ *     candidate re-derive it; the workspace's lease exemption (generation-only); the
  *     commit guard and the candidate tooling.
  *
  * A binding added tomorrow joins the set with no edit to any consumer — a

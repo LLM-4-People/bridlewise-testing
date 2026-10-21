@@ -10,7 +10,6 @@ import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { landCommit } from "../../src/workflow/tree-landing.ts";
 import { WEB_RUN_HISTORY_PATH, suiteLedgerPaths, type SuiteLedgerName } from "../../src/shared/run-history.ts";
 import { README_CONSUMER_BLOCK } from "../../src/kernel/verification-paths.ts";
-import { acquireLock } from "../../src/workflow/resource-lock.ts";
 import { createWorkspaceRecordStore } from "../../src/workflow/workspace-registry.ts";
 import { createTimelineStore } from "../../src/timeline/timeline-store.ts";
 import type { EventLedgerStoragePort } from "../../src/timeline/timeline-types.ts";
@@ -18,7 +17,6 @@ import {
   createWorkspaceManager,
   createWorkspaceTimelineHooks,
   WorkspaceConflictError,
-  WorkspaceGateFailedError,
   WorkspaceLeaseExpiredError,
 } from "../../src/workflow/workspace-manager.ts";
 import { configureDebugSystem, createCollectingSink, getAuditEvents, resetDebugSystem } from "../../src/shared/debug/debug-system.ts";
@@ -41,6 +39,11 @@ import {
   registryRoot,
   TEST_INTEGRATOR_IDENTITY,
   TEST_TIMEOUTS,
+  advanceEveryQueue,
+  fakeForgeFactory,
+  forgeAt,
+  landWorkspace,
+  pushTrunk,
   testRepository,
   trackBranch,
   writeFile,
@@ -65,7 +68,6 @@ function checkoutState(root: string): Readonly<{ head: string; indexEntries: str
 
 const PIN_A = "a".repeat(64);
 const PIN_B = "b".repeat(64);
-const PIN_C = "c".repeat(64);
 /** A pin-bearing generated output (a hash-binding target) and a wholly generated one, repository-relative. */
 const PIN_BEARING = "engine/src/kernel/root-policy.ts";
 const WHOLESALE = "engine/src/architecture-manifest.ts";
@@ -77,8 +79,8 @@ function pinned(pin: string, body: string): string {
   return `export const POLICY = {\n  configuration: { contract: {\n    sourcePath: "${ROOT_POLICY.configuration.contract.sourcePath}",\n    sourceSha256: "${pin}",\n  } },\n  body: "${body}",\n};\n`;
 }
 
-test("happy path: create -> commit -> validate -> merge lands by fast-forward in the checkout holding the target, then tears down", async () => {
-  const { root } = initTempRepo("ws-happy");
+test("happy path: create -> commit -> validate -> publish -> ready -> land: the forge's queue merges it, the checkout holding the target fast-forwards to it, then tears down", async () => {
+  const { root, bare } = initTempRepo("ws-happy");
   const workspaceRoot = mkWorkspaceTempDir("ws-happy-wt");
   const commands = makeFakeCommands();
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot), commands });
@@ -101,23 +103,33 @@ test("happy path: create -> commit -> validate -> merge lands by fast-forward in
   assert.deepEqual(report.changedPaths, ["src/feature/new.ts"]);
   assert.deepEqual(report.gates.map((gate) => gate.gate), ["write-set-proof", "unit"]);
 
-  const receipt = await manager.merge(record.workspaceId);
+  const receipt = await landWorkspace(manager, record.workspaceId);
   assert.equal(receipt.landing, "fast-forward");
   assert.equal(receipt.landedIn, root);
+  assert.equal(receipt.localRefusal, null);
   assert.equal(receipt.targetBranch, "main");
+  assert.equal(receipt.remote, "origin");
+  assert.equal(receipt.trunk, "main");
+  assert.equal(receipt.pullRequest.number, 1);
+  assert.equal(receipt.mergeRequest, "merge-1");
   assert.equal(receipt.preMergeHeadSha, tip);
   assert.deepEqual(receipt.changedPaths, ["src/feature/new.ts"]);
+  assert.deepEqual(receipt.gateResults.map((gate) => gate.gate), ["write-set-proof", "unit"], "the receipt carries the validation of the landed tree");
   assert.equal(receipt.receiptHash.length, 64);
 
+  assert.equal(rawGit(bare, ["rev-parse", "main"]), receipt.mergeCommitSha, "the forge's trunk holds the merge");
+  assert.equal(receipt.trunkTip, receipt.mergeCommitSha);
   assert.equal(rawGit(root, ["rev-parse", "HEAD"]), receipt.mergeCommitSha, "the canonical branch fast-forwarded to the merge commit");
-  assert.equal(rawGit(root, ["rev-parse", `${receipt.mergeCommitSha}^1`]), tip, "the merge's first parent is the target's old tip");
-  assert.equal(rawGit(root, ["log", "-1", "--format=%s"]), `merge: workspace ${record.workspaceId} (worker)`);
+  assert.equal(rawGit(root, ["rev-parse", `${receipt.mergeCommitSha}^1`]), tip, "the merge's first parent is the trunk's old tip");
+  assert.equal(rawGit(root, ["rev-parse", `${receipt.mergeCommitSha}^2`]), receipt.landedHead, "its second parent is the head the workspace published");
   assert.equal(readFileSync(join(root, "src/feature/new.ts"), "utf8"), "export const x = 1;\n");
   assert.equal(rawGit(root, ["status", "--porcelain"]), "", "the landing checkout is clean at the merge");
   assert.ok(!existsSync(record.lease.worktreePath), "worktree is torn down");
-  assert.equal(rawGit(root, ["branch", "--list", "agent/*"]), "", "agent branch is deleted");
+  assert.equal(rawGit(root, ["branch", "--list", "agent/*"]), "", "the local agent branch is deleted");
+  assert.notEqual(rawGit(bare, ["branch", "--list", record.lease.branch!]), "", "the forge's branch is the forge's to keep or delete");
   assert.ok(commands.calls.every((call) => call.cwd === record.lease.worktreePath), "every gate ran in the workspace, never in the canonical checkout");
-  assert.deepEqual(commands.calls.map((call) => call.name), ["unit", "regen", "suite"]);
+  assert.deepEqual(commands.calls.map((call) => call.name), ["unit"], "a land runs no gate: the forge's queue judges it");
+  assert.deepEqual(forgeAt(bare).calls.find((call) => call.op === "requestMerge")?.request, { number: 1, sha: receipt.landedHead }, "only the published head may enter the queue");
 
   const final = manager.status(record.workspaceId);
   assert.equal(final.state, "merged");
@@ -129,6 +141,7 @@ test("dirty canonical landing: a disjoint workspace lands while every dirty, sta
   const workspaceRoot = mkWorkspaceTempDir("ws-dirty-wt");
   commitFile(root, "a.txt", "a\n");
   commitFile(root, "gone.txt", "gone\n");
+  pushTrunk(root);
   // The canonical checkout's inherited state: an unstaged edit, a staged add,
   // an intent-to-add entry, an untracked file and an unstaged deletion.
   writeFileSync(join(root, "a.txt"), "a dirty\n");
@@ -145,7 +158,7 @@ test("dirty canonical landing: a disjoint workspace lands while every dirty, sta
   const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
   commitFile(record.lease.worktreePath, "src/b.ts", "export const b = 1;\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  const receipt = await manager.merge(record.workspaceId);
+  const receipt = await landWorkspace(manager, record.workspaceId);
 
   const after = checkoutState(root);
   assert.equal(after.head, receipt.mergeCommitSha);
@@ -156,10 +169,11 @@ test("dirty canonical landing: a disjoint workspace lands while every dirty, sta
   assert.equal(readFileSync(join(root, "src/b.ts"), "utf8"), "export const b = 1;\n");
 });
 
-test("overlap refusal: a workspace touching a path the canonical checkout has dirty is refused by git, and nothing moves", async () => {
-  const { root } = initTempRepo("ws-overlap");
+test("overlap refusal: the forge lands a workspace touching a path the canonical checkout has dirty, and the checkout's follow is refused by git, recorded, and nothing local moves", async () => {
+  const { root, bare } = initTempRepo("ws-overlap");
   const workspaceRoot = mkWorkspaceTempDir("ws-overlap-wt");
   commitFile(root, "shared/file.txt", "one\n");
+  pushTrunk(root);
   writeFileSync(join(root, "shared/file.txt"), "one, edited in the canonical checkout\n");
   const before = checkoutState(root);
 
@@ -167,42 +181,33 @@ test("overlap refusal: a workspace touching a path the canonical checkout has di
   const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["shared"] });
   commitFile(record.lease.worktreePath, "shared/file.txt", "two\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  await assert.rejects(() => manager.merge(record.workspaceId), throwsCode("workspace_land_refused"));
-
+  const receipt = await landWorkspace(manager, record.workspaceId);
+  assert.equal(receipt.landing, "refused");
+  assert.equal(receipt.landedIn, null);
+  assert.match(receipt.localRefusal ?? "", /git refused to move main/u);
+  assert.equal(rawGit(bare, ["rev-parse", "main"]), receipt.mergeCommitSha, "the land happened on the forge all the same");
   assert.deepEqual(checkoutState(root), before, "HEAD, index and status are untouched");
   assert.equal(readFileSync(join(root, "shared/file.txt"), "utf8"), "one, edited in the canonical checkout\n");
-  const current = manager.status(record.workspaceId);
-  assert.equal(current.state, "validating", "git refused the land itself: the validation still holds");
-  assert.equal(current.validationReport?.status, "pass");
-  assert.equal(rawGit(record.lease.worktreePath, ["symbolic-ref", "--short", "HEAD"]), record.lease.branch, "the worktree is back on its branch");
-
-  // Once the overlap is gone, the merge runs again WITHOUT a re-validation.
-  rawGit(root, ["checkout", "--", "shared/file.txt"]);
-  const receipt = await manager.merge(record.workspaceId);
-  assert.equal(readFileSync(join(root, "shared/file.txt"), "utf8"), "two\n");
-  assert.equal(receipt.landing, "fast-forward");
+  assert.equal(manager.status(record.workspaceId).state, "merged", "the record says what happened: landed, not followed");
+  assert.ok(!existsSync(record.lease.worktreePath), "torn down");
 });
 
-test("target moved during the gates: the fast-forward is refused and nothing partial lands", async () => {
+test("a local target holding commits the trunk does not is never moved: the follow is refused and recorded", async () => {
   const { root } = initTempRepo("ws-moved");
   const workspaceRoot = mkWorkspaceTempDir("ws-moved-wt");
-  const commands = makeFakeCommands({
-    suite: () => {
-      commitFile(root, "elsewhere.txt", "a commit made while the merge gates ran\n");
-      return passGate("suite");
-    },
-  });
-  const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot), commands });
+  const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
   const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
   commitFile(record.lease.worktreePath, "src/b.ts", "export const b = 1;\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  await assert.rejects(() => manager.merge(record.workspaceId), throwsCode("workspace_land_refused"));
-  assert.ok(!existsSync(join(root, "src/b.ts")), "the workspace's change did not land");
-  assert.equal(rawGit(root, ["log", "-1", "--format=%s"]), "update elsewhere.txt");
-  assert.equal(manager.status(record.workspaceId).state, "validating", "a lost race for the target keeps the validation; the next merge rebuilds and gates M");
+  const local = commitFile(root, "elsewhere.txt", "a local commit the forge never saw\n");
+  const receipt = await landWorkspace(manager, record.workspaceId);
+  assert.equal(receipt.landing, "refused");
+  assert.match(receipt.localRefusal ?? "", /holds commits the trunk .* does not/u);
+  assert.equal(rawGit(root, ["rev-parse", "main"]), local, "the local target stays where it was");
+  assert.ok(!existsSync(join(root, "src/b.ts")));
 });
 
-test("target not checked out anywhere: the land is a compare-and-swap of the ref, refused when the target moved", async () => {
+test("target not checked out anywhere: the follow is a compare-and-swap of the ref", async () => {
   const { root } = initTempRepo("ws-cas");
   const workspaceRoot = mkWorkspaceTempDir("ws-cas-wt");
   rawGit(root, ["branch", "side"]);
@@ -213,139 +218,15 @@ test("target not checked out anywhere: the land is a compare-and-swap of the ref
 
   const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"], target: "side" });
   assert.equal(record.lease.targetBranch, "side");
+  assert.equal(record.forge?.trunk, "side");
   commitFile(record.lease.worktreePath, "src/b.ts", "export const b = 1;\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  const receipt = await manager.merge(record.workspaceId);
+  const receipt = await landWorkspace(manager, record.workspaceId);
   assert.equal(receipt.landing, "update-ref");
   assert.equal(receipt.landedIn, null);
   assert.equal(rawGit(root, ["rev-parse", "side"]), receipt.mergeCommitSha);
   assert.equal(rawGit(root, ["rev-parse", `${receipt.mergeCommitSha}^1`]), sideTip);
   assert.equal(rawGit(root, ["rev-parse", "HEAD"]), headBefore, "the checkout on main is untouched");
-
-  // CAS: the target moves while the merge gates run.
-  const commands = makeFakeCommands({
-    suite: () => {
-      rawGit(root, ["branch", "-f", "side", headBefore]);
-      return passGate("suite");
-    },
-  });
-  const moving = makeManager(root, { config: makeTestConfig(workspaceRoot), commands }).manager;
-  const second = await moving.create({ agentName: "worker", mode: "feature", writeSet: ["src"], target: "side" });
-  commitFile(second.lease.worktreePath, "src/c.ts", "export const c = 1;\n");
-  assert.equal((await moving.validate(second.workspaceId)).status, "pass");
-  await assert.rejects(() => moving.merge(second.workspaceId), throwsCode("workspace_land_refused"));
-  assert.equal(rawGit(root, ["rev-parse", "side"]), headBefore, "the ref is where the other writer put it");
-});
-
-test("a failing merge gate leaves every checkout byte-identical and adds no commit", async () => {
-  const { root } = initTempRepo("ws-gatefail");
-  const workspaceRoot = mkWorkspaceTempDir("ws-gatefail-wt");
-  const commands = makeFakeCommands({ suite: () => failGate("suite", "1 test failed") });
-  const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot), commands });
-  const before = checkoutState(root);
-  const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
-  commitFile(record.lease.worktreePath, "src/m.ts", "export const m = 1;\n");
-  assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  await assert.rejects(() => manager.merge(record.workspaceId), (error: unknown) =>
-    error instanceof WorkspaceGateFailedError && error.gateResults.some((gate) => gate.gate === "suite" && gate.status === "fail"));
-  assert.deepEqual(checkoutState(root), before);
-  assert.equal(rawGit(root, ["rev-list", "--count", "HEAD"]), "1");
-  assert.equal(manager.status(record.workspaceId).state, "active", "nothing landed: the agent fixes and re-validates");
-  assert.equal(rawGit(record.lease.worktreePath, ["symbolic-ref", "--short", "HEAD"]), record.lease.branch);
-});
-
-test("the regenerate phase: a declared generated output lands in the merge commit; an undeclared write is refused", async () => {
-  const { root } = initTempRepo("ws-regen");
-  const workspaceRoot = mkWorkspaceTempDir("ws-regen-wt");
-  commitFile(root, WHOLESALE, "export const MANIFEST = [];\n");
-  const declared = makeFakeCommands({
-    regen: (cwd) => {
-      writeFileSync(join(cwd, WHOLESALE), "export const MANIFEST = [\"regenerated\"];\n");
-      return passGate("regen");
-    },
-  });
-  const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot), commands: declared });
-  const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
-  commitFile(record.lease.worktreePath, "src/r.ts", "export const r = 1;\n");
-  assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  const receipt = await manager.merge(record.workspaceId);
-  assert.deepEqual(receipt.regeneratedPaths, [WHOLESALE]);
-  assert.equal(rawGit(root, ["show", `${receipt.mergeCommitSha}:${WHOLESALE}`]), "export const MANIFEST = [\"regenerated\"];");
-
-  const undeclared = makeFakeCommands({
-    regen: (cwd) => {
-      writeFileSync(join(cwd, "README.md"), "# rewritten by a generator nobody declared\n");
-      return passGate("regen");
-    },
-  });
-  const second = makeManager(root, { config: makeTestConfig(workspaceRoot), commands: undeclared }).manager;
-  const other = await second.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
-  commitFile(other.lease.worktreePath, "src/s.ts", "export const s = 1;\n");
-  assert.equal((await second.validate(other.workspaceId)).status, "pass");
-  const headBefore = rawGit(root, ["rev-parse", "HEAD"]);
-  await assert.rejects(() => second.merge(other.workspaceId), throwsCode("workspace_regenerate_undeclared_write"));
-  assert.equal(rawGit(root, ["rev-parse", "HEAD"]), headBefore);
-  assert.equal(rawGit(other.lease.worktreePath, ["status", "--porcelain"]), "", "the aborted merge left the worktree as it was");
-});
-
-test("not converged: a merge gate that rewrites a tracked file refuses the land and names it", async () => {
-  const { root } = initTempRepo("ws-converge");
-  const workspaceRoot = mkWorkspaceTempDir("ws-converge-wt");
-  const commands = makeFakeCommands({
-    suite: (cwd) => {
-      writeFileSync(join(cwd, "README.md"), "# a suite that rewrote a tracked file\n");
-      return passGate("suite");
-    },
-  });
-  const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot), commands });
-  const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
-  commitFile(record.lease.worktreePath, "src/c.ts", "export const c = 1;\n");
-  assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  const headBefore = rawGit(root, ["rev-parse", "HEAD"]);
-  await assert.rejects(() => manager.merge(record.workspaceId), (error: unknown) =>
-    throwsCode("workspace_gates_not_converged")(error) && String((error as Error).message).includes("README.md"));
-  assert.equal(rawGit(root, ["rev-parse", "HEAD"]), headBefore);
-  assert.equal(manager.status(record.workspaceId).state, "active");
-});
-
-test("generated-output conflicts: a pin-only change and a wholly generated file resolve to the target; an authored change is reported", async () => {
-  const { root } = initTempRepo("ws-pins");
-  const workspaceRoot = mkWorkspaceTempDir("ws-pins-wt");
-  commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
-  commitFile(root, WHOLESALE, "export const MANIFEST = [\"base\"];\n");
-  const base = rawGit(root, ["rev-parse", "HEAD"]);
-  const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
-
-  // The workspace changes a source and, as its commit regenerated them, the pin and the manifest.
-  const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
-  commitFile(record.lease.worktreePath, "src/x.ts", "export const x = 1;\n");
-  commitFile(record.lease.worktreePath, PIN_BEARING, pinned(PIN_B, "base"));
-  commitFile(record.lease.worktreePath, WHOLESALE, "export const MANIFEST = [\"base\", \"x\"];\n");
-  assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  // Meanwhile the target changed the same generated outputs (another land).
-  commitFile(root, PIN_BEARING, pinned(PIN_C, "target edit"));
-  commitFile(root, WHOLESALE, "export const MANIFEST = [\"base\", \"y\"];\n");
-  const receipt = await manager.merge(record.workspaceId);
-  assert.deepEqual([...receipt.resolvedConflicts].toSorted(), [PIN_BEARING, WHOLESALE].toSorted());
-  assert.equal(rawGit(root, ["show", `${receipt.mergeCommitSha}:${PIN_BEARING}`]), pinned(PIN_C, "target edit").trimEnd(), "resolved to the target's side (the regenerate phase re-derives it)");
-  assert.equal(readFileSync(join(root, "src/x.ts"), "utf8"), "export const x = 1;\n");
-
-  // An AUTHORED change to the pin-bearing file (not only its pin) is a source
-  // edit: it must be leased, and the target's authored edit of the same file
-  // since the base is a merged-since conflict.
-  const authored = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"], base });
-  commitFile(authored.lease.worktreePath, PIN_BEARING, pinned(PIN_B, "branch edit"));
-  commitFile(authored.lease.worktreePath, "src/y.ts", "export const y = 1;\n");
-  const unleased = await manager.validate(authored.workspaceId);
-  assert.equal(unleased.status, "fail");
-  assert.deepEqual(unleased.gates.find((gate) => gate.gate === "write-set-proof")?.details, [`unleased: ${PIN_BEARING}`]);
-  await manager.extend(authored.workspaceId, [PIN_BEARING]);
-  assert.equal((await manager.validate(authored.workspaceId)).status, "pass");
-  const headBefore = rawGit(root, ["rev-parse", "HEAD"]);
-  await assert.rejects(() => manager.merge(authored.workspaceId), (error: unknown) =>
-    error instanceof WorkspaceConflictError && error.report.kind === "dynamic-overlap" && error.report.conflicts.some((entry) => entry.path === PIN_BEARING));
-  assert.equal(rawGit(root, ["rev-parse", "HEAD"]), headBefore);
-  assert.equal(rawGit(authored.lease.worktreePath, ["status", "--porcelain"]), "", "nothing was merged in the worktree");
 });
 
 test("the lease exempts a regeneration, never a path: an authored edit of a pin-bearing file or a README's prose needs a lease, a pin or consumer-block change does not, and another workspace's lease on it holds", async () => {
@@ -354,6 +235,7 @@ test("the lease exempts a regeneration, never a path: an authored edit of a pin-
   const readme = (prose: string, block: string): string => `# Module\n\n${prose}\n\n${README_CONSUMER_BLOCK.begin}\n${block}\n${README_CONSUMER_BLOCK.end}\n`;
   commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
   commitFile(root, "src/mod/README.md", readme("Hand-written prose.", "- consumer a"));
+  pushTrunk(root);
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
 
   // Regeneration only: the pin and the consumer block change with a leased source edit.
@@ -372,13 +254,13 @@ test("the lease exempts a regeneration, never a path: an authored edit of a pin-
   assert.deepEqual(proof.details, [`unleased: ${PIN_BEARING}`, "unleased: src/mod/README.md"]);
 
   // A workspace that LEASES the pin-bearing file blocks another's authored
-  // edit of it (admission), and the merge's pending-lease check judges the
+  // edit of it (admission), and the land's pending-lease check judges the
   // authored set: a pin-only change never conflicts with that lease.
-  manager.abort(authoring.workspaceId);
+  await manager.abort(authoring.workspaceId);
   const owner = await manager.create({ agentName: "owner", mode: "feature", writeSet: [PIN_BEARING] });
   await assert.rejects(() => manager.create({ agentName: "intruder", mode: "feature", writeSet: [PIN_BEARING] }), (error: unknown) =>
     error instanceof WorkspaceConflictError && error.report.kind === "static-overlap");
-  const receipt = await manager.merge(regenerating.workspaceId);
+  const receipt = await landWorkspace(manager, regenerating.workspaceId);
   assert.ok(receipt.changedPaths.includes(PIN_BEARING), "the regenerated pin landed beside the owner's lease");
   assert.equal(manager.status(owner.workspaceId).state, "active");
 });
@@ -419,10 +301,11 @@ test("the changed set is what the merge brings: after a rebase onto the moved ta
   assert.equal(report.status, "pass");
 });
 
-test("land targets: a workspace never lands on an undeclared branch (a product branch), named or inherited from the invoking checkout", async () => {
+test("land targets: a workspace never lands on an undeclared trunk (a product branch), named or inherited from the invoking checkout", async () => {
   const { root } = initTempRepo("ws-landtarget");
   const workspaceRoot = mkWorkspaceTempDir("ws-landtarget-wt");
   rawGit(root, ["branch", "product"]);
+  trackBranch(root, "product");
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
   await assert.rejects(() => manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"], target: "product" }), throwsCode("workspace_target_not_landable"));
   const linked = join(mkWorkspaceTempDir("ws-landtarget-linked"), "product");
@@ -433,60 +316,16 @@ test("land targets: a workspace never lands on an undeclared branch (a product b
   await assert.rejects(() => fromProduct.create({ agentName: "worker", mode: "overlay", writeSet: [] }), throwsCode("workspace_target_not_landable"));
   assert.deepEqual(manager.list(), [], "nothing was reserved, snapshotted or made");
   assert.equal(rawGit(root, ["worktree", "list", "--porcelain"]).split("\n").filter((line) => line.startsWith("worktree ")).length, 2);
-  // A target removed from the declaration after create is refused at merge.
+  // A local branch whose UPSTREAM is the product trunk is refused too: the land target is the forge's branch.
+  rawGit(root, ["branch", "--track", "local-product", "origin/product"]);
+  await assert.rejects(() => manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"], target: "local-product" }), throwsCode("workspace_target_not_landable"));
+  // A trunk removed from the declaration after create is refused at land.
   const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
   commitFile(record.lease.worktreePath, "src/x.ts", "export const x = 1;\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
   const narrowed = makeManager(root, { config: makeTestConfig(workspaceRoot, { landTargets: ["side"] }) }).manager;
-  await assert.rejects(() => narrowed.merge(record.workspaceId), throwsCode("workspace_target_not_landable"));
+  await assert.rejects(() => narrowed.land(record.workspaceId), throwsCode("workspace_target_not_landable"));
   assert.equal(manager.status(record.workspaceId).state, "validating");
-});
-
-test("an integrator that died mid-merge is recovered: before the land the worktree returns to its branch (active); after it the teardown finishes (merged); a running integrator is never interrupted", async () => {
-  const { root } = initTempRepo("ws-recover");
-  const workspaceRoot = mkWorkspaceTempDir("ws-recover-wt");
-  const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
-  const store = createWorkspaceRecordStore(join(registryRoot(root), "workspaces"));
-  const dieMidMerge = async (name: string, landed: boolean): Promise<WorkspaceRecord> => {
-    const record = await manager.create({ agentName: name, mode: "feature", writeSet: [`src/${name}`] });
-    commitFile(record.lease.worktreePath, `src/${name}/f.ts`, "export const f = 1;\n");
-    assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-    // What a killed integrator leaves: the record `merging`, the worktree
-    // detached at the target with a merge in progress (or, after the land,
-    // the target holding the merge).
-    const tip = rawGit(root, ["rev-parse", "main"]);
-    rawGit(record.lease.worktreePath, ["checkout", "-q", "--detach", tip]);
-    rawGit(record.lease.worktreePath, ["merge", "-q", "--no-ff", "--no-commit", record.lease.branch!]);
-    if (landed) {
-      rawGit(record.lease.worktreePath, ["commit", "-q", "-m", "merge"]);
-      rawGit(root, ["merge", "-q", "--ff-only", rawGit(record.lease.worktreePath, ["rev-parse", "HEAD"])]);
-    }
-    const current = store.load(record.workspaceId)!;
-    store.save({ ...current, state: "merging", history: [...current.history, { from: current.state, to: "merging", at: new Date().toISOString(), reason: "the integrator took the merge lock" }] });
-    assert.throws(() => manager.abort(record.workspaceId), throwsCode("workspace_abort_denied"));
-    return record;
-  };
-
-  const before = await dieMidMerge("before", false);
-  // While an integrator holds the merge lock, nothing recovers.
-  const lockDirectory = join(registryRoot(root), "locks");
-  const held = await acquireLock(registryRoot(root), "workspace-merge", { lockDirectory, owner: "a live integrator" });
-  await assert.rejects(() => manager.recover(before.workspaceId), throwsCode("workspace_recover_denied"));
-  assert.deepEqual(await manager.sweep(), [], "the sweep leaves a running integrator's workspace to it");
-  held.release();
-  const recovered = await manager.recover(before.workspaceId);
-  assert.equal(recovered.state, "active");
-  assert.equal(rawGit(before.lease.worktreePath, ["symbolic-ref", "--short", "HEAD"]), before.lease.branch);
-  assert.equal(rawGit(before.lease.worktreePath, ["status", "--porcelain"]), "");
-  assert.equal(existsSync(join(root, "src/before/f.ts")), false, "nothing landed");
-
-  const after = await dieMidMerge("after", true);
-  assert.deepEqual(await manager.sweep(), [after.workspaceId], "the sweep recovers a dead integrator's workspace");
-  const merged = manager.status(after.workspaceId);
-  assert.equal(merged.state, "merged");
-  assert.equal(existsSync(after.lease.worktreePath), false);
-  assert.equal(rawGit(root, ["branch", "--list", after.lease.branch!]), "");
-  assert.equal(readFileSync(join(root, "src/after/f.ts"), "utf8"), "export const f = 1;\n");
 });
 
 test("record writes are a compare-and-swap: a validate that read the record before an extend refuses to overwrite it", async () => {
@@ -508,9 +347,10 @@ test("record writes are a compare-and-swap: a validate that read the record befo
   assert.throws(() => manager.status("../workspaces/x"), throwsCode("workspace_id_invalid"), "an id never names a path outside the registry");
 });
 
-test("the land refuses a dirty overlap even when the repository sets merge.autostash: nothing moves and nothing is stashed", async () => {
+test("the follow refuses a dirty overlap even when the repository sets merge.autostash: nothing local moves and nothing is stashed", async () => {
   const { root } = initTempRepo("ws-autostash");
   commitFile(root, "src/a.txt", "one\n");
+  pushTrunk(root);
   rawGit(root, ["config", "merge.autostash", "true"]);
   writeFileSync(join(root, "src/a.txt"), "one, dirty in the canonical checkout\n");
   const before = checkoutState(root);
@@ -518,52 +358,40 @@ test("the land refuses a dirty overlap even when the repository sets merge.autos
   const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
   commitFile(record.lease.worktreePath, "src/a.txt", "two\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  await assert.rejects(() => manager.merge(record.workspaceId), throwsCode("workspace_land_refused"));
+  assert.equal((await landWorkspace(manager, record.workspaceId)).landing, "refused");
   assert.deepEqual(checkoutState(root), before);
   assert.equal(readFileSync(join(root, "src/a.txt"), "utf8"), "one, dirty in the canonical checkout\n");
   assert.equal(rawGit(root, ["stash", "list"]), "", "no autostash entry");
 });
 
-test("the merge's own checks: a pending lease on a changed path (a record admitted elsewhere) and a base past the staleness budget are refused", async () => {
-  const { root } = initTempRepo("ws-merge-checks");
+test("the land's own checks: a pending lease on a changed path (a record admitted elsewhere) and a trunk past the staleness budget are refused before the forge is asked", async () => {
+  const { root, bare } = initTempRepo("ws-merge-checks");
   const workspaceRoot = mkWorkspaceTempDir("ws-merge-checks-wt");
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot, { baseStalenessCommits: 1 }) });
   const store = createWorkspaceRecordStore(join(registryRoot(root), "workspaces"));
   const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
   commitFile(record.lease.worktreePath, "src/f.ts", "export const f = 1;\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
+  await manager.publish(record.workspaceId);
+  await manager.ready(record.workspaceId);
   // A pending lease admission never let in (another tool's record, an older revision).
   const intruder = await manager.create({ agentName: "other", mode: "feature", writeSet: ["docs"] });
   const stored = store.load(intruder.workspaceId)!;
   store.save({ ...stored, lease: { ...stored.lease, writeSet: ["src/f.ts"] } });
-  await assert.rejects(() => manager.merge(record.workspaceId), (error: unknown) =>
+  await assert.rejects(() => manager.land(record.workspaceId), (error: unknown) =>
     error instanceof WorkspaceConflictError && error.report.conflicts.some((entry) => entry.otherWorkspaceId === intruder.workspaceId));
-  manager.abort(intruder.workspaceId);
+  await manager.abort(intruder.workspaceId);
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
   commitFile(root, "elsewhere/1.txt", "1\n");
   commitFile(root, "elsewhere/2.txt", "2\n");
-  await assert.rejects(() => manager.merge(record.workspaceId), (error: unknown) =>
+  pushTrunk(root);
+  await assert.rejects(() => manager.land(record.workspaceId), (error: unknown) =>
     error instanceof WorkspaceConflictError && error.report.conflicts.some((entry) => entry.path === "(base)"));
   assert.equal(manager.status(record.workspaceId).state, "active");
+  assert.equal(forgeAt(bare).calls.filter((call) => call.op === "requestMerge").length, 0, "the forge was never asked");
 });
 
 
-
-test("a merge whose tree validate --full already qualified does not run the merge gates twice", async () => {
-  const { root } = initTempRepo("ws-full");
-  const workspaceRoot = mkWorkspaceTempDir("ws-full-wt");
-  const commands = makeFakeCommands();
-  const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot), commands });
-  const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
-  commitFile(record.lease.worktreePath, "src/f.ts", "export const f = 1;\n");
-  const report = await manager.validate(record.workspaceId, { full: true });
-  assert.equal(report.status, "pass");
-  assert.equal(report.full, true);
-  assert.deepEqual(report.gates.map((gate) => gate.gate), ["write-set-proof", "unit", "regen", "converged", "suite"]);
-  const receipt = await manager.merge(record.workspaceId);
-  assert.deepEqual(commands.calls.map((call) => call.name), ["unit", "regen", "suite", "regen"], "the merge re-ran regenerate but not the qualified merge gates");
-  assert.ok(receipt.gateResults.some((gate) => gate.gate === "merge-gates" && gate.status === "skip"));
-});
 
 test("validate --full refuses a branch whose commits the regenerate phase would still change", async () => {
   const { root } = initTempRepo("ws-fullconv");
@@ -612,7 +440,7 @@ test("static conflict: overlapping write sets reject the second admission", asyn
     error instanceof WorkspaceConflictError && error.report.kind === "static-overlap" && error.report.conflicts[0]!.path === "src/shared");
 });
 
-test("an expired lease holds nothing: an overlapping successor is admitted and merges, and the expired workspace is left as it was", async () => {
+test("an expired lease holds nothing: an overlapping successor is admitted and lands, and the expired workspace is left as it was", async () => {
   const { root } = initTempRepo("ws-expired");
   const workspaceRoot = mkWorkspaceTempDir("ws-expired-wt");
   const config = makeTestConfig(workspaceRoot);
@@ -635,14 +463,14 @@ test("an expired lease holds nothing: an overlapping successor is admitted and m
   }
   commitFile(successor.lease.worktreePath, "src/shared/inner/x.ts", "export const x = 1;\n");
   assert.equal((await later.validate(successor.workspaceId)).status, "pass");
-  assert.equal((await later.merge(successor.workspaceId)).changedPaths[0], "src/shared/inner/x.ts", "the merge's pending-lease check skips the expired lease too");
+  assert.equal((await landWorkspace(later, successor.workspaceId)).changedPaths[0], "src/shared/inner/x.ts", "the land's pending-lease check skips the expired lease too");
   const untouched = later.status(expired.workspaceId);
   assert.equal(untouched.state, "active", "admission never ends the expired workspace: only its own verbs or a sweep do");
   assert.ok(existsSync(expired.lease.worktreePath), "its worktree is kept");
   assert.notEqual(rawGit(root, ["branch", "--list", expired.lease.branch!]), "", "its branch is kept");
 });
 
-test("a MERGING workspace keeps its paths past its lease's expiry: its integrator owns them until the land (correctness N2)", async () => {
+test("a MERGING workspace keeps its paths past its lease's expiry: its land owns them until it ends (correctness N2)", async () => {
   const { root } = initTempRepo("ws-merging-expired");
   const workspaceRoot = mkWorkspaceTempDir("ws-merging-expired-wt");
   const config = makeTestConfig(workspaceRoot);
@@ -652,7 +480,7 @@ test("a MERGING workspace keeps its paths past its lease's expiry: its integrato
   commitFile(merging.lease.worktreePath, "src/shared/x.ts", "export const x = 1;\n");
   assert.equal((await manager.validate(merging.workspaceId)).status, "pass");
   const current = store.load(merging.workspaceId)!;
-  store.save({ ...current, state: "merging", history: [...current.history, { from: current.state, to: "merging", at: new Date().toISOString(), reason: "the integrator took the merge lock" }] });
+  store.save({ ...current, state: "merging", history: [...current.history, { from: current.state, to: "merging", at: new Date().toISOString(), reason: "the land was requested" }] });
   const later = makeManager(root, { config, now: () => new Date(Date.now() + 2 * config.leaseTtlMs) }).manager;
   await assert.rejects(() => later.create({ agentName: "agentB", mode: "feature", writeSet: ["src/shared/inner"] }), (error: unknown) =>
     error instanceof WorkspaceConflictError && error.report.kind === "static-overlap", "an expired but MERGING lease still holds its paths");
@@ -685,43 +513,49 @@ test("never-leasable: a wholly generated output or a state path cannot enter a w
   assert.deepEqual(record.lease.writeSet, [PIN_BEARING]);
 });
 
-test("dynamic conflict: a path merged to the target since the base must be rebased and re-validated", async () => {
-  const { root } = initTempRepo("ws-dynamic");
+test("dynamic conflict: a path landed on the trunk since the fork point must be rebased, published and re-validated before the forge is asked", async () => {
+  const { root, bare } = initTempRepo("ws-dynamic");
   const workspaceRoot = mkWorkspaceTempDir("ws-dynamic-wt");
   const baseSha = commitFile(root, "src/x/file.txt", "one\ntwo\nthree\n");
+  pushTrunk(root);
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
   const first = await manager.create({ agentName: "agentA", mode: "feature", writeSet: ["src/x"], base: baseSha });
   commitFile(first.lease.worktreePath, "src/x/file.txt", "ONE\ntwo\nthree\n");
   assert.equal((await manager.validate(first.workspaceId)).status, "pass");
-  await manager.merge(first.workspaceId);
+  await landWorkspace(manager, first.workspaceId);
 
-  // B pins its base BEFORE A's merge; A is terminal so admission is legal.
+  // B pins its base BEFORE A's land; A is terminal so admission is legal.
   const second = await manager.create({ agentName: "agentB", mode: "feature", writeSet: ["src/x"], base: baseSha });
   commitFile(second.lease.worktreePath, "src/x/file.txt", "one\ntwo\nTHREE\n");
   assert.equal((await manager.validate(second.workspaceId)).status, "pass");
-  await assert.rejects(() => manager.merge(second.workspaceId), (error: unknown) =>
+  const requests = (): number => forgeAt(bare).calls.filter((call) => call.op === "requestMerge").length;
+  const asked = requests();
+  await assert.rejects(() => landWorkspace(manager, second.workspaceId), (error: unknown) =>
     error instanceof WorkspaceConflictError && error.report.kind === "dynamic-overlap" && error.report.conflicts.some((entry) => entry.path === "src/x/file.txt"));
   assert.equal(manager.status(second.workspaceId).state, "active");
+  assert.equal(requests(), asked, "the forge was never asked");
 
-  // The repair path: rebase onto the target (disjoint hunks), re-validate, land.
-  rawGit(second.lease.worktreePath, ["rebase", "main"]);
+  // The repair path: rebase onto the trunk (disjoint hunks), re-validate, publish, land.
+  rawGit(second.lease.worktreePath, ["rebase", "-q", "origin/main"]);
   assert.equal((await manager.validate(second.workspaceId)).status, "pass");
-  await manager.merge(second.workspaceId);
+  await landWorkspace(manager, second.workspaceId);
   assert.equal(readFileSync(join(root, "src/x/file.txt"), "utf8"), "ONE\ntwo\nTHREE\n");
 });
 
-test("textual conflict: a file/directory conflict with the target is reported and the target is untouched", async () => {
-  const { root, baseSha } = initTempRepo("ws-textual");
+test("textual conflict: a file/directory conflict with the trunk leaves the merge queue unlanded; the record goes back to active and the trunk is untouched", async () => {
+  const { root, baseSha, bare } = initTempRepo("ws-textual");
   const workspaceRoot = mkWorkspaceTempDir("ws-textual-wt");
   commitFile(root, "blk", "a file named blk\n");
+  pushTrunk(root);
   const canonicalHead = rawGit(root, ["rev-parse", "HEAD"]);
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot, { baseStalenessCommits: 50 }) });
   const record = await manager.create({ agentName: "agentB", mode: "feature", writeSet: ["blk"], base: baseSha });
   commitFile(record.lease.worktreePath, "blk/inner.txt", "nested\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  await assert.rejects(() => manager.merge(record.workspaceId), (error: unknown) =>
-    error instanceof WorkspaceConflictError && error.report.conflicts.length > 0);
+  await assert.rejects(() => landWorkspace(manager, record.workspaceId), throwsCode("workspace_land_dequeued"));
   assert.equal(manager.status(record.workspaceId).state, "active");
+  assert.equal(manager.status(record.workspaceId).forge?.mergeRequest, null, "the ended request is forgotten");
+  assert.equal(rawGit(bare, ["rev-parse", "main"]), canonicalHead, "the forge's trunk is untouched");
   assert.equal(rawGit(root, ["rev-parse", "HEAD"]), canonicalHead);
 });
 
@@ -808,15 +642,29 @@ test("a workspace root on another filesystem is refused before anything is made"
   }
 });
 
-test("merge precondition: an unvalidated workspace cannot merge", async () => {
-  const { root } = initTempRepo("ws-precondition");
+test("land preconditions: unvalidated, unpublished, not ready, unpublished work, and a validation of another tree are each refused before the forge is asked", async () => {
+  const { root, bare } = initTempRepo("ws-precondition");
   const workspaceRoot = mkWorkspaceTempDir("ws-precondition-wt");
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
   const record = await manager.create({ agentName: "agentA", mode: "feature", writeSet: ["src/p"] });
-  await assert.rejects(() => manager.merge(record.workspaceId), throwsCode("workspace_merge_precondition_failed"));
+  await assert.rejects(() => manager.land(record.workspaceId), throwsCode("workspace_land_precondition_failed"));
+  commitFile(record.lease.worktreePath, "src/p/a.ts", "export const a = 1;\n");
+  assert.equal((await manager.validate(record.workspaceId)).status, "pass");
+  await assert.rejects(() => manager.land(record.workspaceId), throwsCode("workspace_not_published"));
+  await manager.publish(record.workspaceId);
+  await assert.rejects(() => manager.land(record.workspaceId), throwsCode("workspace_not_ready"));
+  await manager.ready(record.workspaceId);
+  commitFile(record.lease.worktreePath, "src/p/b.ts", "export const b = 1;\n");
+  await assert.rejects(() => manager.land(record.workspaceId), throwsCode("workspace_unpublished_commits"));
+  await manager.publish(record.workspaceId);
+  await assert.rejects(() => manager.land(record.workspaceId), throwsCode("workspace_validation_stale"));
+  assert.equal(forgeAt(bare).calls.filter((call) => call.op === "requestMerge").length, 0, "the forge was never asked");
+  assert.equal(manager.status(record.workspaceId).state, "validating", "a refused precondition changes nothing");
+  const verifier = await manager.create({ agentName: "verifier", mode: "read-only", writeSet: [] });
+  await assert.rejects(() => manager.land(verifier.workspaceId), throwsCode("workspace_read_only"));
 });
 
-test("timeline shard import: an actual merge imports every page and retains the source after teardown", async () => {
+test("timeline shard import: an actual land imports every page and retains the source after teardown", async () => {
   const { root } = initTempRepo("ws-timeline");
   const workspaceRoot = mkWorkspaceTempDir("ws-timeline-wt");
   const hooks = createWorkspaceTimelineHooks(registryOf(root), { queryDefaultLimit: 37 });
@@ -829,6 +677,8 @@ test("timeline shard import: an actual merge imports every page and retains the 
   const record = await manager.create({ agentName: "agentA", mode: "feature", writeSet: ["src/t"] });
   commitFile(record.lease.worktreePath, "src/t/t.ts", "export const t = 1;\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
+  await manager.publish(record.workspaceId);
+  await manager.ready(record.workspaceId);
   const shard = timeline.openShard(record.workspaceId);
   let sourceEvents: number;
   try {
@@ -838,7 +688,7 @@ test("timeline shard import: an actual merge imports every page and retains the 
     sourceEvents = shard.count();
   } finally { shard.close(); }
   pageLimits.length = 0;
-  const receipt = await manager.merge(record.workspaceId);
+  const receipt = await manager.land(record.workspaceId);
   assert.equal(pageLimits.length, Math.ceil(sourceEvents / 37));
   assert.ok(pageLimits.every((limit) => limit === 37), "manager forwards the configured bounded page limit");
   const imported = timeline.openCanonical();
@@ -892,7 +742,7 @@ test("workspace timeline hooks capture config once and forward document, edge an
 });
 
 for (const failure of ["canonical-open", "canonical-close", "shard-close", "import-conflict"] as const) {
-  test(`actual merge ${failure} after the land preserves the source and closes acquired handles`, async () => {
+  test(`actual land ${failure} after the forge merged preserves the source and closes acquired handles`, async () => {
     const { root } = initTempRepo("ws-import-failure");
     const workspaceRoot = mkWorkspaceTempDir("ws-import-failure-wt");
     const hooks = createWorkspaceTimelineHooks(registryOf(root));
@@ -921,6 +771,8 @@ for (const failure of ["canonical-open", "canonical-close", "shard-close", "impo
     const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src/change"] });
     commitFile(record.lease.worktreePath, "src/change/new.ts", "export const x = 1;\n");
     await manager.validate(record.workspaceId);
+    await manager.publish(record.workspaceId);
+    await manager.ready(record.workspaceId);
     const source = hooks.openShard(record.workspaceId);
     const sourceBefore = source.query(); source.close();
     if (failure === "import-conflict") {
@@ -929,7 +781,7 @@ for (const failure of ["canonical-open", "canonical-close", "shard-close", "impo
       finally { canonical.close(); }
     }
     active = true;
-    await assert.rejects(() => manager.merge(record.workspaceId), failure === "import-conflict" ? throwsCode("workspace_shard_identity_conflict") : (error: unknown) => error === injected);
+    await assert.rejects(() => manager.land(record.workspaceId), failure === "import-conflict" ? throwsCode("workspace_shard_identity_conflict") : (error: unknown) => error === injected);
     assert.equal(shardCloses, 1, "acquired shard closes even if canonical open or close fails");
     assert.equal(canonicalCloses, failure === "canonical-open" ? 0 : 1, "acquired canonical handle closes even if shard close fails");
     assert.throws(() => heldShard!.count(), { code: "ERR_INVALID_STATE" });
@@ -938,13 +790,23 @@ for (const failure of ["canonical-open", "canonical-close", "shard-close", "impo
     const current = manager.status(record.workspaceId);
     assert.equal(current.state, "merging");
     assert.equal(current.mergeReceipt, null);
-    assert.equal(existsSync(join(root, "src/change/new.ts")), true, "the land precedes the import; no rollback is promised");
-    // No integrator holds the merge lock any more: recover finishes the teardown.
-    const recovered = await manager.recover(record.workspaceId);
-    assert.equal(recovered.state, "merged");
-    assert.match(recovered.history.at(-1)!.reason, /^recovered: the land on main had happened/u);
-    assert.equal(existsSync(record.lease.worktreePath), false);
-    assert.equal(rawGit(root, ["branch", "--list", record.lease.branch!]), "");
+    assert.equal(existsSync(join(root, "src/change/new.ts")), true, "the land and the follow precede the import; no rollback is promised");
+    // One look at the forge: it merged, so recover finishes the import and the teardown —
+    // except a CONFLICTING import, which is never skipped: the record waits for its owner.
+    active = false;
+    importing = false;
+    if (failure === "import-conflict") {
+      await assert.rejects(() => manager.recover(record.workspaceId), throwsCode("workspace_shard_identity_conflict"));
+      assert.equal(manager.status(record.workspaceId).state, "merging");
+      assert.equal(existsSync(record.lease.worktreePath), true, "nothing is torn down past an unfinished import");
+    } else {
+      const recovered = await manager.recover(record.workspaceId);
+      assert.equal(recovered.state, "merged");
+      assert.equal(recovered.mergeReceipt?.landing, "current", "the checkout had already followed");
+      assert.match(recovered.history.at(-1)!.reason, /^landed on the forge/u);
+      assert.equal(existsSync(record.lease.worktreePath), false);
+      assert.equal(rawGit(root, ["branch", "--list", record.lease.branch!]), "");
+    }
     const retained = hooks.openShard(record.workspaceId);
     const canonical = hooks.openCanonical();
     try {
@@ -957,7 +819,7 @@ for (const failure of ["canonical-open", "canonical-close", "shard-close", "impo
 }
 
 for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as const) {
-  test(`actual merge ${failure} after the land retains the shard and never reports a completed merged state`, async () => {
+  test(`actual land ${failure} after the forge merged retains the shard and never reports a completed merged state`, async () => {
     const { root } = initTempRepo("ws-teardown-failure");
     const workspaceRoot = mkWorkspaceTempDir("ws-teardown-failure-wt");
     const config = makeTestConfig(workspaceRoot);
@@ -966,6 +828,8 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
     const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src/change"] });
     commitFile(record.lease.worktreePath, "src/change/new.ts", "export const x = 1;\n");
     await manager.validate(record.workspaceId);
+    await manager.publish(record.workspaceId);
+    await manager.ready(record.workspaceId);
     let persisted: WorkspaceRecord = manager.status(record.workspaceId);
     const injected = new Error(`injected ${failure}`);
     let inject = true;
@@ -975,13 +839,13 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
       return persisted;
     } };
     const failing = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), repository: testRepository,
-      records,
+      forge: fakeForgeFactory, sleep: advanceEveryQueue, records,
       git: { ...git,
         worktreeRemove(options) { if (failure === "worktree-remove") throw injected; return git.worktreeRemove(options); },
         deleteBranch(...args) { if (failure === "branch-delete") throw injected; return git.deleteBranch(...args); },
       },
     });
-    await assert.rejects(() => failing.merge(record.workspaceId), (error: unknown) => error === injected);
+    await assert.rejects(() => failing.land(record.workspaceId), (error: unknown) => error === injected);
     assert.equal(persisted.state, "merging");
     assert.equal(persisted.mergeReceipt, null);
     assert.equal(existsSync(record.lease.worktreePath), failure === "worktree-remove", "partial teardown remains visible; it is not rolled back");
@@ -994,9 +858,9 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
       assert.equal(source.verifyChain().valid, true);
       assert.equal(canonical.verifyChain().valid, true);
     } finally { source.close(); canonical.close(); }
-    // The integrator is gone: recover finishes whatever teardown remained.
+    // One look at the forge (it merged): recover finishes whatever teardown remained.
     inject = false;
-    const recovering = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), repository: testRepository, records, git });
+    const recovering = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), repository: testRepository, forge: fakeForgeFactory, records, git });
     assert.equal((await recovering.recover(record.workspaceId)).state, "merged");
     assert.equal(existsSync(record.lease.worktreePath), false);
     assert.equal(rawGit(root, ["branch", "--list", record.lease.branch!]), "");
@@ -1010,6 +874,7 @@ test("a ledger-judged suite gate: the target's tip is measured like for like in 
   const older = rawGit(root, ["rev-parse", "HEAD"]);
   commitFile(root, "src/older.ts", "export const older = 1;\n");
   const target = rawGit(root, ["rev-parse", "HEAD"]);
+  pushTrunk(root);
   assert.notEqual(older, target);
   // A row as the runners write it: the HEAD it ran at and the tree it measured.
   const row = (headSha: string, failures: Readonly<Record<string, string>>, timestamp: string, extra: Readonly<Record<string, unknown>> = {}) =>
@@ -1081,7 +946,7 @@ test("a ledger-judged suite gate: the target's tip is measured like for like in 
   assert.equal(qualified.status, "pass", "the owned failure persists on the target: nothing new, the gate passes despite the suite's exit status");
   assert.match(qualified.gates.find((gate) => gate.gate === "suite")!.message, new RegExp(`no new, changed or unowned failure \\(1 persisting \\(1 owned\\), 0 fixed, against the run of ${target}`, "u"));
 
-  const receipt = await qualifier.merge(workspace.workspaceId);
+  const receipt = await landWorkspace(qualifier, workspace.workspaceId);
   assert.deepEqual(receipt.importedRuns, ["web: 1"], "only the run of the landed tree is imported, never the target's baseline");
   const landed = JSON.parse(readFileSync(join(root, ledger), "utf8")) as { runs: Readonly<Record<string, unknown>>[] };
   assert.equal(landed.runs.length, 4);
@@ -1458,9 +1323,9 @@ test("a workspace's snapshot refs go with it at abort (A5-design L4), and stay w
     manager.snapshot(workspace.workspaceId, "two");
     assert.equal(refsOf(workspace.workspaceId).length, 2);
   }
-  manager.abort(aborted.workspaceId);
+  await manager.abort(aborted.workspaceId);
   assert.deepEqual(refsOf(aborted.workspaceId), [], "an aborted workspace leaves no snapshot ref");
-  manager.abort(kept.workspaceId, { quarantine: true });
+  await manager.abort(kept.workspaceId, { quarantine: true });
   assert.equal(refsOf(kept.workspaceId).length, 2, "a quarantined workspace keeps its recovery points");
   // Its quarantine expired: the sweep removes the worktree, the branch and the recovery points (A5-correctness L2).
   const later = makeManager(root, { config, now: () => new Date(Date.now() + 2 * config.quarantineTtlMs) }).manager;
@@ -1604,19 +1469,20 @@ test("every move of a worktree keeps the config's 0600: the target-baseline chec
   assert.equal(statSync(join(workspace.lease.worktreePath, configFile)).mode & 0o777, 0o600, "back on the branch, the config is 0600");
 });
 
-test("a land keeps the canonical config's 0600: the merge's fast-forward rewrites the config the branch changed, and the one settle point re-applies the mode in the landing checkout (measured without it: 0664, and every harness command there refused)", async () => {
+test("a land keeps the canonical config's 0600: the follow's fast-forward rewrites the config the branch changed, and the one settle point re-applies the mode in the landing checkout (measured without it: 0664, and every harness command there refused)", async () => {
   const { root } = initTempRepo("ws-land-mode");
   const configFile = "engine/bridlewise.config.json";
   commitFile(root, configFile, "{}\n");
+  pushTrunk(root);
   chmodSync(join(root, configFile), 0o600);
   const config = makeTestConfig(mkWorkspaceTempDir("ws-land-mode-wt"), { phases: { setup: [], validate: [], regenerate: [], merge: [] } });
   const { manager } = makeManager(root, { config });
   const workspace = await manager.create({ agentName: "worker", mode: "feature", writeSet: [configFile] });
   commitFile(workspace.lease.worktreePath, configFile, "{ }\n");
   assert.equal((await manager.validate(workspace.workspaceId)).status, "pass");
-  const receipt = await manager.merge(workspace.workspaceId);
+  const receipt = await landWorkspace(manager, workspace.workspaceId);
   assert.equal(receipt.landing, "fast-forward");
-  assert.equal(readFileSync(join(root, configFile), "utf8"), "{ }\n", "the land rewrote the config");
+  assert.equal(readFileSync(join(root, configFile), "utf8"), "{ }\n", "the follow rewrote the config");
   assert.equal(statSync(join(root, configFile)).mode & 0o777, 0o600, "the landing checkout's config keeps 0600");
 });
 
@@ -1636,18 +1502,19 @@ test("a read-only create does not run a heavy setup instrument (it never waits f
   assert.deepEqual(ran, [writer.lease.worktreePath], "a feature create warms its checkout");
 });
 
-test("the merge receipt lists every frozen-record acceptance the merge lands, for review (design MED-3)", async () => {
+test("the land's receipt lists every frozen-record acceptance the land brings, for review (design MED-3)", async () => {
   const { root } = initTempRepo("ws-frozen-receipt");
   const manifest = ROOT_POLICY.verification.frozenRecordManifest;
   const base = { schemaVersion: "bridlewise-frozen-records/v1", files: { "docs/history/a.md": "a".repeat(64) } };
   commitFile(root, manifest, `${JSON.stringify(base, null, 2)}\n`);
+  pushTrunk(root);
   const config = makeTestConfig(mkWorkspaceTempDir("ws-frozen-receipt-wt"), { phases: { setup: [], validate: [], regenerate: [], merge: [] } });
   const { manager } = makeManager(root, { config });
   const workspace = await manager.create({ agentName: "worker", mode: "feature", writeSet: [manifest] });
   const acceptance = { path: "docs/history/a.md", from: "a".repeat(64), to: "b".repeat(64), reason: "corrected by its author", acceptedAt: "2026-10-11T00:00:00.000Z" };
   commitFile(workspace.lease.worktreePath, manifest, `${JSON.stringify({ ...base, files: { "docs/history/a.md": "b".repeat(64) }, acceptances: [acceptance] }, null, 2)}\n`);
   assert.equal((await manager.validate(workspace.workspaceId)).status, "pass");
-  const receipt = await manager.merge(workspace.workspaceId);
+  const receipt = await landWorkspace(manager, workspace.workspaceId);
   assert.deepEqual(receipt.frozenAcceptances, [acceptance]);
 });
 

@@ -1,7 +1,7 @@
 /**
  * THE ONE INSTRUMENT LOCK OF THE HOST (L-2026-10-04-serialized-heavy-slot-is-exclusive;
  * UR-16, UR-18, UR-23). Every heavy instrument — a whole suite, a coverage
- * run, a browser profile or e2e run, `ws validate`/`ws merge`, an ad-hoc load
+ * run, a browser profile or e2e run, `ws validate`, an ad-hoc load
  * run (`harness slot run -- <command>`) — holds ONE lock of this host, so no
  * two instruments ever share the cores, in one checkout or across checkouts.
  * A second heavy run WAITS, saying who holds the lock; it never fails for the

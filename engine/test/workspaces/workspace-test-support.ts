@@ -27,6 +27,7 @@ import {
 import { repositoryRegistry, type RepositoryRegistry } from "../../src/workflow/repository-registry.ts";
 import type { GitRepository } from "../../src/git/tree-reader.ts";
 import type { WorkspaceForgeFactory } from "../../src/workflow/workspace-forge.ts";
+import type { MergeReceipt } from "../../src/workflow/workspace-contracts.ts";
 import { createFakeForge, type FakeForge } from "./fake-forge.ts";
 
 /**
@@ -90,6 +91,11 @@ export function trackBranch(root: string, branch: string): void {
   rawGit(root, ["push", "-q", "-u", "origin", `${branch}:${branch}`]);
 }
 
+/** Publishes the checkout's `main` to the forge's remote: the trunk moved (another land). */
+export function pushTrunk(root: string): void {
+  rawGit(root, ["push", "-q", "origin", "main"]);
+}
+
 /** The binary-safe git of a test checkout (PATH's git, the inspect ceiling). */
 export function testRepository(root: string): GitRepository {
   return deepFreeze({ root, executable: resolveGitExecutable(), timeoutMs: TEST_TIMEOUTS.inspectMs });
@@ -105,6 +111,22 @@ export function forgeAt(remoteUrl: string): FakeForge {
     FORGES.set(remoteUrl, forge);
   }
   return forge;
+}
+
+/** One step of every fake forge's merge queue: the tests' wait between two looks at a land. */
+export async function advanceEveryQueue(): Promise<void> {
+  for (const forge of FORGES.values()) forge.advanceQueue();
+}
+
+/**
+ * The whole way of a validated workspace onto the trunk: a published round
+ * (its draft pull request), ready, and the land through the fake forge's
+ * queue; answers the receipt.
+ */
+export async function landWorkspace(manager: WorkspaceManager, workspaceId: string): Promise<MergeReceipt> {
+  await manager.publish(workspaceId);
+  await manager.ready(workspaceId);
+  return manager.land(workspaceId);
 }
 
 /** The test factory: each target's remote answers through its {@link forgeAt} fake. */
@@ -140,7 +162,6 @@ export const TEST_INTEGRATOR_IDENTITY: GitIdentity = deepFreeze({
 export const TEST_TIMEOUTS: WorkspaceManagerTimeouts = deepFreeze({
   worktreeMs: 30_000,
   inspectMs: 30_000,
-  mergeMs: 30_000,
   fetchMs: 30_000,
 });
 
@@ -165,6 +186,8 @@ export function makeTestConfig(workspaceRoot: string, overrides: Partial<Workspa
     // The fixtures' branches a workspace may land on; `product` never is (the
     // land-target refusal's tests use it).
     landTargets: deepFreeze(["main", "side", "testing", "other"]),
+    // The fake forge's queue advances on every wait ({@link makeManager}'s sleep).
+    landing: deepFreeze({ pollIntervalMs: 1, timeoutMs: 60_000 }),
     killGraceMs: 1_000,
     links: [],
     commands: deepFreeze({ unit: FAKE_COMMAND, regen: FAKE_COMMAND, suite: FAKE_COMMAND }),
@@ -253,6 +276,8 @@ export function makeManager(
     engineRelative?: string;
     /** The forge factory (default: the fake forges); `null`: none configured. */
     forge?: WorkspaceForgeFactory | null;
+    /** The wait between two looks at a land (default: one step of every fake forge's queue). */
+    sleep?: (ms: number) => Promise<void>;
   }>,
 ): ManagerFixture {
   const git = options.git ?? makeGitPort(options.config.branchNamespace);
@@ -263,6 +288,7 @@ export function makeManager(
     git,
     repository: testRepository,
     ...(options.forge === null ? {} : { forge: options.forge ?? fakeForgeFactory }),
+    sleep: options.sleep ?? advanceEveryQueue,
     commands: options.commands ?? makeFakeCommands(),
     timeouts: TEST_TIMEOUTS,
     identity: TEST_INTEGRATOR_IDENTITY,

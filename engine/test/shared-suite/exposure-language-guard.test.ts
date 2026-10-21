@@ -492,11 +492,11 @@ const VERIFIED_NON_IMMEDIATE: ReadonlyMap<string, string> = new Map([
   ],
   [
     "workspaceGit.timeoutsAddMs",
-    "engine/src/workflow/workspace-cli.ts resolves the workspaceGit section from the pinned config document once per command invocation (runWorkspaceCli) and threads timeouts.addMs into the worktree operations — worktreeAdd/worktreeAddDetached at create, worktreeRemove/worktreeLock/worktreeUnlock at abort, sweep and teardown, and the land (mergeFfOnly, updateRef) — so the honest timing is next-run; engine/test/workflow/harness-commands-timeouts.test.ts proves the resolution reads the configured addMs from the pinned file",
+    "engine/src/workflow/workspace-cli.ts resolves the workspaceGit section from the pinned config document once per command invocation (runWorkspaceCli) and threads timeouts.addMs into the worktree operations — worktreeAdd/worktreeAddDetached at create, worktreeRemove/worktreeLock/worktreeUnlock at abort, sweep and teardown, and the land's local follow (mergeFfOnly, updateRef) — so the honest timing is next-run; engine/test/workflow/harness-commands-timeouts.test.ts proves the resolution reads the configured addMs from the pinned file",
   ],
   [
     "workspaceGit.timeoutsCommitMs",
-    "engine/src/workflow/workspace-cli.ts resolves the workspaceGit section from the pinned config document once per command invocation (runWorkspaceCli) and threads timeouts.commitMs into the workspace merge commit (workspace-manager.ts merge: git.commit, whose hooks run the commit guard), so the honest timing is next-run; engine/test/workflow/harness-commands-timeouts.test.ts proves the resolution reads the configured commitMs from the pinned file",
+    "engine/src/workflow/promotion/apply.ts resolves the workspaceGit section from the pinned config document once per promotion (worktreeOperationTimeouts over the run's document, a fresh process per `harness promote` run) and threads timeouts.commitMs into the candidate's commit (commitCandidate: git.commit, whose hooks run the commit guard), so the honest timing is next-run; engine/test/workflow/harness-commands-timeouts.test.ts proves the resolution reads the configured commitMs from the pinned file",
   ],
   [
     "testExecution.runtimeBudgetMs",

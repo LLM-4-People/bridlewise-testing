@@ -293,6 +293,7 @@ function fixtureDocument(commands: WorkspaceIsolationConfig["commands"], workRoo
       admissionLock: lock,
       mergeLock: lock,
       landTargets: [SOURCE],
+      landing: { pollIntervalMs: 1, timeoutMs: 1_000 },
       killGraceMs: 1_000,
       links: [],
       commands,

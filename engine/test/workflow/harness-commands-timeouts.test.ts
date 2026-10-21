@@ -58,9 +58,10 @@ test("harness-commands source: runTypecheck consumes its config resolver, not an
 });
 
 test("workspace-cli source: the workspace command resolves its timeouts from the pinned config document, not inline literals", () => {
-  // The workspace command is the live consumer of the section's timeouts: it
-  // threads addMs/inspectMs/commitMs into the workspace manager as the
-  // worktree/inspect/merge-commit bounds. The contract: the command reads
+  // The workspace command is a live consumer of the section's timeouts: it
+  // threads addMs/inspectMs/fetchMs into the workspace manager as the
+  // worktree/inspect/fetch bounds (commitMs bounds a promotion's candidate
+  // commit, through the same reader). The contract: the command reads
   // them from the pinned config document (a fresh process per command run,
   // which is what the settings rows' next-run timing states) through the ONE
   // reader the promotion shares (`worktreeOperationTimeouts`,

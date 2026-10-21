@@ -5,7 +5,14 @@
  * THE PORT ({@link WorkspaceForge}) is the narrow, semantic surface the
  * workspace manager consumes: the Git Data API (blobs, trees, commits, the
  * branch ref), the pull request (open as a draft, regenerate its body, mark it
- * ready, close it) and the land (the async merge request). It is STRUCTURAL:
+ * ready, close it) and the land: `PUT …/pulls/{n}/merge-async` with the head
+ * the workspace published as its `sha` guard and `merge_action: merge_queue`
+ * (a push in between cancels it), and `GET …/merge-async/{id}` for its result.
+ * GitHub's answers map onto {@link ForgeMergeAnswer} and
+ * {@link ForgeMergeResult}; an `enqueued` result is FINAL for a queue request,
+ * so the land then reads the pull request's own state (merged, still queued,
+ * or dequeued). Auto-merge is never used: it does not enqueue on ruleset
+ * queues. It is STRUCTURAL:
  * the forge port's GitHub adapter (`engine/src/workflow/forge/`, on the ONE
  * outbound HTTP door, App tokens minted through the broker) satisfies it, and
  * tests drive a fake backed by a real bare repository. A request type carries
@@ -56,7 +63,30 @@ export type ForgePullRequest = Readonly<{
   state: "open" | "closed";
   merged: boolean;
   mergeCommitSha: string | null;
+  /** Whether it is in the merge queue now. */
+  queued: boolean;
 }>;
+
+/**
+ * GitHub's answer to the async merge request: 202 (`accepted`, the request's
+ * id), 409 (`already-requested`: a pending request's id and the head it
+ * guards), 200 (`enqueued` or `merged`: the pull request already was), or a
+ * refusal (400 not mergeable — a draft, closed —, 403, 404, 422).
+ */
+export type ForgeMergeAnswer =
+  | Readonly<{ kind: "accepted"; requestId: string }>
+  | Readonly<{ kind: "already-requested"; requestId: string; expectedHeadSha: string }>
+  | Readonly<{ kind: "enqueued" }>
+  | Readonly<{ kind: "merged"; mergeCommitSha: string }>
+  | Readonly<{ kind: "refused"; status: 400 | 403 | 404 | 422; message: string }>;
+
+/** The result of an async merge request (`expired`: GitHub keeps one 24 hours after its last update). */
+export type ForgeMergeResult =
+  | Readonly<{ status: "pending" }>
+  | Readonly<{ status: "enqueued" }>
+  | Readonly<{ status: "merged"; mergeCommitSha: string }>
+  | Readonly<{ status: "failed"; message: string }>
+  | Readonly<{ status: "expired" }>;
 
 /** One entry of a tree request: a file (or gitlink) at `path`, or its deletion (`sha: null`). */
 export type ForgeTreeEntry = Readonly<{ path: string; mode: "100644" | "100755" | "120000" | "160000"; sha: string | null }>;
@@ -92,6 +122,10 @@ export type WorkspaceForge = Readonly<{
   closePullRequest(number: number, comment: string): Promise<void>;
   /** The pull request as it is now. */
   pullRequest(number: number): Promise<ForgePullRequest>;
+  /** `PUT …/pulls/{n}/merge-async` `{sha, merge_action: "merge_queue"}`: only `sha` may enter the queue. */
+  requestMerge(number: number, request: Readonly<{ sha: string }>): Promise<ForgeMergeAnswer>;
+  /** `GET …/pulls/{n}/merge-async/{id}` (ETag-conditional in the adapter: an unchanged answer costs no rate limit). */
+  mergeRequestResult(number: number, requestId: string): Promise<ForgeMergeResult>;
 }>;
 
 /** Where a workspace lands on the forge: its target's upstream. */
@@ -130,12 +164,15 @@ export function resolveForgeTarget(repository: GitRepository, targetBranch: stri
       "workspace_target_untracked",
     );
   }
+  return deepFreeze({ remote, remoteUrl: remoteUrlOf(repository, remote), trunk: merge.slice("refs/heads/".length) });
+}
+
+/** The URL of the configured remote `remote` as git resolves it, or `workspace_target_untracked`. */
+export function remoteUrlOf(repository: GitRepository, remote: string): string {
   const url = gitOutput(repository, ["remote", "get-url", remote], { allowed: [0, 2, 128] });
   const remoteUrl = url.stdout.toString("utf8").trim().split("\n")[0] ?? "";
-  if (url.status !== 0 || remoteUrl === "") {
-    throw new InputError(`${targetBranch}'s upstream remote ${remote} is not configured`, "workspace_target_untracked");
-  }
-  return deepFreeze({ remote, remoteUrl, trunk: merge.slice("refs/heads/".length) });
+  if (url.status !== 0 || remoteUrl === "") throw new InputError(`the remote ${remote} is not configured`, "workspace_target_untracked");
+  return remoteUrl;
 }
 
 /** One local commit as the publisher re-makes it. */
@@ -171,10 +208,10 @@ function text(repository: GitRepository, argv: readonly string[]): string {
   return gitOutput(repository, argv).stdout.toString("utf8");
 }
 
-/** Fetches `branches` of the target's remote into their tracking refs, or refuses typed. */
-export function fetchForgeBranches(git: WorktreeGitPort, root: string, target: ForgeTarget, branches: readonly string[], timeoutMs: number): void {
-  const fetched = git.fetchRefs(root, target.remote, branches.map((branch) => `+refs/heads/${branch}:${trackingRef(target.remote, branch)}`), timeoutMs);
-  if (fetched.refusal !== null) fail("workspace_forge_fetch_refused", `fetching ${branches.join(", ")} from ${target.remote} was refused: ${fetched.refusal}`, { remote: target.remote });
+/** Fetches `branches` of `remote` into their tracking refs, or refuses typed. */
+export function fetchForgeBranches(git: WorktreeGitPort, root: string, remote: string, branches: readonly string[], timeoutMs: number): void {
+  const fetched = git.fetchRefs(root, remote, branches.map((branch) => `+refs/heads/${branch}:${trackingRef(remote, branch)}`), timeoutMs);
+  if (fetched.refusal !== null) fail("workspace_forge_fetch_refused", `fetching ${branches.join(", ")} from ${remote} was refused: ${fetched.refusal}`, { remote });
 }
 
 /** A commit object's tree, parents, author and message (UTF-8 only: a re-encoded message would be another commit's). */
@@ -236,7 +273,7 @@ export async function publishBranch(request: PublishRequest): Promise<PublishedR
   const { forge, repository, git, target, branch } = request;
   const root = repository.root;
   const remoteHead = await forge.branchHead(branch);
-  fetchForgeBranches(git, root, target, remoteHead === null ? [target.trunk] : [target.trunk, branch], request.fetchMs);
+  fetchForgeBranches(git, root, target.remote, remoteHead === null ? [target.trunk] : [target.trunk, branch], request.fetchMs);
   const trunkRef = trackingRef(target.remote, target.trunk);
   if (remoteHead !== null && git.revParse(root, trackingRef(target.remote, branch), request.fetchMs) !== remoteHead) {
     fail("workspace_publish_remote_moved", `${branch} moved on ${target.remote} while it was read: publish again`, { branch });
@@ -278,7 +315,7 @@ export async function publishBranch(request: PublishRequest): Promise<PublishedR
   }
   const twinHead = twins.get(head)!;
   await forge.setBranch({ branch, sha: twinHead, previous: remoteHead });
-  fetchForgeBranches(git, root, target, [branch], request.fetchMs);
+  fetchForgeBranches(git, root, target.remote, [branch], request.fetchMs);
   if (git.revParse(root, trackingRef(target.remote, branch), request.fetchMs) !== twinHead) {
     fail("workspace_publish_remote_moved", `${branch} on ${target.remote} is not the published ${twinHead} after the round: publish again`, { branch });
   }

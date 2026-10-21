@@ -1,7 +1,8 @@
 /**
  * THE TREE LANDING — how a computed tree becomes a commit on a branch, the
- * one owner shared by `harness promote` (a promotion's projected tree) and
- * `harness workspace merge` (a workspace's merge), merge-door-final §4 row 8:
+ * one owner of `harness promote` (a promotion's projected tree), whose LAND
+ * (and `branchCheckout`) is also `harness workspace land`'s local follow of
+ * the forge's trunk, merge-door-final §4 row 8:
  *
  * - CANDIDATE ({@link createCandidate}): a disposable detached worktree at the
  *   target tip T, made a merge of the source commit S whose tree is exactly the
@@ -261,12 +262,12 @@ function stagedEntries(git: WorktreeGitPort, root: string, timeoutMs: number): R
 }
 
 /**
- * THE ONE UNDECLARED-WRITE RULE of a landing (the promotion's settle and the
- * workspace merge's regenerate): every path `written` must be a generated
+ * THE ONE UNDECLARED-WRITE RULE of a landing (the promotion's settle): every
+ * path `written` must be a generated
  * output a generator declares (`generated`); any other is refused,
  * `undeclared_write`, naming the paths and what wrote them.
  */
-export function refuseUndeclaredWrites(written: readonly string[], generated: ReadonlySet<string>, phase: string, what: string, candidate: string): void {
+function refuseUndeclaredWrites(written: readonly string[], generated: ReadonlySet<string>, phase: string, what: string, candidate: string): void {
   const undeclared = written.filter((path) => !generated.has(path));
   if (undeclared.length > 0) {
     throw new LandingError("undeclared_write", `${what} wrote ${undeclared.join(", ")}, which no generator declares (a generated output is registered with its generator)`, { phase, paths: undeclared, candidate });

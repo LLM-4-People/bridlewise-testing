@@ -8,7 +8,7 @@
  *     (`git/declared-deletions.ts`), the run ledgers (`shared/run-history.ts`);
  *   - `acquireFileLock` (asynchronous, bounded wait): the resource locks
  *     (`workflow/resource-lock.ts`: the test lock, the workspace merge
- *     lock) and the retained merge-round script;
+ *     lock of a land's local follow) and the retained merge-round script;
  *   - `tryAcquireFileLock` (never waits): the one-instrument test-run lock
  *     (`scripts/tooling/test-run-lock.ts`), which refuses instead of waiting.
  *

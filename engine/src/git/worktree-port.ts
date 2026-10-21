@@ -152,15 +152,6 @@ export type WorktreeAddDetachedRequest = Readonly<{
   timeoutMs: number;
 }>;
 
-export type MergeNoCommitRequest = Readonly<{
-  cwd: string;
-  branch: string;
-  message: string;
-  /** git asks for an identity even before the commit; absent: the repository's configured identity. */
-  identity?: CommitIdentity;
-  timeoutMs: number;
-}>;
-
 /** A merge of a COMMIT (not a branch) that records it as the second parent and keeps the current tree (`-s ours`), left uncommitted. */
 export type MergeOursRequest = Readonly<{
   cwd: string;
@@ -169,9 +160,6 @@ export type MergeOursRequest = Readonly<{
   identity?: CommitIdentity;
   timeoutMs: number;
 }>;
-
-/** A merge left in progress: clean, or the paths git left conflicted (unmerged index entries). */
-export type MergeNoCommitResult = Readonly<{ clean: boolean; conflictPaths: readonly string[] }>;
 
 export type CommitRequest = Readonly<{
   cwd: string;
@@ -231,14 +219,10 @@ export type WorktreeGitPort = Readonly<{
   deletedBlobs(repoRoot: string, fromSha: string, toSha: string, timeoutMs: number): readonly DeletedBlobEntry[];
   mergeBase(repoRoot: string, refA: string, refB: string, timeoutMs: number): string;
   isAncestor(repoRoot: string, ancestor: string, descendant: string, timeoutMs: number): boolean;
-  /** An agent branch's tip, or null when the branch does not exist. */
-  branchTip(repoRoot: string, branch: string, timeoutMs: number): string | null;
   /** Detaches at `sha`; `discard` drops local changes to tracked files (`checkout -f`). */
   checkoutDetached(cwd: string, sha: string, timeoutMs: number, discard?: boolean): void;
-  /** Switches to an agent branch; `discard` drops local changes to tracked files (`checkout -f`: a workspace the integrator verified clean). */
+  /** Switches to an agent branch; `discard` drops local changes to tracked files (`checkout -f`: a workspace verified clean). */
   checkoutBranch(cwd: string, branch: string, timeoutMs: number, discard?: boolean): void;
-  mergeNoCommit(request: MergeNoCommitRequest): MergeNoCommitResult;
-  mergeAbort(cwd: string, timeoutMs: number): void;
   /** `merge -s ours --no-ff --no-commit` of a commit: MERGE_HEAD names it, the tree stays HEAD's (a promotion's second parent). */
   mergeOursNoCommit(request: MergeOursRequest): void;
   /** `read-tree -u --reset <tree>`: the index AND the working tree become `tree` (a candidate's computed tree). */
@@ -255,9 +239,6 @@ export type WorktreeGitPort = Readonly<{
   missingObjects(repoRoot: string, commit: string, exclude: string, timeoutMs: number): readonly string[];
   /** The text of `path` in `commit`'s tree, or null when that tree has none. */
   blobAt(cwd: string, commit: string, path: string, timeoutMs: number): string | null;
-  /** Resolves conflicted paths to OUR side and stages them. */
-  resolveToOurs(cwd: string, paths: readonly string[], timeoutMs: number): void;
-  addPaths(cwd: string, paths: readonly string[], timeoutMs: number): void;
   /** `git commit` (hooks run); returns the new HEAD. */
   commit(request: CommitRequest): CommitOutcome;
   mergeFfOnly(cwd: string, sha: string, timeoutMs: number): RefusableOutcome;
@@ -833,19 +814,6 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
       }).status === 0;
     },
 
-    branchTip(repoRoot: string, branch: string, timeoutMs: number): string | null {
-      assertAbsolutePath(repoRoot, "repoRoot");
-      assertAgentBranchName(branch, branchNamespace);
-      const result = run("rev-parse --verify -q", {
-        args: ["-c", "gc.auto=0", "-C", repoRoot, "rev-parse", "--verify", "-q", `refs/heads/${branch}`],
-        cwd: repoRoot, timeoutMs, allowedExitCodes: [0, 1],
-      });
-      if (result.status !== 0) return null;
-      const sha = result.stdout.trim();
-      assertGitSha(sha, "branchTip");
-      return sha;
-    },
-
     checkoutDetached(cwd: string, sha: string, timeoutMs: number, discard = false): void {
       assertAbsolutePath(cwd, "cwd");
       assertGitSha(sha, "sha");
@@ -856,30 +824,6 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
       assertAbsolutePath(cwd, "cwd");
       assertAgentBranchName(branch, branchNamespace);
       run("checkout", { args: ["-c", "gc.auto=0", "-C", cwd, "checkout", "-q", ...(discard ? ["-f"] : []), branch, "--"], cwd, timeoutMs, allowedExitCodes: [0] });
-    },
-
-    mergeNoCommit(request: MergeNoCommitRequest): MergeNoCommitResult {
-      assertAbsolutePath(request.cwd, "cwd");
-      assertAgentBranchName(request.branch, branchNamespace);
-      if (request.message.includes("\0")) throw new InputError("merge message must not contain NUL", "worktree_argument_invalid");
-      // Exit 1 is git's "stopped with conflicts": the unmerged entries say which.
-      const result = run("merge --no-commit", {
-        // `--no-autostash`: a repository's `merge.autostash` must never stash
-        // and re-apply around an integration (it leaves conflict markers).
-        args: ["-c", "gc.auto=0", "-C", request.cwd, "merge", "--no-ff", "--no-commit", "--no-autostash", "-m", request.message, "--", request.branch],
-        cwd: request.cwd, timeoutMs: request.timeoutMs, allowedExitCodes: [0, 1],
-        ...(request.identity === undefined ? {} : { identity: request.identity }),
-      });
-      const conflictPaths = nulRecords(textOf("diff --diff-filter=U", request.cwd, ["diff", "--name-only", "--diff-filter=U", "-z"], request.timeoutMs)).toSorted();
-      if (result.status === 1 && conflictPaths.length === 0) {
-        throw new WorktreeGitError("merge --no-commit", "the merge stopped without conflicted paths", result);
-      }
-      return deepFreeze({ clean: conflictPaths.length === 0, conflictPaths: deepFreeze(conflictPaths) });
-    },
-
-    mergeAbort(cwd: string, timeoutMs: number): void {
-      assertAbsolutePath(cwd, "cwd");
-      run("merge --abort", { args: ["-c", "gc.auto=0", "-C", cwd, "merge", "--abort"], cwd, timeoutMs, allowedExitCodes: [0] });
     },
 
     mergeOursNoCommit(request: MergeOursRequest): void {
@@ -951,21 +895,6 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
         cwd, timeoutMs, allowedExitCodes: [0, 128],
       });
       return result.status === 0 ? result.stdout : null;
-    },
-
-    resolveToOurs(cwd: string, paths: readonly string[], timeoutMs: number): void {
-      assertAbsolutePath(cwd, "cwd");
-      assertPaths(paths, "paths");
-      if (paths.length === 0) return;
-      run("checkout --ours", { args: ["-c", "gc.auto=0", "-C", cwd, "checkout", "--ours", "--", ...paths], cwd, timeoutMs, allowedExitCodes: [0] });
-      run("add", { args: ["-c", "gc.auto=0", "-C", cwd, "add", "--", ...paths], cwd, timeoutMs, allowedExitCodes: [0] });
-    },
-
-    addPaths(cwd: string, paths: readonly string[], timeoutMs: number): void {
-      assertAbsolutePath(cwd, "cwd");
-      assertPaths(paths, "paths");
-      if (paths.length === 0) return;
-      run("add", { args: ["-c", "gc.auto=0", "-C", cwd, "add", "-A", "--", ...paths], cwd, timeoutMs, allowedExitCodes: [0] });
     },
 
     commit(request: CommitRequest): CommitOutcome {

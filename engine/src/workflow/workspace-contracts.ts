@@ -9,8 +9,8 @@ import { wholesaleGeneratedPaths } from "./hash-binding-registry.ts";
 
 /**
  * Workspace contracts — closed, schema-versioned types for the isolated
- * workspace system (`harness workspace`: git worktrees with an integrator
- * that merges in the workspace and lands by fast-forward).
+ * workspace system (`harness workspace`: git worktrees whose work is
+ * published to the forge and lands through its merge queue).
  *
  * State machine:
  *
@@ -22,13 +22,15 @@ import { wholesaleGeneratedPaths } from "./hash-binding-registry.ts";
  * - `admitted`: the lease is reserved (the admission check passed under the
  *   admission lock); the worktree is being made and set up.
  * - `active`: worktree + branch + lease exist and are set up; the agent may work.
- * - `validating`: in-worktree gates are running / have passed; ready to merge.
- * - `merging`: the serialized integrator owns the workspace. It leaves
- *   to `active` when the merge failed before the land, back to `validating`
- *   when git refused the land itself (the validation still holds), and an
- *   integrator that died here is recovered (`workspace recover`).
- * - `merged`: landed, receipt emitted (unless recovered after a dead
- *   integrator), worktree torn down (terminal).
+ * - `validating`: in-worktree gates are running / have passed; ready to land.
+ * - `merging`: the land was requested of the forge (the async merge API, its
+ *   merge queue). It leaves to `merged` when the forge merged it, back to
+ *   `validating` when the forge refused the request (nothing changed), and to
+ *   `active` when the request failed or the pull request left the queue or was
+ *   closed (the queue judged it: new work is needed). A land is resumed by
+ *   `workspace land` and polled once by `workspace recover`.
+ * - `merged`: landed on the forge, the local checkout followed (or the reason
+ *   it could not), receipt emitted, worktree torn down (terminal).
  * - `aborted`: lease tombstoned, worktree and branch removed (terminal).
  * - `quarantined`: worktree preserved untouched for forensics (terminal).
  *
@@ -36,7 +38,7 @@ import { wholesaleGeneratedPaths } from "./hash-binding-registry.ts";
  * - `feature`: a branch `agent/<name>/<nonce>` leased for a write set; lands
  *   on its target branch.
  * - `feature` with an `overlay`: the same, started from a SNAPSHOT of a dirty
- *   checkout (`snapshotWorkingTree`); landing adopts it into that checkout.
+ *   checkout (`snapshotWorkingTree`); once landed, that checkout adopts it.
  * - `read-only`: a detached worktree for a verifier — no branch, no lease, no
  *   target; it can be validated and never merges.
  *
@@ -49,7 +51,7 @@ import { wholesaleGeneratedPaths } from "./hash-binding-registry.ts";
  * silently truncated.
  */
 
-export const WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 3);
+export const WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 4);
 
 export const WORKSPACE_STATES = deepFreeze([
   "admitted",
@@ -73,12 +75,16 @@ const WORKSPACE_CONFLICT_KINDS = deepFreeze([
 export type WorkspaceConflictKind = typeof WORKSPACE_CONFLICT_KINDS[number];
 
 /**
- * How a merge reached its target: a fast-forward of the checkout that has the
- * target checked out (or the completion of one a crash left torn there:
- * `tree-landing.ts`), a compare-and-swap of the target ref when no checkout
- * has it, or the adoption of an overlay into the checkout it was taken from.
+ * How the LOCAL target followed the forge's land: a fast-forward of the
+ * checkout that has it checked out (or the completion of one a crash left
+ * torn there: `tree-landing.ts`), a compare-and-swap of the ref when no
+ * checkout has it, the adoption of an overlay into the checkout it was taken
+ * from, `current` (it already held the trunk), or `refused` (git declined —
+ * a dirty overlap, local commits the trunk does not hold, a stale overlay:
+ * the land happened on the forge all the same, and the receipt says why the
+ * checkout did not follow).
  */
-const WORKSPACE_LANDINGS = deepFreeze(["fast-forward", "torn-completion", "update-ref", "overlay-adoption"] as const);
+const WORKSPACE_LANDINGS = deepFreeze(["fast-forward", "torn-completion", "update-ref", "overlay-adoption", "current", "refused"] as const);
 export type WorkspaceLanding = typeof WORKSPACE_LANDINGS[number];
 
 /**
@@ -161,29 +167,45 @@ export const conflictReportSchema = z.strictObject({
 });
 export type ConflictReport = DeepReadonly<z.infer<typeof conflictReportSchema>>;
 
+const REMOTE_NAME_SCHEMA = z.string().min(1).max(128).regex(/^[A-Za-z0-9._][A-Za-z0-9._-]*$/u);
+const PULL_REQUEST_SCHEMA = z.strictObject({
+  number: z.number().int().positive(),
+  url: z.string().min(1).max(1024),
+});
+/** An async merge request's id, as the forge answered it. */
+const MERGE_REQUEST_ID_SCHEMA = z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/u);
+
 export const mergeReceiptSchema = z.strictObject({
   schemaVersion: z.literal(WORKSPACE_SCHEMA_VERSION),
   workspaceId: WORKSPACE_ID_SCHEMA,
   agentName: AGENT_NAME_SCHEMA,
   branch: BRANCH_SCHEMA,
   targetBranch: BRANCH_SCHEMA,
+  remote: REMOTE_NAME_SCHEMA,
+  trunk: BRANCH_SCHEMA,
+  pullRequest: PULL_REQUEST_SCHEMA,
+  /** The head the workspace published and asked the queue to land (the request's `sha` guard). */
+  landedHead: GIT_SHA_SCHEMA,
+  /** The async merge request's id; null when the pull request was already queued or merged when asked. */
+  mergeRequest: MERGE_REQUEST_ID_SCHEMA.nullable(),
   baseSha: GIT_SHA_SCHEMA,
-  /** The target's tip the merge was built on (the merge commit's first parent). */
+  /** The trunk's tip the forge merged onto (the merge commit's first parent). */
   preMergeHeadSha: GIT_SHA_SCHEMA,
   mergeCommitSha: GIT_SHA_SCHEMA,
   mergeTree: GIT_SHA_SCHEMA,
+  /** The trunk's tip the local target followed to (the merge commit, or a later land on top of it). */
+  trunkTip: GIT_SHA_SCHEMA,
   landing: z.enum(WORKSPACE_LANDINGS),
-  /** The checkout the landing moved (fast-forward, overlay adoption), or null for a ref-only landing. */
+  /** The checkout the local follow moved (fast-forward, overlay adoption), or null. */
   landedIn: z.string().min(1).max(4096).nullable(),
+  /** Why the local target did not follow (`landing: refused`), else null. */
+  localRefusal: MESSAGE_SCHEMA.nullable(),
   changedPaths: z.array(RELATIVE_PATH_SCHEMA).max(100_000),
-  /** Generated outputs the regenerate phase rewrote in the merge commit. */
-  regeneratedPaths: z.array(RELATIVE_PATH_SCHEMA).max(100_000),
-  /** Conflicted generated paths resolved to the target's side and re-derived. */
-  resolvedConflicts: z.array(RELATIVE_PATH_SCHEMA).max(100_000),
   /** Per ledger gate: `<ledger>: <rows>` imported into the landing checkout's ledger (its judged runs of the landed tree). */
   importedRuns: z.array(MESSAGE_SCHEMA).max(64),
   timelineImportedEvents: z.number().int().nonnegative(),
   timelineSkippedEvents: z.number().int().nonnegative(),
+  /** The local validation of the landed head's tree (its gates). */
   gateResults: z.array(workspaceGateResultSchema).max(64),
   /**
    * Every frozen-record acceptance the merge lands (`harness frozen accept`: a
@@ -205,9 +227,10 @@ export type UnsignedMergeReceipt = Omit<MergeReceipt, "receiptHash">;
 
 /**
  * An overlay: the snapshot of a dirty checkout a feature workspace started
- * from. Landing adopts it into that checkout only while the checkout still
- * holds exactly that tree (a fresh snapshot's tree equals `tree`) and the same
- * index (`indexDigest`: the sha256 of its `ls-files --stage` records).
+ * from. Once the forge landed it, the checkout adopts the trunk only while it
+ * still holds exactly that tree (a fresh snapshot's tree equals `tree`), the
+ * same index (`indexDigest`: the sha256 of its `ls-files --stage` records)
+ * and its branch at the base.
  */
 const workspaceOverlaySchema = z.strictObject({
   commit: GIT_SHA_SCHEMA,
@@ -261,20 +284,22 @@ export type WorkspaceLease = DeepReadonly<z.infer<typeof workspaceLeaseSchema>>;
  * same tree), and whether the writer marked it ready for review.
  */
 const workspaceForgeSchema = z.strictObject({
-  remote: z.string().min(1).max(128).regex(/^[A-Za-z0-9._][A-Za-z0-9._-]*$/u),
+  remote: REMOTE_NAME_SCHEMA,
   trunk: BRANCH_SCHEMA,
-  pullRequest: z.strictObject({
-    number: z.number().int().positive(),
-    url: z.string().min(1).max(1024),
-  }).nullable(),
+  pullRequest: PULL_REQUEST_SCHEMA.nullable(),
   publishedHead: GIT_SHA_SCHEMA.nullable(),
   ready: z.boolean(),
+  /** The async merge request a land is waiting on (null: none, or the pull request was already queued). */
+  mergeRequest: MERGE_REQUEST_ID_SCHEMA.nullable(),
 }).superRefine((forge, context) => {
   if ((forge.pullRequest === null) !== (forge.publishedHead === null)) {
     context.addIssue({ code: "custom", path: ["pullRequest"], message: "the first published round opens the pull request: both exist, or neither" });
   }
   if (forge.ready && forge.pullRequest === null) {
     context.addIssue({ code: "custom", path: ["ready"], message: "only an opened pull request is marked ready" });
+  }
+  if (forge.mergeRequest !== null && !forge.ready) {
+    context.addIssue({ code: "custom", path: ["mergeRequest"], message: "only a ready pull request is asked to land" });
   }
 });
 export type WorkspaceForgeState = DeepReadonly<z.infer<typeof workspaceForgeSchema>>;
@@ -318,7 +343,7 @@ export const workspaceRecordSchema = z.strictObject({
 });
 export type WorkspaceRecord = DeepReadonly<z.infer<typeof workspaceRecordSchema>>;
 
-const MERGE_RECEIPT_HASH_DOMAIN = cryptoDomain("workspace-merge-receipt", 2);
+const MERGE_RECEIPT_HASH_DOMAIN = cryptoDomain("workspace-merge-receipt", 3);
 
 /** A reason as a record keeps it: at most the schema's bound (the head of a longer message). */
 export function recordedReason(text: string): string {

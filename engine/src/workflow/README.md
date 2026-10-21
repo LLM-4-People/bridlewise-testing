@@ -16,7 +16,7 @@ node src/cli.ts harness workspace extend <id> --write-set <path…>
 node src/cli.ts harness workspace validate <id> [--full]
 node src/cli.ts harness workspace publish <id>
 node src/cli.ts harness workspace ready <id>
-node src/cli.ts harness workspace merge <id>
+node src/cli.ts harness workspace land <id>
 node src/cli.ts harness workspace recover <id>
 node src/cli.ts harness workspace abort <id> [--quarantine]
 node src/cli.ts harness workspace snapshot <id> --label <label>
@@ -24,7 +24,7 @@ node src/cli.ts harness workspace list | status <id> | sweep
 ```
 
 Every command prints one JSON result (`{"result":{…}}`: the record, the
-validation report, the merge receipt) and its progress on stderr. The flow is
+validation report, the publication, the land's receipt) and its progress on stderr. The flow is
 stated once, in `workspace-manager.ts`'s header; the refusals and the land are
 in
 [MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land).
@@ -38,28 +38,34 @@ in
   workspace's branch and moves the local branch to the signed twins (the same
   tree); the first round opens the DRAFT pull request, every round
   regenerates its body. `ready` takes it out of draft once its published tree
-  passed `validate`. The forge client is the forge port's GitHub adapter;
-  until the CLI is given one, both refuse `workspace_forge_unavailable`.
+  passed `validate`. `land` asks the forge's merge queue through the async
+  merge API (`PUT …/pulls/{n}/merge-async`, the published head as its `sha`
+  guard), waits (`workspaceIsolation.landing`), then the local target follows
+  the trunk. The forge client is the forge port's GitHub adapter; until the
+  CLI is given one, these verbs refuse `workspace_forge_unavailable`.
 - **Registry**: `<git common dir>/bridlewise/` (`repository-registry.ts`, the one derivation; the records in `workspace-registry.ts`):
   `workspaces/<id>.json`, `locks/` (the admission and merge locks),
   `timeline/` (the shards and the integrator's ledger) — one per repository,
   the same from every worktree. The `workspaceGit.workspaces` signal reads it;
-  the `workspaceGit.sweepWorkspaces` action sweeps it (and recovers a dead
-  integrator's workspace). Every record write is a compare-and-swap on its
+  the `workspaceGit.sweepWorkspaces` action sweeps it (and looks once at every
+  land still `merging`). Every record write is a compare-and-swap on its
   `revision` (`workspace_record_changed`).
 - **Configuration**: `workspaceIsolation` (`engine/bridlewise.config.json`):
   `workspaceRoot` (relative to the repository home), `branchNamespace`,
   `baseStalenessCommits`, `preserveOnFailure`, `quarantineTtlMs`,
-  `leaseTtlMs`, `admissionLock`, `mergeLock`, `landTargets` (the only
-  branches a workspace lands on; not writable over HTTP), `killGraceMs`,
+  `leaseTtlMs`, `admissionLock`, `mergeLock` (a land's local follow),
+  `landTargets` (the only forge trunks a workspace lands on — its target's
+  upstream; not writable over HTTP), `landing` (`pollIntervalMs`,
+  `timeoutMs`: the wait on the merge queue), `killGraceMs`,
   `links`, `commands` (`cwd`, `argv`, `timeoutMs`, setup `inputs`, gate
   `changed`, gate `ledger`: the suite (`engine`|`web`, its path owned by
   `suiteLedgerPaths`) whose run is judged against the target tip's clean
   baseline — measured like for like in the workspace when none exists — no
   new or changed failure) and
-  `phases` (`setup`, `validate`, `regenerate`, `merge`); the timeouts of the
-  git operations are `workspaceGit.timeouts` (`commitMs` bounds the merge
-  commit, whose hooks run the commit guard).
+  `phases` (`setup`, `validate`, `regenerate`, `merge`: the last two run by
+  `validate --full`, the local pre-flight of the queue); the timeouts of the
+  git operations are `workspaceGit.timeouts` (`fetchMs` bounds a fetch from
+  the forge's remote).
 
 The test result collector owns the redacted native error projection shared by inventory accounting and immutable result receipts. It preserves outer and nested causes, failure type, assertion values and source location while keeping historical failure identities stable. Native timeout/abort outcomes count as cancellations once; saved diagnostic details must correspond exactly to the named failed or cancelled outcomes.
 
@@ -214,14 +220,15 @@ rule — is `git_errored`, git's refusal `git_failed`).
 - `tree-landing.ts` — THE TREE LANDING (see its section above): candidate, settle, commit, land, sweep, the phase runner and `LandingError`.
 - `test-inventory-binding.ts` — the test-inventory-binding module.
 - `test-result-collector.ts` — the test-result-collector module.
-- `timeline-shard.ts` — a workspace's timeline shard and its bounded import into the integrator's ledger.
+- `timeline-shard.ts` — a workspace's timeline shard and its bounded import into the workspaces' canonical ledger.
 - `workflow-config.ts` — Workflow operational defaults — the single source of truth for all; also the readers `commandRetryPolicy` and `worktreeOperationTimeouts` (the git ceilings of a worktree's owner: the workspace CLI and the promotion).
 - `slot-cli.ts` — `harness slot run -- <command>`: the shell's door to the host's one instrument lock (src/process/instrument-lock.ts); the command runs under the native supervisor, adopted into the hold.
 - `flaky-burn-down.ts` — THE FLAKY MEMORY'S SHRINK-ONLY BURN-DOWN LIST (UR-19): a red suspect passes the guard only as an entry owned by an open task row naming its test and the guard, added by the commit that added that row; a new suspect, a closed or mis-naming owner, or an entry added without its row fails; nothing ages out.
 - `flake-cli.ts` — `harness flake`: THE ONE DOOR that records what explains a flaky suspect (FLAKE-REPRO). `reproduce` refuses a fix that changed no declared cause's meaning, then runs the tests at the fix's parent and at the fix in a private worktree set up by `prepareCheckout`, inside the instrument lock, every run under one set of conditions (environment, setup, a command alongside, a preloaded shim, an order seed), once per side or N times (`--statistical`, the configured N), and records each test that failed on the parent and passed every run on the fix. `move` records a test's move to the live suite after reading the test inventories.
-- `workspace-cli.ts` — `harness workspace <subcommand>`: the composition root (the pinned git port, the supervised command runner, the registry's timeline).
-- `workspace-contracts.ts` — the closed, versioned records: the lease (feature, overlay, read-only), the validation report, the conflict report, the hashed merge receipt; the state machine; the derived never-leasable set.
-- `workspace-manager.ts` — the lifecycle and the integrator: land targets, admission, create (+ overlay, read-only), extend, validate (`--full`), the like-for-like ledger baseline, merge in the workspace, the land (fast-forward, compare-and-swap, overlay adoption), recover (a dead integrator), abort, sweep, snapshot.
+- `workspace-cli.ts` — `harness workspace <subcommand>`: the composition root (the pinned git port, the supervised command runner, the registry's timeline, the forge client once the forge port's adapter lands).
+- `workspace-forge.ts` — the workspace on the forge: the narrow structural port `ws` consumes (Git Data API, pull requests, the async merge request), the target's upstream (`resolveForgeTarget`), and the signed publisher (`publishBranch`: Verified twins with the local trees).
+- `workspace-contracts.ts` — the closed, versioned records: the lease (feature, overlay, read-only), the forge state, the validation report, the conflict report, the hashed land receipt; the state machine; the derived never-leasable set.
+- `workspace-manager.ts` — the lifecycle: land targets, admission, create (+ overlay, read-only), extend, validate (`--full`), the like-for-like ledger baseline, publish, ready, the land through the forge's merge queue and the local follow (fast-forward, compare-and-swap, overlay adoption), recover (one look at a land), abort (the pull request closed), sweep, snapshot.
 - `workspace-registry.ts` — the workspace records (the registry's `workspaces/` area) and their store; `workspaceRegistrySummary` for the signal.
 - `repository-registry.ts` — THE REPOSITORY REGISTRY: one home per repository for the state every checkout shares, `<git common dir>/<product name>/` (`repositoryRegistry`, `resolveRepositoryRegistry` asked through the pinned port), and its areas (`workspaces/`, `locks/`, `timeline/`, `promotion/`: `repositoryRegistryArea`); `workspaceRootOf`, where the worktrees live (workspaces, a promotion's candidates and its promoter home). Runs no process.
 - `reachability.ts` — the reachability walk (moved from the testing floor's census; the census calls it): which files entry points (and `seeds`: modules shipped without an edge) reach through import, `require`, URL, glob (arrays, `{a,b}`, `**` at any depth), stylesheet, symbolic-link and declared spawn edges, read from tokens (`src/intelligence/js-tokenizer.ts`), batched by rounds; what it cannot follow is reported (unresolved, into an excluded path, missing entries, packages, and OPAQUE edges: a computed `import()`/`require()`/glob/spawn argument, a glob matching nothing); tsconfig path aliases; `reachabilityChain` for an explanation; `isWalkableModule`.
@@ -277,10 +284,10 @@ Workspace hooks capture scalar timeline configuration once and forward the same
 selection to both stores and the importer. The manager closes acquired handles on
 partial-open or close failures and retains source shards after success and failure:
 appenders do not share its merge lock, so a last-tip check cannot authorize source
-deletion. Worktree teardown still precedes the terminal `merged` state. Git can
-already be merged when import, teardown or receipt persistence fails; partial
-teardown is not rolled back nor retried by `merge`: `ws recover <id>` (or the
-sweep) finishes it once no integrator holds the merge lock.
+deletion. Worktree teardown still precedes the terminal `merged` state. The
+forge has already merged when import, teardown or receipt persistence fails;
+partial teardown is not rolled back: `ws recover <id>` (or the sweep) finishes
+it from the forge's answer.
 
 Before any destination lookup or append, import verifies source-chain integrity
 through the store's local synchronous SQLite iterator, then requires the captured

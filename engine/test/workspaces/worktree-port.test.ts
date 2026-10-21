@@ -341,31 +341,15 @@ test("update-ref moves branches only, never HEAD or another namespace, and takes
   assert.throws(() => port.updateRef("/repo", "refs/heads/x", "HEAD", SHA_A, 5), throwsCode("worktree_git_sha_invalid"));
 });
 
-test("the in-workspace merge: --no-ff --no-commit on an agent branch, conflicts read from the unmerged entries", () => {
+test("blobAt answers null for a path the commit's tree does not have, and refuses a path carrying a newline", () => {
   const captured: WorktreeGitExecRequest[] = [];
-  const answers = [refused("CONFLICT (content): Merge conflict in engine/src/kernel/root-policy.ts"), ok("engine/src/kernel/root-policy.ts\0src/b.ts\0")];
-  const port = createWorktreeGitPort({ exec: makeExec(() => answers.shift()!, captured) });
-  const merged = port.mergeNoCommit({ cwd: "/wt", branch: "agent/w/n1", message: "merge: workspace w-n1 (w)", timeoutMs: 5 });
-  assert.deepEqual(merged, { clean: false, conflictPaths: ["engine/src/kernel/root-policy.ts", "src/b.ts"] });
-  assert.deepEqual(captured[0]!.args, ["-c", "gc.auto=0", "-C", "/wt", "merge", "--no-ff", "--no-commit", "--no-autostash", "-m", "merge: workspace w-n1 (w)", "--", "agent/w/n1"]);
-  assert.deepEqual(captured[1]!.args, ["-c", "gc.auto=0", "-C", "/wt", "diff", "--name-only", "--diff-filter=U", "-z"]);
-  assert.throws(() => port.mergeNoCommit({ cwd: "/wt", branch: "main", message: "m", timeoutMs: 5 }), throwsCode("worktree_branch_namespace_denied"));
-  const stopped = createWorktreeGitPort({ exec: makeExec((request) => request.args.includes("--diff-filter=U") ? ok("") : refused("error: something else")) });
-  assert.throws(() => stopped.mergeNoCommit({ cwd: "/wt", branch: "agent/w/n1", message: "m", timeoutMs: 5 }), throwsCode("worktree_git_failed"), "a stop with no conflicted path is an error, not a clean merge");
-});
-
-test("blobAt answers null for a path the commit's tree does not have; resolveToOurs checks out and stages exactly the paths", () => {
-  const captured: WorktreeGitExecRequest[] = [];
-  const answers = [ok("text at the commit\n"), refused("fatal: path 'x' does not exist in 'aaaa'", 128), ok(), ok()];
+  const answers = [ok("text at the commit\n"), refused("fatal: path 'x' does not exist in 'aaaa'", 128)];
   const port = createWorktreeGitPort({ exec: makeExec(() => answers.shift()!, captured) });
   assert.equal(port.blobAt("/wt", SHA_A, "x", 5), "text at the commit\n");
   assert.equal(port.blobAt("/wt", SHA_A, "x", 5), null);
   assert.throws(() => port.blobAt("/wt", "HEAD", "x", 5), InputError, "only a commit id, never a revision expression");
-  port.resolveToOurs("/wt", ["a", "b"], 5);
   assert.deepEqual(captured[0]!.args, ["-c", "gc.auto=0", "-C", "/wt", "cat-file", "blob", `${SHA_A}:x`]);
-  assert.deepEqual(captured[2]!.args, ["-c", "gc.auto=0", "-C", "/wt", "checkout", "--ours", "--", "a", "b"]);
-  assert.deepEqual(captured[3]!.args, ["-c", "gc.auto=0", "-C", "/wt", "add", "--", "a", "b"]);
-  assert.throws(() => port.resolveToOurs("/wt", ["a\nb"], 5), InputError, "a path carrying a newline is refused");
+  assert.throws(() => port.blobAt("/wt", SHA_A, "a\nb", 5), InputError, "a path carrying a newline is refused");
 });
 
 test("a commit runs the hooks with a projected environment; every other operation runs without one", () => {

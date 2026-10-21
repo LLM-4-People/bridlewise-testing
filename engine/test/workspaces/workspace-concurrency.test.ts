@@ -18,6 +18,7 @@ import {
   makeTestConfig,
   mkWorkspaceTempDir,
   rawGit,
+  landWorkspace,
   registryRoot,
   trackBranch,
 } from "./workspace-test-support.ts";
@@ -38,7 +39,7 @@ function lockDirectory(root: string): string {
   return join(registryRoot(root), "locks");
 }
 
-test("two simultaneous merges serialize on the repository's merge lock", async () => {
+test("two simultaneous lands: the queue merges both, and their local follows serialize on the repository's merge lock", async () => {
   const { root } = initTempRepo("ws-race");
   const { manager } = makeManager(root, { config: makeTestConfig(mkWorkspaceTempDir("ws-race-wt")) });
   const first = await manager.create({ agentName: "agentA", mode: "feature", writeSet: ["src/race-a"] });
@@ -48,7 +49,11 @@ test("two simultaneous merges serialize on the repository's merge lock", async (
   assert.equal((await manager.validate(first.workspaceId)).status, "pass");
   assert.equal((await manager.validate(second.workspaceId)).status, "pass");
 
-  const [receiptA, receiptB] = await Promise.all([manager.merge(first.workspaceId), manager.merge(second.workspaceId)]);
+  for (const workspace of [first, second]) {
+    await manager.publish(workspace.workspaceId);
+    await manager.ready(workspace.workspaceId);
+  }
+  const [receiptA, receiptB] = await Promise.all([manager.land(first.workspaceId), manager.land(second.workspaceId)]);
   assert.notEqual(receiptA.mergeCommitSha, receiptB.mergeCommitSha);
   assert.equal(manager.list().filter((record) => record.state === "merged").length, 2);
   assert.ok(existsSync(join(root, "src/race-a/a.ts")) && existsSync(join(root, "src/race-b/b.ts")), "both landed, one after the other");
@@ -100,10 +105,10 @@ test("a read-only workspace overlapping an active lease is admitted, carries no 
   const report = await manager.validate(verifier.workspaceId);
   assert.equal(report.status, "pass");
   assert.equal(report.gates[0]!.status, "skip");
-  await assert.rejects(() => manager.merge(verifier.workspaceId), throwsCode("workspace_read_only"));
+  await assert.rejects(() => manager.land(verifier.workspaceId), throwsCode("workspace_read_only"));
   await assert.rejects(() => manager.extend(verifier.workspaceId, ["src"]), throwsCode("workspace_read_only"));
   await assert.rejects(() => manager.create({ agentName: "verifier", mode: "read-only", writeSet: ["src"] }), throwsCode("workspace_read_only"));
-  manager.abort(verifier.workspaceId);
+  await manager.abort(verifier.workspaceId);
   assert.ok(!existsSync(verifier.lease.worktreePath));
 });
 
@@ -124,7 +129,7 @@ test("extend widens and renews a lease through the same admission check", async 
   assert.equal(manager.status(record.workspaceId).lease.generation, 2, "a refused extension changes nothing");
 });
 
-test("a held merge lock blocks the integrator with a timeout", async () => {
+test("a held merge lock blocks the local follow with a timeout: the forge landed it, the record stays merging, and recover finishes it once the lock is free", async () => {
   const { root } = initTempRepo("ws-heldlock");
   const config = makeTestConfig(mkWorkspaceTempDir("ws-heldlock-wt"), {
     mergeLock: Object.freeze({ name: "workspace-merge", timeoutMs: 300, staleMs: 60_000 }),
@@ -133,12 +138,17 @@ test("a held merge lock blocks the integrator with a timeout", async () => {
   const record = await manager.create({ agentName: "agentA", mode: "feature", writeSet: ["src/held"] });
   commitFile(record.lease.worktreePath, "src/held/h.ts", "export const h = 1;\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
+  await manager.publish(record.workspaceId);
+  await manager.ready(record.workspaceId);
   const handle = await acquireLock(registryRoot(root), "workspace-merge", { lockDirectory: lockDirectory(root), timeoutMs: 1_000, unreadableAfterMs: 60_000 });
   try {
-    await assert.rejects(() => manager.merge(record.workspaceId), LockAcquisitionTimeout);
+    await assert.rejects(() => manager.land(record.workspaceId), LockAcquisitionTimeout);
   } finally {
     handle.release();
   }
+  assert.equal(manager.status(record.workspaceId).state, "merging");
+  assert.equal((await manager.recover(record.workspaceId)).state, "merged");
+  assert.ok(existsSync(join(root, "src/held/h.ts")), "the local checkout followed");
 });
 
 test("a stale lock file from a dead process is recovered", async () => {
@@ -159,7 +169,7 @@ test("a stale lock file from a dead process is recovered", async () => {
   const record = await manager.create({ agentName: "agentA", mode: "feature", writeSet: ["src/stale"] });
   commitFile(record.lease.worktreePath, "src/stale/s.ts", "export const s = 1;\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
-  const receipt = await manager.merge(record.workspaceId);
+  const receipt = await landWorkspace(manager, record.workspaceId);
   assert.equal(receipt.workspaceId, record.workspaceId);
   assert.equal(manager.status(record.workspaceId).state, "merged");
 });
