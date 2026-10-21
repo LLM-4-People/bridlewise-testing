@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml";
+
 /**
  * THE WORKFLOW POLICY: rules every GitHub Actions workflow in the tree obeys.
  *
@@ -21,6 +23,13 @@ import { fileURLToPath } from "node:url";
  * events; a workflow that runs on `pull_request` but not on `merge_group`
  * would leave its check unreported in the queue (a required one would block
  * every land). The one exemption is named below with its reason.
+ *
+ * Each file is READ AS YAML (the `yaml` package, the repository's one YAML
+ * reader), never matched line by line: indentation, flow maps and flow lists
+ * are all the same document to GitHub, so they are to this guard. A file that
+ * does not parse, or whose `on`, `jobs` or `concurrency` has a shape GitHub
+ * would not accept, is itself a violation: what the guard cannot read, it
+ * cannot certify.
  *
  * The scan covers every workflow file of the tree, not a list of names.
  */
@@ -54,81 +63,79 @@ function liveWorkflows(root = ROOT) {
 }
 
 /**
- * Every `concurrency` block of one workflow (workflow level or job level),
- * with its scalar fields. A comment line inside the block is skipped.
+ * One workflow, parsed. Answers the events it triggers on, its concurrency
+ * blocks (workflow and job level, each with its line), and every reason it
+ * could not be read.
  */
-function concurrencyBlocks(text) {
-  const lines = text.split("\n");
+function readWorkflow({ path, text }) {
+  const lines = new LineCounter();
+  const document = parseDocument(text, { lineCounter: lines, uniqueKeys: true, prettyErrors: false });
+  const unreadable = [];
+  const at = (node) => `${path}:${String(node?.range === undefined ? 1 : lines.linePos(node.range[0]).line)}`;
+  for (const error of [...document.errors, ...document.warnings]) unreadable.push(`${path}: unreadable YAML: ${error.message.split("\n")[0]}`);
+  if (unreadable.length > 0) return { events: new Set(), blocks: [], unreadable };
+  const root = document.contents;
+  if (!isMap(root)) return { events: new Set(), blocks: [], unreadable: [`${path}: unreadable: the document is not a mapping`] };
+
+  const events = new Set();
+  const on = root.get("on", true);
+  if (isScalar(on) && typeof on.value === "string") events.add(on.value);
+  else if (isSeq(on) && on.items.every((item) => isScalar(item) && typeof item.value === "string")) for (const item of on.items) events.add(item.value);
+  else if (isMap(on) && on.items.every((pair) => isScalar(pair.key))) for (const pair of on.items) events.add(String(pair.key.value));
+  else unreadable.push(`${at(on)} unreadable: \`on\` is missing or is not an event name, a list of names or a map of events`);
+
   const blocks = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = /^(\s*)concurrency:\s*(.*)$/u.exec(lines[index]);
-    if (match === null) continue;
-    const indent = match[1].length;
-    const inline = match[2].replace(/\s+#.*$/u, "").trim();
-    const fields = {};
-    for (let next = index + 1; next < lines.length; next += 1) {
-      const line = lines[next];
-      if (line.trim() === "" || line.trim().startsWith("#")) continue;
-      const lead = /^(\s*)/u.exec(line)[1].length;
-      if (lead <= indent) break;
-      const field = /^\s*([a-z-]+):\s*(.*)$/u.exec(line);
-      if (field !== null) fields[field[1]] = field[2].trim();
+  const readBlock = (node, owner) => {
+    if (node === undefined) return;
+    if (isScalar(node) && typeof node.value === "string") {
+      blocks.push({ at: at(node), owner, shorthand: true });
+      return;
     }
-    blocks.push({ line: index + 1, inline, fields });
-  }
-  return blocks;
+    if (!isMap(node)) {
+      unreadable.push(`${at(node)} unreadable: ${owner}'s concurrency is neither a group name nor a map`);
+      return;
+    }
+    const value = node.toJSON();
+    blocks.push({ at: at(node), owner, shorthand: false, group: value.group, cancel: value["cancel-in-progress"] ?? false, queue: value.queue ?? "single" });
+  };
+  readBlock(root.get("concurrency", true), "the workflow");
+  const jobs = root.get("jobs", true);
+  if (!isMap(jobs)) unreadable.push(`${at(jobs)} unreadable: \`jobs\` is missing or is not a map`);
+  else for (const pair of jobs.items) if (isMap(pair.value)) readBlock(pair.value.get("concurrency", true), `job ${String(pair.key?.value)}`);
+  return { events, blocks, unreadable };
 }
 
-/** The violations of one workflow, each naming its file and line. */
-function concurrencyViolations({ path, text }) {
-  const violations = [];
-  for (const block of concurrencyBlocks(text)) {
-    const at = `${path}:${String(block.line)}`;
-    if (block.inline !== "") {
-      violations.push(`${at}: shorthand concurrency shares one single-slot group, which cancels a pending main run`);
+/** The concurrency violations of one workflow, each naming its file and line. */
+function concurrencyViolations(workflow) {
+  const { blocks, unreadable } = readWorkflow(workflow);
+  const violations = [...unreadable];
+  for (const block of blocks) {
+    if (block.shorthand) {
+      violations.push(`${block.at}: shorthand concurrency shares one single-slot group, which cancels a pending main run`);
       continue;
     }
-    const group = block.fields.group ?? "";
-    const cancel = block.fields["cancel-in-progress"] ?? "false";
-    const queue = block.fields.queue ?? "single";
-    if (group === "") {
-      violations.push(`${at}: concurrency without a group`);
+    const { group, cancel, queue } = block;
+    if (typeof group !== "string" || group === "") {
+      violations.push(`${block.at}: concurrency without a group`);
     } else if (queue === "max") {
-      if (cancel !== "false") violations.push(`${at}: a queue: max group must never cancel (cancel-in-progress: ${cancel})`);
+      if (cancel !== false) violations.push(`${block.at}: a queue: max group must never cancel (cancel-in-progress: ${String(cancel)})`);
+    } else if (queue !== "single") {
+      violations.push(`${block.at}: unreadable: queue ${String(queue)} is neither single nor max`);
     } else if (!group.includes(PER_RUN_GROUP)) {
-      violations.push(`${at}: group ${group} is shared by main runs; give non-pull-request runs github.run_id or use queue: max`);
-    } else if (cancel !== "false" && cancel !== PULL_REQUEST_ONLY_CANCEL) {
-      violations.push(`${at}: cancel-in-progress ${cancel} may cancel a main run; cancel only on pull requests`);
+      violations.push(`${block.at}: group ${group} is shared by main runs; give non-pull-request runs github.run_id or use queue: max`);
+    } else if (cancel !== false && cancel !== PULL_REQUEST_ONLY_CANCEL) {
+      violations.push(`${block.at}: cancel-in-progress ${String(cancel)} may cancel a main run; cancel only on pull requests`);
     }
   }
   return violations;
 }
 
-/**
- * The events a workflow triggers on: the keys of a block `on:`, or the
- * names of an inline `on: push` / `on: [push, pull_request]`.
- */
-function triggers(text) {
-  const lines = text.split("\n");
-  const start = lines.findIndex((line) => /^(on|"on"|'on'):/u.test(line));
-  if (start === -1) return new Set();
-  const inline = lines[start].replace(/^[^:]+:/u, "").replace(/\s+#.*$/u, "").trim();
-  if (inline !== "") return new Set(inline.replace(/[[\]]/gu, "").split(",").map((name) => name.trim()).filter(Boolean));
-  const events = new Set();
-  for (const line of lines.slice(start + 1)) {
-    if (line.trim() === "" || line.trim().startsWith("#")) continue;
-    if (!line.startsWith(" ")) break;
-    const event = /^ {2}([a-z_]+):/u.exec(line);
-    if (event !== null) events.add(event[1]);
-  }
-  return events;
-}
-
-/** A workflow that gates pull requests but not merge groups. */
-function mergeQueueViolations({ path, text }) {
-  const events = triggers(text);
-  if (!events.has("pull_request") || events.has("merge_group") || PULL_REQUEST_ONLY.has(path)) return [];
-  return [`${path}: runs on pull_request but not on merge_group, so the merge queue never reports its checks`];
+/** A workflow that gates pull requests but not merge groups, or one the guard cannot read. */
+function mergeQueueViolations(workflow) {
+  const { events, unreadable } = readWorkflow(workflow);
+  if (unreadable.length > 0) return unreadable;
+  if (!events.has("pull_request") || events.has("merge_group") || PULL_REQUEST_ONLY.has(workflow.path)) return [];
+  return [`${workflow.path}: runs on pull_request but not on merge_group, so the merge queue never reports its checks`];
 }
 
 /** Literal group prefixes shared by two workflows cancel each other's pull-request runs. */
@@ -136,11 +143,12 @@ function sharedGroupPrefixes(workflows) {
   const owners = new Map();
   const violations = [];
   for (const workflow of workflows) {
-    for (const block of concurrencyBlocks(workflow.text)) {
-      const prefix = (block.fields.group ?? block.inline).split("${{")[0];
+    for (const block of readWorkflow(workflow).blocks) {
+      if (block.shorthand || typeof block.group !== "string") continue;
+      const prefix = block.group.split("${{")[0];
       const owner = owners.get(prefix);
       if (owner !== undefined && owner !== workflow.path) {
-        violations.push(`${workflow.path}:${String(block.line)}: group prefix "${prefix}" is also used by ${owner}`);
+        violations.push(`${block.at}: group prefix "${prefix}" is also used by ${owner}`);
       }
       owners.set(prefix, workflow.path);
     }
@@ -150,15 +158,15 @@ function sharedGroupPrefixes(workflows) {
 
 const workflow = (path, concurrency) => ({
   path,
-  text: `name: Planted\non:\n  push:\n    branches: [main]\n  pull_request:\n\n${concurrency}\njobs:\n  build:\n    runs-on: ubuntu-24.04\n`,
+  text: `name: Planted\non:\n  push:\n    branches: [main]\n  pull_request:\n  merge_group:\n\n${concurrency}\njobs:\n  build:\n    runs-on: ubuntu-24.04\n`,
 });
 
 test("every live workflow keeps main runs uncancelled", () => {
   const workflows = liveWorkflows();
   assert.ok(workflows.length > 0, "the workflow walk found no workflow");
   assert.ok(
-    workflows.some((entry) => concurrencyBlocks(entry.text).length > 0),
-    "the walk found no concurrency block at all; the parser no longer reads the tree",
+    workflows.some((entry) => readWorkflow(entry).blocks.length > 0),
+    "the walk found no concurrency block at all; the reader no longer reads the tree",
   );
   assert.deepEqual(workflows.flatMap(concurrencyViolations), []);
   assert.deepEqual(sharedGroupPrefixes(workflows), []);
@@ -166,53 +174,80 @@ test("every live workflow keeps main runs uncancelled", () => {
 
 test("every live workflow that gates a pull request also runs in the merge queue", () => {
   const workflows = liveWorkflows();
-  assert.ok(workflows.some((entry) => triggers(entry.text).has("merge_group")), "no workflow runs on merge_group");
+  assert.ok(workflows.some((entry) => readWorkflow(entry).events.has("merge_group")), "no workflow runs on merge_group");
   assert.deepEqual(workflows.flatMap(mergeQueueViolations), []);
   const paths = new Set(workflows.map((entry) => entry.path));
   for (const [path] of PULL_REQUEST_ONLY) {
     assert.ok(paths.has(path), `the exemption ${path} names no workflow`);
-    const events = triggers(workflows.find((entry) => entry.path === path).text);
+    const { events } = readWorkflow(workflows.find((entry) => entry.path === path));
     assert.ok(events.has("pull_request") && !events.has("merge_group"), `the exemption ${path} is stale`);
   }
 });
 
-test("planted pull-request-only workflows are refused; near misses pass", () => {
-  const planted = [
-    { path: ".github/workflows/a.yml", text: "on:\n  push:\n  pull_request:\n    branches: [main]\njobs: {}\n" },
-    { path: ".github/workflows/b.yml", text: "on: [push, pull_request]\njobs: {}\n" },
-    { path: ".github/workflows/c.yml", text: "on: pull_request\njobs: {}\n" },
-  ];
-  for (const entry of planted) assert.equal(mergeQueueViolations(entry).length, 1, entry.path);
-  const nearMisses = [
-    { path: ".github/workflows/a.yml", text: "on:\n  pull_request:\n  merge_group:\n    types: [checks_requested]\njobs: {}\n" },
-    { path: ".github/workflows/b.yml", text: "on: [pull_request, merge_group]\njobs: {}\n" },
-    { path: ".github/workflows/c.yml", text: "on:\n  push:\n    branches: [main]\n  # pull_request: commented out\njobs:\n  pull_request:\n    runs-on: x\n" },
-    { path: ".github/workflows/dependency-review.yml", text: "on:\n  pull_request:\njobs: {}\n" },
-  ];
-  assert.deepEqual(nearMisses.flatMap(mergeQueueViolations), []);
+test("pull-request-only workflows are refused in every YAML spelling; near misses pass", () => {
+  const planted = {
+    "block map": "on:\n  push:\n  pull_request:\n    branches: [main]\njobs: {}\n",
+    "four-space indentation": "on:\n    push:\n        branches: [main]\n    pull_request:\njobs:\n    build:\n        runs-on: x\n",
+    "flow list": "on: [push, pull_request]\njobs: {}\n",
+    "quoted flow list": 'on: ["push", "pull_request"]\njobs: {}\n',
+    "flow map": "on: {pull_request: {branches: [main]}, push: {}}\njobs: {}\n",
+    "scalar": "on: pull_request\njobs: {}\n",
+    "quoted key": '"on":\n  pull_request:\njobs: {}\n',
+  };
+  for (const [shape, text] of Object.entries(planted)) {
+    const found = mergeQueueViolations({ path: ".github/workflows/planted.yml", text });
+    assert.equal(found.length, 1, `${shape}: ${JSON.stringify(found)}`);
+    assert.match(found[0], /runs on pull_request but not on merge_group/u, shape);
+  }
+  const nearMisses = {
+    "both, block": "on:\n  pull_request:\n  merge_group:\n    types: [checks_requested]\njobs: {}\n",
+    "both, flow": "on: [pull_request, merge_group]\njobs: {}\n",
+    "both, flow map": "on: {pull_request: {}, merge_group: {}}\njobs: {}\n",
+    "comment and a job named like an event": "on:\n  push:\n    branches: [main]\n  # pull_request: commented out\njobs:\n  pull_request:\n    runs-on: x\n",
+  };
+  for (const [shape, text] of Object.entries(nearMisses)) {
+    assert.deepEqual(mergeQueueViolations({ path: ".github/workflows/near.yml", text }), [], shape);
+  }
+  assert.deepEqual(mergeQueueViolations({ path: ".github/workflows/dependency-review.yml", text: "on:\n  pull_request:\njobs: {}\n" }), []);
 });
 
-test("planted cancelling groups are refused at workflow and job level", () => {
+test("a workflow the reader cannot read is a violation, never a pass", () => {
+  const unreadable = {
+    "broken YAML": "on:\n  pull_request:\n   - [unclosed\njobs: {}\n",
+    "a duplicate key": "on:\n  push:\non:\n  pull_request:\njobs: {}\n",
+    "tab indentation": "on:\n\tpull_request:\njobs: {}\n",
+    "no on": "name: x\njobs: {}\n",
+    "on of the wrong shape": "on: 3\njobs: {}\n",
+    "no jobs": "on: pull_request\n",
+    "a list document": "- on: pull_request\n",
+    "concurrency of the wrong shape": "on: [push, merge_group]\nconcurrency: [a, b]\njobs: {}\n",
+  };
+  for (const [shape, text] of Object.entries(unreadable)) {
+    const entry = { path: ".github/workflows/unreadable.yml", text };
+    const found = [...mergeQueueViolations(entry), ...concurrencyViolations(entry)];
+    assert.ok(found.length > 0 && found.every((line) => line.includes("unreadable")), `${shape}: ${JSON.stringify(found)}`);
+  }
+});
+
+test("planted cancelling groups are refused at workflow and job level, in any YAML spelling", () => {
   const planted = [
     workflow(".github/workflows/a.yml", "concurrency:\n  group: a-${{ github.ref }}\n  cancel-in-progress: true\n"),
     workflow(".github/workflows/b.yml", "concurrency:\n  group: b-${{ github.ref }}\n  cancel-in-progress: false\n"),
     workflow(".github/workflows/c.yml", "concurrency: c-${{ github.ref }}\n"),
     workflow(".github/workflows/d.yml", "concurrency:\n  group: d\n  queue: max\n  cancel-in-progress: true\n"),
-    workflow(
-      ".github/workflows/e.yml",
-      `concurrency:\n  group: e-\${{ ${PER_RUN_GROUP} }}\n  cancel-in-progress: true\n`,
-    ),
+    workflow(".github/workflows/e.yml", `concurrency:\n  group: e-\${{ ${PER_RUN_GROUP} }}\n  cancel-in-progress: true\n`),
+    workflow(".github/workflows/f.yml", "concurrency: {group: f, cancel-in-progress: false}\n"),
     {
-      path: ".github/workflows/f.yml",
-      text: "on: push\njobs:\n  deploy:\n    runs-on: ubuntu-24.04\n    concurrency:\n      group: deploy\n    steps: []\n",
+      path: ".github/workflows/g.yml",
+      text: "on: push\njobs:\n  deploy:\n    runs-on: ubuntu-24.04\n    concurrency:\n        group: deploy\n    steps: []\n",
     },
   ];
-  const found = planted.map((entry) => concurrencyViolations(entry));
-  for (const [index, violations] of found.entries()) {
-    assert.equal(violations.length, 1, `${planted[index].path} must be refused once: ${JSON.stringify(violations)}`);
-    assert.match(violations[0], new RegExp(`^${planted[index].path.replaceAll(".", "\\.")}:\\d+: `, "u"));
+  for (const entry of planted) {
+    const violations = concurrencyViolations(entry);
+    assert.equal(violations.length, 1, `${entry.path} must be refused once: ${JSON.stringify(violations)}`);
+    assert.match(violations[0], new RegExp(`^${entry.path.replaceAll(".", "\\.")}:\\d+: `, "u"));
   }
-  assert.match(found[5][0], /f\.yml:5:/u, "the job-level block is reported at its own line");
+  assert.match(concurrencyViolations(planted[6])[0], /g\.yml:6:/u, "the job-level block is reported at its own line");
 });
 
 test("near misses pass: per-run groups, pull-request-only cancel, queue: max", () => {
@@ -223,7 +258,7 @@ test("near misses pass: per-run groups, pull-request-only cancel, queue: max", (
     ),
     workflow(".github/workflows/b.yml", `concurrency:\n  group: b-\${{ ${PER_RUN_GROUP} }}\n  cancel-in-progress: false\n`),
     workflow(".github/workflows/c.yml", "concurrency:\n  group: pages\n  queue: max\n  cancel-in-progress: false\n"),
-    workflow(".github/workflows/d.yml", "concurrency:\n  group: deploy\n  queue: max\n"),
+    workflow(".github/workflows/d.yml", "concurrency: {group: deploy, queue: max}\n"),
     workflow(".github/workflows/e.yml", "# concurrency: not a block\n"),
   ];
   assert.deepEqual(nearMisses.flatMap(concurrencyViolations), []);

@@ -212,10 +212,21 @@ jobs:
   merge:
     name: Merge one qualification receipt
     needs: [prepare, shard]
-    if: always() && needs.prepare.result == 'success'
+    # This job IS the required check, so it always runs: a skipped job reports
+    # "skipped", which GitHub counts as a pass. A failed plan fails it here.
+    if: always()
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     steps:
+      - name: Require a successful shard plan
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+        run: |
+          if [ "$PREPARE_RESULT" != "success" ]; then
+            echo "::error::the shard plan did not succeed ($PREPARE_RESULT); no receipt can certify this commit"
+            exit 1
+          fi
+
       - name: Check out the exact commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
