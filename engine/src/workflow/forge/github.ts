@@ -11,7 +11,9 @@
  * debug log of each request (category `forge`; method, path, status, the
  * rate-limit facts; never a header value or a body).
  */
+import { CONTENT_TYPE_JSON } from "../../kernel/contracts.ts";
 import { isAbortError } from "../../kernel/errors.ts";
+import { safePercentDecode } from "../../privacy/data-policy.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { parseJsonExact } from "../../kernel/json-integrity.ts";
 import { debugLog } from "../../shared/debug/debug-system.ts";
@@ -65,9 +67,9 @@ function pathRefused(path: string, why: string): ForgeError {
 
 /**
  * The request URL of `path` under the API base. `path` is checked AS THE
- * SERVER WILL READ IT: decoded first (a malformed escape refused), then every
- * segment non-empty and neither `.` nor `..` (so `.%2e`, `%2E%2e` and `//`
- * are refused, not normalised), no encoded separator (`%2f`, `%5c`), no
+ * SERVER WILL READ IT: decoded first by the one percent decoder (a malformed
+ * escape refused), then every segment non-empty and neither `.` nor `..` (so
+ * `.%2e`, `%2E%2e` and `//` are refused, not normalised), no encoded separator (`%2f`, `%5c`), no
  * double encoding (`%25`), and finally the URL the platform builds must keep
  * the path byte for byte under the base: nothing resolves outside it.
  */
@@ -76,8 +78,9 @@ export function forgeRequestUrl(endpoint: ForgeEndpoint, path: string, query?: F
   if (!path.startsWith("/")) throw pathRefused(path, "it does not start with '/'");
   if (/[?#\\\s\u0000-\u001f\u007f]/u.test(path)) throw pathRefused(path, "a query, fragment, backslash, space or control character");
   if (/%(?:2f|5c|25)/iu.test(path)) throw pathRefused(path, "an encoded separator or a double encoding");
-  let decoded: string;
-  try { decoded = decodeURIComponent(path); } catch { throw pathRefused(path, "a malformed escape"); }
+  // THE one percent decoder (lenient: an escape it cannot decode stays as written, so a `%` left over is a malformed escape).
+  const decoded = safePercentDecode(path);
+  if (decoded.includes("%")) throw pathRefused(path, "a malformed escape");
   if (decoded.split("/").slice(1).some((segment) => segment === "" || segment === "." || segment === "..")) throw pathRefused(path, "an empty or dot segment");
   const prefix = base.pathname.replace(/\/$/u, "");
   const url = new URL(`${base.origin}${prefix}${path}`);
@@ -242,7 +245,7 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
           Authorization: authorization,
           "X-GitHub-Api-Version": GITHUB_API_VERSION,
           "User-Agent": endpoint.userAgent,
-          ...(request.body === undefined ? {} : { "Content-Type": "application/json" }),
+          ...(request.body === undefined ? {} : { "Content-Type": CONTENT_TYPE_JSON }),
           ...(cached === undefined ? {} : { "If-None-Match": cached.etag }),
         },
       });
