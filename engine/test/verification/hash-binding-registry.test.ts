@@ -664,3 +664,78 @@ test("every source-authority pin target and projection a sync pass re-derives is
   assert.ok(targets.length >= 3, "the registry lists no authorities: the test has no subject");
   for (const target of targets) assert.ok(outputs.has(`engine/${target}`), `${target} is re-derived by sync but is not a generated output`);
 });
+
+/**
+ * THE GUARDIAN BINARY PIN IS A PRODUCED TRUST ANCHOR, NOT A HAND VALUE.
+ *
+ * An alternate accepted hash that no build produces, no check verifies and no
+ * regeneration path rewrites is a second trust anchor someone can edit without
+ * evidence — a tampered alternate left every guard green (driven: replacing
+ * the literal with 64 zeros and running the self-protection tests passed 6/6).
+ * The pin is ONE anchor with its producer (`node guardian/build.ts`), its
+ * binding (`file-binary-sha256`, rewritten by `harness sync`) and its check
+ * (`verifyBinding`, and the availability probe's equality). The arms below
+ * prove the checker fails on a tampered pin and on a removed one, and that
+ * repair restores a tampered value from the binary's bytes.
+ */
+test("the guardian binary pin has one producer, one check and a regeneration path — and no unproduced alternate", () => {
+  const binding = findBinding("root-policy-self-protection-guardian-binary-sha256");
+  assert.equal(binding.sourcePath, ROOT_POLICY.selfProtection.binaryRelativePath, "the source is the built binary the floor names");
+  assert.equal(binding.targetPath, ROOT_POLICY.sourcePath, "the target is the root policy that carries the pin");
+  assert.deepEqual(binding.hashMode, { kind: "file-binary-sha256" }, "raw bytes, never a UTF-8 read");
+  assert.equal(binding.sourceOrigin.kind, "build-output");
+  assert.match(
+    binding.sourceOrigin.kind === "build-output" ? binding.sourceOrigin.producedBy : "",
+    /guardian\/build\.ts/u,
+    "the binding names the command that produces the bytes",
+  );
+  assert.equal(
+    "binarySha256Alternates" in ROOT_POLICY.selfProtection,
+    false,
+    "an alternate hash with no producer is a second trust anchor; a different toolchain is a reviewed re-pin",
+  );
+
+  // THE LIVE CHECK. A built binary must match the committed pin; an unbuilt
+  // one is a guided absence naming the command, never a silent pass.
+  const verdict = verifyBinding(ROOT, binding);
+  if (existsSync(join(ROOT, binding.sourcePath))) {
+    assert.equal(verdict.matches, true, `the committed pin disagrees with the binary bytes: ${verdict.expected} != ${verdict.actual}`);
+  } else {
+    assert.match(verdict.error ?? "", /has not been built yet/u);
+    assert.match(verdict.error ?? "", /node guardian\/build\.ts/u);
+  }
+
+  // TAMPER, REMOVAL AND REGENERATION, driven from outside the checker: the
+  // same binding and the real repair function, over planted bytes.
+  const tmpRoot = makeTempRoot();
+  try {
+    const binaryBytes = "guardian-binary-stub\n";
+    writeRelative(tmpRoot, binding.sourcePath, binaryBytes);
+    const binaryHash = sha256(binaryBytes);
+    const target = join(tmpRoot, binding.targetPath);
+    mkdirSync(join(tmpRoot, "src", "kernel"), { recursive: true });
+    const pinned = `export const P = { selfProtection: { binarySha256: "${binaryHash}" } };\n`;
+    writeFileSync(target, pinned, "utf8");
+    assert.equal(verifyBinding(tmpRoot, binding).matches, true, "control: the matching pin is green");
+
+    writeFileSync(target, pinned.replace(binaryHash, "0".repeat(64)), "utf8");
+    assert.equal(verifyBinding(tmpRoot, binding).matches, false, "a tampered pin must refuse");
+
+    writeFileSync(target, "export const P = { selfProtection: {} };\n", "utf8");
+    const removed = verifyBinding(tmpRoot, binding);
+    assert.equal(removed.matches, false, "a removed pin must refuse");
+    assert.match(removed.error ?? "", /hash literal not found/u);
+
+    // REGENERATION: a wrong value is repaired from the bytes by the binding
+    // `harness sync` runs; a removed field is a refusal (sync has no literal
+    // to rewrite), never a value conjured from nothing.
+    writeFileSync(target, pinned.replace(binaryHash, "0".repeat(64)), "utf8");
+    const repaired = repairBinding(tmpRoot, binding);
+    assert.equal(repaired.repaired, true, repaired.error ?? "repair must rewrite a wrong pin");
+    assert.equal(repaired.newHash, binaryHash);
+    assert.equal(verifyBinding(tmpRoot, binding).matches, true, "after repair the pin matches the bytes again");
+    assert.equal(repairBinding(tmpRoot, binding).repaired, false, "an unchanged pin is not rewritten");
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});

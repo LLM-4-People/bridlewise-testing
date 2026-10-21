@@ -1322,15 +1322,26 @@ const ROOT_POLICY_VALUE = {
     blockWrite: true,
     specSchemaVersion: schemaId("self-protection-spec", 1),
     binaryRelativePath: "guardian/build/harness-landlock-guardian",
-    binarySha256: "28ee831d1359c87d339f36899de33d5de9c246d1294f556430c3b6d1a30fb9c1",
     /**
-     * The same guardian source built by the Ubuntu 24.04 gcc 14.2 package.
-     * The primary pin is the Debian 14.2 build used by the development host;
-     * both are exact bytes produced by a documented compiler, so the shard
-     * matrix can verify the binary on either supported toolchain without
-     * accepting an arbitrary local rebuild.
+     * THE ONE GUARDIAN TRUST ANCHOR — and it has a producer, a check and a
+     * regeneration path, all in `hash-binding-registry.ts`
+     * (`root-policy-self-protection-guardian-binary-sha256`):
+     *
+     *   producer / regenerator  `node guardian/build.ts` builds the binary;
+     *                           `harness sync` re-runs the file-binary binding
+     *                           and rewrites THIS literal from the bytes.
+     *   check                   `harness check` verifies the binding, and
+     *                           `verifyGuardianBinaryAvailability` refuses a
+     *                           binary whose sha256 disagrees.
+     *
+     * There is deliberately NO alternate list. An alternate is a second trust
+     * anchor, and a trust anchor that no build produces and no check
+     * regenerates is a value someone can add or edit without evidence — the
+     * exact shape this floor refuses. A binary built by another toolchain is
+     * a reviewed re-pin through the same binding (`harness sync`), never a
+     * hash appended beside the pin.
      */
-    binarySha256Alternates: ["2e9e4eadb7806c49b7168e31780999f2769d285f91bd37615079b2628984a5fc"],
+    binarySha256: "28ee831d1359c87d339f36899de33d5de9c246d1294f556430c3b6d1a30fb9c1",
     bundleRelativePath: "dist/bundle.js",
     bundleSha256: "6cb338ce6949157f47114ba4419d751b7443a807ded9231a784f23905d1df805",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
