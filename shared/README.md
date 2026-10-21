@@ -53,7 +53,7 @@ The folder lives at `shared/`.
 - `block-contract.ts` is consumed by `server/blocks/define.ts`, `src/cockpit/computer/commands.ts`, `src/cockpit/rooms/instruments-data.ts`, `src/cockpit/settings/settings-data.ts`, `src/data/broker.ts`.
 - `constants.ts` is consumed by `engine/src/performance/diagnostic-modes.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/ledger-dig.ts`, `engine/src/timeline/timeline-recorder.ts`, `engine/src/timeline/timeline-store.ts`, `engine/src/timeline/timeline-types.ts` and 39 more.
 - `dev-ports.ts` is consumed by `server/kernel/config.ts`.
-- `errors.ts` is consumed by `server/blocks/define.ts`, `server/kernel/errors.ts`, `server/router/sse.ts`, `server/run/run-executor.ts`, `src/client.ts`, `src/data/absence.ts` and 2 more.
+- `errors.ts` is consumed by `server/blocks/define.ts`, `server/kernel/errors.ts`, `server/router/sse.ts`, `server/routes/projects.ts`, `server/run/run-executor.ts`, `src/client.ts` and 3 more.
 - `event-types.ts` is consumed by `server/db/schema.ts`, `server/run/run-executor.ts`, `server/safety/safety-bridge.ts`, `src/client.ts`, `src/cockpit/flow/ingest.ts`, `src/cockpit/flow/types.ts` and 2 more.
 - `html-preview.ts` is consumed by `src/state/web-ui-config.ts`.
 - `input-schemas.ts` is consumed by `server/routes/auto-checks.ts`, `server/routes/chats.ts`, `server/routes/projects.ts`, `src/state/auto-checks.ts`, `src/state/chats.ts`, `src/state/projects.ts`.

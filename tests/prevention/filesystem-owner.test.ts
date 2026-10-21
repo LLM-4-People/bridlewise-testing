@@ -864,19 +864,15 @@ describe("C. behavioral: the gate enforces deny-by-default + typed errors", () =
     expect(project!.path).toBe(projectAPath);
   });
 
-  test("an UNREGISTERED scratch root is allowed for a read (the executor's gate-less root)", async () => {
-    // The tool executor binds a scratch directory that was never registered
-    // as a project. `projectAtPath` finds no row there, so there is nothing
-    // to own; the location checks (allowed roots + the refused-folder list)
-    // remain the whole answer and the read proceeds.
+  test("an UNREGISTERED root is REFUSED (nothing owns it)", async () => {
+    // DENY-BY-DEFAULT. An allowance for "scratch" roots here let the editor
+    // preview read any path on the machine, which the cross-user and editor
+    // suites caught. A path with no row has nobody to own it.
     const scratch = createTempDir("gate-unregistered-scratch-");
     writeFileSync(join(scratch, "probe.txt"), "probe body\n");
     const gate = await makeFsGate(userA.userId, AsyncDbClient.inline(db), scratch);
-    expect(
-      assertProjectPathOwnership(scratch, gate),
-      "no project row exists, so the gate has no row to return",
-    ).toBeNull();
-    expect(readFileSyncViaBridge("probe.txt", scratch, gate).content).toBe("probe body\n");
+    expect(() => assertProjectPathOwnership(scratch, gate), "no row, so no owner").toThrow(ForbiddenError);
+    expect(() => readFileSyncViaBridge("probe.txt", scratch, gate)).toThrow(ForbiddenError);
   });
 
   test("a root registered to ANOTHER user is refused (the row at the location decides)", async () => {

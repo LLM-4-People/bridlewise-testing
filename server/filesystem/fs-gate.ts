@@ -56,7 +56,7 @@
  * No new deps (node:path + node:fs only). No `throw new Error`
  *.
  */
-import { resolve, isAbsolute, dirname } from "node:path";
+import { resolve, isAbsolute } from "node:path";
 import { statSync } from "node:fs";
 // The harness owns every question about where a path really points; asking it
 // here is what keeps this gate and the sandbox from disagreeing about a link.
@@ -124,7 +124,7 @@ export function assertValidProjectPath(projectPath: string): void {
  *
  * ── The four states, and why "absent" is not "denied" ──
  *
- * A path maps to a row (owned), to {@link LOCATION_WITHOUT_PROJECT} (resolved
+ * A path maps to a row (owned) or to NULL (denied: no row to own it).
  * at a usable location where NO project row exists), to `null` (resolved and
  * DENIED → 403), or it is ABSENT, which means this request never resolved it.
  * Absent is a PROGRAMMING error — a bridge asked about a path the route did not
@@ -147,13 +147,12 @@ export function assertValidProjectPath(projectPath: string): void {
  * That is what keeps User B out of User A's project path, and out of a
  * subfolder of it, which is the same leak by a deeper spelling.
  */
-const LOCATION_WITHOUT_PROJECT = Symbol("location-without-project");
 
 /**
  * One resolved decision: the row this request may use, a decided denial
  * (`null`), or the deliberate "this location has no project row" allowance.
  */
-type GateDecision = ProjectRow | typeof LOCATION_WITHOUT_PROJECT | null;
+type GateDecision = ProjectRow | null;
 
 export type FsGate = Readonly<{
   readonly userId: string;
@@ -220,7 +219,6 @@ export function assertProjectPathOwnership(projectPath: string, gate: FsGate): P
   if (decision === null) {
     throw new ForbiddenError(wireMessage("project_path_not_owned"), "project_path_not_owned");
   }
-  if (decision === LOCATION_WITHOUT_PROJECT) return null;
   return decision;
 }
 
@@ -231,7 +229,7 @@ export function assertProjectPathOwnership(projectPath: string, gate: FsGate): P
  */
 export function gateProjectRow(gate: FsGate, projectPath: string): ProjectRow | null {
   const decision = gate.decisions.get(projectPath);
-  return decision === undefined || decision === null || decision === LOCATION_WITHOUT_PROJECT
+  return decision === undefined || decision === null
     ? null
     : decision;
 }
@@ -523,25 +521,6 @@ function assertProjectRootUsable(root: string): void {
   }
 }
 
-/**
- * Whether `location` sits INSIDE a registered project (at any depth). The
- * exact-location probe cannot answer this: `docs/project/src` is not a project
- * row, but serving it would read the project that owns `docs/project`. Walk
- * the ancestor chain through the same location-wide probe so a subfolder is
- * denied by the row that actually holds it.
- *
- * A location with no row anywhere above it is genuinely unregistered (the
- * executor's scratch root) and is not a project to steal.
- */
-async function insideRegisteredProject(db: AsyncDbClient, location: string): Promise<boolean> {
-  let ancestor = dirname(location);
-  for (;;) {
-    if ((await db.projectAtPath(ancestor)) !== null) return true;
-    const parent = dirname(ancestor);
-    if (parent === ancestor) return false;
-    ancestor = parent;
-  }
-}
 
 /**
  * One ownership decision for one path, with the location checks the request
@@ -549,12 +528,10 @@ async function insideRegisteredProject(db: AsyncDbClient, location: string): Pro
  * the project-root refusals), and when a project row exists AT that location
  * its account, id and registration anchor must be this request's.
  *
- * `null` is a decided DENIAL: another account's row holds the location (or a
- * folder above it), the row's stored path no longer resolves to it, or the
- * location is not usable. A path that cannot even be resolved is also a
- * denial. When no row exists at the location OR above it, the location has no
- * project to protect and this returns the "no project row" allowance — the
- * tool executor's scratch root.
+ * `null` is a decided DENIAL: no row exists at the location (nothing owns it —
+ * deny-by-default), another account's row holds it, the row's stored path no
+ * longer resolves to it, or the location is not usable. A path that cannot
+ * even be resolved is also a denial.
  *
  * Nothing here catches a database fault — an unreadable ownership record is a
  * 500, not a fabricated 403.
@@ -582,11 +559,10 @@ async function decisionForPath(
   // answer. A registered location has a row, and the row is the authority.
   const holder = await db.projectAtPath(location);
   if (holder === null) {
-    // No row AT the location, but a subfolder of another account's project is
-    // the same leak reached by a deeper spelling; the row above it still
-    // owns the place. Only a location with no project above it is scratch.
-    if (await insideRegisteredProject(db, location)) return null;
-    return LOCATION_WITHOUT_PROJECT;
+    // DENY-BY-DEFAULT: a location with no row has nobody to own it, and a
+    // subfolder of a project is the same answer. Allowing "scratch" roots here
+    // let the editor preview read any path on the machine.
+    return null;
   }
   const owned = await db.getProjectByPath(location, userId);
   if (owned === null) return null;

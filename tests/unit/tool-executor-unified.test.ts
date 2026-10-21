@@ -235,7 +235,7 @@ describe("unified executor — execute_command", () => {
   test("rejects a cwd outside the project root with a typed error", async () => {
     const res = await executeToolCall("execute_command", { command: "pwd", cwd: "/etc" }, ctx);
     expect(res.success).toBe(false);
-    expect(res.output).toContain("outside the project root");
+    expect(res.output).toMatch(/escapes the project folder/i);
   });
 });
 
