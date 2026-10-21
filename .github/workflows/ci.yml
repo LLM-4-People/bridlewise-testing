@@ -100,6 +100,54 @@ jobs:
         working-directory: engine
         run: node --experimental-strip-types --test test/prevention/no-unhandled-errors.test.ts
 
+  # Generated values are never edited by hand: hashes, pins, inventories,
+  # manifests and README consumer blocks come from `harness sync`. This job
+  # runs the generators (with the bundle, so the self-protection pin
+  # converges) and requires that they change NO tracked file, then relies on
+  # the sync's own final `harness check` for every other gate. A stale pin
+  # used to reach main unseen (Issue #55): only the commit hook ran the
+  # check, and only when an engine file was staged. The gate job above owns
+  # the typecheck, so the sync's check skips it.
+  generated:
+    name: Generated values and harness check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            engine/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install engine dependencies
+        run: npm --prefix engine ci --no-audit --no-fund
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      - name: Run every generator, then harness check
+        working-directory: engine
+        run: node src/cli.ts harness sync --with-bundle
+
+      - name: Require that the generators changed no tracked file
+        run: |
+          if ! git diff --exit-code --stat; then
+            echo "::error::a generated value is stale; run 'cd engine && node src/cli.ts harness sync --with-bundle' and commit its output"
+            exit 1
+          fi
+
   shards:
     name: Full suite shards
     uses: ./.github/workflows/test-shards.yml
