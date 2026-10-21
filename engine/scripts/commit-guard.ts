@@ -383,25 +383,77 @@ function hookIntegrityProblems(repositoryRoot: string): readonly string[] {
   return problems;
 }
 
-type LegOutcome = Readonly<{ label: string; status: number | null; output: string }>;
+/**
+ * The compile leg's ceiling, read from the SAME owner `harness check` uses
+ * (`harness.typecheckTimeoutMs`). A config the guard cannot read is a refusal,
+ * not an unbounded wait: a typecheck that never ends must not hang a commit.
+ */
+function typecheckBoundMs(): number {
+  const declared = loadPinnedConfigSnapshotIfPresent()?.document.harness?.typecheckTimeoutMs;
+  if (typeof declared !== "number" || !Number.isFinite(declared) || declared <= 0) {
+    throw new Error("harness.typecheckTimeoutMs is unreadable, so the compile leg cannot be bounded");
+  }
+  return declared;
+}
 
-function runTypecheckLeg(directory: string, label: string): Promise<LegOutcome> {
+// --- bounded typecheck leg (extracted and driven by engine/test/prevention/commit-compile-door.test.ts) ---
+type LegOutcome = Readonly<{ label: string; status: number | null; output: string; timedOut: boolean; timeoutMs: number }>;
+
+function typecheckLegRefusal(outcome: LegOutcome): string {
+  return `the staged ${outcome.label} typecheck remained unfinished after its ${String(outcome.timeoutMs)}ms bound and was killed`;
+}
+
+function runTypecheckLeg(directory: string, label: string, timeoutMs: number): Promise<LegOutcome> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(`the ${label} typecheck needs a positive millisecond bound, got ${String(timeoutMs)}`);
+  }
   return new Promise((resolveLeg) => {
     const chunks: Buffer[] = [];
-    const child = spawn("npm", ["run", "typecheck"], { cwd: directory, stdio: ["ignore", "pipe", "pipe"] });
-    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => chunks.push(chunk));
-    child.once("error", (error) => resolveLeg({ label, status: null, output: `${Buffer.concat(chunks).toString("utf8")}${error.message}` }));
-    child.once("close", (status) => resolveLeg({ label, status, output: Buffer.concat(chunks).toString("utf8") }));
+    let timedOut = false;
+    let settled = false;
+    let timer: NodeJS.Timeout | null = null;
+    // Its own process group: killing `npm` alone leaves the compiler it started
+    // running, and the pipes then never close (the hang this bound closes).
+    const child = spawn("npm", ["run", "typecheck"], { cwd: directory, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    const finish = (status: number | null, suffix = ""): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      resolveLeg({ label, status, output: `${Buffer.concat(chunks).toString("utf8")}${suffix}`, timedOut, timeoutMs });
+    };
+    timer = setTimeout(() => {
+      timedOut = true;
+      chunks.push(Buffer.from(`\n[commit-guard] ${label} typecheck exceeded its ${String(timeoutMs)}ms bound; killing it.\n`));
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
+        else child.kill("SIGKILL");
+      } catch {
+        child.kill("SIGKILL");
+      }
+    }, timeoutMs);
+    child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.stderr?.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.once("error", (error) => finish(null, error.message));
+    child.once("close", (status) => finish(status));
   });
 }
+// --- end bounded typecheck leg ---
 
 /** Both trees' compile legs, in parallel, over the STAGED tree; each leg's output is printed whole. */
 async function refuseUncompilableStagedTree(stagedTree: string): Promise<void> {
-  const outcomes = await Promise.all([runTypecheckLeg(stagedTree, "web"), runTypecheckLeg(join(stagedTree, engineRelative), "engine")]);
+  const timeoutMs = typecheckBoundMs();
+  const outcomes = await Promise.all([
+    runTypecheckLeg(stagedTree, "web", timeoutMs),
+    runTypecheckLeg(join(stagedTree, engineRelative), "engine", timeoutMs),
+  ]);
   for (const outcome of outcomes) {
     process.stderr.write(`\n[commit-guard] ${outcome.label} typecheck (staged tree):\n${outcome.output}`);
-    if (outcome.status !== 0) {
+    if (outcome.timedOut) {
+      process.stderr.write(
+        `\nCOMMIT REFUSED — ${typecheckLegRefusal(outcome)}. The staged tree is uncertified: fix the compiler/toolchain state and commit again.\n\n`,
+      );
+      process.exitCode = 1;
+    } else if (outcome.status !== 0) {
       process.stderr.write(
         `\nCOMMIT REFUSED — the staged ${outcome.label} tree does not compile (the suites strip types, the compiler is the certificate).\n\n`,
       );

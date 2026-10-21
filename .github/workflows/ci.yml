@@ -81,10 +81,15 @@ jobs:
         run: make -C engine/guardian all
 
       - name: Test guardian
-        run: make -C engine/guardian test
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/guardian-tests.log"
+          make -C engine/guardian test | tee "$log"
+          bash engine/guardian/tests/require-pass-log.sh "$log"
 
       - name: Record the guardian build stamp and diagnostic digest
         run: |
+          set -o pipefail
           engine/guardian/build/harness-landlock-guardian --stamp | tee -a "$GITHUB_STEP_SUMMARY"
           sha256sum engine/guardian/build/harness-landlock-guardian | tee -a "$GITHUB_STEP_SUMMARY"
 

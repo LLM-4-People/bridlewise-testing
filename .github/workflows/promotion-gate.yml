@@ -26,7 +26,7 @@ on:
         type: number
     outputs:
       verdict:
-        description: pass or blocked
+        description: allowed, or blocked:<reason> when the gate refuses
         value: ${{ jobs.gate.outputs.verdict }}
 
 permissions:
@@ -80,13 +80,33 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          verdict_file="$RUNNER_TEMP/promotion-verdict.txt"
+          # Seeded before the gate runs: even if it cannot start or is killed,
+          # the step still publishes a refusal rather than an empty output.
+          printf 'blocked:gate-did-not-run\n' > "$verdict_file"
+          set +e
           node scripts/promotion-gate.mjs \
             --product "${{ inputs.product_repo }}" \
             --sha "${{ inputs.product_sha }}" \
             --tag "${{ inputs.product_tag }}" \
             --wait-seconds "${{ inputs.wait_seconds }}" \
-            --out promotion-receipt.json
-          echo "verdict=$(node -e 'process.stdout.write(require("./promotion-receipt.json").verdict)')" >> "$GITHUB_OUTPUT"
+            --out promotion-receipt.json \
+            --verdict-out "$verdict_file"
+          gate_status=$?
+          set -e
+          verdict="$(cat "$verdict_file")"
+          case "$verdict" in
+            allowed|blocked:*) ;;
+            *) echo "::error::the promotion gate left no valid verdict output (got '$verdict')"; exit 1 ;;
+          esac
+          if [ "$gate_status" -eq 0 ] && [ "$verdict" != "allowed" ]; then
+            echo "::error::the promotion gate exited 0 with verdict '$verdict'"; exit 1
+          fi
+          if [ "$gate_status" -ne 0 ] && [ "${verdict#blocked:}" = "$verdict" ]; then
+            echo "::error::the promotion gate exited $gate_status without a blocked verdict (got '$verdict')"; exit 1
+          fi
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          exit "$gate_status"
 
       - name: Upload the promotion receipt
         if: always()

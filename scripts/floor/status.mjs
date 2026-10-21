@@ -81,7 +81,26 @@ function securityCheck(id, label, result, required) {
       note: result.code === "authentication" ? "The build token could not read this endpoint." : "The API did not answer.",
     };
   }
-  const { high, critical, total, truncated } = result.value;
+  const { high, critical, total, judged, declaredTotal, complete } = result.value;
+  if (!complete) {
+    return {
+      id,
+      label,
+      status: "unknown",
+      required,
+      conclusion: null,
+      headSha: null,
+      runUrl: null,
+      durationMs: null,
+      note:
+        declaredTotal === null
+          ? "The alert endpoint declared no completeness marker; the population may be truncated."
+          : `The alert population is incomplete: ${judged} of ${declaredTotal} declared alert(s) were judged.`,
+      high,
+      critical,
+      total,
+    };
+  }
   return {
     id,
     label,
@@ -91,7 +110,7 @@ function securityCheck(id, label, result, required) {
     headSha: null,
     runUrl: null,
     durationMs: null,
-    note: truncated ? `The API returned 100 alerts; the count may be truncated.` : `${total} open alert(s).`,
+    note: `${total} open alert(s).`,
     high,
     critical,
     total,

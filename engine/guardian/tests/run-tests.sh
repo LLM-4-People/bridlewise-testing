@@ -32,6 +32,13 @@ fail() { TOTAL=$((TOTAL+1)); FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 skip() { TOTAL=$((TOTAL+1)); SKIP=$((SKIP+1)); echo "SKIP: $*"; }
 summary() {
   echo "PASS $PASS/$TOTAL"
+  # Printed on every path, so a caller can require the zero positively instead
+  # of inferring it from the absence of a SKIP line.
+  echo "SKIP $SKIP"
+  if [[ "$TOTAL" -eq 0 ]]; then
+    echo "NO TESTS RAN — a vacuous run certifies nothing"
+    return 1
+  fi
   if [[ "$TOTAL" -ne $((PASS+FAIL+SKIP)) ]]; then
     echo "INCOMPLETE ACCOUNTING: total $TOTAL != pass $PASS + fail $FAIL + skip $SKIP"
     return 1
@@ -41,9 +48,8 @@ summary() {
     return 1
   fi
   if [[ "$SKIP" -ne 0 ]]; then
-    echo "SKIP $SKIP"
     echo "NOT ALL TESTS PASSED — $SKIP test(s) did not run; a skipped test is not a passed test"
-    return 0
+    return 1
   fi
   echo "ALL TESTS PASS"
 }

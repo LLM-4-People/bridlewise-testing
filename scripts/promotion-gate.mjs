@@ -20,6 +20,7 @@ function parseArgs(argv) {
     sha: null,
     tag: null,
     out: "promotion-receipt.json",
+    verdictOut: null,
     token: process.env.GH_TOKEN || null,
     waitSeconds: 0,
   };
@@ -29,6 +30,7 @@ function parseArgs(argv) {
     else if (arg === "--sha") out.sha = argv[++index];
     else if (arg === "--tag") out.tag = argv[++index];
     else if (arg === "--out") out.out = argv[++index];
+    else if (arg === "--verdict-out") out.verdictOut = argv[++index];
     else if (arg === "--token") out.token = argv[++index];
     else if (arg === "--wait-seconds") out.waitSeconds = Number(argv[++index]);
     else throw new Error(`Unknown argument: ${arg}`);
@@ -89,21 +91,44 @@ function checkFromRun(definition, run, sha) {
 async function alerts(repository, kind, token, fetchImpl) {
   try {
     const value = await countOpenAlerts(repository, kind, token, { fetchImpl });
+    if (!value.complete) {
+      return {
+        status: "unknown",
+        ...value,
+        note:
+          value.declaredTotal === null
+            ? "The alert endpoint declared no completeness marker; refusing to judge a population that may be truncated."
+            : `The alert population is incomplete: ${value.judged} of ${value.declaredTotal} declared alert(s) were judged.`,
+      };
+    }
     return {
       status: value.critical > 0 || value.high > 0 ? "fail" : "pass",
       ...value,
-      note: value.truncated ? "The API returned 100 alerts; the count may be truncated." : null,
+      note: null,
     };
   } catch (error) {
     return {
       status: "unknown",
       total: null,
+      judged: null,
+      declaredTotal: null,
       high: null,
       critical: null,
-      truncated: false,
+      complete: false,
+      truncated: true,
       note: `The alert API did not answer: ${error.status ?? "network"}.`,
     };
   }
+}
+
+/**
+ * The workflow output's value: `allowed`, or `blocked:<reason>` with every
+ * blocker joined. A blocked receipt never leaves the output empty.
+ */
+export function verdictOutput(receipt) {
+  if (receipt?.verdict === "pass") return "allowed";
+  const blockers = Array.isArray(receipt?.blockers) ? receipt.blockers.filter((blocker) => typeof blocker === "string" && blocker.length > 0) : [];
+  return `blocked:${blockers.length > 0 ? blockers.join("+") : "unknown"}`;
 }
 
 function defaultSleep(milliseconds) {
@@ -180,8 +205,18 @@ export async function buildPromotionReceipt({
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const receipt = await buildPromotionReceipt(args);
+  let receipt;
+  try {
+    receipt = await buildPromotionReceipt(args);
+  } catch (error) {
+    // The workflow pre-seeds its verdict file; this overwrites it with a
+    // reason when the gate itself could not finish, so a blocked gate never
+    // leaves an empty output behind.
+    if (args.verdictOut !== null) writeFileSync(args.verdictOut, "blocked:gate-error\n");
+    throw error;
+  }
   writeFileSync(args.out, stableJson(receipt));
+  if (args.verdictOut !== null) writeFileSync(args.verdictOut, `${verdictOutput(receipt)}\n`);
   process.stdout.write(
     `promotion gate: ${receipt.verdict} (${receipt.checks.length} checks, ${receipt.blockers.length} blockers)\n`,
   );

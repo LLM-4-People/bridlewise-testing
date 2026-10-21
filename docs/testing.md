@@ -170,7 +170,7 @@ make -C engine/guardian test
 make -C engine/guardian test_process_supervisor
 ```
 
-The guardian tests exercise Landlock itself. An exit code of 3 (`landlock_unavailable`) is a skip, not a pass; the Node-side tests cover the refusal path with a mock.
+The guardian tests exercise Landlock itself. An exit code of 3 (`landlock_unavailable`) is a skip, not a pass; the Node-side tests cover the refusal path with a mock. The shell runner is stricter still: a run that skips any test exits non-zero, and CI additionally requires a positive `PASS n/n` with `SKIP 0` from the log, so a skipped security suite cannot certify the gate.
 
 ## Sharding
 

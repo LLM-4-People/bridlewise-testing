@@ -32,6 +32,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import { GUARDED_HOOKS, HOOKS_DIRECTORY, HOOK_NAME, guardHookText } from "../../scripts/verification/staged-move-loss.ts";
 import { createTempDir } from "../support/temp-dir.ts";
@@ -709,4 +710,46 @@ test("DRIVEN: a commit that itself drops a protected staged blob (a committed `g
   assert.equal(warned.status, 0, warned.stderr);
   assert.match(warned.stderr, /INDEX WARNING/u);
   assert.match(warned.stderr, /docs\/tracked\.md \(THIS commit records the change\)/u);
+});
+
+const BOUNDED_LEG_START = "// --- bounded typecheck leg (extracted and driven by engine/test/prevention/commit-compile-door.test.ts) ---";
+const BOUNDED_LEG_END = "// --- end bounded typecheck leg ---";
+
+test("DRIVEN: a compile leg that outlives its bound is KILLED and REFUSED — a hanging compiler cannot hold a commit", () => {
+  const source = readFileSync(COMMIT_GUARD, "utf8");
+  const from = source.indexOf(BOUNDED_LEG_START);
+  const to = source.indexOf(BOUNDED_LEG_END);
+  assert.ok(from !== -1 && to > from, "the guard carries the bounded typecheck leg block this test drives");
+  // The door must resolve the bound from the harness's own typecheck timeout
+  // and refuse the timed-out outcome by name — not merely print its output.
+  assert.match(source, /runTypecheckLeg\(stagedTree, "web", timeoutMs\)/u);
+  assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", timeoutMs\)/u);
+  assert.match(source, /harness\?\.typecheckTimeoutMs/u);
+  assert.match(source, /outcome\.timedOut/u);
+  assert.match(source, /typecheckLegRefusal\(outcome\)/u);
+
+  // Drive the REAL block, extracted from the guard's source, with a short
+  // bound: a fixture `typecheck` that sleeps for a minute must be killed and
+  // answered as a timed-out refusal well before it finishes.
+  const root = createTempDir("ch-typecheck-bound-");
+  const block = source.slice(from + BOUNDED_LEG_START.length, to);
+  const leg = join(root, "typecheck-leg.ts");
+  writeFileSync(leg, `import { spawn } from "node:child_process";\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
+  const tree = join(root, "tree");
+  writeFile(root, "tree/package.json", `${JSON.stringify({ name: "bounded-leg-fixture", private: true, scripts: { typecheck: 'node -e "setTimeout(() => {}, 60000)"' } })}\n`);
+  const driver = join(root, "drive.ts");
+  writeFileSync(driver, [
+    `import { runTypecheckLeg, typecheckLegRefusal } from ${JSON.stringify(pathToFileURL(leg).href)};`,
+    "const started = Date.now();",
+    `const outcome = await runTypecheckLeg(${JSON.stringify(tree)}, "web", 250);`,
+    "process.stdout.write(JSON.stringify({ timedOut: outcome.timedOut, status: outcome.status, elapsedMs: Date.now() - started, refusal: typecheckLegRefusal(outcome) }));",
+    "",
+  ].join("\n"));
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", driver], { encoding: "utf8", timeout: 20_000 });
+  assert.equal(run.status, 0, `the bounded-leg driver failed:\n${run.stderr}`);
+  const outcome = JSON.parse(run.stdout);
+  assert.equal(outcome.timedOut, true, "the leg was not killed at its bound");
+  assert.equal(outcome.status, null, "a killed leg must not report an exit status");
+  assert.ok(outcome.elapsedMs < 10_000, `the leg outlived its bound: ${String(outcome.elapsedMs)}ms`);
+  assert.match(outcome.refusal, /remained unfinished after its 250ms bound/u);
 });
