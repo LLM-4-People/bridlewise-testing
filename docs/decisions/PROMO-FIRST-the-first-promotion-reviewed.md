@@ -5,7 +5,7 @@ by: user
 group: promotion
 status: in-force
 implementation: done
-acted_in: [promotion/testing-to-master.json]
+acted_in: [promotion/main-to-product.json]
 ---
 # The first promotion: reviewed by the user, then applied
 

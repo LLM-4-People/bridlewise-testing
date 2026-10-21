@@ -10,8 +10,9 @@
  * in; an included path or prefix is in; a companion (e.g. a `README.md`) is
  * in when its folder holds a projected path; everything else is out (deny by
  * default). The profile's overlay folder (`boundary.overlay`) adds the
- * target-only files: each ships at its path without the folder prefix, and
- * may not name a path the projection already carries. It runs over any {@link TreeReader}: a commit (the plan) or the
+ * target-only files (documents and recipes, never a module): each ships at
+ * its path without the folder prefix, obeys the profile's excludes at that
+ * path, and may not name a path the projection already carries. It runs over any {@link TreeReader}: a commit (the plan) or the
  * source's working tree (the source-side boundary guard).
  *
  * {@link planPromotion} adds the derived files (`transforms.ts`), writes the
@@ -216,7 +217,10 @@ export function classifyTree(reader: TreeReader, profile: PromotionProfile): Cla
   for (const path of overlay === null ? [] : paths.filter((candidate) => candidate.startsWith(overlay))) {
     const target = path.slice(overlay!.length);
     const mode = reader.entry(path)?.mode;
-    if (projected.has(target)) refusals.push(refusal("promotion_overlay_invalid", `${path} overlays ${target}, which the projection already carries (${describe(projected.get(target))}): a path ships for one reason`, { overlay: path, target }));
+    const excluded = excludedBy(profile, target);
+    if (excluded !== null) refusals.push(refusal("promotion_overlay_invalid", `${path} would ship at ${target}, which the profile excludes (by ${excluded}): the overlay obeys the boundary like every source path`, { overlay: path, target }));
+    else if (isWalkableModule(path)) refusals.push(refusal("promotion_overlay_invalid", `${path} is a module: the overlay ships target-only documents and recipes, never code the import walk would not judge (ship code from the source tree)`, { overlay: path, target }));
+    else if (projected.has(target)) refusals.push(refusal("promotion_overlay_invalid", `${path} overlays ${target}, which the projection already carries (${describe(projected.get(target))}): a path ships for one reason`, { overlay: path, target }));
     else if (mode === SYMLINK_MODE || mode === GITLINK_MODE) refusals.push(refusal("promotion_overlay_invalid", `${path} is a ${mode === SYMLINK_MODE ? "symbolic link" : "gitlink"}: the overlay ships files only (a link would change its meaning at ${target})`, { overlay: path, target }));
     else overlaid.set(target, path);
   }

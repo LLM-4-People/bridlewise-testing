@@ -21,7 +21,7 @@ import { gitAcceptsRefName } from "../../git/repository-ownership.ts";
 import type { TreeReader } from "../../git/tree-reader.ts";
 import { PromotionError } from "./codes.ts";
 
-const PROMOTION_PROFILE_SCHEMA_VERSION = schemaId("promotion-profile", 1);
+const PROMOTION_PROFILE_SCHEMA_VERSION = schemaId("promotion-profile", 2);
 
 const refName = z.string().regex(/^refs\/heads\/[A-Za-z0-9._/-]+$/u);
 /**

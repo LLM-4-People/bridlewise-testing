@@ -1,5 +1,5 @@
 {
-  "schema": "bridlewise-promotion-profile/v1",
+  "schema": "bridlewise-promotion-profile/v2",
   "name": "main-to-product",
   "source": {
     "ref": "refs/heads/main"

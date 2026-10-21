@@ -31,7 +31,7 @@
 # `experiments/engine/` (the engine repo's numbered rounds),
 # `experiments/web/`, `experiments/archive/` — records, versioned on this
 # branch beside the work that produced them. What ships to the product branch
-# is the promotion profile's answer (`promotion/testing-to-master.json`
+# is the promotion profile's answer (`promotion/main-to-product.json`
 # excludes `experiments/`), never an ignore rule: the anchored rule and its
 # re-admission that used to make the archive "floor bytes" retired with the
 # merge door (PROMO-4), and so did the product branch's prophylactic copies
