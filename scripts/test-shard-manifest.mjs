@@ -566,8 +566,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (options.command === "list") {
       const listing = listTestFiles({ root: options.root });
       const text = `${JSON.stringify(listing, null, 2)}\n`;
-      if (options.outPath) writeFileSync(resolve(options.outPath), text);
-      else process.stdout.write(text);
+      if (options.outPath) {
+        const outPath = resolve(options.outPath);
+        mkdirSync(dirname(outPath), { recursive: true });
+        writeFileSync(outPath, text);
+      } else process.stdout.write(text);
     } else if (options.command === "verify") {
       if (!options.manifestPath || !options.livePath) fail("verify requires --manifest and --live");
       if (options.tree === undefined) options.tree = treeFingerprint(options.root);

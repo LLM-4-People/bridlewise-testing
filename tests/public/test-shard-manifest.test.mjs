@@ -25,6 +25,20 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+test("the documented listing commands run bare, as their npm scripts say", () => {
+  // The scripts were wired without arguments while the CLI required them, so
+  // the documented command could not run at all. Run both as npm runs them.
+  const root = process.cwd();
+  const listing = join(root, "node_modules", ".cache", "bridlewise", "test-listing.json");
+  rmSync(listing, { force: true });
+  execFileSync("npm", ["run", "test:list"], { cwd: root, stdio: "pipe" });
+  const document = JSON.parse(readFileSync(listing, "utf8"));
+  assert.equal(document.schemaVersion, "bridlewise-test-listing/v1");
+  assert.ok(document.files.length > 0, "the listing must select the live test population");
+  const verdict = execFileSync("npm", ["run", "test:verify-shards"], { cwd: root, encoding: "utf8" });
+  assert.match(verdict, /supported, \d+ excluded, \d+ live/u);
+});
+
 function manifestFor(files, excluded = []) {
   return {
     schemaVersion: MANIFEST_SCHEMA,
