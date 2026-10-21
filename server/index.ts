@@ -50,7 +50,7 @@ import { startResourceSampler, stopResourceSampler, installPerformanceMetricsExp
 import { registerAllRoutes, isPublicPath } from "./routes/registry.ts";
 import { readConfigRaw, writeConfigRaw, resolveWebDebugBootstrap, getSettingsStoreState, watchSettingsStore } from "./kernel/harness-config.ts";
 import { egressFailureCounts } from "./router/egress-failures.ts";
-import { installDatabaseFactsSource, installDatabaseThreadsSource, installTimelineReadinessSource, installEgressFailureSource, installKeepOutSource, installSettingsStoreStateSource, preMigrationBackups, installCustomizationConfigStore, registerNetworkExposure, guarded } from "./kernel/canonical.ts";
+import { installDatabaseFactsSource, installDatabaseThreadsSource, installTimelineReadinessSource, installEgressFailureSource, installKeepOutSource, installSettingsStoreStateSource, preMigrationBackups, installCustomizationConfigStore, registerNetworkExposure, registerAllExposure, guarded } from "./kernel/canonical.ts";
 import { serverKeepOutList } from "./safety/host-facts.ts";
 import { installServerKeyTool } from "./db/key-tool.ts";
 import { installRunSafetyRuntimeExposureSource } from "./safety/safety-runtime-bridge.ts";
@@ -166,6 +166,14 @@ installCustomizationConfigStore({
 // The outbound door reads its one setting (`network.cleartextRemote`) from
 // the store just installed — before any request can leave this process.
 registerNetworkExposure();
+// ARM THE WHOLE EXPOSURE SURFACE BEFORE THE SOCKET LISTENS. Registering the
+// signals and customizations imports their modules and seeds every value —
+// a one-time cost the first authenticated settings request used to pay
+// (measured: /api/schema/ui/values answered ~600ms slower on its first
+// authenticated call than its next, while the build itself costs ~180ms).
+// The schema route keeps its idempotent call for hosts that import routes
+// without this boot.
+registerAllExposure();
 
 // Install the exposure state source the event-feed safety signals read
 // through. The safety-runtime owner aggregates its per-run detectors

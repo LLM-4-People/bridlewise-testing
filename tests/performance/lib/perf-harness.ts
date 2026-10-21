@@ -1440,7 +1440,9 @@ export async function profileApiRoutes(
   // The drain between a route's warmup and its measured call: long enough
   // for the warmup's post-response ledger append to leave the server's
   // event loop, so the measured timer starts on a quiet server. See the
-  // function's doc comment for why the warmup exists at all.
+  // function's doc comment for why the warmup exists at all. (Measured: a
+  // 1s drain did not change the profile's slowest route, so the tail this
+  // waits for is not the whole story — the endpoint itself was still cold.)
   const WARMUP_DRAIN_MS = 60;
   for (const r of routes) {
     if (!r.profiled) continue;
