@@ -146,18 +146,18 @@ describe("reading bytes is bounded BEFORE the read", () => {
     expect([...bytes.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
 
-  test("a file past the cap is REFUSED, and the refusal names the cap", () => {
+  test("a file past the cap is REFUSED with a typed code, and the size stays out of the wire sentence", () => {
     expect(() => readFileBytes(join(root, "big.txt"), 100, root)).toThrow(ValidationError);
     try {
       readFileBytes(join(root, "big.txt"), 100, root);
     } catch (err) {
       expect((err as { code?: string }).code).toBe("file_too_large");
-      expect((err as Error).message).toContain("40000");
+      expect((err as Error).message).toBe("That file is too large to open here.");
     }
   });
 
   test("a missing file and a directory are typed errors, not empty buffers", () => {
-    expect(() => readFileBytes(join(root, "nope.png"), 1024, root)).toThrow(/not found/i);
+    expect(() => readFileBytes(join(root, "nope.png"), 1024, root)).toThrow(/no longer exists/i);
     expect(() => readFileBytes(join(root, "sub"), 1024, root)).toThrow(/Not a file/i);
   });
 });

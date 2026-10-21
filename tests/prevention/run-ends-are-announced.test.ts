@@ -41,7 +41,7 @@ import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { responseEvents, type ResponsesFixture } from "../../engine/test/support/mock-provider.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
@@ -330,6 +330,9 @@ let projectId = "";
 let chatId = "";
 let ownerUserId = "";
 let tmpRoot = "";
+// The project folder is SEPARATE from the state folder: a project that
+// contains the harness's own database key is refused by the keep-out rule.
+let projectRoot = "";
 
 /** Claim failures injected at the facade, and the run ids they refused. The
  *  count is the PLANT'S LIVENESS: a leak assertion that passes because the
@@ -351,6 +354,8 @@ const setupReadsFailed: string[] = [];
 
 beforeAll(async () => {
   tmpRoot = createTempDir("ch-run-ends-");
+  projectRoot = join(tmpRoot, "project");
+  mkdirSync(projectRoot, { recursive: true });
 
   const { createRouter } = await import("../../server/router/router.ts");
   const { isPublicPath } = await import("../../server/routes/registry.ts");
@@ -433,7 +438,7 @@ beforeAll(async () => {
     "Content-Type": "application/json",
     "X-Requested-With": "test",
   };
-  const project = db.createProject({ name: "run-ends", path: tmpRoot }, user.userId);
+  const project = db.createProject({ name: "run-ends", path: projectRoot }, user.userId);
   const chat = db.createChat({ project_id: project.id, title: "run-ends" }, user.userId);
   projectId = project.id;
   chatId = chat.id;
@@ -818,8 +823,8 @@ describe("a run whose frames were evicted still has its tool results in the read
       expect(row!.status).toBe("error");
       expect(
         String(row!.output ?? ""),
-        "the ledger holds the call's real result — an error output, not a synthesized sentence",
-      ).toContain("no-such-file-for-read-back.txt");
+        "the ledger holds the call's real result — the typed read refusal, not a synthesized sentence",
+      ).toMatch(/file_not_found|no longer exists/i);
 
       // THE SERVED HALF: over HTTP, through the view mappers and their
       // redaction owner — the exact bytes the client's run-end read-back
@@ -834,7 +839,7 @@ describe("a run whose frames were evicted still has its tool results in the read
       const servedRow = served.find((t) => t.callId === TOOL_CALL_ID);
       expect(servedRow, "the read-back route must serve the evicted call's row").toBeDefined();
       expect(servedRow!.status).toBe("error");
-      expect(String(servedRow!.output ?? "")).toContain("no-such-file-for-read-back.txt");
+      expect(String(servedRow!.output ?? "")).toMatch(/file_not_found|no longer exists/i);
     },
     40_000,
   );
@@ -1214,7 +1219,7 @@ test.each([false, true])("policy refusal stops queued continuation and permits a
   chatId = db.createChat({ project_id: projectId, title: "policy scenario" }, ownerUserId).id;
   const ready = Promise.withResolvers<void>(); const released = Promise.withResolvers<void>();
   policyBarrier = { ready: ready.resolve, released: released.promise, native };
-  writeFileSync(join(tmpRoot, policyEditArgs.path), policyEditArgs.oldString);
+  writeFileSync(join(projectRoot, policyEditArgs.path), policyEditArgs.oldString);
   const before = providerBranches.length; const wireBefore = providerRequests.length; const toolsBefore = db.listToolCallsByChat(chatId, ownerUserId).length;
   let watchdog: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -1230,7 +1235,7 @@ test.each([false, true])("policy refusal stops queued continuation and permits a
     const wire = providerRequests.slice(wireBefore); expect(wire).toHaveLength(1);
     expect(wire[0]!.url).toBe("/v1/responses"); expect(wire[0]!.body.stream).toBe(true);
     expect(JSON.stringify(wire[0]!.body.input)).toContain(POLICY_MARKER);
-    expect(readFileSync(join(tmpRoot, policyEditArgs.path), "utf8")).toBe(policyEditArgs.oldString);
+    expect(readFileSync(join(projectRoot, policyEditArgs.path), "utf8")).toBe(policyEditArgs.oldString);
     const toolRows = db.listToolCallsByChat(chatId, ownerUserId).slice(toolsBefore);
     expect(toolRows).toHaveLength(native ? 1 : 0);
     for (const row of toolRows) {
@@ -1250,7 +1255,7 @@ test.each([false, true])("policy refusal stops queued continuation and permits a
     policyEditArmed = native;
     const explicit = await startRun(native ? POLICY_EDIT_MARKER : "new explicit request after operator review"); await runToCompletion(explicit.runId);
     expect(providerBranches.slice(before)).toEqual(native ? ["policy", "policy-edit", "fast"] : ["policy", "fast"]);
-    expect(readFileSync(join(tmpRoot, policyEditArgs.path), "utf8")).toBe(native ? policyEditArgs.newString : policyEditArgs.oldString);
+    expect(readFileSync(join(projectRoot, policyEditArgs.path), "utf8")).toBe(native ? policyEditArgs.newString : policyEditArgs.oldString);
   } finally { clearTimeout(watchdog); released.resolve(); policyBarrier = undefined; chatId = db.createChat({ project_id: projectId, title: "unrelated after policy" }, ownerUserId).id; }
 }, 40_000);
 
