@@ -312,15 +312,55 @@ export function materializePageFrontMatter({ outRoot, fallbackPages = [] }) {
     const heading = /^#\s+(.+?)\s*$/mu.exec(text)?.[1]?.replace(/[*_`]/gu, "");
     const title = heading ?? docsPath.split("/").pop().replace(/\.md$/u, "");
     const permalink = prettyPermalink(docsPath);
-    const aliases = legacyAliasesFor(docsPath, permalink);
-    const redirects = aliases.length === 0 ? "" : `redirect_from:\n${aliases.map((alias) => `  - ${alias}`).join("\n")}\n`;
     writeFileSync(
       file,
-      `---\nlayout: default\ntitle: ${JSON.stringify(title)}\npermalink: ${permalink}\n${redirects}---\n\n${text}`,
+      `---\nlayout: default\ntitle: ${JSON.stringify(title)}\npermalink: ${permalink}\n---\n\n${text}`,
     );
     added += 1;
   }
   return added;
+}
+
+/**
+ * Serve the older URL shapes as real pages. A `redirect_from` header needs the
+ * jekyll-redirect-from plugin, and this build proved it was not loaded (the
+ * old URLs stayed 404), so the alias is written as a static page: a browser
+ * landing on `/floor/trackers/TASKS.md/` is sent to the published page. The
+ * directory form means Pages answers the no-slash spelling with a 301 first.
+ */
+export function materializeLegacyRedirects({ outRoot, baseurl = "", fallbackPages = [] }) {
+  const pages = [];
+  for (const { docsRoot, siteRoot } of FLOOR_COPY_ROOTS) {
+    const directory = join(outRoot, siteRoot);
+    for (const file of markdownFiles(directory)) {
+      const relative = toPosix(file.slice(directory.length)).replace(/^\/+/u, "");
+      pages.push({ docsPath: `${docsRoot}/${relative}` });
+    }
+  }
+  for (const docsPath of fallbackPages) pages.push({ docsPath });
+  const prefix = baseurl.replace(/\/$/u, "");
+  let written = 0;
+  for (const { docsPath } of pages) {
+    const permalink = prettyPermalink(docsPath);
+    for (const alias of legacyAliasesFor(docsPath, permalink)) {
+      const target = `${prefix}${permalink}`;
+      const directory = join(outRoot, ...alias.split("/").filter(Boolean));
+      // A copied file may already sit at this spelling (a README, for one).
+      // It is reachable as it stands, so an alias directory cannot take its
+      // name and does not need to.
+      if (existsSync(directory) && !statSync(directory).isDirectory()) continue;
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(
+        join(directory, "index.html"),
+        `<!doctype html>\n<meta charset="utf-8">\n<title>Moved</title>\n` +
+          `<link rel="canonical" href="${target}">\n` +
+          `<meta http-equiv="refresh" content="0; url=${target}">\n` +
+          `<p>This page moved to <a href="${target}">${target}</a>.</p>\n`,
+      );
+      written += 1;
+    }
+  }
+  return written;
 }
 
 /** Rewrite the copied testing pages in place; answer how many links moved. */

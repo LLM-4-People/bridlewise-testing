@@ -16,7 +16,7 @@
  * deploy.
  */
 import { describe, expect, test } from "vitest";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { createTempDir } from "../helpers/temp-dir.ts";
@@ -27,7 +27,7 @@ import { createTempDir } from "../helpers/temp-dir.ts";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { candidateSiteFiles, crawlSiteLinks, pageUrlForSitePath, resolveSiteHref } from "../../scripts/floor/site-links.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
-import { floorPageLinkViolations, materializeFloorFallbacks, materializePageFrontMatter, publishedDocsPage, rewriteCopiedDocsPages, rewritePageLinks } from "../../scripts/floor/site-pages.mjs";
+import { floorPageLinkViolations, materializeFloorFallbacks, materializeLegacyRedirects, materializePageFrontMatter, publishedDocsPage, rewriteCopiedDocsPages, rewritePageLinks } from "../../scripts/floor/site-pages.mjs";
 
 function write(root: string, path: string, text: string): void {
   const file = join(root, ...path.split("/"));
@@ -283,12 +283,23 @@ describe("E. Jekyll needs front matter to publish a copied page", () => {
     const text = readFileSync(join(outRoot, "trackers/TASKS.md"), "utf8");
     expect(text.startsWith("---\nlayout: default\n")).toBe(true);
     expect(text).toContain("permalink: /trackers/TASKS/");
-    expect(text, "an old floor/trackers URL must redirect, not 404").toContain(
-      "redirect_from:\n  - /trackers/TASKS.md\n  - /floor/trackers/TASKS.md\n  - /floor/trackers/TASKS/",
-    );
+    expect(text.startsWith("---\nlayout: default\n")).toBe(true);
     expect(text).toContain("# Public floor tasks");
     expect(readFileSync(join(outRoot, "trackers/README.md"), "utf8")).toBe(
       "---\npublished: false\n---\n\n# Notes\n",
     );
+  });
+
+  test("an old URL shape is a real page that sends the browser to the published one", () => {
+    const outRoot = createTempDir("floor-site-redirects-");
+    write(outRoot, "trackers/TASKS.md", "# Public floor tasks\n");
+    write(outRoot, "floor/roadmap.md", "# Build roadmap\n");
+    materializeLegacyRedirects({ outRoot, baseurl: "/bridlewise-testing" });
+    const tracker = readFileSync(join(outRoot, "floor/trackers/TASKS.md/index.html"), "utf8");
+    expect(tracker).toContain('http-equiv="refresh" content="0; url=/bridlewise-testing/trackers/TASKS/"');
+    expect(tracker).toContain('<link rel="canonical" href="/bridlewise-testing/trackers/TASKS/">');
+    // A copied file already sits at /floor/roadmap.md; the alias must not try
+    // to take its name (the source keeps answering that spelling).
+    expect(existsSync(join(outRoot, "floor/roadmap.md"))).toBe(true);
   });
 });

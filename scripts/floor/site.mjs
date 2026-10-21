@@ -6,6 +6,7 @@ import {
   FLOOR_COPY_ROOTS,
   FLOOR_OVERLAY_PAGES,
   materializeFloorFallbacks,
+  materializeLegacyRedirects,
   materializePageFrontMatter,
   rewriteCopiedDocsPages,
 } from "./site-pages.mjs";
@@ -134,6 +135,10 @@ export function assembleFloorSite({ product, testing, out, baseurl = "/bridlewis
   // site resolves them against the pretty URL, which is a different directory.
   // Rewrite only the assembled copy to the URLs the site actually publishes,
   // so the committed Markdown keeps working on GitHub.
+  // The older URL shapes get static pages; a redirect header alone depends on
+  // a plugin this build does not load.
+  const redirectedPaths = materializeLegacyRedirects({ outRoot, baseurl, fallbackPages });
+
   const rewrittenLinks = rewriteCopiedDocsPages({
     outRoot,
     productRoot,
@@ -174,6 +179,7 @@ export function assembleFloorSite({ product, testing, out, baseurl = "/bridlewis
     productPages: countMarkdown(join(outRoot)),
     floorPages: countMarkdown(join(outRoot, "floor")),
     rewrittenLinks,
+    redirectedPaths,
     frontMatterPages,
   };
 }

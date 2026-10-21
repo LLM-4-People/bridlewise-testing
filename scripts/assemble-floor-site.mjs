@@ -25,7 +25,8 @@ try {
   const result = assembleFloorSite(parseArgs(process.argv.slice(2)));
   process.stdout.write(
     `floor site: ${result.productPages} Markdown files at ${result.baseurl}; ` +
-      `${result.rewrittenLinks} relative link(s) resolved to site URLs\n`,
+      `${result.rewrittenLinks} relative link(s) resolved to site URLs; ` +
+      `${result.redirectedPaths} legacy alias page(s)\n`,
   );
 } catch (error) {
   process.stderr.write(`floor site failed: ${error.message}\n`);
