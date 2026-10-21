@@ -1599,7 +1599,7 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
       profile: z.string().regex(/^[a-z][a-z0-9-]{0,62}$/u),
       train: z.enum(RELEASE_TRAIN_MODES),
       minIntervalHours: z.number().int().min(0).max(8760),
-      tagPrefix: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,15}$/u),
+      tagPrefix: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,31}$/u),
       discussionCategory: z.string().min(1).max(64),
       priorReleasesUrl: z.string().regex(/^https:\/\/\S+$/u).nullable(),
     }).optional(),

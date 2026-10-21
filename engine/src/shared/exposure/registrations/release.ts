@@ -23,7 +23,7 @@ const RELEASE_SETTINGS = [
   { key: "train", type: "enum", default: "auto", name: "How the release train departs", description: "auto: a release departs by itself after a land once the product changed, its declared version is new and the minimum interval has passed; manual: only when a person dispatches it; approval: by itself, through an approving reviewer. Takes effect at the next land." },
   { key: "minIntervalHours", type: "number", default: 24, name: "Minimum hours between two releases", description: "A release does not depart sooner than this after the previous one, however many lands come in between. Lower = releases follow lands more closely; higher = fewer, larger releases. Takes effect at the next land." },
   { key: "profile", type: "string", default: "main-to-product", name: "The product's promotion profile", description: "The promotion profile whose target branch is the product the train releases. Takes effect at the next land." },
-  { key: "tagPrefix", type: "string", default: "v", name: "Release tag prefix", description: "The prefix of a release tag (v names v0.1.0). Takes effect at the next release." },
+  { key: "tagPrefix", type: "string", default: "v", name: "What a release's tag begins with", description: "The prefix of a release tag (v names v0.1.0). Takes effect at the next release." },
   { key: "discussionCategory", type: "string", default: "Releases", name: "Release announcement category", description: "The Discussions category a release's announcement is posted in. Takes effect at the next release." },
 ] as const;
 

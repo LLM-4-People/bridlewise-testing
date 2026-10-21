@@ -136,6 +136,7 @@ test("the notes: landed pull requests, decision records and credited names betwe
   fixture.git(["tag", "v1.0.0", first]);
 
   fixture.commit(SOURCE, { "docs/decisions/D-90-a-decision.md": "# Decide the thing\n\nBody.\n" }, "Add a decision (#8)\n\nSigned-off-by: Ada Writer <ada@example.invalid>\nCo-authored-by: Bo Pair <bo@example.invalid>");
+  fixture.commit(SOURCE, { "assets/near-miss.txt": "x\n" }, "Mention (#not-a-number) and (#12) mid-subject\n\nSigned-off-by: Dee Plain");
   fixture.git(["checkout", "-q", "-b", "topic", SOURCE]);
   fixture.git(["commit", "-q", "--allow-empty", "-m", "topic work\n\nSigned-off-by: Cy Third <cy@example.invalid>"]);
   fixture.git(["checkout", "-q", SOURCE]);
@@ -145,9 +146,9 @@ test("the notes: landed pull requests, decision records and credited names betwe
   const from = next.previous!.source;
   assert.deepEqual(landedPullRequests(fixture.repository, from, next.product.source), [{ number: 8, title: "Add a decision" }, { number: 9, title: "Ship the topic" }]);
   assert.deepEqual(decisionChanges(fixture.repository, from, next.product.source), [{ status: "added", path: "docs/decisions/D-90-a-decision.md", title: "Decide the thing" }]);
-  assert.deepEqual(creditedPeople(fixture.repository, from, next.product.source), ["Ada Writer", "Bo Pair", "Cy Third"]);
+  assert.deepEqual(creditedPeople(fixture.repository, from, next.product.source), ["Ada Writer", "Bo Pair", "Cy Third", "Dee Plain"], "a value naming no address is a name as it stands");
   const notes = renderReleaseNotes(fixture.repository, next, SETTINGS, "owner/name");
-  for (const expected of ["- Add a decision (#8)", "- Ship the topic (#9)", "added: [Decide the thing]", "Ada Writer, Bo Pair, Cy Third", "gh release verify v1.1.0 --repo owner/name", "compare/v1.0.0...v1.1.0"]) assert.ok(notes.includes(expected), `${expected}\n${notes}`);
+  for (const expected of ["- Add a decision (#8)", "- Ship the topic (#9)", "added: [Decide the thing]", "Ada Writer, Bo Pair, Cy Third, Dee Plain", "gh release verify v1.1.0 --repo owner/name", "compare/v1.0.0...v1.1.0"]) assert.ok(notes.includes(expected), `${expected}\n${notes}`);
   assert.doesNotMatch(notes, /example\.invalid/u, "no address is published");
   assert.equal(renderReleaseNotes(fixture.repository, next, SETTINGS, "owner/name"), notes, "the same plan gives the same notes");
 });

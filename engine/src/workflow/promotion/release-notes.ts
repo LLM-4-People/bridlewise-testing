@@ -17,7 +17,13 @@ import type { ReleasePlan, ReleaseSettings } from "./release-train.ts";
 /** Where the decision records live (one per file, `docs/decisions/<ID>-<slug>.md`). */
 const DECISIONS_FOLDER = "docs/decisions/";
 const MERGE_SUBJECT = /^Merge pull request #(\d+) from \S+$/u;
-const SQUASH_SUBJECT = /^(.*) \(#(\d+)\)$/u;
+/** A squashed subject ends with ` (#<number>)`: the title before it and the number. */
+function squashedPullRequest(subject: string): LandedPullRequest | null {
+  const open = subject.lastIndexOf(" (#");
+  if (open <= 0 || !subject.endsWith(")")) return null;
+  const digits = subject.slice(open + 3, -1);
+  return /^\d+$/u.test(digits) ? { number: Number(digits), title: subject.slice(0, open) } : null;
+}
 
 type LandedPullRequest = Readonly<{ number: number; title: string }>;
 
@@ -33,8 +39,8 @@ export function landedPullRequests(repository: GitRepository, from: string | nul
       landed.push({ number: Number(merged[1]), title: body.split("\n").find((line) => line.trim().length > 0)?.trim() ?? subject });
       continue;
     }
-    const squashed = SQUASH_SUBJECT.exec(subject);
-    if (squashed !== null) landed.push({ number: Number(squashed[2]), title: squashed[1]! });
+    const squashed = squashedPullRequest(subject);
+    if (squashed !== null) landed.push(squashed);
   }
   return landed;
 }
@@ -63,7 +69,9 @@ export function creditedPeople(repository: GitRepository, from: string | null, t
   const text = gitOutput(repository, ["log", "--no-merges", "--format=%(trailers:key=Signed-off-by,valueonly,separator=%x00)%x00%(trailers:key=Co-authored-by,valueonly,separator=%x00)%x00", ...range, "--"]).stdout.toString("utf8");
   const names = new Set<string>();
   for (const value of text.split(/[\0\n]/u)) {
-    const name = value.replace(/<[^>]*>/gu, "").trim();
+    // `Name <address>`: the name only; a value naming no address is a name as it stands.
+    const address = value.indexOf("<");
+    const name = (address === -1 ? value : value.slice(0, address)).trim();
     if (name.length > 0) names.add(name);
   }
   return [...names].sort((a, b) => a.localeCompare(b));
