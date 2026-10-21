@@ -27,7 +27,7 @@ Every command prints one JSON result (`{"result":{…}}`: the record, the
 validation report, the publication, the land's receipt) and its progress on stderr. The flow is
 stated once, in `workspace-manager.ts`'s header; the refusals and the land are
 in
-[MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land).
+[MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-a-workspace-onto-the-trunk-publish-ready-land).
 
 - **The forge** (`workspace-forge.ts`): a feature workspace lands through a
   pull request against its target's UPSTREAM (`branch.<target>.remote` and
@@ -165,18 +165,15 @@ PASSED (recorded in the promotion area only after it passed).
 ## Tree landing (`tree-landing.ts`)
 
 The one owner of how a computed tree becomes a commit on a branch: the
-promotion's candidate, settle and commit, and the land, branch lookup,
-undeclared-write rule and filesystem check `harness workspace merge` shares (its
-merge runs its own phase order — the regenerate phase once, which `harness sync`
-converges itself — and judges what it wrote by the one rule,
-`refuseUndeclaredWrites`, PROMO2FIX-M3): the candidate
+promotion's candidate, settle and commit, and the land and branch lookup
+`harness workspace land`'s local follow of the forge's trunk shares: the candidate
 (`createCandidate`: a detached worktree at T, `merge -s ours --no-commit S`,
 `read-tree -u --reset P`, checked), the settle (`settleCandidate`: the checkout
 files, setup, converge until a pass changes nothing — an oscillation or the
 bound (one pass per generated output plus one: `convergeUntilStable`, the one fixed-point loop `harness sync` runs too) is `not_converged` — the
 declared-writes check over the staged tree (`refuseUndeclaredWrites`), verify, and verify wrote nothing),
 the commit (`commitCandidate`: hooks run; its tree, parents and objects
-checked; the hooks' words answered — the workspace merge's commit too), the
+checked; the hooks' words answered), the
 land (`landCommit`: fast-forward in the checkout that has the branch — one a
 crash left torn mid fast-forward is completed with git alone (the commit's
 entries staged for the paths already holding them and staged as the old tip
@@ -184,7 +181,7 @@ or the commit records them — a version staged there that is neither is the
 checkout's own work, never overwritten —, then `read-tree -m -u` and a
 compare-and-swap of the ref) —, else a compare-and-swap `update-ref`;
 git's refusal is data, with the overlapping paths and a locked index named —
-the workspace merge lands through it), the push verdict (`pushVerdict`: a
+a workspace land's local follow moves through it), the push verdict (`pushVerdict`: a
 `git push --porcelain` answer read per ref: pushed, rejected because the
 remote moved, refused by the remote, or errored), and the sweep
 (`sweepCandidates`). Every phase runs in `runLandingPhase` (one log line at its

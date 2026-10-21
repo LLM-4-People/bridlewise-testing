@@ -100,7 +100,7 @@ supervised command runner) and the same `harness sync` fixed point.
 
 New work happens in a WORKSPACE (`npm run ws`, `engine/src/workflow/`:
 [README](../../src/workflow/README.md); the flow:
-[MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land)):
+[MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-a-workspace-onto-the-trunk-publish-ready-land)):
 its commits are its record, `ws snapshot` a recovery point, and the land a
 gated fast-forward. With it, A5 deleted the tools it replaces (D-11):
 
@@ -113,7 +113,7 @@ gated fast-forward. With it, A5 deleted the tools it replaces (D-11):
 - the owned-change composition (`merge-integration.mjs`,
   `repository-selection.ts`, `mergeRepositoryFiles`): git merge over
   snapshot JSON, with no applier, committer or plan generator — a workspace
-  branch and the workspace merge replace it; its general fixes (the pinned
+  branch and its land through the forge's merge queue replace it; its general fixes (the pinned
   process's SIGKILL timeout, the `openPinnedAbsoluteFile` file-leaf
   boundary) stay where their other consumers use them;
 - the experiment seeder (`seed-experiment.mjs`), retired earlier by the

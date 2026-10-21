@@ -20,7 +20,7 @@ the Codex evidence directory is kept. Until A5 lands, writers qualify in a
 candidate checkout (`engine/scripts/tooling/candidate-checkout.ts`).
 
 Carried out by A5 (2026-09-30): the flow is
-[MERGE-GUIDE.md §1b](../process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land);
+[MERGE-GUIDE.md §1b](../process/MERGE-GUIDE.md#1b-a-workspace-onto-the-trunk-publish-ready-land);
 the dirty tree was adopted by the step-6 commit, so the checkpoint is deleted.
 Open: the candidate checkout's retirement once the first workspace lands
 (A5-CANDIDATE-RETIRE, for the coordinator).

@@ -202,7 +202,7 @@ test("a local target holding commits the trunk does not is never moved: the foll
   const local = commitFile(root, "elsewhere.txt", "a local commit the forge never saw\n");
   const receipt = await landWorkspace(manager, record.workspaceId);
   assert.equal(receipt.landing, "refused");
-  assert.match(receipt.localRefusal ?? "", /holds commits the trunk .* does not/u);
+  assert.equal(receipt.localRefusal, `main holds commits the trunk ${receipt.trunkTip} does not (${local}): it was not moved`);
   assert.equal(rawGit(root, ["rev-parse", "main"]), local, "the local target stays where it was");
   assert.ok(!existsSync(join(root, "src/b.ts")));
 });

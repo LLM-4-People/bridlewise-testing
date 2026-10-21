@@ -168,7 +168,7 @@ test("abort closes the pull request with the reason and keeps the forge's branch
   assert.equal(aborted.state, "aborted");
   const pull = forge.pulls.get(1)!;
   assert.equal(pull.state, "closed");
-  assert.match(pull.comments[0] ?? "", /superseded by another approach.*branch is kept/u);
+  assert.equal(pull.comments[0], `Workspace \`${record.workspaceId}\` ended: superseded by another approach. Its branch is kept.`);
   assert.notEqual(rawGit(bare, ["branch", "--list", record.lease.branch!]), "", "the forge's branch is kept");
 
   // A pull request closed while it waits in the queue (by a maintainer) ends the land.
