@@ -8,7 +8,7 @@
  * resolution every other rule uses (the three standing decisions once did:
  * they were labelled ROLES.md / WORKFLOW.md / AGENTS.md and all pointed at the
  * product repository's `CONTRIBUTING.md`). The classifier is
- * `shared/repository-links.ts`, shared with the briefing liveness test.
+ * `scripts/repository-links.ts`, shared with the briefing liveness test.
  *
  * The gate catches the common, local failures: a repository-relative link to a
  * file that no longer exists, a `#fragment` that no heading in its target owns,
@@ -22,7 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { absoluteProcessDocLinkReason } from "../shared/repository-links.ts";
+import { absoluteProcessDocLinkReason } from "./repository-links.ts";
 
 const linkPattern = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 

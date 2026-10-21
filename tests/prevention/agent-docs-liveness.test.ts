@@ -16,7 +16,7 @@
  *   (`engine/src/workflow/record-links.ts`: a file or folder git holds, or
  *   `evidence:<path>` an evidence manifest records);
  * - a process document's hand-written absolute GitHub URL that names another
- *   process document is refused (`shared/repository-links.ts`): the relative
+ *   process document is refused (`scripts/repository-links.ts`): the relative
  *   link is the one this guard can resolve, and the absolute ones once all
  *   pointed at the product repository's `CONTRIBUTING.md`;
  * - every backticked path under one of the repository's own top-level
@@ -42,7 +42,7 @@ import { dirname, join, normalize, relative } from "node:path";
 import { trackedFiles } from "../../engine/src/git/repository-ownership.ts";
 import { recordedEvidence, recordedUnder } from "../../engine/src/workflow/evidence-store.ts";
 import { deadLinkReason, type LinkHoldings } from "../../engine/src/workflow/record-links.ts";
-import { absoluteProcessDocLinkReason } from "../../shared/repository-links.ts";
+import { absoluteProcessDocLinkReason } from "../../scripts/repository-links.ts";
 import { extractMarkdown, parseProse } from "../../shared/markdown.ts";
 
 const ROOT = process.cwd();
