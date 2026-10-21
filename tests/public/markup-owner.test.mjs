@@ -23,44 +23,55 @@ import {
  */
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const OWNER = "shared/markup.ts";
-const SOURCE = /\.(?:[cm]?[jt]s|svelte)$/u;
+/** The owner, and the one file that proves it (its assertions spell entities). */
+const OWNER_FILES = new Set(["shared/markup.ts", "tests/public/markup-owner.test.mjs"]);
+const SOURCE = /\.(?:[cm]?[jt]s|svelte|html?)$/u;
 
-const ENTITY = "&(?:amp|lt|gt|quot|apos|#39|#x27);";
-/** The three hand-rolled shapes, each a `.replace(` / `.replaceAll(` call. */
-const RULES = [
-  {
-    id: "entity-decode",
-    pattern: new RegExp(String.raw`\.replace(?:All)?\(\s*\/[^/\n]*${ENTITY}`, "gu"),
-    remedy: "decodeHtmlEntities",
-  },
-  {
-    id: "entity-encode",
-    pattern: new RegExp(String.raw`\.replace(?:All)?\(\s*\/(?:[^/\\\n]|\\.)+\/[a-z]*\s*,\s*["'\x60]${ENTITY}`, "gu"),
-    remedy: "escapeHtml",
-  },
-  {
-    id: "markup-removal",
-    pattern: new RegExp(String.raw`\.replace(?:All)?\(\s*\/(?:<!--|<script|<style|<\[\^<?>\]\*>)`, "giu"),
-    remedy: "htmlWithout / stripTags",
-  },
-];
+/**
+ * THE RULES, read through the ONE source lexer (`source-view.ts`), so a
+ * comment that names a shape and the markup of a Svelte template are never
+ * code, and a literal is judged whatever call it sits in (`replace`,
+ * `replaceAll`, `split`/`join`, `new RegExp`, a lookup table, a wrapped
+ * multi-line call):
+ * - `entity-literal`: an HTML character reference inside a string, template
+ *   or regex literal. Escaping and decoding are the owner's; a literal entity
+ *   in code is a hand-rolled table or chain.
+ * - `tag-stripper`: a literal whose WHOLE pattern is a bare tag matcher
+ *   (`<[^>]*>`, `<[^>]+>`, `<[^<>]*>`, `</?[^>]+>`, any quantifier). Embedded
+ *   in a larger grammar (`fn name<[^>]*>(`) it matches, and is not a stripper.
+ * - `markup-removal`: a `replace`, `replaceAll` or `split` whose pattern
+ *   literal opens with `<!--`, `<script` or `<style` (any case) and spans
+ *   on (`[\s\S]`, `[^]`, `.*`, `.+`). Extraction and tokenizing
+ *   (`matchAll`, `exec`, a sticky token rule) are not removal, and neither
+ *   is replacing one exact marker string.
+ */
+const ENTITY = /&(?:amp|lt|gt|quot|apos|nbsp|#\d+|#[xX][0-9a-fA-F]+);/u;
+const BARE_TAG_MATCHER = /^<\\?\/?\??\[\^<?>\][*+]?\??>$/u;
+const REMOVAL_CALL = /\.(?:replace|replaceAll|split)\(\s*$/u;
+const REMOVAL_OPENER = /^(?:<!--|<script|<style)/iu;
+const ANY_SPAN = /\[\\s\\S\]|\[\^\]|\.[*+]/u;
 
-/** The violations of one file's text, each as `path:line rule`. */
+const { isTemplateSource, lexSpans } = await import("../../engine/scripts/verification/source-view.ts");
+
+/** A literal span's pattern text: a regex's source, a string's or template's interior. */
+function literalBody(text, kind) {
+  if (kind === "regex") return text.slice(1, text.lastIndexOf("/"));
+  return text.slice(1, -1);
+}
+
+/** The violations of one file's text, each as `path:line rule (remedy)`. */
 function violations(path, text) {
-  if (path === OWNER) return [];
+  if (OWNER_FILES.has(path)) return [];
   const found = [];
-  const lines = text.split("\n");
-  for (const [index, line] of lines.entries()) {
-    // A comment line may NAME a shape (a doc comment explaining a fix).
-    if (/^\s*(?:\/\/|\/\*|\*)/u.test(line)) continue;
-    // A call may wrap: read each line with the next one joined to it, and
-    // count each call that STARTS on this line.
-    const window = `${line}\n${lines[index + 1] ?? ""}`;
-    for (const rule of RULES) {
-      for (const match of window.matchAll(rule.pattern)) {
-        if (match.index <= line.length) found.push(`${path}:${String(index + 1)} ${rule.id} (use ${rule.remedy})`);
-      }
+  const lineOf = (index) => text.slice(0, index).split("\n").length;
+  for (const span of lexSpans(text, isTemplateSource(path))) {
+    if (span.kind !== "string" && span.kind !== "template" && span.kind !== "regex") continue;
+    const body = literalBody(text.slice(span.start, span.end), span.kind);
+    const at = `${path}:${String(lineOf(span.start))}`;
+    if (ENTITY.test(body)) found.push(`${at} entity-literal (use escapeHtml / decodeHtmlEntities)`);
+    if (BARE_TAG_MATCHER.test(body)) found.push(`${at} tag-stripper (use stripTags / htmlWithout)`);
+    if (REMOVAL_OPENER.test(body) && ANY_SPAN.test(body) && REMOVAL_CALL.test(text.slice(Math.max(0, span.start - 200), span.start))) {
+      found.push(`${at} markup-removal (use htmlWithout)`);
     }
   }
   return found;
@@ -82,29 +93,44 @@ test("no tracked source file outside the owner hand-rolls an escape, decode or r
 });
 
 test("planted hand-rolled chains are refused in every shape and folder", () => {
+  // Each entity is assembled here, so this file's own literals stay clean.
   const amp = "&" + "amp;";
   const lt = "&" + "lt;";
   const planted = {
     "scripts/floor/a.mjs": `value\n    .replace(/${amp}/gu, "&")\n    .replace(/${lt}/gu, "<");\n`,
-    "server/b.ts": `const safe = text.replace(/&/g, "${amp}").replace(/</g, '${lt}');\n`,
-    "src/c.svelte": `<script>const plain = html.replace(/<!` + `--[\\s\\S]*?-->/g, "");</script>\n`,
-    "engine/src/d.ts": `const body = html.replaceAll(/<SCR` + `IPT\\b[^]*?<\\/script>/gi, "");\n`,
-    "tests/e.test.ts": `const slug = heading\n  .replace(\n/<[^>]*>/gu, "");\n`,
+    "server/b.ts": `const safe = text.replaceAll("&", "${amp}").split("<").join('${lt}');\n`,
+    "server/c.ts": `const TABLE = {\n  "&": "${amp}",\n  "<": \`${lt}\`,\n};\n`,
+    "src/d.svelte": `<script>\n  const plain = html.replace(\n    /<!` + `--[\\s\\S]*?-->/g,\n    "",\n  );\n</script>\n<p>a&nbsp;b</p>\n`,
+    "engine/src/e.ts": `const body = html.replaceAll(/<SCR` + `IPT\\b[^]*?<\\/script>/gi, "");\n`,
+    "tests/f.test.ts": `const slug = heading.replace(new RegExp("<[^>]+>", "g"), "");\nconst tags = /<\\/?[^>]*>/g;\n`,
+    "shared/g.ts": `const parts = html.split(/<style[\\s\\S]*?<\\/style>/i);\n`,
   };
-  const found = Object.entries(planted).map(([path, text]) => violations(path, text));
-  assert.deepEqual(found.map((list) => list.length), [2, 2, 1, 1, 1], JSON.stringify(found));
-  assert.match(found[0][0], /scripts\/floor\/a\.mjs:2 entity-decode/u);
-  assert.match(found[1][0], /server\/b\.ts:1 entity-encode/u);
-  assert.match(found[2][0], /src\/c\.svelte:1 markup-removal/u);
+  const found = Object.fromEntries(Object.entries(planted).map(([path, text]) => [path, violations(path, text)]));
+  const counts = Object.fromEntries(Object.entries(found).map(([path, list]) => [path, list.length]));
+  assert.deepEqual(counts, {
+    "scripts/floor/a.mjs": 2,
+    "server/b.ts": 2,
+    "server/c.ts": 2,
+    "src/d.svelte": 1,
+    "engine/src/e.ts": 1,
+    "tests/f.test.ts": 2,
+    "shared/g.ts": 1,
+  }, JSON.stringify(found));
+  assert.match(found["scripts/floor/a.mjs"][0], /a\.mjs:2 entity-literal/u);
+  assert.match(found["server/c.ts"][1], /c\.ts:3 entity-literal/u);
+  assert.match(found["src/d.svelte"][0], /d\.svelte:3 markup-removal/u, "a wrapped call is judged at its literal's line; markup &nbsp; is not code");
+  assert.match(found["tests/f.test.ts"][0], /f\.test\.ts:1 tag-stripper/u);
 });
 
 test("near misses are not flagged", () => {
   const nearMisses = {
     "a.ts": `const body = wrapper.replace(/^<script>/, "").replace(/<\\/script>$/, "");\n`,
-    "b.ts": `const text = "&" + "amp; stays prose";\nconst nav = html.replace(/<nav class="breadcrumb"[\\s\\S]*?<\\/nav>/u, "");\n`,
-    "d.ts": `/**\n * Six scanners each grew their own \`.replace(/<!` + `--…/\` chain.\n */\n// x.replace(/${"&" + "amp;"}/g, "&")\n`,
-    "c.ts": `const cell = value.replace(/\\|/gu, "\\\\|");\nconst lines = text.replace(/\\r\\n/gu, "\\n");\n`,
-    [OWNER]: `x.replace(/${"&" + "amp;"}/g, "&");\n`,
+    "b.ts": `const nav = html.replace(/<nav class="breadcrumb"[\\s\\S]*?<\\/nav>/u, "");\n`,
+    "c.ts": `/**\n * A denylist loses to \`${"&" + "#106;"}avascript:\`, and six scanners grew \`.replace(/<!` + `--…/\`.\n */\n// x.replace(/${"&" + "amp;"}/g, "&")\n`,
+    "d.ts": `const FN = /fn\\s+(\\w+)\\s*(<[^>]*>)?\\s*\\(/;\nconst blocks = src.matchAll(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi);\nconst rule = { kind: "comment", re: /<!` + `--[\\s\\S]*?(?:-->|$)/y };\n`,
+    "f.ts": `const missing = page.replace("<!` + `-- ROADMAP-PLAN-BEGIN", "<!` + `-- plan removed");\n`,
+    "e.svelte": `<p>a&nbsp;b &lt;tag&gt;</p>\n<script>const x = 1;</script>\n`,
+    "shared/markup.ts": `x.replace(/${"&" + "amp;"}/g, "&");\n`,
   };
   assert.deepEqual(Object.entries(nearMisses).flatMap(([path, text]) => violations(path, text)), []);
 });
