@@ -13,12 +13,17 @@
  * `.svelte` component goes through HERE — never directly. This gives:
  *
  * ONE named owner of the client debug surface.
- * Zero overhead when off (the `enabled` guard returns immediately —
- * no string formatting, no argument allocation). "when not
- * in debug mode, zero overhead."
- * A future settings toggle can call `configureClientDebug`
- * to turn client debug on/off from the web UI without touching any
- * component.
+ * Debug/info stay lazy when off (the `enabled` guard returns before any
+ * console formatting). "when not in debug mode, zero overhead" describes
+ * DEBUG output; it does not describe warn/error, which are never silent.
+ * `clientWarn`/`clientError` ALWAYS report the caught failure through the
+ * client telemetry owner (`src/state/telemetry.ts`), whether or not the local
+ * console toggle is on. The Settings toggle governs only the browser-console
+ * line — a caught failure that reaches only a disabled console has no
+ * destination and is invisible to the server's uncaught-error hooks.
+ * A settings toggle can call `configureClientDebug`
+ * to turn the local console output on/off from the web UI without touching
+ * any component.
  * Consistent, attributable output (every line carries its category so
  * the source module is identifiable in the console).
  *
@@ -26,10 +31,12 @@
  * import { clientWarn } from "../shared/client-debug";
  * clientWarn("chat", "beginChatRun failed:", err);
  *
- * The default is OFF (zero overhead). Enable explicitly:
+ * The default is OFF for console output. Enable explicitly:
  * import { configureClientDebug } from "../shared/client-debug";
  * configureClientDebug({ enabled: true }); // e.g. from a settings toggle
  */
+
+import { reportClientFailure } from "./state/telemetry";
 
 /** Debug category = the source module name (e.g. "chat", "timeline",
  * "graph", "sidebar"). Makes every debug line attributable in the console. */
@@ -40,8 +47,9 @@ export type ClientDebugLevel = "debug" | "info" | "warn" | "error";
 
 /** Configuration for the client debug system. */
 export interface ClientDebugConfig {
-  /** Master switch. When false, EVERY call returns immediately (zero
-   * overhead). Default false. */
+  /** LOCAL CONSOLE switch. When false, debug/info are not printed and
+   * warn/error skip the console line (they are still reported to telemetry).
+   * Default false. */
   enabled: boolean;
   /** Optional category allow-list. When non-empty, only messages whose
    * category is in the list are emitted (a deny-by-default filter —
@@ -63,10 +71,11 @@ function categoryAllowed(category: ClientDebugCategory): boolean {
   return cats.length === 0 || cats.includes(category);
 }
 
-/** Configure the client debug system. Called once (e.g. from a settings
- * toggle or a bootstrap read of a localStorage flag). Before
- * this is called with `enabled: true`, every `clientWarn`/`clientError`/
- * `clientLog` is a no-op (zero overhead). */
+/** Configure the client debug console. Called once (e.g. from a settings
+ * toggle or a bootstrap read of a localStorage flag). Before this is called
+ * with `enabled: true`, `clientLog` and the console line of
+ * `clientWarn`/`clientError` are off (zero overhead); the warn/error
+ * telemetry report is unconditional. */
 export function configureClientDebug(cfg: Partial<ClientDebugConfig>): ClientDebugConfig {
   config = {
     enabled: cfg.enabled ?? false,
@@ -80,35 +89,45 @@ export function resetClientDebug(): void {
   config = { enabled: false, categories: [] };
 }
 
-/** Whether the client debug system is currently emitting. */
+/** Whether the client debug console is currently emitting. */
 export function isClientDebugEnabled(): boolean {
   return config.enabled;
 }
 
-/** Emit a warn-level message. Zero-overhead when the system is off. */
+/**
+ * Report a warn-level caught failure, then print it locally when the console
+ * toggle allows. THE REPORT IS UNCONDITIONAL: it is the destination the
+ * failure did not otherwise have.
+ */
 export function clientWarn(
   category: ClientDebugCategory,
   ...args: unknown[]
 ): void {
+  reportClientFailure("warn", category, args);
   if (!config.enabled || !categoryAllowed(category)) return;
   console.warn(`[${category}]`, ...args);
 }
 
-/** Emit an error-level message. Zero-overhead when the system is off.
- * Error-level is for genuine component-level failures (a run cancel
- * failed, a worker terminate failed) — NOT for user-facing errors,
- * which go through `clientErrorMessage` from error-messages.ts. */
+/**
+ * Report an error-level caught failure, then print it locally when the
+ * console toggle allows. The report is unconditional, for the same reason as
+ * `clientWarn` — an error whose only destination is an off console is lost.
+ * Error-level is for genuine component-level failures (a run cancel failed, a
+ * worker terminate failed) — NOT for user-facing errors, which go through
+ * `clientErrorMessage` from error-messages.ts.
+ */
 export function clientError(
   category: ClientDebugCategory,
   ...args: unknown[]
 ): void {
+  reportClientFailure("error", category, args);
   if (!config.enabled || !categoryAllowed(category)) return;
   console.error(`[${category}]`, ...args);
 }
 
-/** Emit a debug/info-level message. Zero-overhead when the system is off.
- * Use for diagnostic tracing that should NEVER appear in production
- * (e.g. "worker resize failed — non-fatal"). */
+/** Emit a debug/info-level message. Zero-overhead when the console is off.
+ * Diagnostic tracing stays local: it is not a failure report, so it never
+ * enqueues telemetry. */
 export function clientLog(
   category: ClientDebugCategory,
   ...args: unknown[]

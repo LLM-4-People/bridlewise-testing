@@ -6,9 +6,9 @@
 
 import { writeFileSync, readFileSync, existsSync, appendFileSync } from "node:fs";
 import type { MemoryEntry } from "../memory-entry.ts";
+import { debugLog, handleError } from "../../debug/debug-system.ts";
 import type { BackendStorageOptions, MemoryStoragePort } from "./backend.ts";
 import { safeFromWire, toWire, type WireRecord } from "./serde.ts";
-import { handleError } from "../../debug/debug-system.ts";
 
 export function createAppendLogStorage(options: BackendStorageOptions): MemoryStoragePort {
   const { path } = options;
@@ -51,7 +51,7 @@ export function createAppendLogStorage(options: BackendStorageOptions): MemorySt
           corrupt += 1;
         }
       }
-      if (corrupt > 0) process.stderr.write(`append-log-backend: dropped ${corrupt} corrupt lines\n`);
+      if (corrupt > 0) debugLog("memory", "warn", `append-log-backend: dropped ${corrupt} corrupt lines`);
       return out;
     },
     bytesWritten() { return bytes; },

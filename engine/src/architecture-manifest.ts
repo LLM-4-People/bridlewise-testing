@@ -3198,12 +3198,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "shared-memory-storage-json-backend", path: "src/shared/memory/storage/json-backend.ts", realm: "shared", layer: "domain",
       owner: "shared-memory-storage", publicApi: { exportCount: 2, namesSha256: "d021523fc63019f0a320a3a6da482b58ad42e44a27ab673082b6e1f959abb0d4" },
-      dependencies: ["node:fs","src/shared/memory/storage/serde.ts"], effects: ["filesystem-read","filesystem-write"], executionBoundary: "effect-adapter",
+      dependencies: ["node:fs","src/shared/debug/debug-system.ts","src/shared/memory/storage/serde.ts"], effects: ["filesystem-read","filesystem-write"], executionBoundary: "effect-adapter",
     }),
     moduleContract({
       id: "shared-memory-storage-msgpack-backend", path: "src/shared/memory/storage/msgpack-backend.ts", realm: "shared", layer: "domain",
       owner: "shared-memory-storage", publicApi: { exportCount: 4, namesSha256: "847022843082c51457569461d2dd86d2ebf8a0c2cd219e1dadcd435c2cf980df" },
-      dependencies: ["node:fs","src/kernel/errors.ts","src/shared/memory/storage/serde.ts"], effects: ["filesystem-read","filesystem-write"], executionBoundary: "effect-adapter",
+      dependencies: ["node:fs","src/kernel/errors.ts","src/shared/debug/debug-system.ts","src/shared/memory/storage/serde.ts"], effects: ["filesystem-read","filesystem-write"], executionBoundary: "effect-adapter",
     }),
     moduleContract({
       id: "shared-memory-storage-serde", path: "src/shared/memory/storage/serde.ts", realm: "shared", layer: "domain",
@@ -3213,7 +3213,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "shared-memory-storage-sqlite-backend", path: "src/shared/memory/storage/sqlite-backend.ts", realm: "shared", layer: "domain",
       owner: "shared-memory-storage", publicApi: { exportCount: 1, namesSha256: "b549e4bbb7862d6ca041bebb28a81966013647e9d91335514bac255b265346a3" },
-      dependencies: ["node:module","node:sqlite","src/kernel/errors.ts","src/shared/memory/storage/serde.ts"], effects: ["filesystem-read","filesystem-write","environment-access"], executionBoundary: "effect-adapter",
+      dependencies: ["node:module","node:sqlite","src/kernel/errors.ts","src/shared/debug/debug-system.ts","src/shared/memory/storage/serde.ts"], effects: ["filesystem-read","filesystem-write","environment-access"], executionBoundary: "effect-adapter",
     }),
     moduleContract({
       id: "shared-memory-token-cap", path: "src/shared/memory/token-cap.ts", realm: "shared", layer: "domain",
@@ -3788,7 +3788,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-memory-unified-unified-embeddings", path: "src/memory/unified/unified-embeddings.ts", realm: "runtime", layer: "domain",
       owner: "memory", publicApi: { exportCount: 7, namesSha256: "6101df4507f21e7a3f7bde02e3e05cf4968fef16ed2050450c6d899da779a67c" },
-      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts"],
+      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/debug/debug-system.ts"],
     }),
     moduleContract({
       id: "src-memory-unified-index", path: "src/memory/unified/index.ts", realm: "runtime", layer: "domain",

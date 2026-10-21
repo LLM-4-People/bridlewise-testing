@@ -294,6 +294,45 @@ test("the ambient producer's injection points keep an unreadable sample absent",
   expect(readAmbientLoadPerCpu(() => [1, 1, 1], () => { throw new Error("no cpu count"); })).toEqual({ cpuCount: null, loads: [1, 1, 1], perCpu: null });
 });
 
+test("a zero reading hidden in a module constant returned from the absent branch is refused", () => {
+  const path = modulePathMatching("ambient-load.ts");
+  const source = WORLD.sources.get(path);
+  expect(source).toBeDefined();
+  // The body only NAMES the constant, so the body-scoped zero vocabulary finds
+  // nothing. The initializer behind the returned name is the same zero-for-
+  // absent claim and must be read.
+  const planted = source!
+    .replace(
+      'import { cpus, loadavg } from "node:os";',
+      'import { cpus, loadavg } from "node:os";\n\nconst ZERO_READING = { load1: 0, load5: 0, load15: 0 };',
+    )
+    .replace("return { cpuCount, loads: null, perCpu: null };", "return { cpuCount, loads: null, perCpu: ZERO_READING };");
+  expect(planted).not.toBe(source);
+  const report = validateMeasurementContract(withSource(WORLD, path, planted));
+  expect(report.failures.map((failure) => failure.code)).toContain("zero-as-absent");
+  expect(
+    report.checked.registeredProducers,
+    "a producer that only fails the absence clause is not a registered (clean) producer",
+  ).toBe(MEASUREMENT_REGISTRY.length - 1);
+});
+
+test("registeredProducers counts only producers that PASSED, not every visited entry", () => {
+  // One deliberately broken producer: the entry is still visited, and the
+  // producer clauses refuse it. The old check counted the visit as a pass, so
+  // the liveness assertion could not tell a clean registry from one that
+  // merely named its entries.
+  const broken = MEASUREMENT_REGISTRY.map((entry): MetricEntry => entry.name === "ambient.load.perCpu"
+    ? { ...entry, producer: { ...entry.producer, compute: ["THIS_PATTERN_IS_NOT_IN_THE_PRODUCER"] } }
+    : entry);
+  const report = validateMeasurementContract(WORLD, { registry: broken });
+  expect(report.failures.map((failure) => failure.code)).toContain("derivation-not-in-producer");
+  expect(report.checked.registeredProducers).toBe(MEASUREMENT_REGISTRY.length - 1);
+  expect(
+    report.checked.registeredProducers,
+    "the count must be strictly below the population when one producer is broken",
+  ).toBeLessThan(broken.length);
+});
+
 test("a zero fallback for an unreadable measurement is refused", () => {
   const source = WORLD.sources.get(modulePathMatching("ambient-load.ts"));
   expect(source).toBeDefined();

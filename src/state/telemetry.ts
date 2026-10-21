@@ -464,6 +464,48 @@ export function captureError(facts: Record<string, string | number | boolean>): 
   enqueue("client-error", facts, null);
 }
 
+/** The two failure severities the central client logger can report. */
+export type ClientFailureSeverity = "warn" | "error";
+
+/** One argument as a bounded text fact; never throws over a hostile value. */
+function describeClientArgument(argument: unknown): string {
+  if (typeof argument === "string") return argument;
+  if (argument instanceof Error) return argument.message.length > 0 ? `${argument.name}: ${argument.message}` : argument.name;
+  try {
+    return typeof argument === "object" && argument !== null ? JSON.stringify(argument) : String(argument);
+  } catch {
+    return String(argument);
+  }
+}
+
+/**
+ * REPORT A CAUGHT CLIENT FAILURE.
+ *
+ * `clientWarn`/`clientError` are the browser's central logger. The local
+ * Settings toggle decides whether the line ALSO appears in the browser
+ * console; it does not decide whether the failure is reported. A caught
+ * failure that only reaches a disabled console is invisible: the page's
+ * uncaught-error hooks never see it, and no server record exists. So every
+ * call enqueues a `client-error` event carrying its severity, category and a
+ * bounded message through the one telemetry transport. The server validates,
+ * redacts and attributes it exactly like an uncaught error.
+ */
+export function reportClientFailure(
+  severity: ClientFailureSeverity,
+  category: string,
+  args: readonly unknown[],
+): void {
+  const message = clampText(args.map(describeClientArgument).join(" "), TELEMETRY_MESSAGE_MAX_CHARS);
+  const firstError = args.find((argument): argument is Error => argument instanceof Error);
+  const stackHead = firstError === undefined ? "" : firstStackFrame(firstError);
+  enqueue("client-error", {
+    severity,
+    category: clampText(category, 64),
+    message,
+    ...(stackHead === "" ? {} : { stackHead }),
+  }, null);
+}
+
 /** Enqueue a page-wide measurement (bounded, droppable, counted). */
 function enqueueMetric(
   facts: Record<string, string | number | boolean>,

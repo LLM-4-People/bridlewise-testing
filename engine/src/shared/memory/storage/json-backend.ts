@@ -4,6 +4,7 @@
 
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import type { MemoryEntry } from "../memory-entry.ts";
+import { debugLog } from "../../debug/debug-system.ts";
 import type { BackendStorageOptions, MemoryStoragePort } from "./backend.ts";
 import { fromWire, safeFromWire, toWire, type WireRecord } from "./serde.ts";
 
@@ -36,9 +37,10 @@ export function createJsonStorage(options: BackendStorageOptions): MemoryStorage
         else corrupt += 1;
       }
       if (corrupt > 0) {
-        // Corruption detected (HARD test protocol). Surface via stderr; the
+        // Corruption detected (HARD test protocol). The warning is routed
+        // through the central debug owner — warn is never suppressed — and the
         // store reports it through the exposure system too.
-        process.stderr.write(`json-backend: dropped ${corrupt} corrupt entries\n`);
+        debugLog("memory", "warn", `json-backend: dropped ${corrupt} corrupt entries`);
       }
       return out;
     },

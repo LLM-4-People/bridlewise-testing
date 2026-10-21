@@ -5,7 +5,14 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { mergeShardReports } from "../../scripts/test-shard-merge.mjs";
-import { MANIFEST_SCHEMA, planShards, wrapShardReport } from "../../scripts/test-shard-manifest.mjs";
+import {
+  MANIFEST_SCHEMA,
+  SHARD_REPORT_SCHEMA,
+  planShards,
+  wrapShardReport,
+} from "../../scripts/test-shard-manifest.mjs";
+
+const HEAD = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
 
 function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
@@ -24,43 +31,105 @@ function shardReport(files, { success = true, tests = 1 } = {}) {
   };
 }
 
+/**
+ * A plan-backed fixture: the merge now REQUIRES the plan, and only a wrapped
+ * report carries provenance. Every arm below drives the real plan producer,
+ * so the exact-assignment check is exercised rather than bypassed.
+ */
+function planFixture(work, files, { shardCount = 1, excluded = [] } = {}) {
+  mkdirSync(join(work, "tests"), { recursive: true });
+  for (const file of files) writeFileSync(join(work, file), "");
+  const source = join(work, "source-manifest.json");
+  writeJson(source, {
+    schemaVersion: MANIFEST_SCHEMA,
+    measuredHeadSha: HEAD,
+    measuredAt: "2026-01-01T00:00:00.000Z",
+    files: files.map((file) => ({ path: file, weightMs: 1 })),
+    excluded,
+  });
+  const planDir = join(work, "plan");
+  planShards({ root: work, manifestPath: source, shardCount, headSha: HEAD, outDir: planDir });
+  const plan = JSON.parse(readFileSync(join(planDir, "plan.json"), "utf8"));
+  return { planDir, manifest: join(planDir, "manifest.json"), planPath: join(planDir, "plan.json"), plan, source };
+}
+
+/** The files the plan assigned to one shard, as absolute paths the report uses. */
+function plannedFiles(work, fixture, index) {
+  return fixture.plan.shards[index - 1].files.map((file) => join(work, file));
+}
+
+/**
+ * Write a wrapped report for one planned shard. `timing: false` omits the
+ * measured window; `files` overrides what the report claims to have run.
+ */
+function writeWrapped(work, fixture, index, {
+  files = undefined,
+  timing = true,
+  success = true,
+  tests = 1,
+  counts = {},
+} = {}) {
+  const report = {
+    ...shardReport(files ?? plannedFiles(work, fixture, index), { success, tests }),
+    ...counts,
+  };
+  const envelope = {
+    schemaVersion: SHARD_REPORT_SCHEMA,
+    shard: index,
+    shardCount: fixture.plan.shardCount,
+    headSha: fixture.plan.headSha,
+    manifestHash: fixture.plan.manifestHash,
+    assignmentHash: fixture.plan.assignmentHash,
+    ...(timing ? { timing: { startedAt: "1970-01-01T00:00:01.000Z", finishedAt: "1970-01-01T00:00:02.000Z", durationMs: 1000 } } : {}),
+    vitest: report,
+  };
+  const path = join(work, `shard-${index}.json`);
+  writeJson(path, envelope);
+  return path;
+}
+
+function merge(work, fixture, shardPaths, overrides = {}) {
+  return mergeShardReports({
+    root: work,
+    manifestPath: fixture.manifest,
+    planPath: fixture.planPath,
+    shardPaths,
+    expectedShards: fixture.plan.shardCount,
+    headSha: fixture.plan.headSha,
+    outPath: join(work, "receipt.json"),
+    now: new Date("2026-01-01T00:00:00.000Z"),
+    ...overrides,
+  });
+}
+
 test("the shard merge accepts a complete disjoint manifest", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-merge-"));
   try {
-    const a = join(work, "tests/a.test.ts");
-    const b = join(work, "tests/b.test.ts");
-    const manifest = join(work, "manifest.json");
-    const first = join(work, "shard-1.json");
-    const second = join(work, "shard-2.json");
-    const out = join(work, "receipt.json");
-    writeJson(manifest, [
-      { file: a, projectName: "node" },
-      { file: b, projectName: "node" },
-    ]);
-    writeJson(first, shardReport([a], { tests: 2 }));
-    writeJson(second, shardReport([b], { tests: 3 }));
+    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"], { shardCount: 2 });
+    const first = writeWrapped(work, fixture, 1, { tests: 2 });
+    const second = writeWrapped(work, fixture, 2, { tests: 3 });
 
-    const receipt = mergeShardReports({
-      root: work,
-      manifestPath: manifest,
-      shardPaths: [first, second],
-      expectedShards: 2,
-      headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
-      outPath: out,
-      now: new Date("2026-01-01T00:00:00.000Z"),
-    });
+    const receipt = merge(work, fixture, [first, second]);
 
     assert.equal(receipt.schemaVersion, "bridlewise-test-shard-receipt/v1");
     assert.equal(receipt.fileCount, 2);
     assert.equal(receipt.testCount, 5);
     assert.equal(receipt.shardCount, 2);
     assert.match(receipt.manifestHash, /^[0-9a-f]{64}$/);
+    assert.equal(receipt.assignmentHash, fixture.plan.assignmentHash);
     assert.equal(receipt.passedTests, 5);
     assert.equal(receipt.failedTests, 0);
     assert.equal(receipt.skippedTests, 0);
+    assert.equal(receipt.testPhaseMs, 1_000, "the two reports share one measured window");
     assert.deepEqual(receipt.shards, [
-      { index: 1, fileCount: 1, testCount: 2, passedTests: 2, failedTests: 0, skippedTests: 0 },
-      { index: 2, fileCount: 1, testCount: 3, passedTests: 3, failedTests: 0, skippedTests: 0 },
+      {
+        index: 1, fileCount: 1, testCount: 2, passedTests: 2, failedTests: 0, skippedTests: 0,
+        startedAt: "1970-01-01T00:00:01.000Z", finishedAt: "1970-01-01T00:00:02.000Z", durationMs: 1000,
+      },
+      {
+        index: 2, fileCount: 1, testCount: 3, passedTests: 3, failedTests: 0, skippedTests: 0,
+        startedAt: "1970-01-01T00:00:01.000Z", finishedAt: "1970-01-01T00:00:02.000Z", durationMs: 1000,
+      },
     ]);
     assert.equal(JSON.stringify(receipt).includes(work), false, "receipt must not leak the absolute root");
   } finally {
@@ -71,33 +140,14 @@ test("the shard merge accepts a complete disjoint manifest", () => {
 test("the receipt names the manifest exclusions and their evidence anchors", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-exclusions-"));
   try {
-    const a = join(work, "tests/a.test.ts");
-    const manifest = join(work, "manifest.json");
-    const source = join(work, "source.json");
-    const report = join(work, "shard-1.json");
-    const out = join(work, "receipt.json");
-    writeJson(manifest, [{ file: a }]);
-    writeJson(source, {
-      schemaVersion: "bridlewise-test-shard-manifest/v1",
-      measuredHeadSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
-      measuredAt: "2026-01-01T00:00:00.000Z",
-      files: [{ path: "tests/a.test.ts", weightMs: 1 }],
+    const fixture = planFixture(work, ["tests/a.test.ts"], {
       excluded: [
         { path: "tests/private.test.ts", reason: "not published", evidence: "docs/floor/roadmap.md#snapshot" },
       ],
     });
-    writeJson(report, shardReport([a], { tests: 4 }));
+    const report = writeWrapped(work, fixture, 1, { tests: 4 });
 
-    const receipt = mergeShardReports({
-      root: work,
-      manifestPath: manifest,
-      manifestSourcePath: source,
-      shardPaths: [report],
-      expectedShards: 1,
-      headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
-      outPath: out,
-      now: new Date("2026-01-01T00:00:00.000Z"),
-    });
+    const receipt = merge(work, fixture, [report], { manifestSourcePath: fixture.source });
 
     assert.equal(receipt.excludedFileCount, 1);
     assert.deepEqual(receipt.exclusions, [
@@ -107,22 +157,14 @@ test("the receipt names the manifest exclusions and their evidence anchors", () 
 
     const mismatched = join(work, "mismatched.json");
     writeJson(mismatched, {
-      schemaVersion: "bridlewise-test-shard-manifest/v1",
-      measuredHeadSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
+      schemaVersion: MANIFEST_SCHEMA,
+      measuredHeadSha: HEAD,
       measuredAt: "2026-01-01T00:00:00.000Z",
       files: [{ path: "tests/other.test.ts", weightMs: 1 }],
       excluded: [],
     });
     assert.throws(
-      () => mergeShardReports({
-        root: work,
-        manifestPath: manifest,
-        manifestSourcePath: mismatched,
-        shardPaths: [report],
-        expectedShards: 1,
-        headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
-        outPath: join(work, "refused.json"),
-      }),
+      () => merge(work, fixture, [report], { manifestSourcePath: mismatched }),
       /manifest source: hash does not match/,
     );
   } finally {
@@ -133,44 +175,28 @@ test("the receipt names the manifest exclusions and their evidence anchors", () 
 test("a wrapped report whose timing contradicts itself or its own run is refused", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-timing-"));
   try {
-    const file = join(work, "tests/a.test.ts");
-    const manifest = join(work, "manifest.json");
-    const planDir = join(work, "plan");
+    const fixture = planFixture(work, ["tests/a.test.ts"]);
     const raw = join(work, "raw.json");
     const wrapped = join(work, "wrapped.json");
-    const head = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
-    mkdirSync(join(work, "tests"), { recursive: true });
-    writeFileSync(file, "");
-    writeJson(manifest, {
-      schemaVersion: MANIFEST_SCHEMA,
-      measuredHeadSha: head,
-      measuredAt: "2026-01-01T00:00:00.000Z",
-      files: [{ path: "tests/a.test.ts", weightMs: 1 }],
-      excluded: [],
-    });
-    planShards({ root: work, manifestPath: manifest, shardCount: 1, headSha: head, outDir: planDir });
-    writeJson(raw, shardReport([file]));
+    writeJson(raw, shardReport(plannedFiles(work, fixture, 1)));
     wrapShardReport({
-      root: work, planPath: join(planDir, "plan.json"), shard: 1, vitestPath: raw, outPath: wrapped,
+      root: work, planPath: fixture.planPath, shard: 1, vitestPath: raw, outPath: wrapped,
       startedAt: "1000", finishedAt: "2000",
     });
     const clean = JSON.parse(readFileSync(wrapped, "utf8"));
-    const merge = () => mergeShardReports({
-      root: work, manifestPath: join(planDir, "manifest.json"), planPath: join(planDir, "plan.json"),
-      shardPaths: [wrapped], expectedShards: 1, headSha: head, outPath: join(work, "receipt.json"),
-    });
+    const mergeWrapped = () => merge(work, fixture, [wrapped]);
     assert.equal(clean.timing.durationMs, 1000);
-    assert.equal(merge().testPhaseMs, 1000);
+    assert.equal(mergeWrapped().testPhaseMs, 1000);
 
     // durationMs is the window's length. The merge used to trust it while
     // deriving the window from the timestamps, so the receipt could claim a
     // critical path that no pair of timestamps supported.
     writeJson(wrapped, { ...clean, timing: { ...clean.timing, durationMs: 9_999 } });
-    assert.throws(merge, /durationMs 9999 does not equal finishedAt - startedAt \(1000\)/u);
+    assert.throws(mergeWrapped, /durationMs 9999 does not equal finishedAt - startedAt \(1000\)/u);
 
     // vitest dates its own run; that run sits inside its job's window.
     writeJson(wrapped, { ...clean, vitest: { ...clean.vitest, startTime: 9_000, endTime: 9_500 } });
-    assert.throws(merge, /outside the shard window/u);
+    assert.throws(mergeWrapped, /outside the shard window/u);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
@@ -179,26 +205,10 @@ test("a wrapped report whose timing contradicts itself or its own run is refused
 test("the shard merge refuses a missing file", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-missing-"));
   try {
-    const a = join(work, "tests/a.test.ts");
-    const b = join(work, "tests/b.test.ts");
-    const manifest = join(work, "manifest.json");
-    const first = join(work, "shard-1.json");
-    const second = join(work, "shard-2.json");
-    writeJson(manifest, [{ file: a }, { file: b }]);
-    writeJson(first, shardReport([a]));
-    writeJson(second, shardReport([]));
-    assert.throws(
-      () =>
-        mergeShardReports({
-          root: work,
-          manifestPath: manifest,
-          shardPaths: [first, second],
-          expectedShards: 2,
-          headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
-          outPath: join(work, "receipt.json"),
-        }),
-      /missing 1 manifest file/,
-    );
+    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"], { shardCount: 2 });
+    const first = writeWrapped(work, fixture, 1);
+    const second = writeWrapped(work, fixture, 2, { files: [] });
+    assert.throws(() => merge(work, fixture, [first, second]), /missing 1 manifest file/);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
@@ -207,136 +217,45 @@ test("the shard merge refuses a missing file", () => {
 test("the shard merge refuses a duplicate file", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-duplicate-"));
   try {
-    const a = join(work, "tests/a.test.ts");
-    const b = join(work, "tests/b.test.ts");
-    const manifest = join(work, "manifest.json");
-    const first = join(work, "shard-1.json");
-    const second = join(work, "shard-2.json");
-    writeJson(manifest, [{ file: a }, { file: b }]);
-    writeJson(first, shardReport([a, b]));
-    writeJson(second, shardReport([b]));
-    assert.throws(
-      () =>
-        mergeShardReports({
-          root: work,
-          manifestPath: manifest,
-          shardPaths: [first, second],
-          expectedShards: 2,
-          headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
-          outPath: join(work, "receipt.json"),
-        }),
-      /also ran in shard 1/,
-    );
+    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"]);
+    const first = writeWrapped(work, fixture, 1, {
+      files: [...plannedFiles(work, fixture, 1), join(work, "tests/b.test.ts"), join(work, "tests/b.test.ts")],
+    });
+    assert.throws(() => merge(work, fixture, [first]), /duplicate test file/);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
 });
 
-test("the shard merge refuses a failed shard or a file outside the root", () => {
+test("the shard merge refuses a failed shard or a report outside the root", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-refuse-"));
   try {
-    const a = join(work, "tests/a.test.ts");
-    const manifest = join(work, "manifest.json");
-    const failed = join(work, "shard-1.json");
-    writeJson(manifest, [{ file: a }]);
-    writeJson(failed, shardReport([a], { success: false }));
-    assert.throws(
-      () =>
-        mergeShardReports({
-          root: work,
-          manifestPath: manifest,
-          shardPaths: [failed],
-          expectedShards: 1,
-          headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
-          outPath: join(work, "receipt.json"),
-        }),
-      /success=false/,
-    );
+    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const failed = writeWrapped(work, fixture, 1, { success: false });
+    assert.throws(() => merge(work, fixture, [failed]), /success=false/);
 
-    writeJson(manifest, [{ file: join(work, "..", "outside.test.ts") }]);
-    writeJson(failed, shardReport([a]));
-    assert.throws(
-      () =>
-        mergeShardReports({
-          root: work,
-          manifestPath: manifest,
-          shardPaths: [failed],
-          expectedShards: 1,
-          headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
-          outPath: join(work, "receipt.json"),
-        }),
-      /escapes the repository root/,
-    );
+    const outside = writeWrapped(work, fixture, 1, {
+      files: [join(work, "..", "outside.test.ts")],
+    });
+    assert.throws(() => merge(work, fixture, [outside]), /escapes the repository root/);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
 });
 
-test("the shard merge refuses a report that does not declare its failed-suite count", () => {
+test("the shard merge refuses a wrapped report that does not declare its failed-suite count", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-absent-count-"));
   try {
-    const a = join(work, "tests/a.test.ts");
-    const manifest = join(work, "manifest.json");
-    const report = join(work, "shard-1.json");
-    const out = join(work, "receipt.json");
-    writeJson(manifest, [{ file: a }]);
-    const green = shardReport([a]);
-    delete green.numFailedTestSuites;
-    writeJson(report, green);
-    const merge = () => mergeShardReports({
-      root: work,
-      manifestPath: manifest,
-      shardPaths: [report],
-      expectedShards: 1,
-      headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
-      outPath: out,
-    });
-    // Absent is not zero: a report that never said it had no failing suite
-    // used to merge as if it had declared one.
-    assert.throws(merge, /does not declare numFailedTestSuites; absent is not zero/u);
-    // A genuinely green report — the same counts, declared — still merges.
-    writeJson(report, shardReport([a]));
-    assert.equal(merge().failedTests, 0);
+    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const report = writeWrapped(work, fixture, 1, { counts: { numFailedTestSuites: undefined } });
+    // `writeWrapped` spreads `undefined` away in JSON, which is the wire
+    // shape this arm needs: the field is absent.
+    assert.equal("numFailedTestSuites" in JSON.parse(readFileSync(report, "utf8")).vitest, false);
+    assert.throws(() => merge(work, fixture, [report]), /does not declare numFailedTestSuites; absent is not zero/u);
 
-    // The CI path is a WRAPPED report; the finding's reproduction. The
-    // envelope carries provenance, not counts, so the same absence rule must
-    // refuse it there too, and the genuine wrapped report must still merge.
-    const head = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
-    const planDir = join(work, "plan");
-    const planManifest = join(work, "plan-manifest.json");
-    const raw = join(work, "raw.json");
-    const wrapped = join(work, "wrapped.json");
-    mkdirSync(join(work, "tests"), { recursive: true });
-    writeFileSync(a, "");
-    writeJson(planManifest, {
-      schemaVersion: MANIFEST_SCHEMA,
-      measuredHeadSha: head,
-      measuredAt: "2026-01-01T00:00:00.000Z",
-      files: [{ path: "tests/a.test.ts", weightMs: 1 }],
-      excluded: [],
-    });
-    planShards({ root: work, manifestPath: planManifest, shardCount: 1, headSha: head, outDir: planDir });
-    const wrappedMerge = () => mergeShardReports({
-      root: work,
-      manifestPath: join(planDir, "manifest.json"),
-      planPath: join(planDir, "plan.json"),
-      shardPaths: [wrapped],
-      expectedShards: 1,
-      headSha: head,
-      outPath: join(work, "wrapped-receipt.json"),
-    });
-    writeJson(raw, green);
-    wrapShardReport({
-      root: work, planPath: join(planDir, "plan.json"), shard: 1, vitestPath: raw, outPath: wrapped,
-      startedAt: "1000", finishedAt: "2000",
-    });
-    assert.throws(wrappedMerge, /does not declare numFailedTestSuites; absent is not zero/u);
-    writeJson(raw, shardReport([a]));
-    wrapShardReport({
-      root: work, planPath: join(planDir, "plan.json"), shard: 1, vitestPath: raw, outPath: wrapped,
-      startedAt: "1000", finishedAt: "2000",
-    });
-    assert.equal(wrappedMerge().failedTests, 0);
+    // A genuinely green wrapped report — the same counts, declared — merges.
+    const ok = writeWrapped(work, fixture, 1);
+    assert.equal(merge(work, fixture, [ok]).failedTests, 0);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
@@ -345,25 +264,58 @@ test("the shard merge refuses a report that does not declare its failed-suite co
 test("the shard merge refuses skipped or todo tests", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-skipped-"));
   try {
-    const a = join(work, "tests/a.test.ts");
-    const manifest = join(work, "manifest.json");
-    const report = join(work, "shard-1.json");
-    writeJson(manifest, [{ file: a }]);
-    writeJson(report, {
-      ...shardReport([a]),
-      numPendingTests: 1,
-    });
+    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const report = writeWrapped(work, fixture, 1, { counts: { numPendingTests: 1 } });
+    assert.throws(() => merge(work, fixture, [report]), /skipped and 0 todo test/);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+// ── PROVENANCE IS NOT OPT-IN ────────────────────────────────────────────────
+//
+// The merge refused an unwrapped report only when a plan happened to be
+// supplied, and neither the plan nor a timing window was required. A
+// plan-less merge therefore accepted raw reports and wrote a receipt naming
+// the caller's `--head` with nothing binding the files to that commit. These
+// arms are the two refusals the finding named, plus the timing default.
+
+test("a raw (unwrapped) shard report is refused even against a non-empty manifest", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-raw-"));
+  try {
+    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"]);
+    const rawEmpty = join(work, "raw-empty.json");
+    writeJson(rawEmpty, shardReport([]));
     assert.throws(
-      () => mergeShardReports({
-        root: work,
-        manifestPath: manifest,
-        shardPaths: [report],
-        expectedShards: 1,
-        headSha: "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718",
-        outPath: join(work, "receipt.json"),
-      }),
-      /skipped and 0 todo test/,
+      () => merge(work, fixture, [rawEmpty]),
+      new RegExp(`report has no ${SHARD_REPORT_SCHEMA.replaceAll("/", "\\/")} provenance envelope`, "u"),
+      "an empty raw report is not evidence just because the manifest covers nothing this shard claims",
     );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("a merge without --plan is refused before it can name the caller's head", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-noplan-"));
+  try {
+    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const wrapped = writeWrapped(work, fixture, 1);
+    assert.throws(
+      () => merge(work, fixture, [wrapped], { planPath: undefined }),
+      /--plan is required/u,
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("a shard without a measured timing window is refused by default", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-notiming-"));
+  try {
+    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const wrapped = writeWrapped(work, fixture, 1, { timing: false });
+    assert.throws(() => merge(work, fixture, [wrapped]), /no measured shard timing/u);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

@@ -21,7 +21,7 @@
  * server door's arms live in client-telemetry-block.test.ts; the action's
  * liveness proof in block-action-owner.test.ts.
  */
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
   attachClientTelemetry,
@@ -42,6 +42,7 @@ import {
   TELEMETRY_FLUSH_MAX_EVENTS,
   TELEMETRY_RUN_METRIC_CAP,
 } from "../../src/client-config";
+import { clientError, clientLog, clientWarn, configureClientDebug, resetClientDebug } from "../../src/client-debug";
 
 // ── The fake window (the telemetry owner attaches through guarded
 // globalThis.window reads; a fake here is the observable presence) ────────────
@@ -171,6 +172,59 @@ describe("capture wiring — the browser's error hooks feed the buffer", () => {
     expect(sinkBatches[0]!.events[0]?.kind).toBe("client-error");
     // The dark hook is a RECORDED absence, not a swallowed one.
     expect(telemetryAttachAbsences()).toContain("longtask");
+  });
+});
+
+describe("the central client logger — reporting is separate from local verbosity", () => {
+  test("a warning is reported while local debug is off, and the console stays silent", async () => {
+    resetClientDebug();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    clientWarn("sse", "stream error", new Error("socket closed"));
+    expect(warn, "local debug is off: no browser-console line").not.toHaveBeenCalled();
+    warn.mockRestore();
+    await flushTelemetry();
+    expect(sinkBatches, "the warning still reached the telemetry transport").toHaveLength(1);
+    const event = sinkBatches[0]!.events[0]!;
+    // The failure channel is `client-error`; SEVERITY is the fact that keeps a
+    // warning from being counted or described as an uncaught error.
+    expect(event.kind).toBe("client-error");
+    expect(event.facts["severity"]).toBe("warn");
+    expect(event.facts["category"]).toBe("sse");
+    expect(event.facts["message"]).toContain("socket closed");
+    expect(event.facts["stackHead"], "the first Error argument keeps its first stack frame").toBeTypeOf("string");
+  });
+
+  test("an error is reported with severity=error while local debug is off", async () => {
+    resetClientDebug();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    clientError("stream", "done event parse error");
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+    await flushTelemetry();
+    const event = sinkBatches[0]!.events[0]!;
+    expect(event.facts["severity"]).toBe("error");
+    expect(event.facts["category"]).toBe("stream");
+  });
+
+  test("debug logging remains local: it never enqueues telemetry", async () => {
+    resetClientDebug();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    clientLog("persistence", "localStorage unavailable");
+    log.mockRestore();
+    await flushTelemetry();
+    expect(sinkBatches).toHaveLength(0);
+  });
+
+  test("the console toggle still governs the local line when enabled", async () => {
+    resetClientDebug();
+    configureClientDebug({ enabled: true });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    clientWarn("chat", "shown locally");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toBe("[chat]");
+    warn.mockRestore();
+    await flushTelemetry();
+    expect(sinkBatches[0]!.events[0]!.facts["message"]).toBe("shown locally");
   });
 });
 

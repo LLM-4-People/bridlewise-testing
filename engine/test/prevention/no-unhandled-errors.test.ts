@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import test from "node:test";
 
@@ -35,6 +36,31 @@ const SRC_ROOT = join(ROOT, "src");
 const CONSOLE_ALLOWED_FILES = new Set<string>([
   join("src", "shared", "debug", "debug-system.ts"),
   join("src", "cli.ts"),
+]);
+
+/**
+ * Files where a direct `process.{stdout,stderr}.write` is legitimate.
+ *
+ * A CLI is a TERMINAL PROGRAM: its standard streams ARE its user interface, so
+ * progress and machine-readable reports belong there and nowhere else. Every
+ * file below is a command entry point or a progress callback the command
+ * injects. A PRODUCTION module has no such excuse — its warning/error belongs
+ * to the central debug owner, whose warn/error levels are never suppressed.
+ *
+ * This list is the allow-list, not the rule: a new file appears here only with
+ * a reason, and the scan below refuses the write otherwise.
+ */
+const STREAM_ALLOWED_FILES = new Set<string>([
+  join("src", "cli.ts"), // the harness CLI entry point
+  join("src", "quality-packs", "cli.ts"), // the quality-pack command's report
+  join("src", "shared", "debug", "debug-system.ts"), // the central owner's own sinks/fallback
+  join("src", "shared", "run-cpu.ts"), // the run-CPU measurement command's JSON report
+  join("src", "workflow", "checkout-setup.ts"), // setup progress for a CLI run
+  join("src", "workflow", "flake-cli.ts"), // flake-reproduction command output
+  join("src", "workflow", "harness-commands.ts"), // harness subcommand reports and progress
+  join("src", "workflow", "promotion", "promoter-home.ts"), // forwards a promoted process's stderr
+  join("src", "workflow", "slot-cli.ts"), // slot command output
+  join("src", "workflow", "workspace-cli.ts"), // workspace command output
 ]);
 
 // ── File discovery ────────────────────────────────────────────────────────
@@ -133,6 +159,55 @@ test("prevention: no direct console.log/console.error in src/ outside the debug 
         `Direct console calls bypass the central debug/error system (prevention rule: no-direct-console).`,
     );
   }
+});
+
+// ── Test 2b: no direct stdout/stderr writes in production engine modules ──
+//
+// The engine's console guard above reads `console.*`; the web server has its
+// own `process.{stderr,stdout}.write` guard. That left a hole between them: a
+// production module could write straight to stderr and no guard in either
+// jurisdiction saw it (`unified-embeddings.ts` wrote its unavailable warning
+// that way, invisible to both). The same source-scan owner now knows both
+// spellings.
+
+function directStreamWriteFindings(relPath: string, source: string): string[] {
+  if (STREAM_ALLOWED_FILES.has(relPath)) return [];
+  const view = sourceViewOf(source, relPath);
+  const lines = view.codeWithStrings().split("\n");
+  return [...view.code().matchAll(/\bprocess\.(stderr|stdout)\.write\s*\(/gu)].map((match) =>
+    `  ${relPath}:${view.lineAt(match.index)}: ${lines[view.lineAt(match.index) - 1]!.trim()}`);
+}
+
+test("prevention: no direct process.stdout/stderr.write in production engine modules", () => {
+  const findings: string[] = [];
+  let scanned = 0;
+  for (const file of allSrcFiles()) {
+    scanned += 1;
+    findings.push(...directStreamWriteFindings(relative(ROOT, file), readFileSync(file, "utf8")));
+  }
+  assert.ok(scanned > 100, `liveness: the engine source tree must be scanned (${scanned} files)`);
+  assert.deepEqual(
+    findings,
+    [],
+    `Found ${findings.length} direct process stream write(s) outside a CLI owner:\n${findings.join("\n")}\n` +
+      `Fix: route through debugLog/handleError (warn and error are never suppressed), or add the file to STREAM_ALLOWED_FILES with its reason if it is a command's user-facing output.`,
+  );
+});
+
+test("prevention scanner: the stream-write rule catches a production module and admits a CLI", () => {
+  // The mutation: the exact shape the guard exists for — a warning written
+  // straight to stderr from a module no central owner sees.
+  const findings = directStreamWriteFindings(
+    join("src", "memory", "unified", "fixture.ts"),
+    "process.stderr.write(`unavailable\\n`);\n",
+  );
+  assert.equal(findings.length, 1, "the production module's direct write is a finding");
+  assert.match(findings[0]!, /^  src\/memory\/unified\/fixture\.ts:1: process\.stderr\.write\(/u);
+  assert.deepEqual(
+    directStreamWriteFindings(join("src", "cli.ts"), "process.stderr.write(`unavailable\\n`);\n"),
+    [],
+    "the CLI entry point owns its terminal output",
+  );
 });
 
 // ── Mutant tests: the scanner must catch violations ──────────────────────

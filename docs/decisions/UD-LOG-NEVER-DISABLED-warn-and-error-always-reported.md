@@ -4,8 +4,8 @@ date: 2026-10-08
 by: user
 group: process
 status: in-force
-implementation: pending
-route: LOG-NEVER-DISABLED
+implementation: done
+acted_in: [engine/src/shared/debug/debug-system.ts, server/observability/debug-bridge.ts, src/client-debug.ts, src/state/telemetry.ts, tests/prevention/log-never-disabled.test.ts]
 ---
 # Logging is never disabled
 
