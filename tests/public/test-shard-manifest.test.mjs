@@ -236,7 +236,7 @@ test("a wrapped report with the wrong commit, manifest hash or assignment hash i
     assert.equal(clean.assignmentHash, plan.assignmentHash);
 
     const mutants = [
-      { field: "headSha", value: "b1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718", pattern: /head .* is not/u },
+      { field: "headSha", value: "b1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718", pattern: /head [0-9a-f]{40} is not/u },
       { field: "manifestHash", value: "c".repeat(64), pattern: /manifest hash does not match the plan/u },
       { field: "assignmentHash", value: "d".repeat(64), pattern: /assignment hash does not match the plan/u },
     ];

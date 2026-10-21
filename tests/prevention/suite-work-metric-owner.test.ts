@@ -2,7 +2,7 @@
 /**
  * THE SUITE-WORK METRIC'S OWNER — a mechanical guard, not a convention.
  *
- * The measurement contract (AGENTS.md) says a judged signal is DYNAMIC,
+ * The measurement contract says a judged signal is DYNAMIC,
  * RESILIENT, LOAD-AGNOSTIC or declared-and-deferring, and SINGLE-OWNER: one
  * computation at the lowest chokepoint, every consumer reading it. Each clause
  * below is asserted against the SOURCE and against the signal's behaviour, so
@@ -26,6 +26,7 @@ import {
 } from "../../engine/src/shared/run-cpu.ts";
 import { deriveRollingBaseline, type RollingCpuBudget } from "../helpers/budget-verdict.ts";
 import { readCpuBudget } from "../helpers/budget-config.ts";
+import { modulePathMatching } from "../helpers/module-resolver.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const source = (path: string): string => readFileSync(join(ROOT, path), "utf8");
@@ -33,7 +34,7 @@ const PRODUCTION_FILES = globSync(
   ["engine/src/**/*.ts", "engine/scripts/**/*.ts", "tests/reporters/**/*.ts", "scripts/**/*.ts"],
   { cwd: ROOT },
 );
-const OWNER = "engine/src/shared/run-cpu.ts";
+const OWNER = modulePathMatching("shared/run-cpu.ts");
 
 /** The exact divisions that would be a SECOND computation of the metric. */
 function divisionSites(text: string): readonly string[] {
@@ -83,7 +84,7 @@ describe("the calibrated-work metric has exactly one owner and one computation",
   });
 
   test("the gate JUDGES workUnitsPerTestFile and never the raw CPU millisecond figure", () => {
-    const verdict = source("engine/src/shared/budget-verdict.ts");
+    const verdict = source(modulePathMatching("shared/budget-verdict.ts"));
     const gate = topLevelFunctionBody(verdict, "cpuGate");
     expect(gate).toContain("v.workUnitsPerTestFile");
     expect(gate).not.toContain("v.cpuMsPerTestFile");
@@ -157,7 +158,7 @@ describe("the calibrated-work metric has exactly one owner and one computation",
   });
 
   test("the judgement layer DEFERS on its own witnesses, at the declared bounds", () => {
-    const verdict = source("engine/src/shared/budget-verdict.ts");
+    const verdict = source(modulePathMatching("shared/budget-verdict.ts"));
     const refusal = topLevelFunctionBody(verdict, "metricValidityRefusal");
     expect(refusal).toContain("budget.validThroughLoad5PerCpu");
     expect(refusal).toContain("budget.calibrationDriftMaxFraction");

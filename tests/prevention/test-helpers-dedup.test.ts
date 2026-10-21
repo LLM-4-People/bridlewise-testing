@@ -24,9 +24,71 @@ import { describe, test, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 
-import { walk } from "../helpers/source-scan.ts";
+import { blankStringLiterals, stripCommentsOnlyFor, walk } from "../helpers/source-scan.ts";
 
 const HELPERS_DIR = "tests/helpers";
+
+/** `join` is excluded from the dead-import scan: `Array.prototype.join`
+ * (`.join(`) is ubiquitous in test message formatting, so a word-boundary
+ * check would mask a genuinely-dead `path.join` import; it is left to the
+ * src/ scanner. */
+const EXEMPT_NODE_BINDINGS: ReadonlySet<string> = new Set(["join"]);
+
+interface DeadNodeImport {
+  readonly file: string;
+  readonly sym: string;
+  readonly from: string;
+}
+
+/**
+ * The `node:fs` / `node:path` bindings a file imports but never references.
+ *
+ * ── THE VIEW IS THE FIX ───────────────────────────────────────────────────
+ *
+ * This scan used to regex the RAW source, so a documented example — a comment
+ * or fixture string spelling `import { join, resolve } from "node:path"` —
+ * parsed as a real import and was reported dead, although the file imports
+ * neither name. That is a guard reporting work nobody did: the false red that
+ * teaches a reader to override it. Extraction therefore reads the shared
+ * comment-stripped view (`stripCommentsOnlyFor`, so a doc/fence example is
+ * gone) and accepts a match only where the string-blanked view
+ * (`blankStringLiterals`) still shows the `import` keyword — so a statement
+ * quoted inside a fixture string is refused too. Both views preserve the
+ * file's exact length and newlines, so the match offsets are the raw file's
+ * own. The module specifier deliberately stays readable: it IS a string
+ * literal, and blanking it would hide whether this import names `node:fs` or
+ * `node:path`.
+ *
+ * USAGE IS STILL CHECKED AGAINST THE RAW SOURCE, deliberately: a binding
+ * referenced only from inside a template literal is still used, and blanking
+ * strings for the reference check would report it as dead.
+ */
+function deadNodeImportsIn(file: string, src: string): DeadNodeImport[] {
+  // Comments blanked, strings kept readable for the specifier.
+  const withoutComments = stripCommentsOnlyFor(src, file);
+  // Comments and string interiors blanked: a match's keyword is spaces here
+  // when the "statement" is only quoted inside a fixture string.
+  const code = stripCommentsOnlyFor(blankStringLiterals(src, file), file);
+  const rel = file.split(sep).join("/");
+  const IMPORT_RE = /\bimport\s*\{([^}]*)\}\s*from\s*("node:fs"|"node:path")\s*;?/g;
+  const dead: DeadNodeImport[] = [];
+  let im: RegExpExecArray | null;
+  while ((im = IMPORT_RE.exec(withoutComments)) !== null) {
+    if (!code.startsWith("import", im.index)) continue;
+    const fromMod = im[2]!;
+    const syms = im[1]!.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+    // Offsets are shared with the raw source (all views keep its length), so
+    // the statement is cut from the raw text the usage check reads.
+    const withoutThisImport = src.slice(0, im.index) + src.slice(im.index + im[0].length);
+    for (const sym of syms) {
+      if (EXEMPT_NODE_BINDINGS.has(sym)) continue;
+      if (!new RegExp(`\\b${sym.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(withoutThisImport)) {
+        dead.push({ file: rel, sym, from: fromMod });
+      }
+    }
+  }
+  return dead;
+}
 
 /** Discover every `.ts` file under `tests/helpers/` (the shared helper
  * modules). Dynamic so a new helper is automatically covered. */
@@ -212,30 +274,39 @@ describe("test helpers are not duplicated across test files (single owner: tests
     // caught by the src/ + server/ unused-imports scan. This denies
     // re-accumulation: every imported symbol from `node:fs` or `node:path`
     // must appear (word boundary) somewhere outside its import statement.
-    // `join` is excluded: `Array.prototype.join` (`.join(`) is ubiquitous
-    // in test message formatting, so a word-boundary check would mask a
-    // genuinely-dead `path.join` import; it is left to the src/ scanner.
-    const EXEMPT = new Set(["join"]);
-    const IMPORT_RE = /\bimport\s*\{([^}]*)\}\s*from\s*("node:fs"|"node:path")\s*;?/g;
-    const dead: { file: string; sym: string; from: string }[] = [];
-    for (const file of TEST_FILES) {
-      const src = readFileSync(file, "utf8");
-      let im: RegExpExecArray | null;
-      while ((im = IMPORT_RE.exec(src)) !== null) {
-        const fromMod = im[2]!;
-        const syms = im[1]!.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-        const withoutThisImport = src.slice(0, im.index) + src.slice(im.index + im[0].length);
-        for (const sym of syms) {
-          if (EXEMPT.has(sym)) continue;
-          if (!new RegExp(`\\b${sym.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(withoutThisImport)) {
-            dead.push({ file: file.split(sep).join("/"), sym, from: fromMod });
-          }
-        }
-      }
-    }
+    const dead = TEST_FILES.flatMap((file) => deadNodeImportsIn(file, readFileSync(file, "utf8")));
     expect(
       dead,
       dead.map((d) => `${d.file}: imports ${d.sym} from ${d.from} but never uses it`).join("\n"),
     ).toEqual([]);
+  });
+
+  test("a documented example import is not a real import — but a real dead one still is", () => {
+    // The shape that reddened the guard-of-guards: an import EXAMPLE inside a
+    // doc comment (and a fixture string telling the same story) parsed as a
+    // real binding, so a file that imports only `relative` was accused of a
+    // dead `join` / `resolve`. Neither binding exists in code, so neither may
+    // be reported.
+    const documented = [
+      "/**",
+      " * Migrated with:",
+      " *",
+      " *     import {",
+      " *       join,",
+      " *       resolve,",
+      ' *     } from "node:path";',
+      " */",
+      'const EXAMPLE = `import { readFileSync } from "node:fs";`;',
+      'import { relative } from "node:path";',
+      'export const here = relative(".", ".");',
+    ].join("\n");
+    expect(deadNodeImportsIn("tests/fixture.ts", documented)).toEqual([]);
+
+    // THE NEGATIVE HALF: a REAL unused binding is still a finding, so this
+    // cannot pass by silencing the scan.
+    const realDead = 'import { readFileSync, statSync } from "node:fs";\nreadFileSync("x");\n';
+    expect(deadNodeImportsIn("tests/fixture.ts", realDead)).toEqual([
+      { file: "tests/fixture.ts", sym: "statSync", from: '"node:fs"' },
+    ]);
   });
 });
