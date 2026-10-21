@@ -322,7 +322,7 @@ test("suite-cpu: THE TEETH HOLD UNDER LOAD — one regressed reading at a busy a
   // At amb5 0.8 the cap is 1,040: a 1,050 reading fails in its one run.
   const { outcome } = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: 0.8 }, 1_050), DERIVED, [], LABEL, KEY);
   assert.equal(outcome.kind, "fail");
-  assert.match(outcome.message, /cap in force \(metric calibrated-work\/v1; raw .* = baseline 1000\.000 × 1\.040/);
+  assert.match(outcome.message, /cap in force \(metric calibrated-work\/v1; raw [\d.]+ ms\/file, provenance\) = baseline 1000\.000 × 1\.040/);
   assert.match(outcome.message, /do not raise the budget/);
   // PAST THE METRIC'S VALIDITY BOUND THE GATE DEFERS. At 3.0/cpu the
   // calibrated metric's residual was never measured (bound 1.25), so the

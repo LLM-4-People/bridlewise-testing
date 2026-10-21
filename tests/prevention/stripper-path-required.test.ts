@@ -65,6 +65,7 @@ import {
   readSourceView,
   renderSpans,
 } from "../../engine/scripts/verification/source-view.ts";
+import { modulePathMatching } from "../helpers/module-resolver.ts";
 
 /** The doors that REQUIRE the path: a 1-argument call through any alias. */
 const PATH_REQUIRED_DOORS: ReadonlySet<string> = new Set([
@@ -292,7 +293,7 @@ describe("the stripper family's path-required doors", () => {
     // the signature.
     const declarationSources = [
       viewedSourceOf(HELPER_CANONICAL),
-      viewedSourceOf(resolve("engine/scripts/verification/source-view.ts")),
+      viewedSourceOf(modulePathMatching("verification/source-view.ts")),
     ];
     for (const door of PATH_REQUIRED_DOORS) {
       expect(
