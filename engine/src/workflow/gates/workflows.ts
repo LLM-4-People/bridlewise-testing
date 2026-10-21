@@ -51,7 +51,7 @@ import {
   TOOLCHAINS,
   type Toolchain,
 } from "./catalogue.ts";
-import { Commented, emitYaml, type YamlValue } from "./yaml.ts";
+import { Commented, emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
 
 export const WORKFLOW_DIRECTORY = GENERATED_WORKFLOW_FILES.directory;
 
@@ -477,7 +477,7 @@ export function workflowText(name: string): string {
   if (build === undefined) throw new InputError(`no generated workflow ${name}`, "workflow_unknown");
   const workflow = build();
   lintWorkflow(name, workflow);
-  return `${GENERATED_HEADER}\n${emitYaml(workflow)}`;
+  return emitYaml(workflow, [GENERATED_HEADER.replace(/^# /u, "")]);
 }
 
 export type GeneratedWorkflowsReport = Readonly<{

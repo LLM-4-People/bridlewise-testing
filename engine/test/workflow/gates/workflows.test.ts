@@ -34,7 +34,7 @@ import {
   syncGeneratedWorkflows,
   workflowText,
 } from "../../../src/workflow/gates/workflows.ts";
-import { Commented } from "../../../src/workflow/gates/yaml.ts";
+import { Commented } from "../../../src/text/yaml-emit.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "../../../..");

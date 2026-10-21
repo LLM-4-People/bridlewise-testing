@@ -1,26 +1,36 @@
 /**
- * THE ONE YAML EMITTER of the generated pipeline: a JSON-shaped value (the
- * workflow documents `workflows.ts` builds) to YAML text, deterministically.
+ * THE ONE YAML EMITTER: a JSON-shaped value as deterministic block-style YAML,
+ * for every generated file GitHub reads as YAML — the workflows the gate
+ * catalogue generates (`src/workflow/gates/workflows.ts`) and the community
+ * issue and discussion forms (Issue #103: GH-2's and GH-9's emitters folded
+ * into this one).
  *
- * It emits a deliberately small subset — block mappings and sequences, plain
- * scalars only where they cannot be read back as anything else, double-quoted
- * (JSON) scalars otherwise, and literal blocks for multi-line strings — so the
- * same value always yields the same bytes and the text reads back as that
- * value. Key order is the value's own insertion order (the generators state
- * it), never sorted: a workflow reads top-down (`name`, `on`, `jobs`).
+ *   - keys keep their insertion order (a workflow reads `name`, `on`, `jobs`)
+ *     and must be plain identifiers (letters, digits, `_` and `-`);
+ *   - a string is PLAIN only when no YAML reader could take it for anything
+ *     else (a letter, `_`, `/`, `.` or `$` first; never `: `, ` #`, a trailing
+ *     `:`, a YAML 1.1/1.2 boolean or null word, or number-shaped), so GitHub's
+ *     `${{ … }}` reads as its documentation writes it; every other string is
+ *     double-quoted (a JSON string literal is a valid YAML scalar);
+ *   - a multi-line string is a literal block (`|`, `|-`, `|+`), so a
+ *     workflow's script reads as a script;
+ *   - `Commented` carries a trailing comment (an action pin's version:
+ *     `uses: owner/action@<sha> # v7`); null is the bare key (`wait-all:`);
+ *   - the document may open with `comments` (`#` lines) and ends with one
+ *     newline.
  *
- * Anything that is not a string, a finite number, a boolean, null, an array or
- * a plain object is a typed refusal: a generator that hands it `undefined` has
- * a bug, never a value to skip.
+ * What it cannot represent — `undefined`, a function, a non-finite number, a
+ * non-plain object, a non-plain key, a literal block line ending in
+ * whitespace — is the typed `yaml_value_unrepresentable`, never a silent drop.
  */
-import { InputError } from "../../kernel/errors.ts";
+import { InputError } from "../kernel/errors.ts";
 
 /** A scalar with a trailing comment (an action pin's version: `uses: owner/action@<sha> # v7`). */
 export class Commented {
   readonly value: string;
   readonly comment: string;
   constructor(value: string, comment: string) {
-    if (comment.includes("\n")) throw new InputError("yaml: a comment is one line", "yaml_unrepresentable");
+    if (comment.includes("\n")) throw new InputError("yaml: a comment is one line", "yaml_value_unrepresentable");
     this.value = value;
     this.comment = comment;
     Object.freeze(this);
@@ -41,13 +51,14 @@ const RESERVED = new Set(["true", "false", "null", "yes", "no", "on", "off", "y"
  */
 const SAFE_PLAIN = /^[A-Za-z_/.$][\x20-\x7e]*$/u;
 const PLAIN_BREAKERS = /: | #|:$/u;
-/** A plain mapping key (GitHub's `on`, `runs-on`, `timeout-minutes`, …). */
-const SAFE_KEY = /^[A-Za-z_][A-Za-z0-9_-]*$/u;
+/** A plain mapping key (GitHub's `on`, `runs-on`, `timeout-minutes`, …); any other key is refused. */
+const PLAIN_KEY = /^[A-Za-z_][A-Za-z0-9_-]*$/u;
 
-/** The YAML text of `value` (a document: no leading `---`, one trailing newline). */
-export function emitYaml(value: YamlValue): string {
+/** `value` as a YAML document (no leading `---`), preceded by `comments` as `#` lines, ending with one newline. */
+export function emitYaml(value: YamlValue, comments: readonly string[] = []): string {
+  if (comments.some((line) => line.includes("\n"))) throw new InputError("yaml: a comment is one line", "yaml_value_unrepresentable");
   const lines = emitNode(value, 0, "document");
-  return `${lines.join("\n")}\n`;
+  return `${[...comments.map((line) => (line === "" ? "#" : `# ${line}`)), ...lines].join("\n")}\n`;
 }
 
 function isMapping(value: YamlValue): value is Readonly<{ [key: string]: YamlValue }> {
@@ -59,23 +70,24 @@ function scalar(value: YamlValue): string {
   if (value === null) return "null";
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new InputError(`yaml: a non-finite number cannot be emitted (${String(value)})`, "yaml_unrepresentable");
+    if (!Number.isFinite(value)) throw new InputError(`yaml: a non-finite number cannot be emitted (${String(value)})`, "yaml_value_unrepresentable");
     return String(value);
   }
-  if (typeof value !== "string") throw new InputError("yaml: not a scalar", "yaml_unrepresentable");
+  if (typeof value !== "string") throw new InputError("yaml: not a scalar", "yaml_value_unrepresentable");
   if (value.length > 0 && SAFE_PLAIN.test(value) && !PLAIN_BREAKERS.test(value) && !RESERVED.has(value.toLowerCase()) && !value.endsWith(" ")) return value;
   return JSON.stringify(value);
 }
 
 function key(name: string): string {
-  return SAFE_KEY.test(name) ? name : JSON.stringify(name);
+  if (!PLAIN_KEY.test(name)) throw new InputError(`yaml: the key ${JSON.stringify(name)} is not a plain identifier`, "yaml_value_unrepresentable");
+  return name;
 }
 
 function assertValue(value: unknown): asserts value is YamlValue {
   if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number") return;
   if (Array.isArray(value) || value instanceof Commented) return;
   if (typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) return;
-  throw new InputError(`yaml: ${value === undefined ? "undefined" : typeof value} is not a YAML value`, "yaml_unrepresentable");
+  throw new InputError(`yaml: ${value === undefined ? "undefined" : typeof value} is not a YAML value`, "yaml_value_unrepresentable");
 }
 
 /** A multi-line string as a literal block: `|` keeps the final newline, `|-` strips its absence. */
@@ -83,9 +95,9 @@ function literalBlock(text: string, indent: number): readonly string[] {
   const pad = " ".repeat(indent);
   const body = text.endsWith("\n") ? text.slice(0, -1) : text;
   if (body.split("\n").some((line) => line !== line.trimEnd())) {
-    throw new InputError("yaml: a literal block line ends in whitespace (it would not read back)", "yaml_unrepresentable");
+    throw new InputError("yaml: a literal block line ends in whitespace (it would not read back)", "yaml_value_unrepresentable");
   }
-  if (/^\s/u.test(body)) throw new InputError("yaml: a literal block starts with whitespace (needs an indentation indicator)", "yaml_unrepresentable");
+  if (/^\s/u.test(body)) throw new InputError("yaml: a literal block starts with whitespace (needs an indentation indicator)", "yaml_value_unrepresentable");
   const header = text.endsWith("\n") ? (text.endsWith("\n\n") ? "|+" : "|") : "|-";
   return [header, ...body.split("\n").map((line) => (line.length === 0 ? "" : `${pad}${line}`))];
 }

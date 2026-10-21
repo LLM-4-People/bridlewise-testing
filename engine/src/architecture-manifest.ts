@@ -5598,17 +5598,17 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-gates-workflows", path: "src/workflow/gates/workflows.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 12, namesSha256: "0f2f80fd754f1b4d75cafafccf245631d5dfbccc6ab0b3b4760e04c896373954" },
-      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/yaml.ts"],
-    }),
-    moduleContract({
-      id: "src-workflow-gates-yaml", path: "src/workflow/gates/yaml.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 3, namesSha256: "bc0b7349e1fb06bc6e9caedfcff794e9cf9577c81567427d4ffa77a8cf14a17a" },
-      dependencies: ["src/kernel/errors.ts"],
+      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/text/yaml-emit.ts","src/workflow/gates/catalogue.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-cell-run", path: "src/workflow/gates/cell-run.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 10, namesSha256: "a685195bbc863be1b1e7d760c100ad83668842747735cad57168d6ffcc7597b6" },
       dependencies: ["node:fs","node:path","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/shared/tree-identity.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/vitest-report.ts"],
+    }),
+    moduleContract({
+      id: "src-text-yaml-emit", path: "src/text/yaml-emit.ts", realm: "shared", layer: "domain",
+      owner: "text-processing", publicApi: { exportCount: 3, namesSha256: "bc0b7349e1fb06bc6e9caedfcff794e9cf9577c81567427d4ffa77a8cf14a17a" },
+      dependencies: ["src/kernel/errors.ts"],
     }),
   ],
 });
