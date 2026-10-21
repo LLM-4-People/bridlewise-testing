@@ -42,7 +42,7 @@ The [evidence rules](https://github.com/LLM-4-People/bridlewise-testing/blob/mai
 
 1. States the observed behavior and the expected behavior.
 2. Gives the smallest command or fixture that reproduces it, with the typed error, the run id if there is one, and the relevant version or commit.
-3. Redacts secrets, private code, and personal data, and adds a regression test that fails before the fix.
+3. Redacts secrets, private code, and personal data, and adds a regression test under the [evidence bar](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/AGENTS.md#evidence).
 
 If reproduction is impossible, say so explicitly. Do not present a guess as a diagnosis.
 

@@ -246,7 +246,7 @@ The merge contract and the manifest contract are covered by the public smoke sui
 1. Put the test beside its subject's domain: root web behavior in `tests/unit/` or `tests/prevention/`; engine behavior in the matching `engine/test/<domain>/`.
 2. Use the runner already used by that tree. The web suite uses Vitest (`import { describe, expect, test } from "vitest"`); the engine suite uses `node:test` and `node:assert/strict`.
 3. Make it deterministic. Use `mkdtemp`/the provided temp helpers, inject clocks and providers, and never depend on the developer's home directory, a live network, or a real credential.
-4. Prefer one strong invariant over many equivalent assertions. If the test protects a reproduced bug, make it fail on the old behavior first.
+4. Prefer one strong invariant over many equivalent assertions. The fail-first requirement for a reproduced bug belongs to the [evidence bar](process/AGENTS.md#evidence).
 5. For a prevention guard, state the class, the plant, the driven behavior, and the liveness check in the header comment. A guard that cannot prove it sees the plant is not a guard.
 6. Do not add skips. If a prerequisite is absent, the runner should refuse with a typed reason; a skipped test that looks green is the failure this project exists to prevent.
 7. Run the focused file, then the domain suite, then the checks that touch your change.
@@ -267,10 +267,10 @@ Example web test:
 
 ```ts
 import { expect, test } from "vitest";
-import { normalize } from "../../server/intelligence/query.ts";
+import { evalWhen } from "../../shared/when-eval.ts";
 
-test("a blank query is refused, not broadened", () => {
-  expect(() => normalize("   ")).toThrowError(/empty/u);
+test("a malformed when-clause is refused, not defaulted", () => {
+  expect(() => evalWhen("(", {})).toThrowError(/unexpected end/u);
 });
 ```
 
@@ -282,7 +282,7 @@ The testing repository runs both typechecks, the secret scan, the public smoke s
 
 ## Flakiness
 
-A flaky test is a defect in the test or its subject. Reproduce it, name the cause, and fix the owner. Do not add retries to the default suite and do not reorder assertions until it passes. Playwright CI may use a bounded retry for browser timing, and the retry must be visible in the report.
+A flaky test is a defect in the test or its subject. Reproduce it, name the cause, and fix the owner. Do not add retries to the default suite and do not reorder assertions until it passes. The E2E suite's retry policy is Playwright's: `playwright.config.ts` sets `retries: process.env.CI ? 2 : 0`, and Playwright's HTML reporter records every retry in its report. That suite is not run by this repository's CI ([CI](#ci)), so the policy is not exercised here; a retry in another suite is not permission to retry the default suite.
 
 ## What is not covered
 

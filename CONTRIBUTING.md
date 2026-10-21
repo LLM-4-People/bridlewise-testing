@@ -48,10 +48,11 @@ floor will not accept. This page keeps the contribution mechanics around them.
 
 ## Test conventions
 
-Where a test goes, which runner it uses, how it stays deterministic and when it
-must fail first are owned by [Adding a test](docs/testing.md#adding-a-test).
-The contribution mechanics for a test change are the commit and pull-request
-rules below.
+Where a test goes, which runner it uses, and how it stays deterministic are
+owned by [Adding a test](docs/testing.md#adding-a-test). Whether a reproduced
+bug's test must fail before the fix is part of the [evidence
+bar](docs/process/AGENTS.md#evidence). The contribution mechanics for a test
+change are the commit and pull-request rules below.
 
 ## Commit and pull request style
 

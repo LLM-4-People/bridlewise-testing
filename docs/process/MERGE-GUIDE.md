@@ -36,9 +36,8 @@ follows is [WORKFLOW.md](WORKFLOW.md).
 <id>`, the integrator in `engine/src/workflow/workspace-manager.ts`) lands a
 validated workspace on its target branch — one of
 `workspaceIsolation.landTargets` (this repository: `testing` only; `master`
-never). With `--door` it lands through a pull request instead (step 5 below);
-without it, it lands locally and the caller pushes. Under the repository's
-merge lock (merges queue):
+never). It lands locally and the caller pushes. Under the repository's merge
+lock (merges queue):
 
 1. **Preconditions.** Validated (`ws validate`), the target still a land
    target, the lease live, the worktree intact and clean at the validated
@@ -63,17 +62,10 @@ merge lock (merges queue):
    would touch the checkout's own work; a checkout a crash left torn mid
    fast-forward is completed with git alone), or a compare-and-swap of the
    ref when no checkout holds it. An `--overlay` workspace is adopted into the
-   checkout it snapshotted. With `--door`, the same M is instead pushed on
-   the workspace branch as the bot, a pull request base=<target> opens with
-   the merge receipt as its body, the door waits for the `gate` status and
-   merges with `Do: "fast-forward-only"` as the door role, then fetches the
-   target and fast-forwards the local target; a refusal before that merge
-   leaves the target untouched, and the receipt gains a `door` block
-   (`engine/src/workflow/workspace-door.ts`).
+   checkout it snapshotted.
 6. **After the land**: the qualifying runs imported into the landing
    checkout's ledgers, the timeline import, the worktree and branch removed, a
-   hashed receipt. Then push `testing` (the local path only; the door path
-   already moved the remote).
+   hashed receipt. Then push `testing`.
 
 A failure before the land leaves every checkout untouched and the workspace
 `active` (or `validating` when git refused the land itself). An integrator
@@ -106,7 +98,7 @@ full workspace command list and the registry/config leaves.
 | `apply` | The promotion, end to end (below). |
 | `rollback --to <promotion commit> --reason <text>` | §5. |
 | `hold --reason <text>` / `release-hold --reason <text>` | §5. |
-| `auto [--door] --refs <refs>` | The trigger hook's entry (§3.3); never run by hand. |
+| `auto --refs <refs>` | The trigger hook's entry (§3.3); never run by hand. |
 
 Every answer is one envelope (`{ok, code, class, message, remedy, data}`; add
 `--text` for a report: the one output option of every harness verb) and the
@@ -181,13 +173,11 @@ installed by the profile's own setup).
 The tracked `.githooks/reference-transaction` hook (its text is
 `engine/src/workflow/promotion/trigger-hook.ts`'s, and the commit guard
 refuses any other: a hook that fails in git's `prepared` state would abort
-every ref update) runs `harness promote auto --door` in the background after
-a push or a fetch moves a remote-tracking ref. `auto` starts one unattended
-`apply --auto --door` for each profile whose source that ref is and whose
-`trigger` is `on-source-publish`: the run opens a promotion pull request and
-the door role merges it once the gate is green, instead of pushing the target
-directly. (`auto` without `--door` keeps the direct-publication entry; the
-hook always asks for the door.)
+every ref update) runs `harness promote auto --refs "$refs" --text` in the
+background after a push or a fetch moves a remote-tracking ref. `auto` starts
+one unattended `apply --auto` for each profile whose source that ref is and
+whose `trigger` is `on-source-publish`: the run publishes the target directly,
+after its own gates certify the projected tree.
 `auto` never decides on the local hold ref (a mirror of the remote's): the
 run reads the remote's hold and answers it as "not now" (`promotion_held`,
 exit 0). An unattended run never waits for a lock (the target's, or the

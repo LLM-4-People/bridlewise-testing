@@ -18,4 +18,4 @@ serialized. [UR-23](UR-23-a-concurrent-web-writer.md) (2026-10-07)
 refines this rule: a web writer may run beside the engine writer in a
 disjoint write-set.
 Readers (verifiers, spec readers, reviewers) run alongside the writer, bounded
-by what the shared machine can carry (see [ROLES.md](https://github.com/LLM-4-People/bridlewise/blob/main/CONTRIBUTING.md)).
+by what the shared machine can carry (see [ROLES.md](../process/ROLES.md)).

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -99,6 +99,48 @@ test("the briefing routes commit mechanics to their section and reaches the evid
   assert.doesNotMatch(briefing, /Setup, the fresh-clone gate and the commit mechanics/u);
   assert.ok(briefing.includes("[Public evidence](docs/floor/evidence.md)"));
   assert.ok(briefing.includes("docs/floor/evidence.md#corpus-boundary"));
+});
+
+test("the docs link checker refuses an absolute URL to a process document", () => {
+  // The three standing decisions once labelled ROLES.md/WORKFLOW.md/AGENTS.md
+  // but all linked the product repository's CONTRIBUTING.md; both guards
+  // skipped http(s), so the relative-link resolution never saw them.
+  const root = mkdtempSync(join(tmpdir(), "bridlewise-docs-absolute-"));
+  try {
+    mkdirSync(join(root, "docs/decisions"), { recursive: true });
+    mkdirSync(join(root, "docs/process"), { recursive: true });
+    writeFileSync(join(root, "docs/process/ROLES.md"), "# Roles\n");
+    writeFileSync(
+      join(root, "docs/decisions/UR-99-x.md"),
+      "[good](../process/ROLES.md) [bad](https://github.com/LLM-4-People/bridlewise/blob/main/CONTRIBUTING.md)\n",
+    );
+    writeFileSync(
+      join(root, "docs/floor.md"),
+      "[site](https://github.com/LLM-4-People/bridlewise/blob/main/CONTRIBUTING.md)\n",
+    );
+    const { missing } = checkDocsLinks({ root, files: ["docs/decisions/UR-99-x.md", "docs/floor.md"] });
+    assert.equal(missing.length, 1, `expected exactly the planted absolute URL to fail, got ${JSON.stringify(missing)}`);
+    assert.match(missing[0], /docs\/decisions\/UR-99-x\.md/u);
+    assert.match(missing[0], /absolute URL names the process document CONTRIBUTING\.md/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the fail-first evidence rule has one owner and the pages point to it", () => {
+  const evidenceOwner = read("docs/process/AGENTS.md");
+  assert.match(evidenceOwner, /^## Evidence$/mu);
+  assert.match(evidenceOwner, /fails before the fix/u);
+  for (const page of ["CONTRIBUTING.md", "docs/testing.md", "docs/floor/help.md"]) {
+    const text = read(page);
+    assert.ok(text.includes("AGENTS.md#evidence"), `${page} must point at the evidence owner`);
+    assert.doesNotMatch(
+      text,
+      /must fail first|fail on the old behavior first|regression test that fails before the fix/iu,
+      `${page} must not restate the fail-first rule`,
+    );
+  }
+  assert.ok(read("docs/process/WORKFLOW.md").includes("AGENTS.md#evidence"), "the workflow must route the evidence bar");
 });
 
 test("the shipping page names no release workflow the tree does not hold", () => {

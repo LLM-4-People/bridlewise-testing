@@ -52,12 +52,20 @@ Read the [repository briefing](../../AGENTS.md). Every change follows the
   starting the next task. A green local run is not a green pull request: the
   sharded gate, the docs guards and the secret scan can fail on a tree that
   passed locally.
-- **Cancel a superseded run.** The workflow is grouped on the ref with
-  `cancel-in-progress: true`, so a second push or a re-run cancels the run in
-  flight: watch a run rather than trigger beside it. When you supersede a run
-  on purpose, cancel the older one by hand (`gh run cancel <id>`): while the
-  newer run is still `pending` it does not displace the in-progress one, and
-  both sit in the same group looking stuck.
+- **Cancel a superseded run.** The push-time workflows group their runs by
+  ref, with a deliberate difference:
+
+  | Workflow | `group` | `cancel-in-progress` |
+  |---|---|---|
+  | `ci.yml` | `ci-${{ github.ref }}` | `true` |
+  | `test-shards.yml` | `test-shards-${{ github.ref }}` | `false` |
+
+  A second push or a re-run cancels the in-flight `ci.yml` run: watch a run
+  rather than trigger beside it. A newer `test-shards.yml` run does not
+  displace the in-progress one: while it is still `pending`, both sit in the
+  same group, and a superseded shard run is cancelled by hand
+  (`gh run cancel <id>`). When you supersede a run on purpose, cancel the
+  older one by hand.
 - **Keep the checkout config at mode 0600.** `engine/bridlewise.config.json`
   must be 0600; the [setup commands](../../CONTRIBUTING.md#setup) include the
   repair, and the runtime refuses an insecure mode with `config_mode_insecure`

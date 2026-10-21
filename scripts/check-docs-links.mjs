@@ -2,17 +2,27 @@
 /**
  * Check relative Markdown links without a network request.
  *
- * Absolute site URLs and http(s) links are the Pages deployment's concern; this
- * gate catches the common, local failures: a repository-relative link to a file
- * that no longer exists, and a `#fragment` that no heading in its target owns.
- * The fragment rule uses the heading slugs a Markdown renderer derives, so a
- * link to `MERGE-GUIDE.md#no-such-section` is refused instead of passing on the
- * file's existence alone. Run it from the repository root.
+ * Absolute site URLs and http(s) links are the Pages deployment's concern,
+ * with one exception this gate owns: a process document that hand-writes an
+ * absolute GitHub URL to another process document bypasses the relative link
+ * resolution every other rule uses (the three standing decisions once did:
+ * they were labelled ROLES.md / WORKFLOW.md / AGENTS.md and all pointed at the
+ * product repository's `CONTRIBUTING.md`). The classifier is
+ * `shared/repository-links.ts`, shared with the briefing liveness test.
+ *
+ * The gate catches the common, local failures: a repository-relative link to a
+ * file that no longer exists, a `#fragment` that no heading in its target owns,
+ * and that absolute process-document URL. The fragment rule uses the heading
+ * slugs a Markdown renderer derives, so a link to
+ * `MERGE-GUIDE.md#no-such-section` is refused instead of passing on the file's
+ * existence alone. Run it from the repository root.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { absoluteProcessDocLinkReason } from "../shared/repository-links.ts";
 
 const linkPattern = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 
@@ -86,6 +96,11 @@ export function checkDocsLinks({ root = process.cwd(), files } = {}) {
     const text = readFileSync(resolve(root, file), "utf8");
     for (const match of text.matchAll(linkPattern)) {
       const target = match[1];
+      const absoluteReason = absoluteProcessDocLinkReason(file, target);
+      if (absoluteReason !== undefined) {
+        missing.push(`${file}: ${absoluteReason}`);
+        continue;
+      }
       if (["http://", "https://", "mailto:", "/", "{"].some((prefix) => target.startsWith(prefix))) continue;
       if (target.startsWith("#")) {
         const anchor = decodeFragment(target.slice(1));

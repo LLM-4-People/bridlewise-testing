@@ -42,6 +42,9 @@ two cannot drift.
 - `markdown.ts` — THE ONE MARKDOWN PARSER: markdown → plain nodes for the
   cockpit renderer, and `extractMarkdown` (links, reference definitions, code
   spans, with lines) for the repository's dead-link and briefing checks.
+- `repository-links.ts` — the link classifier shared by the docs gate and the
+  briefing liveness guard: which hand-written absolute GitHub URL names one of
+  this repository's process documents, and must therefore be relative.
 
 ## Where it lives and what consumes it
 
