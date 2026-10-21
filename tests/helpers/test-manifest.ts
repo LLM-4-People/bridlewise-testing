@@ -19,7 +19,7 @@ type TestManifest = Readonly<{
   excluded: readonly Readonly<{ path: string; reason: string }>[];
 }>;
 
-function readManifest(): TestManifest {
+function readShardManifest(): TestManifest {
   const parsed = JSON.parse(readFileSync(TEST_MANIFEST_PATH, "utf8")) as Partial<TestManifest>;
   if (!Array.isArray(parsed.files) || parsed.files.length === 0) {
     throw new Error("tests/test-shards.json declares no supported files");
@@ -30,10 +30,10 @@ function readManifest(): TestManifest {
 
 /** Every file a full run judges. */
 export function supportedTestFiles(): readonly string[] {
-  return readManifest().files.map((file) => file.path);
+  return readShardManifest().files.map((file) => file.path);
 }
 
 /** Every declared exclusion, keyed by path, with the reason it cannot be judged here. */
 export function excludedTestFiles(): ReadonlyMap<string, string> {
-  return new Map(readManifest().excluded.map((file) => [file.path, file.reason]));
+  return new Map(readShardManifest().excluded.map((file) => [file.path, file.reason]));
 }
