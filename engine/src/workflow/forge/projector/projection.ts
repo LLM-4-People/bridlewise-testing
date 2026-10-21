@@ -12,7 +12,8 @@
 import { HarnessError } from "../../../kernel/errors.ts";
 import { canonicalHash, canonicalJson, deepFreeze, sha256 } from "../../../kernel/integrity.ts";
 import { commitTreeReader, gitOutput, resolveRevision, type GitRepository, type TreeReader } from "../../../git/tree-reader.ts";
-import { decisionRecords, itemStatusFacts, TRACKER_LANES, trackerItems } from "../../failure-owners.ts";
+import { decisionRecords, itemStatusFacts, openBoardRows, ownersOf, TRACKER_LANES, trackerItems } from "../../failure-owners.ts";
+import { mainHealth } from "./main-runs.ts";
 import { DECISION_INDEX, TRACKER_BOARD } from "../../../kernel/verification-paths.ts";
 import { DIGEST_PLACEHOLDER, PROJECTION_INPUT_SCHEMA, PROJECTION_SCHEMA, type ProjectedObject, type Projection, type ProjectionInput } from "./model.ts";
 import { confinedCall, PROJECTION_PROGRAM, ROADMAP_FEED_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "./confined.ts";
@@ -25,13 +26,15 @@ import { ROADMAP_FEED_INPUT_SCHEMA, ROADMAP_FEED_SCHEMA, type RoadmapFeed, type 
 export function projectionInput(repository: GitRepository, source: string, ledger: string | null, repositoryUrl: string): ProjectionInput {
   const commit = resolveRevision(repository, source);
   if (commit === null) throw new HarnessError(`projection_source_missing: ${source} names no commit of ${repository.root}`, "projection_source_missing");
+  const ledgerCommit = ledger === null ? null : resolveRevision(repository, ledger);
+  if (ledger !== null && ledgerCommit === null) throw new HarnessError(`projection_ledger_missing: ${ledger} names no commit of ${repository.root}`, "projection_ledger_missing");
   const prefix = `${TRACKER_BOARD.items}/`;
   const tree = commitTreeReader(repository, commit);
   const items = trackerItems(treeEntries(tree, TRACKER_BOARD.items));
   return deepFreeze({
     schema: PROJECTION_INPUT_SCHEMA,
     source: commit,
-    ledger,
+    ledger: ledgerCommit,
     repositoryUrl,
     items: items.map((item) => ({
       id: item.id, type: item.type, title: item.title, state: item.state, resolution: item.resolution, lane: item.lane, milestone: item.milestone,
@@ -40,7 +43,21 @@ export function projectionInput(repository: GitRepository, source: string, ledge
     lanes: Object.entries(TRACKER_LANES).map(([lane, { color, description }]) => ({ lane, color, description })),
     decisions: decisionRecords(treeEntries(tree, DECISION_INDEX.path.slice(0, DECISION_INDEX.path.lastIndexOf("/")))).map(({ id, status, implementation }) => ({ id, status, implementation })),
     recordedEvidence: recordedEvidenceAt(tree),
+    mainRuns: ledgerCommit === null ? [] : mainRunsAt(repository, ledgerCommit, tree),
   });
+}
+
+/**
+ * Main's health at the ledger commit `ledger`,
+ * each failing test with the OPEN records that own it on S's task board —
+ * the same answer the workspace's ledger judge gives (failure-owners.ts
+ * `ownersOf`), read from S, never from the working tree.
+ */
+function mainRunsAt(repository: GitRepository, ledger: string, source: TreeReader): ProjectionInput["mainRuns"] {
+  const runs = mainHealth(commitTreeReader(repository, ledger));
+  const board = source.text(TRACKER_BOARD.path);
+  const rows = board === null ? [] : openBoardRows(board);
+  return runs.map((run) => ({ ...run, failedTests: run.failedTests.map((test) => ({ ...test, owners: ownersOf(rows, test.path) })) }));
 }
 
 /** An object with its marker's digest filled in: the sha256 of the object as projected. */
