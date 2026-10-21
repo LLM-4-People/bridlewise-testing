@@ -55,7 +55,7 @@ jobs:
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24.20.0
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -120,7 +120,7 @@ jobs:
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24.20.0
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -142,7 +142,7 @@ jobs:
           npm run bootstrap:hooks
           chmod 600 engine/bridlewise.config.json
           npm --prefix engine run build:bundle
-          CC=gcc-14 make -C engine/guardian all
+          make -C engine/guardian all
 
       - name: Record the guardian binary digest
         run: sha256sum engine/guardian/build/harness-landlock-guardian | tee -a "$GITHUB_STEP_SUMMARY"
@@ -219,7 +219,7 @@ jobs:
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24.20.0
+          node-version-file: .nvmrc
 
       - name: Download the plan
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

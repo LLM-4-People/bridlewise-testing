@@ -12,7 +12,6 @@
 import { describe, it, expect } from "vitest";
 import {
   computeSelfImprovementSuggestions,
-  type SelfImprovementSuggestion,
 } from "../../server/observability/self-improving.ts";
 import type { MetricsSnapshot, MetricEntrySnapshot } from "../../server/kernel/canonical.ts";
 import type { SelfImprovingConfig } from "../../server/kernel/harness-config.ts";

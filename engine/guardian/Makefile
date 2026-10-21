@@ -1,11 +1,19 @@
 # Makefile for harness-landlock-guardian + test_payload.
 # Standalone static-ish C build. No node-gyp, no binding.gyp, no external deps.
 
-# Detect a C compiler if CC is not supplied. Fail-closed if none found.
-CC ?= $(shell command -v cc 2>/dev/null || command -v gcc 2>/dev/null || command -v clang 2>/dev/null)
-ifeq ($(CC),)
-$(error No C compiler found (checked: cc, gcc, clang). Install one before building.)
-endif
+# THE GUARDIAN'S COMPILER, DECLARED ONCE.
+#
+# `root-policy.ts` binds the built guardian binary by sha256, so the compiler
+# is part of the measured artifact: a build with another compiler produces a
+# different binary and a different pin. Both workflows install this package and
+# invoke this Makefile WITHOUT a CC= literal; engine/guardian/build.ts invokes
+# `make` and no longer carries its own search list; the prevention guard
+# tests/prevention/guardian-compiler-pin.test.ts reads THIS line and refuses a
+# workflow that spells the compiler again.
+#
+# A missing gcc-14 fails in `make` with the compiler's own words, which is the
+# honest failure: there is no fallback compiler, by design.
+CC := gcc-14
 
 CFLAGS := -std=c11 -Wall -Wextra -Werror -O2 -D_GNU_SOURCE
 BUILD  := build

@@ -26,7 +26,6 @@ import {
   readSourceView,
   renderSpans,
   sourceViewOf,
-  type SpanKind,
 } from "../../engine/scripts/verification/source-view.ts";
 // The ownership-pruned walk, its index-coverage oracle and the owned-entry
 // door live engine-side so both suites share ONE implementation.

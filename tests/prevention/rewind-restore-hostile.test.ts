@@ -20,7 +20,6 @@ import { createRewindHarness, NUL } from "../helpers/rewind-provider-harness.ts"
 import { getTimelineQuery } from "../../server/observability/timeline-bridge.ts";
 import {
   discardedMessageIdsForChat,
-  discardedRunIdsForChat,
   recordRestore,
   withdrawnStretchById,
 } from "../../server/run/rewind.ts";

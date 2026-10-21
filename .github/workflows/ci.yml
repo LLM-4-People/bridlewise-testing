@@ -26,7 +26,7 @@ jobs:
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24.20.0
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -78,10 +78,17 @@ jobs:
           sudo apt-get install -y gcc-14
 
       - name: Build guardian
-        run: CC=gcc-14 make -C engine/guardian all
+        run: make -C engine/guardian all
 
       - name: Test guardian
-        run: CC=gcc-14 make -C engine/guardian test
+        run: make -C engine/guardian test
+
+      - name: Record the guardian binary digest
+        run: sha256sum engine/guardian/build/harness-landlock-guardian | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Run the engine prevention guard for unhandled catch blocks
+        working-directory: engine
+        run: node --experimental-strip-types --test test/prevention/no-unhandled-errors.test.ts
 
   shards:
     name: Full suite shards

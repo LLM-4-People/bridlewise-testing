@@ -19,8 +19,6 @@ import { createRewindHarness } from "../helpers/rewind-provider-harness.ts";
 import {
   discardedMessageIdsForChat,
   discardedRunIdsForChat,
-  recordRestore,
-  withdrawnStretchById,
 } from "../../server/run/rewind.ts";
 import { read } from "../helpers/source-scan.ts";
 

@@ -99,8 +99,6 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 import {
-  declaredSubmodulePaths,
-  submoduleRoots,
 } from "../../engine/scripts/verification/gitignore-anchoring.ts";
 
 /**

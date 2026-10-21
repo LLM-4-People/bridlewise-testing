@@ -33,51 +33,58 @@ const ROOTS = ["src", "server", "tests", "shared", "scripts"] as const;
 
 type ImportBinding = { name: string; file: string; line: number };
 
-/** Extract named + default import bindings from a source file. Comment
- * lines (//, *, /*, <!--) are skipped so import-like patterns inside comment
- * examples (e.g. `// Named: import { A, B as C } from "..."`) are not parsed
- * as real imports. */
+/**
+ * Extract named + default import bindings from a source file.
+ *
+ * Statements are matched across NEWLINES, because an import list is often
+ * written one binding per line:
+ *
+ *     import {
+ *       join,
+ *       resolve,
+ *     } from "node:path";
+ *
+ * The scanner used to read one line at a time (`/import\s+\{([^}]*)\}/` on a
+ * single line), so a multi-line import was invisible: a binding nobody used
+ * could sit there forever, and the guard reported a clean file. Strings are
+ * blanked first so fixtures mentioning `import …` are not read as imports;
+ * comment lines are excluded by anchoring every pattern at line start, where
+ * only a real statement (or a commented-out one, which starts with `//` or
+ * `*`) can be.
+ */
 function extractImports(rawSrc: string, file: string): ImportBinding[] {
   const out: ImportBinding[] = [];
-  // String CONTENTS are blanked first, line numbers intact. A test whose
-  // fixtures are source snippets otherwise has every `import` inside its own
-  // fixture strings read as a real import of a binding it never had — a
-  // reported violation that does not exist, in a zero-tolerance guard.
-  const lines = blankStringLiterals(rawSrc, file).split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const trimmed = line.trim();
-    if (/^(\/\/|\*|\/\*|<!--)/.test(trimmed)) continue;
-    // Skip re-exports and side-effect imports.
-    if (/^export\s/.test(trimmed)) continue;
-    if (/^import\s+["']/.test(trimmed)) continue; // import "side-effect"
-    // Named: import { A, B as C, type D } from "..."
-    let m = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["'][^"']+["']/.exec(trimmed);
-    if (m) {
-      const names = m[1]!.split(",");
-      for (const part of names) {
-        const t = part.trim();
-        if (t.length === 0) continue;
-        // Skip `type X` — it's a type-only named import.
-        const cleaned = t.replace(/^type\s+/, "");
-        // `A as B` → use B (the local name).
-        const asMatch = /\bas\s+([A-Za-z_$][\w$]*)/.exec(cleaned);
-        const name = (asMatch ? asMatch[1]! : cleaned).replace(/:.+$/, "").trim();
-        if (name.length > 0) out.push({ name, file, line: i + 1 });
-      }
-      continue;
+  const source = blankStringLiterals(rawSrc, file);
+  const lineAt = (index: number): number => source.slice(0, index).split("\n").length;
+  const add = (name: string, index: number): void => {
+    const trimmed = name.trim();
+    if (trimmed.length > 0) out.push({ name: trimmed, file, line: lineAt(index) });
+  };
+  const addNamed = (block: string, index: number): void => {
+    for (const part of block.replace(/\/\/[^\n]*/gu, "").split(",")) {
+      const t = part.trim();
+      if (t.length === 0) continue;
+      if (/^import\s*$/u.test(t)) continue;
+      const cleaned = t.replace(/^type\s+/u, "");
+      const asMatch = /\bas\s+([A-Za-z_$][\w$]*)/u.exec(cleaned);
+      add((asMatch ? asMatch[1]! : cleaned).replace(/:.+$/u, ""), index);
     }
-    // Default: import X from "..."
-    m = /import\s+([A-Za-z_$][\w$]*)\s*(?:,\s*\{[^}]*\})?\s*from\s*["'][^"']+["']/.exec(trimmed);
-    if (m) {
-      out.push({ name: m[1]!, file, line: i + 1 });
-      continue;
-    }
-    // Namespace: import * as N from "..."N is used via N.member, word match works.
-    m = /import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s*["'][^"']+["']/.exec(trimmed);
-    if (m) {
-      out.push({ name: m[1]!, file, line: i + 1 });
-    }
+  };
+
+  // Side-effect imports (`import "..."`) carry no binding and no pattern
+  // below matches them; re-exports start with `export` and are not imports.
+  // Named: import { A, B as C, type D } from "..." (any line breaks allowed).
+  for (const match of source.matchAll(/^import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["'][^"']+["']/gmu)) {
+    addNamed(match[1] ?? "", match.index ?? 0);
+  }
+  // Default: import X from "..." and import X, { Y } from "...".
+  for (const match of source.matchAll(/^import\s+(?:type\s+)?([A-Za-z_$][\w$]*)\s*(?:,\s*\{([^}]*)\}\s*)?from\s*["'][^"']+["']/gmu)) {
+    add(match[1] ?? "", match.index ?? 0);
+    addNamed(match[2] ?? "", match.index ?? 0);
+  }
+  // Namespace: import * as N from "..." — N is used via N.member.
+  for (const match of source.matchAll(/^import\s+(?:type\s+)?\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s*["'][^"']+["']/gmu)) {
+    add(match[1] ?? "", match.index ?? 0);
   }
   return out;
 }
@@ -114,6 +121,37 @@ describe("no unused imports", () => {
       }
     }
   }
+
+  test("a multi-line import list is parsed binding by binding", () => {
+    // The shape that was invisible: one binding per line. A guard reading a
+    // single line at a time never saw either name, so a dead import here was
+    // never reported and a used one could not vouch for its neighbours.
+    const src = [
+      "import {",
+      "  usedByTheBody,",
+      "  deadOnArrival,",
+      '} from "./module.ts";',
+      "",
+      "export const value = usedByTheBody();",
+      "",
+    ].join("\n");
+    const bindings = extractImports(src, "fixture.ts");
+    expect(bindings.map((binding) => binding.name)).toEqual(["usedByTheBody", "deadOnArrival"]);
+    expect(bindings.map((binding) => binding.line)).toEqual([1, 1]);
+    expect(isUsed(src, "usedByTheBody")).toBe(true);
+    expect(isUsed(src, "deadOnArrival")).toBe(false);
+  });
+
+  test("an import written inside a fixture string is not a real import", () => {
+    const src = [
+      "const fixture = `import {",
+      "  deadOnArrival,",
+      '} from "./module.ts";`;',
+      "export const value = fixture;",
+      "",
+    ].join("\n");
+    expect(extractImports(src, "fixture.ts")).toEqual([]);
+  });
 
   test("every imported binding is referenced in its file", () => {
     const detail = unused

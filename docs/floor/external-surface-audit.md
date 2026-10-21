@@ -70,7 +70,7 @@ matcher was corrected in the guard. The guard passed after the two tree fixes.
 | Location | Surface | Why it is not digest/exact-pinned | Owner |
 | --- | --- | --- | --- |
 | `.github/workflows/pages.yml:42` | Product docs ref defaults to `main`. | The site mirrors the product documentation, so the ref follows `main` by design; the resolved commit is recorded as the Jekyll build revision. It is a content input, never a code-execution input. Declared in `knownExceptions`. | Pages workflow |
-| `.github/workflows/test-shards.yml:138` | `gcc-14` installed from the runner's Ubuntu archive. | An exact apt version string is runner-image-specific and would drift with the provider's archive; the runner label plus the declared package name is the reproducible pin available to this tree. Declared in `knownExceptions`. | Shard workflow |
+| `.github/workflows/ci.yml:78`, `.github/workflows/test-shards.yml:138` | `gcc-14` installed from the runner's Ubuntu archive. | An exact apt version string is runner-image-specific and would drift with the provider's archive; the runner label plus the declared package name is the reproducible pin available to this tree. The compiler itself is declared once in `engine/guardian/Makefile`; both workflows install it and invoke that owner without a `CC=` literal. Declared in `knownExceptions`. | Guardian build owner (`engine/guardian/Makefile`) |
 | `.devcontainer/Dockerfile:6` | `build-essential` installed from the base image's archive. | Same reason; the digest-pinned base image plus the package name is the pin. Declared in `knownExceptions`. | Devcontainer |
 
 ## Absolute-number findings (measurement contract)
@@ -117,16 +117,18 @@ the caller-supplied `wait_seconds` input (a wait, not a measurement).
 
 ## Other findings
 
-- **The guardian's compiler is now one pin in both jobs (fixed 2026-10-20).**
+- **The guardian's compiler is one declaration, in the build owner (fixed 2026-10-20).**
   `.github/workflows/ci.yml` ran `make -C engine/guardian all` with the runner's
   default `cc`, while `test-shards.yml` ran `CC=gcc-14 make -C engine/guardian all`,
-  and `root-policy.ts` binds the guardian binary by sha256. Both jobs now install
-  and use `gcc-14`, and the shards append the digest to the job summary so the two
-  builds are comparable after the fact. Measured locally, `cc` already resolves to
-  `gcc-14` and the two digests are identical (`28ee831d1359c87d339f3689...`), so the
-  divergence was not reproducible here; pinning removes the ambiguity instead of
-  proving a difference. Capturing the digest into the qualification receipt itself
-  (rather than the summary) is still open.
+  and `root-policy.ts` binds the guardian binary by sha256. `engine/guardian/Makefile`
+  now declares `CC := gcc-14`, both jobs install that package and invoke the
+  Makefile without a `CC=` literal, `engine/guardian/build.ts` carries no compiler
+  search list, and `tests/prevention/guardian-compiler-pin.test.ts` refuses a
+  workflow that spells `CC=` or installs another package. Both jobs append the
+  built binary's digest to the job summary, so the two builds are comparable after
+  the fact. Measured locally with the pinned compiler: `28ee831d1359c87d339f3689...`.
+  Capturing the digest into the qualification receipt itself (rather than the
+  summary) is still open.
 - **The Jekyll config and plugin set are product-owned.** The Pages workflow
   copies `_config.yml` from the product docs checkout at run time; this repo
   cannot see the product's plugin set. The guard's reachable half is the
