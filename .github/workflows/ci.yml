@@ -108,3 +108,57 @@ jobs:
     with:
       shards: "10"
       runner: ubuntu-24.04
+
+  # The engine's own suite (engine/test, run by engine/scripts/tooling/
+  # run-tests.ts, the one engine test door). It runs on every pull request
+  # and main push and is NOT yet a required check: it becomes one (runbook
+  # P0.9) once it is green on hosted runners, with every red fixed or filed
+  # as an owned record. Its setup mirrors a shard's: the hooks, the bundle
+  # and the confinement supervisor the suite's guards exercise.
+  engine-suite:
+    name: Engine suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            engine/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install engine dependencies
+        run: npm --prefix engine ci --no-audit --no-fund
+
+      - name: Install the pinned compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14
+
+      - name: Install hooks and build the confinement supervisor
+        run: |
+          npm run bootstrap:hooks
+          chmod 600 engine/bridlewise.config.json
+          npm --prefix engine run build:bundle
+          make -C engine/guardian all
+
+      - name: Fetch the pinned corpus subset
+        run: |
+          npm run corpus:fetch
+          npm run corpus:verify
+
+      - name: Run the engine suite
+        run: |
+          mkdir -p "$RUNNER_TEMP/bw"
+          TMPDIR="$RUNNER_TEMP/bw" npm --prefix engine test
