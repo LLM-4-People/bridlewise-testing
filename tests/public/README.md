@@ -7,7 +7,7 @@ These tests cover the surfaces that a public clone can actually verify without t
 - the secret/privacy scanner, including its failure modes;
 - the required safety warning and documentation set;
 - the licence and community files;
-- the workflow policy: no workflow can cancel a `main` run, and every pull-request check also runs in the merge queue.
+- (the workflow policy — no workflow can cancel a `main` run, every gating workflow runs unfiltered on every pull request and merge group — is the workflow generator's own lint: `engine/src/workflow/gates/workflows.ts`, tested in `engine/test/workflow/gates/workflows.test.ts`).
 
 Run them with:
 
