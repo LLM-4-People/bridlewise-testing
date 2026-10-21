@@ -1412,6 +1412,24 @@ function runSyncStep(
  * last line would yield a partial fragment that fails to parse.
  */
 /**
+ * Does this subprocess line NAME ITS FAILURE, rather than continue a stack?
+ *
+ * Anchored and contained claims, not a `.*` window: a line either starts with
+ * an error name, carries Node's module-loader sentence, or carries an upper-
+ * case `ERR_*` code. The old single pattern leaned on two unbounded `.*` runs
+ * to find those phrases anywhere in the line, which is the same near-anything
+ * gap the proximity guard exists to refuse — and the phrases have no need for
+ * it: `Cannot find module` is a substring, and `ERR_*` is lexed where it
+ * appears.
+ */
+function namesSubprocessFailure(line: string): boolean {
+  const text = line.trim();
+  return /^\w*Error\b/u.test(text)
+    || text.includes("Cannot find module")
+    || /(?:^|\s)ERR_[A-Z_]+\b/u.test(text);
+}
+
+/**
  * The line that names a subprocess failure, not the last line it printed.
  *
  * Node writes the useful sentence FIRST ("Error: Cannot find module …", a
@@ -1421,7 +1439,7 @@ function runSyncStep(
  * line, then the first line that is neither a stack frame nor the banner.
  */
 function subprocessFailureSummary(lines: readonly string[]): string | undefined {
-  const meaningful = lines.find((line) => /^(?:\w*Error|.*Cannot find module|.*ERR_[A-Z_]+)/u.test(line.trim()))
+  const meaningful = lines.find(namesSubprocessFailure)
     ?? lines.find((line) => line.trim().length > 0 && !/^\s+at\s/u.test(line) && !/^Node\.js v/u.test(line.trim()));
   return meaningful?.trim();
 }

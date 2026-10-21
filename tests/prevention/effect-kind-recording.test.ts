@@ -80,6 +80,7 @@ import { runAutoCheck } from "../../server/awareness/auto-check-runner.ts";
 import { registerFilesystemRoutes } from "../../server/routes/filesystem.ts";
 import { sendJson } from "../../server/router/router.ts";
 import { resetRateLimiter } from "../../server/router/rate-limiter.ts";
+import { BadRequestError } from "../../server/kernel/errors.ts";
 import { createTestUser } from "../helpers/multi-user.ts";
 import { startHttpTestServer, type HttpTestServer } from "../helpers/http-server.ts";
 import { jsonRequest } from "../helpers/json-request.ts";
@@ -879,13 +880,14 @@ describe("http effects — the router dispatch is the choke point", () => {
           ctx.res.end(JSON.stringify({ error: "internal_error" }));
         });
         router.get("/effect-kind-http/throwing-client-error", () => {
-          // A handler that THROWS a typed 4xx — the shape the router maps to
+          // A handler that THROWS a TYPED 4xx — the shape the router maps to
           // a 400 response one frame out (`statusForError`: a `missing_*`
           // code is a client error). The ledger's outcome for this request
-          // must agree with a handler that WRITES the same 400.
-          const err = new Error("the required query parameter is absent") as Error & { code: string };
-          err.code = "missing_query";
-          throw err;
+          // must agree with a handler that WRITES the same 400. A RAW Error
+          // carrying `.code` no longer maps: the router trusts only the typed
+          // hierarchy for a status, precisely so an OS `EACCES` cannot pick
+          // one.
+          throw new BadRequestError("the required query parameter is absent", "missing_query");
         });
         router.get("/effect-kind-http/writing-client-error", (ctx) => {
           // The twin of the route above: the SAME status, signalled by

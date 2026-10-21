@@ -16,7 +16,7 @@
  * class status and its taxonomy code. Only a genuinely untyped failure is
  * wrapped, with the closed `config_update_failed` code.
  */
-import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 
 import { registerAllRoutes } from "../../server/routes/registry.ts";

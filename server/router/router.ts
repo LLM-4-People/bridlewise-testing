@@ -89,6 +89,32 @@ const LAST_RESORT_ERROR_STATUS = LAST_RESORT_ERROR.statusCode;
 const LAST_RESORT_ERROR_BODY = JSON.stringify({ error: LAST_RESORT_ERROR.code, message: LAST_RESORT_ERROR.message });
 
 /**
+ * The wire status a TYPED error may choose. A status outside this band is
+ * clamped rather than forwarded: no typed class has any business returning a
+ * redirect or a success for a failure, and a test-constructed status cannot
+ * escape the error family this way.
+ *
+ * 202 IS THE ONE DESIGNED EXCEPTION. It is not a failure status; it is the
+ * indexing contract (`MapNotReadyError`/`AwarenessNotReadyError`: the work is
+ * running and the client polls). Clamping it to 400 would turn "come back
+ * shortly" into "your request was malformed", so it is preserved verbatim and
+ * its body keeps the `{ status: "indexing" }` shape below.
+ */
+const ERROR_STATUS_MIN = 400;
+const ERROR_STATUS_MAX = 599;
+const INDEXING_STATUS = 202;
+
+/**
+ * The body every failure gets when the error cannot author one: no code, no
+ * sentence, no path, no provider text — just the fact that the server failed
+ * and where the detail went.
+ */
+const INTERNAL_ERROR_BODY = Object.freeze({
+  error: "internal_error",
+  message: "Internal error. See the local log for details.",
+});
+
+/**
  * The request's URL. An unparsable one — a `Host` header that is not a host
  * (`127.0.0.1:abc`), a target the WHATWG parser refuses — is the client's
  * malformed request: a typed 400, never an escape.
@@ -422,25 +448,52 @@ export function createRouter(opts: RouterOptions): Router {
    * authored by this server. The previous general branch honoured any
    * object with a numeric `statusCode` and any error with a string `code`,
    * so `GET /api/editor/read` on an unreadable file answered 500 with the
-   * raw `EACCES` and the path in the body. The gate is now the shared typed
-   * error AND the shared taxonomy: only a `WebError` whose code the taxonomy
-   * declares can choose a status or put its sentence on the wire.
+   * raw `EACCES` and the path in the body.
+   *
+   * THE SEPARATION IS NOW EXPLICIT, and it is two questions, not one:
+   *
+   *   - STATUS belongs to the typed hierarchy. The class (or an explicit
+   *     `statusCode` on it) says whether this is a client refusal or a server
+   *     fault, and that answer survives a code the taxonomy has not learned
+   *     yet: `ServiceUnavailableError("…", "timeline_migrating")` is a 503
+   *     because of its class, not because a table happens to name that code.
+   *   - BODY belongs to the taxonomy. A code and its authored sentence travel
+   *     only when `shared/errors.ts` declares the code; an undeclared code is
+   *     a vocabulary defect, so its message stays off the wire even when the
+   *     class's status is trusted.
+   *
+   * A plain `Error` is neither: fixed 500 body, status from neither its
+   * `code` nor its `statusCode`, and the detail only in the log.
    */
   function taxonomyCode(err: unknown): string | undefined {
     if (!(err instanceof WebError)) return undefined;
     return isKnownErrorCode(err.code) ? err.code : undefined;
   }
 
+  /**
+   * The status the TYPED hierarchy declares, or `undefined` when the error is
+   * outside it or declares no numeric status.
+   *
+   * Deliberately independent of {@link taxonomyCode}: a missing map entry is
+   * a body-contract gap, never a reason to erase the class's refusal/fault
+   * decision and answer 500.
+   */
+  function typedStatusForError(err: unknown): number | undefined {
+    if (!(err instanceof WebError)) return undefined;
+    const declared = (err as { statusCode?: unknown }).statusCode;
+    if (typeof declared !== "number" || !Number.isFinite(declared)) return undefined;
+    const status = Math.trunc(declared);
+    if (status === INDEXING_STATUS) return INDEXING_STATUS;
+    return Math.min(ERROR_STATUS_MAX, Math.max(ERROR_STATUS_MIN, status));
+  }
+
   function statusForError(err: unknown): number {
     // The typed-error contract (AuthError=401, BodySizeLimitError=413,
     // ConflictError=409, ForbiddenError=403, NotFoundError=404,
-    // MapNotReadyError/AwarenessNotReadyError=202). A declared status always
-    // wins over the class fallbacks, but only inside the typed hierarchy.
-    const code = taxonomyCode(err);
-    if (err instanceof WebError && code !== undefined && "statusCode" in err) {
-      const declared = (err as { statusCode?: unknown }).statusCode;
-      if (typeof declared === "number" && Number.isFinite(declared)) return declared;
-    }
+    // MapNotReadyError/AwarenessNotReadyError=202) wins first, whether or not
+    // the taxonomy maps its code.
+    const typed = typedStatusForError(err);
+    if (typed !== undefined) return typed;
     // A zod schema-validation failure is a CLIENT error (bad request body),
     // NOT a server error. Previously these mapped to 500 (zod's ZodError has
     // no `.code` property, so it fell through to the default). Mapping it to
@@ -457,6 +510,7 @@ export function createRouter(opts: RouterOptions): Router {
     // `sendError`-helper duplication across 8 route files). A code prefixed
     // `invalid_`/`missing_` is always 400 (the input-validation convention);
     // the code map handles the rest.
+    const code = taxonomyCode(err);
     if (code !== undefined) {
       if (code.startsWith("invalid_") || code.startsWith("missing_")) return 400;
       const mapped = statusForCode(code);
@@ -466,10 +520,6 @@ export function createRouter(opts: RouterOptions): Router {
   }
 
   function errorBody(err: unknown): unknown {
-    const code = taxonomyCode(err);
-    if (err instanceof BodySizeLimitError || err instanceof BodyParseError) {
-      return { error: err.code, message: err.message };
-    }
     if (err instanceof ZodError) {
       // Concise: the first issue's message, PREFIXED with the path that
       // names where it failed. The full `issues` array can be large + leak
@@ -486,29 +536,32 @@ export function createRouter(opts: RouterOptions): Router {
         message: `${path}${first?.message ?? "Request body failed validation."}`,
       };
     }
-    // Single-Party-Owner: the 202 "indexing" body is a CONTRACT
-    // the client depends on (`status === "indexing"` — the code-graph poll
-    // loop). MapNotReadyError + AwarenessNotReadyError both carry
-    // statusCode=202; their body is `{ status: "indexing", message }`, NOT
-    // the generic `{ error, message }`. Centralizing this here (instead of
-    // the per-route `handleRouteError`/`handleAwarenessError` helpers) means
-    // a route that throws the typed error gets the right body for free.
-    if (
-      err instanceof WebError &&
-      code !== undefined &&
-      "statusCode" in err &&
-      (err as { statusCode: unknown }).statusCode === 202
-    ) {
-      return { status: "indexing", code, message: err.message };
-    }
-    if (err instanceof WebError && code !== undefined) {
-      return { error: code, message: err.message };
+    if (err instanceof WebError) {
+      const code = taxonomyCode(err);
+      if (code !== undefined) {
+        // `internal_error` IS the fixed body: the router throws it for a
+        // matched handler that wrote no response, and that handler's detail
+        // belongs in the log, never on the wire.
+        if (code === "internal_error") return INTERNAL_ERROR_BODY;
+        // Single-Party-Owner: the 202 "indexing" body is a CONTRACT
+        // the client depends on (`status === "indexing"` — the code-graph poll
+        // loop). MapNotReadyError + AwarenessNotReadyError both carry
+        // statusCode=202; their body is `{ status: "indexing", message }`, NOT
+        // the generic `{ error, message }`. Centralizing this here (instead of
+        // the per-route `handleRouteError`/`handleAwarenessError` helpers) means
+        // a route that throws the typed error gets the right body for free.
+        if (typedStatusForError(err) === INDEXING_STATUS) {
+          return { status: "indexing", code, message: err.message };
+        }
+        return { error: code, message: err.message };
+      }
     }
     // Unknown failures are logged at the catch site; the wire gets a fixed
     // message so an arbitrary Error (which may carry a stack or a foreign
-    // provider body) cannot become a response. Typed errors above keep their
-    // contract and still pass through the egress redactor.
-    return { error: "internal_error", message: "Internal error. See the local log for details." };
+    // provider body) cannot become a response. A typed error with an
+    // undeclared code gets this body too — its class still chooses the
+    // status, but its sentence is not yet part of the shared vocabulary.
+    return INTERNAL_ERROR_BODY;
   }
 
   /**

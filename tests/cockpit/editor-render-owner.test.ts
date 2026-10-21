@@ -32,7 +32,7 @@
  * from it is ACCEPTED. That is the property the user needs; the prop is merely
  * how it is currently obtained.
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/svelte";
 
 import FilePane from "../../src/cockpit/editor/FilePane.svelte";
@@ -595,7 +595,10 @@ function mountRoom(disk: Map<string, string>) {
     unobserve(): void {}
     disconnect(): void {}
   }
-  (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= NoopResizeObserver;
+  // Installed through vitest, not by direct assignment: the file teardown
+  // restores the environment it inherited, so the polyfill cannot outlive this
+  // file in the suite's worker.
+  vi.stubGlobal("ResizeObserver", NoopResizeObserver);
 
   const root = "/proj";
   const projectId = "p1";

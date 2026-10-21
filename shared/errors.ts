@@ -140,6 +140,13 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   // throws a typed error with a code, that code is preserved + mapped
   // individually.
   action_failed: 500,
+  // The router's own fixed-body code: a matched handler that wrote no
+  // response is a server fault, and the wire answer is the fixed
+  // `internal_error` body (no handler detail). It is declared here because
+  // the router THROWS it — the all-classes scan judges every typed throw —
+  // and `errorBody` deliberately withholds the sentence for this one code:
+  // the body IS the contract.
+  internal_error: 500,
   // config update fallback (server/routes/config.ts) — a config write
   // failed with no typed code. A config update failure is a server-side
   // error (the file write or validation failed); explicitly 500 so the
@@ -509,6 +516,14 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   timeline_ledger_identity_missing: 503,
   timeline_ledger_identity_unavailable: 503,
   timeline_ledger_identity_invalid: 503,
+  // The ledger is not open for work because a migration is running, or
+  // because it could not be migrated/opened at all (timeline-bridge.ts
+  // `openTimeline`). Both are `ServiceUnavailableError` (503) and both are
+  // RETRYABLE conditions, so they belong in the vocabulary: the client needs
+  // the code to tell "the ledger is catching up" apart from a generic 500,
+  // and the router forwards a typed code only when this table declares it.
+  timeline_migrating: 503,
+  timeline_unavailable: 503,
   // The context summarizer's privacy observation returned a shape other than
   // one display string per turn (context-bridge.ts): a server fault.
   context_summary_observation_invalid: 500,

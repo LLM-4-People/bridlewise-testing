@@ -20,7 +20,7 @@
  *   MUTATION: a hidden room that stays interactive fails (it would answer
  *   clicks and keys aimed at whatever is actually on screen).
  */
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { flushSync } from "svelte";
 import { cleanup, render } from "@testing-library/svelte";
 
@@ -371,12 +371,13 @@ describe("the kept-alive editor room's draft binding survives every excursion", 
       get: () => 1400,
     });
     // Svelte's dimension bindings construct a ResizeObserver; jsdom ships
-    // none, so an inert one keeps the constructor from throwing.
-    (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class {
+    // none, so an inert one keeps the constructor from throwing. It goes
+    // through vitest so this file's teardown restores what it inherited.
+    vi.stubGlobal("ResizeObserver", class {
       observe(): void {}
       unobserve(): void {}
       disconnect(): void {}
-    };
+    });
     requestEditorOpen(FILE_REL);
     const view = render(RoomHost, {
       props: { shell: editorShell, roomId: null, visited, onClose: () => undefined },

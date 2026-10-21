@@ -30,7 +30,7 @@ import { isolateHarnessConfig } from "../helpers/isolated-config.ts";
 import { createTestUser, type TestUser } from "../helpers/multi-user.ts";
 import { startHttpTestServer, type HttpTestServer } from "../helpers/http-server.ts";
 import { jsonRequest } from "../helpers/json-request.ts";
-import { ForbiddenError, WebError } from "../../server/kernel/errors.ts";
+import { ForbiddenError, BadRequestError, ServiceUnavailableError, WebError } from "../../server/kernel/errors.ts";
 
 isolateHarnessConfig("ch-error-body-config-");
 
@@ -64,6 +64,22 @@ beforeAll(async () => {
       // the contract and must survive.
       router.get("/api/test/declared-typed-error", () => {
         throw new ForbiddenError("this refusal is the contract", "forbidden_config_path");
+      });
+      // A typed error whose CODE is not declared, but whose CLASS declares a
+      // status: the status is still the class's answer. The body is not.
+      router.get("/api/test/typed-status-unmapped-code", () => {
+        throw new ServiceUnavailableError(
+          `a typed refusal whose message names ${unreadableFile}`,
+          "zz_unmapped_service_unavailable",
+        );
+      });
+      // The client-error half of the same separation: a 400 class keeps its
+      // 400 even when the code has not been taught to the taxonomy yet.
+      router.get("/api/test/typed-400-unmapped-code", () => {
+        throw new BadRequestError(
+          `a typed refusal whose message names ${unreadableFile}`,
+          "zz_unmapped_bad_request",
+        );
       });
     },
   });
@@ -108,6 +124,24 @@ describe("a raw OS error never reaches the wire", () => {
     const res = await get("/api/test/unknown-typed-code");
     expect(res.status).toBe(500);
     expect(res.body).toEqual(FIXED_BODY);
+  });
+});
+
+describe("status and body are separate decisions for a typed error", () => {
+  test("an unmapped code cannot erase a 503 class status, but its sentence stays off the wire", async () => {
+    const res = await get("/api/test/typed-status-unmapped-code");
+    expect(res.status, "the class owns the status, independent of the code table").toBe(503);
+    expect(res.body).toEqual(FIXED_BODY);
+    const wire = JSON.stringify(res.body);
+    expect(wire).not.toContain(unreadableFile);
+    expect(wire).not.toContain("zz_unmapped_service_unavailable");
+  });
+
+  test("the same separation keeps a typed 400 a 400", async () => {
+    const res = await get("/api/test/typed-400-unmapped-code");
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual(FIXED_BODY);
+    expect(JSON.stringify(res.body)).not.toContain(unreadableFile);
   });
 });
 

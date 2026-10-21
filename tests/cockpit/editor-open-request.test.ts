@@ -210,11 +210,14 @@ describe("C. the editor room consumes the seam through its own open mechanism", 
         });
       },
     });
-    (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class {
+    // jsdom has no ResizeObserver; install an inert one through vitest so the
+    // file teardown restores the environment it inherited (a direct `??=`
+    // assignment outlives the file under the suite's worker).
+    vi.stubGlobal("ResizeObserver", class {
       observe(): void {}
       unobserve(): void {}
       disconnect(): void {}
-    };
+    });
   });
 
   afterEach(() => {

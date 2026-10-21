@@ -507,7 +507,7 @@ describe("the focus-time record check (UIE-052) — a follower tab heals when th
   test("the record moved on elsewhere → focus re-reads through the tab's own history door", async () => {
     let recordUpdatedAt = "2026-01-01T12:00:00.000Z"; // moves when a foreign run lands
     const urls: string[] = [];
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url = String(input);
       urls.push(url);
       if (/\/api\/chats\/c1\/history/.test(url)) return jsonResponse(historyAt("c1", recordUpdatedAt));
@@ -519,7 +519,7 @@ describe("the focus-time record check (UIE-052) — a follower tab heals when th
         });
       }
       throw new Error(`unstubbed fetch: ${url}`);
-    }) as unknown as typeof fetch;
+    }));
 
     // The tab opened the conversation (the baseline read), then went to the
     // background while a run landed ELSEWHERE (the record moved).
@@ -552,7 +552,7 @@ describe("the focus-time record check (UIE-052) — a follower tab heals when th
 
   test("the record did NOT move → focus pays one row, never a re-read", async () => {
     const urls: string[] = [];
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url = String(input);
       urls.push(url);
       if (/\/api\/chats\/c2\/history/.test(url)) return jsonResponse(historyAt("c2", "2026-02-01T00:00:00.000Z"));
@@ -564,7 +564,7 @@ describe("the focus-time record check (UIE-052) — a follower tab heals when th
         });
       }
       throw new Error(`unstubbed fetch: ${url}`);
-    }) as unknown as typeof fetch;
+    }));
 
     currentChatId.set("c2");
     await loadChatHistory("c2");
@@ -590,7 +590,7 @@ describe("the focus-time record check (UIE-052) — a follower tab heals when th
 
   test("a live run in THIS tab: focus never re-reads under the streaming tail", async () => {
     const urls: string[] = [];
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url = String(input);
       urls.push(url);
       if (/\/api\/chats\/c3\/history/.test(url)) return jsonResponse(historyAt("c3", "2026-03-01T00:00:00.000Z"));
@@ -602,7 +602,7 @@ describe("the focus-time record check (UIE-052) — a follower tab heals when th
         });
       }
       throw new Error(`unstubbed fetch: ${url}`);
-    }) as unknown as typeof fetch;
+    }));
 
     currentChatId.set("c3");
     await loadChatHistory("c3");
@@ -640,7 +640,7 @@ describe("the focus-time record check (UIE-052) — a follower tab heals when th
     // socket would pull that mechanism in and the arm would conflate the
     // two).
     let historyBroken = false;
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url = String(input);
       urls.push(url);
       if (/\/api\/chats\/c4\/history/.test(url)) {
@@ -657,7 +657,7 @@ describe("the focus-time record check (UIE-052) — a follower tab heals when th
         });
       }
       throw new Error(`unstubbed fetch: ${url}`);
-    }) as unknown as typeof fetch;
+    }));
 
     // The tab opened the conversation (the baseline read), went to the
     // background while a run landed elsewhere, and the history door broke.
