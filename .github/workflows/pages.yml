@@ -76,6 +76,12 @@ jobs:
           destination: ./_site
           build_revision: ${{ steps.product.outputs.commit }}
 
+      - name: Check the built site has no broken internal links
+        run: |
+          node scripts/floor/site-links.mjs \
+            --site _site \
+            --baseurl "${{ steps.pages.outputs.base_path }}"
+
       - name: Check design coverage
         run: node scripts/floor/design-coverage.mjs --site _site
 

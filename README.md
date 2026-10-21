@@ -118,6 +118,11 @@ The first account created owns the local harness. Add a provider in Settings bef
 | Benchmarks | `bench/` | Node harness |
 | Guardian | `engine/guardian/tests/` | C + shell |
 
+The floor site's published links are guarded by `scripts/floor/site-links.mjs`
+(the built `_site` crawl before deploy) and unit-tested by
+`tests/unit/floor-site-links.test.ts`; `npm run docs:links` also refuses a
+floor page linking a docs path the assembler does not publish.
+
 ```bash
 npm test                    # root web suite (watchdog)
 npm run test:raw            # vitest under the harness slot

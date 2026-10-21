@@ -2,6 +2,13 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync,
 import { join, resolve } from "node:path";
 
 import { isFile } from "./files.mjs";
+import {
+  FLOOR_COPY_ROOTS,
+  FLOOR_OVERLAY_PAGES,
+  materializeFloorFallbacks,
+  materializePageFrontMatter,
+  rewriteCopiedDocsPages,
+} from "./site-pages.mjs";
 
 const REQUIRED_PRODUCT = [
   "_config.yml",
@@ -58,10 +65,24 @@ export function assembleFloorSite({ product, testing, out, baseurl = "/bridlewis
   for (const path of REQUIRED_FLOOR) {
     ensure(isFile(join(testingRoot, path)), `testing floor is missing ${path}`);
   }
+  // The pages a floor page may link to are the ones this plan publishes. The
+  // product mirror provides `/cli/`, `/extending/` and `/index/`; a missing
+  // one is copied from the testing checkout below as a self-contained
+  // fallback, so the links are never left pointing at a page Jekyll will not
+  // build.
+  for (const { docsRoot } of FLOOR_COPY_ROOTS) {
+    ensure(existsSync(join(testingRoot, ...docsRoot.split("/"))), `testing floor is missing ${docsRoot}/`);
+  }
 
   rmSync(outRoot, { recursive: true, force: true });
   copyTree(join(productRoot), outRoot, new Set(["_site", ".jekyll-cache", ".git", "node_modules"]));
-  copyTree(join(testingRoot, "docs/floor"), join(outRoot, "floor"), new Set(["data"]));
+  for (const { docsRoot, siteRoot } of FLOOR_COPY_ROOTS) {
+    copyTree(
+      join(testingRoot, ...docsRoot.split("/")),
+      join(outRoot, ...siteRoot.split("/")),
+      new Set(["data"]),
+    );
+  }
   copyTree(join(testingRoot, "docs/assets/floor"), join(outRoot, "assets/floor"), new Set());
 
   // One shell, one design layer. The product layout conditionally loaded the
@@ -91,8 +112,35 @@ export function assembleFloorSite({ product, testing, out, baseurl = "/bridlewis
   // the contributor hub, and the product documentation gets a landing page at
   // /product/. The rest of the product documentation stays at its original
   // paths so the mirrored internal links keep working.
-  copyFileSync(join(testingRoot, "docs/index.md"), join(outRoot, "index.md"));
-  copyFileSync(join(testingRoot, "docs/product.md"), join(outRoot, "product.md"));
+  for (const { docsPath, sitePath } of FLOOR_OVERLAY_PAGES) {
+    copyFileSync(
+      join(testingRoot, ...docsPath.split("/")),
+      join(outRoot, ...sitePath.split("/")),
+    );
+  }
+
+  // A floor page may name a top-level product page the product mirror does not
+  // carry (the plan says `/cli/` and `/extending/` are mirrored today). Copy
+  // the self-contained testing fallback rather than shipping the link to a
+  // page Jekyll never builds.
+  const fallbackPages = materializeFloorFallbacks({ outRoot, productRoot, testingRoot });
+
+  // A tracker page is plain Markdown; without front matter Jekyll copies it as
+  // a static file and never builds the pretty URL the floor links to. Give the
+  // assembled copy a page header (the source keeps rendering on GitHub).
+  const frontMatterPages = materializePageFrontMatter({ outRoot, fallbackPages });
+
+  // GitHub resolves a floor page's relative links against the SOURCE tree; the
+  // site resolves them against the pretty URL, which is a different directory.
+  // Rewrite only the assembled copy to the URLs the site actually publishes,
+  // so the committed Markdown keeps working on GitHub.
+  const rewrittenLinks = rewriteCopiedDocsPages({
+    outRoot,
+    productRoot,
+    testingRoot,
+    baseurl,
+    fallbackPages,
+  });
 
   const configPath = join(outRoot, "_config.yml");
   let config = readFileSync(configPath, "utf8");
@@ -125,6 +173,8 @@ export function assembleFloorSite({ product, testing, out, baseurl = "/bridlewis
     baseurl,
     productPages: countMarkdown(join(outRoot)),
     floorPages: countMarkdown(join(outRoot, "floor")),
+    rewrittenLinks,
+    frontMatterPages,
   };
 }
 

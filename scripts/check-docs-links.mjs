@@ -23,6 +23,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { absoluteProcessDocLinkReason } from "./repository-links.ts";
+import { floorPageLinkViolations } from "./floor/site-pages.mjs";
 
 const linkPattern = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 
@@ -126,14 +127,37 @@ export function checkDocsLinks({ root = process.cwd(), files } = {}) {
   return { files: documents, missing };
 }
 
+/**
+ * The site-publication half of the docs-links gate. A relative Markdown link
+ * from a floor or tracker page names a source file GitHub can render; on the
+ * assembled site the same page lives at its pretty URL and the target must be
+ * a page the assembler publishes. `floorPageLinkViolations` asks the publish
+ * plan's OWN owner (`scripts/floor/site-pages.mjs`), so a new tree that the
+ * assembler starts copying, or a page the plan stops publishing, changes this
+ * answer in one place.
+ *
+ * This is the check whose absence let `../trackers/TASKS.md` ship: the file
+ * existed, so the repository link check was green, and the site never built
+ * `trackers/TASKS/`.
+ */
+export function checkFloorSiteLinks({ root = process.cwd() } = {}) {
+  const violations = floorPageLinkViolations({ testingRoot: root });
+  return violations.map(
+    ({ page, target, docsPath }) =>
+      `${page}: ${target} (the floor site does not publish ${docsPath})`,
+  );
+}
+
 const invokedDirectly = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invokedDirectly) {
   const { files, missing } = checkDocsLinks();
-  if (missing.length === 0) {
+  const floorMissing = checkFloorSiteLinks();
+  const failures = [...missing, ...floorMissing];
+  if (failures.length === 0) {
     console.log(`docs links: clean (${files.length} Markdown files)`);
     process.exit(0);
   }
-  console.error(`docs links: ${missing.length} missing target(s)`);
-  for (const entry of missing) console.error(`  ${entry}`);
+  console.error(`docs links: ${failures.length} missing target(s)`);
+  for (const entry of failures) console.error(`  ${entry}`);
   process.exit(1);
 }

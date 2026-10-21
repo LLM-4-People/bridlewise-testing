@@ -30,10 +30,11 @@ All published pages use `layout: default`, `title`, `description`, and `permalin
 1. Mirror the product `docs/` tree at the testing site root without editing product page bodies.
 2. Overlay the testing `docs/index.md` as the site root and `docs/product.md` as `/product/`. The product documentation keeps its original page paths so mirrored internal links still resolve.
 3. Set the testing site's own `_config.yml` `url`, `baseurl`, `title`, and `testing_url`. Set `testing_hub_url: "/"` and `testing_floor_url: "/floor/"`. Do not inherit the product site's `baseurl`; `relative_url` must resolve under the testing Pages path. Keep `repository_url` at the product repository so mirrored product links still point to the product.
-4. Add these files under the testing site's `floor/` directory. Keep `/floor/` outside the mirror overwrite.
+4. Add these files under the testing site's `floor/` directory, and publish `docs/trackers/` under `trackers/`: the roadmap links `../trackers/TASKS.md`, which is a GitHub path but not a site URL. Keep `/floor/` outside the mirror overwrite. A tracker page is plain Markdown, so the assembler adds the front matter Jekyll needs; without it Jekyll copies the file verbatim and never builds the pretty URL.
 5. Add a `Build` link to the testing site navigation and a `Contributor hub` link to the footer when `testing_hub_url` is set. Keep the `Floor` link to `/floor/`.
 6. Keep the developer-preview warning in the layout. The floor pages repeat it but do not replace the site-wide banner.
 7. Do not add a separate layout or design-token system. Reuse the product `default` layout and styles. Add floor-only classes for the atlas and status controls if needed.
+8. Rewrite the copied floor and tracker pages' relative Markdown links at assembly time to the URLs the site publishes (`../trackers/TASKS.md` becomes `/bridlewise-testing/trackers/TASKS/`); never edit the committed source, because GitHub resolves the relative links against the repository. `scripts/floor/site-pages.mjs` owns the mapping, and `node scripts/floor/site-links.mjs --site _site --baseurl <base>` crawls the built site before deploy and fails on an unresolved internal link.
 
 ## Generated data
 

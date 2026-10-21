@@ -24,7 +24,8 @@ function parseArgs(argv) {
 try {
   const result = assembleFloorSite(parseArgs(process.argv.slice(2)));
   process.stdout.write(
-    `floor site: ${result.productPages} Markdown files at ${result.baseurl}\n`,
+    `floor site: ${result.productPages} Markdown files at ${result.baseurl}; ` +
+      `${result.rewrittenLinks} relative link(s) resolved to site URLs\n`,
   );
 } catch (error) {
   process.stderr.write(`floor site failed: ${error.message}\n`);
