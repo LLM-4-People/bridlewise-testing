@@ -650,14 +650,23 @@ assert_exit "a linked rule path is refused (opened without following links) -> e
 
 # A bind mount is a second spelling no realpath() removes; the guardian
 # compares (device, inode). Made for real in a private mount namespace.
-# A passwordless sudo can create the namespace where unprivileged user
-# namespaces are restricted (the CI runner), so the capability is probed
-# against the strongest form available before a test is declared skipped.
-UNSHARE="unshare -rm"
-if ! $UNSHARE true 2>/dev/null && sudo -n unshare -rm true 2>/dev/null; then
-  UNSHARE="sudo -n unshare -rm"
+# The capability under test is a BIND MOUNT, not merely a namespace: a
+# restricted user namespace can be created while mount inside it is denied
+# (the CI runner), and a probe that only ran `true` then declared tests
+# available that could not run. Each form is probed with the real operation,
+# and only the form that mounts is used. A passwordless sudo on a host with
+# restricted unprivileged namespaces gets a mount namespace as root, which is
+# the strongest form available there.
+mount_probe() {
+  "$@" sh -c 'mkdir -p "$2" && mount --bind "$1" "$2"' sh "$PROTECT" "$WORK/alias-probe" >/dev/null 2>&1
+}
+UNSHARE=""
+if mount_probe unshare -rm; then
+  UNSHARE="unshare -rm"
+elif mount_probe sudo -n unshare -m; then
+  UNSHARE="sudo -n unshare -m"
 fi
-if $UNSHARE true 2>/dev/null; then
+if [ -n "$UNSHARE" ]; then
   ALIAS="$WORK/alias"; mkdir -p "$ALIAS"
   cat > "$WORK/spec-alias-under.json" <<EOF
 {"abi_version_hint":0,"handled_access_fs":["READ_FILE","READ_DIR"],"allow_rules":[{"path":"$ALIAS/sub","access":["READ_FILE"]}],"protected_subtrees":["$PROTECT"]}
@@ -676,8 +685,8 @@ EOF
 else
   # One skip per test that did not run, not one for the pair: the denominator
   # has to count what the script would have run.
-  skip "test 35 (bind-mount alias under a protected subtree) needs unshare -rm"
-  skip "test 36 (bind-mount alias containing a protected subtree) needs unshare -rm"
+  skip "test 35 (bind-mount alias under a protected subtree) needs a mount namespace"
+  skip "test 36 (bind-mount alias containing a protected subtree) needs a mount namespace"
 fi
 
 echo ""
