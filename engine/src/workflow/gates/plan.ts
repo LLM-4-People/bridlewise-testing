@@ -9,8 +9,8 @@
  *
  * SHARDS. A `files` suite's files are packed longest-first into shards of
  * equal weight (ties by path, the lowest shard first — deterministic). The
- * cell budget is the catalogue's `MAX_SHARDS`; a `whole` suite takes one cell,
- * and the split suites share the rest in proportion to their total weight.
+ * cell budget is the catalogue's `MAX_SHARDS`, shared by the suites in
+ * proportion to their total weight.
  *
  * WEIGHTS. A file's weight is its per-file CPU work from the ledger. A tree
  * with no ledger yet is planned `unmeasured`: every file weighs one unit and
@@ -110,22 +110,16 @@ export function planGates(inputs: PlanInputs): GatePlan {
     return found;
   };
   const weightOf = (_path: string): number => 1;
-  const split = suites.filter((gate) => gate.split === "files");
-  const whole = suites.filter((gate) => gate.split === "whole");
   const allocation = allocateShards(
-    split.map((gate) => {
+    suites.map((gate) => {
       const files = listing(gate).files;
       return { id: gate.id, weight: files.reduce((sum, path) => sum + weightOf(path), 0), files: files.length };
     }),
-    MAX_SHARDS - whole.length,
+    MAX_SHARDS,
   );
   const cells: ShardCell[] = [];
   for (const gate of suites) {
     const files = listing(gate).files;
-    if (gate.split === "whole") {
-      cells.push({ cell: `${gate.id}-1`, gate: gate.id, index: 1, of: 1, title: gate.title, weight: files.reduce((sum, path) => sum + weightOf(path), 0), files });
-      continue;
-    }
     const count = allocation.get(gate.id)!;
     for (const shard of packShards(files.map((path) => ({ path, weight: weightOf(path) })), count)) {
       cells.push({ cell: `${gate.id}-${shard.index}`, gate: gate.id, index: shard.index, of: count, title: `${gate.title} ${shard.index}/${count}`, weight: shard.weight, files: shard.files });

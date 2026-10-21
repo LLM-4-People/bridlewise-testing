@@ -1052,6 +1052,15 @@
           "--reporter=json"
         ],
         "timeoutMs": 3600000
+      },
+      "engine-cell": {
+        "cwd": "engine",
+        "argv": [
+          "node",
+          "scripts/tooling/run-tests.ts",
+          "--cell"
+        ],
+        "timeoutMs": 3600000
       }
     },
     "phases": {

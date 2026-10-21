@@ -497,6 +497,36 @@ function expectedTestIdsFromReceipt(receipt: TestReceipt): readonly string[] {
   return inventory.tests.map((entry) => entry.id);
 }
 
+/**
+ * THE CELL'S PASSING RULE (a CI shard of the engine suite: the run dispatched
+ * only its cell and WITHHELD the rest, `cellSourceIds` in
+ * inventory-test-run.ts). The receipt is still judged against the WHOLE
+ * inventory — every entry expected, every withheld one counted skipped — and
+ * the whole-suite rule rejects it for that. A cell passes when the ONLY
+ * difference from a passing whole-suite receipt is exactly the withholding:
+ * something was withheld; every entry that was NOT withheld was discovered
+ * and passed, in order; the skips are exactly the withheld entries (a real
+ * skip in the cell fails it); nothing failed, was todo or cancelled; and no
+ * other reason (an unknown test, a runner summary that disagrees with what was
+ * dispatched, a changed candidate) is present. Whether the cells together
+ * cover the inventory exactly once is the gates' seal's judgement, never a
+ * cell's.
+ */
+export function cellReceiptPassing(result: TestResultReceipt): boolean {
+  const receipt = result.testReceipt;
+  const withheld = new Set(receipt.gatedTestIds);
+  const expected = expectedTestIdsFromReceipt(receipt);
+  const dispatched = expected.filter((id) => !withheld.has(id));
+  const reasons = result.result.diagnostic?.reasons ?? [];
+  const withholdingOnly = reasons.every((reason) => reason === "test-skipped" || reason === "inventory-incomplete-pass");
+  return withheld.size > 0 && dispatched.length > 0 && withholdingOnly &&
+    sameOrderedValues(receipt.discoveredTestIds, expected) &&
+    sameOrderedValues(receipt.passedTestIds, dispatched) &&
+    receipt.counts.discovered === expected.length && receipt.counts.passed === dispatched.length &&
+    receipt.counts.skipped === withheld.size && receipt.counts.failed === 0 && receipt.counts.todo === 0 &&
+    receipt.counts.cancelled === 0;
+}
+
 function testReceiptIsPassing(receipt: TestReceipt): boolean {
   const expectedIds = expectedTestIdsFromReceipt(receipt);
   return sameOrderedValues(receipt.discoveredTestIds, expectedIds) &&

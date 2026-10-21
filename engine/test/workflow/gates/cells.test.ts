@@ -44,7 +44,7 @@ type Ran = Readonly<{ name: string; argv: readonly string[]; cwd: string }>;
 
 /** The registry the tests run against: the gates' own command names, with planted argv. */
 const REGISTRY: Readonly<Record<string, CheckoutCommand>> = Object.fromEntries(
-  ["web-typecheck", "engine-typecheck", "engine-check", "secret-scan", "docs-links", "public-tests", "web-build", "guardian", "guardian-tests", "guardian-pass-log", "web-shard", "engine-suite", "bundle"]
+  ["web-typecheck", "engine-typecheck", "engine-check", "secret-scan", "docs-links", "public-tests", "web-build", "guardian", "guardian-tests", "guardian-pass-log", "web-shard", "engine-cell", "bundle"]
     .map((name) => [name, { cwd: name.startsWith("guardian") ? "engine/guardian" : ".", argv: ["planted", name], timeoutMs: 1000 }]),
 );
 
@@ -205,7 +205,7 @@ test("a web shard whose runner exits 0 with a lying or absent report fails", asy
   assert.match(absent.refusal ?? "", /wrote no vitest report/u);
 });
 
-test("the engine cell passes only when the runner exits 0 and its own summary says every test passed", async () => {
+test("an engine cell lists its sources for the runner's --cell and passes only on the cell rule's summary", async () => {
   const gatePlan = plan();
   const cell = gatePlan.cells.find((entry) => entry.gate === "engine-suite")!;
   const root = createTempDir("gates-engine-");
@@ -213,18 +213,21 @@ test("the engine cell passes only when the runner exits 0 and its own summary sa
   mkdirSync(summaryDirectory, { recursive: true });
   const run = async (summary: unknown, exitCode = 0) => {
     writeFileSync(join(summaryDirectory, "latest-summary.json"), JSON.stringify(summary));
-    const env = { ...environment(createTempDir("gates-engine-out-"), exitCode === 0 ? new Set<string>() : new Set(["engine-suite"])), repositoryRoot: root };
+    const out = createTempDir("gates-engine-out-");
+    const env = { ...environment(out, exitCode === 0 ? new Set<string>() : new Set(["engine-cell"])), repositoryRoot: root };
     const result = await runShard(gatePlan, cell.cell, env);
-    assert.deepEqual(env.ran.map((entry) => entry.argv), [["planted", "engine-suite"]], "the whole inventory: the command as declared");
+    const listPath = join(out, `${cell.cell}.cell`);
+    assert.deepEqual(env.ran.map((entry) => entry.argv), [["planted", "engine-cell", listPath]], "the cell's list appended to the registry command");
+    assert.deepEqual(readFileSync(listPath, "utf8").trim().split("\n"), cell.files.map((path) => path.replace(/^engine\//u, "")), "engine-relative sources, as the inventory names them");
     return result;
   };
-  const passed = await run({ status: "passed", testCount: 10, passCount: 10, failCount: 0 });
+  const passed = await run({ status: "passed", testCount: 10_000, passCount: 40, failCount: 0 });
   assert.equal(passed.status, "passed", passed.refusal);
-  assert.equal(passed.suite?.tests, 10);
-  assert.equal((await run({ status: "failed", testCount: 10, passCount: 9, failCount: 1 })).status, "failed");
-  assert.equal((await run({ status: "passed", testCount: 10, passCount: 9, failCount: 0 })).status, "failed");
-  assert.equal((await run({ status: "passed", testCount: 0, passCount: 0, failCount: 0 })).status, "failed");
-  assert.equal((await run({ status: "passed", testCount: 10, passCount: 10, failCount: 0 }, 1)).status, "failed");
+  assert.equal(passed.suite?.tests, 40, "the cell's own passed tests (the withheld rest is the other cells')");
+  assert.equal((await run({ status: "failed", testCount: 10_000, passCount: 39, failCount: 1 })).status, "failed");
+  assert.equal((await run({ status: "passed", testCount: 10_000, passCount: 40, failCount: 1 })).status, "failed");
+  assert.equal((await run({ status: "passed", testCount: 10_000, passCount: 0, failCount: 0 })).status, "failed");
+  assert.equal((await run({ status: "passed", testCount: 10_000, passCount: 40, failCount: 0 }, 1)).status, "failed");
 });
 
 // ── the seal ──────────────────────────────────────────────────────────────

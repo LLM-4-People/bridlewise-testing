@@ -62,23 +62,25 @@ test("the cell budget is shared by weight: at least one each, never more than a 
   assert.throws(() => allocateShards([{ id: "a", weight: 1, files: 1 }, { id: "b", weight: 1, files: 1 }], 1), refusedWith("gate_plan_invalid"));
 });
 
-test("a plan covers each population exactly once; the whole suite is one cell; weights say unmeasured", () => {
+test("a plan covers each population exactly once, the cells shared by weight; weights say unmeasured", () => {
   const plan = planGates({ headSha: HEAD, treeId: TREE, populations: [listing("web-tests", 534), listing("engine-tests", 513)] });
   assert.equal(plan.weights.basis, "unmeasured");
   assert.equal(plan.catalogueDigest, catalogueDigest());
   assert.equal(plan.cells.length, MAX_SHARDS);
   const web = plan.cells.filter((cell) => cell.gate === "web-suite");
   const engine = plan.cells.filter((cell) => cell.gate === "engine-suite");
-  assert.equal(engine.length, 1);
-  assert.equal(engine[0]!.files.length, 513);
-  assert.equal(web.length, MAX_SHARDS - 1);
-  const covered = web.flatMap((cell) => cell.files);
-  assert.equal(new Set(covered).size, 534);
-  assert.equal(covered.length, 534);
+  assert.equal(engine.length + web.length, MAX_SHARDS);
+  assert.equal(web.length, 6, "534 of 1047 unit-weight files: six of the twelve cells");
+  assert.equal(engine.length, 6);
+  for (const [cells, total] of [[web, 534], [engine, 513]] as const) {
+    const covered = cells.flatMap((cell) => cell.files);
+    assert.equal(new Set(covered).size, total);
+    assert.equal(covered.length, total);
+  }
   const sizes = web.map((cell) => cell.files.length);
   assert.ok(Math.max(...sizes) - Math.min(...sizes) <= 1, "equal weights split evenly");
   assert.deepEqual(plan.gates.map((gate) => gate.id), GATE_CATALOGUE.map((gate) => gate.id));
-  assert.deepEqual(matrixCells(plan)[0], { cell: "web-suite-1", gate: "web-suite", title: `Web suite 1/${MAX_SHARDS - 1}` });
+  assert.deepEqual(matrixCells(plan)[0], { cell: "web-suite-1", gate: "web-suite", title: "Web suite 1/6" });
   assert.deepEqual(parsePlan(JSON.parse(JSON.stringify(plan))), plan);
   assert.deepEqual(planGates({ headSha: HEAD, treeId: TREE, populations: [listing("engine-tests", 513), listing("web-tests", 534)] }), plan, "the plan does not depend on listing order");
 });

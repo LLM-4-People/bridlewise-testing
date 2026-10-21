@@ -23,9 +23,11 @@
  *
  * A web cell runs its registry command with the vitest JSON report path and
  * exactly its planned files appended, and passes only when that report's
- * rows record every planned file green (`vitest-report.ts`). The engine
- * cell runs its registry command on the whole inventory and passes only when
- * the runner exits 0 and its own summary says every test passed.
+ * rows record every planned file green (`vitest-report.ts`). An engine cell
+ * runs its registry command with the file listing its sources (`--cell`: the
+ * runner dispatches them and withholds the rest of the inventory, counted
+ * skipped) and passes only when the runner's cell rule passed and its
+ * summary records the cell's tests passed and none failed.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -201,12 +203,14 @@ function engineFinish(repositoryRoot: string, cell: ShardCell, population: strin
     const path = join(repositoryRoot, ENGINE_SUMMARY_PATH);
     if (!existsSync(path)) return { refusal: `the engine runner exited 0 but wrote no summary at ${ENGINE_SUMMARY_PATH}` };
     const summary = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    // A cell's summary: its own rule's status (the runner's cell judgement), the whole inventory discovered,
+    // and the cell's dispatched tests passed (the withheld rest is counted skipped, by design).
     if (summary.status !== "passed") return { refusal: `the engine summary says ${String(summary.status)}` };
-    const tests = summary.testCount;
-    if (typeof tests !== "number" || !Number.isSafeInteger(tests) || tests <= 0 || summary.passCount !== tests || summary.failCount !== 0) {
-      return { refusal: `the engine summary's counts are not all passed (${String(summary.passCount)}/${String(tests)}, ${String(summary.failCount)} failed)` };
+    const passed = summary.passCount;
+    if (typeof passed !== "number" || !Number.isSafeInteger(passed) || passed <= 0 || summary.failCount !== 0) {
+      return { refusal: `the engine cell's summary records no passed test or a failure (${String(passed)} passed, ${String(summary.failCount)} failed)` };
     }
-    return { suite: { population, files: cell.files, tests, perFile: [] } };
+    return { suite: { population, files: cell.files, tests: passed, perFile: [] } };
   };
 }
 
@@ -217,7 +221,7 @@ export async function runShard(plan: GatePlan, cellId: string, environment: RunE
   const gate = gateById(cell.gate, catalogue);
   const population = gate.population!;
   const name = gate.cellCommand!;
-  if (gate.split === "files") {
+  if (population === "web-tests") {
     const reportPath = join(environment.outDirectory, `${cell.cell}.vitest.json`);
     return runCell(plan, {
       gate,
@@ -231,5 +235,9 @@ export async function runShard(plan: GatePlan, cellId: string, environment: RunE
       },
     }, environment);
   }
-  return runCell(plan, { gate, cell: cell.cell, commands: [{ name, extra: () => [] }], finish: engineFinish(environment.repositoryRoot, cell, population) }, environment);
+  // The engine cell: its sources (engine-relative, as the inventory names them) listed for the runner's `--cell`.
+  mkdirSync(environment.outDirectory, { recursive: true });
+  const listPath = join(environment.outDirectory, `${cell.cell}.cell`);
+  writeFileSync(listPath, `${cell.files.map((path) => path.replace(/^engine\//u, "")).join("\n")}\n`);
+  return runCell(plan, { gate, cell: cell.cell, commands: [{ name, extra: () => [listPath] }], finish: engineFinish(environment.repositoryRoot, cell, population) }, environment);
 }

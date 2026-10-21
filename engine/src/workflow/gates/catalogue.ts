@@ -69,18 +69,13 @@ export type Gate = Readonly<{
   toolchain: readonly Toolchain[];
   reuse: "eligible" | "never";
   population?: Population;
+  /** For a suite gate: its population splits into CPU-balanced cells of files (each runner takes a file subset). */
+  split?: "files";
   /**
-   * For a suite gate: how its population splits. `files` packs the files into
-   * CPU-balanced shards; `whole` runs the population as one cell, because its
-   * runner cannot yet run a subset (`splitReason` says why, and the follow-up
-   * that lifts it).
-   */
-  split?: "files" | "whole";
-  splitReason?: string;
-  /**
-   * For a suite gate: the registry command one cell runs. A `files` suite's
-   * cell appends the vitest JSON report path and its planned files; a
-   * `whole` suite's cell runs the command as declared.
+   * For a suite gate: the registry command one cell runs, its cell appended:
+   * the web cell appends the vitest JSON report path and its files; the
+   * engine cell appends the file listing its sources (`--cell`, the engine
+   * runner withholds the rest).
    */
   cellCommand?: string;
   /** For an `action` gate: the action (a key of {@link ACTION_PINS}) and its inputs. */
@@ -205,9 +200,8 @@ const GATES: readonly Gate[] = [
     toolchain: ["hooks", "corpus"],
     reuse: "eligible",
     population: "engine-tests",
-    split: "whole",
-    splitReason: "the engine runner (engine/scripts/tooling/run-tests.ts) runs the whole inventory and takes no file subset yet; it runs as one cell until it does",
-    cellCommand: "engine-suite",
+    split: "files",
+    cellCommand: "engine-cell",
   },
   {
     id: "dependency-review",
@@ -234,7 +228,6 @@ export function validateCatalogue(gates: readonly Gate[]): readonly Gate[] {
     if (gate.title.trim() === "" || gate.title.includes("\n")) throw new InputError(`gate ${gate.id} has no one-line title`, "gate_catalogue_invalid");
     const isSuite = gate.class === "suite";
     if (isSuite !== (gate.population !== undefined) || isSuite !== (gate.split !== undefined)) throw new InputError(`gate ${gate.id}: a population and its split belong to exactly the suite gates`, "gate_catalogue_invalid");
-    if ((gate.split === "whole") !== (gate.splitReason !== undefined)) throw new InputError(`gate ${gate.id}: a whole-population suite states why it cannot split (and only it)`, "gate_catalogue_invalid");
     if ((gate.class === "action") !== (gate.action !== undefined)) throw new InputError(`gate ${gate.id}: an action belongs to exactly the action gates`, "gate_catalogue_invalid");
     if (gate.class === "light" && gate.commands.length === 0) throw new InputError(`gate ${gate.id}: a light gate runs at least one command`, "gate_catalogue_invalid");
     if (gate.class !== "light" && gate.commands.length > 0) throw new InputError(`gate ${gate.id}: only a light gate declares commands (a suite runs its cell command; an action is wired by the generator)`, "gate_catalogue_invalid");
