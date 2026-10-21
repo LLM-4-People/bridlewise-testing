@@ -13,68 +13,169 @@ import {
   stripTags,
 } from "../../shared/markup.ts";
 
+import ts from "typescript5";
+
 /**
  * THE ONE MARKUP OWNER: `shared/markup.ts` does every HTML or Markdown
- * escape, entity decode and markup removal in the tree, and this file proves
- * both halves: the helper is complete against the shapes CodeQL flagged
- * (alerts 92 and 94-99: double unescaping, a removal that leaves a new
- * opener, `<SCRIPT>`, `</script >`, an unescaped backslash), and no tracked
- * source file outside it hand-rolls one of those chains again.
+ * escape, entity decode, tag strip and markup removal in the tree. This file
+ * proves both halves: the helper is complete against the shapes CodeQL
+ * flagged (alerts 92 and 94-99: double unescaping, a removal that leaves a
+ * new opener, `<SCRIPT>`, `</script >`, an unescaped backslash), and no
+ * tracked source outside it does any of that by hand.
+ *
+ * ── STRUCTURAL, NOT PATTERN BY PATTERN ────────────────────────────────────
+ *
+ * Every source is PARSED with the TypeScript compiler (`typescript5`, the
+ * parser the repository's other AST guards use): `.ts`/`.js`/`.mjs`/`.cjs`
+ * whole, and each `.svelte` file's `<script>` blocks and `{…}` template
+ * expressions. Comments and markup are never code. The rules are about
+ * WHAT a call does, whatever its spelling, line wrapping or table:
+ * - `entity`: a string or template literal, or a `+` chain folded with every
+ *   non-literal operand as a hole, that spells an HTML character reference
+ *   (`&amp;`, `&#60;`, `"&" + "amp;"`, `` `&#${code};` ``,
+ *   `"&#" + String.fromCodePoint(c) + ";"`). Escaping and decoding are the
+ *   owner's; a literal entity in code is a hand-rolled table or chain.
+ * - `tag-filter`: a pattern (the first argument of `replace`, `replaceAll`,
+ *   `split`, `match`, `matchAll`, `search`, `RegExp`; the regex receiver of
+ *   `test`/`exec`) that opens a markup comment, names an element whose
+ *   content an HTML sanitizer must special-case (`script`, `style`,
+ *   `iframe`, `pre`, `code`, …), or is a generic tag class (`<[^>]…`,
+ *   `<\/?[a-z]…`). Lookbehinds and named groups are regex syntax, not tags.
+ * - `markup-char`: a `replace`/`replaceAll` whose pattern is only markup
+ *   characters (`/&/g`, `"<"`, `/[<>&]/g`): one link of an escape chain.
+ * - `cell-escape`: a `replace`/`replaceAll` whose replacement inserts a
+ *   backslash before a pipe (a Markdown table-cell escape).
+ *
+ * A legitimate non-markup use is declared in `DECLARED` with its reason.
+ * A stale declaration (one that no longer trips the rule) fails.
  */
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 /** The owner, and the one file that proves it (its assertions spell entities). */
 const OWNER_FILES = new Set(["shared/markup.ts", "tests/public/markup-owner.test.mjs"]);
-const SOURCE = /\.(?:[cm]?[jt]s|svelte|html?)$/u;
+const SOURCE = /\.(?:[cm]?[jt]s|svelte)$/u;
+
+const HOLE = "\u0000";
+const ENTITY = /&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]+|#[xX][0-9A-Fa-f]+|\u0000);|&#\u0000/u;
+const SPECIAL_ELEMENTS = "script|style|iframe|object|embed|svg|math|template|title|textarea|noscript|xmp|plaintext|pre|code|!--";
+const TAG_FILTER = new RegExp(String.raw`<(?:\\?\/)?(?:${SPECIAL_ELEMENTS})|<!--|<(?:\\?\/)?\??\[|<(?:\\?\/)?\(\?:`, "iu");
+const REGEX_SYNTAX_ANGLES = /\(\?<[=!]|\(\?<[A-Za-z_$][\w$]*>|\\k<[A-Za-z_$][\w$]*>/gu;
+const MARKUP_CHARS_ONLY = /^(?:\[\^?(?:[<>&]|\\[<>&])+\]|[<>&]|\\[<>&])$/u;
+const TRANSFORMS = new Set(["replace", "replaceAll", "split"]);
+const READS = new Set(["match", "matchAll", "search"]);
 
 /**
- * THE RULES, read through the ONE source lexer (`source-view.ts`), so a
- * comment that names a shape and the markup of a Svelte template are never
- * code, and a literal is judged whatever call it sits in (`replace`,
- * `replaceAll`, `split`/`join`, `new RegExp`, a lookup table, a wrapped
- * multi-line call):
- * - `entity-literal`: an HTML character reference inside a string, template
- *   or regex literal. Escaping and decoding are the owner's; a literal entity
- *   in code is a hand-rolled table or chain.
- * - `tag-stripper`: a literal whose WHOLE pattern is a bare tag matcher
- *   (`<[^>]*>`, `<[^>]+>`, `<[^<>]*>`, `</?[^>]+>`, any quantifier). Embedded
- *   in a larger grammar (`fn name<[^>]*>(`) it matches, and is not a stripper.
- * - `markup-removal`: a `replace`, `replaceAll` or `split` whose pattern
- *   literal opens with `<!--`, `<script` or `<style` (any case) and spans
- *   on (`[\s\S]`, `[^]`, `.*`, `.+`). Extraction and tokenizing
- *   (`matchAll`, `exec`, a sticky token rule) are not removal, and neither
- *   is replacing one exact marker string.
+ * Legitimate non-markup or markup-READING uses, each with its reason. Keyed
+ * `path` (the whole file) and checked for staleness: an entry whose file no
+ * longer trips a rule is refused.
  */
-const ENTITY = /&(?:amp|lt|gt|quot|apos|nbsp|#\d+|#[xX][0-9a-fA-F]+);/u;
-const BARE_TAG_MATCHER = /^<\\?\/?\??\[\^<?>\][*+]?\??>$/u;
-const REMOVAL_CALL = /\.(?:replace|replaceAll|split)\(\s*$/u;
-const REMOVAL_OPENER = /^(?:<!--|<script|<style)/iu;
-const ANY_SPAN = /\[\\s\\S\]|\[\^\]|\.[*+]/u;
+const DECLARED = new Map([
+  ["engine/src/workflow/reachability.ts", "extracts the `<script>` blocks of this repository's own Svelte sources to follow their imports; it reads, never sanitizes"],
+  ["engine/src/shared/source-structure.ts", "the source-structure owner locates `<script>` blocks of Svelte sources for its parser; it reads, never sanitizes"],
+  ["server/safety/artifact-check.ts", "the artifact safety owner locates `<script>` elements of a generated artifact to SYNTAX-CHECK them; it never rewrites or sanitizes the artifact"],
+  ["tests/cockpit/rest-visibility-floor.test.ts", "reads the `<style>` block of this repository's own Svelte components"],
+  ["tests/cockpit/artifact-runtime-errors.test.ts", "unwraps a fixed `<script>…</script>` fixture string it built itself"],
+  ["tests/cockpit/index-rail-owner.test.ts", "plants a component edit inside the `</style>` of a fixture copy"],
+  ["tests/prevention/template-mode-lexing.test.ts", "locates markup comments in Svelte sources to check the source lexer's spans against them"],
+  ["tests/cockpit/artifact-containment.test.ts", "asserts that a generated artifact page still contains its `<iframe>`; it reads, never sanitizes"],
+  ["tests/cockpit/flow-past-view-owner.test.ts", "matches a TypeScript call's generic type arguments (`fetchJson<…>(`) in source, not markup"],
+  ["tests/prevention/roadmap-status-owner.test.ts", "removes one exact `<!-- ROADMAP-PLAN-BEGIN` marker from a copy of the page to plant a missing block"],
+  ["tests/prevention/source-structure-parser-differential.test.ts", "an independent oracle locating `<script>` blocks, compared with the source-structure owner"],
+]);
 
-const { isTemplateSource, lexSpans } = await import("../../engine/scripts/verification/source-view.ts");
-
-/** A literal span's pattern text: a regex's source, a string's or template's interior. */
-function literalBody(text, kind) {
-  if (kind === "regex") return text.slice(1, text.lastIndexOf("/"));
-  return text.slice(1, -1);
+/** The text a literal node carries: a regex's source, a string's value, a template's quasis joined by holes. */
+function literalText(node) {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (ts.isRegularExpressionLiteral(node)) return node.text.slice(1, node.text.lastIndexOf("/"));
+  if (ts.isTemplateExpression(node)) return [node.head.text, ...node.templateSpans.map((span) => span.literal.text)].join(HOLE);
+  return null;
 }
 
-/** The violations of one file's text, each as `path:line rule (remedy)`. */
+const isPlus = (node) => ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken;
+
+/** A `+` chain folded to text, every non-literal operand a hole. */
+function folded(node) {
+  if (isPlus(node)) return folded(node.left) + folded(node.right);
+  if (ts.isParenthesizedExpression(node)) return folded(node.expression);
+  return literalText(node) ?? HOLE;
+}
+
+const calleeName = (node) => (ts.isPropertyAccessExpression(node) ? node.name.text : ts.isIdentifier(node) ? node.text : null);
+
+/** The violations of one parsed program, each `path:line rule`. */
+function programViolations(path, code, lineOffsetOf) {
+  const file = ts.createSourceFile(path, code, ts.ScriptTarget.Latest, true, /\.[cm]?ts$/u.test(path) ? ts.ScriptKind.TS : ts.ScriptKind.JS);
+  const found = [];
+  const report = (node, rule) => found.push(`${path}:${String(lineOffsetOf(file.getLineAndCharacterOfPosition(node.getStart(file)).line))} ${rule}`);
+  const visit = (node) => {
+    const outermostPlus = isPlus(node) && !(node.parent !== undefined && isPlus(node.parent));
+    const standaloneLiteral = literalText(node) !== null && !(node.parent !== undefined && isPlus(node.parent)) && !ts.isRegularExpressionLiteral(node);
+    if (outermostPlus || standaloneLiteral) {
+      const text = outermostPlus ? folded(node) : literalText(node);
+      if (ENTITY.test(text)) report(node, "entity (use escapeHtml / decodeHtmlEntities)");
+    }
+    if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+      const name = calleeName(node.expression);
+      const args = node.arguments ?? [];
+      let pattern = null;
+      if (name !== null && (TRANSFORMS.has(name) || READS.has(name) || name === "RegExp")) pattern = args[0] === undefined ? null : literalText(args[0]);
+      if ((name === "test" || name === "exec") && ts.isPropertyAccessExpression(node.expression)) pattern = literalText(node.expression.expression);
+      if (pattern !== null && TAG_FILTER.test(pattern.replace(REGEX_SYNTAX_ANGLES, ""))) report(node, "tag-filter (use htmlWithout / stripTags)");
+      if ((name === "replace" || name === "replaceAll") && pattern !== null && MARKUP_CHARS_ONLY.test(pattern)) report(node, "markup-char (use escapeHtml)");
+      const replacement = (name === "replace" || name === "replaceAll") && args[1] !== undefined ? literalText(args[1]) : null;
+      if (replacement !== null && /\\\|/u.test(replacement)) report(node, "cell-escape (use escapeMarkdownTableCell)");
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return found;
+}
+
+/**
+ * The programs inside one Svelte file: each `<script>` block as one program
+ * (other text blanked, so lines stay true), and each `{…}` template
+ * expression as its own (block keywords such as `#if`, `:else if`, `@html`,
+ * `#each … as` are not expression text).
+ */
+function sveltePrograms(text) {
+  const programs = [];
+  const lower = text.toLowerCase();
+  const markup = text.split("");
+  let at = 0;
+  for (;;) {
+    const open = lower.indexOf("<script", at);
+    if (open === -1) break;
+    const bodyStart = lower.indexOf(">", open) + 1;
+    const close = lower.indexOf("</script", bodyStart);
+    const bodyEnd = close === -1 ? text.length : close;
+    programs.push({ code: text.slice(0, bodyStart).replace(/[^\n]/gu, " ") + text.slice(bodyStart, bodyEnd), base: 0 });
+    for (let index = open; index < bodyEnd; index += 1) if (markup[index] !== "\n") markup[index] = " ";
+    at = bodyEnd;
+  }
+  const rest = markup.join("");
+  for (let index = rest.indexOf("{"); index !== -1; index = rest.indexOf("{", index + 1)) {
+    let depth = 0;
+    let end = index;
+    for (; end < rest.length; end += 1) {
+      if (rest[end] === "{") depth += 1;
+      else if (rest[end] === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    const inner = rest.slice(index + 1, end).replace(/^\s*(?:[#:@/][a-z]+(?:\s+if)?)/u, "").replace(/\s+as\s+[\s\S]*$/u, "");
+    programs.push({ code: `(${inner}\n)`, base: rest.slice(0, index).split("\n").length - 1 });
+    index = end;
+  }
+  return programs;
+}
+
+/** The violations of one tracked source file. */
 function violations(path, text) {
   if (OWNER_FILES.has(path)) return [];
-  const found = [];
-  const lineOf = (index) => text.slice(0, index).split("\n").length;
-  for (const span of lexSpans(text, isTemplateSource(path))) {
-    if (span.kind !== "string" && span.kind !== "template" && span.kind !== "regex") continue;
-    const body = literalBody(text.slice(span.start, span.end), span.kind);
-    const at = `${path}:${String(lineOf(span.start))}`;
-    if (ENTITY.test(body)) found.push(`${at} entity-literal (use escapeHtml / decodeHtmlEntities)`);
-    if (BARE_TAG_MATCHER.test(body)) found.push(`${at} tag-stripper (use stripTags / htmlWithout)`);
-    if (REMOVAL_OPENER.test(body) && ANY_SPAN.test(body) && REMOVAL_CALL.test(text.slice(Math.max(0, span.start - 200), span.start))) {
-      found.push(`${at} markup-removal (use htmlWithout)`);
-    }
-  }
-  return found;
+  if (!path.endsWith(".svelte")) return programViolations(path, text, (line) => line + 1);
+  return sveltePrograms(text).flatMap(({ code, base }) => programViolations(`${path.slice(0, -".svelte".length)}.svelte.ts`, code, (line) => base + line + 1)
+    .map((violation) => violation.replace(".svelte.ts:", ".svelte:")));
 }
 
 function trackedSources() {
@@ -83,54 +184,70 @@ function trackedSources() {
     .filter((path) => SOURCE.test(path));
 }
 
-test("no tracked source file outside the owner hand-rolls an escape, decode or removal", () => {
+test("no tracked source outside the owner hand-rolls an escape, decode, strip or tag filter", () => {
   const files = trackedSources();
   assert.ok(files.length > 1000, `git ls-files found only ${String(files.length)} source files`);
   for (const folder of ["engine/src/", "server/", "src/", "scripts/", "tests/", "shared/"]) {
     assert.ok(files.some((path) => path.startsWith(folder)), `the scan reached nothing under ${folder}`);
   }
-  assert.deepEqual(files.flatMap((path) => violations(path, readFileSync(join(ROOT, path), "utf8"))), []);
+  assert.ok(files.some((path) => path.endsWith(".svelte")), "the scan reached no Svelte file");
+  const found = new Map(files.map((path) => [path, violations(path, readFileSync(join(ROOT, path), "utf8"))]));
+  const undeclared = [...found].filter(([path, list]) => list.length > 0 && !DECLARED.has(path)).flatMap(([, list]) => list);
+  assert.deepEqual(undeclared, []);
+  const stale = [...DECLARED.keys()].filter((path) => (found.get(path) ?? []).length === 0);
+  assert.deepEqual(stale, [], "a declaration whose file no longer trips the guard is stale: delete it");
 });
 
-test("planted hand-rolled chains are refused in every shape and folder", () => {
-  // Each entity is assembled here, so this file's own literals stay clean.
-  const amp = "&" + "amp;";
-  const lt = "&" + "lt;";
+test("planted hand-rolled markup work is refused in every shape and folder", () => {
   const planted = {
-    "scripts/floor/a.mjs": `value\n    .replace(/${amp}/gu, "&")\n    .replace(/${lt}/gu, "<");\n`,
-    "server/b.ts": `const safe = text.replaceAll("&", "${amp}").split("<").join('${lt}');\n`,
-    "server/c.ts": `const TABLE = {\n  "&": "${amp}",\n  "<": \`${lt}\`,\n};\n`,
-    "src/d.svelte": `<script>\n  const plain = html.replace(\n    /<!` + `--[\\s\\S]*?-->/g,\n    "",\n  );\n</script>\n<p>a&nbsp;b</p>\n`,
-    "engine/src/e.ts": `const body = html.replaceAll(/<SCR` + `IPT\\b[^]*?<\\/script>/gi, "");\n`,
-    "tests/f.test.ts": `const slug = heading.replace(new RegExp("<[^>]+>", "g"), "");\nconst tags = /<\\/?[^>]*>/g;\n`,
-    "shared/g.ts": `const parts = html.split(/<style[\\s\\S]*?<\\/style>/i);\n`,
+    // concatenated entities and a lookup table
+    "server/a.ts": 'const AMP = "&" + "amp;";\nconst TABLE = { "<": "&" + "lt" + ";" };\n',
+    // numeric-reference encoders, template and concatenation
+    "src/b.ts": "const encode = (c: string) => `&#${c.codePointAt(0)};`;\nconst encode2 = (c: number) => \"&#\" + String.fromCharCode(c) + \";\";\n",
+    // a tag stripper with a name class, wrapped over lines
+    "scripts/c.mjs": "const plain = html.replace(\n  /<\\/?[a-z][^>]*>/gi,\n  \"\",\n);\n",
+    // <pre> removal and a split-based script remover
+    "engine/src/d.ts": 'const body = html.replaceAll(/<PRE\\b[^]*?<\\/pre>/gi, "");\nconst parts = html.split(/<script/i);\n',
+    // a pipe-only cell escape
+    "scripts/floor/e.ts": 'const cell = (value: string) => value.replace(/\\|/g, "\\\\|");\n',
+    // one link of an escape chain, and a decoder through RegExp
+    "shared/f.ts": 'const step = text.replace(/&/g, AMP);\nconst entity = new RegExp("<!--[\\\\s\\\\S]*?-->", "g");\n',
+    // a tag filter as the receiver of test, and a tag strip in a Svelte script and template
+    "tests/g.test.ts": "const dangerous = /<iframe/i.test(html);\n",
+    "src/h.svelte": "<script>\n  const plain = html.replace(/<[^>]+>/g, \"\");\n</script>\n<p>{text.replaceAll(\"&\", \"&\" + \"amp;\")}</p>\n<p>a&nbsp;b</p>\n",
   };
   const found = Object.fromEntries(Object.entries(planted).map(([path, text]) => [path, violations(path, text)]));
-  const counts = Object.fromEntries(Object.entries(found).map(([path, list]) => [path, list.length]));
-  assert.deepEqual(counts, {
-    "scripts/floor/a.mjs": 2,
-    "server/b.ts": 2,
-    "server/c.ts": 2,
-    "src/d.svelte": 1,
-    "engine/src/e.ts": 1,
-    "tests/f.test.ts": 2,
-    "shared/g.ts": 1,
+  const rules = Object.fromEntries(Object.entries(found).map(([path, list]) => [path, list.map((line) => line.split(" ")[1])]));
+  assert.deepEqual(rules, {
+    "server/a.ts": ["entity", "entity"],
+    "src/b.ts": ["entity", "entity"],
+    "scripts/c.mjs": ["tag-filter"],
+    "engine/src/d.ts": ["tag-filter", "tag-filter"],
+    "scripts/floor/e.ts": ["cell-escape"],
+    "shared/f.ts": ["markup-char", "tag-filter"],
+    "tests/g.test.ts": ["tag-filter"],
+    "src/h.svelte": ["tag-filter", "markup-char", "entity"],
   }, JSON.stringify(found));
-  assert.match(found["scripts/floor/a.mjs"][0], /a\.mjs:2 entity-literal/u);
-  assert.match(found["server/c.ts"][1], /c\.ts:3 entity-literal/u);
-  assert.match(found["src/d.svelte"][0], /d\.svelte:3 markup-removal/u, "a wrapped call is judged at its literal's line; markup &nbsp; is not code");
-  assert.match(found["tests/f.test.ts"][0], /f\.test\.ts:1 tag-stripper/u);
+  assert.match(found["scripts/c.mjs"][0], /^scripts\/c\.mjs:1 /u, "a wrapped call is reported at its start");
+  assert.match(found["src/h.svelte"][0], /^src\/h\.svelte:2 /u, "a Svelte script keeps its file lines");
+  assert.match(found["src/h.svelte"][2], /^src\/h\.svelte:4 /u, "a Svelte template expression keeps its file line");
 });
 
 test("near misses are not flagged", () => {
   const nearMisses = {
-    "a.ts": `const body = wrapper.replace(/^<script>/, "").replace(/<\\/script>$/, "");\n`,
-    "b.ts": `const nav = html.replace(/<nav class="breadcrumb"[\\s\\S]*?<\\/nav>/u, "");\n`,
-    "c.ts": `/**\n * A denylist loses to \`${"&" + "#106;"}avascript:\`, and six scanners grew \`.replace(/<!` + `--…/\`.\n */\n// x.replace(/${"&" + "amp;"}/g, "&")\n`,
-    "d.ts": `const FN = /fn\\s+(\\w+)\\s*(<[^>]*>)?\\s*\\(/;\nconst blocks = src.matchAll(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi);\nconst rule = { kind: "comment", re: /<!` + `--[\\s\\S]*?(?:-->|$)/y };\n`,
-    "f.ts": `const missing = page.replace("<!` + `-- ROADMAP-PLAN-BEGIN", "<!` + `-- plan removed");\n`,
-    "e.svelte": `<p>a&nbsp;b &lt;tag&gt;</p>\n<script>const x = 1;</script>\n`,
-    "shared/markup.ts": `x.replace(/${"&" + "amp;"}/g, "&");\n`,
+    "a.ts": [
+      'const query = `?path=${path}&root=${root}`;',
+      'const pairs = search.split("&").map((pair) => pair.split("="));',
+      'const both = a && b;',
+      'const pattern = /(?<![\\w$.])(?<name>catch)\\k<name>(?![\\w$])/u;',
+      'const generic = source.match(/Promise<void> \\{/);',
+      'const component = source.match(/<Spark\\b[^>]*>/);',
+      'const rust = "fn parse(id: &str) -> &str";',
+      'const escaped = value.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");',
+      'const sql = "a & b";',
+      '// html.replace(/<script[\\s\\S]*?<\\/script>/g, "") is what the owner replaced',
+    ].join("\n"),
+    "b.svelte": "<script>\n  const x = 1;\n</script>\n<p>a&nbsp;b &lt;tag&gt; {x}</p>\n<!-- a <script> in a comment -->\n",
   };
   assert.deepEqual(Object.entries(nearMisses).flatMap(([path, text]) => violations(path, text)), []);
 });
