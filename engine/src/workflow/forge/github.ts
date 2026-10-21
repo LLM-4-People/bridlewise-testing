@@ -59,8 +59,8 @@ function apiBase(endpoint: ForgeEndpoint): URL {
 }
 
 /** The refusal of a path that is not an API path under the base. */
-function pathRefused(path: string, why: string): never {
-  throw new ForgeError("forge_request_invalid", `A forge request names an API path under the API base: '/'-separated, non-empty segments, no dot segment, query, fragment, backslash, control character, encoded separator or double encoding (${why}).`, { path });
+function pathRefused(path: string, why: string): ForgeError {
+  return new ForgeError("forge_request_invalid", `A forge request names an API path under the API base: '/'-separated, non-empty segments, no dot segment, query, fragment, backslash, control character, encoded separator or double encoding (${why}).`, { path });
 }
 
 /**
@@ -73,15 +73,15 @@ function pathRefused(path: string, why: string): never {
  */
 export function forgeRequestUrl(endpoint: ForgeEndpoint, path: string, query?: ForgeRequest["query"]): URL {
   const base = apiBase(endpoint);
-  if (!path.startsWith("/")) pathRefused(path, "it does not start with '/'");
-  if (/[?#\\\s\u0000-\u001f\u007f]/u.test(path)) pathRefused(path, "a query, fragment, backslash, space or control character");
-  if (/%(?:2f|5c|25)/iu.test(path)) pathRefused(path, "an encoded separator or a double encoding");
+  if (!path.startsWith("/")) throw pathRefused(path, "it does not start with '/'");
+  if (/[?#\\\s\u0000-\u001f\u007f]/u.test(path)) throw pathRefused(path, "a query, fragment, backslash, space or control character");
+  if (/%(?:2f|5c|25)/iu.test(path)) throw pathRefused(path, "an encoded separator or a double encoding");
   let decoded: string;
-  try { decoded = decodeURIComponent(path); } catch { pathRefused(path, "a malformed escape"); }
-  if (decoded.split("/").slice(1).some((segment) => segment === "" || segment === "." || segment === "..")) pathRefused(path, "an empty or dot segment");
+  try { decoded = decodeURIComponent(path); } catch { throw pathRefused(path, "a malformed escape"); }
+  if (decoded.split("/").slice(1).some((segment) => segment === "" || segment === "." || segment === "..")) throw pathRefused(path, "an empty or dot segment");
   const prefix = base.pathname.replace(/\/$/u, "");
   const url = new URL(`${base.origin}${prefix}${path}`);
-  if (url.pathname !== `${prefix}${path}`) pathRefused(path, "the URL does not keep the path as given");
+  if (url.pathname !== `${prefix}${path}`) throw pathRefused(path, "the URL does not keep the path as given");
   for (const [name, value] of Object.entries(query ?? {})) url.searchParams.set(name, String(value));
   return url;
 }
