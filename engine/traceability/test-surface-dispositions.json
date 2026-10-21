@@ -3789,6 +3789,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/community-health-files.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/evidence-store.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4181,5 +4189,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "39987b48fff595bfa455422c55090586d1f16385205d103d92479850a8251f9a"
+  "integrityHash": "69eba46720acdabb26b6100ab7573bb892db1654f3fc48182a7dcd88cfb96b16"
 }
