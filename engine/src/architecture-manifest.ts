@@ -5565,5 +5565,10 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       owner: "verification-workflow", publicApi: { exportCount: 3, namesSha256: "d6a6ec63bc6aac11618d88e922df82fdbfa3ed3cb9c243b880d0ed217e25baa4" },
       dependencies: ["@babel/parser"],
     }),
+    moduleContract({
+      id: "scripts-roadmap-types", path: "scripts/roadmap/types.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 17, namesSha256: "f45ba27065e4540ab23fced797d550b849e255e35338691554366f223fcbf5ba" },
+      dependencies: [],
+    }),
   ],
 });
