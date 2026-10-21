@@ -135,13 +135,13 @@ describe("tool-executor", () => {
   test("executeToolCall rejects paths outside project root (traversal)", async () => {
     const result = await executeToolCall("read_file", { path: "/etc/passwd" }, ctx);
     expect(result.success).toBe(false);
-    expect(result.output).toContain("outside the project root");
+    expect(result.output).toMatch(/escapes the project folder/i);
   });
 
   test("executeToolCall rejects relative path traversal (../)", async () => {
     const result = await executeToolCall("read_file", { path: "../../etc/passwd" }, ctx);
     expect(result.success).toBe(false);
-    expect(result.output).toContain("outside the project root");
+    expect(result.output).toMatch(/escapes the project folder/i);
   });
 
   test("executeToolCall rejects missing path argument", async () => {

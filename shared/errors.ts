@@ -299,6 +299,9 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   // path is what made the path-keyed recycle bin disclose another user's
   // file, so it is refused at its source rather than tolerated.
   project_path_taken: 409,
+  // 409: one folder is one project. Refused for EVERY duplicate, including
+  // the same account, because the ownership gate answers by the first row at
+  // the location — a second row made the first look like somebody else's.
   // The copy half of a cross-device move did not land — a server I/O fault,
   // with the original reported left in place (atomic-write.ts movePath).
   move_did_not_land: 500,
@@ -875,6 +878,7 @@ export const WIRE_MESSAGE_FOR_CODE: Readonly<Record<string, string>> = Object.fr
   project_path_stale_encrypted: "The project's saved folder path is stale. Re-create the project with the correct folder.",
   project_path_missing: "The project folder does not exist on disk. Re-create the project with a valid folder.",
   project_path_inaccessible: "The project folder is not accessible. Check its permissions and re-create the project.",
+  project_path_taken: "That folder is already registered as a project, so it cannot be added a second time. Open the existing project instead.",
   project_path_not_directory: "The project path is not a folder. Re-create the project with a folder path.",
   project_path_not_owned: "That project belongs to another account, so it is not available here.",
   gate_path_undecided: "That folder could not be verified for this request. Try again.",

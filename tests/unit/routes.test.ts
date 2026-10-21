@@ -46,6 +46,14 @@ describe("routes: projects + chats + auto-checks", () => {
     expect((r.body as { updatedAt: string }).updatedAt).toBeDefined();
   });
 
+  test("the same folder cannot be registered twice, even by its owner", async () => {
+    // The ownership gate answers by the row registered at the location, so a
+    // second row at one folder made the first read as somebody else's.
+    const r = await req("/api/projects", { method: "POST", body: { name: "alpha-again", path: "/a" } });
+    expect(r.status, JSON.stringify(r.body)).toBe(409);
+    expect((r.body as { error: string }).error).toBe("project_path_taken");
+  });
+
   test("GET /api/projects returns the list", async () => {
     const r = await req("/api/projects");
     expect(r.status).toBe(200);
@@ -211,7 +219,7 @@ describe("routes: projects + chats + auto-checks", () => {
   });
 
   test("metrics snapshots: append + list", async () => {
-    const p = await req("/api/projects", { method: "POST", body: { name: "m", path: "/m" } });
+    const p = await req("/api/projects", { method: "POST", body: { name: "m", path: "/m-metrics" } });
     const pid = (p.body as { id: string }).id;
     const c = await req(`/api/projects/${pid}/chats`, { method: "POST", body: { title: "m-chat" } });
     const cid = (c.body as { id: string }).id;

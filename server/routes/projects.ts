@@ -23,6 +23,7 @@ import { chatToView, projectToView } from "./views.ts";
 import { serverConfig } from "../kernel/config.ts";
 import { requireUserContext } from "../auth/user-context.ts";
 import { NotFoundError, BadRequestError, ConflictError } from "../kernel/errors.ts";
+import { wireMessage } from "../../shared/errors.ts";
 import { isWithinAllowedRoots, makeFsGate, projectFolderPresence, projectRootRefusals } from "../filesystem/fs-gate.ts";
 // The harness owns every question about where a path really points.
 import { resolveLocation } from "../kernel/canonical.ts";
@@ -118,11 +119,12 @@ export function registerProjectRoutes(router: Router, db: AsyncDbClient): void {
     // removes the ambiguity at its source (the PATCH door below applies the
     // same rule, so a re-link cannot create one either).
     const registered = await db.projectAtPath(pathCheck.resolved);
-    if (registered !== null && registered.userId !== user.userId) {
-      throw new ConflictError(
-        `The folder '${pathCheck.resolved}' is already registered as a project by another account. Choose a folder of your own.`,
-        "project_path_taken",
-      );
+    if (registered !== null) {
+      // ONE FOLDER, ONE PROJECT — for every duplicate, not only another
+      // account's. The ownership gate answers by the row registered at the
+      // location, so a second row made that answer ambiguous and the new
+      // project read as somebody else's. The sentence is the taxonomy's.
+      throw new ConflictError(wireMessage("project_path_taken"), "project_path_taken");
     }
     const row = await db.createProject({ name: input.name, path: pathCheck.resolved }, user.userId);
     const indexGate = await makeFsGate(user.userId, db, pathCheck.resolved);
@@ -170,11 +172,11 @@ export function registerProjectRoutes(router: Router, db: AsyncDbClient): void {
         );
       }
       const registered = await db.projectAtPath(pathCheck.resolved);
-      if (registered !== null && registered.userId !== user.userId && registered.id !== id) {
-        throw new ConflictError(
-          `The folder '${pathCheck.resolved}' is already registered as a project by another account. Choose a folder of your own.`,
-          "project_path_taken",
-        );
+      // The SAME rule as creation: one folder, one project, whichever account
+      // holds the row. A re-link onto a folder another row already owns is
+      // the duplicate reached through a different verb.
+      if (registered !== null && registered.id !== id) {
+        throw new ConflictError(wireMessage("project_path_taken"), "project_path_taken");
       }
       resolvedPath = pathCheck.resolved;
     }
