@@ -3,6 +3,7 @@ import { describe, test, expect, afterAll, beforeAll } from "vitest";
 import { createServer, request as httpRequest, type Server } from "node:http";
 
 import { createRouter, sendJson } from "../../server/router/router.ts";
+import { WebError } from "../../server/kernel/errors.ts";
 import { resolveServerConfig } from "../../server/kernel/config.ts";
 import { DbClient } from "../../server/db/client";
 import { AsyncDbClient } from "../../server/db/async-client";
@@ -242,8 +243,13 @@ describe("every request is answered at the one dispatch boundary (wf1b-design H1
     const router = createRouter({ db: memAdb, isPublicPath: () => true });
     router.get("/api/items/:id", (ctx) => { sendJson(ctx.res, { id: ctx.params["id"] }); });
     router.get("/api/hostile", () => {
-      // An error nothing can describe: reading its status throws.
-      const hostile = new Error("x");
+      // An error nothing can describe: reading its status throws. It must be
+      // a TYPED error — the router now trusts only the typed hierarchy, so a
+      // raw Error is answered from the fixed body without reading any of its
+      // properties (the old mapper read a foreign getter, which is part of
+      // the leak this round closed). A typed error whose own mapper step
+      // throws is the remaining last-resort path.
+      const hostile = new WebError("x", "service_unavailable") as WebError & { statusCode: number };
       Object.defineProperty(hostile, "statusCode", { get: () => { throw new Error("the status cannot be read"); } });
       throw hostile;
     });

@@ -243,6 +243,41 @@ test("the shard merge refuses a failed shard or a report outside the root", () =
   }
 });
 
+test("the shard merge refuses a row that records a failed suite while the summary counts are green", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-failed-suite-"));
+  try {
+    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"]);
+    const report = writeWrapped(work, fixture, 1, { tests: 2 });
+    const wrapped = JSON.parse(readFileSync(report, "utf8"));
+    // The defect: every summary integer says green, and only the test-level
+    // row carries the failure. The merge used to accept exactly this row.
+    assert.equal(wrapped.vitest.success, true);
+    assert.equal(wrapped.vitest.numFailedTests, 0);
+    assert.equal(wrapped.vitest.numFailedTestSuites, 0);
+    wrapped.vitest.testResults[0].status = "failed";
+    writeJson(report, wrapped);
+    assert.throws(() => merge(work, fixture, [report]), /records a failed test suite/u);
+
+    // The same forgery at the test level: the suite passed, one test did not.
+    const failedTest = writeWrapped(work, fixture, 1, { tests: 2 });
+    const wrappedTest = JSON.parse(readFileSync(failedTest, "utf8"));
+    wrappedTest.vitest.testResults[0].status = "passed";
+    wrappedTest.vitest.testResults[0].assertionResults = [{ status: "failed" }];
+    writeJson(failedTest, wrappedTest);
+    assert.throws(() => merge(work, fixture, [failedTest]), /records a failed test/u);
+
+    // Control: the same fixture with every suite/test passed merges.
+    const clean = writeWrapped(work, fixture, 1, { tests: 2 });
+    const wrappedClean = JSON.parse(readFileSync(clean, "utf8"));
+    wrappedClean.vitest.testResults[0].status = "passed";
+    wrappedClean.vitest.testResults[0].assertionResults = [{ status: "passed" }, { status: "passed" }];
+    writeJson(clean, wrappedClean);
+    assert.equal(merge(work, fixture, [clean]).failedTests, 0);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
 test("the shard merge refuses a wrapped report that does not declare its failed-suite count", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-absent-count-"));
   try {

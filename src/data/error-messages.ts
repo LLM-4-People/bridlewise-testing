@@ -191,6 +191,12 @@ export function formatErrorMessage(ctx: ErrorContext): string {
  * file, so a true offline can never be reported as a rate limit.
  */
 function statusText(statusCode: number): string | undefined {
+  if (statusCode === 202) {
+    // A 202 that reached the user as an ERROR is still the wait contract
+    // (the map/awareness/quick-view codes): it has not failed, it is not
+    // ready yet. Say that instead of falling through to the raw message.
+    return "Still working on that. This will fill in shortly.";
+  }
   if (statusCode >= 500) {
     return "The server encountered an error. Try again in a moment.";
   }

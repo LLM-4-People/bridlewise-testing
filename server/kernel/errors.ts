@@ -319,7 +319,7 @@ export class PathTraversalError extends WebError {
 // the same taxonomy. It previously lived here alone, which is why the client
 // never had the vocabulary and fell back to `http_<status>`. Re-exported so
 // every existing server consumer keeps importing it from the error owner.
-export { CODE_STATUS_MAP, statusForCode, resolveStatus, isClientInputCode } from "../../shared/errors.ts";
+export { CODE_STATUS_MAP, statusForCode, resolveStatus, isClientInputCode, isKnownErrorCode } from "../../shared/errors.ts";
 
 /**
  * A project path is missing, inaccessible, or a stale encrypted ciphertext

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
 import { canonicalJson, deepFreeze, sha256 } from "../kernel/integrity.ts";
@@ -55,6 +56,23 @@ import { PromotionError } from "./promotion/codes.ts";
 import { loadPromotionProfiles, profileCommandNames, type LoadedPromotionProfile } from "./promotion/profile.ts";
 import { journalsUnder } from "../filesystem/journaled-commit.ts";
 import { bootstrapProcess, isEntryPoint } from "../runtime/cli-debug.ts";
+
+/**
+ * THE HARNESS PACKAGE ROOT — the tree this module, its scripts and its
+ * package belong to. NOT `process.cwd()`.
+ *
+ * Every `harness` verb resolves generated files, builder scripts and the
+ * architecture manifest against this root. The documented invocation is
+ * `./bin/bridlewise.mjs harness check` FROM THE REPOSITORY ROOT, where the
+ * engine is a subdirectory: `process.cwd()` there is the repository, not the
+ * harness, so `scripts/pin-authority-regeneration.ts` was looked up at the
+ * repository's own `scripts/` (another folder entirely), the subprocess died
+ * with Node's `MODULE_NOT_FOUND`, and the generic failure message reported
+ * only the last stderr line ("Node.js v24.20.0"). Deriving the root from this
+ * module's own location is what the engine package is: the caller's cwd is
+ * where the operator stood, not which tree the harness lives in.
+ */
+export const HARNESS_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 export { DEFAULT_TYPECHECK_TIMEOUT_MS } from "./workflow-config.ts";
 // Sync orchestration bounds. Each sync step runs as its own CLI subprocess so
 // it observes file truth (a step's writes must be visible to the next step's
@@ -1393,7 +1411,22 @@ function runSyncStep(
  * pretty-printed JSON (e.g. scripts/build-bundle.ts), where taking only the
  * last line would yield a partial fragment that fails to parse.
  */
-function runScriptSubprocess(
+/**
+ * The line that names a subprocess failure, not the last line it printed.
+ *
+ * Node writes the useful sentence FIRST ("Error: Cannot find module …", a
+ * syntax error, an uncaught exception name) and a stack + its own version
+ * banner after it. Reporting `lines.at(-1)` therefore reported
+ * "Node.js v24.20.0" for every such death. Prefer the first error-shaped
+ * line, then the first line that is neither a stack frame nor the banner.
+ */
+function subprocessFailureSummary(lines: readonly string[]): string | undefined {
+  const meaningful = lines.find((line) => /^(?:\w*Error|.*Cannot find module|.*ERR_[A-Z_]+)/u.test(line.trim()))
+    ?? lines.find((line) => line.trim().length > 0 && !/^\s+at\s/u.test(line) && !/^Node\.js v/u.test(line.trim()));
+  return meaningful?.trim();
+}
+
+export function runScriptSubprocess(
   root: string,
   scriptRelativePath: string,
   args: readonly string[],
@@ -1401,6 +1434,17 @@ function runScriptSubprocess(
   options: Readonly<{ fullOutput?: boolean }> = {},
 ): string {
   const scriptPath = resolve(root, scriptRelativePath);
+  // A MISSING SCRIPT IS ITS OWN CAUSE. The subprocess's failure mode would
+  // otherwise be Node's module loader: a MODULE_NOT_FOUND stack whose last
+  // stderr line is "Node.js v24.20.0", which read as a generic builder
+  // failure. Name the file and the root it was resolved against instead.
+  if (!existsSync(scriptPath)) {
+    throw new InputError(
+      `the harness does not contain ${scriptRelativePath} (resolved against ${root}); ` +
+        `the file is part of the engine package and the harness root must be that package`,
+      "input_error",
+    );
+  }
   let stdout: string;
   try {
     stdout = execFileSync(process.execPath, [scriptPath, ...args], {
@@ -1433,7 +1477,7 @@ function runScriptSubprocess(
       }
       const baseMessage = error instanceof Error ? error.message : "subprocess failed";
       throw new InputError(
-        `subprocess ${scriptRelativePath} failed without a status payload: ${lines.at(-1) ?? baseMessage}`,
+        `subprocess ${scriptRelativePath} failed without a status payload: ${subprocessFailureSummary(lines) ?? baseMessage}`,
         "input_error",
       );
     }
@@ -1680,7 +1724,8 @@ function writeCommandError(format: CommandOutputFormat, report: Readonly<{ error
 
 /** Execute one validated harness subcommand. Only reachable through the recording boundary in {@link runHarnessCli}. */
 async function dispatchHarnessSubcommand(subcommand: string, rest: readonly string[], format: CommandOutputFormat): Promise<number> {
-  const root = process.cwd();
+  // The harness's own root, never the caller's cwd: see HARNESS_ROOT.
+  const root = HARNESS_ROOT;
   const onProgress = (message: string) => process.stderr.write(`${message}\n`);
   try {
     // Every verb's answer: its envelope, and (a verb that maps its own exit

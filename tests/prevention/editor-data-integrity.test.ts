@@ -115,12 +115,13 @@ describe("CL-2: writeFileRaw is atomic (target untouched on a mid-write crash)",
 });
 
 describe("CL-1: config setByPath prototype-pollution guard", () => {
-  // The route's setByPath is not exported, but the guard rejects
-  // __proto__/constructor/prototype segments. Verify the dangerous names
-  // are caught by re-deriving the guard the route uses (the route throws
-  // ForbiddenError). This test imports the route module to confirm the
-  // guard symbol is present; the behavioral HTTP-level test lives in
-  // multi-user-isolation (admin config update with `__proto__` → 403).
+  // The route's setByPath is not exported, so this arm only proves the guard
+  // SYMBOL is present. The behavioural HTTP-level arm — an admin PUT with a
+  // `__proto__` path segment answering 403 `forbidden_config_path`, never
+  // 500 — lives in tests/unit/config-route-refusals.test.ts, which drives
+  // the real route through the real router. (This comment used to name
+  // `tests/unit/multi-user-isolation.test.ts`, a file that does not exist:
+  // the promised test was never written.)
   test("the route module defines the dangerous-name guard", async () => {
     const src = readFileSync(join(process.cwd(), "server", "routes", "config.ts"), "utf8");
     expect(src).toContain("__proto__");

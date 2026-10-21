@@ -31,6 +31,32 @@ import { humanizeId } from "../../../shared/module-contract.ts";
 /** The value domain a customization can hold (mirrors the wire). */
 export type SettingValue = number | string | boolean | Readonly<Record<string, unknown>>;
 
+/** One numeric field's submitted text, judged as ABSENT, INVALID or a value. */
+export type NumericFieldJudgement =
+  | Readonly<{ kind: "absent" }>
+  | Readonly<{ kind: "invalid" }>
+  | Readonly<{ kind: "value"; value: number }>;
+
+/**
+ * THE one judgement of a numeric field's text — cleared is ABSENT, never 0.
+ *
+ * `Number("")`, `Number("   ")` and `Number(null)` are all 0, so a door that
+ * coerced first and validated later committed the number ZERO for a field
+ * the operator had CLEARED, then reported the save as confirmed. Zero is a
+ * real value an operator can type; a blank is the absence of an answer.
+ * This owner tells them apart, and every numeric door (the setting sheet's
+ * save verb, a cockpit-local preference) reads its verdict so no door can
+ * invent 0 for a blank. `null` is absent for the same reason: the wire's
+ * "no value" is not a measurement of zero.
+ */
+export function judgeNumericField(raw: string | number | null | undefined): NumericFieldJudgement {
+  if (raw === null || raw === undefined) return { kind: "absent" };
+  if (typeof raw === "string" && raw.trim() === "") return { kind: "absent" };
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(value)) return { kind: "invalid" };
+  return { kind: "value", value };
+}
+
 /** Decimal SI token quantities. Undefined is intentionally blank; null is
  * invalid or cannot survive a JSON number round trip without changed digits.
  * The expanded string is also the form's preview, so parsing and feedback

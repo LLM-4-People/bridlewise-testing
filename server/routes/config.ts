@@ -162,13 +162,19 @@ export function registerConfigRoutes(router: Router, db: AsyncDbClient): void {
       const redacted = redactBySensitiveKeys(concealMcpServersIn(newConfig));
       sendJson(ctx.res, { ok: true, path: configPath, value, config: redacted });
     } catch (err) {
-      // Re-throw as a typed WebError so the router maps it to a 500
-      // `{ error: code, message }` body. The default code preserves the
-      // prior "config_update_failed" fallback when the underlying error
-      // carries no code. Never `throw new Error(...)`.
+      // A TYPED REFUSAL KEEPS ITS TYPE AND ITS STATUS. Re-wrapping it in a
+      // bare `WebError` preserved only the code and DROPPED the class's
+      // `statusCode`, so a designed 403 (`forbidden_config_path` from the
+      // prototype-pollution guard) was resolved by the code map — where the
+      // code was absent — and answered 500 with an `internal_error` log.
+      // The router already knows how to map every typed error; this route
+      // must not launder one into another shape.
+      if (err instanceof WebError) throw err;
+      // A genuinely untyped failure (an I/O error from the write gate) is a
+      // server fault. Its code is the closed harness-owned constant; the
+      // detail stays in the central log, never on the wire.
       const message = err instanceof Error ? err.message : String(err);
-      const code = (err as Error & { code?: string }).code ?? "config_update_failed";
-      throw new WebError(message, code);
+      throw new WebError(message, "config_update_failed");
     }
   });
 }

@@ -49,7 +49,7 @@ import { onForeignWrite } from "../../state/cross-tab.ts";
 import { ClientError } from "../../data/errors.ts";
 import { configureClientDebug } from "../../client-debug.ts";
 import type { ExposureModuleEntry } from "../../../shared/ui-schema.ts";
-import { settingOptions, type SettingRow } from "./settings-data.ts";
+import { judgeNumericField, settingOptions, type SettingRow } from "./settings-data.ts";
 
 const DENSITY_KEY = "cockpitDensity";
 const THEME_KEY = "cockpitTheme";
@@ -357,7 +357,16 @@ function judgedNumber(
   row: SettingRow,
   value: string,
 ): Readonly<{ ok: true; num: number }> | Readonly<{ ok: false; why: string }> {
-  const num = Number(value);
+  // THE SAME NUMERIC OWNER AS THE SHEET. A blank was `Number("") === 0`, so
+  // clearing a local number preference committed 0. Absence is not zero.
+  const judged = judgeNumericField(value);
+  if (judged.kind === "absent") {
+    return { ok: false, why: "a number is required. refused unchanged" };
+  }
+  if (judged.kind === "invalid") {
+    return { ok: false, why: `"${value}" is not a whole number. refused unchanged` };
+  }
+  const num = judged.value;
   if (!Number.isInteger(num)) {
     return { ok: false, why: `"${value}" is not a whole number. refused unchanged` };
   }

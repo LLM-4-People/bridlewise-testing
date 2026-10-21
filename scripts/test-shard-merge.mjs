@@ -114,7 +114,33 @@ function readShard(root, path, index, expected, requireTiming) {
     if (result === null || typeof result !== "object") {
       fail(`shard ${index}: testResults[${resultIndex}] is not an object`);
     }
-    return normalizeFile(root, result.name, `shard ${index} result ${resultIndex}`);
+    const file = normalizeFile(root, result.name, `shard ${index} result ${resultIndex}`);
+    // THE SUMMARY IS A CLAIM; THE ROW IS THE RECORD. `numFailedTestSuites`
+    // and `numFailedTests` are integers the report carries beside the rows,
+    // and a wrapped report could claim zero on both while a row beneath them
+    // recorded a failed suite. This merge judged only the integers, so that
+    // row merged into a green receipt. Judge the test-level records too:
+    // a suite that did not pass, or a test that did not pass, refuses the
+    // shard whatever the totals say.
+    if (result.status !== "passed") {
+      fail(
+        `shard ${index}: ${file} records a ${String(result.status)} test suite ` +
+          `(the report's summary counts claimed it was green)`,
+      );
+    }
+    if (!Array.isArray(result.assertionResults)) {
+      fail(`shard ${index}: ${file} has no assertionResults; the test-level result cannot be judged`);
+    }
+    for (const assertion of result.assertionResults) {
+      const status = assertion !== null && typeof assertion === "object" ? assertion.status : undefined;
+      if (status !== "passed") {
+        fail(
+          `shard ${index}: ${file} records a ${String(status)} test ` +
+            `(the report's summary counts claimed it was green)`,
+        );
+      }
+    }
+    return file;
   });
   const duplicates = files.filter((file, fileIndex) => files.indexOf(file) !== fileIndex);
   if (duplicates.length > 0) {

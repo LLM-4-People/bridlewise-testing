@@ -62,6 +62,8 @@ import {
   BadRequestError,
   ServiceUnavailableError,
   statusForCode,
+  isKnownErrorCode,
+  WebError,
   BodySizeLimitError,
   BodyParseError,
   RateLimitError,
@@ -411,24 +413,34 @@ export function createRouter(opts: RouterOptions): Router {
     routes.push({ method, path, pattern, paramNames, handler, mutating });
   }
 
+  /**
+   * THE TYPED HIERARCHY IS THE ONLY ERROR SOURCE THE ROUTER TRUSTS.
+   *
+   * A raw `Error` is not a contract: Node's filesystem errors carry
+   * `code = "EACCES"` and a message naming the absolute path, a foreign
+   * client's error may carry an HTTP-ish `statusCode`, and neither was
+   * authored by this server. The previous general branch honoured any
+   * object with a numeric `statusCode` and any error with a string `code`,
+   * so `GET /api/editor/read` on an unreadable file answered 500 with the
+   * raw `EACCES` and the path in the body. The gate is now the shared typed
+   * error AND the shared taxonomy: only a `WebError` whose code the taxonomy
+   * declares can choose a status or put its sentence on the wire.
+   */
+  function taxonomyCode(err: unknown): string | undefined {
+    if (!(err instanceof WebError)) return undefined;
+    return isKnownErrorCode(err.code) ? err.code : undefined;
+  }
+
   function statusForError(err: unknown): number {
-    // General: any error carrying an explicit numeric `statusCode` (the
-    // typed-error contract — AuthError=401, BodySizeLimitError=413,
+    // The typed-error contract (AuthError=401, BodySizeLimitError=413,
     // ConflictError=409, ForbiddenError=403, NotFoundError=404,
-    // MapNotReadyError/AwarenessNotReadyError=202). Checked first so a
-    // typed error's declared status always wins over the class fallbacks.
-    if (
-      err !== null &&
-      typeof err === "object" &&
-      "statusCode" in err &&
-      typeof (err as { statusCode: unknown }).statusCode === "number" &&
-      Number.isFinite((err as { statusCode: number }).statusCode)
-    ) {
-      return (err as { statusCode: number }).statusCode;
+    // MapNotReadyError/AwarenessNotReadyError=202). A declared status always
+    // wins over the class fallbacks, but only inside the typed hierarchy.
+    const code = taxonomyCode(err);
+    if (err instanceof WebError && code !== undefined && "statusCode" in err) {
+      const declared = (err as { statusCode?: unknown }).statusCode;
+      if (typeof declared === "number" && Number.isFinite(declared)) return declared;
     }
-    if (err instanceof BodySizeLimitError) return err.statusCode;
-    if (err instanceof BodyParseError) return err.statusCode;
-    if (err instanceof AuthError) return err.statusCode;
     // A zod schema-validation failure is a CLIENT error (bad request body),
     // NOT a server error. Previously these mapped to 500 (zod's ZodError has
     // no `.code` property, so it fell through to the default). Mapping it to
@@ -436,24 +448,16 @@ export function createRouter(opts: RouterOptions): Router {
     // (setup, login, change-password, config, tools, …) now returns a typed
     // 400 `validation_failed` instead of a misleading 500.
     if (err instanceof ZodError) return 400;
-    // Single-Party-Owner: typed errors that carry a `code` but no
-    // explicit `statusCode` (e.g. the editor/filesystem bridges throw
-    // `ValidationError` with codes `path_traversal`, `file_not_found`,
-    // `already_exists`) are mapped via the single code→status table owned
-    // by errors.ts (`statusForCode`). This lets a route THROW a typed error
-    // and let the router map it — instead of each route catching + remapping
-    // (the prior `sendError`-helper duplication across 8 route files). A
-    // code starting with `invalid_` is always 400 (the input-validation
-    // convention); the code map handles the rest.
-    if (
-      err instanceof Error &&
-      "code" in err &&
-      typeof (err as Error & { code: string }).code === "string"
-    ) {
-      const code = (err as Error & { code: string }).code;
-      // The input-validation conventions: codes prefixed `invalid_*` (a
-      // body that failed a zod/schema check) and `missing_*` (a required
-      // query/body param absent) are always 400 client errors.
+    // Single-Party-Owner: typed errors that carry a `code` but no explicit
+    // `statusCode` (e.g. the editor/filesystem bridges throw `ValidationError`
+    // with codes `path_traversal`, `file_not_found`, `already_exists`) are
+    // mapped via the single code→status table owned by shared/errors.ts
+    // (`statusForCode`). This lets a route THROW a typed error and let the
+    // router map it — instead of each route catching + remapping (the prior
+    // `sendError`-helper duplication across 8 route files). A code prefixed
+    // `invalid_`/`missing_` is always 400 (the input-validation convention);
+    // the code map handles the rest.
+    if (code !== undefined) {
       if (code.startsWith("invalid_") || code.startsWith("missing_")) return 400;
       const mapped = statusForCode(code);
       if (mapped !== undefined) return mapped;
@@ -462,6 +466,7 @@ export function createRouter(opts: RouterOptions): Router {
   }
 
   function errorBody(err: unknown): unknown {
+    const code = taxonomyCode(err);
     if (err instanceof BodySizeLimitError || err instanceof BodyParseError) {
       return { error: err.code, message: err.message };
     }
@@ -489,24 +494,15 @@ export function createRouter(opts: RouterOptions): Router {
     // the per-route `handleRouteError`/`handleAwarenessError` helpers) means
     // a route that throws the typed error gets the right body for free.
     if (
-      err !== null &&
-      typeof err === "object" &&
+      err instanceof WebError &&
+      code !== undefined &&
       "statusCode" in err &&
       (err as { statusCode: unknown }).statusCode === 202
     ) {
-      const errObj = err as { code?: unknown };
-      const code = typeof errObj.code === "string" ? errObj.code : "indexing";
-      return { status: "indexing", code, message: err instanceof Error ? err.message : String(err) };
+      return { status: "indexing", code, message: err.message };
     }
-    if (
-      err instanceof Error &&
-      "code" in err &&
-      typeof (err as Error & { code: string }).code === "string"
-    ) {
-      return {
-        error: (err as Error & { code: string }).code,
-        message: err.message,
-      };
+    if (err instanceof WebError && code !== undefined) {
+      return { error: code, message: err.message };
     }
     // Unknown failures are logged at the catch site; the wire gets a fixed
     // message so an arbitrary Error (which may carry a stack or a foreign

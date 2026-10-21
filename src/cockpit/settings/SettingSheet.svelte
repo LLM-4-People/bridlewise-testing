@@ -56,6 +56,7 @@
     optionViolation,
     measuredEffect,
     sameSettingValue as sameValue,
+    judgeNumericField,
     saveDescriptor,
     servedCustomizationEntry,
     servedRow,
@@ -284,10 +285,10 @@
   // Correction is derived from the declared numeric domain, never from an error string.
   const numericCorrection = $derived.by(() => {
     if (row?.type !== "number" || save.kind !== "failed" || draft === null) return null;
-    const n = Number(draft);
-    if (!Number.isFinite(n)) return "Enter a number.";
-    if (row.min !== undefined && n < row.min) return `Enter ${row.min} or more.`;
-    if (row.max !== undefined && n > row.max) return `Enter ${row.max} or less.`;
+    const judged = judgeNumericField(draft);
+    if (judged.kind !== "value") return "Enter a number.";
+    if (row.min !== undefined && judged.value < row.min) return `Enter ${row.min} or more.`;
+    if (row.max !== undefined && judged.value > row.max) return `Enter ${row.max} or less.`;
     return null;
   });
   const confirmationMotion = $derived< MovesParam >(save.kind === "saved" ? { motion: "arrive", cause: becauseChanged("setting confirmed", null, save.atMs) } : null);
@@ -296,12 +297,20 @@
     if (row === null || past || !dirty || saving || (draft === null && (!uncertain || displayedMasked))) return;
     const text = draft ?? draftShown;
     if (row.type === "number") {
-      const num = Number(text);
-      if (!Number.isFinite(num)) {
+      // A CLEARED FIELD IS ABSENT, NOT ZERO. `Number("")` is 0, so this used
+      // to POST the number zero for a blank and then report "Saved" — a
+      // value nobody entered. The numeric owner tells absence from a typed
+      // zero; either way nothing is sent until the field holds a number.
+      const judged = judgeNumericField(text);
+      if (judged.kind === "absent") {
+        save = { kind: "failed", message: "Enter a number: nothing saved" };
+        return;
+      }
+      if (judged.kind === "invalid") {
         save = { kind: "failed", message: `"${draft}" is not a number: nothing saved` };
         return;
       }
-      void commit(num);
+      void commit(judged.value);
       return;
     }
     if (row.type === "object") {

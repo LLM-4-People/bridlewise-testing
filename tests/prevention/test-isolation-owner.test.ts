@@ -52,8 +52,10 @@
  *
  * ── Mutation-verified ────────────────────────────────────────────────────
  * Dropping the `await` from any `vi.hoisted(async …)` fails A.
- * A file that leaks a global in an `afterAll` (invisible to the static half)
- *   fails B — the leak is named, with the file that caused it.
+ * A file that replaces a watched global without restoring it fails its OWN
+ *   file at teardown (the setup calls the throwing door), and the planted-arm
+ *   test above drives exactly that door — under `isolate: true`, where the
+ *   old cross-file ledger read was always empty.
  * Removing the `HARNESS_WEB_TIMELINE_DB_PATH` redirection from the setup
  *   owner fails C (the resolved path returns to the repo's `.bridlewise/`).
  * Each was run and observed to fail; see the report accompanying this change.
@@ -66,7 +68,7 @@ import { dirname, join, resolve, relative, isAbsolute } from "node:path";
 import { blankSourceText } from "../../engine/scripts/verification/source-view.ts";
 import { serverConfig } from "../../server/kernel/config.ts";
 import { outboundFetch } from "../../engine/src/shared/outbound-http.ts";
-import { leakedGlobals } from "../helpers/global-boundary.ts";
+import { assertGlobalsRestored, captureGlobals, WATCHED_GLOBALS } from "../helpers/global-boundary.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
 
 const TESTS_ROOT = resolve(import.meta.dirname, "..");
@@ -145,16 +147,51 @@ describe("A. hoisted setup is awaited (no fire-and-forget env writes)", () => {
 });
 
 describe("B. no test file leaks a global to the next file", () => {
-  test("the setup owner reports no leaked globals so far in this worker", () => {
-    // The setup owner repairs the leak (so the run does not cascade) AND
-    // records it here, so the repair never hides the defect. Whichever files
-    // ran before this one in this worker are covered; the assertion is worker-
-    // local by nature, and across a full run every file precedes some other.
-    expect(
-      leakedGlobals(),
-      "a test file replaced one of the watched globals and did not restore it; " +
-        "the setup owner put it back, but the file must restore its own stub",
-    ).toEqual([]);
+  test("the per-file door FAILS a planted leak the old cross-file guard could not observe", () => {
+    // ── The defect this arm exists for ──
+    // The old guard read a worker-scoped ledger from a DIFFERENT test file.
+    // Under the node project's `isolate: true` every file gets a fresh module
+    // registry, so that read was always empty: the guard could not fail, and
+    // a file that leaked was never blamed. The victim of a leak cannot name
+    // it either — its `captureGlobals()` records the leaked stub as its own
+    // pristine entry.
+    //
+    // So the leak is planted HERE, the way the old guard could not see it,
+    // and the door the setup file calls is asked to fail this file.
+    const name = WATCHED_GLOBALS[0];
+    const bag = globalThis as unknown as Record<string, unknown>;
+    const original = bag[name];
+    try {
+      captureGlobals();
+      bag[name] = () => { throw new Error("planted global leak"); };
+      // The observation point the old guard used — a later file's read — is
+      // a fresh registry and has nothing to report. There is no "so far"
+      // ledger anymore, which is the point: the file itself must be failed.
+      expect(() => assertGlobalsRestored("planted-leak.test.ts")).toThrow(
+        /planted-leak\.test\.ts replaced fetch on globalThis/u,
+      );
+      // The door repaired what it found before failing, so the worker is not
+      // poisoned by the arm itself.
+      expect(bag[name]).toBe(original);
+    } finally {
+      bag[name] = original;
+    }
+  });
+
+  test("the suite's REAL configuration calls the throwing door at each file's teardown", () => {
+    // An arm that proves the helper can throw is not enough: the setup file
+    // the node project actually runs must call it, after the cleanup that
+    // must still run. This is the wiring half of the same guarantee.
+    const setup = readFileSync(join(TESTS_ROOT, "setup", "test-setup.ts"), "utf8");
+    expect(setup).toMatch(/assertGlobalsRestored\(expect\.getState\(\)\.testPath/u);
+    // ...and it is the LAST statement of the afterAll hook, so a thrown leak
+    // does not skip the temp-dir/env/schema repairs above it.
+    const hookStart = setup.lastIndexOf("afterAll(() => {");
+    expect(hookStart, "the setup file must own an afterAll hook").toBeGreaterThan(-1);
+    const hook = setup.slice(hookStart);
+    expect(hook.trimEnd().endsWith("});")).toBe(true);
+    expect(hook.lastIndexOf("assertGlobalsRestored")).toBeGreaterThan(hook.lastIndexOf("sweepTempDirs"));
+    expect(hook.lastIndexOf("assertGlobalsRestored")).toBeGreaterThan(hook.lastIndexOf("resetServerConfig"));
   });
 
   test("a file that replaces a global captures and restores it in the same file", () => {

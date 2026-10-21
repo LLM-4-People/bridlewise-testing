@@ -17,6 +17,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  judgeNumericField,
   parseTokenQuantity,
   formatSetting,
   formatValue,
@@ -364,6 +365,39 @@ describe("the raw-key law (mutation-tested both ways)", () => {
   });
 });
 
+
+describe("numeric field entry: cleared is absent, never 0", () => {
+  test.each([
+    ["", "absent"],
+    ["   ", "absent"],
+    ["\t\n", "absent"],
+  ] as const)("whitespace-only %j is absent", (raw, kind) => {
+    expect(judgeNumericField(raw).kind).toBe(kind);
+  });
+
+  test("null and undefined are absent — no value is not the number zero", () => {
+    expect(judgeNumericField(null)).toEqual({ kind: "absent" });
+    expect(judgeNumericField(undefined)).toEqual({ kind: "absent" });
+  });
+
+  test("a typed zero IS a value: absent and zero are different answers", () => {
+    expect(judgeNumericField("0")).toEqual({ kind: "value", value: 0 });
+    expect(judgeNumericField(" 0 ")).toEqual({ kind: "value", value: 0 });
+    expect(judgeNumericField(0)).toEqual({ kind: "value", value: 0 });
+  });
+
+  test("non-numeric text is invalid, not absent and not zero", () => {
+    for (const raw of ["abc", "1,5", "Infinity", "--1"]) {
+      expect(judgeNumericField(raw), raw).toEqual({ kind: "invalid" });
+    }
+  });
+
+  test("plain numbers and numeric strings keep their value", () => {
+    expect(judgeNumericField("8")).toEqual({ kind: "value", value: 8 });
+    expect(judgeNumericField("1.5")).toEqual({ kind: "value", value: 1.5 });
+    expect(judgeNumericField(-3)).toEqual({ kind: "value", value: -3 });
+  });
+});
 
 describe("token quantity entry", () => {
   test.each([["32k",32000,"32000"],["1.5M",1500000,"1500000"],[".125k",125,"125"],["1.2345678901234567",1.2345678901234567,"1.2345678901234567"],["00032.00",32,"32"],["9007199254740991",9007199254740991,"9007199254740991"]])("%s retains exact decimal JSON meaning", (raw,value,expanded) => expect(parseTokenQuantity(String(raw))).toEqual({value,expanded}));

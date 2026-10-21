@@ -360,3 +360,31 @@ export function findUnmapped500DefaultCodes(
   }
   return unmapped;
 }
+
+/**
+ * EVERY thrown code must be in the taxonomy, whatever its class's status.
+ *
+ * The 500-default scan above was the only completeness check, and it
+ * exempted a code carried by a class that declares its own `statusCode`.
+ * That exemption held only while the error travelled UNWRAPPED: a route that
+ * caught it and re-threw a status-less `WebError` (PUT /api/config did
+ * exactly that with `forbidden_config_path`) resolved through
+ * CODE_STATUS_MAP, found nothing, and answered 500. A code that the class
+ * resolves is still a code the taxonomy must own — the map is the shared
+ * vocabulary the client projects messages from, not only the fallback table
+ * for status-less classes.
+ */
+export function findUnmappedThrownCodes(
+  thrownCodes: readonly ThrownCode[],
+  classStatusCode: ClassStatusCodeMap,
+  isMapped: (code: string) => boolean,
+): string[] {
+  const unmapped: string[] = [];
+  for (const { className, code } of thrownCodes) {
+    if (isMapped(code)) continue;
+    if (code.startsWith("invalid_") || code.startsWith("missing_")) continue;
+    const classStatus = classStatusCode.get(className);
+    unmapped.push(`${className}${classStatus === undefined ? "" : `(${String(classStatus)})`}:${code}`);
+  }
+  return unmapped;
+}

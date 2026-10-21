@@ -50,7 +50,7 @@ import { resetServerConfig } from "../../server/kernel/config.ts";
 import { resetUiSchema } from "../../src/state/schema-store.ts";
 import { returnToLive } from "../../src/data/asof.ts";
 import { createWorkerTempDir, sweepTempDirs } from "../helpers/temp-dir.ts";
-import { captureGlobals, restoreGlobals } from "../helpers/global-boundary.ts";
+import { assertGlobalsRestored, captureGlobals } from "../helpers/global-boundary.ts";
 import { refuseRemoteNetworkUnderTest } from "../../engine/scripts/tooling/network-under-test.ts";
 
 // ── THE NETWORK (worker scope, before any test file is read) ──────────────
@@ -134,9 +134,11 @@ afterAll(() => {
   // test that throws before its teardown, are covered here.
   //
   // Then the watchlist compare, because `unstubAllGlobals` is blind to direct
-  // `globalThis.x = …` assignment — the shape nine files actually use.
+  // `globalThis.x = …` assignment — the shape nine files actually use. The
+  // compare runs at the END of this hook (below), after the cleanup that must
+  // not be skipped by its failure, and it THROWS for the file that leaked:
+  // under `isolate: true` a later file cannot see (or blame) this one.
   vi.unstubAllGlobals();
-  restoreGlobals(expect.getState().testPath ?? "unknown");
 
   // TEMP-DIR SWEEP — the file-scope half of the temp-dir owner contract.
   //
@@ -186,4 +188,11 @@ afterAll(() => {
   }
   // Re-resolve so the singleton matches the restored env for the next file.
   resetServerConfig();
+
+  // THE GLOBAL BOUNDARY FAILS THE FILE THAT LEAKED. This is last so the
+  // repairs above (temp dirs, time travel, env, schema) run even when a leak
+  // throws. `vi.unstubAllGlobals()` has already restored every sanctioned
+  // `vi.stubGlobal`; what remains is a direct assignment the file never put
+  // back, which used to be repaired silently and blamed on the next file.
+  assertGlobalsRestored(expect.getState().testPath ?? "unknown");
 });

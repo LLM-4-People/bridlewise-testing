@@ -35,6 +35,7 @@ import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { walk } from "../helpers/source-scan.ts";
+import { createRouter } from "../../server/router/router.ts";
 import { parseErrorClassStatusCode, scanThrownErrorCodes, findUnmapped500DefaultCodes, isInsideStringOrComment } from "../helpers/error-scan.ts";
 
 // ── Source scan helpers ──
@@ -260,12 +261,6 @@ describe("error-debug owner — router mapping (behavioral)", () => {
     getProjectByPath: (path: string, userId: string) => unknown;
   };
 
-  function makeRouter() {
-    // Lazy import so the module graph is settled after the edits.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("../../server/router/router.ts");
-  }
-
   // A representative status check: throw an error from a handler and
   // observe the status the router writes. We drive the router with a
   // stubbed IncomingMessage/ServerResponse.
@@ -273,7 +268,6 @@ describe("error-debug owner — router mapping (behavioral)", () => {
     status: number;
     body: unknown;
   }> {
-    const { createRouter } = makeRouter();
     const db: StubDb = {
       countUsers: () => 1,
       deleteAuthSession: () => {},
@@ -784,18 +778,12 @@ describe("error-debug owner — the bridge's sink contract and the fatal sink", 
 
 describe("error-debug owner — router error body contract", () => {
   function dispatchAndCapture(thrown: unknown): Promise<{ status: number; body: unknown }> {
-    const { createRouter } = require("../../server/router/router.ts") as {
-      createRouter: (opts: { db: unknown; isPublicPath: (p: string) => boolean }) => {
-        get: (path: string, handler: () => void) => void;
-        dispatch: (req: unknown, res: unknown) => Promise<void>;
-      };
-    };
     const db = {
       countUsers: () => 1,
       deleteAuthSession: () => {},
       getProjectByPath: () => null,
     };
-    const router = createRouter({ db, isPublicPath: () => true });
+    const router = createRouter({ db: db as never, isPublicPath: () => true });
     router.get("/throw", () => {
       throw thrown;
     });

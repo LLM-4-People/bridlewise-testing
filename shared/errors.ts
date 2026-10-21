@@ -652,6 +652,57 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   // A delegation was attempted without an active run context (run id, signal,
   // credential, manifest) — the caller's omission, so a client error.
   agent_context_missing: 400,
+
+  // ── Codes carried by status-declaring classes ─────────────────────────
+  //
+  // Every code a typed error can carry is part of the vocabulary, not only
+  // the codes whose resolution needs this table. These were absent while
+  // their classes still resolved them at the router, so any path that
+  // re-wrapped the error lost the status the class had already decided:
+  // `forbidden_config_path` answered 500 from PUT /api/config because the
+  // route's re-wrap carried no `statusCode`, and the client's message
+  // projection had no name for the rest. The thrown-code guard now refuses
+  // an unmapped code for ANY class, so a new one cannot repeat the gap.
+  admin_required: 403,               // ForbiddenError
+  auth_required: 401,                // AuthError
+  auth_account_missing: 401,         // AuthError
+  auth_password_empty: 401,          // AuthError
+  auth_invalid_credentials: 401,     // AuthError
+  auth_change_password_no_session: 401, // AuthError
+  auth_current_password_invalid: 401,   // AuthError
+  auth_password_unchanged: 401,      // AuthError
+  registration_closed: 401,          // AuthError
+  unauthorized: 401,                 // AuthError
+  auth_username_taken: 409,          // ConflictError
+  chat_run_live: 428,                // ChatRunLiveError
+  client_telemetry_rate_limited: 429, // RateLimitError
+  config_keep_mark_refused: 400,     // BadRequestError
+  custody_file_moved: 400,           // BadRequestError
+  custody_file_new: 400,             // BadRequestError
+  custody_file_unchanged: 400,       // BadRequestError
+  custody_keep_failed: 400,          // BadRequestError
+  custody_undo_failed: 400,          // BadRequestError
+  forbidden_config_path: 403,        // ForbiddenError
+  git_not_run: 503,                  // ServiceUnavailableError
+  git_read_unavailable: 503,         // ServiceUnavailableError
+  incomplete_process_capture: 503,   // ServiceUnavailableError
+  self_protection_scratch_not_a_directory: 503, // ServiceUnavailableError
+  mcp_server_unknown: 404,           // NotFoundError
+  memory_user_required: 403,         // ForbiddenError
+  mutation_warrant_required: 403,    // ForbiddenError
+  not_a_repository: 400,             // BadRequestError
+  not_an_image: 400,                 // BadRequestError
+  project_path_not_owned: 403,       // ForbiddenError
+  sensitive_key: 403,                // ForbiddenError
+  auto_check_parent_not_owned: 403,  // ForbiddenError
+  chat_parent_not_owned: 403,        // ForbiddenError
+  message_metadata_not_owned: 403,   // ForbiddenError
+  message_parent_not_owned: 403,     // ForbiddenError
+  metrics_parent_not_owned: 403,     // ForbiddenError
+  timeline_parent_not_owned: 403,    // ForbiddenError
+  tool_call_parent_not_owned: 403,   // ForbiddenError
+  quick_view_not_ready: 202,         // MapNotReadyError
+  run_already_executing: 409,        // ConflictError
 });
 
 /**

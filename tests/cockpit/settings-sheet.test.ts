@@ -780,6 +780,34 @@ describe("the ONE write path — broker action, optimistic, read back", () => {
     expect(field.closest(".numeral-row")?.querySelector(".unit")?.textContent).toBe("calls");
   });
 
+  test("a CLEARED number field is refused, not committed as 0 and reported Saved", async () => {
+    // `Number("")` is 0: the sheet used to POST the number zero for a blank
+    // field, then announce the save. Nobody entered a value, so nothing may
+    // travel; the standing value stays and the field says what is missing.
+    const { container, getByLabelText, queryByText } = render(SettingSheet, {
+      settingId: "tools.parallelCap",
+    });
+    const field = getByLabelText("Parallel tool calls") as HTMLInputElement;
+    for (const blank of ["", "   "]) {
+      posted.length = 0;
+      await fireEvent.input(field, { target: { value: blank } });
+      await fireEvent.click(container.querySelector(".commit")!);
+      await waitFor(() => expect(container.querySelector(".failure")).not.toBeNull());
+      expect(posted, `blank ${JSON.stringify(blank)} must not be posted`).toEqual([]);
+      expect(queryByText("Saved"), "a refused blank must never read Saved").toBeNull();
+      expect(container.querySelector(".failure")?.textContent).toMatch(/number/i);
+      // The standing value must not move to 0.
+      expect(uiSchemaValues.get()!.customizations.find(c => c.id === "tools.parallelCap")?.value).toBe(4);
+      expect(field.getAttribute("aria-invalid")).toBe("true");
+    }
+    // A typed zero is a real answer and still saves.
+    posted.length = 0;
+    await fireEvent.input(field, { target: { value: "0" } });
+    await fireEvent.click(container.querySelector(".commit")!);
+    await waitFor(() => expect(posted.length).toBe(1));
+    expect(posted[0]!.body).toEqual({ id: "tools.parallelCap", value: 0 });
+  });
+
   test("a segmented enum saves the served value on press", async () => {
     const { findByText } = render(SettingSheet, { settingId: "context.compactStrategy" });
     // The button reads WORDS; the wire still carries the served token. Both

@@ -1,5 +1,5 @@
 /**
- * SINGLE-PARTY OWNER of the per-file global boundary under `isolate: false`.
+ * SINGLE-PARTY OWNER of the per-file global boundary under `isolate: true`.
  *
  * ── The defect this exists to make impossible ────────────────────────────
  *
@@ -20,17 +20,22 @@
  * `Failed to parse URL from /api/run/start`: the real undici `fetch` refusing
  * a relative URL, i.e. no stub in place at all.
  *
- * ── Why the bookkeeping lives HERE and not in the setup file ─────────────
+ * ── Where the snapshot lives, and who fails ──────────────────────────────
  *
- * Vitest RE-EXECUTES setup files for every test file, even under
- * `isolate: false`. Module-scope state in `tests/setup/test-setup.ts`
- * is therefore per-FILE, not per-worker — a leak recorded while file 3 ran is
- * gone by the time file 4's guard reads it. Measured: a runtime leak check
- * kept in the setup file reported clean against a deliberately leaking file.
+ * Vitest RE-EXECUTES setup files for every test file. Module-scope state in
+ * `tests/setup/test-setup.ts` is therefore per-FILE, not per-worker — a
+ * measured fact: a runtime leak check kept in the setup file reported clean
+ * against a deliberately leaking file. The snapshot lives in this ordinary
+ * helper module, which the setup imports; under the node project's
+ * `isolate: true` it too is fresh for every file, which is exactly the scope
+ * the check needs.
  *
- * An ordinary helper module is cached per worker, so the ledger of leaks
- * accumulates across the files that share a worker. That is the scope the
- * guard needs.
+ * The file that leaks is the only one that can be blamed, and its own
+ * `beforeAll`/`afterAll` always share a registry. So this module compares the
+ * file against its OWN entry snapshot and the setup file THROWS at that
+ * file's teardown; see {@link assertGlobalsRestored}. A later file cannot
+ * identify the culprit — by then its `captureGlobals()` has recorded the
+ * leaked stub as its own pristine entry value.
  */
 
 /**
@@ -53,9 +58,6 @@ export const WATCHED_GLOBALS = [
 /** The value each watched global held when the current test file started. */
 const entryGlobals = new Map<string, unknown>();
 
-/** `file → global` for every leak seen so far in this worker. */
-const leaks: string[] = [];
-
 const bag = globalThis as unknown as Record<string, unknown>;
 
 /**
@@ -75,27 +77,55 @@ export function captureGlobals(): void {
 }
 
 /**
- * Put every watched global back to its entry value and record any that moved.
- * Called from the setup file's `afterAll`. Returns the globals this file
- * leaked, already repaired.
+ * Put every watched global back to its entry value. Called from the setup
+ * file's `afterAll`. Returns the globals this file leaked, already repaired.
  *
  * Repairing AND reporting is deliberate: the repair stops the run cascading
  * into failures that read as bugs in innocent files, and the report stops the
  * repair from hiding the defect.
  */
-export function restoreGlobals(testFile: string): string[] {
+export function restoreGlobals(): string[] {
   const leaked: string[] = [];
   for (const [name, entryValue] of entryGlobals) {
     if (bag[name] === entryValue) continue;
     leaked.push(name);
-    leaks.push(`${testFile}: ${name}`);
     if (entryValue === undefined) delete bag[name];
     else bag[name] = entryValue;
   }
   return leaked;
 }
 
-/** Every leak seen so far in this worker, as `file: global`. For the guard. */
-export function leakedGlobals(): readonly string[] {
-  return leaks;
+/**
+ * THE DOOR THE SETUP FILE'S `afterAll` CALLS: repair the file's globals and
+ * FAIL THE FILE if it leaked one.
+ *
+ * ── Why this is the shape that can fail ──
+ * The previous guard asserted `leakedGlobals()` in a test file and relied on
+ * a ledger in this module that earlier files appended to in their `afterAll`.
+ * Vitest re-executes setup files per test file and, under the node project's
+ * `isolate: true`, gives every file a FRESH module registry: the ledger a
+ * later file read was always empty, so the assertion could not fail. Worse,
+ * the observation was aimed at the wrong place — a file that leaks hands the
+ * stub to its successor, but the successor's `captureGlobals()` records the
+ * stub as its own entry value, so the victim can never identify it.
+ *
+ * The file that leaks is the only one that can be blamed, and it can always
+ * be blamed: its `beforeAll` snapshot and its `afterAll` comparison live in
+ * the SAME registry. So the report belongs at that file's teardown, and it
+ * has to THROW: a repair that only logs is a silent repair, and the defect
+ * then surfaces as an unrelated failure in the next file.
+ *
+ * `testFile` is named so the failure says who leaked what. The cleanup the
+ * setup owns (temp dirs, env, time travel) runs BEFORE this call so a thrown
+ * hook does not strand the worker's state.
+ */
+export function assertGlobalsRestored(testFile: string): void {
+  const leaked = restoreGlobals();
+  if (leaked.length === 0) return;
+  throw new Error(
+    `${testFile} replaced ${leaked.join(", ")} on globalThis and did not restore ` +
+      `${leaked.length === 1 ? "it" : "them"}; under the suite's single worker the stub ` +
+      `outlives the file and poisons the next one. Capture the original and restore it ` +
+      `(or use vi.stubGlobal and vi.unstubAllGlobals).`,
+  );
 }

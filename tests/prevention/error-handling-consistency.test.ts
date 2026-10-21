@@ -50,7 +50,7 @@ import { describe, test, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
 import { walk, SOURCE_EXTS } from "../helpers/source-scan.ts";
-import { parseErrorClassStatusCode, scanDynamicErrorCodeFallbacks, scanThrownErrorCodes, findUnmapped500DefaultCodes, isInsideStringOrComment } from "../helpers/error-scan.ts";
+import { parseErrorClassStatusCode, scanDynamicErrorCodeFallbacks, scanThrownErrorCodes, findUnmapped500DefaultCodes, findUnmappedThrownCodes, isInsideStringOrComment } from "../helpers/error-scan.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -253,6 +253,55 @@ describe("error-handling consistency — (E3) error mapping completeness", () =>
       unmapped,
       `every error code thrown by a 500-default class must be mapped (deny-by-default — no class allowlist) — unmapped: ${[...new Set(unmapped)].join(", ")}`,
     ).toEqual([]);
+  });
+
+  test("every error code THROWN in server/ is in the map, for ANY class (statusCode no longer exempts it)", () => {
+    // The arm above only checked classes that default to 500. A code carried
+    // by a class that DECLARES a status was exempt — which is why
+    // `forbidden_config_path` (ForbiddenError, 403) was absent from the map,
+    // and why PUT /api/config's re-wrap answered 500 once the `statusCode`
+    // property was gone. The taxonomy is the shared vocabulary: every code a
+    // typed error can carry belongs in it, whatever resolves it first.
+    const errorsSrc = readFileSync(ERRORS_FILE, "utf-8");
+    const classStatusCode = parseErrorClassStatusCode(errorsSrc);
+    const thrownCodes = scanThrownErrorCodes(SERVER_ROOT);
+    expect(thrownCodes.length, "should discover at least one error code thrown in server/").toBeGreaterThan(0);
+    const unmapped = findUnmappedThrownCodes(thrownCodes, classStatusCode, (c) => statusForCode(c) !== undefined);
+    expect(
+      unmapped,
+      `every error code thrown by ANY typed class must be declared in shared/errors.ts CODE_STATUS_MAP — unmapped: ${[...new Set(unmapped)].join(", ")}`,
+    ).toEqual([]);
+  });
+
+  test("every DYNAMIC error-code fallback is mapped for ANY class (statusCode no longer exempts it)", () => {
+    const errorsSrc = readFileSync(ERRORS_FILE, "utf-8");
+    const classStatusCode = parseErrorClassStatusCode(errorsSrc);
+    const fallbacks = scanDynamicErrorCodeFallbacks(SERVER_ROOT);
+    expect(fallbacks.length, "should discover at least one dynamic error-code fallback in server/").toBeGreaterThan(0);
+    const unmapped = findUnmappedThrownCodes(fallbacks, classStatusCode, (c) => statusForCode(c) !== undefined);
+    expect(
+      unmapped,
+      `every dynamic error-code fallback must be declared in CODE_STATUS_MAP — unmapped: ${[...new Set(unmapped)].join(", ")}`,
+    ).toEqual([]);
+  });
+
+  test("the all-classes scan catches a planted 403 code the 500-default scan exempts, and accepts mapped/prefix twins", () => {
+    // Mutation verification against a temp fixture: a status-declaring class
+    // used to be skipped entirely. The defect shape is a code no map entry
+    // names; the mapped and prefixed twins must stay clean.
+    const errorsSrc = readFileSync(ERRORS_FILE, "utf-8");
+    const classStatusCode = parseErrorClassStatusCode(errorsSrc);
+    const isMapped = (c: string) => statusForCode(c) !== undefined;
+    const plant = (name: string, source: string): string[] => {
+      const dir = createTempDir("err-all-classes-plant-");
+      writeFileSync(join(dir, name), source, "utf8");
+      return findUnmappedThrownCodes(scanThrownErrorCodes(dir), classStatusCode, isMapped);
+    };
+    expect(plant("planted.ts", 'throw new ForbiddenError("boom", "zz_unmapped_forbidden");\n')).toEqual([
+      "ForbiddenError(403):zz_unmapped_forbidden",
+    ]);
+    expect(plant("mapped.ts", 'throw new ForbiddenError("boom", "forbidden_config_path");\n'), "a mapped 403 code must pass").toEqual([]);
+    expect(plant("prefix.ts", 'throw new BadRequestError("boom", "missing_planted_thing");\n'), "a missing_-prefixed code passes by convention").toEqual([]);
   });
 
   test("every DYNAMIC error-code fallback (`?? 'code'`) by a 500-default class is mapped (dynamic discovery)", () => {

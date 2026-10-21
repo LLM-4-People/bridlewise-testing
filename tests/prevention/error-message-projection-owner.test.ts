@@ -117,6 +117,11 @@ describe("B. codes with no bespoke sentence are DERIVED, never left raw", () => 
       "a taxonomy code must resolve to a human sentence via its status, not fall " +
         "through to the raw technical message",
     ).toEqual([]);
+    // The 202 wait contract is a status sentence too (quick_view_not_ready
+    // has no bespoke entry, but must never show the raw technical text).
+    expect(
+      formatErrorMessage({ code: "quick_view_not_ready", message: "not ready yet", statusCode: undefined }),
+    ).toMatch(/still working|fill in/i);
   });
 
   test("a code the taxonomy does NOT declare still degrades honestly to its raw message", () => {

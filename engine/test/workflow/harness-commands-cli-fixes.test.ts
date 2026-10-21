@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 import {
   harnessMetrics,
   harnessRollback,
   harnessExtensionList,
+  HARNESS_ROOT,
   HARNESS_SUBCOMMANDS,
   promotionsStep,
   runHarnessCli,
+  runScriptSubprocess,
   type HarnessMetricsOutput,
   type HarnessRollbackOutput,
 } from "../../src/workflow/harness-commands.ts";
@@ -410,4 +412,57 @@ test("harness check's promotions step SAYS refs it cannot read (skipped, naming 
   assert.equal(step.step, "promotions");
   assert.equal(step.status, "skip");
   assert.match(step.message, /^the promotions in flight could not be listed: /u);
+});
+
+
+// ---------------------------------------------------------------------------
+// harness root resolution (the documented root invocation)
+// ---------------------------------------------------------------------------
+
+test("the harness root is the engine package, not the caller's cwd", () => {
+  // The documented command runs from the REPOSITORY root, where the engine is
+  // a subdirectory. The root every verb resolves its scripts against must be
+  // the package that owns them.
+  assert.equal(resolve(HARNESS_ROOT), resolve(ROOT));
+  assert.ok(readFileSync(join(HARNESS_ROOT, "package.json"), "utf8").includes('"name": "bridlewise"'));
+});
+
+test("a builder script missing from the supplied root names the file and the root, not Node's version banner", () => {
+  const dir = createTempDir("harness-missing-builder-");
+  try {
+    assert.throws(
+      () => runScriptSubprocess(dir, "scripts/pin-authority-regeneration.ts", ["--check"], 5_000),
+      (error: unknown) => {
+        assert.ok(error instanceof InputError);
+        assert.match(error.message, /does not contain scripts\/pin-authority-regeneration\.ts/u);
+        assert.match(error.message, /resolved against/u);
+        assert.ok(error.message.includes(dir), "the reported root is the one actually searched");
+        assert.doesNotMatch(error.message, /Node\.js v/u);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the DOCUMENTED root invocation reaches the pin-authorities step instead of dying in the builder", () => {
+  // `./bin/bridlewise.mjs harness check --skip-typecheck` from the repository
+  // root is the README's command. Before the fix it died inside
+  // `scripts/pin-authority-regeneration.ts` with an untyped subprocess
+  // failure. The check may legitimately report drift in a developer tree (an
+  // unbuilt bundle, an un-synced manifest); what this arm pins is that the
+  // step RAN and was judged, with no death in the builder itself.
+  const repositoryRoot = resolve(ROOT, "..");
+  const result = spawnSync(
+    process.execPath,
+    [join(ROOT, "src", "cli.ts"), "harness", "check", "--skip-typecheck", "--skip-architecture", "--skip-inventory"],
+    { cwd: repositoryRoot, encoding: "utf8", timeout: 180_000 },
+  );
+  assert.equal(result.error, undefined, "the documented invocation must complete");
+  assert.equal(typeof result.status, "number", "the process must exit, not be killed");
+  assert.doesNotMatch(result.stderr ?? "", /failed without a status payload/u);
+  const answer = JSON.parse(result.stdout) as { result?: { pinAuthorities?: { step?: string; status?: string } } };
+  assert.equal(answer.result?.pinAuthorities?.step, "pin-authorities");
+  assert.ok(["pass", "fail"].includes(String(answer.result?.pinAuthorities?.status)));
 });
