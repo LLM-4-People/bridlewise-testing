@@ -24,6 +24,7 @@ import {
   type HarnessSyncOutput,
   communityFilesStep,
   evidenceIgnoreStep,
+  trackerBoardStep,
   frozenRecordsStep,
 } from "../../src/workflow/harness-commands.ts";
 import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
@@ -1282,7 +1283,7 @@ test("HarnessCommands: the community-files arm is wired into harnessCheck and ha
   assert.equal(refused.status, "fail");
 });
 
-test("HarnessCommands: the check's generated-block steps FAIL on drift and name it — the evidence ignore rule (correctness E5) and the frozen roots' pinned content — and both are wired into harnessCheck (design N3')", async () => {
+test("HarnessCommands: the check's generated-block steps FAIL on drift and name it — the evidence ignore rule (correctness E5), the frozen roots' pinned content and the task board — and all are wired into harnessCheck (design N3')", async () => {
   const stale = evidenceIgnoreStep({ status: "stale", converged: false, changed: [".gitignore"] });
   assert.equal(stale.status, "fail");
   assert.match(stale.message, /stale against the tracked evidence manifests \(run harness sync\): \.gitignore/u);
@@ -1292,8 +1293,18 @@ test("HarnessCommands: the check's generated-block steps FAIL on drift and name 
   assert.match(moved.message, /history changed: docs\/history\/x\.md\. harness sync never re-pins one; a change that is meant is accepted explicitly, with its reason: harness frozen accept --reason/u);
   const added = frozenRecordsStep({ status: "stale", converged: false, changed: ["docs/history/new.md"], altered: [] });
   assert.match(added.message, /new frozen records are not yet pinned: docs\/history\/new\.md\. Run harness sync/u);
+  // The task board (src/workflow/failure-owners.ts syncTrackerBoard): stale and unjudgeable boards fail, named; a tree without one passes.
+  const staleBoard = trackerBoardStep({ status: "stale", converged: false, changed: ["docs/trackers/TASKS.md"], problems: [] });
+  assert.equal(staleBoard.step, "tracker-board");
+  assert.equal(staleBoard.status, "fail");
+  assert.match(staleBoard.message, /the task board is stale against the tracker items \(run harness sync\): docs\/trackers\/TASKS\.md/u);
+  const handRow = trackerBoardStep({ status: "invalid", converged: false, changed: [], problems: ["docs/trackers/TASKS.md: the row HAND-ROW is typed outside the generated board block"] });
+  assert.equal(handRow.status, "fail");
+  assert.match(handRow.message, /cannot be judged: docs\/trackers\/TASKS\.md: the row HAND-ROW is typed outside/u);
+  assert.equal(trackerBoardStep({ status: "absent", converged: true, changed: [], problems: [] }).status, "pass");
   const result = await checkSkipAll();
-  for (const step of [result.result.evidenceIgnore, result.result.frozenRecords]) {
+  assert.equal(result.result.trackerBoard.step, "tracker-board", "the task-board step is wired into harnessCheck");
+  for (const step of [result.result.evidenceIgnore, result.result.frozenRecords, result.result.trackerBoard]) {
     assert.equal(step.status, "pass", `${step.step} passes on this synced tree: ${step.message}`);
   }
   assert.equal(result.result.allPassed, Object.values(result.result).every((step) => typeof step !== "object" || step === null || !("status" in step) || step.status !== "fail"), "allPassed is every step");

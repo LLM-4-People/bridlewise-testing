@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml";
+import { isAlias, isMap, isPair, isScalar, isSeq, LineCounter, parseDocument, visit } from "yaml";
 
 /**
  * THE WORKFLOW POLICY: rules every GitHub Actions workflow in the tree obeys.
@@ -23,6 +23,11 @@ import { isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml";
  * events; a workflow that runs on `pull_request` but not on `merge_group`
  * would leave its check unreported in the queue (a required one would block
  * every land). The one exemption is named below with its reason.
+ *
+ * A gating workflow (one the merge queue runs) triggers unconditionally on
+ * `pull_request` and `merge_group` (no branch, type or path filter), and its
+ * `push` trigger skips no main commit: a required check it produces would
+ * otherwise stay pending on every PR a filter skips.
  *
  * Each file is READ AS YAML (the `yaml` package, the repository's one YAML
  * reader), never matched line by line: indentation, flow maps and flow lists
@@ -51,6 +56,21 @@ const PULL_REQUEST_ONLY = new Map([
   ],
 ]);
 
+/**
+ * The trigger filters a GATING workflow (one the merge queue runs) may not
+ * carry. Its required checks must report on every pull request and every
+ * merge group: a `branches`/`branches-ignore` filter (`[develop]`), a
+ * `types` filter (`[labeled]`) or a `paths`/`paths-ignore` filter leaves the
+ * check PENDING on the pull requests it skips, so they can never land. On
+ * `push` (main's post-land run) only the path and excluded-branch filters
+ * would skip a main commit; `branches: [main]` names the branch it guards.
+ */
+const GATE_FILTERS = new Map([
+  ["pull_request", ["branches", "branches-ignore", "types", "paths", "paths-ignore"]],
+  ["merge_group", ["branches", "branches-ignore", "types", "paths", "paths-ignore"]],
+  ["push", ["paths", "paths-ignore", "branches-ignore"]],
+]);
+
 /** Every workflow file of the tree, as `{ path, text }`. */
 function liveWorkflows(root = ROOT) {
   return readdirSync(join(root, WORKFLOW_DIRECTORY))
@@ -63,29 +83,56 @@ function liveWorkflows(root = ROOT) {
 }
 
 /**
- * One workflow, parsed. Answers the events it triggers on, its concurrency
- * blocks (workflow and job level, each with its line), and every reason it
- * could not be read.
+ * One workflow, parsed. Answers the events it triggers on, the path or branch
+ * filters on its `push` and `pull_request` triggers, its concurrency blocks
+ * (workflow and job level, each with its line), and every reason it could not
+ * be read.
+ *
+ * Anchors and aliases are YAML 1.2 and GitHub expands them, so an alias is
+ * resolved and judged like the node it names. A merge key (`<<`) is not: it
+ * is a YAML 1.1 extension GitHub does not support, so a workflow carrying one
+ * means something other than it appears to, and is unreadable here.
  */
 function readWorkflow({ path, text }) {
   const lines = new LineCounter();
   const document = parseDocument(text, { lineCounter: lines, uniqueKeys: true, prettyErrors: false });
   const unreadable = [];
   const at = (node) => `${path}:${String(node?.range === undefined ? 1 : lines.linePos(node.range[0]).line)}`;
+  const resolved = (node) => (isAlias(node) ? node.resolve(document) : node);
   for (const error of [...document.errors, ...document.warnings]) unreadable.push(`${path}: unreadable YAML: ${error.message.split("\n")[0]}`);
-  if (unreadable.length > 0) return { events: new Set(), blocks: [], unreadable };
-  const root = document.contents;
-  if (!isMap(root)) return { events: new Set(), blocks: [], unreadable: [`${path}: unreadable: the document is not a mapping`] };
+  if (unreadable.length > 0) return { events: new Set(), filters: [], blocks: [], unreadable };
+  visit(document, {
+    Pair(_key, pair) {
+      if (isPair(pair) && isScalar(pair.key) && pair.key.value === "<<") {
+        unreadable.push(`${at(pair.key)} unreadable: a YAML merge key (<<), which GitHub does not support`);
+      }
+    },
+  });
+  const root = resolved(document.contents);
+  if (!isMap(root)) return { events: new Set(), filters: [], blocks: [], unreadable: [...unreadable, `${path}: unreadable: the document is not a mapping`] };
 
   const events = new Set();
-  const on = root.get("on", true);
+  const filters = [];
+  const on = resolved(root.get("on", true));
   if (isScalar(on) && typeof on.value === "string") events.add(on.value);
-  else if (isSeq(on) && on.items.every((item) => isScalar(item) && typeof item.value === "string")) for (const item of on.items) events.add(item.value);
-  else if (isMap(on) && on.items.every((pair) => isScalar(pair.key))) for (const pair of on.items) events.add(String(pair.key.value));
-  else unreadable.push(`${at(on)} unreadable: \`on\` is missing or is not an event name, a list of names or a map of events`);
+  else if (isSeq(on) && on.items.map(resolved).every((item) => isScalar(item) && typeof item.value === "string")) for (const item of on.items) events.add(resolved(item).value);
+  else if (isMap(on) && on.items.every((pair) => isScalar(pair.key))) {
+    for (const pair of on.items) {
+      const event = String(pair.key.value);
+      events.add(event);
+      const settings = resolved(pair.value);
+      if (isMap(settings) && GATE_FILTERS.has(event)) {
+        for (const filter of GATE_FILTERS.get(event)) {
+          const node = settings.get(filter, true);
+          if (node !== undefined) filters.push({ event, filter, at: at(node) });
+        }
+      }
+    }
+  } else unreadable.push(`${at(on)} unreadable: \`on\` is missing or is not an event name, a list of names or a map of events`);
 
   const blocks = [];
-  const readBlock = (node, owner) => {
+  const readBlock = (raw, owner) => {
+    const node = resolved(raw);
     if (node === undefined) return;
     if (isScalar(node) && typeof node.value === "string") {
       blocks.push({ at: at(node), owner, shorthand: true });
@@ -95,14 +142,17 @@ function readWorkflow({ path, text }) {
       unreadable.push(`${at(node)} unreadable: ${owner}'s concurrency is neither a group name nor a map`);
       return;
     }
-    const value = node.toJSON();
+    const value = node.toJS(document);
     blocks.push({ at: at(node), owner, shorthand: false, group: value.group, cancel: value["cancel-in-progress"] ?? false, queue: value.queue ?? "single" });
   };
   readBlock(root.get("concurrency", true), "the workflow");
-  const jobs = root.get("jobs", true);
+  const jobs = resolved(root.get("jobs", true));
   if (!isMap(jobs)) unreadable.push(`${at(jobs)} unreadable: \`jobs\` is missing or is not a map`);
-  else for (const pair of jobs.items) if (isMap(pair.value)) readBlock(pair.value.get("concurrency", true), `job ${String(pair.key?.value)}`);
-  return { events, blocks, unreadable };
+  else for (const pair of jobs.items) {
+    const job = resolved(pair.value);
+    if (isMap(job)) readBlock(job.get("concurrency", true), `job ${String(pair.key?.value)}`);
+  }
+  return { events, filters, blocks, unreadable };
 }
 
 /** The concurrency violations of one workflow, each naming its file and line. */
@@ -130,12 +180,26 @@ function concurrencyViolations(workflow) {
   return violations;
 }
 
-/** A workflow that gates pull requests but not merge groups, or one the guard cannot read. */
+/**
+ * A workflow that gates pull requests but not merge groups, a gating
+ * workflow (one that runs in the merge queue) whose `push` or `pull_request`
+ * trigger is filtered by path or excluded branch (its required check would
+ * stay PENDING on a PR the filter skips, so the PR could never land), or one
+ * the guard cannot read.
+ */
 function mergeQueueViolations(workflow) {
-  const { events, unreadable } = readWorkflow(workflow);
+  const { events, filters, unreadable } = readWorkflow(workflow);
   if (unreadable.length > 0) return unreadable;
-  if (!events.has("pull_request") || events.has("merge_group") || PULL_REQUEST_ONLY.has(workflow.path)) return [];
-  return [`${workflow.path}: runs on pull_request but not on merge_group, so the merge queue never reports its checks`];
+  const violations = [];
+  if (events.has("merge_group")) {
+    for (const { event, filter, at } of filters) {
+      violations.push(`${at}: a gating workflow filters \`${event}\` by \`${filter}\`, so its required check stays pending on what the filter skips`);
+    }
+  }
+  if (events.has("pull_request") && !events.has("merge_group") && !PULL_REQUEST_ONLY.has(workflow.path)) {
+    violations.push(`${workflow.path}: runs on pull_request but not on merge_group, so the merge queue never reports its checks`);
+  }
+  return violations;
 }
 
 /** Literal group prefixes shared by two workflows cancel each other's pull-request runs. */
@@ -200,7 +264,7 @@ test("pull-request-only workflows are refused in every YAML spelling; near misse
     assert.match(found[0], /runs on pull_request but not on merge_group/u, shape);
   }
   const nearMisses = {
-    "both, block": "on:\n  pull_request:\n  merge_group:\n    types: [checks_requested]\njobs: {}\n",
+    "both, block": "on:\n  pull_request:\n  merge_group:\njobs: {}\n",
     "both, flow": "on: [pull_request, merge_group]\njobs: {}\n",
     "both, flow map": "on: {pull_request: {}, merge_group: {}}\njobs: {}\n",
     "comment and a job named like an event": "on:\n  push:\n    branches: [main]\n  # pull_request: commented out\njobs:\n  pull_request:\n    runs-on: x\n",
@@ -226,6 +290,55 @@ test("a workflow the reader cannot read is a violation, never a pass", () => {
     const entry = { path: ".github/workflows/unreadable.yml", text };
     const found = [...mergeQueueViolations(entry), ...concurrencyViolations(entry)];
     assert.ok(found.length > 0 && found.every((line) => line.includes("unreadable")), `${shape}: ${JSON.stringify(found)}`);
+  }
+});
+
+test("anchors and aliases are judged as the nodes they name; a merge key is unreadable", () => {
+  const aliased = {
+    "an aliased on": "x-events: &events [push, pull_request]\non: *events\njobs: {}\n",
+    "an aliased event map": "x-events: &events\n  pull_request:\non: *events\njobs: {}\n",
+  };
+  for (const [shape, text] of Object.entries(aliased)) {
+    const found = mergeQueueViolations({ path: ".github/workflows/alias.yml", text });
+    assert.equal(found.length, 1, `${shape}: ${JSON.stringify(found)}`);
+    assert.match(found[0], /runs on pull_request but not on merge_group/u, shape);
+  }
+  const aliasedGroup = `x-group: &shared\n  group: ci-\${{ github.ref }}\n  cancel-in-progress: true\non: [push, merge_group]\nconcurrency: *shared\njobs: {}\n`;
+  assert.equal(concurrencyViolations({ path: ".github/workflows/alias.yml", text: aliasedGroup }).length, 1, "an aliased cancelling group is refused");
+  const merged = {
+    "a merge key in on": "x-events: &events\n  pull_request:\non:\n  <<: *events\n  merge_group:\njobs: {}\n",
+    "a merge key in concurrency": `x-group: &shared\n  group: ci-\${{ ${JSON.stringify(PER_RUN_GROUP).slice(1, -1)} }}\non: [push, merge_group]\nconcurrency:\n  <<: *shared\njobs: {}\n`,
+    "a merge key in a job": "x-job: &job\n  runs-on: x\non: [push, merge_group]\njobs:\n  build:\n    <<: *job\n",
+  };
+  for (const [shape, text] of Object.entries(merged)) {
+    const entry = { path: ".github/workflows/merge-key.yml", text };
+    const found = [...mergeQueueViolations(entry), ...concurrencyViolations(entry)];
+    assert.ok(found.some((line) => line.includes("merge key")), `${shape}: ${JSON.stringify(found)}`);
+  }
+});
+
+test("a gating workflow never filters its pull_request or merge_group trigger, nor main's push by path", () => {
+  const planted = {
+    "paths on pull_request": "on:\n  pull_request:\n    paths: ['src/**']\n  merge_group:\njobs: {}\n",
+    "paths-ignore on push": "on:\n  push:\n    paths-ignore: ['docs/**']\n  pull_request:\n  merge_group:\njobs: {}\n",
+    "branches-ignore, flow map": "on: {pull_request: {branches-ignore: [wip]}, merge_group: {}}\njobs: {}\n",
+    "branches on pull_request": "on:\n  pull_request:\n    branches: [develop]\n  merge_group:\njobs: {}\n",
+    "types on pull_request": "on:\n  pull_request:\n    types: [labeled]\n  merge_group:\njobs: {}\n",
+    "types on merge_group": "on:\n  pull_request:\n  merge_group:\n    types: [checks_requested]\njobs: {}\n",
+    "branches on merge_group, flow": "on: {pull_request: {}, merge_group: {branches: [main]}}\njobs: {}\n",
+  };
+  for (const [shape, text] of Object.entries(planted)) {
+    const found = mergeQueueViolations({ path: ".github/workflows/gate.yml", text });
+    assert.equal(found.length, 1, `${shape}: ${JSON.stringify(found)}`);
+    assert.match(found[0], /gate\.yml:\d+: a gating workflow filters/u, shape);
+  }
+  const nearMisses = {
+    "unfiltered gate, main push named": "on:\n  push:\n    branches: [main]\n  pull_request:\n  merge_group:\njobs: {}\n",
+    "an empty settings map": "on: {pull_request: {}, merge_group: {}}\njobs: {}\n",
+    "a path-filtered workflow outside the queue": "on:\n  push:\n    paths: ['docs/**']\njobs: {}\n",
+  };
+  for (const [shape, text] of Object.entries(nearMisses)) {
+    assert.deepEqual(mergeQueueViolations({ path: ".github/workflows/near.yml", text }), [], shape);
   }
 });
 

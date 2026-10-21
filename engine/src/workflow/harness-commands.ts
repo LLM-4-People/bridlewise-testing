@@ -52,6 +52,7 @@ import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } fro
 import { syncCommunityFiles } from "./community/health-files.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
 import { acceptFrozenRecords, frozenRecordsMessage, syncFrozenRecords, type FrozenRecordsReport } from "./record-links.ts";
+import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
 import { engineAndCheckoutRoots, repositoryToplevel } from "../git/repository-ownership.ts";
 import { gitOutput, workingTreeReader } from "../git/tree-reader.ts";
 import { configuredGitRepository, configuredWorktreeGitPort } from "../git/worktree-port.ts";
@@ -131,6 +132,8 @@ export type HarnessCheckOutput = Readonly<{
   readmeConsumers: CheckStepResult;
   /** Would `harness regenerate` rewrite the decision index (a decision file's front matter changed)? */
   decisionIndex: CheckStepResult;
+  /** Would `harness regenerate` rewrite the task board (a tracker item changed)? */
+  trackerBoard: CheckStepResult;
   /** Does the checkout's live index still match its recorded baseline (src/git/index-baseline.ts)? */
   liveIndex: CheckStepResult;
   /** Is a multi-file transaction left for recovery (src/filesystem/journaled-commit.ts)? */
@@ -223,6 +226,12 @@ export type HarnessRegenerateOutput = Readonly<{
    * so a state flip in a decision never leaves its index row lying.
    */
   decisionIndex: DecisionIndexArm;
+  /**
+   * The task board (`docs/trackers/TASKS.md`'s generated block), rendered
+   * from the structured tracker items (src/workflow/failure-owners.ts
+   * `syncTrackerBoard`), so a row is always exactly its item.
+   */
+  trackerBoard: TrackerBoardReport;
   /**
    * The shipped hooks (`SHIPPED_HOOK_FILES`): every canonical hook's whole
    * text, written by its generator (`scripts/verification/shipped-hooks.ts`)
@@ -503,6 +512,9 @@ export async function harnessCheck(
     details: guardianSpecArtifact,
   }));
 
+  emitProgress(onProgress, "Checking the task board...");
+  steps.push(trackerBoardStep(syncTrackerBoard(trackedTop(root), false)));
+
   emitProgress(onProgress, "Checking the canonical artifact inventory...");
   const artifactManifest = regenerateArtifactManifest(root, false);
   steps.push(deepFreeze({
@@ -542,8 +554,9 @@ export async function harnessCheck(
     evidenceIgnore: steps[16]!,
     frozenRecords: steps[17]!,
     guardianSpecArtifact: steps[18]!,
-    artifactManifest: steps[19]!,
-    communityFiles: steps[20]!,
+    trackerBoard: steps[19]!,
+    artifactManifest: steps[20]!,
+    communityFiles: steps[21]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -917,6 +930,8 @@ export function harnessRegenerate(
   const readmeConsumers = regenerateReadmeConsumers(root, write);
   // The decision index: rebuilt from the decision files' front matter.
   const decisionIndex = regenerateDecisionIndex(root, write);
+  // The task board: rendered from the structured tracker items.
+  const trackerBoard = syncTrackerBoard(trackedTop(root), write);
   // The shipped hooks: each canonical hook's text, from its owner.
   const shippedHooks = regenerateShippedHooks(root, write);
   // The evidence ignore rule: derived from the tracked evidence manifests.
@@ -929,7 +944,7 @@ export function harnessRegenerate(
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, shippedHooks, evidenceIgnore, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -945,7 +960,7 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged && communityFiles.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged && communityFiles.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1246,6 +1261,20 @@ export function regenerateCommunityFiles(root: string, write: boolean): Communit
     if (!(error instanceof HarnessError) || !/^(?:community_|yaml_)/u.test(error.code)) throw error;
     return deepFreeze({ status: "refused" as const, converged: false, changed: [], refusal: `${error.code}: ${error.message}` });
   }
+}
+
+/** `harness check`'s task-board step: a board that differs from its items' render, or one that cannot be judged (a hand row outside its block, a missing block or items folder), FAILS the check. */
+export function trackerBoardStep(trackerBoard: TrackerBoardReport): CheckStepResult {
+  return deepFreeze({
+    step: "tracker-board",
+    status: trackerBoard.converged ? "pass" : "fail",
+    message: trackerBoard.converged
+      ? `the task board matches the tracker items${trackerBoard.status === "absent" ? " (this tree carries no tracker items)" : ""}`
+      : trackerBoard.status === "invalid"
+        ? `the task board cannot be judged: ${trackerBoard.problems.join("; ")}`
+        : `the task board is stale against the tracker items (run harness sync): ${trackerBoard.changed.join(", ")}`,
+    details: trackerBoard,
+  });
 }
 
 /** `harness check`'s frozen-records step: a frozen root whose content left its pin FAILS the check, naming each path. */
