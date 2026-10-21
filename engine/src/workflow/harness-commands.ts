@@ -1210,7 +1210,7 @@ export function evidenceIgnoreStep(evidenceIgnore: DecisionIndexArm): CheckStepR
 }
 
 /** `harness check`'s task-board step: a board that differs from its items' render FAILS the check. */
-export function trackerBoardStep(trackerBoard: DecisionIndexArm): CheckStepResult {
+function trackerBoardStep(trackerBoard: DecisionIndexArm): CheckStepResult {
   return deepFreeze({
     step: "tracker-board",
     status: trackerBoard.converged ? "pass" : "fail",

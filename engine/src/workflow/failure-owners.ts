@@ -41,6 +41,7 @@ import { join, posix } from "node:path";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
+import { schemaId } from "../kernel/product-identity.ts";
 import { TRACKER_BOARD } from "../kernel/verification-paths.ts";
 
 // ── Task rows ───────────────────────────────────────────────────────────────
@@ -205,21 +206,21 @@ export function readEntries(root: string, directory: string): readonly { readonl
 
 // ── The structured tracker items ────────────────────────────────────────────
 
-export const TRACKER_ITEM_SCHEMA = "bridlewise-tracker-item/v1";
+const TRACKER_ITEM_SCHEMA = schemaId("tracker-item", 1);
 /** An item id: upper-case words and numbers joined by hyphens; the file is `<id>.md`. */
-export const TRACKER_ITEM_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/u;
+const TRACKER_ITEM_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/u;
 /** The item types: each is the GitHub issue type its projection carries (github-only §9.2). */
-export const TRACKER_ITEM_TYPES = Object.freeze(["Workstream", "Task", "Bug", "Flake", "Lesson", "Risk", "Finding", "Security", "Intake"] as const);
-export const TRACKER_ITEM_STATES = Object.freeze(["open", "closed"] as const);
+const TRACKER_ITEM_TYPES = Object.freeze(["Workstream", "Task", "Bug", "Flake", "Lesson", "Risk", "Finding", "Security", "Intake"] as const);
+const TRACKER_ITEM_STATES = Object.freeze(["open", "closed"] as const);
 /** How a closed item closed: its projection's `state_reason`. */
-export const TRACKER_ITEM_RESOLUTIONS = Object.freeze(["completed", "not-planned", "duplicate"] as const);
-export const TRACKER_ITEM_SEVERITIES = Object.freeze(["P0", "P1", "P2", "P3"] as const);
+const TRACKER_ITEM_RESOLUTIONS = Object.freeze(["completed", "not-planned", "duplicate"] as const);
+const TRACKER_ITEM_SEVERITIES = Object.freeze(["P0", "P1", "P2", "P3"] as const);
 /**
  * The board's lanes, in board order, with their section headings (the open
  * rows of a lane; every closed row is under `DONE_HEADING`). A heading is the
  * section name the roadmap's ROADMAP-PLAN `taskSections` state rules key on.
  */
-export const TRACKER_LANES = Object.freeze({
+const TRACKER_LANES = Object.freeze({
   floor: "Open",
   "flaky-burn-down": "Flaky burn-down owners",
   "private-web": "Private web lanes (retained as ordinary work)",
