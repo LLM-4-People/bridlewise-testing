@@ -266,7 +266,7 @@ export const TIMELINE_SCRIPT = `(() => {
   const since = root.querySelector("[data-timeline-since]");
   const range = root.querySelector("input[type=range]");
   const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const list = (rows) => rows.length === 0 ? "<p class=\"floor-quiet\">No tracked change.</p>" : "<ol class=\"floor-feed\">" + rows.map((r) => "<li><a href=\"#item-" + esc(r.item) + "\">" + esc(r.item) + "</a> " + esc(r.kind) + ": " + esc(r.detail) + "</li>").join("") + "</ol>";
+  const list = (rows) => rows.length === 0 ? "<p class='floor-quiet'>No tracked change.</p>" : "<ol class='floor-feed'>" + rows.map((r) => "<li><a href='#item-" + esc(r.item) + "'>" + esc(r.item) + "</a> " + esc(r.kind) + ": " + esc(r.detail) + "</li>").join("") + "</ol>";
   fetch(root.getAttribute("data-timeline-src")).then((r) => r.json()).then((t) => {
     const last = t.commits.length - 1;
     if (last < 0) { out.textContent = "No history yet."; return; }
@@ -282,8 +282,8 @@ export const TIMELINE_SCRIPT = `(() => {
     let seen = null;
     try { seen = window.localStorage.getItem("bridlewise.roadmap.seen"); } catch (e) { seen = null; }
     const seenIndex = seen === null ? -1 : t.commits.findIndex((x) => x.sha === seen);
-    if (seen === null) since.innerHTML = "<p class=\"floor-quiet\">First visit from this browser: from now on this panel lists what changed since you last looked.</p>";
-    else if (seenIndex < 0) since.innerHTML = "<p class=\"floor-quiet\">Your last visit is older than this history.</p>";
+    if (seen === null) since.innerHTML = "<p class='floor-quiet'>First visit from this browser: from now on this panel lists what changed since you last looked.</p>";
+    else if (seenIndex < 0) since.innerHTML = "<p class='floor-quiet'>Your last visit is older than this history.</p>";
     else since.innerHTML = list(t.changes.filter((x) => x.c > seenIndex));
     try { window.localStorage.setItem("bridlewise.roadmap.seen", t.commits[last].sha); } catch (e) { /* storage refused: the panel already said what it could */ }
   }).catch(() => { out.textContent = "The history could not be loaded."; });
