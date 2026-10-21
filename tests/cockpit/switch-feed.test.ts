@@ -318,23 +318,30 @@ describe("reset preserves concurrency ownership and refuses stale feed results",
     const pending: Array<{ resolve: (value: unknown) => void; reject: (reason: Error) => void }> = [];
     const old = vi.fn(() => new Promise((resolve, reject) => pending.push({ resolve, reject })));
     setSwitchReaders({ chats: old });
-    ensureChats(["__proto__", "constructor", "never-started"]);
-    expect(old).toHaveBeenCalledTimes(2);
+    // Saturate the cap so the OLD session owns every slot the new session
+    // needs: that ownership is what the reset test is about, and its size is
+    // the constant's, never a number here.
+    const queued = Array.from({ length: Math.max(0, FEED_CONCURRENCY - 2) }, (_, i) => `queued-${i}`);
+    ensureChats(["__proto__", "constructor", ...queued]);
+    const started = FEED_CONCURRENCY;
+    expect(old).toHaveBeenCalledTimes(started);
     resetSwitchFeed();
     const next = vi.fn(async () => []);
     setSwitchReaders({ chats: next });
     ensureChats(["__proto__", "new"]);
     expect(next).not.toHaveBeenCalled();
-    expect(feedActiveCount()).toBe(2);
-    pending[0]!.resolve([]);
-    pending[1]!.reject(new Error("old failure"));
+    expect(feedActiveCount()).toBe(started);
+    pending.slice(0, started).forEach((reader, index) => {
+      if (index === 0) reader.resolve([]);
+      else reader.reject(new Error("old failure"));
+    });
     await vi.waitFor(() => expect(feedActiveCount()).toBe(0));
-    expect(old).toHaveBeenCalledTimes(2);
+    expect(old).toHaveBeenCalledTimes(started);
     expect(next).toHaveBeenCalledTimes(2);
     expect(chatsStates.get("__proto__")).toBe("loaded");
     expect(chatsStates.get("new")).toBe("loaded");
     expect(chatsStates.has("constructor")).toBe(false);
-    expect(chatsStates.has("never-started")).toBe(false);
+    for (const id of queued) expect(chatsStates.has(id)).toBe(false);
   });
 
   test("old reel reads cannot publish after reset", async () => {

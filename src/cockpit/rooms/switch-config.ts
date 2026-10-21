@@ -39,8 +39,14 @@ export const SWITCH_READ_TTL_MS = 60_000;
  * the boot chats fan-out never exceeds this bound, and the profile runs in
  * Node (Playwright), which must not import the feed's store graph to read
  * one number. `switch-feed.ts` re-exports it, so no call site moved.
+ *
+ * Six is the transport's own per-host ceiling for HTTP/1.1, so a larger cap
+ * would only move the queue into the browser. Two did move it there: the
+ * profile's 10k-project boot could not finish inside its 240s window
+ * (9,654 of 10,000 reads in the measured run), while the bound this constant
+ * exists for — no stampede — still holds at six.
  */
-export const FEED_CONCURRENCY = 2;
+export const FEED_CONCURRENCY = 6;
 
 /** Pixel window extends on both sides for continuous scrolling. */
 export const SWITCH_OVERSCAN_PX = 300;
