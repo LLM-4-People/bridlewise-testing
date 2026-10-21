@@ -40,7 +40,7 @@ Or via the Node helper (prints the absolute binary path on success):
 node guardian/build.ts
 ```
 
-Requires a C compiler (`cc`/`gcc`/`clang`) and `make`. No external deps.
+Requires `gcc-14` (the Makefile's pinned `CC`) and `make`. No external deps.
 
 ## CLI
 

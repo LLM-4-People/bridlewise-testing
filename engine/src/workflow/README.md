@@ -23,9 +23,8 @@ node src/cli.ts harness workspace list | status <id> | sweep
 
 Every command prints one JSON result (`{"result":{…}}`: the record, the
 validation report, the merge receipt) and its progress on stderr. The flow is
-stated once, in `workspace-manager.ts`'s header and in
-[WORKFLOW.md, Isolated workspaces](../../../CONTRIBUTING.md);
-the refusals and the land in
+stated once, in `workspace-manager.ts`'s header; the refusals and the land are
+in
 [MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land).
 
 - **Registry**: `<git common dir>/bridlewise/` (`repository-registry.ts`, the one derivation; the records in `workspace-registry.ts`):
@@ -72,7 +71,8 @@ source's, never a merge — `promotion/` (`profile.ts`, `projection.ts`,
 `transforms.ts`, `codes.ts`, `context.ts`, `apply.ts`, `promotion-run.ts`,
 `publication.ts`, `rollback.ts`, `trailers.ts`, `last-run.ts`, `trigger.ts`,
 `trigger-hook.ts`, `promoter-home.ts`, `promote-arguments.ts`,
-`promote-cli.ts`; its README; the runbook `CONTRIBUTING.md`). The read verbs are pure: `plan` writes objects (the derived blobs, the tree
+`promote-cli.ts`; its README; the runbook
+[MERGE-GUIDE.md](../../../docs/process/MERGE-GUIDE.md)). The read verbs are pure: `plan` writes objects (the derived blobs, the tree
 P — built in a private index of its own per call and read back before it is
 answered), the lockfile memo and per-call scratch and the target-edit patch
 under the registry's `promotion/<profile>/` area, and no ref, index or

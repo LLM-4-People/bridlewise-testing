@@ -192,9 +192,9 @@ On 2026-10-20 a clean clone at `b866b826` was put through the documented path (i
 
 The clone found three defects the working tree could not, because that tree had already been set up:
 
-1. `npm run corpus:fetch` refused a cache it had itself verified: it judged the declared root (`engine/large-codebases`), which a fresh clone has not linked, instead of the cache it would reuse. Fixed at `0e45bf58`; the fetch arm now removes the upstream before its second call, so only reuse can answer.
+1. `npm run corpus:fetch` refused a cache it had itself verified: it judged the declared corpus root, which a fresh clone has not linked, instead of the cache it would reuse. Fixed at `0e45bf58`; the fetch arm now removes the upstream before its second call, so only reuse can answer.
 2. Ten supported files (55 tests) failed until two builds ran. The Landlock guardian was never built, so every confined git read refused; the engine bundle did not exist, so the self-protection guard failed its own premise. Both are setup steps now (`5522cc3d`), and the ten files pass 205 tests with them.
-3. One documentation line named `engine/dist/bundle.js` — a gitignored path a briefing document may not spell — and the doc guard said so; the line now names the artifact by role (`b866b826`).
+3. One documentation line named the generated engine bundle path — a gitignored path a briefing document may not spell — and the doc guard said so; the line now names the artifact by role (`b866b826`).
 
 What this proves: a clean clone with the documented commands runs the public gate, the corpus-backed tests, and the whole supported suite without guessing which tests are silently missing.
 
@@ -202,9 +202,9 @@ What it does not prove: the four excluded suites (two private-only guards, the p
 
 ## Corpus boundary
 
-The 4.1 GB `engine/large-codebases` fixture root is not published. It is an assembled cache of dozens of public upstream checkouts. The cache carries mixed licenses, duplicate trees, nested Git histories, and test-only key, certificate, and environment fixtures. Publishing the cache as another public repository would redistribute third-party code under incompatible terms and would preserve historical material that a current-tree scan does not clear. The floor does not do that. The [third-party notices](https://github.com/LLM-4-People/bridlewise-testing/blob/main/THIRD_PARTY_NOTICES.md) record the boundary.
+The 4.1 GB corpus fixture root is not published. It is an assembled cache of dozens of public upstream checkouts. The cache carries mixed licenses, duplicate trees, nested Git histories, and test-only key, certificate, and environment fixtures. Publishing the cache as another public repository would redistribute third-party code under incompatible terms and would preserve historical material that a current-tree scan does not clear. The floor does not do that. The [third-party notices](https://github.com/LLM-4-People/bridlewise-testing/blob/main/THIRD_PARTY_NOTICES.md) record the boundary.
 
-To reproduce a corpus-backed test without publishing the cache, fetch the pinned subset. `engine/test/fixtures/corpus-manifest.json` names the three members the public tests read (lodash, express, babel/traverse), their upstream commits, licences, and the size and sha256 of every file. The fetch materialises only those files outside the checkout and links the result at `engine/large-codebases`:
+To reproduce a corpus-backed test without publishing the cache, fetch the pinned subset. `engine/test/fixtures/corpus-manifest.json` names the three members the public tests read (lodash, express, babel/traverse), their upstream commits, licences, and the size and sha256 of every file. The fetch materialises only those files outside the checkout and links the result at the declared corpus root:
 
 ```bash
 npm run corpus:fetch     # materialise the pinned subset and link it

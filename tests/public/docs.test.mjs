@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+
+import { checkDocsLinks } from "../../scripts/check-docs-links.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (path) => readFileSync(join(ROOT, path), "utf8");
@@ -40,4 +43,66 @@ test("the licence and community files exist", () => {
   for (const path of ["SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SUPPORT.md"]) {
     assert.ok(read(path).length > 200, `${path} must be substantive`);
   }
+});
+
+test("the docs link checker refuses an anchor no heading owns", () => {
+  // The guard used to strip `#…` before checking the file, so a link to a
+  // section that did not exist passed on the file's existence alone. This
+  // plant names a real guide and a section it does not have.
+  const root = mkdtempSync(join(tmpdir(), "bridlewise-docs-links-"));
+  try {
+    writeFileSync(join(root, "MERGE-GUIDE.md"), "# Merge and promotion guide\n\n## Real section\n");
+    writeFileSync(
+      join(root, "page.md"),
+      "[good](MERGE-GUIDE.md#real-section) [bad](MERGE-GUIDE.md#no-such-section)\n",
+    );
+    const { missing } = checkDocsLinks({ root, files: ["page.md", "MERGE-GUIDE.md"] });
+    assert.equal(missing.length, 1, `expected exactly the planted anchor to fail, got ${JSON.stringify(missing)}`);
+    assert.match(missing[0], /MERGE-GUIDE\.md#no-such-section/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the refusal list has one owner and both contributor pages point to it", () => {
+  const process = read("docs/process/AGENTS.md");
+  assert.match(process, /^## What we will not accept$/mu);
+  for (const refusal of [
+    "skips or deletes a test to make a badge green",
+    "hides a failure behind a retry, fallback, or special case",
+    "puts a real credential, private source file, or personal data in a fixture",
+    'claims a provider "supports everything" without conformance evidence',
+    "claims production readiness that the admission gates do not support",
+    "quotes a benchmark number without its method",
+  ]) {
+    assert.ok(process.includes(refusal), `the refusal owner must state: ${refusal}`);
+  }
+  for (const page of ["docs/floor/help.md", "CONTRIBUTING.md"]) {
+    assert.ok(read(page).includes("AGENTS.md#what-we-will-not-accept"), `${page} must point at the refusal owner`);
+  }
+  assert.doesNotMatch(read("docs/process/TIER1-AGENT-CONTRACT.md"), /Replace a root-cause fix with a retry/u);
+});
+
+test("test placement has one owner and the contributor pages point to it", () => {
+  assert.match(read("docs/testing.md"), /Put the test beside its subject's domain/u);
+  for (const page of ["CONTRIBUTING.md", "docs/floor/help.md"]) {
+    assert.ok(read(page).includes("docs/testing.md#adding-a-test"), `${page} must point at the placement owner`);
+  }
+  assert.doesNotMatch(read("CONTRIBUTING.md"), /Put the test beside its subject's domain/u);
+  assert.doesNotMatch(read("docs/floor/help.md"), /CONTRIBUTING\.md#test-conventions/u);
+});
+
+test("the briefing routes commit mechanics to their section and reaches the evidence page", () => {
+  const briefing = read("AGENTS.md");
+  assert.ok(briefing.includes("CONTRIBUTING.md#commit-and-pull-request-style"), "commit mechanics must link their owner");
+  assert.ok(briefing.includes("CONTRIBUTING.md#setup"), "setup must link its owner");
+  assert.doesNotMatch(briefing, /Setup, the fresh-clone gate and the commit mechanics/u);
+  assert.ok(briefing.includes("[Public evidence](docs/floor/evidence.md)"));
+  assert.ok(briefing.includes("docs/floor/evidence.md#corpus-boundary"));
+});
+
+test("the shipping page names no release workflow the tree does not hold", () => {
+  const shipping = read("docs/shipping.md");
+  assert.doesNotMatch(shipping, /`release\.yml`/u, "the tree has no .github/workflows/release.yml");
+  assert.match(shipping, /Tagging `v\*` is a release marker, not a workflow trigger/u);
 });

@@ -43,7 +43,7 @@ import {
   recordToolCall,
   sampleResourceOnce,
 } from "../../server/observability/metrics-bridge.ts";
-import { metricsHistory, setMetrics, setTokenThroughput } from "../../src/state/metrics.ts";
+import { metricsHistory, recordMetricsPoll } from "../../src/state/metrics.ts";
 import { walkTs } from "../helpers/source-scan.ts";
 import { modulePath, modulePathMatching } from "../helpers/module-resolver.ts";
 
@@ -147,16 +147,20 @@ describe("the installed source drives the exposure signals from the real bridge"
     const now = vi.spyOn(Date, "now").mockReturnValue(fixed);
     try {
       expect(getTokenThroughput().tokensPerSecond).toBeNull();
-      setTokenThroughput(getTokenThroughput());
-      setMetrics({
-        snapshotId: "absent-token-rate",
-        entryCount: 0,
-        totalCallCount: 1,
-        totalErrorCount: 0,
-        totalCancellationCount: 0,
-        entries: [],
-      } as never);
+      recordMetricsPoll({
+        snapshot: {
+          snapshotId: "absent-token-rate",
+          entryCount: 0,
+          totalCallCount: 1,
+          totalErrorCount: 0,
+          totalCancellationCount: 0,
+          entries: [],
+        } as never,
+        system: null,
+        tokens: getTokenThroughput(),
+      });
       expect(metricsHistory.get().at(-1)?.tokensPerSecond).toBeNull();
+      expect(metricsHistory.get().at(-1)?.heapUsed).toBeNull();
       // The bridge's installed source reads the same producer, so the served
       // signal is absent too — not a zero standing in for an unmeasured rate.
       expect(readSignal("performance.tokensPerSecond")).toBeNull();

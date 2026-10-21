@@ -45,7 +45,9 @@ make build
 make guardian
 ```
 
-The `release.yml` workflow repeats this gate on a `v*` tag, then publishes:
+Tagging `v*` is a release marker, not a workflow trigger: no workflow runs
+this gate for you. Run the gate above at the tagged commit, then publish the
+release with:
 
 - `bridlewise-<tag>-source.tar.gz` — the tracked source tree;
 - `bridlewise-<tag>-cockpit.tar.gz` — the built static cockpit;

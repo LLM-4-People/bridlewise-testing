@@ -61,7 +61,7 @@ A clone that skips the two build steps still passes the public smoke suite, but 
 Requirements beyond the product:
 
 - Linux with Landlock for confinement tests; WSL works with the documented caveats.
-- A C compiler and `make` for the guardian and process supervisor.
+- `gcc-14` and `make` for the guardian and process supervisor; `engine/guardian/Makefile` pins `CC := gcc-14`, so another compiler name is not a substitute (on Debian/Ubuntu: `sudo apt-get install -y gcc-14`).
 - Chromium for Playwright E2E: `npx playwright install --with-deps chromium`.
 - User systemd for the long-task-runner test.
 - `openssl` for the outbound-HTTP test.
@@ -84,13 +84,17 @@ claim with no normalisation step. A sensitive signal with no deferral bound
 is recorded as a finding, not softened.
 
 The registered non-CPU signals at the time of writing are the profile's
-measured-surface hash and instrument lock, each `webUi.performance` budget
-(the per-file collect and per-file occupancy costs, their total collect and
-total occupancy denominators, the shard weights and their measurement path
-(`testPhaseMs` and `testPhaseCpuMs` on the CI receipt), and the run-start
-ambient load the CPU verdict reads, and the server's token throughput
-(`performance.tokensPerSecond`, whose non-positive denominator is recorded
-and served as `null`, never 0). The CPU metric itself is a clearly
+measured-surface hash and instrument lock; the `web.perf.*` entries, each a
+`webUi.performance` budget (the page LCP, layout shift, long-task, tab-switch,
+typing, API-response, long-session heap and DOM growth, long-chat,
+many-projects and viewport LCP budgets); and the suite, shard and ambient
+signals the registry records as doc consumers, not budgets: the per-file collect
+and per-file occupancy costs, their total collect and total occupancy
+denominators, the shard weights and their measurement path (`testPhaseMs` and
+`testPhaseCpuMs` on the CI receipt), and the run-start ambient load the CPU
+verdict reads. The server's token throughput (`performance.tokensPerSecond`,
+whose non-positive denominator is recorded and served as `null`, never 0) is a
+doc consumer too. The CPU metric itself is a clearly
 marked placeholder while its owner changes `run-cpu.ts` and
 `budget-verdict.ts`; its final fields and load declaration are not guessed
 here.
@@ -170,7 +174,7 @@ The guardian tests exercise Landlock itself. An exit code of 3 (`landlock_unavai
 
 ## Sharding
 
-`tests/test-shards.json` is the supported-suite manifest. Its file list comes from `vitest list --filesOnly --json`, not from a second glob. It currently accounts for 527 supported files (523 measured in the `f54df4a5` shard run plus four measured on their own pending the full re-measurement; the `weightSource` names which is which, and a self-check test refuses a manifest whose prose count disagrees with its file list) and names four exclusions with a reason and evidence: the private cutover graph tool, the private frozen-record population, the generated performance report consumed by the performance regression gate, and the WSL-host keep-out arm that requires a mounted Windows profile. A live file that is neither supported nor excluded fails verification.
+`tests/test-shards.json` is the supported-suite manifest. Its file list comes from `vitest list --filesOnly --json`, not from a second glob. Its generated `weightSource` is the population record: it names the supported count, the heads the weights were measured at, and which files needed a separate measurement; a self-check test refuses a manifest whose declared count disagrees with its file list, so no page restates the count by hand. The manifest names the exclusions with a reason and evidence: the private cutover graph tool, the private frozen-record population, the generated performance report consumed by the performance regression gate, and the WSL-host keep-out arm that requires a mounted Windows profile. A live file that is neither supported nor excluded fails verification.
 
 `scripts/test-shard-manifest.mjs` owns the manifest hash, the deterministic weighted assignment, the shard report envelope, and the one weight producer. `measure` reads the wrapped shard reports of a complete green run, takes each supported file's `endTime - startTime` from the JSON reporter, and rewrites `weightMs`, `measuredHeadSha`, `measuredAt`, and `weightSource` together; it refuses a partial, duplicated, non-green, or different-manifest population. `scripts/test-shard-merge.mjs` accepts only envelopes that name the same head commit, manifest hash, assignment hash, shard count, and exact file assignment; the plan is required (`--plan`) and a measured timing window is required by default (`--require-timing` is the default), because a receipt without either names a caller's head with nothing binding the reports to it. It refuses a missing shard, a duplicate file, a failed or skipped test, a file outside the checkout, and a report from another commit. One receipt records the exact commit, shard count, runner class, manifest hash, assignment hash, per-shard file, test, pass/fail/skipped counts and timings, the excluded files with their reason and evidence anchor, the measured test-phase wall time, and summed shard duration.
 

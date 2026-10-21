@@ -77,7 +77,7 @@ import {
 } from "./state/auto-checks";
 
 import { setTools, setEnabledTools } from "./state/tools";
-import { setMetrics, setSystemMetrics, setTokenThroughput, type SystemMetrics, type TokenThroughput } from "./state/metrics";
+import { recordMetricsPoll, setMetrics, type SystemMetrics, type TokenThroughput } from "./state/metrics";
 import {
   setQualitySnapshot,
   type QualityCategoryCount,
@@ -1071,9 +1071,10 @@ export type CombinedMetricsView = Readonly<{
 
 export async function getMetrics(): Promise<MetricsSnapshot> {
   const data = await fetchJson<CombinedMetricsView>("/metrics");
-  setMetrics(data.snapshot);
-  setSystemMetrics(data.system);
-  setTokenThroughput(data.tokens);
+  // ONE poll, ONE record: the snapshot, system reading, throughput and the
+  // history point all come from this response, never from the stores the
+  // previous poll left behind.
+  recordMetricsPoll({ snapshot: data.snapshot, system: data.system, tokens: data.tokens });
   return data.snapshot;
 }
 

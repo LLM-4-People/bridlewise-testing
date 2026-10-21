@@ -48,7 +48,7 @@ If reproduction is impossible, say so explicitly. Do not present a guess as a di
 
 ### A prevention guard
 
-A guard is not just a new assertion: the [evidence rules](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/AGENTS.md#evidence) own the standard it must meet, including its failure proof, and [CONTRIBUTING](https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md#test-conventions) owns where the test goes.
+A guard is not just a new assertion: the [evidence rules](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/AGENTS.md#evidence) own the standard it must meet, including its failure proof, and the [test map](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/testing.md#adding-a-test) owns where the test goes.
 
 ### A test-floor improvement
 
@@ -87,7 +87,7 @@ Verify the example against the code, and link the source of truth. [CONTRIBUTING
 
 ## What we will not accept
 
-The [Tier 1 contract](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/TIER1-AGENT-CONTRACT.md#you-must-not) owns the refusals, and the [evidence rules](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/AGENTS.md#evidence) own what counts as evidence. The warning above is the short version for anything involving real code or data.
+The [agent process](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/AGENTS.md#what-we-will-not-accept) owns the refusals, and the [evidence rules](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/AGENTS.md#evidence) own what counts as evidence. The warning above is the short version for anything involving real code or data.
 
 ## Ask, report, or review
 
