@@ -22,8 +22,26 @@ The user's rule of 2026-10-10:
   interface, and the TypeScript version is deleted in the same round (no dual
   path, no fallback: [UR-17](UR-17-no-fallbacks.md)).
 
-What is missing: the native code in this repository is still C
-(`engine/guardian/`, including the test-process supervisor, and the
-security-qualification probes under `engine/verification/benchmarks/security/`).
-Porting it to Rust (NATIVE-ONE) is not done, and no guard yet refuses a new
-file in a third language.
+## The exceptions in the tree (checked 2026-10-21 with `git ls-files`)
+
+Under the retroactive rule ([UR-19](UR-19-every-rule-is-retroactive.md)) each
+exception is owned work, ported or removed under its issue:
+
+| Files | Language | Owned by |
+|---|---|---|
+| `engine/verification/benchmarks/code-intelligence/{inspect_existing_baseline,mcp_probe,policy_schemas,qualification}.py`, `…/code-intelligence/tests/test_qualification.py` | Python (5) | [#133](https://github.com/LLM-4-People/bridlewise-testing/issues/133) |
+| `engine/verification/benchmarks/context/{generate-scenarios,validate-suite}.py` | Python (2) | [#134](https://github.com/LLM-4-People/bridlewise-testing/issues/134) |
+| `engine/verification/benchmarks/git/{fault_transport,qualification}.py`, `…/git/tests/test_qualification.py` | Python (3) | [#135](https://github.com/LLM-4-People/bridlewise-testing/issues/135) |
+| `engine/guardian/tests/{require-pass-log,run-tests}.sh`, `engine/scripts/exp435/run-5000.sh`, `engine/verification/benchmarks/runtime/verify-node-v24.18.0-linux-x64.sh` | Shell (4) | [#136](https://github.com/LLM-4-People/bridlewise-testing/issues/136) |
+| `engine/guardian/{landlock-guardian.c,landlock-guardian.h,test-process-supervisor.c}`, `engine/guardian/tests/test_payload.c` | C (4) | [#137](https://github.com/LLM-4-People/bridlewise-testing/issues/137) (NATIVE-ONE) |
+| `engine/verification/benchmarks/security/s3-key-anchor-qualification/src/probe-{keyring,memory,mount-openat2}.c` | C (3) | [#138](https://github.com/LLM-4-People/bridlewise-testing/issues/138) |
+
+Not exceptions: the evaluation fixtures under `engine/test/fixtures/eval-projects/`
+(Python, Go, Java, Ruby) are inputs the code-intelligence evaluations read in
+other languages on purpose; they are not Bridlewise's code.
+
+## What is missing
+
+- Every exception above is still in the tree.
+- No guard yet refuses a new file in a third language
+  ([#139](https://github.com/LLM-4-People/bridlewise-testing/issues/139)).

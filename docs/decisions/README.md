@@ -63,7 +63,7 @@ check` reports it stale): change a decision's file, never its row.
 | [UR-07](UR-07-secrets-from-the-environment-only.md) | Secrets from the environment only | coordinator | superseded by D-09 |
 | [UR-08](UR-08-central-logging-at-the-lowest-choke-point.md) | Everything goes through central logging | user | partial (RC-06) |
 | [UR-09](UR-09-independent-verification-before-commit.md) | Independent verification before every commit and push | user | standing |
-| [UR-10](UR-10-one-writer-per-repository.md) | One writer per repository | user | standing |
+| [UR-10](UR-10-one-writer-per-repository.md) | One writer per repository | user | standing, amended by UR-23 |
 | [UR-11](UR-11-research-when-not-certain.md) | Research whenever you are not certain | user | standing |
 | [UR-12](UR-12-master-changes-only-through-the-promotion-door.md) | The product branch changes only through the promotion door | user | standing |
 | [UR-13](UR-13-provider-deviations-live-in-a-provider-profile.md) | Provider deviations live in a versioned provider profile | user | pending (RC-08) |
@@ -88,7 +88,7 @@ check` reports it stale): change a decision's file, never its row.
 | [D-11](D-11-isolation-tooling.md) | Isolation tooling: one workspace tool | coordinator | partial (A5-CANDIDATE-RETIRE) |
 | [D-12](D-12-authenticated-timeline.md) | The timeline drops HMAC signing; encryption at rest stays open | coordinator | partial (REQ-025) |
 | [D-13](D-13-inherited-web-reds.md) | Inherited web reds: the choices | coordinator | partial (PROMO-0) |
-| [D-14](D-14-detector-families-and-context-budget.md) | Test-drive fixes: detector families and the context budget | coordinator | pending (RC-04) |
+| [D-14](D-14-detector-families-and-context-budget.md) | Test-drive fixes: detector families and the context budget | coordinator | pending (RC-04), amended by U3 |
 | [D-15](D-15-database-key-outside-the-state-root.md) | The database key lives outside the state root; secret files are read redacted | coordinator | done |
 | [D-16](D-16-undici-owns-outbound-transport.md) | undici is the outbound door's one dispatcher | coordinator | done |
 | [D-17](D-17-measured-budgets-come-from-a-tool.md) | Measured budgets come from their measuring tool | coordinator | partial (A4-OWNED-BUDGET) |
@@ -98,8 +98,8 @@ check` reports it stale): change a decision's file, never its row.
 | [D-W4](D-W4-server-scale-items-belong-to-the-web-writer.md) | The server-side scale items belong to the web writer | coordinator | standing |
 | [D-W5](D-W5-mock-free-test-files-share-a-process.md) | Mock-free test files share a process | coordinator | pending (WEB-EFFICIENCY) |
 | [EVD-STORE](EVD-STORE-raw-evidence-in-a-content-addressed-store.md) | Code and small records in git; raw evidence in a content-addressed store | user | partial (EVIDENCE-DURABILITY) |
-| [FLAKE-REPRO](FLAKE-REPRO-a-flake-cause-needs-a-recorded-reproduction.md) | A flake cause needs a recorded reproduction | coordinator | partial (FLAKE-REPRO-REDECLARE) |
-| [INSTRUMENT-LOCK](INSTRUMENT-LOCK-the-host-has-one-instrument-lock.md) | The host has one instrument lock | coordinator | done |
+| [FLAKE-REPRO](FLAKE-REPRO-a-flake-cause-needs-a-recorded-reproduction.md) | A flake cause needs a recorded reproduction | coordinator | partial (FLAKE-REPRO-REDECLARE), amended by NO-LOAD-BLOCK |
+| [INSTRUMENT-LOCK](INSTRUMENT-LOCK-the-host-has-one-instrument-lock.md) | The host has one instrument lock | coordinator | done, amended by NO-LOAD-BLOCK |
 | [KILL-OWNED-ONLY](KILL-OWNED-ONLY-signal-only-what-you-started.md) | Signal only what you started | coordinator | done |
 | [LIVE-SUITE](LIVE-SUITE-one-live-suite-no-hermetic-skips.md) | One live suite; the hermetic suites have no skips | coordinator | done |
 | [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md) | Nothing is ever blocked by CPU load | user | pending (TEST-10X) |
@@ -129,8 +129,8 @@ check` reports it stale): change a decision's file, never its row.
 
 | Id | Decision | By | State |
 |---|---|---|---|
-| [D-R1](D-R1-stable-tool-superset.md) | A stable tool superset with a gate refusal | coordinator | superseded by U2 |
-| [D-R2](D-R2-frozen-workspace-snapshot.md) | The workspace snapshot is frozen per chat | coordinator | superseded by U1 |
+| [D-R1](D-R1-stable-tool-superset.md) | A stable tool superset with a gate refusal | coordinator | superseded by U2, amended by U2 |
+| [D-R2](D-R2-frozen-workspace-snapshot.md) | The workspace snapshot is frozen per chat | coordinator | superseded by U1, amended by U1 |
 | [D-R3](D-R3-trim-target.md) | The trim target defaults to 0.5 | coordinator | pending (RC-40) |
 | [D-R4](D-R4-cache-layout.md) | The prompt-cache layout | coordinator | pending (RC-39) |
 | [U-REASONING](U-REASONING-reasoning-replay-mode.md) | Provider profiles declare the reasoning replay mode | user | pending (RC-38) |
@@ -143,7 +143,7 @@ check` reports it stale): change a decision's file, never its row.
 | [U6](U6-memory-tiers.md) | Project-scoped recall plus an opt-in user memory tier | user | pending (MEM-8) |
 | [U7](U7-segment-summaries.md) | Segment summaries with a recent-turn floor | user | pending (RC-40) |
 | [U8](U8-append-the-tail-when-changed.md) | The tail is appended when it changes | user | pending (RC-44) |
-| [U9](U9-context-budget-is-a-ratio.md) | The context budget is a ratio of the model window | user | pending (RC-12) |
+| [U9](U9-context-budget-is-a-ratio.md) | The context budget is a ratio of the model window | user | pending (RC-12), amended by Q11 |
 
 ## Configuration, prompts and credentials
 
@@ -236,7 +236,7 @@ check` reports it stale): change a decision's file, never its row.
 | [D-W3](D-W3-offline-is-read-only.md) | Offline is read-only, with a banner | user | pending (WEB-EFFICIENCY) |
 | [D-W6](D-W6-a-remote-action-shows-a-named-in-flight-row.md) | A remote action shows a named in-flight row | user | pending (WEB-EFFICIENCY) |
 | [INTEL-DIR](INTEL-DIR-integrate-proven-codegraph-improvements.md) | Integrate the proven intelligence-codegraph improvements | user | pending (INTEL-TRANSFER) |
-| [LAB-UD](LAB-UD-docs-lab-graduation.md) | The docs-writer lab's decisions (covers LAB-D1, LAB-D2, LAB-D3, LAB-D4, LAB-D5) | user | pending (LAB-6) |
+| [LAB-UD](LAB-UD-docs-lab-graduation.md) | The docs-writer lab's decisions (covers LAB-D1, LAB-D2, LAB-D3, LAB-D4, LAB-D5) | user | pending (LAB-6), amended by BL-U2 |
 | [PROTO-ONE](PROTO-ONE-one-protocol-local-and-remote.md) | One protocol, local or remote | user | pending (AC-7) |
 | [UD-ONE-PARSER](UD-ONE-PARSER-one-parsing-owner-for-every-consumer.md) | One parsing owner for every consumer | user | pending (INTEL-L0) |
 | [UD-UI-LOCAL-FIRST](UD-UI-LOCAL-FIRST-every-click-within-ten-milliseconds.md) | Every click within ten milliseconds: a local-first UI | user | pending (WEB-EFFICIENCY) |
@@ -251,7 +251,7 @@ check` reports it stale): change a decision's file, never its row.
 | [GH-PROJECTION](GH-PROJECTION-github-always-reflects-the-harness.md) | GitHub always reflects the harness | user | partial (P5.2) |
 | [GH-U](GH-U-the-accepted-github-recommendations.md) | The accepted GitHub recommendations (covers GH-U1, GH-U3, GH-U4, GH-U5, GH-U6, GH-U7) | user | pending (P3.2) |
 | [GITHUB-200](GITHUB-200-exploit-github-fully.md) | Use GitHub fully, and make progress public automatically | user | partial (P5.3) |
-| [GITHUB-300](GITHUB-300-the-full-github-feature-catalogue.md) | GitHub as an active part of the harness: the full feature catalogue (covers GITHUB-500) | user | pending (P3.1) |
+| [GITHUB-300](GITHUB-300-the-full-github-feature-catalogue.md) | GitHub as an active part of the harness: the full feature catalogue (covers GITHUB-500) | user | partial (P3.1) |
 | [GITHUB-COMMUNITY](GITHUB-COMMUNITY-people-can-collaborate.md) | People can collaborate, help and interact | user | partial (P5.4) |
 | [GITHUB-ONLY](GITHUB-ONLY-github-is-the-only-host.md) | GitHub is the only host | user | partial (P2.1) |
 

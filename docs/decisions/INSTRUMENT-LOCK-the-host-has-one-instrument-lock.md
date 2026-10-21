@@ -6,6 +6,7 @@ group: process
 status: in-force
 implementation: done
 acted_in: [engine/src/process/instrument-lock.ts, engine/src/filesystem/file-lock.ts, engine/src/workflow/slot-cli.ts, engine/scripts/tooling/test-run-lock.ts, tests/setup/concurrency-lock.ts, engine/src/kernel/config-contracts.ts]
+amended_by: [NO-LOAD-BLOCK]
 ---
 # The host has one instrument lock
 
@@ -80,3 +81,15 @@ nothing about either tree).
 - **Fairness is open.** A waiter polls, so a holder whose next run starts at
   once can win every hand-over (INSTRUMENT-LOCK-FAIRNESS): its ordering lives
   inside the one primitive, never a second mechanism beside it.
+
+## Amended by NO-LOAD-BLOCK (2026-10-15)
+
+[NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md) changes this
+decision's rule that **a second heavy run waits**. The amended rule: nothing
+waits on, or fails because of, host CPU load. Once every judged measurement is
+load-independent (CPU work, not wall time: [Q-TX2](Q-TX2-budgets-count-cpu-work.md),
+[UI-CPU](UI-CPU-browser-gates-judged-in-cpu-work.md)), the one instrument lock
+gives way to concurrent runs under per-run caps; landings are never queued
+behind lab runs. Until that lands, the lock described above is still what the
+code does: heavy runs take it and wait for it, and this section is the
+decided change, not a built one (NO-LOAD-BLOCK is `pending`, route TEST-10X).

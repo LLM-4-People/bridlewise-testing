@@ -22,6 +22,12 @@ The user's decision B of 2026-10-21 (GITHUB DECISIONS):
   [GITHUB-200](GITHUB-200-exploit-github-fully.md)).
 - Two-factor authentication is required for the organization.
 
-What is missing: not done yet. The Apps and their manifests do not exist
-yet (P1.2), and the owner credential's removal is the setup's last user step
-(P3.9).
+## What is live (checked 2026-10-21, not asserted)
+
+- **Decided, not implemented.** Two-factor authentication is **not yet
+  required** for the organization: `gh api orgs/LLM-4-People --jq
+  .two_factor_requirement_enabled` answers `false`. Turning it on is the
+  user's own step in the first setup session.
+- The per-role Apps (door, verifier, publisher) and their manifests do not
+  exist yet (P1.2), and the owner credential is still on the development host;
+  its removal is the setup's last user step (P3.9).
