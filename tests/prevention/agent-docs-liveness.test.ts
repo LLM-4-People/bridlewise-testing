@@ -167,40 +167,6 @@ function repositoryHoldings(root: string): Holdings {
   };
 }
 
-/**
- * The `concurrency` block of a workflow file, exactly as its YAML states it:
- * the group and whether a newer run cancels the one in flight.
- */
-function workflowConcurrency(path: string): Readonly<{ group: string; cancelInProgress: boolean }> {
-  const lines = readFileSync(join(ROOT, path), "utf8").split("\n");
-  const start = lines.findIndex((line) => /^concurrency:\s*$/u.test(line));
-  // Read the block line by line: the YAML keys are the anchors, and a regex
-  // spanning them would be a proximity window no matter how it is bounded.
-  const block: string[] = [];
-  for (let index = start + 1; start >= 0 && index < lines.length; index += 1) {
-    const line = lines[index];
-    if (line === undefined || !/^[ \t]+\S/u.test(line)) break;
-    block.push(line);
-  }
-  const group = block.map((line) => /^[ \t]+group:\s*(.+?)\s*$/u.exec(line)?.[1]).find((value) => value !== undefined);
-  const cancel = block.map((line) => /^[ \t]+cancel-in-progress:\s*(true|false)\s*$/u.exec(line)?.[1]).find((value) => value !== undefined);
-  expect(group, `${path} states no concurrency group`).toBeDefined();
-  expect(cancel, `${path} states no cancel-in-progress`).toBeDefined();
-  if (group === undefined || cancel === undefined) return { group: "", cancelInProgress: false };
-  return { group: group!, cancelInProgress: cancel === "true" };
-}
-
-/** The concurrency values `docs/process/AGENTS.md` states for `workflow`, from its table row. */
-function statedConcurrency(page: string, workflow: string): Readonly<{ group: string; cancelInProgress: boolean }> | undefined {
-  const row = page.split("\n").find((line) => line.trim().startsWith(`| \`${workflow}\``));
-  if (row === undefined) return undefined;
-  const cells = row.split("|").slice(1, -1).map((cell) => cell.trim().replace(/^`|`$/gu, ""));
-  const group = cells[1];
-  const cancel = cells[2];
-  if (group === undefined || cancel === undefined) return undefined;
-  return { group, cancelInProgress: cancel === "true" };
-}
-
 describe("the agent briefing names what exists", () => {
   test("every link, path, npm script and node file in the briefing documents exists", () => {
     const holdings = repositoryHoldings(ROOT);
@@ -256,16 +222,6 @@ describe("the agent briefing names what exists", () => {
       "a fenced example importing a dead module": "```ts\nimport { gone } from \"../../server/gone.ts\";\n```",
     };
     for (const [shape, text] of Object.entries(broken)) expect(briefingViolations("docs/process/X.md", text, holdings).length, shape).toBe(1);
-  });
-
-  test("the documented cancellation rule matches the workflow files", () => {
-    const page = readDocument(ROOT, "docs/process/AGENTS.md");
-    for (const workflow of ["ci.yml", "test-shards.yml"]) {
-      const actual = workflowConcurrency(`.github/workflows/${workflow}`);
-      const stated = statedConcurrency(page, workflow);
-      expect(stated, `docs/process/AGENTS.md must state ${workflow}'s group and cancel-in-progress in its concurrency table`).toEqual(actual);
-    }
-    expect(page, "the page must say a superseded shard run is cancelled by hand").toMatch(/superseded shard run is cancelled by hand/u);
   });
 
   test("the E2E retry claim matches playwright.config.ts, and CI does not run the suite", () => {

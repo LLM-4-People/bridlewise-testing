@@ -53,21 +53,15 @@ Read the [repository briefing](../../AGENTS.md). Every change follows the
   sharded gate, the docs guards and the secret scan can fail on a tree that
   passed locally.
 - **Only a pull request's superseded run is cancelled; a `main` run never is.**
-  Each workflow's concurrency group is per ref on pull requests and per run
-  on every other event (main pushes, merge groups, schedules, dispatches):
-
-  | Workflow | `group` | `cancel-in-progress` |
-  |---|---|---|
-  | `ci.yml`, `codeql.yml`, `secret-scan.yml`, `docs-links.yml` | `<name>-${{ github.event_name == 'pull_request' && github.ref \|\| github.run_id }}` | `${{ github.event_name == 'pull_request' }}` |
-  | `test-shards.yml` | the same per-run group | `false` (its caller, `ci.yml`, cancels it) |
-  | `pages.yml` | `pages`, with `queue: max` | `false` |
-
-  A newer push to a pull request cancels its in-flight run: watch a run rather
-  than trigger beside it. GitHub's default single-slot queue cancels a
-  PENDING run when a newer one joins its group, even without
-  `cancel-in-progress`, which is why a shared group on `main` needs
-  `queue: max`. `tests/public/workflow-policy.test.mjs` refuses any other
-  shape in every workflow file.
+  On a pull request, a newer push cancels the run in flight: watch a run
+  rather than trigger beside it. Every other event (main pushes, merge
+  groups, schedules, dispatches) runs in a concurrency group of its own
+  (`github.run_id`), and a group that must stay shared (the Pages
+  deployment) queues with `queue: max`, because GitHub's default single-slot
+  queue cancels a PENDING run when a newer one joins its group, even without
+  `cancel-in-progress`. The workflow files are the one statement of the
+  values; `tests/public/workflow-policy.test.mjs` refuses any workflow that
+  could cancel a `main` run.
 - **Keep the checkout config at mode 0600.** `engine/bridlewise.config.json`
   must be 0600; the [setup commands](../../CONTRIBUTING.md#setup) include the
   repair, and the runtime refuses an insecure mode with `config_mode_insecure`
