@@ -49,7 +49,7 @@ import { execFileSync } from "node:child_process";
 import test from "node:test";
 
 import { createTempDir } from "../support/temp-dir.ts";
-import { listAllBindings } from "../../src/workflow/hash-binding-registry.ts";
+import { bindingPinRanges, listAllBindings } from "../../src/workflow/hash-binding-registry.ts";
 import { authoritiesOwedByTree, judgePinAuthorities, pinAuthorities, rederiveObjectPins } from "../../scripts/pin-authority-regeneration.ts";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
@@ -80,10 +80,16 @@ function coveredFiles(): ReadonlySet<string> {
       covered.add(authority.projection.targetPath.replace(/\\/gu, "/"));
     }
   }
-  // 4. The module registrar's own manifest.
-  covered.add("src/architecture-manifest.ts");
+  // 4. The module registrar's own manifest is NOT a whole-file exemption: the
+  //    registrar owns only each module block's `publicApi.namesSha256`, and the
+  //    registry now owns each external command's `sourceSha256`. Round 5 found
+  //    that a blanket entry here also covered the external-command pins, which
+  //    no generator rewrote. Both halves are covered per occurrence below.
   return covered;
 }
+
+/** A pin-shaped 64-hex occurrence, with the byte offset the owners locate it by. */
+type BytePinOccurrence = Readonly<{ line: number; text: string; start: number }>;
 
 /**
  * Whether a 64-hex literal is a genuine BYTE-PIN of a tracked tree file —
@@ -94,27 +100,48 @@ function coveredFiles(): ReadonlySet<string> {
  * and never reaches the auto-generator question. Only a literal that measures
  * a tracked file AND lives in a file no owner claims is a hand-maintained pin.
  */
-function bytePinOccurrences(relativePath: string, text: string): readonly string[] {
+function bytePinOccurrences(text: string): readonly BytePinOccurrence[] {
   const lines = text.split("\n");
-  const findings: string[] = [];
+  const findings: BytePinOccurrence[] = [];
+  let offset = 0;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!;
-    if (!HEX64.test(line)) continue;
+    const literal = HEX64.exec(line);
+    if (literal === null) {
+      offset += line.length + 1;
+      continue;
+    }
     // The literal must be a pin-shaped field (`sha256:`/`...Sha256:`/`fileSha256:`),
     // not a bare seed/array element. A bare string is data, not a measurement.
-    if (!/(?:^|[\s{,])(?:[A-Za-z]*[Ss]ha256|fileSha256|sourceSha256)\s*:/u.test(line)) continue;
+    if (!/(?:^|[\s{,])(?:[A-Za-z]*[Ss]ha256|fileSha256|sourceSha256)\s*:/u.test(line)) {
+      offset += line.length + 1;
+      continue;
+    }
     // The pin measures a sibling `path:` in the SAME small window that names a
     // live tracked file. Without one, the literal measures nothing local.
     const windowStart = Math.max(0, index - 6);
     const window = lines.slice(windowStart, index + 1).join("\n");
     const pathMatch = /path:\s*"([^"]+)"/u.exec(window);
-    if (pathMatch === null) continue;
-    const measured = pathMatch[1]!;
-    const measuredAbsolute = join(ROOT, measured);
-    if (!(existsSync(measuredAbsolute) && statSync(measuredAbsolute).isFile())) continue;
-    findings.push(`${relativePath}:${index + 1}: ${line.trim().slice(0, 100)}`);
+    if (pathMatch !== null) {
+      const measured = pathMatch[1]!;
+      const measuredAbsolute = join(ROOT, measured);
+      if (existsSync(measuredAbsolute) && statSync(measuredAbsolute).isFile()) {
+        findings.push({ line: index + 1, text: line.trim().slice(0, 100), start: offset + literal.index });
+      }
+    }
+    offset += line.length + 1;
   }
   return findings;
+}
+
+/**
+ * The registrar's per-module field: its `publicApi.namesSha256` on a block
+ * line. The registrar rewrites it from the module's exported-name set, so it
+ * is auto-generated even though a registry binding does not locate it.
+ */
+function isRegistrarOwnedModuleField(relativePath: string, occurrence: BytePinOccurrence): boolean {
+  return relativePath === "src/architecture-manifest.ts" &&
+    /publicApi:\s*\{[^}]*namesSha256\s*:/u.test(occurrence.text);
 }
 
 test("every sha256/byte-pin literal in source is produced by a registered auto-generator", () => {
@@ -123,13 +150,22 @@ test("every sha256/byte-pin literal in source is produced by a registered auto-g
   // nothing. The registry alone contributes 18 targets, so an empty set means
   // the owner's derivation broke.
   assert.ok(covered.size > 0, "the auto-generated covered set came back empty — a guard over nothing certifies nothing");
+  // Liveness of the narrowed architecture-manifest arm: the registry must
+  // really own the external-command pins, or the per-occurrence exemption
+  // below is a hole with a test around it.
+  const manifestPins = bindingPinRanges("src/architecture-manifest.ts", readFileSync(join(ROOT, "src/architecture-manifest.ts"), "utf8"));
+  assert.ok(manifestPins.length > 0, "the registry located no external-command pin in the architecture manifest");
 
   const handMaintained: string[] = [];
   for (const file of sourceFiles()) {
     if (covered.has(file)) continue;
     const text = readFileSync(join(ROOT, file), "utf8");
     if (!HEX64.test(text)) continue;
-    handMaintained.push(...bytePinOccurrences(file, text));
+    const ranges = file === "src/architecture-manifest.ts" ? bindingPinRanges(file, text) : [];
+    const ownedStarts = new Set(ranges.map((range) => range.start));
+    handMaintained.push(...bytePinOccurrences(text)
+      .filter((occurrence) => !ownedStarts.has(occurrence.start) && !isRegistrarOwnedModuleField(file, occurrence))
+      .map((occurrence) => `${file}:${occurrence.line}: ${occurrence.text}`));
   }
   assert.deepEqual(
     handMaintained,

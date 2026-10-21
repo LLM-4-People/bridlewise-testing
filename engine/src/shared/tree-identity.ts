@@ -247,7 +247,7 @@ export function readMeasuredSurfaceHash(repositoryRoot: string): string | null {
       // re-derives, so they hash with the pins normalized away (a restatement
       // is not a content change); every other file hashes its raw bytes.
       const digest = regenerated.has(declared)
-        ? sha256(stripRegeneratedPins(bytes.toString("utf8")))
+        ? sha256(stripRegeneratedPins(declared, bytes.toString("utf8")))
         : sha256(bytes);
       entries.push(`${declared}\u0000${digest}`);
     } catch (err) {

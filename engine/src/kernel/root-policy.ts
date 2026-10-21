@@ -709,6 +709,11 @@ const ROOT_POLICY_VALUE = {
       requiredMagicHex: "1f8b",
       requiredSidecarSchema: schemaId("rejected-binary-fixture", 1),
       validArchiveMayEstablishEvidence: false,
+      // BEGIN AUTHORED PINS
+      // The retained fixtures are byte-frozen refused evidence: their bytes are
+      // the refusal, so a generator that could re-pin them would bless a
+      // rewritten archive. The sidecar projects the same values and refuses a
+      // mismatch; these are handled by hand, on purpose.
       retainedFixtures: [
         {
           path: "verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/historical-evidence.tar.gz",
@@ -723,6 +728,7 @@ const ROOT_POLICY_VALUE = {
           reasonCode: "valid-archive-admission-suspended-unqualified-format",
         },
       ],
+      // END AUTHORED PINS
     },
     contentAddressedEvidence: {
       implementationStage: "protocol-and-synthetic-fixtures-only-production-activation-blocked",
@@ -1357,7 +1363,7 @@ const ROOT_POLICY_VALUE = {
      */
     binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "4dd94223d92dc5f8f2bf00dfa8109eecfeac90c4eff130f60c4afd2053abafe5",
+    bundleSha256: "07090eab7a02b78a86ec29e24ba51c7ff78180c9f5326cdd841fcc888413abe6",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
@@ -2008,6 +2014,11 @@ const ROOT_POLICY_VALUE = {
             "no-core-admission-authority-independently-pinning-record-locator-and-digest",
             "shell-tls-openpgp-hash-archive-bootstrap-toolchain-byte-locked-but-unadmitted",
           ],
+          // BEGIN AUTHORED PINS
+          // External artifact identities (the exact Node release archive and
+          // member this floor was qualified against). No generator in this tree
+          // re-derives an upstream download; a moved pin is a deliberate,
+          // reviewed provenance change.
           qualifiedNodeRuntimeIdentity: {
             releaseArchiveSha256:
               "55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742",
@@ -2015,6 +2026,7 @@ const ROOT_POLICY_VALUE = {
               "41a74efb34cbde5c7632cdac0cf8bd1a14d0b8d73dc1e82755014d9a9ce70f5c",
             signerFingerprint: "C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C",
           },
+          // END AUTHORED PINS
         },
       },
     },
@@ -2216,7 +2228,7 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "2bf0b7da345fb8f4c92bd6400d62cbc0d8d238ffaa22f87789fd62d80f2960b8",
+    testInventoryHash: "1b6d847749826315e463f7f84a8a69eb5c39259d63262c3695424da70f4b8536",
     testSurfaceDispositionBinding: {
       fileSha256: "89792952ec83f3450dbefcaab3c4323a630f0253a922de1023dcf1c5e5f4fc56",
       identityHash: "687f190a5271b26a76b6f998b808bd2182bc0f1b2d79174630cb9db83b4e156b",
@@ -2329,6 +2341,7 @@ const ROOT_POLICY_VALUE = {
        * refuses nothing — that is the same auto-heal that turned the rename
        * into a green run.
        */
+      // BEGIN AUTHORED PINS
       surfaceConservation: {
         /**
          * Recognizable test sources git tracks that the disposition manifest
@@ -2379,6 +2392,7 @@ const ROOT_POLICY_VALUE = {
           sha256: "8dcad5535d0b50a0f849d5dcc0e472afc8d8cb2f9d297e4cc749f28fa17f51d0",
         },
       },
+      // END AUTHORED PINS
       maximumDepth: 32,
       maximumEntries: 100_000,
       maximumAstNodes: 100_000,

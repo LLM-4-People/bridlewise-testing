@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import test from "node:test";
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
 import { DECISION_INDEX, README_CONSUMER_BLOCK } from "../../src/kernel/verification-paths.ts";
-import { generatedOutputPaths, isGenerationOnlyChange, wholesaleGeneratedPaths } from "../../src/workflow/hash-binding-registry.ts";
+import { bindingPinRanges, generatedOutputPaths, isGenerationOnlyChange, wholesaleGeneratedPaths } from "../../src/workflow/hash-binding-registry.ts";
 import { TEST_REPOSITORY_ROOT } from "../support/repository-local-temporary.ts";
+
+const ROOT = resolve(import.meta.dirname, "..", "..");
 import {
   computeMergedSinceConflicts,
   computePendingWriteSetConflicts,
@@ -79,12 +83,20 @@ test("the exempt set is what exempts a changed path from the lease", () => {
 });
 
 test("a regeneration-only change: a wholly generated output always; a pin-bearing file or a generated block only when its authored part is unchanged", () => {
+  // The pin-bearing fixture is the REAL root policy: normalization is derived
+  // from the binding registry's own locators, so a synthetic `"a"*64` literal
+  // is not a pin at all (a hand edit of one must lease the file).
   const pinBearing = "engine/src/kernel/root-policy.ts";
-  const pin = (hex: string, body: string): string => `export const P = { pin: "${hex.repeat(64)}", body: "${body}" };\n`;
-  assert.equal(isGenerationOnlyChange(pinBearing, pin("a", "x"), pin("b", "x")), true, "a re-derived pin");
-  assert.equal(isGenerationOnlyChange(pinBearing, pin("a", "x"), pin("b", "y")), false, "a hand edit beside the pin");
-  assert.equal(isGenerationOnlyChange(pinBearing, null, pin("a", "x")), false, "an added file is authored");
-  assert.equal(isGenerationOnlyChange(pinBearing, pin("a", "x"), null), false, "a deleted file is authored");
+  const realPolicy = readFileSync(join(ROOT, "src/kernel/root-policy.ts"), "utf8");
+  const bound = bindingPinRanges("src/kernel/root-policy.ts", realPolicy);
+  assert.ok(bound.length > 0, "the fixture needs a registry-bound pin to exercise the regeneration-only arm");
+  const withPin = (literal: string): string =>
+    `${realPolicy.slice(0, bound[0]!.start)}${literal}${realPolicy.slice(bound[0]!.end)}`;
+  assert.equal(isGenerationOnlyChange(pinBearing, withPin("a".repeat(64)), withPin("b".repeat(64))), true, "a re-derived pin");
+  const handEdit = `${realPolicy.replace("export type", "export type  ")}`;
+  assert.equal(isGenerationOnlyChange(pinBearing, realPolicy, handEdit), false, "a hand edit beside the pin");
+  assert.equal(isGenerationOnlyChange(pinBearing, null, withPin("a".repeat(64))), false, "an added file is authored");
+  assert.equal(isGenerationOnlyChange(pinBearing, withPin("a".repeat(64)), null), false, "a deleted file is authored");
   const readme = (prose: string, block: string): string => `# M\n${prose}\n${README_CONSUMER_BLOCK.begin}\n${block}\n${README_CONSUMER_BLOCK.end}\ntail\n`;
   assert.equal(isGenerationOnlyChange("src/m/README.md", readme("p", "a"), readme("p", "a\nb")), true, "the consumer block re-derived");
   assert.equal(isGenerationOnlyChange("src/m/README.md", readme("p", "a"), readme("q", "a")), false, "the README's prose edited");

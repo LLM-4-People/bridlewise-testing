@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { z } from "zod";
@@ -546,6 +546,19 @@ function discoverGovernedArtifactPaths(
   managedRoots: readonly string[],
 ): readonly string[] {
   const rootPath = safeRepositoryRootPathForInternalUse(root);
+  // A governed root that the package does not carry contributes no artifacts.
+  // The public development floor splits its tree: the engine package roots
+  // `traceability/` and `verification/`, while the human documentation root
+  // `docs/` sits at the repository root, outside the engine's artifact-admission
+  // root (the candidate verifier and the S1 structure check both scan the
+  // engine). Absence is a tree-shape fact here, never an empty population: if
+  // NO governed root exists the inventory would certify nothing, so that still
+  // refuses below.
+  const roots = managedRoots.map((managedRoot) => managedRoot.replace(/\/$/u, ""));
+  const presentRoots = roots.filter((managedRoot) => existsSync(join(rootPath, managedRoot)));
+  if (presentRoots.length === 0) {
+    throw new Error(`no governed artifact root exists under ${rootPath} (expected one of: ${roots.join(", ")})`);
+  }
   const paths: string[] = [];
   const visit = (relativeDirectory: string): void => {
     const absoluteDirectory = join(rootPath, relativeDirectory);
@@ -561,7 +574,7 @@ function discoverGovernedArtifactPaths(
       else throw new Error(`governed artifact special entry is forbidden: ${path}`);
     }
   };
-  for (const managedRoot of managedRoots) visit(managedRoot.replace(/\/$/u, ""));
+  for (const managedRoot of presentRoots) visit(managedRoot);
   return paths.toSorted();
 }
 

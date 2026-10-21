@@ -12,6 +12,8 @@ import { pinAuthorities } from "../../scripts/pin-authority-regeneration.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import {
+  AUTHORED_PIN_REGION,
+  bindingPinRanges,
   computeBindingHash,
   fixtureDigestBindings,
   generatedOutputPaths,
@@ -20,11 +22,15 @@ import {
   listAllBindings,
   repairAllBindings,
   repairBinding,
+  stripRegeneratedPins,
+  suiteRegeneratedPaths,
   verifyAllBindings,
   verifyBinding,
+  wholesaleGeneratedPaths,
   HASH_BINDING_REGISTRY_VERSION,
   type HashBinding,
 } from "../../src/workflow/hash-binding-registry.ts";
+import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
 
 const ROOT = process.cwd();
 
@@ -341,15 +347,19 @@ test("HashBindingRegistry: repairAllBindings repairs all stale bindings and veri
     assert.equal(before.allMatch, false);
     assert.ok(before.mismatched > 0);
 
+    // A binding whose TARGET is not in this fixture tree is not applicable
+    // (the registry's own rule). The external-command bindings target
+    // `src/architecture-manifest.ts`, which this fixture does not carry.
+    const applicable = listAllBindings().filter((binding) => existsSync(join(tmpRoot, binding.targetPath)));
     const report = repairAllBindings(tmpRoot, { write: true });
-    assert.equal(report.totalBindings, listAllBindings().length + fixtureDigestBindings(tmpRoot).length);
+    assert.equal(report.totalBindings, applicable.length + fixtureDigestBindings(tmpRoot).length);
     assert.ok(report.repairedCount > 0, `expected repairs, got ${report.repairedCount}`);
     assert.equal(report.errorCount, 0, `unexpected errors: ${report.results.map((r) => r.error).filter(Boolean).join(", ")}`);
     assert.equal(report.allMatch, true);
 
     const after = verifyAllBindings(tmpRoot);
     assert.equal(after.allMatch, true, `still mismatched: ${after.results.filter((r) => !r.matches).map((r) => r.id).join(", ")}`);
-    assert.equal(after.matched, listAllBindings().length);
+    assert.equal(after.matched, applicable.length);
   } finally {
     rmSync(tmpRoot, { recursive: true, force: true });
   }
@@ -772,6 +782,118 @@ test("the guardian anchor is a reproducible stamp over sealed sources with one c
     const removed = verifyBinding(tmpRoot, binding);
     assert.equal(removed.matches, false, "a removed pin must refuse");
     assert.match(removed.error ?? "", /hash literal not found/u);
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+const HEX_64_GLOBAL = /[0-9a-f]{64}/gu;
+
+/** The literal offsets inside every declared `AUTHORED PIN` region of `text`. */
+function authoredPinRanges(text: string): readonly Readonly<{ start: number; end: number }>[] {
+  const ranges: Array<Readonly<{ start: number; end: number }>> = [];
+  let from = 0;
+  for (;;) {
+    const opened = text.indexOf(AUTHORED_PIN_REGION.begin, from);
+    if (opened < 0) return ranges;
+    const closed = text.indexOf(AUTHORED_PIN_REGION.end, opened + AUTHORED_PIN_REGION.begin.length);
+    assert.ok(closed > opened, "an AUTHORED PINS region is unterminated");
+    const body = text.slice(opened, closed);
+    for (const match of body.matchAll(HEX_64_GLOBAL)) {
+      ranges.push({ start: opened + match.index!, end: opened + match.index! + match[0].length });
+    }
+    from = closed + AUTHORED_PIN_REGION.end.length;
+  }
+}
+
+test("HashBindingRegistry: pin normalisation is owner-derived — a regenerated binding pin is generation-only, an authored root-policy pin is a source edit", () => {
+  const policyPath = "engine/src/kernel/root-policy.ts";
+  const policyText = readFileSync(join(ROOT, "src/kernel/root-policy.ts"), "utf8");
+  const bound = bindingPinRanges("src/kernel/root-policy.ts", policyText);
+  assert.ok(bound.length >= 8, `root-policy must carry its registered binding pins, located ${bound.length}`);
+  const replaceAt = (text: string, start: number, end: number, literal: string): string =>
+    `${text.slice(0, start)}${literal}${text.slice(end)}`;
+  const boundChange = replaceAt(policyText, bound[0]!.start, bound[0]!.end, "0".repeat(64));
+  assert.equal(
+    isGenerationOnlyChange(policyPath, policyText, boundChange),
+    true,
+    "a binding-owned pin restated by its generator is regeneration-only",
+  );
+  const authored = authoredPinRanges(policyText);
+  assert.ok(authored.length >= 1, "root-policy must declare its authored refusal pins");
+  const authoredChange = replaceAt(policyText, authored[0]!.start, authored[0]!.end, "0".repeat(64));
+  assert.equal(
+    isGenerationOnlyChange(policyPath, policyText, authoredChange),
+    false,
+    "a hand edit of an authored pin is a source edit, never an exempt regeneration",
+  );
+  // The blanket normaliser is gone: only the located literals are replaced.
+  const stripped = stripRegeneratedPins(policyPath, policyText);
+  assert.equal([...stripped.matchAll(/<regenerated-pin>/gu)].length, bound.length);
+  assert.equal(
+    [...stripped.matchAll(HEX_64_GLOBAL)].length,
+    [...policyText.matchAll(HEX_64_GLOBAL)].length - bound.length,
+    "every authored literal survives normalization",
+  );
+});
+
+test("HashBindingRegistry: every 64-hex literal in a suite-regenerated TypeScript module is binding-owned or in a declared AUTHORED PINS region", () => {
+  const modules = [...suiteRegeneratedPaths()]
+    .filter((path) => path.startsWith("engine/") && path.endsWith(".ts") && !wholesaleGeneratedPaths().has(path));
+  assert.ok(modules.length > 0, "the suite-regenerated module population came back empty — a guard over nothing certifies nothing");
+  for (const repositoryPath of modules) {
+    const targetPath = repositoryPath.slice("engine/".length);
+    const text = readFileSync(join(ROOT, targetPath), "utf8");
+    const ownedStarts = new Set(bindingPinRanges(targetPath, text).map((range) => range.start));
+    const authoredStarts = new Set(authoredPinRanges(text).map((range) => range.start));
+    for (const match of text.matchAll(HEX_64_GLOBAL)) {
+      assert.ok(
+        ownedStarts.has(match.index!) || authoredStarts.has(match.index!),
+        `${repositoryPath}:64-hex literal ${match[0].slice(0, 12)}… at offset ${String(match.index)} is neither a registered binding pin nor inside an AUTHORED PINS region`,
+      );
+    }
+  }
+});
+
+test("HashBindingRegistry: every published architecture external command's sourceSha256 is a derived, unique binding", () => {
+  const manifestPath = "src/architecture-manifest.ts";
+  const manifest = readFileSync(join(ROOT, manifestPath), "utf8");
+  const published = ARCHITECTURE_MANIFEST.externalCommands.filter((command) => command.publication === "published");
+  assert.ok(published.length > 0, "the manifest declares no published external command — this guard would be vacuous");
+  const bindings = listAllBindings().filter((binding) => binding.targetPath === manifestPath);
+  assert.equal(bindings.length, published.length, "one registry binding per published external command");
+  for (const command of published) {
+    const binding = bindings.find((entry) => entry.id === `architecture-external-command-${command.id}-source-sha256`);
+    assert.ok(binding, `missing binding for ${command.path}`);
+    const matches = [...manifest.matchAll(new RegExp(binding!.findRegex!, "gu"))];
+    assert.equal(matches.length, 1, `${binding!.id} must locate exactly one literal`);
+    assert.equal(matches[0]![0], command.sourceSha256, `${binding!.id} locates the declared pin`);
+    assert.equal(computeBindingHash(ROOT, binding!), command.sourceSha256, `${binding!.id} is current against the source`);
+  }
+});
+
+test("HashBindingRegistry: a published external command source edit reds its derived binding, and repair re-derives the declared pin", () => {
+  const command = ARCHITECTURE_MANIFEST.externalCommands.find((entry) => entry.publication === "published");
+  assert.ok(command, "the manifest must declare a published external command for this arm");
+  const binding = listAllBindings().find((entry) => entry.id === `architecture-external-command-${command!.id}-source-sha256`);
+  assert.ok(binding, "the command's pin must be a derived binding");
+  const tmpRoot = makeTempRoot();
+  try {
+    const sourceBytes = "def main():\n    return 0\n";
+    writeRelative(tmpRoot, command!.path, sourceBytes);
+    writeRelative(
+      tmpRoot,
+      "src/architecture-manifest.ts",
+      `export const MANIFEST = { externalCommands: [\n  {\n    id: "${command!.id}",\n    path: "${command!.path}",\n    sourceSha256: "${command!.sourceSha256}",\n  },\n] };\n`,
+    );
+    const drifted = verifyBinding(tmpRoot, binding!);
+    assert.equal(drifted.matches, false, "an edited source must red its binding");
+    assert.equal(drifted.expected, sha256(sourceBytes), "the expected literal is the edited source's digest");
+    assert.equal(drifted.actual, command!.sourceSha256, "the actual literal is the declared manifest pin");
+    const repaired = repairBinding(tmpRoot, binding!);
+    assert.equal(repaired.repaired, true, "the binding repair re-derives the pin");
+    assert.ok(readFileSync(join(tmpRoot, "src/architecture-manifest.ts"), "utf8").includes(sha256(sourceBytes)));
+    assert.equal(verifyBinding(tmpRoot, binding!).matches, true, "the repaired pin matches the source");
   } finally {
     rmSync(tmpRoot, { recursive: true, force: true });
   }

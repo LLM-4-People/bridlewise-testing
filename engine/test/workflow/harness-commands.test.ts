@@ -13,6 +13,7 @@ import {
   runBundleBuildStep,
   regenerateReadmeConsumers,
   harnessNewModule,
+  runInventoryCheck,
   wrapCommandError,
   runHarnessCli,
   HARNESS_SUBCOMMANDS,
@@ -31,7 +32,7 @@ import { createTempDir } from "../support/temp-dir.ts";
 import { relaxSafeReadFloorForThisFile } from "../support/test-env-helpers.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import { ROOT_POLICY as ROOT_POLICY_AT_LOAD } from "../../src/kernel/root-policy.ts";
-import { README_CONSUMER_BLOCK } from "../../src/kernel/verification-paths.ts";
+import { README_CONSUMER_BLOCK, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import {
   createRepositoryWorkingCopy,
   engineGeneratorPopulation,
@@ -400,6 +401,64 @@ test("HarnessCommands: harnessCheck architecture step detects drift", async () =
 test("HarnessCommands: harnessCheck inventory step checks inventory hash", async () => {
   const result = await checkInventoryOnly();
   assert.ok(["pass", "fail", "skip"].includes(result.result.inventory.status));
+});
+
+test("HarnessCommands: the inventory check asks the owning generator — an emptied inventory with its hash preserved is refused", () => {
+  const copy = createRepositoryWorkingCopy("inventory-owner-check-", { include: engineGeneratorPopulation });
+  const engine = copy.engineRoot;
+  try {
+    const inventoryPath = join(engine, VERIFICATION_PATHS.testInventory);
+    const original = readFileSync(inventoryPath, "utf8");
+    const parsed = JSON.parse(original) as { inventoryHash: string; tests: unknown[] };
+    assert.ok(parsed.tests.length > 0, "the fixture inventory must carry tests for the emptied arm to mean anything");
+    // The copy starts from whatever the checked-in inventory says; converge it
+    // through its owner first, so this test is about the emptied arm and not
+    // about the checkout's own freshness.
+    execFileSync(process.execPath, [join(engine, "scripts", "test-inventory.ts"), "--write"], { cwd: engine, stdio: "pipe" });
+    assert.equal(runInventoryCheck(engine).status, "pass", "the copy's own inventory is current after its generator ran");
+    // THE DEFECT'S EXACT SHAPE: empty the entries, keep the self-declared hash.
+    // The old step compared that hash with the root-policy pin — the same value
+    // — and passed. The owner refuses an inventory with no entries.
+    writeFileSync(inventoryPath, `${JSON.stringify({ ...parsed, tests: [] })}\n`);
+    const refused = runInventoryCheck(engine);
+    assert.equal(refused.status, "fail", "an emptied inventory must be refused by the commit gate");
+    assert.match(refused.message, /test inventory|Too small|invalid/iu, `the refusal names the owner's reason: ${refused.message}`);
+    // A malformed entry is refused too, not just the empty array.
+    writeFileSync(inventoryPath, `${JSON.stringify({ ...parsed, tests: [{ bogus: true }] })}\n`);
+    assert.equal(runInventoryCheck(engine).status, "fail", "a malformed entry is refused by the owner");
+    writeFileSync(inventoryPath, original);
+  } finally {
+    removeRepositoryLocalTemporaryDirectory(copy.root);
+  }
+});
+
+test("HarnessCommands: the published guardian spec-schema artifact is gated — a schema edit reds until its owner refreshes it", async () => {
+  const copy = createRepositoryWorkingCopy("guardian-spec-freshness-", { include: engineGeneratorPopulation });
+  const engine = copy.engineRoot;
+  try {
+    const options = { skipTypecheck: true, skipArchitecture: true, skipInventory: true } as const;
+    const baseline = await harnessCheck(engine, options);
+    assert.equal(baseline.result.guardianSpecArtifact.status, "pass", "the checked-in artifact is a fresh projection");
+    const schemaPath = join(engine, "src", "filesystem", "self-protection", "self-protection-contracts.ts");
+    const source = readFileSync(schemaPath, "utf8");
+    const mutated = source.replace(
+      "abi_version_hint: z.number().int().nonnegative().max(64),",
+      "abi_version_hint: z.number().int().nonnegative().max(63),",
+    );
+    assert.notEqual(mutated, source, "the mutation must change the schema");
+    writeFileSync(schemaPath, mutated);
+    const drifted = await harnessCheck(engine, options);
+    // THE EVIDENCE THAT THE OLD GATE WAS VACUOUS: the file-sha256 binding still
+    // passes, because the published artifact and its root-policy pin are stale
+    // TOGETHER. Only a rebuild of the projection sees the contract drift.
+    assert.equal(drifted.result.hashBindings.status, "pass", "artifact and pin agree with each other, not with the schema");
+    assert.equal(drifted.result.guardianSpecArtifact.status, "fail", "a schema change must red the check");
+    const generator = join(engine, "scripts", "verification", "guardian-spec-artifact.ts");
+    execFileSync(process.execPath, [generator, "--write"], { cwd: engine, stdio: "pipe" });
+    execFileSync(process.execPath, [generator, "--check"], { cwd: engine, stdio: "pipe" });
+  } finally {
+    removeRepositoryLocalTemporaryDirectory(copy.root);
+  }
 });
 
 test("HarnessCommands: harnessTest structured JSON has correct fields", async () => {

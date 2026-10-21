@@ -11,7 +11,7 @@ import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { resignTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES } from "../kernel/verification-paths.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { currentConfigContractArtifact, generateAutoGeneratorReport, type AutoGeneratorReport } from "./auto-generator.ts";
@@ -141,6 +141,10 @@ export type HarnessCheckOutput = Readonly<{
   evidenceIgnore: CheckStepResult;
   /** Does every file under a frozen record root hold the content its pinned manifest records (src/workflow/record-links.ts)? */
   frozenRecords: CheckStepResult;
+  /** Does the published guardian spec-schema artifact equal a fresh projection of GUARDIAN_SPEC_SCHEMA (scripts/verification/guardian-spec-artifact.ts)? */
+  guardianSpecArtifact: CheckStepResult;
+  /** Does the canonical artifact inventory equal a fresh build over the governed roots (scripts/tooling/artifact-manifest.ts)? */
+  artifactManifest: CheckStepResult;
   allPassed: boolean;
 }>;
 
@@ -227,6 +231,27 @@ export type HarnessRegenerateOutput = Readonly<{
   evidenceIgnore: DecisionIndexArm;
   /** The frozen record roots' pinned content (`ROOT_POLICY.verification.frozenRecordManifest`, src/workflow/record-links.ts). */
   frozenRecords: DecisionIndexArm;
+  /**
+   * The guardian spec-schema artifact, rebuilt from the live Zod schema
+   * (`scripts/verification/guardian-spec-artifact.ts`) BEFORE the binding
+   * repair re-pins its sha256, so a schema edit converges in one pass.
+   */
+  guardianSpecArtifact: Readonly<{
+    status: "current" | "regenerated" | "stale";
+    sha256: string;
+    path: string;
+  }>;
+  /**
+   * The canonical important-artifact inventory, rebuilt from the governed
+   * roots' repository listing (`scripts/tooling/artifact-manifest.ts`). Last,
+   * because every other arm above may have rewritten a governed file.
+   */
+  artifactManifest: Readonly<{
+    status: "current" | "regenerated" | "stale";
+    entries: number;
+    policyHash: string;
+    integrityHash: string;
+  }>;
 }>;
 
 /** What a whole-file or block generator arm did (the decision index, the shipped hooks): `changed` is what a write rewrote, or what a check found stale. */
@@ -443,6 +468,28 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the frozen record roots' pinned content...");
   steps.push(frozenRecordsStep(syncFrozenRecords(trackedTop(root), false)));
 
+  emitProgress(onProgress, "Checking the guardian spec-schema artifact...");
+  const guardianSpecArtifact = regenerateGuardianSpecArtifact(root, false);
+  steps.push(deepFreeze({
+    step: "guardian-spec-artifact",
+    status: guardianSpecArtifact.status === "current" ? "pass" : "fail",
+    message: guardianSpecArtifact.status === "current"
+      ? "the published guardian spec-schema artifact is a fresh projection of GUARDIAN_SPEC_SCHEMA"
+      : "the published guardian spec-schema artifact is stale against GUARDIAN_SPEC_SCHEMA (run harness sync)",
+    details: guardianSpecArtifact,
+  }));
+
+  emitProgress(onProgress, "Checking the canonical artifact inventory...");
+  const artifactManifest = regenerateArtifactManifest(root, false);
+  steps.push(deepFreeze({
+    step: "artifact-manifest",
+    status: artifactManifest.status === "current" ? "pass" : "fail",
+    message: artifactManifest.status === "current"
+      ? `the canonical artifact inventory matches the governed roots (${String(artifactManifest.entries)} artifacts)`
+      : "the canonical artifact inventory is stale against the governed roots (run harness sync)",
+    details: artifactManifest,
+  }));
+
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
     typecheck: steps[0]!,
@@ -463,6 +510,8 @@ export async function harnessCheck(
     shippedHooks: steps[15]!,
     evidenceIgnore: steps[16]!,
     frozenRecords: steps[17]!,
+    guardianSpecArtifact: steps[18]!,
+    artifactManifest: steps[19]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -789,6 +838,10 @@ export function harnessRegenerate(
   // the same pattern as regenerateTestInventory below. Read-only mode never
   // mutates the manifest, so the step is skipped there.
   const dispositionAutoAdd = autoAddDispositionEntries(root, write, options.prune ?? []);
+  // The guardian spec-schema artifact, BEFORE the first binding repair: its
+  // published bytes are what `selfProtection.specSchemaArtifactSha256` pins,
+  // so refreshing the artifact and re-pinning it must happen in that order.
+  const guardianSpecArtifact = regenerateGuardianSpecArtifact(root, write);
   // Repair hash bindings so the disposition binding is current before the
   // test-inventory generation validates it. Then regenerate the test
   // inventory (which atomically writes the inventory file AND updates the
@@ -838,7 +891,11 @@ export function harnessRegenerate(
   const evidenceIgnore = regenerateEvidenceIgnore(root, write);
   // The frozen roots' pinned content: a change there is a manifest change the diff shows.
   const frozenRecords = syncFrozenRecords(trackedTop(root), write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, shippedHooks, evidenceIgnore, frozenRecords });
+  // The canonical artifact inventory, LAST: every governed file the arms above
+  // rewrote (a README in a governed root, the test inventory, the traces) must
+  // be at its final bytes before its digest is recorded.
+  const artifactManifest = regenerateArtifactManifest(root, write);
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, shippedHooks, evidenceIgnore, frozenRecords, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -854,7 +911,9 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged &&
+        (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
+        (artifactManifest.status === "current" || artifactManifest.status === "regenerated")
       ? "pass" : "fail")
     : undefined;
   return wrapResult("regenerate", output, status === undefined ? {} : { status });
@@ -1007,6 +1066,51 @@ function regenerateTestInventory(root: string, write: boolean): Readonly<{
  * converged by absence inside the driver), so it must never live under a
  * declared testing-only folder.
  */
+/**
+ * The guardian spec-schema artifact arm, as a subprocess like the other
+ * builder-layer arms: the runtime must not import the slice-projection builder
+ * (it pulls the trace machinery), and the artifact's one owner
+ * (`buildGuardianSpecSchemaArtifact`) lives there. A tree without the script
+ * (a product-only package?) still reports a named error rather than passing.
+ */
+function regenerateGuardianSpecArtifact(root: string, write: boolean): HarnessRegenerateOutput["guardianSpecArtifact"] {
+  const report = generatorReport<"current" | "stale" | "written">(
+    root,
+    "scripts/verification/guardian-spec-artifact.ts",
+    [write ? "--write" : "--check"],
+    "the guardian spec-schema artifact",
+    "guardian_spec_artifact_no_result",
+  );
+  return deepFreeze({
+    status: report.allCurrent ? "current" as const : write ? "regenerated" as const : "stale" as const,
+    sha256: typeof report.sha256 === "string" ? report.sha256 : "",
+    path: typeof report.path === "string" ? report.path : "",
+  });
+}
+
+/**
+ * The canonical artifact-inventory arm, as a subprocess (the artifact
+ * admission builder reads the safe repository reader and the artifact
+ * governance policy; the runtime must not carry that builder graph). It
+ * compares the committed manifest with a fresh build over the governed roots'
+ * repository listing, and writes only when the document changed.
+ */
+function regenerateArtifactManifest(root: string, write: boolean): HarnessRegenerateOutput["artifactManifest"] {
+  const report = generatorReport<"current" | "stale" | "missing" | "written">(
+    root,
+    "scripts/tooling/artifact-manifest.ts",
+    [write ? "--write" : "--check"],
+    "the canonical artifact inventory",
+    "artifact_manifest_no_result",
+  );
+  return deepFreeze({
+    status: report.allCurrent ? "current" as const : write ? "regenerated" as const : "stale" as const,
+    entries: typeof report.entries === "number" ? report.entries : 0,
+    policyHash: typeof report.policyHash === "string" ? report.policyHash : "",
+    integrityHash: typeof report.integrityHash === "string" ? report.integrityHash : "",
+  });
+}
+
 function regeneratePinAuthorities(root: string, write: boolean): Readonly<{
   status: "current" | "regenerated";
   converged: boolean;
@@ -1613,23 +1717,51 @@ function runArchitectureCheck(root: string): CheckStepResult {
   }
 }
 
-function runInventoryCheck(root: string): CheckStepResult {
+/**
+ * The inventory arm of `harness check`.
+ *
+ * ── IT ASKS THE OWNER, NOT THE INVENTORY ABOUT ITSELF ─────────────────────
+ *
+ * This step used to parse only the inventory's top-level `inventoryHash` and
+ * compare it with `ROOT_POLICY.verification.testInventoryHash`. Both sides are
+ * the same value by construction (the inventory generator writes the policy
+ * pin), so the step compared a value to itself: an inventory emptied to zero
+ * tests with its hash preserved passed the commit gate, while the owner
+ * (`node scripts/test-inventory.ts --check`) refused it. The same shape hid a
+ * stale source hash in the checked-in inventory.
+ *
+ * The step now runs THE OWNER as a subprocess (the builder layer owns the
+ * inventory; the runtime must not import it, and a second weaker derivation
+ * here would be a second owner). `--check` re-parses the file against the
+ * strict schema, rebuilds the inventory from the test sources and compares
+ * bytes, so empty/duplicate/malformed entries and stale source hashes all
+ * refuse. A product-only tree carries no test surface and answers with the
+ * guided skip.
+ */
+export function runInventoryCheck(root: string): CheckStepResult {
+  if (!testSurfacePresent(root)) return skipStep("inventory");
   try {
-    const inventoryPath = resolve(root, VERIFICATION_PATHS.testInventory);
-    if (!existsSync(inventoryPath)) {
-      return deepFreeze({ step: "inventory", status: "fail", message: "test inventory file not found", details: null });
-    }
-    const fileBytes = readFileSync(inventoryPath, "utf8");
-    const parsed = JSON.parse(fileBytes) as { inventoryHash?: string };
-    const currentHash = ROOT_POLICY.verification.testInventoryHash;
-    const fileHash = typeof parsed.inventoryHash === "string" ? parsed.inventoryHash : sha256(fileBytes);
+    const stdout = runScriptSubprocess(root, "scripts/test-inventory.ts", ["--check"], 180_000);
+    const parsed = JSON.parse(stdout) as {
+      inventoryHash: string;
+      status: string;
+      testCount: number;
+      transactionPresent: boolean;
+    };
+    const current = parsed.status === "current" && parsed.transactionPresent === false;
     return deepFreeze({
       step: "inventory",
-      status: fileHash === currentHash ? "pass" : "fail",
-      message: fileHash === currentHash ? "inventory hash matches root policy" : "inventory hash has drifted",
-      details: deepFreeze({ fileHash, currentHash }),
+      status: current ? "pass" : "fail",
+      message: current
+        ? `the test inventory matches the test-source projection (${String(parsed.testCount)} tests, ${parsed.inventoryHash.slice(0, 12)}…)`
+        : parsed.transactionPresent
+          ? "a test-inventory transaction is left for recovery (run the inventory owner's --recover)"
+          : "the test inventory is stale against the test sources or the root-policy pin (run harness sync)",
+      details: parsed,
     });
   } catch (error) {
+    // The owner refused before it could emit a status payload (empty, duplicate
+    // or malformed entries): its typed refusal is the answer, never a pass.
     const message = error instanceof Error ? error.message : "inventory check failed";
     return deepFreeze({ step: "inventory", status: "fail", message, details: null });
   }

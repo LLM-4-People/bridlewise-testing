@@ -12,6 +12,7 @@ import { S3_OFFLINE_FORENSIC_HASH } from "../forensics/offline-forensics.ts";
 import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
 import { ownedFiles } from "../git/repository-ownership.ts";
+import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
 
 /**
  * Central hash-binding registry — the single source of truth for every
@@ -168,6 +169,44 @@ const REGEX_META = /[.*+?^${}()|[\]\\]/gu;
 
 function escapeForRegex(literal: string): string {
   return literal.replace(REGEX_META, "\\$&");
+}
+
+/**
+ * The architecture manifest's EXTERNAL COMMAND SOURCE PINS, derived from the
+ * manifest's own declarations instead of hand-kept beside them.
+ *
+ * `externalCommands[].sourceSha256` is a byte-lock of a tracked
+ * `verification/` source. The module registrar rewrites only the per-module
+ * fields (`exportCount`/`namesSha256`/`dependencies`/`compositionRoot`), so
+ * these pins had no generator at all: appending one line to a benchmark
+ * command left `harness check` green ("architecture manifest is in sync"),
+ * `harness register --write` clean, while `verifyArchitectureSources` reported
+ * `architecture-external-command-source-hash-drift`. A source change now
+ * re-derives through `harness sync` (the file-sha256 binding repair) or reds
+ * the hash-bindings step of `harness check`.
+ *
+ * Only `publication: "published"` commands are bound: a `not-published`
+ * command's source is deliberately absent, and a binding for it would report
+ * every check as an error instead of the verifier's named boundary.
+ */
+function externalCommandSourceBindings(): readonly HashBinding[] {
+  return ARCHITECTURE_MANIFEST.externalCommands
+    .filter((command) => command.publication === "published")
+    .map((command) => ({
+      id: `architecture-external-command-${command.id}-source-sha256`,
+      description: `${command.path} bytes -> src/architecture-manifest.ts externalCommands[${command.id}].sourceSha256`,
+      sourcePath: command.path,
+      sourceOrigin: { kind: "repository-source" } as const,
+      targetPath: "src/architecture-manifest.ts",
+      targetKind: "typescript" as const,
+      hashMode: { kind: "file-sha256" } as const,
+      // Anchored on the command's unique id, tempered so NO other command id
+      // may appear between the two anchors: this command's own `sourceSha256`
+      // is the only literal the lookbehind can reach. A plain bounded gap was
+      // ambiguous once several commands fit inside it (each later pin then had
+      // this id somewhere before it).
+      findRegex: String.raw`(?<=id: "${escapeForRegex(command.id)}"(?:(?!id: ")[\s\S]){0,2000}?sourceSha256: ")${SHA256_HEX}(?=")`,
+    }));
 }
 
 const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
@@ -427,6 +466,7 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     hashMode: { kind: "file-sha256" },
     findRegex: String.raw`(?<=specSchemaArtifactSha256: ")${SHA256_HEX}(?=")`,
   },
+  ...externalCommandSourceBindings(),
 ]);
 
 export function listAllBindings(): readonly HashBinding[] {
@@ -477,6 +517,8 @@ const GENERATED_ARCHITECTURE_MANIFEST = `engine/${ROOT_POLICY.universalPolicyArc
 const GENERATED_CONFIG_SCHEMA_ARTIFACT = `engine/${ROOT_POLICY.configuration.contract.generatedSchemaPath}`;
 /** The guardian spec schema artifact, repository-relative: written by the bundle build from the spec schema. */
 const GENERATED_SPEC_SCHEMA_ARTIFACT = `engine/${ROOT_POLICY.selfProtection.specSchemaArtifactPath}`;
+/** The canonical important-artifact inventory, repository-relative: rebuilt from the governed roots by `scripts/tooling/artifact-manifest.ts`. */
+const GENERATED_ARTIFACT_MANIFEST = `engine/${ROOT_POLICY.artifactGovernance.canonicalInventory}`;
 
 /**
  * THE WHOLLY GENERATED OUTPUTS, repository-relative: the subset of
@@ -492,7 +534,14 @@ const GENERATED_SPEC_SCHEMA_ARTIFACT = `engine/${ROOT_POLICY.selfProtection.spec
  * (the merged tree's own sources decide its bytes).
  */
 export function wholesaleGeneratedPaths(): ReadonlySet<string> {
-  return new Set([GENERATED_TEST_INVENTORY, GENERATED_ARCHITECTURE_MANIFEST, GENERATED_CONFIG_SCHEMA_ARTIFACT, GENERATED_SPEC_SCHEMA_ARTIFACT, ...SHIPPED_HOOK_PATHS]);
+  return new Set([
+    GENERATED_TEST_INVENTORY,
+    GENERATED_ARCHITECTURE_MANIFEST,
+    GENERATED_CONFIG_SCHEMA_ARTIFACT,
+    GENERATED_SPEC_SCHEMA_ARTIFACT,
+    GENERATED_ARTIFACT_MANIFEST,
+    ...SHIPPED_HOOK_PATHS,
+  ]);
 }
 
 /** The shipped hooks (repository-relative), each written whole by its generator (`SHIPPED_HOOK_FILES.generator`). */
@@ -533,6 +582,12 @@ function generatedOutputPathsOfReadmes(readmes: readonly string[]): ReadonlySet<
     // spec schema: a generated output like the others, so a candidate's
     // regenerated copy is its own, never a source edit.
     GENERATED_SPEC_SCHEMA_ARTIFACT,
+    // The canonical important-artifact inventory a synchronise pass rebuilds
+    // from the governed roots' repository listing
+    // (`scripts/tooling/artifact-manifest.ts`). Its whole text is generated
+    // (ids, digests, origins, policy hash), so it is never leasable and a
+    // candidate re-derives it instead of merging a copy.
+    GENERATED_ARTIFACT_MANIFEST,
     // The ratchet baselines a regenerate pass prunes against their guards'
     // scans (`scripts/verification/ratchet-baselines.ts`; already
     // repository-relative).
@@ -588,24 +643,155 @@ export function pinnedBuildOutputPaths(): readonly string[] {
 }
 
 /**
- * The regenerated-pin literal's shape, global-matched for normalization: every
- * 64-hex literal in a suite-regenerated file is a pin the suite re-derives
- * from the tree, so comparing (or hashing) such a file with the pin literals
- * intact judges the re-derivation as a content change. The anchored
- * whole-string validation of the same digest shape is owned by the integrity
- * module; this is the find-all variant the normalizer needs.
+ * A 64-hex literal the registry (or a declared pin authority) re-derives from
+ * the tree, located inside a target file's text by that owner's own locator.
  */
-const REGENERATED_PIN_SHAPE = /[0-9a-f]{64}/g;
+export type BindingPinRange = Readonly<{ literal: string; start: number; end: number }>;
+
+const SHA256_LITERAL = /^[0-9a-f]{64}$/u;
+const HEX_64_GLOBAL = /[0-9a-f]{64}/gu;
 
 /**
- * Replace every 64-hex pin literal with a stable marker, so two blobs (or two
- * versions of one blob) that differ only in their regenerated pins compare
- * equal. Scoped by the CALLER to files in `suiteRegeneratedPaths()` — a pin
- * literal in any other file is an authored value, and normalizing it would
- * blind every comparison that consumes this normalization.
+ * The in-source declaration of a region whose 64-hex literals are AUTHORED
+ * refusal pins (a value that MUST NOT be auto-repaired: a pin a generator can
+ * rewrite refuses nothing). The normalizer already leaves them alone because
+ * it only rewrites registry-bound literals; the guard in
+ * `test/verification/hash-binding-registry.test.ts` reads these markers so a
+ * new unowned literal in a suite-regenerated module cannot hide beside them.
+ * Declared in place, never as a list of literal values elsewhere (a second
+ * copy of a pin is a second owner).
  */
-export function stripRegeneratedPins(text: string): string {
-  return text.replace(REGENERATED_PIN_SHAPE, "<regenerated-pin>");
+export const AUTHORED_PIN_REGION = deepFreeze({
+  begin: "// BEGIN AUTHORED PINS",
+  end: "// END AUTHORED PINS",
+} as const);
+
+/** One target file's owned literal ranges, derived from the bindings that target it. */
+export function bindingPinRanges(targetPath: string, text: string): readonly BindingPinRange[] {
+  const ranges: BindingPinRange[] = [];
+  for (const binding of listAllBindings()) {
+    if (binding.targetPath !== targetPath) continue;
+    if (binding.targetKind === "typescript") {
+      if (binding.findRegex === undefined) continue;
+      let pattern: RegExp;
+      try {
+        pattern = new RegExp(binding.findRegex, "gu");
+      } catch {
+        continue;
+      }
+      for (const match of text.matchAll(pattern)) {
+        if (!SHA256_LITERAL.test(match[0]) || match.index === undefined) continue;
+        ranges.push({ literal: match[0], start: match.index, end: match.index + match[0].length });
+      }
+      continue;
+    }
+    // A JSON binding names the value by its path. Resolve it from THIS text
+    // (the target's current literal, never a static import), then locate the
+    // one `"<leaf>": "<value>"` pair that carries it. An ambiguous locator is
+    // left un-normalized rather than guessed at.
+    let value: unknown;
+    try {
+      value = jsonValueAtPath(JSON.parse(text), binding.jsonPath ?? []);
+    } catch {
+      continue;
+    }
+    if (typeof value !== "string" || !SHA256_LITERAL.test(value)) continue;
+    const leaf = binding.jsonPath?.at(-1);
+    if (leaf === undefined) continue;
+    const matches = [...text.matchAll(new RegExp(`"${escapeForRegex(leaf)}"\\s*:\\s*"${value}"`, "gu"))];
+    if (matches.length !== 1 || matches[0]!.index === undefined) continue;
+    const start = matches[0]!.index + matches[0]![0].lastIndexOf(value);
+    ranges.push({ literal: value, start, end: start + value.length });
+  }
+  return deepFreeze(dedupePinRanges(ranges));
+}
+
+function jsonValueAtPath(root: unknown, jsonPath: readonly string[]): unknown {
+  let current = root;
+  for (const key of jsonPath) {
+    if (Array.isArray(current)) {
+      const index = Number(key);
+      if (!Number.isSafeInteger(index)) return undefined;
+      current = current[index];
+    } else if (typeof current === "object" && current !== null) {
+      current = (current as Record<string, unknown>)[key];
+    } else {
+      return undefined;
+    }
+    if (current === undefined) return undefined;
+  }
+  return current;
+}
+
+function dedupePinRanges(ranges: readonly BindingPinRange[]): readonly BindingPinRange[] {
+  const byStart = new Map<number, BindingPinRange>();
+  for (const range of ranges) {
+    if (!byStart.has(range.start)) byStart.set(range.start, range);
+  }
+  return [...byStart.values()].toSorted((left, right) => left.start - right.start);
+}
+
+/** Whether `targetPath` (engine-relative) is a registered source-authority file. */
+function isPinAuthorityTarget(targetPath: string): boolean {
+  return (Object.values(PIN_AUTHORITY_PATHS) as readonly string[]).includes(targetPath);
+}
+
+/**
+ * The `{path, byteLength, sha256}` pin literals the pin-authority driver
+ * re-derives in a source-authority file (its structural locator keys on the
+ * `sha256` field, so this normalizer does too).
+ */
+function pinAuthorityRanges(text: string): readonly BindingPinRange[] {
+  return [...text.matchAll(/sha256\s*:\s*"([0-9a-f]{64})"/gu)].map((match) => ({
+    literal: match[1]!,
+    start: match.index! + match[0].indexOf(match[1]!),
+    end: match.index! + match[0].indexOf(match[1]!) + match[1]!.length,
+  }));
+}
+
+/**
+ * Replace the literals a generated file's OWNERS re-derive with a stable
+ * marker, so two blobs that differ only in regenerated pins compare equal.
+ *
+ * ── IT IS DERIVED, NOT BLANKET ──────────────────────────────────────────
+ *
+ * This used to replace EVERY 64-hex literal in a suite-regenerated file. A
+ * suite-regenerated module also carries AUTHORED values (root policy's
+ * retained-fixture hashes, its runtime-identity pins, its surface-conservation
+ * refusal pins; the requirements registry's historical append provenance), and
+ * a change to one of those was judged `isGenerationOnlyChange` — exempting it
+ * from the lease, write-set, merged-since and promotion checks. A hand edit of
+ * an authored pin is a source edit.
+ *
+ * The population is now the owners' own locators:
+ * - a TypeScript target: each binding's `findRegex`, its exact match only;
+ * - a JSON data target: every literal (the whole document is generated data
+ *   re-derived by the slice-projection build, and its binding locators are
+ *   dynamic — the s2 fixture digests are declared by the trace itself);
+ * - a registered pin-authority file: the `sha256` fields its driver rewrites.
+ *
+ * A literal no owner locates is left intact, so an authored change is visible
+ * to every consumer of this normalization.
+ */
+export function stripRegeneratedPins(path: string, text: string): string {
+  const targetPath = path.startsWith("engine/") ? path.slice("engine/".length) : path;
+  const owningBindings = listAllBindings().filter((binding) => binding.targetPath === targetPath);
+  let ranges: readonly BindingPinRange[];
+  if (owningBindings.some((binding) => binding.targetKind === "json")) {
+    ranges = [...text.matchAll(HEX_64_GLOBAL)].map((match) => ({
+      literal: match[0],
+      start: match.index!,
+      end: match.index! + match[0].length,
+    }));
+  } else {
+    ranges = bindingPinRanges(targetPath, text);
+  }
+  if (isPinAuthorityTarget(targetPath)) ranges = [...ranges, ...pinAuthorityRanges(text)];
+  let stripped = text;
+  for (const range of [...ranges].sort((left, right) => right.start - left.start)) {
+    stripped = `${stripped.slice(0, range.start)}<regenerated-pin>${stripped.slice(range.end)}`;
+  }
+  return stripped;
 }
 
 /** The text with the body of every `begin`…`end` block blanked (the markers stay; an unterminated block is left as it is). */
@@ -630,7 +816,7 @@ function blankBlocks(text: string, begin: string, end: string): string {
  */
 function stripGeneratedParts(path: string, text: string): string {
   const pinBearing = suiteRegeneratedPaths().has(path) || Object.values(PIN_AUTHORITY_PATHS).some((pinned) => `engine/${pinned}` === path);
-  return GENERATED_BLOCKS.reduce((current, block) => blankBlocks(current, block.begin, block.end), pinBearing ? stripRegeneratedPins(text) : text);
+  return GENERATED_BLOCKS.reduce((current, block) => blankBlocks(current, block.begin, block.end), pinBearing ? stripRegeneratedPins(path, text) : text);
 }
 
 /**

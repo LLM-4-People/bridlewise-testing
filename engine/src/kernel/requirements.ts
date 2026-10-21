@@ -115,6 +115,9 @@ const CURRENT_APPEND_PROVENANCE = deepFreeze({
   derivedControl: { id: "DER-043", sourceStartLine: 1_608, sourceEndLine: 1_616 },
   globalGate: { ordinal: 42, sourceLine: 1_618 },
 });
+// BEGIN AUTHORED PINS
+// Append-projection history: each digest records the projection AS IT WAS at a
+// past append. A regenerator that rewrote one would erase the audit trail.
 const CURRENT_APPEND_PROJECTION_SHA256 =
   "bd1a5fc4c8f910115808ac6e18522c85428debac4386e02f9a2e874633a33e6a";
 const PRIOR_056_APPEND_PROJECTION_SHA256 =
@@ -127,6 +130,7 @@ const PRIOR_053_APPEND_PROJECTION_SHA256 =
   "f9f816afc6be1975907ea8cb2ce6cd7060f61f355f4f440fbae7e1e0b166ddde";
 const PRIOR_052_APPEND_PROJECTION_SHA256 =
   "fcbac2004152472e55ea12fa5e24b6c8324b49df45eab940068baecd11c6a14e";
+// END AUTHORED PINS
 
 const SOURCE_PROVENANCE = z.strictObject({
   sourceArtifactSha256: HEX_SHA256,
@@ -311,6 +315,10 @@ export const REQUIREMENTS_REGISTRY_FILE_SHA256 =
 export const REQUIREMENTS_REGISTRY_SOURCE_SHA256 =
   "6e11948810734e09b100246ac169328e27908f08fa24265b476ec33602849495";
 export const REQUIREMENTS_REGISTRY_SOURCE_PATH = "traceability/canonical/harness-requirements.md";
+// BEGIN AUTHORED PINS
+// Prior source-artifact digests are the registry's superseded history: they
+// answer "what did row N measure against at append K". Regeneration must never
+// rewrite them; a changed source is a new append, not a re-pin.
 const REQUIREMENTS_REGISTRY_PRIOR_056_SOURCE_SHA256 =
   "41b1075de1f1e893c01d10f3ad6af3dcf04acd333fbb622c7f28c113d534d418";
 const REQUIREMENTS_REGISTRY_PRIOR_055_SOURCE_SHA256 =
@@ -355,6 +363,7 @@ const REQUIREMENTS_REGISTRY_PREVIOUS_APPEND_SOURCE_SHA256 =
   "59ffcda1d433770c37d7201eeb244d23950a76ee7c606ba7db75db4b03f28a79";
 const REQUIREMENTS_REGISTRY_BASE_SOURCE_SHA256 =
   "769663cd46b34d1c9936e2d353de97ce3bd4ee27e16425ee86e39fef94fe1204";
+// END AUTHORED PINS
 const REQUIREMENTS_SOURCE_BYTE_LENGTH = 356_996;
 const REQUIREMENTS_SOURCE_LINE_COUNT = 1_628;
 const REQUIREMENTS_PRIOR_056_SOURCE_LINE_COUNT = 1_585;
@@ -380,6 +389,10 @@ const REQUIREMENTS_PRIOR_034_SOURCE_LINE_COUNT = 789;
 const REQUIREMENTS_PREVIOUS_APPEND_SOURCE_LINE_COUNT = 747;
 const REQUIREMENTS_BASE_SOURCE_LINE_COUNT = 677;
 
+// BEGIN AUTHORED PINS
+// Row-set digests were measured by the private append tool and are retained as
+// the public snapshot's frozen ledger: there is no public generator that can
+// re-derive them from a private history, so a re-pin would be a fabrication.
 export const REQUIREMENTS_REGISTRY_ROW_SET_HASHES = deepFreeze({
   req001Through029Sha256: "e786206c758fdfc9e0edbeaedad6907f2dc9d362506e3a419d7517d675fc9d51",
   usr001Through029Sha256: "4c20e7aa5096edb719a9e4672165a6779c37c01e46ae508a5bf050e29d8245d7",
@@ -418,6 +431,7 @@ export const REQUIREMENTS_REGISTRY_ROW_SET_HASHES = deepFreeze({
   usr001Through056Sha256: "0a4f295727745012409d8cb880a5a24b395b9a73e99c4768dbaa55cb0054a734",
   usr001Through057Sha256: "4e30c5dc2326c52f1db44c33d68a2e7f74337dc30d64328ec5595cf8e2d91b40",
 });
+// END AUTHORED PINS
 
 export const GENERATED_REQUIREMENTS_REGISTRY_SCHEMA = deepFreeze(z.toJSONSchema(
   REQUIREMENTS_REGISTRY_SCHEMA,

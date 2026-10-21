@@ -22,7 +22,7 @@ import {
   type SafeRepositoryRootAccess,
 } from "../scripts/verification/safe-repository-reader.ts";
 import { HarnessError } from "../src/kernel/errors.ts";
-import { canonicalJson, sha256 } from "../src/kernel/integrity.ts";
+import { canonicalHash, canonicalJson, sha256 } from "../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
 import {
   createQualifiedRepositoryLocalTemporaryDirectory,
@@ -661,3 +661,28 @@ function safePathExists(path: string): boolean {
     return false;
   }
 }
+
+test("the canonical artifact inventory is current: a fresh build over this tree's governed roots equals the committed bytes", () => {
+  // THE ROUND-5 DEFECT: the inventory had no producer and no gate. Its
+  // policyHash described the private floor's old policy, 272 violations were
+  // filtered away by the S1 baseline, and every check passed because nothing
+  // built the document. This test asks the owner for the tree's current bytes
+  // (the SAME generatedAt the committed document records, so the comparison is
+  // about content, not the clock) and requires byte equality.
+  const manifestPath = join(REPOSITORY_ROOT, "traceability/artifacts/manifest.json");
+  const committed = readFileSync(manifestPath, "utf8");
+  const parsed = JSON.parse(committed) as { generatedAt: string };
+  const built = withSeparateTestRepositoryRootReadAccess((access) => buildArtifactAdmissionManifest({
+    root: access,
+    generatedAt: parsed.generatedAt,
+    previousManifest: parsed,
+  }));
+  assert.equal(`${canonicalJson(built)}\n`, committed, "the committed inventory must equal a fresh build over the governed roots");
+  assert.equal(built.policyHash, canonicalHash(ROOT_POLICY.artifactGovernance), "the inventory carries the canonical policy hash, not a stale one");
+  assert.ok(built.entries.length > 0, "the inventory must cover the governed roots (an empty population certifies nothing)");
+  assert.equal(built.entries.length, new Set(built.entries.map((entry) => entry.path)).size, "every artifact is inventoried once");
+  // THE GATE IS NOT VACUOUS: changing one governed byte makes the owner's build
+  // disagree with the committed document, so the freshness arm has a subject.
+  const first = built.entries[0]!;
+  assert.match(first.integrity.sha256, /^[0-9a-f]{64}$/u);
+});
