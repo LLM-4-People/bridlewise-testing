@@ -52,20 +52,22 @@ Read the [repository briefing](../../AGENTS.md). Every change follows the
   starting the next task. A green local run is not a green pull request: the
   sharded gate, the docs guards and the secret scan can fail on a tree that
   passed locally.
-- **Cancel a superseded run.** The push-time workflows group their runs by
-  ref, with a deliberate difference:
+- **Only a pull request's superseded run is cancelled; a `main` run never is.**
+  Each workflow's concurrency group is per ref on pull requests and per run
+  on every other event (main pushes, merge groups, schedules, dispatches):
 
   | Workflow | `group` | `cancel-in-progress` |
   |---|---|---|
-  | `ci.yml` | `ci-${{ github.ref }}` | `true` |
-  | `test-shards.yml` | `test-shards-${{ github.ref }}` | `false` |
+  | `ci.yml`, `codeql.yml`, `secret-scan.yml`, `docs-links.yml` | `<name>-${{ github.event_name == 'pull_request' && github.ref \|\| github.run_id }}` | `${{ github.event_name == 'pull_request' }}` |
+  | `test-shards.yml` | the same per-run group | `false` (its caller, `ci.yml`, cancels it) |
+  | `pages.yml` | `pages`, with `queue: max` | `false` |
 
-  A second push or a re-run cancels the in-flight `ci.yml` run: watch a run
-  rather than trigger beside it. A newer `test-shards.yml` run does not
-  displace the in-progress one: while it is still `pending`, both sit in the
-  same group, and a superseded shard run is cancelled by hand
-  (`gh run cancel <id>`). When you supersede a run on purpose, cancel the
-  older one by hand.
+  A newer push to a pull request cancels its in-flight run: watch a run rather
+  than trigger beside it. GitHub's default single-slot queue cancels a
+  PENDING run when a newer one joins its group, even without
+  `cancel-in-progress`, which is why a shared group on `main` needs
+  `queue: max`. `tests/public/workflow-policy.test.mjs` refuses any other
+  shape in every workflow file.
 - **Keep the checkout config at mode 0600.** `engine/bridlewise.config.json`
   must be 0600; the [setup commands](../../CONTRIBUTING.md#setup) include the
   repair, and the runtime refuses an insecure mode with `config_mode_insecure`
