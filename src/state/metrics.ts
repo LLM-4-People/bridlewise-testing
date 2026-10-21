@@ -178,7 +178,7 @@ export type MetricsHistoryPoint = Readonly<{
   readonly tokensPerSecond: number;
   readonly totalCalls: number;
   readonly totalErrors: number;
-  readonly loadAverage1m: number;
+  readonly loadAverage1m: number | null;
   readonly heapUsed: number;
   readonly eventLoopUtil: number;
 }>;
@@ -206,7 +206,7 @@ export function setMetrics(snapshot: MetricsSnapshot): void {
     tokensPerSecond: tp?.tokensPerSecond ?? 0,
     totalCalls: snapshot.totalCallCount,
     totalErrors: snapshot.totalErrorCount,
-    loadAverage1m: sys?.loadAverage1m ?? 0,
+    loadAverage1m: sys?.loadAverage1m ?? null,
     heapUsed: sys?.memory.heapUsed ?? 0,
     eventLoopUtil: sys?.eventLoop.utilization ?? 0,
   });

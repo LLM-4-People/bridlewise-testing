@@ -2708,7 +2708,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "performance-diagnostic-modes", path: "src/performance/diagnostic-modes.ts", realm: "runtime",
       layer: "infrastructure", owner: "performance-observability",
       publicApi: { exportCount: 13, namesSha256: "d85e4eee6d38441718e14cc7b1863252c9b2cb705b58029d11b79b51dadc7cdb" },
-      dependencies: ["../shared/constants.ts","node:fs","node:os","node:perf_hooks","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/performance/performance-config.ts","src/process/process-facts.ts","src/shared/debug/debug-system.ts"],
+      dependencies: ["../shared/constants.ts","node:fs","node:os","node:perf_hooks","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/performance/performance-config.ts","src/process/process-facts.ts","src/shared/ambient-load.ts","src/shared/debug/debug-system.ts"],
       executionBoundary: "effect-adapter", effects: ["filesystem-read", "process-status"],
       ports: { requires: ["performance-config"], provides: ["diagnostic-modes"] },
       responsibilities: [
@@ -4647,7 +4647,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-shared-budget-verdict", path: "src/shared/budget-verdict.ts", realm: "shared", layer: "domain",
-      owner: "shared-abort-signals", publicApi: { exportCount: 34, namesSha256: "e636272b6aaf7f91d74313bed2d8c194f1342ee1c60dc8f7dd22c171a9756d35" },
+      owner: "shared-abort-signals", publicApi: { exportCount: 35, namesSha256: "a114809c047b93ee3ce4499f8eab005c2422012b0c3f300f074b9ca92167f58a" },
       dependencies: [],
     }),
     moduleContract({
@@ -5753,7 +5753,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-shared-test-costs", path: "src/shared/test-costs.ts", realm: "shared", layer: "domain",
       owner: "shared-abort-signals", publicApi: { exportCount: 9, namesSha256: "ad3bc2190af43122fcbfd058fa833ba484fbace3939a4d1b2983f74d2cb7c927" },
-      dependencies: [],
+      dependencies: ["src/shared/budget-verdict.ts"],
     }),
   ],
 });

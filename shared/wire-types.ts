@@ -229,8 +229,10 @@ export type SystemMetrics = Readonly<{
   capturedAt: string;
   processUptimeMs: number;
   osUptimeMs: number;
-  cpuCount: number;
-  loadAverage1m: number;
+  /** The OS CPU count, or null when it could not be read. */
+  cpuCount: number | null;
+  /** The 1-minute load average, or null when the host did not report one. */
+  loadAverage1m: number | null;
   memory: Readonly<{
     rss: number;
     heapUsed: number;

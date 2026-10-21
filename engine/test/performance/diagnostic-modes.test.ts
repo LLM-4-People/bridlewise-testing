@@ -28,7 +28,7 @@ test("diagnostic-modes: CPU snapshot has shared attribution", () => {
   assert.equal(snap.attribution, "shared");
   assert.ok(snap.processUserMs >= 0);
   assert.ok(snap.processSystemMs >= 0);
-  assert.ok(snap.cpuCount > 0);
+  assert.ok(snap.cpuCount === null || snap.cpuCount > 0);
 });
 
 test("diagnostic-modes: memory snapshot has exact attribution", () => {
@@ -204,9 +204,11 @@ test("diagnostic-modes: each declared mode has correct mode field", () => {
 test("diagnostic-modes: cpu snapshot has load averages", () => {
   const runner = createDiagnosticRunner({ config: makePerfConfig() });
   const snap = runner.run("cpu").snapshot as CpuDiagnosticSnapshot;
-  assert.ok(typeof snap.loadAvg1 === "number");
-  assert.ok(typeof snap.loadAvg5 === "number");
-  assert.ok(typeof snap.loadAvg15 === "number");
+  // A readable host reports numbers; an unreadable one reports null. The
+  // snapshot must never invent a zero for an absent reading.
+  for (const leg of [snap.loadAvg1, snap.loadAvg5, snap.loadAvg15]) {
+    assert.ok(leg === null || typeof leg === "number");
+  }
 });
 
 test("diagnostic-modes: cpu snapshot has model and speed", () => {

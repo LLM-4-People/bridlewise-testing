@@ -46,6 +46,7 @@ import {
   BUDGET_POPULATION_ARM,
   baselineLine,
   baselineNote,
+  provenanceLine,
   ambientInflationFraction,
   COLLECT_TAIL_SHARE_MAX,
   MIN_COVERAGE_FRACTION,
@@ -209,6 +210,7 @@ describe("a summary that IS evidence is judged", () => {
     expect(contended.kind).toBe("measured");
     if (idle.kind !== "measured" || contended.kind !== "measured") return;
 
+    if (contended.totalOccupancyMs === null || idle.totalOccupancyMs === null) throw new Error("both readings recorded a pool total");
     const wallGrowth = contended.wallClockMs / idle.wallClockMs - 1;
     const occupancyGrowth = contended.totalOccupancyMs / idle.totalOccupancyMs - 1;
     const judgedGrowth = contended.cpuMsPerTestFile / idle.cpuMsPerTestFile - 1;
@@ -1298,25 +1300,72 @@ describe("per-file occupancy — the share, and the denominator it needs", () =>
     );
     expect(v.kind).toBe("measured");
     if (v.kind !== "measured") return;
-    expect(v.slowestFiles[0]!.ms / v.totalOccupancyMs).toBeGreaterThan(0.05);
+    expect(v.totalOccupancyMs).not.toBeNull();
+    expect(v.slowestFiles[0]!.ms / (v.totalOccupancyMs ?? 0)).toBeGreaterThan(0.05);
   });
 
-  test("a summary predating the pool total reports 0 — a denominator the gate must refuse", () => {
-    // Zero is not "the pool took no time". It is "this reporter never said",
+  test("a summary predating the pool total reports NULL — a denominator the gate must refuse, never a fabricated zero", () => {
+    // Null is not "the pool took no time". It is "this reporter never said",
     // and dividing by it would manufacture a verdict out of a missing field.
     const s = goodSummary();
     delete s.totalOccupancyMs;
     const v = judgeRuntimeBudget(s, OPTS);
     expect(v.kind).toBe("measured");
     if (v.kind !== "measured") return;
-    expect(v.totalOccupancyMs).toBe(0);
+    expect(v.totalOccupancyMs).toBeNull();
+    expect(provenanceLine(v)).toContain("pool occupancy not measured");
   });
 
   test("a non-finite pool total is treated as absent, not as a number", () => {
     const v = judgeRuntimeBudget(goodSummary({ totalOccupancyMs: "lots" }), OPTS);
     expect(v.kind).toBe("measured");
     if (v.kind !== "measured") return;
-    expect(v.totalOccupancyMs).toBe(0);
+    expect(v.totalOccupancyMs).toBeNull();
+  });
+
+  test("unmeasured ambient legs and totals are carried as absence and printed as such, never as -1 or 0", () => {
+    const v = judgeRuntimeBudget(goodSummary({
+      totalCollectMs: null,
+      totalOccupancyMs: null,
+      load1PerCpuAtStart: null,
+      load5PerCpuAtStart: null,
+      load15PerCpuAtStart: null,
+    }), OPTS);
+    expect(v.kind).toBe("measured");
+    if (v.kind !== "measured") return;
+    expect(v.totalCollectMs).toBeNull();
+    expect(v.totalOccupancyMs).toBeNull();
+    expect(v.load1PerCpuAtStart).toBeNull();
+    expect(v.load5PerCpuAtStart).toBeNull();
+    expect(v.load15PerCpuAtStart).toBeNull();
+    const line = provenanceLine(v);
+    expect(line).toContain("pool occupancy not measured");
+    expect(line).toContain("ambient load not measured/cpu");
+    expect(line).toContain("5-minute leg not measured/cpu");
+    expect(line).not.toContain("-1");
+    expect(line).not.toContain("/cpu (5-minute leg 0");
+  });
+
+  test("the historical -1 sentinel is absence, not a measured reading", () => {
+    // The old readers wrote -1 for an unreadable leg, and -1 is FINITE, so a
+    // finite-number check alone lets it through as a measurement: the
+    // provenance line printed "-1/cpu" and the ledger kept it. A measurement
+    // magnitude cannot be negative.
+    const v = judgeRuntimeBudget(goodSummary({
+      totalCollectMs: -1,
+      totalOccupancyMs: -1,
+      load1PerCpuAtStart: -1,
+      load5PerCpuAtStart: -1,
+      load15PerCpuAtStart: -1,
+    }), OPTS);
+    expect(v.kind).toBe("measured");
+    if (v.kind !== "measured") return;
+    expect(v.totalCollectMs).toBeNull();
+    expect(v.totalOccupancyMs).toBeNull();
+    expect(v.load1PerCpuAtStart).toBeNull();
+    expect(v.load5PerCpuAtStart).toBeNull();
+    expect(v.load15PerCpuAtStart).toBeNull();
+    expect(provenanceLine(v)).not.toContain("-1");
   });
 });
 
@@ -1602,6 +1651,24 @@ describe("the run-history ledger — the judged runs the rolling baseline reads"
     };
     expect(raw.runs[0]!.wallClockMs).toBe(79_830);
     expect(raw.runs[0]!.totalOccupancyMs).toBe(795_900);
+
+    // A legacy row's -1 sentinel is absence too. -1 is finite, so the parse
+    // used to keep it as a reading; the ledger then held "unreadable" as a
+    // number that every future window would average.
+    appendJudgedRun({
+      ...record(4),
+      ambientLoadPerCpu: -1,
+      ambientLoad5PerCpu: -1,
+      ambientLoad15PerCpu: -1,
+      wallClockMs: -5,
+      totalOccupancyMs: -1,
+    }, path);
+    const sentinelRows = readRunHistory(path);
+    expect(sentinelRows[3]!.ambientLoadPerCpu).toBeUndefined();
+    expect(sentinelRows[3]!.ambientLoad5PerCpu).toBeUndefined();
+    expect(sentinelRows[3]!.ambientLoad15PerCpu).toBeUndefined();
+    expect(sentinelRows[3]!.wallClockMs).toBeUndefined();
+    expect(sentinelRows[3]!.totalOccupancyMs).toBeUndefined();
   });
 });
 

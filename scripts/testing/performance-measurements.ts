@@ -18,7 +18,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import type { ProfileReport } from "../../tests/performance/lib/perf-harness.ts";
 import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
-import type { GateOutcome } from "../../engine/src/shared/budget-verdict.ts";
+import { finiteNumber, type GateOutcome } from "../../engine/src/shared/budget-verdict.ts";
 import { readMeasuredSurfaceHash } from "../../engine/src/shared/tree-identity.ts";
 import type { PerformanceBudgetConfig } from "../../shared/wire-types.ts";
 
@@ -28,15 +28,10 @@ export type PerformanceBudgetName = keyof typeof ROOT_POLICY.workflow.webPerform
 /** Each budget's measured value, or null when the report did not measure it. */
 export type PerformanceMeasurements = Readonly<Record<PerformanceBudgetName, number | null>>;
 
-/** A finite number, or null (NaN, null, undefined and a non-number are not measured). */
-function measured(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
 /** The worst (largest) of values that must ALL be measured: one unmeasured member leaves the budget unmeasured, an empty population too. */
 function worst(values: readonly unknown[]): number | null {
   if (values.length === 0) return null;
-  const numbers = values.map(measured);
+  const numbers = values.map(finiteNumber);
   return numbers.some((value) => value === null) ? null : Math.max(...(numbers as number[]));
 }
 
@@ -48,8 +43,8 @@ export function performanceMeasurements(report: ProfileReport): PerformanceMeasu
   const okTabs = (report.tabs ?? []).every((tab) => tab.ok);
   const timedRoutes = (report.routeProfiles ?? []).filter((route) => route.ok && Number.isFinite(route.responseMs));
   return Object.freeze({
-    lcpMaxMs: measured(report.pageLoad?.lcp),
-    clsMax: measured(report.pageLoad?.cls),
+    lcpMaxMs: finiteNumber(report.pageLoad?.lcp),
+    clsMax: finiteNumber(report.pageLoad?.cls),
     // The worst single task anywhere the profile watched: the page load, every clicked element, every scroll census.
     longTaskWorstMaxMs: worst([
       report.pageLoad?.longTaskWorstMs,
@@ -57,18 +52,18 @@ export function performanceMeasurements(report: ProfileReport): PerformanceMeasu
       ...(report.interactions ?? []).filter((interaction) => interaction.kind === "scroll-long-task").map((row) => row.ok ? (row as { longTaskWorstMs?: unknown }).longTaskWorstMs : null),
       longChat?.ok === true && longChat.scroll.ok ? longChat.scroll.longTaskWorstMs : null,
     ]),
-    longTaskTotalMaxMs: measured(report.pageLoad?.longTaskTotalMs),
+    longTaskTotalMaxMs: finiteNumber(report.pageLoad?.longTaskTotalMs),
     // A tab switch and an element click are judged against the one interaction budget.
     tabSwitchMaxMs: okTabs ? worst([...(report.tabs ?? []).map((tab) => tab.switchMs), ...(report.interactiveElements ?? []).map((element) => element.ok ? element.clickMs : null)]) : null,
     tabDomNodesMax: okTabs ? worst((report.tabs ?? []).map((tab) => tab.domNodes)) : null,
-    typingMeanMaxMs: typing !== undefined && typing.ok ? measured((typing as { durationMs?: unknown }).durationMs) : null,
+    typingMeanMaxMs: typing !== undefined && typing.ok ? finiteNumber((typing as { durationMs?: unknown }).durationMs) : null,
     apiResponseMaxMs: (report.networkSummary?.totalCalls ?? 0) > 0 && timedRoutes.length > 0 && report.routeSummary?.slowest
       ? worst([report.networkSummary.maxResponseMs, ...timedRoutes.map((route) => route.responseMs), report.routeSummary.slowest.responseMs])
       : null,
-    longSessionHeapGrowthMaxMb: measured(report.longSession?.heapGrowthMb),
-    longSessionDomGrowthMax: measured(report.longSession?.domNodeGrowth),
-    longChatRenderMaxMs: longChat !== undefined && longChat.ok && longChat.renderMs > 0 ? measured(longChat.renderMs) : null,
-    manyProjectsRenderMaxMs: manyProjects !== undefined && manyProjects.ok && manyProjects.renderMs > 0 ? measured(manyProjects.renderMs) : null,
+    longSessionHeapGrowthMaxMb: finiteNumber(report.longSession?.heapGrowthMb),
+    longSessionDomGrowthMax: finiteNumber(report.longSession?.domNodeGrowth),
+    longChatRenderMaxMs: longChat !== undefined && longChat.ok && longChat.renderMs > 0 ? finiteNumber(longChat.renderMs) : null,
+    manyProjectsRenderMaxMs: manyProjects !== undefined && manyProjects.ok && manyProjects.renderMs > 0 ? finiteNumber(manyProjects.renderMs) : null,
     viewportLcpMaxMs: worst((report.viewports ?? []).map((viewport) => viewport.lcp)),
   });
 }

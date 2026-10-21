@@ -38,7 +38,7 @@
  * the registry's load declaration points at those denominators.
  */
 
-import type { CollectCost } from "./budget-verdict.ts";
+import { finiteNumber, type CollectCost } from "./budget-verdict.ts";
 
 export type { CollectCost } from "./budget-verdict.ts";
 
@@ -73,13 +73,15 @@ export function readModuleDiagnostic(module: unknown): Readonly<Record<string, u
   }
 }
 
-/** One numeric field of a diagnostic, or null when it is absent / not finite. */
+/**
+ * One numeric field of a diagnostic, or null when it is absent / not finite —
+ * the absence rule is the verdict's own `finiteNumber`, not a respelling.
+ */
 export function finiteDiagnosticMs(
   diagnostic: Readonly<Record<string, unknown>> | null,
   field: string,
 ): number | null {
-  const value = diagnostic?.[field];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  return finiteNumber(diagnostic?.[field]);
 }
 
 /**
