@@ -195,28 +195,28 @@ describe("C. a link to a docs path the plan does not publish is refused", () => 
         "permalink: /floor/page/",
         "---",
         "",
-        "[process](../process/AGENTS.md)",
+        "[process](../process/PROCESS.md)",
         "",
       ].join("\n"),
-      "docs/process/AGENTS.md": "# Agent process\n",
+      "docs/process/PROCESS.md": "# Agent process\n",
     });
 
   test("the rewrite refuses at assembly time", () => {
     const root = testingRoot();
     expect(() =>
-      rewritePageLinks("[process](../process/AGENTS.md)", {
+      rewritePageLinks("[process](../process/PROCESS.md)", {
         pageDocsPath: "docs/floor/page.md",
         testingRoot: root,
         productRoot: undefined,
         baseurl: BASE,
       }),
-    ).toThrow(/targets docs\/process\/AGENTS\.md, which the floor site does not publish/u);
+    ).toThrow(/targets docs\/process\/PROCESS\.md, which the floor site does not publish/u);
   });
 
   test("docs:links refuses in the normal test run", () => {
     const violations = floorPageLinkViolations({ testingRoot: testingRoot() });
     expect(violations).toEqual([
-      { page: "docs/floor/page.md", target: "../process/AGENTS.md", docsPath: "docs/process/AGENTS.md" },
+      { page: "docs/floor/page.md", target: "../process/PROCESS.md", docsPath: "docs/process/PROCESS.md" },
     ]);
   });
 
@@ -256,8 +256,8 @@ describe("D. a product page the mirror lacks falls back to the testing page", ()
 
   test("a copied product fallback's process-document link goes to GitHub, not a 404", () => {
     const testingRoot = testingTree({
-      "docs/testing.md": "---\npermalink: /testing/\n---\n\n[the evidence bar](process/AGENTS.md#evidence)\n",
-      "docs/process/AGENTS.md": "# Agent process\n",
+      "docs/testing.md": "---\npermalink: /testing/\n---\n\n[the evidence bar](process/PROCESS.md#evidence)\n",
+      "docs/process/PROCESS.md": "# Agent process\n",
     });
     const result = rewritePageLinks(readFileSync(join(testingRoot, "docs/testing.md"), "utf8"), {
       pageDocsPath: "docs/testing.md",
@@ -267,7 +267,7 @@ describe("D. a product page the mirror lacks falls back to the testing page", ()
       unpublishedDocs: "github",
     });
     expect(result.text).toContain(
-      "(https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/AGENTS.md#evidence)",
+      "(https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/PROCESS.md#evidence)",
     );
   });
 });
