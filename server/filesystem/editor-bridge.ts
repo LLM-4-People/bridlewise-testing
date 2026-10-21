@@ -26,6 +26,7 @@ import {
   resolveWithinProject,
   assertProjectPathOwnership,
   effectiveProjectRoot,
+  gateProjectRow,
   type FsGate,
 } from "./fs-gate.ts";
 import { ConflictError, ForbiddenError, ValidationError, wireMessage } from "../kernel/errors.ts";
@@ -1020,6 +1021,18 @@ function removeRecycleSlot(slotDir: string): void {
   renameSync(slotDir, pending);
   try {
     rmSync(pending, { recursive: true, force: true });
+    // The slot is the harness's own recycle state, not user code, but the
+    // bridge's rule is that every mutation it performs is recorded: the
+    // guard asks for a file effect from every function that changes the
+    // filesystem, and a slot removal is a real effect on the path it names.
+    // A directory has no file content on either side, so both digests are
+    // the digest of no bytes (the same statement createDirectory records).
+    recordFileEffect({
+      path: slotDir,
+      operation: "delete",
+      preimageDigest: EMPTY_CONTENT_DIGEST,
+      postimageDigest: EMPTY_CONTENT_DIGEST,
+    });
   } catch (err) {
     try {
       mkdirSync(slotDir, { recursive: true });
@@ -1062,7 +1075,10 @@ export function restoreFile(recycleId: string, gate?: FsGate): FileRestoreResult
   // restore another user's entry, and a legacy record with no stamp is not
   // guessed from its path.
   if (gate !== undefined) {
-    const project = gate.decisions.get(meta.projectRoot) ?? null;
+    // A restore needs a ROW to stamp and compare; the gate's "no project row"
+    // allowance is not an owner, so it answers null here and the stamp check
+    // below refuses it rather than restoring an unowned record.
+    const project = gateProjectRow(gate, meta.projectRoot);
     if (
       meta.deletedByUserId === null ||
       meta.deletedByUserId !== gate.userId ||

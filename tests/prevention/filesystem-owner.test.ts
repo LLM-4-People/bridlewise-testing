@@ -839,6 +839,8 @@ describe("C0. the gate carries resolved decisions, and says so when it has none"
     // them would send a path the gate already rejects into a DB query.
     const asked: string[] = [];
     const spy = {
+      projectAtPath: async (path: string) =>
+        path === projectAPath ? { id: "project-a", userId: userA.userId } : null,
       getProjectByPath: async (path: string) => {
         asked.push(path);
         return null;
@@ -858,8 +860,32 @@ describe("C0. the gate carries resolved decisions, and says so when it has none"
 describe("C. behavioral: the gate enforces deny-by-default + typed errors", () => {
   test("assertProjectPathOwnership returns the project when owned", () => {
     const project = assertProjectPathOwnership(projectAPath, gateA);
-    expect(project).toBeDefined();
-    expect(project.path).toBe(projectAPath);
+    expect(project).not.toBeNull();
+    expect(project!.path).toBe(projectAPath);
+  });
+
+  test("an UNREGISTERED scratch root is allowed for a read (the executor's gate-less root)", async () => {
+    // The tool executor binds a scratch directory that was never registered
+    // as a project. `projectAtPath` finds no row there, so there is nothing
+    // to own; the location checks (allowed roots + the refused-folder list)
+    // remain the whole answer and the read proceeds.
+    const scratch = createTempDir("gate-unregistered-scratch-");
+    writeFileSync(join(scratch, "probe.txt"), "probe body\n");
+    const gate = await makeFsGate(userA.userId, AsyncDbClient.inline(db), scratch);
+    expect(
+      assertProjectPathOwnership(scratch, gate),
+      "no project row exists, so the gate has no row to return",
+    ).toBeNull();
+    expect(readFileSyncViaBridge("probe.txt", scratch, gate).content).toBe("probe body\n");
+  });
+
+  test("a root registered to ANOTHER user is refused (the row at the location decides)", async () => {
+    // The negative control for the allowance above: this location DOES have a
+    // row, and it belongs to User A. User B's gate must deny it, not treat it
+    // as an unregistered scratch root.
+    const gate = await makeFsGate(userB.userId, AsyncDbClient.inline(db), projectAPath);
+    expect(() => assertProjectPathOwnership(projectAPath, gate)).toThrow(ForbiddenError);
+    expect(() => readFileSyncViaBridge("a.ts", projectAPath, gate)).toThrow(ForbiddenError);
   });
 
   test("assertProjectPathOwnership throws ForbiddenError when NOT owned (deny-by-default)", () => {

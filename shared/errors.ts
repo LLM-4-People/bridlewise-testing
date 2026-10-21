@@ -889,7 +889,7 @@ export const WIRE_MESSAGE_FOR_CODE: Readonly<Record<string, string>> = Object.fr
   file_vanished: "That file was removed while it was being opened. Reload and try again.",
   file_read_denied: "The operating system would not let this server read that file. Check its permissions.",
   project_root_refused:
-    "The project's folder now points somewhere this server will not serve (a system, harness or credential location). Re-create the project with a valid folder.",
+    "The project's folder now points somewhere this server will not serve (a system or credential location). Choose the project folder again.",
   recycle_project_moved:
     "The project this recycled file belongs to has moved since the file was deleted, so the file cannot be put back there. Re-link the project to that folder, or restore the file yourself.",
   already_exists: "Something with that name already exists here. Choose a different name.",

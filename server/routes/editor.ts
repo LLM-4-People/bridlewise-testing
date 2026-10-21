@@ -41,6 +41,7 @@ import {
   makeFsGateForRow,
   effectiveProjectRoot,
   assertProjectPathOwnership,
+  gateProjectRow,
   type FsGate,
 } from "../filesystem/fs-gate.ts";
 import { resolveLocation } from "../kernel/canonical.ts";
@@ -337,7 +338,7 @@ export function registerEditorRoutes(router: Router, db: AsyncDbClient): void {
       project.path,
       listed.projectRoot,
     );
-    if (gate.decisions.get(listed.projectRoot) == null) {
+    if (gateProjectRow(gate, listed.projectRoot) === null) {
       throw new ConflictError(
         wireMessage("recycle_project_moved"),
         "recycle_project_moved",

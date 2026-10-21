@@ -44,7 +44,14 @@ const REAL_CONFIG = fileURLToPath(
 );
 
 const scratch = createTempDir("mcp-runtime-test-");
-const configPath = join(scratch, "bridlewise.config.json");
+// The config's folder IS the harness root (`server/safety/host-facts.ts`
+// derives it from the config path), and a project root that contains the
+// harness is refused by the filesystem gate. Keeping the config in the
+// project scratch would therefore make every file tool read refuse the
+// scratch for the wrong reason; the fixture keeps the two places separate so
+// the scratch really is an unregistered project root.
+const configDir = createTempDir("mcp-runtime-config-");
+const configPath = join(configDir, "bridlewise.config.json");
 
 function writeConfig(mcpServers: readonly unknown[], mcpDefaults?: Record<string, unknown>, toolBounds?: Record<string, unknown>, selfProtectionEnabled = false): void {
   const base = JSON.parse(readFileSync(REAL_CONFIG, "utf8")) as Record<string, unknown>;
@@ -1126,7 +1133,7 @@ describe("mcp-runtime-bridge: a stdio server's host placement — its own home, 
   }, 20_000);
 
   it("with confinement asked for and not available the server is REFUSED — typed status, nothing started, never an unconfined fallback", async () => {
-    // This test world's harness root (the scratch config's folder) has no
+    // This test world's harness root (the config's own folder) has no
     // guardian, so the confinement owner answers "unavailable".
     writeConfig([PROBE_SERVER], undefined, undefined, true);
     const { ensureMcpRuntimeStarted } = await import("../../server/integrations/mcp-runtime-bridge.ts");

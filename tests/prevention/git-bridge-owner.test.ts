@@ -283,11 +283,14 @@ describe("Git bridge owner — fs-gate enforcement at the bridge choke point", (
   });
 
   test("(b behavioral) a gate whose DB denies ownership rejects EVERY git operation before touching git", async () => {
-    // Deny-by-default: the DB says the caller owns NO project at the
-    // path → assertProjectPathOwnership throws ForbiddenError at the
-    // bridge choke point, BEFORE isGitRepo / any git spawn. This proves
-    // the gate runs at the lowest level (the bridge), not in the route.
-    const denyDb = { getProjectByPath: async () => null } as unknown as AsyncDbClient;
+    // Deny-by-default: the DB holds a project row at the location that the
+    // caller does not own → assertProjectPathOwnership throws ForbiddenError
+    // at the bridge choke point, BEFORE isGitRepo / any git spawn. This
+    // proves the gate runs at the lowest level (the bridge), not in the route.
+    const denyDb = {
+      projectAtPath: async () => ({ id: "someone-elses-row", userId: "user-b" }),
+      getProjectByPath: async () => null,
+    } as unknown as AsyncDbClient;
     const anyPath = "/tmp/r13-not-owned";
     const gate = await makeFsGate("user-a", denyDb, anyPath);
     expect(() => getBranches(anyPath, gate)).toThrow(ForbiddenError);
