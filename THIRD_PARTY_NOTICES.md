@@ -55,4 +55,4 @@ If you need to redistribute any excluded material, obtain it from its upstream o
 
 ## Fonts
 
-The cockpit requests IBM Plex Sans and IBM Plex Mono. No font binaries are vendored. IBM Plex is licensed under the SIL Open Font License 1.1; include the OFL notice if you bundle it.
+The cockpit self-hosts IBM Plex Sans and IBM Plex Mono (Copyright © 2017 IBM Corp., Reserved Font Name "Plex"), licensed under the SIL Open Font License 1.1. The files are the unmodified variable Latin-1 subsets of IBM's releases `@ibm/plex-sans-variable@0.2.0` and `@ibm/plex-mono-variable@1.0.0` (<https://github.com/IBM/plex/releases>), vendored in `public/fonts/` with the licence text in `public/fonts/OFL.txt`.

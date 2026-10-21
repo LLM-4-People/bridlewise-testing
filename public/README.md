@@ -13,6 +13,9 @@ offline-capable.
   network-first for navigations and GET API calls, passthrough for mutations
   and SSE streams.
 - `icons/` — the app icons the manifest references.
+- `fonts/` — IBM Plex Sans and IBM Plex Mono, the variable Latin-1 subsets
+  the cockpit's token owner (`src/cockpit/tokens.css`) declares with
+  `@font-face`, plus their licence (`OFL.txt`, SIL Open Font License 1.1).
 
 ## Where it lives and what consumes it
 
