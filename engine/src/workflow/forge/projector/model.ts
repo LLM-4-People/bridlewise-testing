@@ -46,9 +46,9 @@ export type Projection = Readonly<{
   objects: readonly ProjectedObject[];
 }>;
 
-/** When a field is written: `create` fields go with the object's creation, `link` after every creation, `state` last. */
-export type WritePhase = "create" | "link" | "state";
-export const WRITE_PHASES: readonly WritePhase[] = Object.freeze(["create", "link", "state"]);
+/** When a field is written, in write order: `create` fields go with the object's creation, `link` after every creation, `state` last. */
+export const WRITE_PHASES = Object.freeze(["create", "link", "state"] as const);
+export type WritePhase = typeof WRITE_PHASES[number];
 
 /** Every class's git-owned fields and the phase each is written in (a field not named here is GitHub-owned). */
 export const FIELD_PHASES: Readonly<Record<ProjectionClass, Readonly<Record<string, WritePhase>>>> = Object.freeze({
