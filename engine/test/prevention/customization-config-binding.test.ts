@@ -21,6 +21,7 @@ import {
   rememberConfigPathDefault,
   resetCustomizationConfigStore,
   seedFromConfig,
+  withConfigDocumentSnapshot,
   writeConfigCustomization,
   type CustomizationConfigStore,
 } from "../../src/shared/exposure/config-binding.ts";
@@ -779,4 +780,103 @@ test("config binding: every config-bound customization's default is omitted from
       resetCustomizationConfigStore();
     },
   );
+});
+
+/** A store whose every read refuses with `failure`, counting the reads. */
+function refusingStore(failure: Error): CustomizationConfigStore & { readonly reads: number } {
+  let reads = 0;
+  return {
+    get reads() {
+      return reads;
+    },
+    configFilePath: join(mkTempDir("config-binding-refusing-store-"), "bridlewise.config.json"),
+    readDocument: () => {
+      reads += 1;
+      throw failure;
+    },
+    writeDocument: () => {
+      throw new Error("a refusing store is never written");
+    },
+  };
+}
+
+test("config binding: a snapshot answers every read from ONE reading of the document", () => {
+  let reads = 0;
+  const store = memoryStore({ memory: { trimThreshold: 0.62 } });
+  installCustomizationConfigStore({
+    configFilePath: store.configFilePath,
+    readDocument: () => {
+      reads += 1;
+      return store.readDocument();
+    },
+    writeDocument: store.writeDocument,
+  });
+  const seen = withConfigDocumentSnapshot(() => [
+    readConfigCustomization("memory.trimThreshold"),
+    seedFromConfig("memory.trimThreshold", 0.85),
+    withConfigDocumentSnapshot(() => readConfigCustomization("memory.trimThreshold")),
+  ]);
+  assert.deepEqual(seen, [0.62, 0.62, 0.62]);
+  assert.equal(reads, 1, "three reads (one in a nested scope) cost one document read");
+  readConfigCustomization("memory.trimThreshold");
+  assert.equal(reads, 2, "outside the scope every read is fresh again");
+  resetCustomizationConfigStore();
+});
+
+test("config binding: a FAILED reading is each read's failure inside the snapshot, never the snapshot's own", () => {
+  // The defect (GitHub CI shard 9, 64fd622d): the scope read the document at
+  // entry and let the store's refusal escape, so a settings file gone bad at
+  // runtime turned the whole values answer into a 503 instead of serving each
+  // setting's refusal beside the values that need no document.
+  const failure = new InputError("config_unreadable: the settings file is not valid JSON", "config_json_invalid");
+  const store = refusingStore(failure);
+  installCustomizationConfigStore(store);
+  const outcomes = withConfigDocumentSnapshot(() => {
+    const perRead = ["memory.trimThreshold", "memory.windowSize"].map((path) => {
+      try {
+        return readConfigCustomization(path);
+      } catch (error) {
+        return error;
+      }
+    });
+    let seeded: unknown;
+    try {
+      seeded = seedFromConfig("memory.trimThreshold", 0.85);
+    } catch (error) {
+      seeded = error;
+    }
+    return { perRead, seeded, documentFree: "a value that needs no document" };
+  });
+  assert.equal(outcomes.documentFree, "a value that needs no document", "the scope itself answers");
+  assert.deepEqual(outcomes.perRead, [failure, failure], "each read refuses with the reading's own failure");
+  assert.equal(outcomes.seeded, failure, "a seeded read refuses with it too, never a silent default");
+  assert.equal(store.reads, 1, "the refusing store is still read once per snapshot");
+  resetCustomizationConfigStore();
+});
+
+test("config binding: with no store installed a snapshot opens nothing and each read stands alone", () => {
+  resetCustomizationConfigStore();
+  const outcome = withConfigDocumentSnapshot(() => {
+    let read: unknown;
+    try {
+      read = readConfigCustomization("memory.trimThreshold");
+    } catch (error) {
+      read = error;
+    }
+    return { read, seeded: seedFromConfig("memory.trimThreshold", 0.85) };
+  });
+  assert.ok(outcome.read instanceof InputError && outcome.read.code === "customization_config_store_missing", "a read refuses on its own");
+  assert.equal(outcome.seeded, 0.85, "a seed answers its declared default on its own");
+});
+
+test("config binding: a write inside a snapshot is refused, loud, and the document is untouched", () => {
+  const store = freshStore({ memory: { trimThreshold: 0.62 } });
+  assert.throws(
+    () => withConfigDocumentSnapshot(() => writeConfigCustomization("memory.trimThreshold", 0.7)),
+    (error: unknown) => error instanceof InputError && error.code === "customization_write_inside_snapshot",
+  );
+  assert.equal(store.writes.length, 0, "nothing reached the store");
+  writeConfigCustomization("memory.trimThreshold", 0.7);
+  assert.equal(memTrimThreshold(store.doc), 0.7, "after the scope a write lands as before");
+  resetCustomizationConfigStore();
 });

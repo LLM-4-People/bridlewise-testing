@@ -13,6 +13,7 @@ import {
   resetAllRegistrations,
   listCustomizations,
   listSignals,
+  readSignal,
   installCustomizationConfigStore,
 } from "../../server/kernel/canonical.ts";
 import { readConfigRaw } from "../../server/kernel/harness-config.ts";
@@ -203,6 +204,90 @@ describe("buildUiSchemaValues", () => {
     const before = reads;
     listCustomizations()[0]!.current();
     expect(reads, "the scope must not outlive its build").toBe(before + 1);
+  });
+
+  test("a store that refuses: the values build still answers, each value exactly as its read alone would, from ONE read", () => {
+    // The defect (GitHub CI shard 9, 64fd622d): the snapshot read the document
+    // at the scope's entry and let the store's refusal escape, so a settings
+    // file gone bad at runtime made `/api/schema/ui/values` a 503 instead of
+    // the snapshot that publishes the store's own state. The snapshot changes
+    // what a build COSTS, never what it serves: inside it, each value is
+    // served or refused exactly as its read alone outside it would be.
+    const failure = Object.assign(new Error("config_unreadable: the settings file is not valid JSON"), { code: "config_json_invalid" });
+    const doc: Record<string, unknown> = readConfigRaw();
+    let reads = 0;
+    let refusing = false;
+    installCustomizationConfigStore({
+      configFilePath: serverConfig.harnessConfigPath,
+      readDocument: () => {
+        reads += 1;
+        if (refusing) throw failure;
+        return JSON.parse(JSON.stringify(doc)) as Record<string, unknown>;
+      },
+      writeDocument: () => {
+        throw new Error("a values build never writes");
+      },
+    });
+    const healthy = buildUiSchemaValues(ADMIN_VIEWER);
+    refusing = true;
+    const readsAlone = (read: () => unknown): boolean => {
+      try {
+        read();
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const signalsAlone = healthy.signals.map((s) => s.id).filter((id) => readsAlone(() => readSignal(id)));
+    const customizationsAlone = healthy.customizations.map((entry) => entry.id)
+      .filter((id) => readsAlone(() => listCustomizations().find((c) => c.id === id)!.current()));
+    expect(signalsAlone.length, "values that need no document exist, so the comparison is not vacuous").toBeGreaterThan(0);
+    expect(signalsAlone.length, "values that need the document exist, so the refusal is exercised").toBeLessThan(healthy.signals.length);
+    reads = 0;
+    const refused = buildUiSchemaValues(ADMIN_VIEWER);
+    expect(reads, "the refusing store is read once per build, not once per value").toBe(1);
+    expect(refused.signals.map((s) => s.id), "every signal its own read can serve is served").toEqual(signalsAlone);
+    expect(refused.customizations.map((entry) => entry.id), "every customization its own read can serve is served").toEqual(customizationsAlone);
+    const bound = listCustomizations().filter((c) => c.configPath !== undefined).map((c) => c.id);
+    expect(bound.filter((id) => refused.customizations.some((entry) => entry.id === id)), "no config-bound value is served from a substitute").toEqual([]);
+  });
+
+  test("one setting whose read fails is dropped alone: every other value is still served", () => {
+    const victim = listCustomizations().find((c) => c.configPath !== undefined)!;
+    const healthy = buildUiSchemaValues(ADMIN_VIEWER);
+    expect(healthy.customizations.some((entry) => entry.id === victim.id), "the victim is served while healthy").toBe(true);
+    const doc: Record<string, unknown> = readConfigRaw();
+    let reads = 0;
+    installCustomizationConfigStore({
+      configFilePath: serverConfig.harnessConfigPath,
+      readDocument: () => {
+        reads += 1;
+        // A good document with ONE bad leaf: reading the victim's path throws.
+        const copy = JSON.parse(JSON.stringify(doc)) as Record<string, unknown>;
+        const segments = victim.configPath!.split(".");
+        let parent = copy;
+        for (const segment of segments.slice(0, -1)) {
+          if (typeof parent[segment] !== "object" || parent[segment] === null) parent[segment] = {};
+          parent = parent[segment] as Record<string, unknown>;
+        }
+        Object.defineProperty(parent, segments.at(-1)!, {
+          enumerable: true,
+          get: () => {
+            throw new Error(`the stored value of ${victim.configPath!} cannot be read`);
+          },
+        });
+        return copy;
+      },
+      writeDocument: () => {
+        throw new Error("a values build never writes");
+      },
+    });
+    const values = buildUiSchemaValues(ADMIN_VIEWER);
+    expect(reads).toBe(1);
+    expect(values.customizations.map((entry) => entry.id), "only the bad setting is missing").toEqual(
+      healthy.customizations.map((entry) => entry.id).filter((id) => id !== victim.id),
+    );
+    expect(values.signals.map((s) => s.id)).toEqual(healthy.signals.map((s) => s.id));
   });
 
   test("values are frozen", () => {

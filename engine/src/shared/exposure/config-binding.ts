@@ -366,15 +366,32 @@ export function readConfigCustomization(configPath: string): CustomizationValue 
  * lands mid-build, and serve a settings surface that never existed. The
  * scope's document is the one the installed store returned at entry.
  *
- * Writes are refused inside the scope: a mutator passing through it would
- * edit the snapshot, and the snapshot is not the store's document.
+ * A reading that FAILED (a settings file gone bad at runtime) is the scope's
+ * one reading too: every read inside rethrows that same failure, exactly as
+ * each read would have alone. The build's own per-value isolation then
+ * records each setting's refusal and still serves every value that needs no
+ * document (the store-state signals among them): one bad reading never turns
+ * the whole values answer into a 503. The store is still read once.
+ *
+ * With no store installed the scope opens nothing: each read refuses or
+ * seeds on its own, as it would outside a scope.
+ *
+ * Writes are refused inside the scope (`customization_write_inside_snapshot`):
+ * the reads after a write would go on answering from the document taken
+ * before it.
  */
-let readScope: Readonly<Record<string, unknown>> | undefined;
+let readScope:
+  | Readonly<{ document: Readonly<Record<string, unknown>> }>
+  | Readonly<{ failure: unknown }>
+  | undefined;
 
 export function withConfigDocumentSnapshot<T>(run: () => T): T {
-  if (readScope !== undefined) return run();
-  const store = requireStore();
-  readScope = store.readDocument();
+  if (readScope !== undefined || installedStore === undefined) return run();
+  try {
+    readScope = { document: installedStore.readDocument() };
+  } catch (failure) {
+    readScope = { failure };
+  }
   try {
     return run();
   } finally {
@@ -382,10 +399,11 @@ export function withConfigDocumentSnapshot<T>(run: () => T): T {
   }
 }
 
-/** The document a read sees: the open scope's snapshot, else the store's. */
+/** The document a read sees: the open scope's one reading (or its one failure), else the store's. */
 function configDocumentForRead(): Record<string, unknown> {
-  if (readScope !== undefined) return readScope as Record<string, unknown>;
-  return requireStore().readDocument();
+  if (readScope === undefined) return requireStore().readDocument();
+  if ("failure" in readScope) throw readScope.failure;
+  return readScope.document as Record<string, unknown>;
 }
 
 /**
@@ -450,6 +468,12 @@ export function readStringCustomization(configPath: string, fallback: string): s
 export function writeConfigCustomization(configPath: string, value: CustomizationValue): void {
   assertPathValue(configPath, value);
   const store = requireStore();
+  if (readScope !== undefined) {
+    throw new InputError(
+      `exposure: ${configPath} cannot be written inside a config document snapshot (a values build is read-only)`,
+      "customization_write_inside_snapshot",
+    );
+  }
   // The whole read-modify-write cycle holds the config's cross-process
   // write lock: the candidate is composed from this store's own read INSIDE
   // the lock, so no concurrent writer's cycle can interleave between the
