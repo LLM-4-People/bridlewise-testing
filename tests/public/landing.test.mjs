@@ -8,6 +8,9 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { buildAtlas } from "../../scripts/floor/atlas.mjs";
+import { buildStatus } from "../../scripts/floor/status.mjs";
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (path) => readFileSync(join(ROOT, path), "utf8");
 const TEMPLATES = ["docs/index.md", "docs/floor/claims.md", "docs/_includes/claims-ledger.html", "docs/_includes/claims-receipt.html"];
@@ -59,4 +62,12 @@ test("the site writes the judged register for the templates, and no second claim
   const render = read("engine/scripts/brand/render.ts");
   assert.doesNotMatch(render, /claimsPage|claimsSitePage|<table|class="/u, "the claims have one markup: the templates");
   assert.doesNotMatch(read(".github/workflows/pages.yml"), /brand\/cli\.ts build/u, "the site build judges the claims; no second step does");
+});
+
+test("every check a claim binds is one the floor status reports, so a claim can hold at all", async () => {
+  const status = await buildStatus({ root: ROOT, offline: true, counts: buildAtlas({ root: ROOT }).counts });
+  const reported = new Set(status.checks.map((check) => check.id));
+  assert.ok(reported.size >= 4, `the status reports its checks: ${[...reported].join(", ")}`);
+  const unknown = claims.filter((claim) => claim.kind === "holds-when-green").flatMap((claim) => claim.checks.filter((id) => !reported.has(id)).map((id) => `${claim.id}: ${id}`));
+  assert.deepEqual(unknown, [], "a claim bound to a check the status never reports is retracted forever");
 });
