@@ -168,6 +168,14 @@ export const DEFAULT_E2E_SUITE_TIMEOUT_MS = 600_000;
 /** How many events `harness timeline` lists when no `--limit` is given. */
 export const DEFAULT_TIMELINE_COMMAND_LIMIT = 50;
 
+// ── workspace-manager.ts display lengths ───────────────────────────────────
+/** The length of a workspace id's random suffix: the last characters of a generated id. */
+export const WORKSPACE_NONCE_CHARACTERS = 12;
+/** How many characters of a commit or tree id a workspace's generated pull request text shows. */
+export const WORKSPACE_SHORT_ID_CHARACTERS = 12;
+/** How many paths a workspace refusal names before it stops listing. */
+export const WORKSPACE_REFUSAL_PATHS_NAMED = 8;
+
 // ── test-result-collector.ts defaults ──────────────────────────────────────
 
 export const MAXIMUM_PARALLEL_CONCURRENCY = 16 as const;
