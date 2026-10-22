@@ -5,7 +5,13 @@ name: CI
   merge_group: {}
   schedule:
     - cron: "17 3 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      cold:
+        description: Run every gate, reusing nothing
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 concurrency:

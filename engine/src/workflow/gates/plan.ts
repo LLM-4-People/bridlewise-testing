@@ -21,6 +21,7 @@ import { InputError } from "../../kernel/errors.ts";
 import { canonicalHash, deepFreeze } from "../../kernel/integrity.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 import { GATE_CATALOGUE, GATE_CATALOGUE_VERSION, MAX_SHARDS, POPULATION_EXCLUSIONS, type Gate } from "./catalogue.ts";
+import { gateKey, type GateKeyDocument } from "./key.ts";
 import type { PopulationListing } from "./populations.ts";
 
 export const GATE_PLAN_SCHEMA = schemaId("gate-plan", 1);
@@ -45,6 +46,9 @@ export type GatePlan = Readonly<{
   catalogueDigest: string;
   headSha: string;
   treeId: string;
+  /** The reuse key's document (`key.ts`) and its digest K, as this job measured them. */
+  key: GateKeyDocument;
+  keyDigest: string;
   weights: PlanWeights;
   gates: readonly Readonly<{ id: string; class: Gate["class"]; role: Gate["role"]; reuse: Gate["reuse"] }>[];
   populations: readonly PopulationListing[];
@@ -94,6 +98,7 @@ export function allocateShards(suites: readonly Readonly<{ id: string; weight: n
 export type PlanInputs = Readonly<{
   headSha: string;
   treeId: string;
+  key: GateKeyDocument;
   populations: readonly PopulationListing[];
   catalogue?: readonly Gate[];
 }>;
@@ -103,6 +108,8 @@ const SHA = /^[0-9a-f]{40}$/u;
 export function planGates(inputs: PlanInputs): GatePlan {
   const catalogue = inputs.catalogue ?? GATE_CATALOGUE;
   if (!SHA.test(inputs.headSha) || !SHA.test(inputs.treeId)) throw new InputError("a plan names a full commit sha and tree id", "gate_plan_invalid");
+  if (inputs.key.treeId !== inputs.treeId) throw new InputError("the plan's key names another tree", "gate_plan_invalid");
+  if (inputs.key.catalogue.digest !== catalogueDigest(catalogue)) throw new InputError("the plan's key names another catalogue", "gate_plan_invalid");
   const suites = catalogue.filter((gate) => gate.class === "suite");
   const listing = (gate: Gate): PopulationListing => {
     const found = inputs.populations.find((entry) => entry.population === gate.population);
@@ -131,6 +138,8 @@ export function planGates(inputs: PlanInputs): GatePlan {
     catalogueDigest: catalogueDigest(catalogue),
     headSha: inputs.headSha,
     treeId: inputs.treeId,
+    key: inputs.key,
+    keyDigest: gateKey(inputs.key),
     weights: { basis: "unmeasured" },
     gates: catalogue.map((gate) => ({ id: gate.id, class: gate.class, role: gate.role, reuse: gate.reuse })),
     populations: [...inputs.populations].toSorted((left, right) => (left.population < right.population ? -1 : 1)),
@@ -148,6 +157,7 @@ export function parsePlan(value: unknown): GatePlan {
   if (plan!.schemaVersion !== GATE_PLAN_SCHEMA) refuse(`schema ${String(plan!.schemaVersion)}`);
   if (plan!.catalogueVersion !== GATE_CATALOGUE_VERSION) refuse(`catalogue ${String(plan!.catalogueVersion)}`);
   if (typeof plan!.headSha !== "string" || !SHA.test(plan!.headSha) || typeof plan!.treeId !== "string" || !SHA.test(plan!.treeId)) refuse("no head sha or tree id");
+  if (typeof plan!.key !== "object" || plan!.key === null || plan!.keyDigest !== gateKey(plan!.key) || plan!.key.treeId !== plan!.treeId) refuse("its key document does not hash to its key, or names another tree");
   if (!Array.isArray(plan!.gates) || !Array.isArray(plan!.cells) || !Array.isArray(plan!.populations)) refuse("no gates, cells or populations");
   const cellIds = new Set<string>();
   for (const cell of plan!.cells!) {

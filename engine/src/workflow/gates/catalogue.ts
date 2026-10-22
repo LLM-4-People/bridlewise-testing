@@ -101,6 +101,8 @@ export const ACTION_PINS = deepFreeze({
   "upload-pages-artifact": { repository: "actions/upload-pages-artifact", sha: "fc324d3547104276b827a68afc52ff2a11cc49c9", version: "v5" },
   "deploy-pages": { repository: "actions/deploy-pages", sha: "368f82528645a54fb793d4d04e342629a3f51346", version: "v5" },
   scorecard: { repository: "ossf/scorecard-action", sha: "fa7117db83c52d787ae5a89f350999701505d78e", version: "v2.5.0" },
+  attest: { repository: "actions/attest", sha: "1e69f48acb82d1966a394da916b4c1698aa569d6", version: "v4.2.2" },
+  "create-github-app-token": { repository: "actions/create-github-app-token", sha: "64ab729a6294000f5aa4a4bc0b73d1f32bc45510", version: "v3.3.0" },
 } as const);
 
 export type ActionName = keyof typeof ACTION_PINS;

@@ -7,6 +7,7 @@
       ".github/workflows/audit.yml",
       ".github/workflows/ci.yml",
       ".github/workflows/codeql.yml",
+      ".github/workflows/door.yml",
       ".github/workflows/publish.yml"
     ],
     "build": [
@@ -37,6 +38,7 @@
         ".github/workflows/audit.yml",
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
+        ".github/workflows/door.yml",
         ".github/workflows/publish.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. Dependabot's github-actions updates are configured but paused (open-pull-requests-limit: 0), so a moved tag or SHA is refused until this declaration moves with it."
@@ -50,6 +52,7 @@
       },
       "usedIn": [
         ".github/workflows/ci.yml",
+        ".github/workflows/door.yml",
         ".github/workflows/publish.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The Node tarball it installs is pinned by the node-runtime surface; a moved action SHA is refused until this declaration moves with it."
@@ -75,7 +78,8 @@
         "version": "v8.0.2"
       },
       "usedIn": [
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        ".github/workflows/door.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The shard plan and shard reports are consumed through this action; a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -188,6 +192,30 @@
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The scorecard checks it runs are upstream data, not a pin; a moved tag or SHA is refused until this declaration moves with it."
     },
     {
+      "id": "actions/create-github-app-token",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "64ab729a6294000f5aa4a4bc0b73d1f32bc45510",
+        "version": "v3.3.0"
+      },
+      "usedIn": [
+        ".github/workflows/door.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The shard plan and shard reports are consumed through this action; a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/attest",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "1e69f48acb82d1966a394da916b4c1698aa569d6",
+        "version": "v4.2.2"
+      },
+      "usedIn": [
+        ".github/workflows/door.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The shard plan and shard reports are consumed through this action; a moved tag or SHA is refused until this declaration moves with it."
+    },
+    {
       "id": "runner:ubuntu-24.04",
       "kind": "runner",
       "pinned": {
@@ -199,6 +227,7 @@
         ".github/workflows/audit.yml",
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
+        ".github/workflows/door.yml",
         ".github/workflows/publish.yml"
       ],
       "drift": "The label is provider-managed and its image floats within the 24.04 line. The gate catalogue (engine/src/workflow/gates/catalogue.ts, GATE_RUNNER) is its one declaration and every workflow is generated from it; this guard refuses any other runner label in the enumerated workflows. A larger runner class or a different OS is a deliberate catalogue and registry edit."
@@ -243,6 +272,7 @@
         "package.json",
         "engine/package.json",
         ".github/workflows/ci.yml",
+        ".github/workflows/door.yml",
         ".github/workflows/publish.yml"
       ],
       "drift": "The guard requires .node-version and .nvmrc to equal 24.20.0 and every workflow setup-node to read .nvmrc (node-version-file), refusing a workflow that spells an exact node-version; the two floor manifests to share >=24.18.0 <25.0.0; and every declared verification manifest to keep its exact 24.18.0 pin inside that floor range. Any tracked package.json with an engines.node outside this declaration is refused. A Node move changes the two pin files and the manifests."
@@ -289,7 +319,8 @@
       "usedIn": [
         ".devcontainer/devcontainer.json",
         "Makefile",
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        ".github/workflows/door.yml"
       ],
       "drift": "The lockfile must exist, carry lockfileVersion 3 and an integrity hash on every non-link package; the guard refuses npm install/update in the enumerated install path. `npm ci` itself fails a manifest/lock disagreement in CI."
     },

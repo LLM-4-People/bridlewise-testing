@@ -26,13 +26,14 @@ other file in that folder.
 
 The folder lives at `engine/src/workflow/gates/`.
 
-- `catalogue.ts` is consumed by `engine/src/workflow/gates/cell-run.ts`, `engine/src/workflow/gates/gates-cli.ts`, `engine/src/workflow/gates/plan.ts`, `engine/src/workflow/gates/populations.ts`, `engine/src/workflow/gates/seal.ts`, `engine/src/workflow/gates/workflows.ts` and 1 more.
+- `catalogue.ts` is consumed by `engine/src/workflow/door/judge.ts`, `engine/src/workflow/door/ratchet.ts`, `engine/src/workflow/gates/cell-run.ts`, `engine/src/workflow/gates/gates-cli.ts`, `engine/src/workflow/gates/key.ts`, `engine/src/workflow/gates/plan.ts` and 4 more.
 - `cell-run.ts` is consumed by `engine/src/workflow/gates/gates-cli.ts`, `engine/src/workflow/gates/seal.ts`.
 - `gates-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `plan.ts` is consumed by `engine/src/workflow/gates/cell-run.ts`, `engine/src/workflow/gates/gates-cli.ts`, `engine/src/workflow/gates/seal.ts`.
+- `key.ts` is consumed by `engine/src/workflow/door/judge.ts`, `engine/src/workflow/gates/gates-cli.ts`, `engine/src/workflow/gates/plan.ts`.
+- `plan.ts` is consumed by `engine/src/workflow/door/judge.ts`, `engine/src/workflow/gates/cell-run.ts`, `engine/src/workflow/gates/gates-cli.ts`, `engine/src/workflow/gates/seal.ts`.
 - `populations.ts` is consumed by `engine/src/workflow/gates/gates-cli.ts`, `engine/src/workflow/gates/plan.ts`.
-- `seal.ts` is consumed by `engine/src/workflow/gates/gates-cli.ts`.
+- `seal.ts` is consumed by `engine/src/workflow/door/judge.ts`, `engine/src/workflow/door/verdict.ts`, `engine/src/workflow/gates/gates-cli.ts`.
 - `vitest-report.ts` is consumed by `engine/src/workflow/gates/cell-run.ts`.
-- `workflows.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
+- `workflows.ts` is consumed by `engine/src/workflow/door/judge.ts`, `engine/src/workflow/harness-commands.ts`.
 
 <!-- /consumers:generated -->

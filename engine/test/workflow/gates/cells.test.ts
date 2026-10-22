@@ -23,6 +23,7 @@ import { registryCommand, runLightGate, runShard, type GateResult, type RunEnvir
 import { parseJobOutcomes, readResults, renderReceipt, sealReceipt } from "../../../src/workflow/gates/seal.ts";
 import { judgeVitestReport } from "../../../src/workflow/gates/vitest-report.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
+import { plantedKey } from "./gate-fixtures.ts";
 
 const HEAD = "a".repeat(40);
 const TREE = "b".repeat(40);
@@ -33,6 +34,7 @@ function plan(webFiles = 6, engineFiles = 2): GatePlan {
   return planGates({
     headSha: HEAD,
     treeId: TREE,
+    key: plantedKey(TREE),
     populations: [
       { population: "web-tests", source: "planted", files: files("tests/unit", webFiles), excluded: [{ path: "tests/unit/x.test.ts", reason: "planted reason", evidence: "planted evidence" }] },
       { population: "engine-tests", source: "planted", files: files("engine/test", engineFiles), excluded: [] },

@@ -26,6 +26,8 @@ import {
   auditWorkflow,
   ciWorkflow,
   codeqlWorkflow,
+  DOOR_PREDICATE_TYPE,
+  doorWorkflow,
   GENERATED_HEADER,
   GENERATED_WORKFLOW_PATHS,
   lintWorkflow,
@@ -106,7 +108,7 @@ test("a tree with no workflow folder is stale (the folder is never an opt-out), 
 });
 
 test("every generated workflow passes the lint", () => {
-  for (const [name, build] of [["ci.yml", ciWorkflow], ["codeql.yml", codeqlWorkflow], ["publish.yml", publishWorkflow], ["audit.yml", auditWorkflow]] as const) {
+  for (const [name, build] of [["ci.yml", ciWorkflow], ["codeql.yml", codeqlWorkflow], ["door.yml", doorWorkflow], ["publish.yml", publishWorkflow], ["audit.yml", auditWorkflow]] as const) {
     assert.doesNotThrow(() => lintWorkflow(name, build()), name);
   }
 });
@@ -208,6 +210,29 @@ test("every command the catalogue runs is declared in the live command registry 
 });
 
 test("no two generated workflows share a concurrency group prefix (one would cancel the other's runs)", () => {
-  assert.doesNotThrow(() => lintWorkflowSet({ "ci.yml": ciWorkflow(), "codeql.yml": codeqlWorkflow(), "publish.yml": publishWorkflow(), "audit.yml": auditWorkflow() }));
+  assert.doesNotThrow(() => lintWorkflowSet({ "ci.yml": ciWorkflow(), "codeql.yml": codeqlWorkflow(), "publish.yml": publishWorkflow(), "audit.yml": auditWorkflow(), "door.yml": doorWorkflow() }));
   assert.throws(() => lintWorkflowSet({ "ci.yml": ciWorkflow(), "copy.yml": ciWorkflow() }), refusedWith("workflow_lint_refused"));
+});
+
+test("door.yml is the trusted judge: main's code on workflow_run, its key only in the door environment, id-token only to attest", () => {
+  const door = doorWorkflow() as Mutable;
+  assert.deepEqual(Object.keys(door.on as Mutable).toSorted(), ["check_run", "workflow_run"], "no pull_request, push or merge_group: the door never runs a pull request's code");
+  assert.deepEqual(((door.on as Mutable).workflow_run as Mutable).workflows, ["CI"]);
+  assert.deepEqual(door.permissions, {}, "nothing by default; each job states its own");
+  const jobs = door.jobs as Record<string, Mutable>;
+  for (const [id, job] of Object.entries(jobs)) {
+    assert.equal(job.environment, "door", `${id} reaches the door key only through the door environment`);
+    assert.equal(job["runs-on"], "ubuntu-24.04");
+    const permissions = job.permissions as Mutable;
+    assert.equal(permissions["id-token"] === "write", id === "judge", `${id}: id-token only for the attestation`);
+  }
+  const judge = jobs.judge!.steps as Mutable[];
+  const downloads = judge.filter((step) => step.uses instanceof Commented && (step.uses as Commented).value.startsWith("actions/download-artifact@"));
+  assert.equal(downloads.length, 2);
+  assert.ok(downloads.every((step) => (step.with as Mutable)["run-id"] === "${{ github.event.workflow_run.id }}" && step.if === "${{ steps.preflight.outputs.accepted == 'true' }}"), "downloaded by the run id GitHub named, only after the preflight accepted the artifacts");
+  const attest = judge.find((step) => step.uses instanceof Commented && (step.uses as Commented).value.startsWith("actions/attest@"))!;
+  assert.equal((attest.with as Mutable)["subject-path"], "${{ runner.temp }}/door/keydoc.json", "the subject is the key document itself");
+  assert.equal((attest.with as Mutable)["predicate-type"], DOOR_PREDICATE_TYPE);
+  const checkout = judge[0]!;
+  assert.deepEqual(checkout.with, { "persist-credentials": false, "fetch-depth": 0, filter: "blob:none" }, "a partial clone of main: the judged commits are fetched without their blobs");
 });

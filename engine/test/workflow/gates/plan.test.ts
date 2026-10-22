@@ -22,6 +22,7 @@ import { GATE_CATALOGUE, MAX_SHARDS, POPULATION_EXCLUSIONS } from "../../../src/
 import { allocateShards, catalogueDigest, matrixCells, packShards, parsePlan, planGates } from "../../../src/workflow/gates/plan.ts";
 import { listPopulation, webPopulation, type PopulationListing } from "../../../src/workflow/gates/populations.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
+import { plantedKey } from "./gate-fixtures.ts";
 
 const HEAD = "a".repeat(40);
 const TREE = "b".repeat(40);
@@ -63,7 +64,7 @@ test("the cell budget is shared by weight: at least one each, never more than a 
 });
 
 test("a plan covers each population exactly once, the cells shared by weight; weights say unmeasured", () => {
-  const plan = planGates({ headSha: HEAD, treeId: TREE, populations: [listing("web-tests", 534), listing("engine-tests", 513)] });
+  const plan = planGates({ headSha: HEAD, treeId: TREE, key: plantedKey(TREE), populations: [listing("web-tests", 534), listing("engine-tests", 513)] });
   assert.equal(plan.weights.basis, "unmeasured");
   assert.equal(plan.catalogueDigest, catalogueDigest());
   assert.equal(plan.cells.length, MAX_SHARDS);
@@ -82,13 +83,13 @@ test("a plan covers each population exactly once, the cells shared by weight; we
   assert.deepEqual(plan.gates.map((gate) => gate.id), GATE_CATALOGUE.map((gate) => gate.id));
   assert.deepEqual(matrixCells(plan)[0], { cell: "web-suite-1", gate: "web-suite", title: "Web suite 1/6" });
   assert.deepEqual(parsePlan(JSON.parse(JSON.stringify(plan))), plan);
-  assert.deepEqual(planGates({ headSha: HEAD, treeId: TREE, populations: [listing("engine-tests", 513), listing("web-tests", 534)] }), plan, "the plan does not depend on listing order");
+  assert.deepEqual(planGates({ headSha: HEAD, treeId: TREE, key: plantedKey(TREE), populations: [listing("engine-tests", 513), listing("web-tests", 534)] }), plan, "the plan does not depend on listing order");
 });
 
 test("a plan is refused without a full sha and tree, without a listed population, and in another shape", () => {
-  assert.throws(() => planGates({ headSha: "abc", treeId: TREE, populations: [] }), refusedWith("gate_plan_invalid"));
-  assert.throws(() => planGates({ headSha: HEAD, treeId: TREE, populations: [listing("web-tests", 3)] }), refusedWith("gate_plan_invalid"));
-  const plan = planGates({ headSha: HEAD, treeId: TREE, populations: [listing("web-tests", 30), listing("engine-tests", 3)] });
+  assert.throws(() => planGates({ headSha: "abc", treeId: TREE, key: plantedKey(TREE), populations: [] }), refusedWith("gate_plan_invalid"));
+  assert.throws(() => planGates({ headSha: HEAD, treeId: TREE, key: plantedKey(TREE), populations: [listing("web-tests", 3)] }), refusedWith("gate_plan_invalid"));
+  const plan = planGates({ headSha: HEAD, treeId: TREE, key: plantedKey(TREE), populations: [listing("web-tests", 30), listing("engine-tests", 3)] });
   for (const broken of [
     null,
     { ...plan, schemaVersion: "bridlewise-gate-plan/v0" },
@@ -144,4 +145,13 @@ test("the CLI reads the runner's own globs from the tree; the engine population 
   const noGlobs = scratchRepository(["tests/unit/a.test.ts"]);
   writeFileSync(join(noGlobs, "tests/test-include.ts"), "export const TEST_INCLUDE = [];\n");
   await assert.rejects(listPopulation(noGlobs, "web-tests"), refusedWith("gate_population_unreadable"));
+});
+
+test("the plan carries the reuse key K: its document's digest, for the planned tree and catalogue only", () => {
+  const plan = planGates({ headSha: HEAD, treeId: TREE, key: plantedKey(TREE), populations: [listing("web-tests", 4), listing("engine-tests", 2)] });
+  assert.match(plan.keyDigest, /^[0-9a-f]{64}$/u);
+  assert.throws(() => planGates({ headSha: HEAD, treeId: TREE, key: plantedKey("c".repeat(40)), populations: [listing("web-tests", 4), listing("engine-tests", 2)] }), refusedWith("gate_plan_invalid"));
+  assert.throws(() => parsePlan({ ...JSON.parse(JSON.stringify(plan)), keyDigest: "0".repeat(64) }), refusedWith("gate_plan_invalid"));
+  const relocked = planGates({ headSha: HEAD, treeId: TREE, key: plantedKey(TREE, { "engine/package-lock.json": "{\"v\":2}\n" }), populations: [listing("web-tests", 4), listing("engine-tests", 2)] });
+  assert.notEqual(relocked.keyDigest, plan.keyDigest, "a lockfile is part of K");
 });

@@ -3821,6 +3821,22 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/door/judge-run.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/workflow/door/judges.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/engine-cell.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4253,5 +4269,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "666ab68e46619ca570db4e8fb170f29e7d021afd9a0698f41cf5b8556c6ed65b"
+  "integrityHash": "355b1e0738df7847f7ba26bd25e23c34879054307c587b8089bd64209b5cdc70"
 }

@@ -31,7 +31,8 @@ import { repositoryToplevel } from "../../git/repository-ownership.ts";
 import { readMeasuredTree, readRepositoryHeadSha } from "../../shared/tree-identity.ts";
 import { wrapResult, type CommandAnswer } from "../command-result.ts";
 import { GATE_CATALOGUE, type Population } from "./catalogue.ts";
-import { matrixCells, parsePlan, planGates, type GatePlan } from "./plan.ts";
+import { workingTreeKey } from "./key.ts";
+import { catalogueDigest, matrixCells, parsePlan, planGates, type GatePlan } from "./plan.ts";
 import { listPopulation } from "./populations.ts";
 import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
 import { loadPinnedConfigSnapshot } from "../../kernel/config.ts";
@@ -82,7 +83,7 @@ export async function planWorkingTree(repositoryRoot: string): Promise<GatePlan>
   const populations = await Promise.all(
     [...new Set(GATE_CATALOGUE.flatMap((gate) => (gate.population === undefined ? [] : [gate.population])))].map((population: Population) => listPopulation(repositoryRoot, population)),
   );
-  return planGates({ headSha, treeId, populations });
+  return planGates({ headSha, treeId, key: workingTreeKey(repositoryRoot, treeId, catalogueDigest()), populations });
 }
 
 /** The registry and the one runner, as the configuration declares them (the native supervisor built first). */
@@ -121,7 +122,8 @@ export async function runGatesCli(engineRoot: string, argv: readonly string[]): 
     mkdirSync(out, { recursive: true });
     writeFileSync(join(out, "plan.json"), `${canonicalJson(plan)}\n`);
     if (values["github-output"] !== undefined) appendFileSync(values["github-output"], `cells=${JSON.stringify(matrixCells(plan))}\n`);
-    return { result: wrapResult("gates", deepFreeze({ plan: join(out, "plan.json"), headSha: plan.headSha, treeId: plan.treeId, cells: plan.cells.map((cell) => ({ cell: cell.cell, files: cell.files.length, weight: cell.weight })) }), { status: "pass" }) };
+    writeFileSync(join(out, "keydoc.json"), canonicalJson(plan.key));
+    return { result: wrapResult("gates", deepFreeze({ plan: join(out, "plan.json"), headSha: plan.headSha, treeId: plan.treeId, key: plan.keyDigest, cells: plan.cells.map((cell) => ({ cell: cell.cell, files: cell.files.length, weight: cell.weight })) }), { status: "pass" }) };
   }
   if (verb === "setup") {
     if (rest.length === 0 || rest.some((name) => name.startsWith("-"))) throw new InputError("gates setup takes the registry setup commands to run", "input_error");

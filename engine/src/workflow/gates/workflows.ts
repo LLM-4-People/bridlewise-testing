@@ -258,7 +258,8 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
       pull_request: {},
       merge_group: {},
       schedule: [{ cron: "17 3 * * *" }],
-      workflow_dispatch: {},
+      // The door's "Re-run cold" button dispatches this with `cold` (every gate runs; nothing is reused).
+      workflow_dispatch: { inputs: { cold: { description: "Run every gate, reusing nothing", required: false, default: false, type: "boolean" } } },
     },
     permissions: { contents: "read" },
     concurrency: perEventConcurrency("ci"),
@@ -308,6 +309,101 @@ export function codeqlWorkflow(): Workflow {
           { name: "Build the guardian", if: "${{ matrix.build-mode == 'manual' }}", run: "make -C engine/guardian all" },
           { name: "Analyze", uses: uses("codeql-analyze"), with: { category: "/language:${{ matrix.language }}" } },
         ],
+      },
+    },
+  };
+}
+
+/** The predicate type of the door's verdict attestation (its subject is the key document, whose digest is K). */
+export const DOOR_PREDICATE_TYPE = "https://bridlewise.dev/attestations/gate-verdict/v1";
+
+/** The door App's token, minted in the `door` environment (the only place its key exists). */
+function doorTokenStep(): Step {
+  return {
+    name: "Mint the door App's token",
+    id: "token",
+    uses: uses("create-github-app-token"),
+    with: { "client-id": "${{ vars.DOOR_APP_CLIENT_ID }}", "private-key": "${{ secrets.DOOR_APP_KEY }}" },
+  };
+}
+
+/**
+ * THE DOOR, the trusted judge (github-only §5.2–§5.3): `workflow_run` always
+ * runs `main`'s file and `main`'s code, never the pull request's. Its key is
+ * in the `door` environment, which only `main` enters. It streams the run's
+ * progress into the `bridlewise/door` check (display only), judges the
+ * completed run from the artifacts it downloads BY THE RUN ID GitHub named
+ * (after refusing hostile names and sizes), posts the verdict, and attests
+ * it (subject: the key document). The button handler re-runs cold.
+ */
+export function doorWorkflow(): Workflow {
+  const engine: readonly Step[] = [
+    checkoutStep(),
+    setupNodeStep(),
+    { name: "Install engine dependencies", run: "npm --prefix engine ci --no-audit --no-fund" },
+    { name: "Enforce the self-protection config mode", run: "chmod 600 engine/bridlewise.config.json" },
+    TMPDIR_STEP,
+    doorTokenStep(),
+  ];
+  const runEnvironment = { DOOR_TOKEN: "${{ steps.token.outputs.token }}", RUN_ID: "${{ github.event.workflow_run.id }}" };
+  return {
+    name: "Door",
+    on: {
+      workflow_run: { workflows: ["CI"], types: ["requested", "in_progress", "completed"] },
+      check_run: { types: ["requested_action"] },
+    },
+    permissions: {},
+    concurrency: { group: "door-${{ github.event.workflow_run.head_sha || github.event.check_run.head_sha }}-${{ github.event.action }}", queue: "max" },
+    jobs: {
+      stream: {
+        name: "stream",
+        if: "github.event_name == 'workflow_run' && github.event.action != 'completed'",
+        "runs-on": GATE_RUNNER,
+        "timeout-minutes": 15,
+        environment: "door",
+        permissions: { contents: "read" },
+        steps: [...engine, { name: "Stream the run's progress into the check", env: runEnvironment, run: `${HARNESS} door stream --run "$RUN_ID"` }],
+      },
+      judge: {
+        name: "judge",
+        if: "github.event_name == 'workflow_run' && github.event.action == 'completed'",
+        "runs-on": GATE_RUNNER,
+        "timeout-minutes": 30,
+        environment: "door",
+        permissions: { contents: "read", actions: "read", "id-token": "write", attestations: "write" },
+        steps: [
+          { ...checkoutStep(), with: { "persist-credentials": false, "fetch-depth": 0, filter: "blob:none" } },
+          ...engine.slice(1),
+          { name: "Refuse hostile artifacts before downloading any", id: "preflight", env: runEnvironment, run: `${HARNESS} door preflight --run "$RUN_ID" --github-output "$GITHUB_OUTPUT"` },
+          {
+            name: "Download the plan",
+            if: "${{ steps.preflight.outputs.accepted == 'true' }}",
+            uses: uses("download-artifact"),
+            with: { name: "gate-plan", path: "${{ runner.temp }}/ci/gate-plan", "run-id": "${{ github.event.workflow_run.id }}", "github-token": "${{ github.token }}" },
+          },
+          {
+            name: "Download every gate result",
+            if: "${{ steps.preflight.outputs.accepted == 'true' }}",
+            uses: uses("download-artifact"),
+            with: { pattern: "gate-results-*", "merge-multiple": true, path: "${{ runner.temp }}/ci/results", "run-id": "${{ github.event.workflow_run.id }}", "github-token": "${{ github.token }}" },
+          },
+          { name: "Judge the run and post the verdict", id: "judge", if: "${{ !cancelled() }}", env: runEnvironment, run: `${HARNESS} door judge --run "$RUN_ID" --artifacts "$RUNNER_TEMP/ci" --out "$RUNNER_TEMP/door" --github-output "$GITHUB_OUTPUT"` },
+          {
+            name: "Attest the verdict",
+            if: "${{ steps.judge.outputs.attest == 'true' }}",
+            uses: uses("attest"),
+            with: { "subject-path": "${{ runner.temp }}/door/keydoc.json", "predicate-type": DOOR_PREDICATE_TYPE, "predicate-path": "${{ runner.temp }}/door/predicate.json" },
+          },
+        ],
+      },
+      action: {
+        name: "action",
+        if: "github.event_name == 'check_run'",
+        "runs-on": GATE_RUNNER,
+        "timeout-minutes": 10,
+        environment: "door",
+        permissions: { contents: "read" },
+        steps: [...engine, { name: "Handle the button", env: { DOOR_TOKEN: "${{ steps.token.outputs.token }}" }, run: `${HARNESS} door action --event "$GITHUB_EVENT_PATH"` }],
       },
     },
   };
@@ -410,6 +506,7 @@ const WORKFLOW_BUILDERS: Readonly<Record<WorkflowFile, () => Workflow>> = deepFr
   "audit.yml": auditWorkflow,
   "ci.yml": () => ciWorkflow(),
   "codeql.yml": codeqlWorkflow,
+  "door.yml": doorWorkflow,
   "publish.yml": publishWorkflow,
 });
 
