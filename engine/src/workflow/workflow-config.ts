@@ -24,6 +24,7 @@
 
 import type { SubprocessBounds } from "../process/subprocess-bounds.ts";
 import type { ConfigDocument } from "../kernel/config-contracts.ts";
+import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { InputError } from "../kernel/errors.ts";
 import { statePath } from "../kernel/product-identity.ts";
 
@@ -82,13 +83,14 @@ export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 // - its process group's CPU time, many times the heaviest step's measured
 //   work, so it ends a runaway, never a slow host; the kernel's RLIMIT_CPU
 //   backs it per process, just past it (`kernelCpuLimit`);
-// - a STALL: no output and less than 5% of a core's CPU work for 30 minutes
-//   (a step waiting on nothing, or a poller, is not working);
+// - a STALL: no output and CPU work under a floor (by default 5% of a core)
+//   for the stall window (by default 30 minutes): a step waiting on nothing,
+//   or a poller, is not working;
 // - the hang backstop, the one wall bound left: very large, and a step that
 //   reaches it is reported HUNG, with how it ended, never retried here;
 // - the output it may print (`harness check`'s payload is ~75 KB).
-/** The harness's subprocess bounds, as one value (the mechanism is src/process/subprocess-bounds.ts). */
-export const SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
+/** The defaults of `harness.subprocessBounds`, each a documented setting (src/kernel/config-contracts.ts; the settings room's harness rows). */
+export const DEFAULT_SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
   cpuBudgetMs: 1_800_000,
   minimumCpuRate: 0.05,
   stallMs: 1_800_000,
@@ -97,6 +99,25 @@ export const SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
   killGraceMs: 5_000,
   outputBytes: 256 * 1024 * 1024,
 });
+
+/** The harness's subprocess bounds as `document` configures them (`harness.subprocessBounds`; `{}` answers the defaults). */
+export function subprocessBounds(document: Pick<ConfigDocument, "harness">): SubprocessBounds {
+  const configured = document.harness?.subprocessBounds;
+  return Object.freeze({
+    cpuBudgetMs: configured?.cpuBudgetMs ?? DEFAULT_SUBPROCESS_BOUNDS.cpuBudgetMs,
+    minimumCpuRate: configured?.minimumCpuRate ?? DEFAULT_SUBPROCESS_BOUNDS.minimumCpuRate,
+    stallMs: configured?.stallMs ?? DEFAULT_SUBPROCESS_BOUNDS.stallMs,
+    hangBackstopMs: configured?.hangBackstopMs ?? DEFAULT_SUBPROCESS_BOUNDS.hangBackstopMs,
+    pollMs: configured?.pollMs ?? DEFAULT_SUBPROCESS_BOUNDS.pollMs,
+    killGraceMs: configured?.killGraceMs ?? DEFAULT_SUBPROCESS_BOUNDS.killGraceMs,
+    outputBytes: configured?.outputBytes ?? DEFAULT_SUBPROCESS_BOUNDS.outputBytes,
+  });
+}
+
+/** The harness's subprocess bounds from the pinned config document: what every harness subprocess, the commit guard's compile legs and an admitted run's own process run under. */
+export function configuredSubprocessBounds(): SubprocessBounds {
+  return subprocessBounds(loadPinnedConfigSnapshot().document);
+}
 
 // ── resource-lock.ts defaults ─────────────────────────────────────────────
 

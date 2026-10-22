@@ -1599,9 +1599,25 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // (`typecheckTimeoutMs`, the typecheck's 120 s WALL limit, is gone: a
   // typecheck is bounded by its CPU work and one hang backstop like every
   // harness subprocess, src/process/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
+  // `subprocessBounds`: how every harness subprocess is bounded (the one
+  // bounded run, src/process/subprocess-bounds.ts; read by `subprocessBounds`,
+  // src/workflow/workflow-config.ts, each unset field its documented default):
+  // its process group's CPU budget, the CPU floor below which it is not
+  // progressing, the stall window, the one wall hang backstop, how often it is
+  // read, the grace between a stop's SIGTERM and SIGKILL, and the output it
+  // may hold. The kernel's CPU limit is derived from them, never set apart.
   const harnessConfigSchema = z.strictObject({
     commandErroredRetries: z.number().int().min(0).max(10).optional(),
     commandRetryBackoffMs: z.number().int().min(0).max(3_600_000).optional(),
+    subprocessBounds: z.strictObject({
+      cpuBudgetMs: z.number().int().min(1_000).max(86_400_000).optional(),
+      minimumCpuRate: z.number().gt(0).max(1).optional(),
+      stallMs: z.number().int().min(1_000).max(86_400_000).optional(),
+      hangBackstopMs: z.number().int().min(1_000).max(604_800_000).optional(),
+      pollMs: z.number().int().min(10).max(60_000).optional(),
+      killGraceMs: z.number().int().min(10).max(600_000).optional(),
+      outputBytes: z.number().int().min(65_536).max(1_073_741_824).optional(),
+    }).optional(),
   }).optional();
   // Promotion (src/workflow/promotion/): `profileDirectory` is the
   // repository-relative directory that holds the promotion profiles on the

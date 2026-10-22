@@ -47,7 +47,7 @@ import { commandExitCode, parseHarnessCommandResult, renderCommandAnswer, takeOu
 // numeric defaults live in `./workflow-config.ts` (the canonical owner for
 // workflow operational defaults — no configurables outside
 // the config owner).
-import { SUBPROCESS_BOUNDS, DEFAULT_TIMELINE_COMMAND_LIMIT, worktreeOperationTimeouts } from "./workflow-config.ts";
+import { configuredSubprocessBounds, DEFAULT_TIMELINE_COMMAND_LIMIT, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline } from "../git/index-baseline.ts";
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
 import { syncCommunityFiles } from "./community/health-files.ts";
@@ -1849,7 +1849,7 @@ export async function runScriptSubprocess(
   args: readonly string[],
   options: Readonly<{ fullOutput?: boolean; bounds?: SubprocessBounds }> = {},
 ): Promise<ScriptAnswer> {
-  const bounds = options.bounds ?? SUBPROCESS_BOUNDS;
+  const bounds = options.bounds ?? configuredSubprocessBounds();
   const scriptPath = resolve(root, scriptRelativePath);
   // A MISSING SCRIPT IS ITS OWN CAUSE. The subprocess's failure mode would
   // otherwise be Node's module loader: a MODULE_NOT_FOUND stack whose last
@@ -1972,7 +1972,7 @@ function resolveLockOptions(owner: string): AcquireLockOptions {
  * the one bounded run, by its work (and the one hang backstop), never by a wall limit (it was 120 s,
  * and a loaded host failed `harness check` with it; NO-LOAD-BLOCK A-17).
  */
-export async function runTypecheck(root: string, bounds: SubprocessBounds = SUBPROCESS_BOUNDS): Promise<CheckStepResult> {
+export async function runTypecheck(root: string, bounds: SubprocessBounds = configuredSubprocessBounds()): Promise<CheckStepResult> {
   const run = await runCpuBounded(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc"), "--noEmit"], { cwd: root, env: inheritedEnvironment(), bounds });
   if (run.ending === "exited" && run.signal === null && run.status === 0) {
     return deepFreeze({ step: "typecheck", status: "pass", message: "typecheck passed", details: null });

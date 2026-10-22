@@ -867,7 +867,7 @@ test("a heavy setup command is ADMITTED AT ONCE beside a live run — it never w
   // Another admitted run is live for the whole test: the setup command runs beside it.
   const lockModule = pathToFileURL(join(import.meta.dirname, "..", "..", "src", "process", "instrument-lock.ts")).href;
   const configModule = pathToFileURL(join(import.meta.dirname, "..", "..", "src", "workflow", "workflow-config.ts")).href;
-  const holder = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", `const m = await import(${JSON.stringify(lockModule)}); const c = await import(${JSON.stringify(configModule)}); m.admitInstrumentRun(${JSON.stringify(lockPath)}, "a validate", { memoryMaxPercent: 50, cpuWeight: 100 }, c.SUBPROCESS_BOUNDS); console.log("admitted"); setTimeout(() => process.exit(0), 60_000);`], { stdio: ["ignore", "pipe", "inherit"] });
+  const holder = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", `const m = await import(${JSON.stringify(lockModule)}); const c = await import(${JSON.stringify(configModule)}); m.admitInstrumentRun(${JSON.stringify(lockPath)}, "a validate", { memoryMaxPercent: 50, cpuWeight: 100 }, c.DEFAULT_SUBPROCESS_BOUNDS); console.log("admitted"); setTimeout(() => process.exit(0), 60_000);`], { stdio: ["ignore", "pipe", "inherit"] });
   try {
     await new Promise<void>((resolveHeld) => holder.stdout.once("data", () => resolveHeld()));
     const first = await runCheckoutCommand(target, "warm", command, runner);

@@ -64,7 +64,7 @@ import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { resetServerConfig } from "../../server/kernel/config.ts";
 import { procfsDocument } from "../../engine/src/process/process-facts.ts";
 import { admitInstrumentRun } from "../../engine/src/process/instrument-lock.ts";
-import { SUBPROCESS_BOUNDS } from "../../engine/src/workflow/workflow-config.ts";
+import { DEFAULT_SUBPROCESS_BOUNDS } from "../../engine/src/workflow/workflow-config.ts";
 import { DEFAULT_VITEST_MODULE_CACHE_DIR, moduleCacheDirOf } from "../helpers/budget-paths.ts";
 
 const FULL = 417;
@@ -190,7 +190,7 @@ beforeAll(() => {
   // Made at the file's start, like the fixture repository: a temp folder made
   // inside a test is removed when that test finishes, and the registry with it.
   heldLock = join(createTempDir("reporter-instrument-lock-"), "instrument.lock");
-  admitInstrumentRun(heldLock, "reporter fixture drives", { memoryMaxPercent: 50, cpuWeight: 100 }, SUBPROCESS_BOUNDS);
+  admitInstrumentRun(heldLock, "reporter fixture drives", { memoryMaxPercent: 50, cpuWeight: 100 }, DEFAULT_SUBPROCESS_BOUNDS);
 });
 function heldInstrumentLock(): string {
   if (heldLock === undefined) throw new Error("the held instrument lock is taken in beforeAll");

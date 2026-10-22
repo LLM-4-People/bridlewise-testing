@@ -43,7 +43,7 @@ import { bootstrapProcess } from "../src/runtime/cli-debug.ts";
 import { loadPinnedConfigSnapshotIfPresent } from "../src/kernel/config.ts";
 import { boundedEnding, type SubprocessBounds } from "../src/process/subprocess-bounds.ts";
 import { runCpuBounded, type CpuBoundedRun } from "../src/process/supervised-run.ts";
-import { SUBPROCESS_BOUNDS } from "../src/workflow/workflow-config.ts";
+import { subprocessBounds } from "../src/workflow/workflow-config.ts";
 import { applyCheckoutFiles, engineRelativePath, installedDependencyLinks } from "../src/workflow/checkout-setup.ts";
 import { buildOutputPaths } from "../src/workflow/hash-binding-registry.ts";
 import { parseHarnessCommandResult } from "../src/workflow/command-result.ts";
@@ -404,9 +404,12 @@ async function runTypecheckLeg(directory: string, label: string, bounds: Subproc
 
 /** Both trees' compile legs, in parallel, over the STAGED tree; each leg's output is printed whole. */
 async function refuseUncompilableStagedTree(stagedTree: string): Promise<void> {
+  // The configured bounds (`harness.subprocessBounds`), each unset field its default: a checkout with no
+  // pinned document yet has nothing configured, so its legs run under the defaults.
+  const bounds = subprocessBounds(loadPinnedConfigSnapshotIfPresent()?.document ?? {});
   const outcomes = await Promise.all([
-    runTypecheckLeg(stagedTree, "web", SUBPROCESS_BOUNDS),
-    runTypecheckLeg(join(stagedTree, engineRelative), "engine", SUBPROCESS_BOUNDS),
+    runTypecheckLeg(stagedTree, "web", bounds),
+    runTypecheckLeg(join(stagedTree, engineRelative), "engine", bounds),
   ]);
   for (const outcome of outcomes) {
     process.stderr.write(`\n[commit-guard] ${outcome.label} typecheck (staged tree):\n${outcome.output}`);

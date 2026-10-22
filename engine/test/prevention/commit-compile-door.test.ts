@@ -731,11 +731,12 @@ test("DRIVEN: a compile leg still running at its hang backstop is KILLED and REF
   const to = source.indexOf(BOUNDED_LEG_END);
   assert.ok(from !== -1 && to > from, "the guard carries the bounded typecheck leg block this test drives");
   // The door bounds both legs with the harness's one subprocess bound (the one
-  // bounded run, runCpuBounded, under SUBPROCESS_BOUNDS: its work, the kernel's
+  // bounded run, runCpuBounded, under `harness.subprocessBounds`: its work, the kernel's
   // CPU limit, one hang backstop) and refuses the stopped outcome by name — not
   // merely print its output.
-  assert.match(source, /runTypecheckLeg\(stagedTree, "web", SUBPROCESS_BOUNDS\)/u);
-  assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", SUBPROCESS_BOUNDS\)/u);
+  assert.match(source, /const bounds = subprocessBounds\(loadPinnedConfigSnapshotIfPresent\(\)\?\.document \?\? \{\}\);/u);
+  assert.match(source, /runTypecheckLeg\(stagedTree, "web", bounds\)/u);
+  assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", bounds\)/u);
   assert.match(source, /runCpuBounded\("npm", \["run", "typecheck"\]/u);
   assert.doesNotMatch(source, /typecheckTimeoutMs/u, "no wall limit bounds a compile leg");
   assert.match(source, /outcome\.run\.ending !== "exited"/u);

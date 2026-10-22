@@ -306,7 +306,7 @@ export function holdInstrumentLock(options: Readonly<{
   harnessRoot: string;
   runner: string;
   testFileCount: number;
-  /** The CPU-time limit every process of the run gets (the harness's `SUBPROCESS_BOUNDS`). */
+  /** The CPU-time limit every process of the run gets (the harness's `harness.subprocessBounds`, `configuredSubprocessBounds`). */
   cpu: SubprocessBounds;
 }>): InstrumentHold {
   if (options.config === undefined) {

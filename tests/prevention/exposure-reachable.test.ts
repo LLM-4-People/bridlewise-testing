@@ -1281,7 +1281,7 @@ describe("exposure is declared and reachable", () => {
       // 1 → 3: the ONE command runner's errored-class retries (PROMO-1).
       // 3 → 2: the typecheck's wall limit (`typecheckTimeoutMs`) deleted; a
       // typecheck is bounded by CPU work and one hang backstop (NO-LOAD-BLOCK A-17).
-      harness: 2,
+      harness: 9,
       evaluation: 2,
       resourceLock: 3,
       qualityPacks: 1,
@@ -1309,7 +1309,7 @@ describe("exposure is declared and reachable", () => {
       sectionCounts[section] = declared.size - before;
     }
     expect(sectionCounts, "each section must declare exactly its measured leaves — a new leaf reds its own section here").toEqual(expectedSectionCounts);
-    expect(declared.size, "the class's twelve sections declare seventy leaves in total").toBe(70);
+    expect(declared.size, "the class's twelve sections declare seventy-seven leaves in total").toBe(77);
 
     // The class's rows live in THREE modules (testExecution,
     // harnessCommands, agents) spanning FIVE sections — the census binds
@@ -1587,7 +1587,7 @@ describe("exposure is declared and reachable", () => {
     // from that set would promise a partition it no longer has. The loops
     // above already assert every declared leaf is a row, a signal or filed,
     // and that a filed leaf is never served; this pin is the row count.
-    expect(rowsByPath.size, "the class serves exactly its fifteen disposed rows").toBe(15);
+    expect(rowsByPath.size, "the class serves exactly its twenty-two disposed rows").toBe(22);
     const expectedRows: ReadonlyArray<readonly [string, "immediate" | "next-run", unknown, string | undefined]> = [
       ["testExecution.runtimeBudgetMs", "next-run", 120000, "milliseconds"],
       ["testExecution.serialPhaseConcurrency", "next-run", 2, "lanes"],
@@ -1596,6 +1596,13 @@ describe("exposure is declared and reachable", () => {
       ["testExecution.fullSuiteParallelConcurrency", "next-run", 12, "lanes"],
       ["harness.commandErroredRetries", "next-run", 2, "retries"],
       ["harness.commandRetryBackoffMs", "next-run", 60000, "milliseconds"],
+      ["harness.subprocessBounds.cpuBudgetMs", "next-run", 1800000, "milliseconds"],
+      ["harness.subprocessBounds.minimumCpuRate", "next-run", 0.05, "fraction"],
+      ["harness.subprocessBounds.stallMs", "next-run", 1800000, "milliseconds"],
+      ["harness.subprocessBounds.hangBackstopMs", "next-run", 7200000, "milliseconds"],
+      ["harness.subprocessBounds.pollMs", "next-run", 1000, "milliseconds"],
+      ["harness.subprocessBounds.killGraceMs", "next-run", 5000, "milliseconds"],
+      ["harness.subprocessBounds.outputBytes", "next-run", 268435456, "bytes"],
       ["resourceLock.timeoutMs", "next-run", 120000, "milliseconds"],
       ["resourceLock.pollIntervalMs", "next-run", 100, "milliseconds"],
       ["resourceLock.staleMs", "next-run", 300000, "milliseconds"],

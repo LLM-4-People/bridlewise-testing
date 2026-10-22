@@ -4251,8 +4251,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workflow-config", path: "src/workflow/workflow-config.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 39, namesSha256: "b8639e32ec83db17331de062ac52effa6ae22338530fd2d240248b9fa3d16a0c" },
-      dependencies: ["src/kernel/errors.ts","src/kernel/product-identity.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 41, namesSha256: "8094dafd09d6211d9e95dd38287c469977a539f02f9220d7ca39058fb30752b7" },
+      dependencies: ["src/kernel/config.ts","src/kernel/errors.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
       id: "scripts-verification-filesystem-cache", path: "scripts/verification/filesystem-cache.ts", realm: "builder", layer: "verification",

@@ -4,6 +4,8 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
+import { getConfigDocumentSchema } from "../../src/kernel/config-contracts.ts";
+import { configuredSubprocessBounds, DEFAULT_SUBPROCESS_BOUNDS, subprocessBounds } from "../../src/workflow/workflow-config.ts";
 
 /**
  * The typecheck has NO wall limit (NO-LOAD-BLOCK A-17): `runTypecheck` runs
@@ -78,4 +80,20 @@ test("workspace-cli source: the workspace command resolves its timeouts from the
     !/\d+_?000\b/u.test(resolutionBody),
     "the worktree timeouts reader must not carry an inline timeout literal",
   );
+});
+
+test("the harness subprocess bounds are SETTINGS: harness.subprocessBounds is read field by field, an unset field is its declared default, the shipped file states every default, and an impossible value is refused by the schema", () => {
+  assert.deepEqual(subprocessBounds({}), DEFAULT_SUBPROCESS_BOUNDS, "an absent section answers the declared defaults");
+  const one = subprocessBounds({ harness: { subprocessBounds: { stallMs: 123_456 } } });
+  assert.equal(one.stallMs, 123_456, "a configured field is the value every consumer gets");
+  assert.deepEqual({ ...one, stallMs: DEFAULT_SUBPROCESS_BOUNDS.stallMs }, DEFAULT_SUBPROCESS_BOUNDS, "the fields left unset keep their defaults");
+  // The shipped document states each bound (expose everything), and they are the declared defaults.
+  assert.deepEqual(loadPinnedConfigSnapshot().document.harness?.subprocessBounds, { ...DEFAULT_SUBPROCESS_BOUNDS });
+  assert.deepEqual(configuredSubprocessBounds(), DEFAULT_SUBPROCESS_BOUNDS);
+  const schema = getConfigDocumentSchema();
+  const shipped = loadPinnedConfigSnapshot().document;
+  for (const [field, value] of [["minimumCpuRate", 0], ["minimumCpuRate", 1.5], ["stallMs", 0], ["hangBackstopMs", -1], ["pollMs", 1.5], ["outputBytes", 1], ["unknownBound", 1]] as const) {
+    const document = { ...shipped, harness: { ...shipped.harness, subprocessBounds: { ...shipped.harness?.subprocessBounds, [field]: value } } };
+    assert.equal(schema.safeParse(document).success, false, `harness.subprocessBounds.${field} = ${String(value)} is refused`);
+  }
 });

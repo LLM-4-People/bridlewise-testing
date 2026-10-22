@@ -28,7 +28,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
 import { liveFileLockHolder } from "../../src/filesystem/file-lock.ts";
 import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, INSTRUMENT_LOCK_TOKEN_VARIABLE, instrumentLockPath, instrumentLockStamp, isHeavyRun, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
-import { SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
+import { DEFAULT_SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
 import { allProcessIds, commandLineOf, isProcessAlive, ownedChild, processIdentity, procfsDocument, terminate } from "../../src/process/process-facts.ts";
 import { namedTestFileCount } from "../../scripts/tooling/test-run-lock.ts";
 import { createTempDir } from "../support/temp-dir.ts";
@@ -101,8 +101,8 @@ function inRunScope(nonce: string, body: string, env: NodeJS.ProcessEnv = proces
 
 const admitterBody = (label: string): string => [
   `const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)});`,
-  `const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "workflow-config.ts")).href)});`,
-  `const lock = admitInstrumentRun(process.argv[1], ${JSON.stringify(label)}, ${JSON.stringify(CAPS)}, SUBPROCESS_BOUNDS);`,
+  `const { DEFAULT_SUBPROCESS_BOUNDS } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "workflow-config.ts")).href)});`,
+  `const lock = admitInstrumentRun(process.argv[1], ${JSON.stringify(label)}, ${JSON.stringify(CAPS)}, DEFAULT_SUBPROCESS_BOUNDS);`,
   `console.log("ADMITTED owns=" + String(lock.owns));`,
   "setTimeout(() => undefined, 60_000);",
 ].join("\n");
@@ -129,10 +129,10 @@ test("a run INSIDE an admitted run borrows it — whatever the label holds (a ba
     const workflowConfig = pathToFileURL(join(ENGINE, "src", "workflow", "workflow-config.ts")).href;
     const nestedBody = [
       `const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)});`,
-      `const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(workflowConfig)});`,
+      `const { DEFAULT_SUBPROCESS_BOUNDS } = await import(${JSON.stringify(workflowConfig)});`,
       `const { spawnSync } = await import("node:child_process");`,
-      `const lock = admitInstrumentRun(process.argv[1], ${JSON.stringify(label)}, ${JSON.stringify(CAPS)}, SUBPROCESS_BOUNDS);`,
-      `const inner = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", ${JSON.stringify(`const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)}); const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(workflowConfig)}); const lock = admitInstrumentRun(process.argv[1], "the nested run", ${JSON.stringify(CAPS)}, SUBPROCESS_BOUNDS); console.log("NESTED owns=" + String(lock.owns) + " stamp=" + lock.stamp);`)}, process.argv[1]], { encoding: "utf8" });`,
+      `const lock = admitInstrumentRun(process.argv[1], ${JSON.stringify(label)}, ${JSON.stringify(CAPS)}, DEFAULT_SUBPROCESS_BOUNDS);`,
+      `const inner = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", ${JSON.stringify(`const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)}); const { DEFAULT_SUBPROCESS_BOUNDS } = await import(${JSON.stringify(workflowConfig)}); const lock = admitInstrumentRun(process.argv[1], "the nested run", ${JSON.stringify(CAPS)}, DEFAULT_SUBPROCESS_BOUNDS); console.log("NESTED owns=" + String(lock.owns) + " stamp=" + lock.stamp);`)}, process.argv[1]], { encoding: "utf8" });`,
       "console.log(inner.stdout.trim() || ('NO ANSWER ' + String(inner.status) + ' ' + String(inner.signal) + ' ' + inner.stderr));",
       "lock.release();",
     ].join("\n");
@@ -198,7 +198,7 @@ test("A HOST THAT CANNOT MAKE THE RUN'S SCOPE REFUSES THE RUN, typed and loud (p
   const empty = createTempDir("instrument-lock-empty-path-");
   const ran = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", [
     `const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)});`,
-    `try { admitInstrumentRun(process.argv[1], "an uncappable run", ${JSON.stringify(CAPS)}, ${JSON.stringify(SUBPROCESS_BOUNDS)}); console.log("ADMITTED"); } catch (error) { console.log("REFUSED " + error.code); }`,
+    `try { admitInstrumentRun(process.argv[1], "an uncappable run", ${JSON.stringify(CAPS)}, ${JSON.stringify(DEFAULT_SUBPROCESS_BOUNDS)}); console.log("ADMITTED"); } catch (error) { console.log("REFUSED " + error.code); }`,
   ].join("\n"), lockPath], { encoding: "utf8", env: { ...process.env, PATH: empty } });
   assert.match(ran.stdout, /^REFUSED per_run_caps_unavailable$/mu, `${ran.stdout} ${ran.stderr}`);
   assert.deepEqual(admittedRuns(lockPath), [], "nothing was recorded for a refused run");
@@ -210,7 +210,7 @@ test("a door killed outright never drops its record under its command: the super
   const doorBody = [
     `const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)});`,
     `const { superviseCommand } = await import(${JSON.stringify(SUPERVISOR_OWNER)});`,
-    `admitInstrumentRun(process.argv[1], "the door", ${JSON.stringify(CAPS)}, ${JSON.stringify(SUBPROCESS_BOUNDS)});`,
+    `admitInstrumentRun(process.argv[1], "the door", ${JSON.stringify(CAPS)}, ${JSON.stringify(DEFAULT_SUBPROCESS_BOUNDS)});`,
     // The command ignores the stop, so it outlives the door by the whole kill grace.
     `void superviseCommand({ supervisor: ${JSON.stringify(testProcessSupervisorBinary())}, command: "sh", args: ["-c", ${JSON.stringify(`trap '' TERM; sleep ${marker}`)}], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: () => undefined, onStderr: () => undefined });`,
     "setTimeout(() => console.log('RUNNING'), 500);",
@@ -254,7 +254,7 @@ test("a light run records nothing; what is heavy is config — a file is one, a 
   // A WHOLE INSTRUMENT is heavy by config's word (`wholeInstruments`), whatever files it names; one config does not name is refused, never guessed light.
   assert.equal(isHeavyRun(config, wholeInstrumentTestFileCount(config, "playwright")), true);
   assert.throws(() => wholeInstrumentTestFileCount(config, "coverage"), (error: unknown) => (error as { code?: string }).code === "instrument_lock_instrument_undeclared");
-  const light = holdInstrumentLock({ config, harnessRoot: ENGINE, runner: "a one-file run", testFileCount: 1, cpu: SUBPROCESS_BOUNDS });
+  const light = holdInstrumentLock({ config, harnessRoot: ENGINE, runner: "a one-file run", testFileCount: 1, cpu: DEFAULT_SUBPROCESS_BOUNDS });
   assert.equal(light.owns, false, "a light run owns nothing");
   assert.equal(light.path, instrumentLockPath(config, ENGINE));
   light.release();
@@ -273,7 +273,7 @@ test("the stamp is READ from the live records AND bound to the run's token: a ru
     // A record written by hand that names this very process: live, in this lineage, but no token.
     plantRecord(lockPath, "forged", { pid: process.pid, startTime: processIdentity().startTime, nonce: "forged", holder: "a forged run" });
     assert.equal(instrumentLockStamp(lockPath), "unslotted", "a forged record without the run's token stamps nothing");
-    const lock = admitInstrumentRun(join(createTempDir("instrument-lock-stamp-held-"), "instrument.lock"), "this test", CAPS, SUBPROCESS_BOUNDS);
+    const lock = admitInstrumentRun(join(createTempDir("instrument-lock-stamp-held-"), "instrument.lock"), "this test", CAPS, DEFAULT_SUBPROCESS_BOUNDS);
     assert.equal(instrumentLockStamp(lock.path), "held", "inside an admitted run, by its admission");
     assert.match(process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] ?? "", /^[0-9a-f-]{36}$/u, "the owner exports its run's token");
     // The owner's own stamp reads its admission, not its environment.
@@ -281,11 +281,11 @@ test("the stamp is READ from the live records AND bound to the run's token: a ru
     assert.equal(instrumentLockStamp(lock.path), "held", "the process that was admitted stamps held by its admission");
     lock.release();
     process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = "inherited";
-    const nested = admitInstrumentRun(join(createTempDir("instrument-lock-stamp-nested-"), "instrument.lock"), "another run", CAPS, SUBPROCESS_BOUNDS);
+    const nested = admitInstrumentRun(join(createTempDir("instrument-lock-stamp-nested-"), "instrument.lock"), "another run", CAPS, DEFAULT_SUBPROCESS_BOUNDS);
     nested.release();
     assert.equal(process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE], "inherited", "a token the process inherited comes back when its own run is released");
     delete process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
-    const long = admitInstrumentRun(lock.path, `a long label ${"y".repeat(5_000)}`, CAPS, SUBPROCESS_BOUNDS);
+    const long = admitInstrumentRun(lock.path, `a long label ${"y".repeat(5_000)}`, CAPS, DEFAULT_SUBPROCESS_BOUNDS);
     assert.ok((admittedRuns(long.path)[0] ?? "").length <= 260, "the record's label is bounded");
     long.release();
     assert.equal(instrumentLockStamp(lock.path), "unslotted", "after the release");

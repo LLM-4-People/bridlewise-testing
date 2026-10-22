@@ -34,7 +34,7 @@ import { fileURLToPath } from "node:url";
 import { ensurePrivateStateDirectory } from "../../src/filesystem/private-state.ts";
 import { recognizableTestSourceLanguage } from "../../src/kernel/test-surface-manifest.ts";
 import { admitInstrumentRun, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, instrumentLockStamp, isHeavyRun, wholeInstrumentTestFileCount, type InstrumentLockConfig, type InstrumentLockStamp } from "../../src/process/instrument-lock.ts";
-import { SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
+import { configuredSubprocessBounds } from "../../src/workflow/workflow-config.ts";
 import type { WholeInstrumentKind } from "../../src/kernel/config-contracts.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
@@ -150,9 +150,9 @@ export function enforceTestRunLock(
   }
   if (options.lockDir !== undefined) {
     if (!isHeavyRun(config, options.testFileCount)) return { owns: false, runner, path: lockPath, stamp: instrumentLockStamp(lockPath), release: () => undefined };
-    return admitInstrumentRun(lockPath, runner, config.perRun, SUBPROCESS_BOUNDS);
+    return admitInstrumentRun(lockPath, runner, config.perRun, configuredSubprocessBounds());
   }
-  return holdInstrumentLock({ config, harnessRoot: ENGINE_ROOT, runner, testFileCount: options.testFileCount, cpu: SUBPROCESS_BOUNDS });
+  return holdInstrumentLock({ config, harnessRoot: ENGINE_ROOT, runner, testFileCount: options.testFileCount, cpu: configuredSubprocessBounds() });
 }
 
 /** Whether THIS process runs inside a live hold of the host's instrument lock (a measurement's stamp). */

@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "48b7b5ac11f412cbf6b912d4342ed95b91bcb6add81306b02b6823dbed76e3be",
+      sourceSha256: "030487f7cd0f337c66045ca3b4b1dc652e371418984a0fdc2bb7a142e6c0f0db",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -2804,11 +2804,10 @@ const ROOT_POLICY_VALUE = {
        * produced no output and less than the harness's minimum CPU rate for
        * `toolStallMs`; both are read every `toolPollMs`, and a stopped group
        * gets `toolKillGraceMs` between SIGTERM and SIGKILL. Wall time only
-       * ends a hang (`toolHangBackstopMs`, past any honest import).
+       * ends a hang (`forge.historyImport.toolHangBackstopMs`, a setting).
        */
       toolCpuBudgetMs: 14_400_000,
       toolStallMs: 900_000,
-      toolHangBackstopMs: 43_200_000,
       toolPollMs: 2_000,
       toolKillGraceMs: 3_000,
       /** The git door's per-call ceiling for the importer's git calls (src/git/tree-reader.ts `gitOutput`; that door bounds by wall time, an issue of its own owner). */

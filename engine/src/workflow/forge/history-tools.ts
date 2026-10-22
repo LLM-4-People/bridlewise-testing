@@ -32,7 +32,7 @@ import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { ROOT_POLICY } from "../../kernel/root-policy.ts";
 import { runCpuBounded } from "../../process/supervised-run.ts";
 import { boundedEnding, type BoundedEnding, type SubprocessBounds } from "../../process/subprocess-bounds.ts";
-import { SUBPROCESS_BOUNDS } from "../workflow-config.ts";
+import { configuredSubprocessBounds } from "../workflow-config.ts";
 import { ForgeError, type ForgeCode } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
 
@@ -147,7 +147,7 @@ export type HistoryToolRun = Readonly<{ status: number; stdout: string; stderr: 
 function policyBounds(): SubprocessBounds {
   const policy = ROOT_POLICY.workflow.historyImport;
   return {
-    cpuBudgetMs: policy.toolCpuBudgetMs, minimumCpuRate: SUBPROCESS_BOUNDS.minimumCpuRate, stallMs: policy.toolStallMs, hangBackstopMs: policy.toolHangBackstopMs,
+    cpuBudgetMs: policy.toolCpuBudgetMs, minimumCpuRate: configuredSubprocessBounds().minimumCpuRate, stallMs: policy.toolStallMs, hangBackstopMs: configuredForge().historyImport.toolHangBackstopMs,
     pollMs: policy.toolPollMs, killGraceMs: policy.toolKillGraceMs, outputBytes: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
   };
 }
