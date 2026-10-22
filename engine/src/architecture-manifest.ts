@@ -5345,8 +5345,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-promotion-promoter-home", path: "src/workflow/promotion/promoter-home.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 8, namesSha256: "42156510b5df4b917054dd56bdb9cde1bd476f2001d029aa739e7d62c6c6b008" },
-      dependencies: ["node:fs","node:path","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/engine-root.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/process/supervised-run.ts","src/shared/debug/debug-system.ts","src/workflow/checkout-setup.ts","src/workflow/hash-binding-registry.ts","src/workflow/promotion/apply.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/promote-arguments.ts","src/workflow/promotion/promotion-run.ts","src/workflow/tree-landing.ts","src/workflow/workflow-config.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 9, namesSha256: "bd6dfaddd2cd3b8399d941a49d6dfc64111ae3518d1ab2e93440aefa2d042493" },
+      dependencies: ["node:fs","node:path","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/engine-root.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/process/environment-projection.ts","src/process/supervised-run.ts","src/shared/debug/debug-system.ts","src/workflow/checkout-setup.ts","src/workflow/hash-binding-registry.ts","src/workflow/promotion/apply.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/promote-arguments.ts","src/workflow/promotion/promotion-run.ts","src/workflow/tree-landing.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "src-workflow-tree-landing", path: "src/workflow/tree-landing.ts", realm: "runtime", layer: "infrastructure",
