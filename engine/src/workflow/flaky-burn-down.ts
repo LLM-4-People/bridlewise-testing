@@ -47,7 +47,7 @@ import {
   type RunFailureRows,
   type SuiteIdentities,
 } from "../shared/run-history.ts";
-import { ownersOf, taskRows } from "./failure-owners.ts";
+import { boardRows, ownersOf } from "./failure-owners.ts";
 import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 
 export const FLAKY_BURN_DOWN_SCHEMA_VERSION = schemaId("flaky-burn-down", 1);
@@ -147,7 +147,7 @@ export function judgeBurnDown(
   testPathOf: (identity: string) => string | null,
   addedWithOwner: (entry: BurnDownEntry) => boolean,
 ): BurnDownJudgement {
-  const rows = taskRows(trackerText);
+  const rows = boardRows(trackerText);
   const listed = new Map(list.entries.map((entry) => [entry.identity, entry]));
   const problems: string[] = [];
   const owned: (BurnDownEntry & { red: boolean })[] = [];
