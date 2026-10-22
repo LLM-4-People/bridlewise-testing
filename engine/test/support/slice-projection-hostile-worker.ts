@@ -12,10 +12,7 @@ import {
   type SliceProjectionCapturedFile,
   type SliceProjectionInput,
 } from "../../scripts/verification/slice-projections.ts";
-import {
-  currentSliceProjectionDerivedPaths,
-  currentSliceProjectionInput,
-} from "./current-slice-projection-fixture.ts";
+import { readSliceProjectionInput, sliceProjectionInputPaths } from "../../scripts/verification/projection-artifacts.ts";
 
 type MutableProjectionInput = {
   captured: {
@@ -24,23 +21,22 @@ type MutableProjectionInput = {
   };
 };
 
-const base = currentSliceProjectionInput();
+const base = readSliceProjectionInput(process.cwd());
 const baseline = buildSliceProjection(base);
 const families: string[] = [];
 
 family("current-all-artifact-comparison", () => {
-  const mechanicallyDerivedPaths = currentSliceProjectionDerivedPaths();
+  const mechanicallyDerivedPaths = sliceProjectionInputPaths(process.cwd());
   assert.equal(mechanicallyDerivedPaths.length, 76);
   assert.deepEqual(base.captured.files.map((file) => file.path), mechanicallyDerivedPaths);
   const current = Object.keys(baseline.artifactsByPath).map((path) => ({ path, bytes: readFileSync(path, "utf8") }));
   const check = checkSliceProjection(baseline, current);
   assert.equal(check.paths.length, Object.keys(baseline.artifactsByPath).length);
   assert.deepEqual(check.paths.map((entry) => entry.path), Object.keys(baseline.artifactsByPath));
-  for (const entry of check.paths) {
-    const observed = current.find((candidate) => candidate.path === entry.path)!;
-    const expected = baseline.artifactsByPath[entry.path]!;
-    assert.equal(entry.disposition, observed.bytes === expected.bytes ? "exact" : "drift");
-  }
+  // STRICT (#221): every committed artifact IS the generator's output — a drift is a red, never a tolerated state.
+  assert.deepEqual(check.paths.filter((entry) => entry.disposition !== "exact").map((entry) => entry.path), [],
+    "a committed projection artifact is not its generator's output: run harness sync");
+  assert.equal(check.ok, true);
 });
 
 family("destination-non-authority", () => {

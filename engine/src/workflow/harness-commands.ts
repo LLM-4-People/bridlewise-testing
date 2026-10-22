@@ -145,8 +145,8 @@ export type HarnessCheckOutput = Readonly<{
   forgeFiles: CheckStepResult;
   /** Does every file under a frozen record root hold the content its pinned manifest records (src/workflow/record-links.ts)? */
   frozenRecords: CheckStepResult;
-  /** Does the published guardian spec-schema artifact equal a fresh projection of GUARDIAN_SPEC_SCHEMA (scripts/verification/guardian-spec-artifact.ts)? */
-  guardianSpecArtifact: CheckStepResult;
+  /** Is every committed projection artifact (the four schema files, the slice traces) its generator's output, byte for byte (scripts/verification/projection-artifacts.ts)? */
+  projectionArtifacts: CheckStepResult;
   /** Does the canonical artifact inventory equal a fresh build over the governed roots (scripts/tooling/artifact-manifest.ts)? */
   artifactManifest: CheckStepResult;
   /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
@@ -261,14 +261,14 @@ export type HarnessRegenerateOutput = Readonly<{
    */
   communityFiles: CommunityFilesArm;
   /**
-   * The guardian spec-schema artifact, rebuilt from the live Zod schema
-   * (`scripts/verification/guardian-spec-artifact.ts`) BEFORE the binding
-   * repair re-pins its sha256, so a schema edit converges in one pass.
+   * The projection artifacts — the four schema files and the slice traces —
+   * rebuilt by their one generator (`scripts/verification/projection-artifacts.ts`)
+   * BEFORE the binding repair re-pins the guardian schema's sha256, so an edit
+   * converges in one pass.
    */
-  guardianSpecArtifact: Readonly<{
+  projectionArtifacts: Readonly<{
     status: "current" | "regenerated" | "stale";
-    sha256: string;
-    path: string;
+    changed: readonly string[];
   }>;
   /**
    * The canonical important-artifact inventory, rebuilt from the governed
@@ -519,15 +519,15 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the frozen record roots' pinned content...");
   steps.push(frozenRecordsStep(syncFrozenRecords(trackedTop(root), false)));
 
-  emitProgress(onProgress, "Checking the guardian spec-schema artifact...");
-  const guardianSpecArtifact = regenerateGuardianSpecArtifact(root, false);
+  emitProgress(onProgress, "Checking the projection artifacts (schemas and slice traces)...");
+  const projectionArtifacts = regenerateProjectionArtifacts(root, false);
   steps.push(deepFreeze({
-    step: "guardian-spec-artifact",
-    status: guardianSpecArtifact.status === "current" ? "pass" : "fail",
-    message: guardianSpecArtifact.status === "current"
-      ? "the published guardian spec-schema artifact is a fresh projection of GUARDIAN_SPEC_SCHEMA"
-      : "the published guardian spec-schema artifact is stale against GUARDIAN_SPEC_SCHEMA (run harness sync)",
-    details: guardianSpecArtifact,
+    step: "projection-artifacts",
+    status: projectionArtifacts.status === "current" ? "pass" : "fail",
+    message: projectionArtifacts.status === "current"
+      ? "every projection artifact (the four schema files, the slice traces) is its generator's output"
+      : `projection artifacts are stale against their generator (run harness sync): ${projectionArtifacts.changed.join(", ")}`,
+    details: projectionArtifacts,
   }));
 
   emitProgress(onProgress, "Checking the task board...");
@@ -575,7 +575,7 @@ export async function harnessCheck(
     evidenceIgnore: steps[16]!,
     forgeFiles: steps[17]!,
     frozenRecords: steps[18]!,
-    guardianSpecArtifact: steps[19]!,
+    projectionArtifacts: steps[19]!,
     trackerBoard: steps[20]!,
     artifactManifest: steps[21]!,
     communityFiles: steps[22]!,
@@ -913,7 +913,7 @@ export function harnessRegenerate(
   // The guardian spec-schema artifact, BEFORE the first binding repair: its
   // published bytes are what `selfProtection.specSchemaArtifactSha256` pins,
   // so refreshing the artifact and re-pinning it must happen in that order.
-  const guardianSpecArtifact = regenerateGuardianSpecArtifact(root, write);
+  const projectionArtifacts = regenerateProjectionArtifacts(root, write);
   // Repair hash bindings so the disposition binding is current before the
   // test-inventory generation validates it. Then regenerate the test
   // inventory (which atomically writes the inventory file AND updates the
@@ -973,7 +973,7 @@ export function harnessRegenerate(
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, projectionArtifacts, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -990,7 +990,7 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
         pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged &&
-        (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
+        (projectionArtifacts.status === "current" || projectionArtifacts.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
     : undefined;
@@ -1144,24 +1144,24 @@ function regenerateTestInventory(root: string, write: boolean): Readonly<{
  * declared testing-only folder.
  */
 /**
- * The guardian spec-schema artifact arm, as a subprocess like the other
- * builder-layer arms: the runtime must not import the slice-projection builder
- * (it pulls the trace machinery), and the artifact's one owner
- * (`buildGuardianSpecSchemaArtifact`) lives there. A tree without the script
- * (a product-only package?) still reports a named error rather than passing.
+ * The projection-artifact arm (the four schema files and the slice traces), as
+ * a subprocess like the other builder-layer arms: the runtime must not import
+ * the slice-projection builder (it pulls the trace machinery), and the
+ * artifacts' one generator (`scripts/verification/projection-artifacts.ts`)
+ * lives there. A tree without the script still reports a named error rather
+ * than passing.
  */
-function regenerateGuardianSpecArtifact(root: string, write: boolean): HarnessRegenerateOutput["guardianSpecArtifact"] {
+function regenerateProjectionArtifacts(root: string, write: boolean): HarnessRegenerateOutput["projectionArtifacts"] {
   const report = generatorReport<"current" | "stale" | "written">(
     root,
-    "scripts/verification/guardian-spec-artifact.ts",
+    "scripts/verification/projection-artifacts.ts",
     [write ? "--write" : "--check"],
-    "the guardian spec-schema artifact",
-    "guardian_spec_artifact_no_result",
+    "the projection artifacts",
+    "projection_artifacts_no_result",
   );
   return deepFreeze({
     status: report.allCurrent ? "current" as const : write ? "regenerated" as const : "stale" as const,
-    sha256: typeof report.sha256 === "string" ? report.sha256 : "",
-    path: typeof report.path === "string" ? report.path : "",
+    changed: report.changed,
   });
 }
 

@@ -69,7 +69,7 @@
     "offlineForensicHash": "43ffcbbee67777996292194f6981e890db4815af37a8463d342132335645fe92",
     "artifact": {
       "path": "traceability/s3.1-forensic-schemas.json",
-      "sha256": "0aab9bbceef1e566a06ed07587fd4b98291048f03181d2218d53698886c012a0"
+      "sha256": "5fd569219c14486e5e134f363c37aef8347e4aebe3c0eeb6975f839d5bca939c"
     }
   },
   "behaviors": [

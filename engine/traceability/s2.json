@@ -84,10 +84,10 @@
   "contracts": {
     "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
     "contractBundleHash": "fd2e9473cf5fed0b6f242e66db405373e0dc73d2c3a42036a6afc19329554a30",
-    "offlineContractHash": "607c2ea74e2d41f970c9a9675ff864a46935d2e5449e09c96fe3ed1c204f1a89",
+    "offlineContractHash": "41a7b8ab236d4c3818b7bb964731c2f18b2b4022aa316efc75ed0897238bf3da",
     "artifact": {
       "path": "traceability/s2-contract-schemas.json",
-      "sha256": "1a68c4ca8ffa348ddcfcfd6dd84aa0631d6dee6f53dd2367fcad9c5553ea067b"
+      "sha256": "ed7d7ea9ec56f1cba2b9418335b682d4b9ba76495287ec044108bdf170390422"
     },
     "protocols": [
       "openai-responses",

@@ -6,7 +6,7 @@ import {
   GUARDIAN_SPEC_SCHEMA_HASH,
   GUARDIAN_SPEC_SCHEMA_VERSION,
 } from "../../src/filesystem/self-protection/self-protection-contracts.ts";
-import { canonicalHash, canonicalJson, deepFreeze, sha256, type DeepReadonly } from "../../src/kernel/integrity.ts";
+import { canonicalHash, canonicalJsonIndented, deepFreeze, sha256, type DeepReadonly } from "../../src/kernel/integrity.ts";
 import { createS2OfflineContractIdentity } from "../../src/forensics/offline-contracts.ts";
 import { createS3OfflineForensicIdentity } from "../../src/forensics/offline-forensics.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
@@ -423,8 +423,18 @@ function disabledScope(fields: readonly string[]) {
   ]);
 }
 
+/**
+ * THE BYTES of a generated schema artifact: the indented canonical form, one
+ * entry per line at every depth (#221; a one-line schema conflicted on every
+ * parallel change to what it projects). The one spelling the projections write
+ * and every check compares.
+ */
+export function schemaArtifactText(value: unknown): string {
+  return `${canonicalJsonIndented(value)}\n`;
+}
+
 function artifact(path: string, value: unknown, format: "canonical" | "pretty"): ProjectionArtifact {
-  const bytes = format === "canonical" ? `${canonicalJson(value)}\n` : `${JSON.stringify(value, null, 2)}\n`;
+  const bytes = format === "canonical" ? schemaArtifactText(value) : `${JSON.stringify(value, null, 2)}\n`;
   return deepFreeze({ path, value, bytes, sha256: sha256(bytes), identityHash: canonicalHash(value) });
 }
 

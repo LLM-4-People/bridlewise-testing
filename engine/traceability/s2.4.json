@@ -25,7 +25,7 @@
     "identityHash": "37071513f8260bb7f925516700101fb6a50dd1023be28dc4a9c67f71c5fb7cb5",
     "schemaArtifact": {
       "path": "traceability/s2.4-requirements-schema.json",
-      "sha256": "7af5c35d52bafeac122e977bb613447b411a0c1c5234c44163b9c68988122d68"
+      "sha256": "a71b8f51e01b7abc04bd774072bc31d26ebc9789b4a98125dc33760729455aae"
     }
   },
   "requirements": [

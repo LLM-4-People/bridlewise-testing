@@ -12,6 +12,7 @@ import { candidateFormatErrorViolations } from "../verification/candidate-format
 import { loadTestInventory } from "../test-inventory.ts";
 import { validateTestReceipt } from "./test-receipt.ts";
 import { verifyArchitectureSources, type ArchitectureSource } from "../verification/architecture.ts";
+import { schemaArtifactText } from "../verification/slice-projections.ts";
 import { verifyArtifactAdmission } from "../tooling/verification/artifact-admission.ts";
 import {
   inspectSafeRepositoryRootBoundary,
@@ -2161,9 +2162,9 @@ function verifyRequirementsRegistry(
   };
   try {
     const schemaBytes = readFileSync(schemaPath);
-    const expectedBytes = `${canonicalJson(expectedSchemaArtifact)}\n`;
+    const expectedBytes = schemaArtifactText(expectedSchemaArtifact);
     if (schemaBytes.toString("utf8") !== expectedBytes ||
-      sha256(schemaBytes) !== "7af5c35d52bafeac122e977bb613447b411a0c1c5234c44163b9c68988122d68") {
+      sha256(schemaBytes) !== "a71b8f51e01b7abc04bd774072bc31d26ebc9789b4a98125dc33760729455aae") {
       violations.push("requirements-registry-schema-artifact-drift");
     }
   } catch {

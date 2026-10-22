@@ -1,1 +1,1571 @@
-{"contractBundleHash":"fd2e9473cf5fed0b6f242e66db405373e0dc73d2c3a42036a6afc19329554a30","schemaVersion":"bridlewise-contract-schemas/v1","schemas":{"capability":{"$defs":{"__schema0":{"enum":["text","reasoning","streaming","tools","parallel_tool_calls","tool_choice_required","usage","structured_tool_results"],"type":"string"}},"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"protocol":{"enum":["openai-responses","openai-chat-completions","mcp-2025-11-25"],"type":"string"},"supported":{"items":{"$ref":"#/$defs/__schema0"},"maxItems":8,"type":"array"}},"required":["protocol","supported"],"type":"object"},"capabilityNegotiation":{"$defs":{"__schema0":{"enum":["openai-responses","openai-chat-completions","mcp-2025-11-25"],"type":"string"},"__schema1":{"additionalProperties":false,"properties":{"capability":{"enum":["text","reasoning","streaming","tools","parallel_tool_calls","tool_choice_required","usage","structured_tool_results"],"type":"string"},"disposition":{"enum":["required-unsupported","preferred-unavailable"],"type":"string"},"protocol":{"$ref":"#/$defs/__schema0"}},"required":["capability","disposition"],"type":"object"}},"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"accepted":{"type":"boolean"},"losses":{"items":{"$ref":"#/$defs/__schema1"},"maxItems":256,"type":"array"},"selectedProtocol":{"anyOf":[{"$ref":"#/$defs/__schema0"},{"type":"null"}]}},"required":["accepted","selectedProtocol","losses"],"type":"object"},"error":{"$defs":{"__schema0":{"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"},{"items":{"$ref":"#/$defs/__schema0"},"type":"array"},{"additionalProperties":{"$ref":"#/$defs/__schema0"},"propertyNames":{"type":"string"},"type":"object"}]}},"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"code":{"maxLength":512,"minLength":1,"pattern":"^[a-z0-9_]+$","type":"string"},"kind":{"enum":["malformed","ordering","provider","schema","unsupported"],"type":"string"},"message":{"maxLength":512,"minLength":1,"type":"string"},"metadata":{"additionalProperties":false,"properties":{"classification":{"const":"regulated-restricted","type":"string"},"forwarding":{"const":"forbidden","type":"string"},"raw":{"additionalProperties":{"$ref":"#/$defs/__schema0"},"propertyNames":{"type":"string"},"type":"object"},"sourceProtocol":{"enum":["openai-responses","openai-chat-completions","mcp-2025-11-25"],"type":"string"}},"required":["classification","forwarding","sourceProtocol","raw"],"type":"object"},"retryable":{"const":false,"type":"boolean"}},"required":["kind","code","message","retryable"],"type":"object"},"event":{"$defs":{"__schema0":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"__schema1":{"enum":["openai-responses","openai-chat-completions"],"type":"string"},"__schema2":{"maxLength":512,"minLength":1,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$","type":"string"},"__schema3":{"maxLength":1048576,"type":"string"},"__schema4":{"additionalProperties":{"$ref":"#/$defs/__schema5"},"propertyNames":{"type":"string"},"type":"object"},"__schema5":{"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"},{"items":{"$ref":"#/$defs/__schema5"},"type":"array"},{"additionalProperties":{"$ref":"#/$defs/__schema5"},"propertyNames":{"type":"string"},"type":"object"}]}},"$schema":"https://json-schema.org/draft/2020-12/schema","oneOf":[{"additionalProperties":false,"properties":{"protocol":{"$ref":"#/$defs/__schema1"},"responseId":{"$ref":"#/$defs/__schema2"},"sequence":{"$ref":"#/$defs/__schema0"},"type":{"const":"start","type":"string"}},"required":["sequence","protocol","type"],"type":"object"},{"additionalProperties":false,"properties":{"delta":{"$ref":"#/$defs/__schema3"},"outputIndex":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"protocol":{"$ref":"#/$defs/__schema1"},"sequence":{"$ref":"#/$defs/__schema0"},"type":{"const":"text_delta","type":"string"}},"required":["sequence","protocol","type","outputIndex","delta"],"type":"object"},{"additionalProperties":false,"properties":{"delta":{"$ref":"#/$defs/__schema3"},"outputIndex":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"protocol":{"$ref":"#/$defs/__schema1"},"sequence":{"$ref":"#/$defs/__schema0"},"type":{"const":"reasoning_delta","type":"string"}},"required":["sequence","protocol","type","outputIndex","delta"],"type":"object"},{"additionalProperties":false,"properties":{"callId":{"$ref":"#/$defs/__schema2"},"name":{"maxLength":512,"minLength":1,"pattern":"^[A-Za-z0-9][A-Za-z0-9_-]*$","type":"string"},"outputIndex":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"protocol":{"$ref":"#/$defs/__schema1"},"sequence":{"$ref":"#/$defs/__schema0"},"type":{"const":"tool_call_start","type":"string"}},"required":["sequence","protocol","type","outputIndex","callId","name"],"type":"object"},{"additionalProperties":false,"properties":{"argumentsDelta":{"$ref":"#/$defs/__schema3"},"callId":{"$ref":"#/$defs/__schema2"},"outputIndex":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"protocol":{"$ref":"#/$defs/__schema1"},"sequence":{"$ref":"#/$defs/__schema0"},"type":{"const":"tool_call_delta","type":"string"}},"required":["sequence","protocol","type","outputIndex","callId","argumentsDelta"],"type":"object"},{"additionalProperties":false,"properties":{"arguments":{"$ref":"#/$defs/__schema4"},"callId":{"$ref":"#/$defs/__schema2"},"outputIndex":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"protocol":{"$ref":"#/$defs/__schema1"},"sequence":{"$ref":"#/$defs/__schema0"},"type":{"const":"tool_call_done","type":"string"}},"required":["sequence","protocol","type","outputIndex","callId","arguments"],"type":"object"},{"additionalProperties":false,"properties":{"protocol":{"$ref":"#/$defs/__schema1"},"sequence":{"$ref":"#/$defs/__schema0"},"type":{"const":"usage","type":"string"},"usage":{"additionalProperties":false,"properties":{"cachedInputTokens":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"inputTokens":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"outputTokens":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"reasoningTokens":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"totalTokens":{"maximum":9007199254740991,"minimum":0,"type":"integer"}},"required":["inputTokens","outputTokens","totalTokens"],"type":"object"}},"required":["sequence","protocol","type","usage"],"type":"object"},{"additionalProperties":false,"properties":{"outputIndex":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"protocol":{"$ref":"#/$defs/__schema1"},"reason":{"enum":["stop","length","tool_calls","content_filter","cancelled","unknown"],"type":"string"},"sequence":{"$ref":"#/$defs/__schema0"},"type":{"const":"finish","type":"string"}},"required":["sequence","protocol","type","reason"],"type":"object"},{"additionalProperties":false,"properties":{"error":{"additionalProperties":false,"properties":{"code":{"maxLength":512,"minLength":1,"pattern":"^[a-z0-9_]+$","type":"string"},"kind":{"enum":["malformed","ordering","provider","schema","unsupported"],"type":"string"},"message":{"maxLength":512,"minLength":1,"type":"string"},"metadata":{"additionalProperties":false,"properties":{"classification":{"const":"regulated-restricted","type":"string"},"forwarding":{"const":"forbidden","type":"string"},"raw":{"$ref":"#/$defs/__schema4"},"sourceProtocol":{"enum":["openai-responses","openai-chat-completions","mcp-2025-11-25"],"type":"string"}},"required":["classification","forwarding","sourceProtocol","raw"],"type":"object"},"retryable":{"const":false,"type":"boolean"}},"required":["kind","code","message","retryable"],"type":"object"},"protocol":{"$ref":"#/$defs/__schema1"},"sequence":{"$ref":"#/$defs/__schema0"},"type":{"const":"error","type":"string"}},"required":["sequence","protocol","type","error"],"type":"object"}]},"modelRequest":{"$defs":{"__schema0":{"maxLength":512,"minLength":1,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$","type":"string"},"__schema1":{"oneOf":[{"additionalProperties":false,"properties":{"content":{"$ref":"#/$defs/__schema2"},"role":{"const":"system","type":"string"}},"required":["role","content"],"type":"object"},{"additionalProperties":false,"properties":{"content":{"$ref":"#/$defs/__schema2"},"role":{"const":"developer","type":"string"}},"required":["role","content"],"type":"object"},{"additionalProperties":false,"properties":{"content":{"$ref":"#/$defs/__schema2"},"role":{"const":"user","type":"string"}},"required":["role","content"],"type":"object"},{"additionalProperties":false,"properties":{"content":{"$ref":"#/$defs/__schema2"},"role":{"const":"assistant","type":"string"}},"required":["role","content"],"type":"object"},{"additionalProperties":false,"properties":{"content":{"$ref":"#/$defs/__schema2"},"role":{"const":"tool","type":"string"},"toolCallId":{"$ref":"#/$defs/__schema0"}},"required":["role","content","toolCallId"],"type":"object"}]},"__schema2":{"maxLength":1048576,"type":"string"},"__schema3":{"additionalProperties":false,"properties":{"control":{"additionalProperties":false,"properties":{"approval":{"enum":["never","always","on-effect"],"type":"string"},"effect":{"enum":["none","read","write","process","network"],"type":"string"},"idempotency":{"enum":["none","intrinsic","key-required"],"type":"string"},"pathScope":{"items":{"$ref":"#/$defs/__schema7"},"maxItems":4096,"type":"array"},"retry":{"enum":["never","idempotent-only"],"type":"string"}},"required":["effect","approval","pathScope","idempotency","retry"],"type":"object"},"model":{"additionalProperties":false,"properties":{"description":{"$ref":"#/$defs/__schema2"},"inputSchema":{"$ref":"#/$defs/__schema4"},"name":{"maxLength":512,"minLength":1,"pattern":"^[A-Za-z0-9][A-Za-z0-9_-]*$","type":"string"},"outputSchema":{"$ref":"#/$defs/__schema4"}},"required":["name","inputSchema"],"type":"object"}},"required":["model","control"],"type":"object"},"__schema4":{"additionalProperties":false,"properties":{"$schema":{"const":"https://json-schema.org/draft/2020-12/schema","type":"string"},"additionalProperties":{"type":"boolean"},"description":{"$ref":"#/$defs/__schema2"},"properties":{"additionalProperties":{"$ref":"#/$defs/__schema5"},"propertyNames":{"maxLength":512,"minLength":1,"type":"string"},"type":"object"},"required":{"items":{"$ref":"#/$defs/__schema6"},"maxItems":4096,"type":"array"},"type":{"const":"object","type":"string"}},"required":["type"],"type":"object"},"__schema5":{"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"},{"items":{"$ref":"#/$defs/__schema5"},"type":"array"},{"additionalProperties":{"$ref":"#/$defs/__schema5"},"propertyNames":{"type":"string"},"type":"object"}]},"__schema6":{"maxLength":512,"minLength":1,"type":"string"},"__schema7":{"maxLength":1048576,"minLength":1,"pattern":"^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$))[A-Za-z0-9._/-]+$","type":"string"}},"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"maxOutputTokens":{"exclusiveMinimum":0,"maximum":9007199254740991,"type":"integer"},"messages":{"items":{"$ref":"#/$defs/__schema1"},"maxItems":4096,"minItems":1,"type":"array"},"model":{"maxLength":512,"minLength":1,"type":"string"},"parallelToolCalls":{"type":"boolean"},"reasoningEffort":{"enum":["low","medium","high"],"type":"string"},"requestId":{"$ref":"#/$defs/__schema0"},"stream":{"type":"boolean"},"temperature":{"maximum":2,"minimum":0,"type":"number"},"toolChoice":{"enum":["none","auto","required"],"type":"string"},"tools":{"items":{"$ref":"#/$defs/__schema3"},"maxItems":128,"type":"array"}},"required":["requestId","model","messages","tools","toolChoice","parallelToolCalls","stream"],"type":"object"},"rawMetadataEnvelope":{"$defs":{"__schema0":{"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"},{"items":{"$ref":"#/$defs/__schema0"},"type":"array"},{"additionalProperties":{"$ref":"#/$defs/__schema0"},"propertyNames":{"type":"string"},"type":"object"}]}},"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"classification":{"const":"regulated-restricted","type":"string"},"forwarding":{"const":"forbidden","type":"string"},"raw":{"additionalProperties":{"$ref":"#/$defs/__schema0"},"propertyNames":{"type":"string"},"type":"object"},"sourceProtocol":{"enum":["openai-responses","openai-chat-completions","mcp-2025-11-25"],"type":"string"}},"required":["classification","forwarding","sourceProtocol","raw"],"type":"object"},"tool":{"$defs":{"__schema0":{"maxLength":1048576,"type":"string"},"__schema1":{"additionalProperties":false,"properties":{"$schema":{"const":"https://json-schema.org/draft/2020-12/schema","type":"string"},"additionalProperties":{"type":"boolean"},"description":{"$ref":"#/$defs/__schema0"},"properties":{"additionalProperties":{"$ref":"#/$defs/__schema2"},"propertyNames":{"maxLength":512,"minLength":1,"type":"string"},"type":"object"},"required":{"items":{"$ref":"#/$defs/__schema3"},"maxItems":4096,"type":"array"},"type":{"const":"object","type":"string"}},"required":["type"],"type":"object"},"__schema2":{"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"},{"items":{"$ref":"#/$defs/__schema2"},"type":"array"},{"additionalProperties":{"$ref":"#/$defs/__schema2"},"propertyNames":{"type":"string"},"type":"object"}]},"__schema3":{"maxLength":512,"minLength":1,"type":"string"}},"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"description":{"$ref":"#/$defs/__schema0"},"inputSchema":{"$ref":"#/$defs/__schema1"},"name":{"maxLength":512,"minLength":1,"pattern":"^[A-Za-z0-9][A-Za-z0-9_-]*$","type":"string"},"outputSchema":{"$ref":"#/$defs/__schema1"}},"required":["name","inputSchema"],"type":"object"},"toolContract":{"$defs":{"__schema0":{"maxLength":1048576,"type":"string"},"__schema1":{"additionalProperties":false,"properties":{"$schema":{"const":"https://json-schema.org/draft/2020-12/schema","type":"string"},"additionalProperties":{"type":"boolean"},"description":{"$ref":"#/$defs/__schema0"},"properties":{"additionalProperties":{"$ref":"#/$defs/__schema2"},"propertyNames":{"maxLength":512,"minLength":1,"type":"string"},"type":"object"},"required":{"items":{"$ref":"#/$defs/__schema3"},"maxItems":4096,"type":"array"},"type":{"const":"object","type":"string"}},"required":["type"],"type":"object"},"__schema2":{"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"},{"items":{"$ref":"#/$defs/__schema2"},"type":"array"},{"additionalProperties":{"$ref":"#/$defs/__schema2"},"propertyNames":{"type":"string"},"type":"object"}]},"__schema3":{"maxLength":512,"minLength":1,"type":"string"},"__schema4":{"maxLength":1048576,"minLength":1,"pattern":"^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$))[A-Za-z0-9._/-]+$","type":"string"}},"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"control":{"additionalProperties":false,"properties":{"approval":{"enum":["never","always","on-effect"],"type":"string"},"effect":{"enum":["none","read","write","process","network"],"type":"string"},"idempotency":{"enum":["none","intrinsic","key-required"],"type":"string"},"pathScope":{"items":{"$ref":"#/$defs/__schema4"},"maxItems":4096,"type":"array"},"retry":{"enum":["never","idempotent-only"],"type":"string"}},"required":["effect","approval","pathScope","idempotency","retry"],"type":"object"},"model":{"additionalProperties":false,"properties":{"description":{"$ref":"#/$defs/__schema0"},"inputSchema":{"$ref":"#/$defs/__schema1"},"name":{"maxLength":512,"minLength":1,"pattern":"^[A-Za-z0-9][A-Za-z0-9_-]*$","type":"string"},"outputSchema":{"$ref":"#/$defs/__schema1"}},"required":["name","inputSchema"],"type":"object"}},"required":["model","control"],"type":"object"},"toolResult":{"$defs":{"__schema0":{"additionalProperties":{"$ref":"#/$defs/__schema1"},"propertyNames":{"type":"string"},"type":"object"},"__schema1":{"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"},{"items":{"$ref":"#/$defs/__schema1"},"type":"array"},{"additionalProperties":{"$ref":"#/$defs/__schema1"},"propertyNames":{"type":"string"},"type":"object"}]}},"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"callId":{"maxLength":512,"minLength":1,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$","type":"string"},"isError":{"type":"boolean"},"metadata":{"additionalProperties":false,"properties":{"classification":{"const":"regulated-restricted","type":"string"},"forwarding":{"const":"forbidden","type":"string"},"raw":{"$ref":"#/$defs/__schema0"},"sourceProtocol":{"enum":["openai-responses","openai-chat-completions","mcp-2025-11-25"],"type":"string"}},"required":["classification","forwarding","sourceProtocol","raw"],"type":"object"},"structured":{"$ref":"#/$defs/__schema0"},"text":{"maxLength":1048576,"type":"string"}},"required":["callId","isError"],"type":"object"},"transport":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"executionAuthorized":{"const":false,"type":"boolean"},"framing":{"enum":["json","json-chunks","sse"],"type":"string"},"method":{"enum":["POST","JSON-RPC"],"type":"string"},"path":{"maxLength":512,"minLength":1,"type":"string"},"protocol":{"enum":["openai-responses","openai-chat-completions","mcp-2025-11-25"],"type":"string"},"stream":{"type":"boolean"}},"required":["protocol","method","path","framing","stream","executionAuthorized"],"type":"object"},"usage":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"cachedInputTokens":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"inputTokens":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"outputTokens":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"reasoningTokens":{"maximum":9007199254740991,"minimum":0,"type":"integer"},"totalTokens":{"maximum":9007199254740991,"minimum":0,"type":"integer"}},"required":["inputTokens","outputTokens","totalTokens"],"type":"object"}}}
+{
+  "contractBundleHash": "fd2e9473cf5fed0b6f242e66db405373e0dc73d2c3a42036a6afc19329554a30",
+  "schemaVersion": "bridlewise-contract-schemas/v1",
+  "schemas": {
+    "capability": {
+      "$defs": {
+        "__schema0": {
+          "enum": [
+            "text",
+            "reasoning",
+            "streaming",
+            "tools",
+            "parallel_tool_calls",
+            "tool_choice_required",
+            "usage",
+            "structured_tool_results"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "enum": [
+            "openai-responses",
+            "openai-chat-completions",
+            "mcp-2025-11-25"
+          ],
+          "type": "string"
+        },
+        "supported": {
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "maxItems": 8,
+          "type": "array"
+        }
+      },
+      "required": [
+        "protocol",
+        "supported"
+      ],
+      "type": "object"
+    },
+    "capabilityNegotiation": {
+      "$defs": {
+        "__schema0": {
+          "enum": [
+            "openai-responses",
+            "openai-chat-completions",
+            "mcp-2025-11-25"
+          ],
+          "type": "string"
+        },
+        "__schema1": {
+          "additionalProperties": false,
+          "properties": {
+            "capability": {
+              "enum": [
+                "text",
+                "reasoning",
+                "streaming",
+                "tools",
+                "parallel_tool_calls",
+                "tool_choice_required",
+                "usage",
+                "structured_tool_results"
+              ],
+              "type": "string"
+            },
+            "disposition": {
+              "enum": [
+                "required-unsupported",
+                "preferred-unavailable"
+              ],
+              "type": "string"
+            },
+            "protocol": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "required": [
+            "capability",
+            "disposition"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "losses": {
+          "items": {
+            "$ref": "#/$defs/__schema1"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "selectedProtocol": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema0"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "accepted",
+        "selectedProtocol",
+        "losses"
+      ],
+      "type": "object"
+    },
+    "error": {
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/__schema0"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^[a-z0-9_]+$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "malformed",
+            "ordering",
+            "provider",
+            "schema",
+            "unsupported"
+          ],
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": false,
+          "properties": {
+            "classification": {
+              "const": "regulated-restricted",
+              "type": "string"
+            },
+            "forwarding": {
+              "const": "forbidden",
+              "type": "string"
+            },
+            "raw": {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "sourceProtocol": {
+              "enum": [
+                "openai-responses",
+                "openai-chat-completions",
+                "mcp-2025-11-25"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "classification",
+            "forwarding",
+            "sourceProtocol",
+            "raw"
+          ],
+          "type": "object"
+        },
+        "retryable": {
+          "const": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "code",
+        "message",
+        "retryable"
+      ],
+      "type": "object"
+    },
+    "event": {
+      "$defs": {
+        "__schema0": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "__schema1": {
+          "enum": [
+            "openai-responses",
+            "openai-chat-completions"
+          ],
+          "type": "string"
+        },
+        "__schema2": {
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "type": "string"
+        },
+        "__schema3": {
+          "maxLength": 1048576,
+          "type": "string"
+        },
+        "__schema4": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema5"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "__schema5": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/__schema5"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema5"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "protocol": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "responseId": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "sequence": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "type": {
+              "const": "start",
+              "type": "string"
+            }
+          },
+          "required": [
+            "sequence",
+            "protocol",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "delta": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "outputIndex": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "protocol": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "sequence": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "type": {
+              "const": "text_delta",
+              "type": "string"
+            }
+          },
+          "required": [
+            "sequence",
+            "protocol",
+            "type",
+            "outputIndex",
+            "delta"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "delta": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "outputIndex": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "protocol": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "sequence": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "type": {
+              "const": "reasoning_delta",
+              "type": "string"
+            }
+          },
+          "required": [
+            "sequence",
+            "protocol",
+            "type",
+            "outputIndex",
+            "delta"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "callId": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "name": {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+              "type": "string"
+            },
+            "outputIndex": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "protocol": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "sequence": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "type": {
+              "const": "tool_call_start",
+              "type": "string"
+            }
+          },
+          "required": [
+            "sequence",
+            "protocol",
+            "type",
+            "outputIndex",
+            "callId",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "argumentsDelta": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "callId": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "outputIndex": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "protocol": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "sequence": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "type": {
+              "const": "tool_call_delta",
+              "type": "string"
+            }
+          },
+          "required": [
+            "sequence",
+            "protocol",
+            "type",
+            "outputIndex",
+            "callId",
+            "argumentsDelta"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "arguments": {
+              "$ref": "#/$defs/__schema4"
+            },
+            "callId": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "outputIndex": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "protocol": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "sequence": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "type": {
+              "const": "tool_call_done",
+              "type": "string"
+            }
+          },
+          "required": [
+            "sequence",
+            "protocol",
+            "type",
+            "outputIndex",
+            "callId",
+            "arguments"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "protocol": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "sequence": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "type": {
+              "const": "usage",
+              "type": "string"
+            },
+            "usage": {
+              "additionalProperties": false,
+              "properties": {
+                "cachedInputTokens": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "inputTokens": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "outputTokens": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "reasoningTokens": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "totalTokens": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "inputTokens",
+                "outputTokens",
+                "totalTokens"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "sequence",
+            "protocol",
+            "type",
+            "usage"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "outputIndex": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "protocol": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "reason": {
+              "enum": [
+                "stop",
+                "length",
+                "tool_calls",
+                "content_filter",
+                "cancelled",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            "sequence": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "type": {
+              "const": "finish",
+              "type": "string"
+            }
+          },
+          "required": [
+            "sequence",
+            "protocol",
+            "type",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "pattern": "^[a-z0-9_]+$",
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "malformed",
+                    "ordering",
+                    "provider",
+                    "schema",
+                    "unsupported"
+                  ],
+                  "type": "string"
+                },
+                "message": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "metadata": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "classification": {
+                      "const": "regulated-restricted",
+                      "type": "string"
+                    },
+                    "forwarding": {
+                      "const": "forbidden",
+                      "type": "string"
+                    },
+                    "raw": {
+                      "$ref": "#/$defs/__schema4"
+                    },
+                    "sourceProtocol": {
+                      "enum": [
+                        "openai-responses",
+                        "openai-chat-completions",
+                        "mcp-2025-11-25"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "classification",
+                    "forwarding",
+                    "sourceProtocol",
+                    "raw"
+                  ],
+                  "type": "object"
+                },
+                "retryable": {
+                  "const": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "code",
+                "message",
+                "retryable"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "sequence": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "type": {
+              "const": "error",
+              "type": "string"
+            }
+          },
+          "required": [
+            "sequence",
+            "protocol",
+            "type",
+            "error"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "modelRequest": {
+      "$defs": {
+        "__schema0": {
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "type": "string"
+        },
+        "__schema1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "$ref": "#/$defs/__schema2"
+                },
+                "role": {
+                  "const": "system",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "$ref": "#/$defs/__schema2"
+                },
+                "role": {
+                  "const": "developer",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "$ref": "#/$defs/__schema2"
+                },
+                "role": {
+                  "const": "user",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "$ref": "#/$defs/__schema2"
+                },
+                "role": {
+                  "const": "assistant",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "$ref": "#/$defs/__schema2"
+                },
+                "role": {
+                  "const": "tool",
+                  "type": "string"
+                },
+                "toolCallId": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              "required": [
+                "role",
+                "content",
+                "toolCallId"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "__schema2": {
+          "maxLength": 1048576,
+          "type": "string"
+        },
+        "__schema3": {
+          "additionalProperties": false,
+          "properties": {
+            "control": {
+              "additionalProperties": false,
+              "properties": {
+                "approval": {
+                  "enum": [
+                    "never",
+                    "always",
+                    "on-effect"
+                  ],
+                  "type": "string"
+                },
+                "effect": {
+                  "enum": [
+                    "none",
+                    "read",
+                    "write",
+                    "process",
+                    "network"
+                  ],
+                  "type": "string"
+                },
+                "idempotency": {
+                  "enum": [
+                    "none",
+                    "intrinsic",
+                    "key-required"
+                  ],
+                  "type": "string"
+                },
+                "pathScope": {
+                  "items": {
+                    "$ref": "#/$defs/__schema7"
+                  },
+                  "maxItems": 4096,
+                  "type": "array"
+                },
+                "retry": {
+                  "enum": [
+                    "never",
+                    "idempotent-only"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "effect",
+                "approval",
+                "pathScope",
+                "idempotency",
+                "retry"
+              ],
+              "type": "object"
+            },
+            "model": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "$ref": "#/$defs/__schema2"
+                },
+                "inputSchema": {
+                  "$ref": "#/$defs/__schema4"
+                },
+                "name": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+                  "type": "string"
+                },
+                "outputSchema": {
+                  "$ref": "#/$defs/__schema4"
+                }
+              },
+              "required": [
+                "name",
+                "inputSchema"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "model",
+            "control"
+          ],
+          "type": "object"
+        },
+        "__schema4": {
+          "additionalProperties": false,
+          "properties": {
+            "$schema": {
+              "const": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "properties": {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema5"
+              },
+              "propertyNames": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "required": {
+              "items": {
+                "$ref": "#/$defs/__schema6"
+              },
+              "maxItems": 4096,
+              "type": "array"
+            },
+            "type": {
+              "const": "object",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        "__schema5": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/__schema5"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema5"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "__schema6": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "__schema7": {
+          "maxLength": 1048576,
+          "minLength": 1,
+          "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$))[A-Za-z0-9._/-]+$",
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "maxOutputTokens": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/__schema1"
+          },
+          "maxItems": 4096,
+          "minItems": 1,
+          "type": "array"
+        },
+        "model": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parallelToolCalls": {
+          "type": "boolean"
+        },
+        "reasoningEffort": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "requestId": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "stream": {
+          "type": "boolean"
+        },
+        "temperature": {
+          "maximum": 2,
+          "minimum": 0,
+          "type": "number"
+        },
+        "toolChoice": {
+          "enum": [
+            "none",
+            "auto",
+            "required"
+          ],
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/__schema3"
+          },
+          "maxItems": 128,
+          "type": "array"
+        }
+      },
+      "required": [
+        "requestId",
+        "model",
+        "messages",
+        "tools",
+        "toolChoice",
+        "parallelToolCalls",
+        "stream"
+      ],
+      "type": "object"
+    },
+    "rawMetadataEnvelope": {
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/__schema0"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "const": "regulated-restricted",
+          "type": "string"
+        },
+        "forwarding": {
+          "const": "forbidden",
+          "type": "string"
+        },
+        "raw": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "sourceProtocol": {
+          "enum": [
+            "openai-responses",
+            "openai-chat-completions",
+            "mcp-2025-11-25"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "classification",
+        "forwarding",
+        "sourceProtocol",
+        "raw"
+      ],
+      "type": "object"
+    },
+    "tool": {
+      "$defs": {
+        "__schema0": {
+          "maxLength": 1048576,
+          "type": "string"
+        },
+        "__schema1": {
+          "additionalProperties": false,
+          "properties": {
+            "$schema": {
+              "const": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "properties": {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema2"
+              },
+              "propertyNames": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "required": {
+              "items": {
+                "$ref": "#/$defs/__schema3"
+              },
+              "maxItems": 4096,
+              "type": "array"
+            },
+            "type": {
+              "const": "object",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        "__schema2": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/__schema2"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema2"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "__schema3": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "inputSchema": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+          "type": "string"
+        },
+        "outputSchema": {
+          "$ref": "#/$defs/__schema1"
+        }
+      },
+      "required": [
+        "name",
+        "inputSchema"
+      ],
+      "type": "object"
+    },
+    "toolContract": {
+      "$defs": {
+        "__schema0": {
+          "maxLength": 1048576,
+          "type": "string"
+        },
+        "__schema1": {
+          "additionalProperties": false,
+          "properties": {
+            "$schema": {
+              "const": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "properties": {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema2"
+              },
+              "propertyNames": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "required": {
+              "items": {
+                "$ref": "#/$defs/__schema3"
+              },
+              "maxItems": 4096,
+              "type": "array"
+            },
+            "type": {
+              "const": "object",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        "__schema2": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/__schema2"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema2"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "__schema3": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "__schema4": {
+          "maxLength": 1048576,
+          "minLength": 1,
+          "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$))[A-Za-z0-9._/-]+$",
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "control": {
+          "additionalProperties": false,
+          "properties": {
+            "approval": {
+              "enum": [
+                "never",
+                "always",
+                "on-effect"
+              ],
+              "type": "string"
+            },
+            "effect": {
+              "enum": [
+                "none",
+                "read",
+                "write",
+                "process",
+                "network"
+              ],
+              "type": "string"
+            },
+            "idempotency": {
+              "enum": [
+                "none",
+                "intrinsic",
+                "key-required"
+              ],
+              "type": "string"
+            },
+            "pathScope": {
+              "items": {
+                "$ref": "#/$defs/__schema4"
+              },
+              "maxItems": 4096,
+              "type": "array"
+            },
+            "retry": {
+              "enum": [
+                "never",
+                "idempotent-only"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "effect",
+            "approval",
+            "pathScope",
+            "idempotency",
+            "retry"
+          ],
+          "type": "object"
+        },
+        "model": {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "inputSchema": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "name": {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+              "type": "string"
+            },
+            "outputSchema": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "name",
+            "inputSchema"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "model",
+        "control"
+      ],
+      "type": "object"
+    },
+    "toolResult": {
+      "$defs": {
+        "__schema0": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema1"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "__schema1": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/__schema1"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema1"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "callId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "type": "string"
+        },
+        "isError": {
+          "type": "boolean"
+        },
+        "metadata": {
+          "additionalProperties": false,
+          "properties": {
+            "classification": {
+              "const": "regulated-restricted",
+              "type": "string"
+            },
+            "forwarding": {
+              "const": "forbidden",
+              "type": "string"
+            },
+            "raw": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "sourceProtocol": {
+              "enum": [
+                "openai-responses",
+                "openai-chat-completions",
+                "mcp-2025-11-25"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "classification",
+            "forwarding",
+            "sourceProtocol",
+            "raw"
+          ],
+          "type": "object"
+        },
+        "structured": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "text": {
+          "maxLength": 1048576,
+          "type": "string"
+        }
+      },
+      "required": [
+        "callId",
+        "isError"
+      ],
+      "type": "object"
+    },
+    "transport": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "executionAuthorized": {
+          "const": false,
+          "type": "boolean"
+        },
+        "framing": {
+          "enum": [
+            "json",
+            "json-chunks",
+            "sse"
+          ],
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "POST",
+            "JSON-RPC"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "protocol": {
+          "enum": [
+            "openai-responses",
+            "openai-chat-completions",
+            "mcp-2025-11-25"
+          ],
+          "type": "string"
+        },
+        "stream": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "protocol",
+        "method",
+        "path",
+        "framing",
+        "stream",
+        "executionAuthorized"
+      ],
+      "type": "object"
+    },
+    "usage": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "cachedInputTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inputTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outputTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reasoningTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "totalTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "inputTokens",
+        "outputTokens",
+        "totalTokens"
+      ],
+      "type": "object"
+    }
+  }
+}

@@ -7,7 +7,6 @@ The `engine/test/support/` folder of the development surface.
 - `assertions.ts` — the `assertions` module.
 - `authority-graph-fixture.ts` — the `authority-graph-fixture` module.
 - `authority-graph-test-catalog.ts` — the `authority-graph-test-catalog` module.
-- `current-slice-projection-fixture.ts` — the `current-slice-projection-fixture` module.
 - `factories.ts` — the `factories` module.
 - `host-requirement.ts` — a HOST REQUIREMENT said by name (`requireHost`, `requireLinuxHost`): a hermetic test that needs Linux, the built guardian, a user systemd or a linked fixture asserts it, never returns green without it.
 - `flake-shim-stall-after-response.ts` — a REPRODUCTION SHIM (`--preload`): one event-loop stall of 7.5 s right after the loopback server's first answer inside the matrix-executor test "tokens accumulate from run usage" (the test is known through a wrapped `node:test`), recreating the lost reference run deterministically; never imported by a test.

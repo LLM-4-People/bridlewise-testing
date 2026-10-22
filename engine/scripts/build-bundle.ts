@@ -7,9 +7,8 @@
  * bundle is the only harness file the restricted payload reads). The bundle
  * entry is separate from the package public API (`src/cli.ts`, which exports
  * only `runCli`) so the S1-B06-HOSTILE-REAL package-surface scenario and the
- * Landlock e2e probe each get exactly the exports they need. Also writes
- *   - `traceability/self-protection/guardian-spec-schema.json` (the published
- *     Draft 2020-12 projection of `GUARDIAN_SPEC_SCHEMA`).
+ * Landlock e2e probe each get exactly the exports they need. (The published
+ * guardian spec schema has one writer, `scripts/verification/projection-artifacts.ts`.)
  *
  * This is a BUILD-TIME script (dev/CI); it does NOT run under Landlock. The
  * runtime has zero new native deps — `esbuild` is a `devDependency` only.
@@ -35,7 +34,6 @@ import { build } from "esbuild";
 
 import { atomicWriteFile } from "../src/filesystem/atomic-write.ts";
 import { sha256 } from "../src/kernel/integrity.ts";
-import { buildGuardianSpecSchemaArtifact } from "./verification/slice-projections.ts";
 import { bootstrapProcess, isEntryPoint } from "../src/runtime/cli-debug.ts";
 
 const harnessRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -115,8 +113,6 @@ type BuildSummary = Readonly<{
   bundlePath: string;
   bundleSha256: string;
   bundleBytes: number;
-  specSchemaArtifactPath: string;
-  specSchemaArtifactSha256: string;
   esbuildVersion: string;
   esbuildLicense: string;
   entryPath: string;
@@ -154,14 +150,9 @@ async function buildBundle(): Promise<BuildSummary> {
   const esbuildPkg = readEsbuildPackage();
   const bundleText = (await buildBundleInMemory()).text;
   const published = publishBundle(bundleText, bundlePath);
-  const artifact = buildGuardianSpecSchemaArtifact();
-  const artifactAbsPath = join(harnessRoot, artifact.path);
-  writeArtifactIfChanged(artifactAbsPath, artifact.bytes, "guardian spec schema artifact");
   return {
     bundlePath,
     ...published,
-    specSchemaArtifactPath: artifact.path,
-    specSchemaArtifactSha256: artifact.sha256,
     esbuildVersion: esbuildPkg.version,
     esbuildLicense: esbuildPkg.license,
     entryPath,

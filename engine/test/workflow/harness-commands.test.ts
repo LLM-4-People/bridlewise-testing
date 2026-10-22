@@ -493,13 +493,13 @@ test("HarnessCommands: the inventory check judges the tree, not its cache — th
   }
 });
 
-test("HarnessCommands: the published guardian spec-schema artifact is gated — a schema edit reds until its owner refreshes it", async () => {
+test("HarnessCommands: the published guardian spec-schema artifact is gated — a schema edit reds until its one generator refreshes it", async () => {
   const copy = createRepositoryWorkingCopy("guardian-spec-freshness-", { include: engineGeneratorPopulation });
   const engine = copy.engineRoot;
   try {
     const options = { skipTypecheck: true, skipArchitecture: true, skipInventory: true } as const;
     const baseline = await harnessCheck(engine, options);
-    assert.equal(baseline.result.guardianSpecArtifact.status, "pass", "the checked-in artifact is a fresh projection");
+    assert.equal(baseline.result.projectionArtifacts.status, "pass", "the checked-in artifact is a fresh projection");
     const schemaPath = join(engine, "src", "filesystem", "self-protection", "self-protection-contracts.ts");
     const source = readFileSync(schemaPath, "utf8");
     const mutated = source.replace(
@@ -514,8 +514,8 @@ test("HarnessCommands: the published guardian spec-schema artifact is gated — 
     // was caught only by the projection rebuild. The source pin now sees the
     // schema module itself, so the same edit also reds hash-bindings.
     assert.equal(drifted.result.hashBindings.status, "fail", "the schema source pin must see the edit");
-    assert.equal(drifted.result.guardianSpecArtifact.status, "fail", "a schema change must red the check");
-    const generator = join(engine, "scripts", "verification", "guardian-spec-artifact.ts");
+    assert.equal(drifted.result.projectionArtifacts.status, "fail", "a schema change must red the check");
+    const generator = join(engine, "scripts", "verification", "projection-artifacts.ts");
     execFileSync(process.execPath, [generator, "--write"], { cwd: engine, stdio: "pipe" });
     execFileSync(process.execPath, [generator, "--check"], { cwd: engine, stdio: "pipe" });
     // Restore the source and the projection, then plant the refinement the
@@ -525,7 +525,7 @@ test("HarnessCommands: the published guardian spec-schema artifact is gated — 
     execFileSync(process.execPath, [generator, "--write"], { cwd: engine, stdio: "pipe" });
     const restored = await harnessCheck(engine, options);
     assert.equal(restored.result.hashBindings.status, "pass", "restoring the source restores its pin");
-    assert.equal(restored.result.guardianSpecArtifact.status, "pass");
+    assert.equal(restored.result.projectionArtifacts.status, "pass");
     const refined = source.replace(
       "abi_version_hint: z.number().int().nonnegative().max(64),",
       "abi_version_hint: z.number().int().nonnegative().max(64).refine((value) => value !== 63),",
@@ -534,7 +534,7 @@ test("HarnessCommands: the published guardian spec-schema artifact is gated — 
     writeFileSync(schemaPath, refined);
     const refinementOnly = await harnessCheck(engine, options);
     assert.equal(
-      refinementOnly.result.guardianSpecArtifact.status,
+      refinementOnly.result.projectionArtifacts.status,
       "pass",
       "the JSON projection cannot represent a refinement — this is why the artifact-only gate was incomplete",
     );

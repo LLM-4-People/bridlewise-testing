@@ -148,7 +148,7 @@ const S24_TRACE_SCHEMA = z.strictObject({
     identityHash: z.literal(REQUIREMENTS_REGISTRY_IDENTITY_HASH),
     schemaArtifact: z.strictObject({
       path: z.literal(SLICE_PROJECTION_PATHS.requirementsSchemaArtifact),
-      sha256: z.literal("7af5c35d52bafeac122e977bb613447b411a0c1c5234c44163b9c68988122d68"),
+      sha256: z.literal("a71b8f51e01b7abc04bd774072bc31d26ebc9789b4a98125dc33760729455aae"),
     }),
   }),
   requirements: z.array(z.string().regex(/^REQ-[0-9]{3}$/u)).min(1),
