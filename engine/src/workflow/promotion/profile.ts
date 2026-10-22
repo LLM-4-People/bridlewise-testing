@@ -21,7 +21,7 @@ import { gitAcceptsRefName } from "../../git/repository-ownership.ts";
 import type { TreeReader } from "../../git/tree-reader.ts";
 import { PromotionError } from "./codes.ts";
 
-const PROMOTION_PROFILE_SCHEMA_VERSION = schemaId("promotion-profile", 2);
+const PROMOTION_PROFILE_SCHEMA_VERSION = schemaId("promotion-profile", 3);
 
 const refName = z.string().regex(/^refs\/heads\/[A-Za-z0-9._/-]+$/u);
 /**
@@ -62,10 +62,15 @@ const promotionProfileShape = z.strictObject({
     })).max(8),
     /**
      * The target-only files: a folder of the source whose every file ships at
-     * its path with the prefix removed (`product/README.md` → `README.md`);
-     * `null`: none. The folder itself never ships (the boundary excludes it).
+     * its path with the prefix removed (`product-only/README.md` →
+     * `README.md`); `null`: none. The folder itself never ships (the boundary
+     * excludes it). `kinds` is what it may hold, each one of `OVERLAY_KINDS`
+     * (compared without case): `*.<ext>` (an extension) or an exact basename.
      */
-    overlay: folderPrefix.nullable(),
+    overlay: z.strictObject({
+      folder: folderPrefix,
+      kinds: z.array(z.string().regex(/^(?:\*\.[A-Za-z0-9]+|[A-Za-z0-9][A-Za-z0-9._-]*)$/u, "must be *.<extension> or an exact basename")).min(1).max(32),
+    }).nullable(),
   }),
   transforms: z.array(z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("package-manifest"), path: REPOSITORY_RELATIVE_PATH_SCHEMA, scripts: z.array(z.string().min(1)).max(128) }),
@@ -86,6 +91,25 @@ export type PromotionTransform = PromotionProfile["transforms"][number];
 export type LoadedPromotionProfile = Readonly<{ profile: PromotionProfile; path: string; blob: string | null }>;
 
 /** The branch name a profile's ref names (`refs/heads/<branch>` → `<branch>`; the schema admits only branch refs). */
+/**
+ * THE ONLY KINDS AN OVERLAY MAY HOLD, a fixed allowlist: documents, the
+ * images named here, and the one recipe a person runs by typing `make`.
+ * Every other kind is refused, whatever its spelling: code (`*.js`, `*.mts`,
+ * `*.node`, `*.wasm`, `*.sh`), active documents (`*.html`, `*.svg`), and
+ * configuration a tool reads by itself (`package.json`, `.npmrc`, a hook).
+ * Code ships from the source tree, where the import walk judges it. Kinds
+ * and file names are compared without case, so no spelling of a refused kind
+ * passes as another.
+ */
+export const OVERLAY_KINDS = Object.freeze(["*.md", "*.txt", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "makefile"] as const);
+
+/** Does the file `basename` belong to the overlay kind `kind` (compared without case)? */
+export function isOfOverlayKind(basename: string, kind: string): boolean {
+  const name = basename.toLowerCase();
+  const wanted = kind.toLowerCase();
+  return wanted.startsWith("*.") ? name.endsWith(wanted.slice(1)) && name.length > wanted.length - 1 : name === wanted;
+}
+
 export function branchOf(ref: string): string {
   return ref.slice("refs/heads/".length);
 }
@@ -127,8 +151,13 @@ function profileViolations(
   }
   const { overlay } = profile.boundary;
   if (overlay !== null) {
-    if (excludedBy(profile, `${overlay}x`) === null) violations.push(["/boundary/overlay", `the overlay folder ${overlay} must be excluded by the profile's own boundary (it ships only through the overlay, at its paths without the prefix)`]);
-    if (overlay.startsWith(directoryPrefix) || directoryPrefix.startsWith(overlay)) violations.push(["/boundary/overlay", `the overlay folder ${overlay} and the profile directory ${directoryPrefix} overlap (a profile never ships)`]);
+    const { folder } = overlay;
+    if (excludedBy(profile, `${folder}x`) === null) violations.push(["/boundary/overlay/folder", `the overlay folder ${folder} must be excluded by the profile's own boundary (it ships only through the overlay, at its paths without the prefix)`]);
+    if (folder.startsWith(directoryPrefix) || directoryPrefix.startsWith(folder)) violations.push(["/boundary/overlay/folder", `the overlay folder ${folder} and the profile directory ${directoryPrefix} overlap (a profile never ships)`]);
+    overlay.kinds.forEach((kind, index) => {
+      if (!(OVERLAY_KINDS as readonly string[]).includes(kind.toLowerCase())) violations.push([`/boundary/overlay/kinds/${String(index)}`, `${kind} is not an overlay kind (${OVERLAY_KINDS.join(", ")}): the overlay ships target-only documents, images and the make recipe; code and configuration ship from the source tree, where the import walk judges them`]);
+    });
+    for (const duplicate of duplicates(overlay.kinds.map((kind) => kind.toLowerCase()))) violations.push(["/boundary/overlay/kinds", `${duplicate} is listed twice`]);
   }
   profile.transforms.forEach((transform, index) => {
     const by = excludedBy(profile, transform.path);
@@ -183,7 +212,7 @@ export function profileTreeViolations(profile: PromotionProfile, present: Readon
  * name that is not the file's basename, the same ref twice, a ref git refuses,
  * a profile directory the boundary does not exclude, a path both excluded and
  * included (or derived), an overlay folder the boundary does not exclude or
- * that overlaps the profile directory, a duplicate, two transforms of one path, a lockfile
+ * that overlaps the profile directory, an overlay kind off the fixed allowlist, a duplicate, two transforms of one path, a lockfile
  * whose manifest no transform derives, a command the registry does not
  * declare.
  */
