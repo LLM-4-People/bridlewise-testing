@@ -158,8 +158,8 @@ test("exp470-registration: snapshot is internally consistent + frozen", () => {
  *
  * `registrations/shared.ts` sat in this directory and was in no import list.
  * Driven, its five signals did not exist at runtime; tree-shaking had already
- * removed its symbols from `dist/bundle.js`, and that removal is what
- * `bundleSha256` certifies — so the shipped artefact never held it and every
+ * removed its symbols from `dist/bundle.js`, and that removal is what a
+ * fresh build reproduces — so the shipped artefact never held it and every
  * consumer agreed, correctly, that it was not there. The existing guard
  * iterated `MODULE_REGISTRATIONS` and so could only ever confirm the list
  * against itself.
