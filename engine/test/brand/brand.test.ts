@@ -154,5 +154,8 @@ test("mutation: a broken source, a missing block or a hand edit fails the front-
   // A front door that lost its markers is refused, never skipped.
   writeFileSync(join(root, "docs/brand/messaging.json"), JSON.stringify(messaging));
   writeFileSync(readme, "# A README without its block\n");
-  assert.deepEqual(syncFrontDoors(root, false).problems, ["README.md carries no single generated front-door block"]);
+  assert.deepEqual(syncFrontDoors(root, false).problems, [`README.md carries no single generated block between "${FRONT_DOORS[0]!.begin}" and "${FRONT_DOORS[0]!.end}"`]);
+  // A page with two blocks keeps both: setting one never undoes the other.
+  writeFileSync(readme, readFileSync(join(REPOSITORY_ROOT, "README.md"), "utf8"));
+  assert.equal(syncFrontDoors(root, false).status, "current");
 });

@@ -73,24 +73,31 @@ export function withFrontBlock(text: string, begin: string, end: string, block: 
 
 /** Validates both sources and renders every front door; with `write`, rewrites a stale block. A broken source or a missing block is `refused`, never skipped. */
 export function syncFrontDoors(root: string, write: boolean): SyncReport {
-  let rendered: { path: string; next: string | null; current: string }[];
+  // Each file once, with every block it carries set in turn (a page may hold more than one front-door block).
+  const rendered: { path: string; next: string; current: string }[] = [];
+  const missing: string[] = [];
   try {
     const messaging = readMessaging(root);
     const claims = readClaims(root);
     const decisions = decisionStates(root);
-    rendered = FRONT_DOORS.map((door) => {
-      const file = join(root, door.path);
+    for (const path of [...new Set(FRONT_DOORS.map((door) => door.path))]) {
+      const file = join(root, path);
       const current = existsSync(file) ? readFileSync(file, "utf8") : "";
-      return { path: door.path, current, next: withFrontBlock(current, door.begin, door.end, door.render(messaging, claims, decisions)) };
-    });
+      let next = current;
+      for (const door of FRONT_DOORS.filter((d) => d.path === path)) {
+        const set = withFrontBlock(next, door.begin, door.end, door.render(messaging, claims, decisions));
+        if (set === null) missing.push(`${path} carries no single generated block between "${door.begin}" and "${door.end}"`);
+        else next = set;
+      }
+      rendered.push({ path, current, next });
+    }
   } catch (error) {
     if (!(error instanceof InputError)) throw error;
     return { allCurrent: false, status: "refused", changed: [], problems: [`${error.code}: ${error.message}`] };
   }
-  const missing = rendered.filter((r) => r.next === null).map((r) => `${r.path} carries no single generated front-door block`);
   if (missing.length > 0) return { allCurrent: false, status: "refused", changed: [], problems: missing };
   const changed = rendered.filter((r) => r.next !== r.current);
-  if (write) for (const r of changed) writeFile(join(root, r.path), r.next!);
+  if (write) for (const r of changed) writeFile(join(root, r.path), r.next);
   return { allCurrent: changed.length === 0 || write, status: changed.length === 0 ? "current" : write ? "regenerated" : "stale", changed: changed.map((r) => r.path), problems: [] };
 }
 
