@@ -61,7 +61,7 @@ import { configuredGitRepository, configuredWorktreeGitPort } from "../git/workt
 import { repositoryRegistryArea, resolveRepositoryRegistry } from "./repository-registry.ts";
 import { convergeBound, convergeUntilStable, unconsumedCommands, type ConvergenceReport } from "./checkout-setup.ts";
 import { PromotionError } from "./promotion/codes.ts";
-import { loadPromotionProfiles, profileCommandNames, type LoadedPromotionProfile } from "./promotion/profile.ts";
+import { loadPromotionProfiles, profileCommandNames, profileTreeViolations, type LoadedPromotionProfile } from "./promotion/profile.ts";
 import { journalsUnder } from "../filesystem/journaled-commit.ts";
 import { bootstrapProcess, isEntryPoint } from "../runtime/cli-debug.ts";
 
@@ -811,6 +811,10 @@ function deadCommandsStep(root: string): CheckStepResult {
       return deepFreeze({ step: "dead-commands", status: "fail", message: `${error.promotionCode}: ${error.message}`, details: error.facts });
     }
     if (profiles.length === 0) return deepFreeze({ step: "dead-commands", status: "pass", message: `not judged: ${directory}/ holds no promotion profile here, so not every consumer of the registry is visible`, details: null });
+    // Every path a profile names is one this checkout tracks (a deleted file is never shipped under its old name, #279).
+    const tracked = new Set(workingTreeReader(top).paths());
+    const absent = profiles.flatMap((loaded) => profileTreeViolations(loaded.profile, tracked).map(([pointer, message]) => `${loaded.path}${pointer}: ${message}`));
+    if (absent.length > 0) return deepFreeze({ step: "dead-commands", status: "fail", message: `promotion_profile_invalid: a profile names paths this checkout does not track: ${absent.join("; ")}`, details: { absent } });
     consumers = profiles.flatMap((loaded) => profileCommandNames(loaded.profile));
   }
   const dead = unconsumedCommands(isolation, consumers);
