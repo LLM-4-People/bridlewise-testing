@@ -6,7 +6,10 @@
  * door killed outright leaves its record live until the command it ran under
  * the supervisor is gone; every supervisor an admitted run starts runs in a
  * cgroup scope with the run's memory cap and CPU weight and under its
- * CPU-time limit; a host that cannot make the scope REFUSES the run; a light
+ * CPU-time limit — and so does a child the admitting process spawns
+ * directly, since admission puts the admitting process itself there; a
+ * process borrows a run only from inside its scope; a host that cannot make
+ * the scope REFUSES the run; a light
  * run records nothing; the stamp is read from the live records and bound to
  * the owner's token; a label is shown escaped; the registry is the host
  * user's (never moved by $HOME) and never in a checkout. Every arm uses its
@@ -15,6 +18,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
@@ -23,7 +27,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
 import { liveFileLockHolder } from "../../src/filesystem/file-lock.ts";
-import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, INSTRUMENT_LOCK_TOKEN_VARIABLE, instrumentLockPath, instrumentLockStamp, isHeavyRun, perRunScopeArguments, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
+import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, INSTRUMENT_LOCK_TOKEN_VARIABLE, instrumentLockPath, instrumentLockStamp, isHeavyRun, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
 import { SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
 import { allProcessIds, commandLineOf, isProcessAlive, ownedChild, processIdentity, terminate } from "../../src/process/process-facts.ts";
 import { namedTestFileCount } from "../../scripts/tooling/test-run-lock.ts";
@@ -80,6 +84,19 @@ const registryOf = (lockPath: string): string => `${lockPath}.runs`;
 function plantRecord(lockPath: string, name: string, record: Record<string, unknown>): void {
   mkdirSync(registryOf(lockPath), { recursive: true, mode: 0o700 });
   writeFileSync(join(registryOf(lockPath), `${name}.lock`), `${JSON.stringify({ schemaVersion: "bridlewise-file-lock/v1", acquiredAt: "2026-10-08T00:00:00.000Z", adopted: [], ...record })}\n`, { mode: 0o600 });
+}
+
+/**
+ * Runs `body` (a module) in a child placed in the scope of the run whose
+ * record carries `nonce` — where an admitted run's processes are — with this
+ * process as its parent (`systemd-run --scope` execs the command itself);
+ * its trimmed stdout.
+ */
+function inRunScope(nonce: string, body: string, env: NodeJS.ProcessEnv = process.env): string {
+  const ran = spawnSync("systemd-run", ["--user", "--scope", "--quiet", "--collect", `--unit=bridlewise-run-${nonce}`, process.execPath,
+    "--experimental-strip-types", "--input-type=module", "-e", body], { encoding: "utf8", env });
+  assert.equal(ran.status, 0, ran.stderr);
+  return ran.stdout.trim();
 }
 
 const admitterBody = (label: string): string => [
@@ -142,11 +159,37 @@ test("EVERY SUPERVISOR AN ADMITTED RUN STARTS RUNS UNDER ITS CAPS: a cgroup scop
   ].join("\n"));
   const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
   assert.equal(ran.status, 0, ran.stderr);
-  assert.match(ran.stdout, /cgroup=\/\S+\.scope weight=42 memmax=\d+ soft=77 hard=80/u, ran.stdout);
+  assert.match(ran.stdout, /cgroup=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope weight=42 memmax=\d+ soft=77 hard=80/u, ran.stdout);
   const total = Number(readFileSync("/proc/meminfo", "utf8").match(/^MemTotal:\s+(\d+) kB/mu)![1]) * 1024;
   const memmax = Number(/memmax=(\d+)/u.exec(ran.stdout)![1]);
   assert.ok(Math.abs(memmax - total * 0.37) < total * 0.01, `MemoryMax is 37% of the host's memory (${String(memmax)} of ${String(total)})`);
-  assert.deepEqual([...perRunScopeArguments(CAPS)], ["--user", "--scope", "--quiet", "--collect", "-p", "MemoryMax=50%", "-p", "CPUWeight=100", "--"]);
+});
+
+test("NO UNCAPPED PATH (the #362 review's plant): a child the admitting process spawns DIRECTLY, not through the supervisor, is born inside the run's scope and CPU-time limit and borrows the run; a descendant that left the scope borrows nothing", () => {
+  const lockPath = join(createTempDir("instrument-lock-direct-"), "instrument.lock");
+  const script = join(createTempDir("instrument-lock-direct-script-"), "direct.mjs");
+  const probe = [
+    `const { borrowInstrumentLock } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    `const { readFileSync } = await import("node:fs");`,
+    `const cgroup = readFileSync("/proc/self/cgroup", "utf8").trim().split(":").at(-1);`,
+    `const read = (name) => readFileSync("/sys/fs/cgroup" + cgroup + "/" + name, "utf8").trim();`,
+    `const limit = /^Max cpu time\\s+(\\S+)\\s+(\\S+)/mu.exec(readFileSync("/proc/self/limits", "utf8"));`,
+    `console.log("cgroup=" + cgroup + " weight=" + read("cpu.weight") + " soft=" + limit[1] + " hard=" + limit[2] + " borrowed=" + String(borrowInstrumentLock(process.argv[1], "a direct child")?.owns));`,
+  ].join("\n");
+  writeFileSync(script, [
+    `const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    `const { spawnSync } = await import("node:child_process");`,
+    `const lock = admitInstrumentRun(process.argv[2], "a run with a direct child", { memoryMaxPercent: 37, cpuWeight: 42 }, { cpuLimitSeconds: 77, cpuKillGraceSeconds: 3, hangBackstopMs: 600_000 });`,
+    `const probe = ${JSON.stringify(probe)};`,
+    `const direct = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", probe, process.argv[2]], { encoding: "utf8" });`,
+    `const escaped = spawnSync("systemd-run", ["--user", "--scope", "--quiet", "--collect", process.execPath, "--experimental-strip-types", "--input-type=module", "-e", probe, process.argv[2]], { encoding: "utf8" });`,
+    "lock.release();",
+    "process.stdout.write(`DIRECT ${direct.stdout.trim()} ${direct.stderr.trim()}\nESCAPED ${escaped.stdout.trim()} ${escaped.stderr.trim()}\n`);",
+  ].join("\n"));
+  const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
+  assert.equal(ran.status, 0, ran.stderr);
+  assert.match(ran.stdout, /^DIRECT cgroup=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope weight=42 soft=77 hard=80 borrowed=false $/mu, "the direct child is capped, and borrows from inside the scope");
+  assert.match(ran.stdout, /^ESCAPED cgroup=(?!\S*bridlewise-run-)\S+ weight=\d+ soft=77 hard=80 borrowed=undefined $/mu, "a descendant outside the run's scope borrows nothing, whatever its lineage");
 });
 
 test("A HOST THAT CANNOT MAKE THE RUN'S SCOPE REFUSES THE RUN, typed and loud (per_run_caps_unavailable): there is no uncapped mode", () => {
@@ -266,15 +309,15 @@ test("A RUN IS BORROWED ONLY THROUGH A LIVE IDENTITY (security L-3): an adopted 
   const lockPath = join(createTempDir("instrument-lock-recycled-"), "instrument.lock");
   const sleeper = spawn(process.execPath, ["-e", "setTimeout(() => undefined, 60000)"], { stdio: "ignore" });
   t.after(() => { sleeper.kill("SIGKILL"); });
-  const previous = process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
-  t.after(() => { if (previous === undefined) delete process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE]; else process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = previous; });
   const own = processIdentity().startTime!;
-  const plant = (adoptedStart: number): void => plantRecord(lockPath, "foreign", { pid: sleeper.pid, startTime: processIdentity(sleeper.pid!).startTime, nonce: "foreign-hold", holder: "a foreign run", adopted: [{ pid: process.pid, startTime: adoptedStart }] });
-  process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = "foreign-hold";
+  const nonce = randomUUID();
+  const plant = (adoptedStart: number): void => plantRecord(lockPath, "foreign", { pid: sleeper.pid, startTime: processIdentity(sleeper.pid!).startTime, nonce, holder: "a foreign run", adopted: [{ pid: process.pid, startTime: adoptedStart }] });
+  // The borrower is a child of this process, inside the run's scope: only the adopted entry's identity varies.
+  const borrowed = (): string => inRunScope(nonce, `const { borrowInstrumentLock } = await import(${JSON.stringify(LOCK_OWNER)}); console.log(String(borrowInstrumentLock(${JSON.stringify(lockPath)}, "a nested run")?.owns));`);
   plant(own + 12_345);
-  assert.equal(instrumentLockStamp(lockPath), "unslotted", "a recycled pid in this lineage is not the process the run adopted");
+  assert.equal(borrowed(), "undefined", "a recycled pid in this lineage is not the process the run adopted");
   plant(own);
-  assert.equal(instrumentLockStamp(lockPath), "held", "the adopted process itself, by its full identity, is inside the run");
+  assert.equal(borrowed(), "false", "the adopted process itself, by its full identity, holds its child inside the run");
 });
 
 test("A RECORD'S ACQUISITION INSTANT IS AN INSTANT (security L-2): a forged line or a terminal escape in it makes the record unreadable, never a shown line", (t) => {
@@ -348,25 +391,29 @@ test("NESTING READS ADOPTED PROCESSES TOO (correctness M2): a run whose ancestor
   t.after(() => { stranger.kill("SIGKILL"); });
   const holder = processIdentity(stranger.pid!);
   const parent = processIdentity(process.ppid);
-  const record = (adopted: readonly unknown[]): void => plantRecord(lockPath, "adopting", { pid: holder.pid, startTime: holder.startTime, acquiredAt: "2026-10-09T00:00:00.000Z", nonce: "adopting", holder: "a door", adopted });
+  const nonce = randomUUID();
+  const record = (adopted: readonly unknown[]): void => plantRecord(lockPath, "adopting", { pid: holder.pid, startTime: holder.startTime, acquiredAt: "2026-10-09T00:00:00.000Z", nonce, holder: "a door", adopted });
+  const borrowedInScope = (): string => inRunScope(nonce, `const { borrowInstrumentLock } = await import(${JSON.stringify(LOCK_OWNER)}); console.log(String(borrowInstrumentLock(${JSON.stringify(lockPath)}, "a nested run")?.owns));`);
   record([]);
-  assert.equal(borrowInstrumentLock(lockPath, "a nested run"), undefined, "the run is no ancestor: nothing to borrow");
+  assert.equal(borrowedInScope(), "undefined", "the run is no ancestor: nothing to borrow, even from inside its scope");
   record([{ pid: parent.pid, startTime: parent.startTime }]);
-  assert.equal(borrowInstrumentLock(lockPath, "a nested run")?.owns, false, "an adopted ancestor holds this run inside the admitted run");
+  assert.equal(borrowedInScope(), "false", "an adopted ancestor holds this run inside the admitted run");
+  assert.equal(borrowInstrumentLock(lockPath, "a nested run"), undefined, "the same lineage OUTSIDE the run's scope borrows nothing");
 });
 
-test("THE ANCESTOR'S STAMP NEEDS ITS TOKEN (correctness M3): inside an ancestor's run, \"held\" only with the token the run exported; without it, unslotted", (t) => {
+test("THE ANCESTOR'S STAMP NEEDS ITS TOKEN (correctness M3): inside an ancestor's run, \"held\" only with the token the run exported; without it, unslotted", () => {
   const lockPath = join(createTempDir("instrument-lock-token-"), "instrument.lock");
   const parent = processIdentity(process.ppid);
-  plantRecord(lockPath, "ancestor", { pid: parent.pid, startTime: parent.startTime, acquiredAt: "2026-10-09T00:00:00.000Z", nonce: "the-ancestors-token", holder: "an ancestor" });
-  const previous = process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
-  t.after(() => { if (previous === undefined) delete process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE]; else process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = previous; });
-  delete process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
-  assert.equal(instrumentLockStamp(lockPath), "unslotted", "no token: the run is not this one's to claim");
-  process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = "another token";
-  assert.equal(instrumentLockStamp(lockPath), "unslotted", "a wrong token claims nothing");
-  process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = "the-ancestors-token";
-  assert.equal(instrumentLockStamp(lockPath), "held");
+  const nonce = randomUUID();
+  plantRecord(lockPath, "ancestor", { pid: parent.pid, startTime: parent.startTime, acquiredAt: "2026-10-09T00:00:00.000Z", nonce, holder: "an ancestor" });
+  const stamp = (token: string | undefined): string => {
+    const env = { ...process.env };
+    if (token === undefined) delete env[INSTRUMENT_LOCK_TOKEN_VARIABLE]; else env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = token;
+    return inRunScope(nonce, `const { instrumentLockStamp } = await import(${JSON.stringify(LOCK_OWNER)}); console.log(instrumentLockStamp(${JSON.stringify(lockPath)}));`, env);
+  };
+  assert.equal(stamp(undefined), "unslotted", "no token: the run is not this one's to claim");
+  assert.equal(stamp("another token"), "unslotted", "a wrong token claims nothing");
+  assert.equal(stamp(nonce), "held");
 });
 
 test("THE REGISTRY'S PLACE IS REFUSED INSIDE A CHECKOUT (correctness M6): a path under the per-user cache that lies in (or around) the checkout is misplaced", () => {

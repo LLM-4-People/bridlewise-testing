@@ -65,12 +65,13 @@ export async function main(): Promise<void> {
     );
     process.exit(1);
   }
-  // THE ONE INSTRUMENT LOCK: a run of the configured number of test files or
-  // more (the guards: a few hundred) waits for it, saying who holds it; a
-  // targeted run of fewer takes nothing.
+  // HEAVY-RUN ADMISSION (src/process/instrument-lock.ts): a run of the
+  // configured number of test files or more (the guards: a few hundred) is
+  // admitted at once, under its per-run caps, and never waits for another
+  // run; a targeted run of fewer is light and records nothing.
   const lock: TestRunLock = enforceTestRunLock(runner, { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
   armTestKeyHome();
-  // UNDER THE NATIVE SUPERVISOR (adopted into the lock this door holds): a
+  // UNDER THE NATIVE SUPERVISOR (adopted into the run this door admitted): a
   // door killed outright leaves its `node --test` stopped with every process
   // it started, and the lock held until that is done — never a run orphaned
   // beside the next holder.

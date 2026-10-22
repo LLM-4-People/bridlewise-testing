@@ -76,7 +76,7 @@ function injectedLockPath(lockDir: string): string {
 function declaredLock(): InstrumentLockConfig {
   const config = readTestExecutionConfig(ENGINE_ROOT).instrumentLock;
   if (config === undefined) {
-    throw new TestRunLockError("testExecution.instrumentLock is not declared in bridlewise.config.json: the one instrument lock's place and what is heavy are declared there", "instrument_lock_undeclared");
+    throw new TestRunLockError("testExecution.instrumentLock is not declared in bridlewise.config.json: the run registry's place, what is heavy and the per-run caps are declared there", "instrument_lock_undeclared");
   }
   return config;
 }

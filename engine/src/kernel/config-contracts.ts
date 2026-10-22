@@ -1163,11 +1163,10 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     requires: z.array(workspaceCommandName).min(1).max(8).optional(),
     // `holdsInstrumentLock` — declared only on a SETUP command that is a heavy
     // instrument (the web module cache warm-up collects the whole suite): the
-    // runner takes the host's one instrument lock before the command starts
-    // (the wait counts toward no `timeoutMs`), runs it once per tree, and a
-    // READ-ONLY workspace's create does not run it (a verifier runs single
-    // files; its first run warms the cache), so a create never fails while a
-    // validate holds the lock.
+    // runner admits it as a heavy run under its per-run caps before the
+    // command starts (at once: it never waits for another run), runs it once
+    // per tree, and a READ-ONLY workspace's create does not run it (a verifier
+    // runs single files; its first run warms the cache).
     holdsInstrumentLock: z.literal(true).optional(),
   });
   const workspacePhaseSchema = z.array(workspaceCommandName).max(32);
@@ -1527,10 +1526,11 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
       minimumTestFiles: z.number().int().min(2),
       wholeInstruments: z.array(z.enum(WHOLE_INSTRUMENT_KINDS)).min(1).refine((kinds) => new Set(kinds).size === kinds.length, "each instrument once"),
       // Each admitted run's caps (NO-LOAD-BLOCK: runs proceed concurrently,
-      // never waiting for each other): every supervisor a run starts goes
-      // into a cgroup v2 scope of its own with this memory ceiling (a share
-      // of the host's memory) and CPU weight (1-10000; 100 is the default
-      // share). A host that cannot make the scope refuses the run.
+      // never waiting for each other): the admitting process, and so
+      // everything the run starts, goes into the run's own cgroup v2 scope
+      // with this memory ceiling (a share of the host's memory) and CPU
+      // weight (1-10000; 100 is the default share). A host that cannot make
+      // the scope refuses the run.
       perRun: z.strictObject({
         memoryMaxPercent: z.number().int().min(1).max(100),
         cpuWeight: z.number().int().min(1).max(10_000),

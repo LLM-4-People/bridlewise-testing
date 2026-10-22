@@ -5466,12 +5466,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-process-instrument-lock-adoption", path: "src/process/instrument-lock-adoption.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 4, namesSha256: "72e634338de0129bc93f98cecddf8ac33a2f796ea0080ff4e04f4b136e843da2" },
+      owner: "process-infrastructure", publicApi: { exportCount: 3, namesSha256: "fbb9ded126b3b1adc9a9ef562d7a22306d3d7f3738881f77aeb4d911e3e8059b" },
       dependencies: [],
     }),
     moduleContract({
       id: "src-process-instrument-lock", path: "src/process/instrument-lock.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 15, namesSha256: "1f95e60fefa070c81871da39894c29de13c62f17fff5381b3b2abe29254ad16c" },
+      owner: "process-infrastructure", publicApi: { exportCount: 13, namesSha256: "e1a90e76bc78ce728187c4bba642314cdcb9c3350fb194e58a200afa218aace7" },
       dependencies: ["node:child_process","node:fs","node:path","src/filesystem/file-lock.ts","src/filesystem/path-identity.ts","src/filesystem/self-protection/keep-out.ts","src/filesystem/user-folders.ts","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/process/instrument-lock-adoption.ts","src/process/process-facts.ts","src/process/subprocess-bounds.ts"],
     }),
     moduleContract({
@@ -5689,8 +5689,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-process-subprocess-bounds", path: "src/process/subprocess-bounds.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 4, namesSha256: "37fa5303dde9c0389749615a7a52846af75674aad407db8c6a1c478665e0d7e9" },
-      dependencies: [],
+      owner: "process-infrastructure", publicApi: { exportCount: 4, namesSha256: "574ac55bd3e8eabaab90dff123ce6ddd21e49de033699e94f0c681c07b206f02" },
+      dependencies: ["node:child_process","node:fs"],
     }),
   ],
 });

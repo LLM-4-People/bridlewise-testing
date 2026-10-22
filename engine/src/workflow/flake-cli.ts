@@ -19,7 +19,7 @@
  * the whole setup again there) and runs them again — every run under ONE set
  * of conditions (the environment entries, the setup command run first, the
  * command run alongside, the preloaded module, the order seed), all inside
- * the host's one instrument lock. Deterministic by default: one run on each
+ * one admitted heavy run under its per-run caps. Deterministic by default: one run on each
  * side; a test that FAILED on the parent and PASSED on the fix is recorded
  * with the digest it failed with. `--statistical` (a cause that needs load or
  * a race; it requires a condition: `--during`, the hog or the churner, or

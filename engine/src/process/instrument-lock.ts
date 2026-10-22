@@ -14,19 +14,25 @@
  * run ADOPTED. The registry is shown and never waited on: it says which heavy
  * runs are live, since when, under which caps.
  *
- * EVERY ADMITTED RUN IS CAPPED, not serialized: each command it starts under
- * the native supervisor (`supervised-run.ts`) runs in a cgroup v2 scope of
- * its own (`systemd-run --user --scope`: `MemoryMax` and `CPUWeight` from
- * `testExecution.instrumentLock.perRun`) and under the CPU-time limit of
- * every harness subprocess (`src/process/subprocess-bounds.ts`). A host that
- * cannot make the scope REFUSES the run, typed (`per_run_caps_unavailable`):
- * there is no uncapped mode (the probe is recorded once per process).
+ * EVERY ADMITTED RUN IS CAPPED, not serialized, and there is no path around
+ * the cap: admission moves the ADMITTING PROCESS ITSELF into a cgroup v2
+ * scope of the run's own (`bridlewise-run-<record nonce>.scope`, made by the
+ * systemd user manager's `StartTransientUnit` with this process's pid:
+ * `MemoryMax` and `CPUWeight` from `testExecution.instrumentLock.perRun`)
+ * and under the CPU-time limit of every harness subprocess
+ * (`src/process/subprocess-bounds.ts` `limitOwnCpu`). Everything the run
+ * starts from then on — a supervised command, a worker, a child spawned
+ * directly — is born inside the scope and under the limit; nothing it starts
+ * is uncapped. A host that cannot make the scope or set the limit REFUSES
+ * the run, typed (`per_run_caps_unavailable`): there is no uncapped mode.
  *
- * NESTING, read from the records' structured fields: a run whose ancestor
- * holds a live record is inside that run and BORROWS it (a validate's
- * suites, a slot run's command, vitest inside the web runner); it writes no
- * record and makes no scope of its own (a nested scope would leave the
- * outer cap).
+ * NESTING, read from the records' structured fields AND the kernel's: a
+ * process BORROWS a live run (a validate's suites, a slot run's command,
+ * vitest inside the web runner) only when the run's holder, or a process it
+ * adopted, is this process or an ancestor, AND this process is inside the
+ * run's own scope (`/proc/self/cgroup`). A borrower writes no record and
+ * makes no scope (a nested scope would leave the outer cap); a process that
+ * is not inside the scope borrows nothing, whatever its lineage.
  *
  * THE STAMP every measurement carries ({@link instrumentLockStamp}): "held"
  * when this process runs inside an admitted run AND carries that run's own
@@ -36,14 +42,14 @@
 import { dirname, isAbsolute, join } from "node:path";
 
 import { spawnSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { HarnessError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { identityOverlapIndex, resolveLocation } from "../filesystem/path-identity.ts";
 import { liveFileLockHolder, ownsFileLockHold, printableHolderLabel, tryAcquireFileLock, type FileLockContent } from "../filesystem/file-lock.ts";
 import { randomUuid } from "../kernel/integrity.ts";
-import { cpuLimitPrefix, type SubprocessBounds } from "./subprocess-bounds.ts";
+import { limitOwnCpu, type SubprocessBounds } from "./subprocess-bounds.ts";
 import { floorKeepOutVerdict } from "../filesystem/self-protection/keep-out.ts";
 import type { WholeInstrumentKind } from "../kernel/config-contracts.ts";
 import { hostUserCacheFolder } from "../filesystem/user-folders.ts";
@@ -62,7 +68,7 @@ export type InstrumentLockConfig = Readonly<{
   perRun: PerRunCaps;
 }>;
 
-/** One admitted run's cgroup caps (`systemd-run --user --scope -p MemoryMax=…% -p CPUWeight=…`). */
+/** One admitted run's cgroup caps: its scope's `MemoryMax` (a share of the host's memory) and `CPUWeight`. */
 export type PerRunCaps = Readonly<{ memoryMaxPercent: number; cpuWeight: number }>;
 
 /** Whether a measurement ran inside a live hold of the one instrument lock. */
@@ -162,9 +168,20 @@ function holdsThisProcess(holder: FileLockContent): boolean {
   return [{ pid: holder.pid, startTime: holder.startTime }, ...holder.adopted].some((entry) => lineage.has(entry.pid) && isOwnProcessIdentityLive(entry));
 }
 
-/** The live run this process runs inside (its own, or an ancestor's), if any. */
+/** The cgroup scope unit of the run whose record carries `nonce`. */
+function runScopeUnit(nonce: string): string {
+  return `bridlewise-run-${nonce}.scope`;
+}
+
+/** Whether THIS process is inside the scope of the run whose record carries `nonce` (`/proc/self/cgroup`, cgroup v2). */
+function insideRunScope(nonce: string): boolean {
+  const unified = readFileSync("/proc/self/cgroup", "utf8").split("\n").find((line) => line.startsWith("0::"));
+  return unified !== undefined && unified.endsWith(`/${runScopeUnit(nonce)}`);
+}
+
+/** The live run this process runs inside (its own, or an ancestor's) AND inside whose capped scope it is, if any. */
 function enclosingRun(lockPath: string): Readonly<{ path: string; holder: FileLockContent }> | undefined {
-  return liveRuns(lockPath).find((run) => holdsThisProcess(run.holder));
+  return liveRuns(lockPath).find((run) => holdsThisProcess(run.holder) && insideRunScope(run.holder.nonce));
 }
 
 /**
@@ -193,53 +210,75 @@ export function admittedRuns(lockPath: string): readonly string[] {
   return liveRuns(lockPath).map(({ holder }) => `${holder.holder ?? "an unnamed instrument"} (pid ${String(holder.pid)}, since ${holder.acquiredAt}${holder.adopted.length === 0 ? "" : `, with ${String(holder.adopted.length)} adopted process(es)`})`);
 }
 
-let capsProbed: string | null | undefined;
-
-/**
- * The recorded capability probe (one-package-probe-dont-branch): can this
- * host make a cgroup v2 scope for the run (`systemd-run --user --scope`)?
- * Answered once per process; a host that cannot is REFUSED, never run uncapped.
- */
-export function assertPerRunCapsAvailable(caps: PerRunCaps): void {
-  if (capsProbed === undefined) {
-    const probe = spawnSync("systemd-run", [...perRunScopeArguments(caps), "true"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-    capsProbed = probe.error === undefined && probe.status === 0 ? null
-      : `${probe.error !== undefined ? probe.error.message : `systemd-run exited ${String(probe.status)}${probe.signal === null ? "" : ` (${probe.signal})`}`}: ${probe.stderr?.trim() ?? ""}`;
-  }
-  if (capsProbed !== null) {
-    throw new HarnessError(
-      `a heavy run is admitted only under its per-run caps (a cgroup v2 scope: MemoryMax ${String(caps.memoryMaxPercent)}%, CPUWeight ${String(caps.cpuWeight)}), ` +
-        `and this host cannot make one through \`systemd-run --user --scope\` (${capsProbed}). Nothing runs uncapped: give the host a running systemd user manager (\`loginctl enable-linger\`).`,
-      "per_run_caps_unavailable",
-    );
-  }
+/** The refusal of a run whose caps this host cannot put in force. */
+function capsUnavailable(caps: PerRunCaps, why: string): HarnessError {
+  return new HarnessError(
+    `a heavy run is admitted only under its per-run caps (its own cgroup v2 scope: MemoryMax ${String(caps.memoryMaxPercent)}%, CPUWeight ${String(caps.cpuWeight)}; ` +
+      `and the CPU-time limit), and this host could not put them in force (${why}). Nothing runs uncapped: give the host a running systemd user manager ` +
+      "(`loginctl enable-linger`), `busctl` and `prlimit`.",
+    "per_run_caps_unavailable",
+  );
 }
 
-/** `systemd-run`'s arguments for one run's scope (the command follows). */
-export function perRunScopeArguments(caps: PerRunCaps): readonly string[] {
-  return ["--user", "--scope", "--quiet", "--collect", "-p", `MemoryMax=${String(caps.memoryMaxPercent)}%`, "-p", `CPUWeight=${String(caps.cpuWeight)}`, "--"];
+/** A short pause while the scope's start job runs (an event this process waits on, never a load threshold). */
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));
+
+/**
+ * Moves THIS process into the run's own scope under `caps` (the systemd user
+ * manager's `StartTransientUnit`, this process's pid: what `systemd-run
+ * --scope` does for a new command), waits for the move by the start job's own
+ * state, and puts this process under the CPU-time limit. Every process it
+ * starts afterwards is born inside both. Throws `per_run_caps_unavailable`.
+ */
+function enterRunScope(nonce: string, caps: PerRunCaps, cpu: SubprocessBounds): void {
+  const unit = runScopeUnit(nonce);
+  const memoryScale = Math.min(0xffffffff, Math.round((caps.memoryMaxPercent / 100) * 0xffffffff));
+  const started = spawnSync("busctl", ["--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager",
+    "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "4", "PIDs", "au", "1", String(process.pid), "MemoryMaxScale", "u", String(memoryScale),
+    "CPUWeight", "t", String(caps.cpuWeight), "CollectMode", "s", "inactive-or-failed", "0"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (started.error !== undefined || started.status !== 0) {
+    throw capsUnavailable(caps, `busctl StartTransientUnit ${started.error !== undefined ? started.error.message : `exited ${String(started.status)}: ${started.stderr.trim()}`}`);
+  }
+  const job = /^o "([^"]+)"/mu.exec(started.stdout)?.[1];
+  if (job === undefined) throw capsUnavailable(caps, `the scope's start answered no job: ${started.stdout.trim()}`);
+  const since = Date.now();
+  while (!insideRunScope(nonce)) {
+    const pending = spawnSync("busctl", ["--user", "get-property", "org.freedesktop.systemd1", job, "org.freedesktop.systemd1.Job", "State"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    if (pending.status !== 0 && !insideRunScope(nonce)) throw capsUnavailable(caps, `the start job of ${unit} ended without moving this process into it`);
+    if (Date.now() - since > cpu.hangBackstopMs) throw capsUnavailable(caps, `HUNG: the start job of ${unit} was still pending at the ${String(cpu.hangBackstopMs / 1000)} s hang backstop (wall)`);
+    Atomics.wait(PAUSE, 0, 0, 5);
+  }
+  const limited = limitOwnCpu(cpu);
+  if (limited !== null) throw capsUnavailable(caps, limited);
 }
 
 /**
  * ADMIT a heavy run for `runner` (a bounded label: who runs, never a command
  * line) AT ONCE — or BORROW the run this process is inside. Never waits for
- * another run. The run's caps are probed first: a host that cannot cap it is
- * refused. Its record is released by `release` (idempotent).
+ * another run. This process enters the run's caps before anything else runs
+ * under it: a host that cannot cap it is refused, and records nothing. Its
+ * record is released by `release` (idempotent); the process stays in the
+ * scope, which the user manager collects once its last process ends.
  */
 export function admitInstrumentRun(lockPath: string, runner: string, caps: PerRunCaps, cpu: SubprocessBounds): InstrumentHold {
   if (runner.trim().length === 0) throw new HarnessError("a heavy run needs a runner name: the run registry names every admitted run", "instrument_lock_runner_unnamed");
   const label = printableHolderLabel(runner);
   const borrowed = borrowInstrumentLock(lockPath, label);
   if (borrowed !== undefined) return borrowed;
-  assertPerRunCapsAvailable(caps);
   const record = join(registryOf(lockPath), `${randomUuid()}.lock`);
   const answer = tryAcquireFileLock(record, { holder: label });
   if (answer.state !== "taken") {
     throw new HarnessError(`the run registry could not record ${label} at ${record} (${answer.state}): a fresh record name is never held`, "instrument_run_unrecorded");
   }
-  // Every supervisor this run starts goes under its caps: its own cgroup
-  // scope (memory, CPU weight), then the CPU-time limit, then the supervisor.
-  setOwnedInstrumentHold(answer.handle, ["systemd-run", ...perRunScopeArguments(caps), ...cpuLimitPrefix(cpu)]);
+  // THIS process, and so everything it starts from now on, goes under the
+  // run's caps; a host that cannot is refused, and the record goes with it.
+  try {
+    enterRunScope(answer.handle.nonce, caps, cpu);
+  } catch (error) {
+    answer.handle.release();
+    throw error;
+  }
+  setOwnedInstrumentHold(answer.handle);
   // The run's token, for the stamp of everything this process starts
   // (its own stamp reads its admission); a token it inherited comes back on release.
   const inherited = process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
@@ -247,7 +286,7 @@ export function admitInstrumentRun(lockPath: string, runner: string, caps: PerRu
   return deepFreeze({
     owns: true, runner: label, path: lockPath, stamp: "held",
     release: () => {
-      if (ownedInstrumentHold() === answer.handle) setOwnedInstrumentHold(undefined, undefined);
+      if (ownedInstrumentHold() === answer.handle) setOwnedInstrumentHold(undefined);
       if (process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] === answer.handle.nonce) {
         if (inherited === undefined) delete process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
         else process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = inherited;

@@ -271,11 +271,13 @@ async function main(): Promise<void> {
       `[run-tests] ${String(strays.length)} orphaned vitest process(es) of this project are still running (not stopped: this run did not start them): ${strays.join(", ")}\n`,
     );
   }
-  // THE HOST'S ONE INSTRUMENT LOCK (engine/src/process/instrument-lock.ts):
-  // the whole web suite (or any run of the configured number of files) waits
-  // for it, saying who holds it; a targeted run of fewer files takes nothing.
-  // vitest's own global setup then runs inside this hold, and the supervisor
-  // that runs vitest is adopted into it.
+  // HEAVY-RUN ADMISSION (engine/src/process/instrument-lock.ts): the whole web
+  // suite (or any run of the configured number of files) is admitted at once,
+  // and this process enters the run's caps (its cgroup scope and CPU-time
+  // limit), so vitest and every worker are born under them; nothing waits for
+  // another run. A targeted run of fewer files records nothing. vitest's own
+  // global setup borrows this run, and the supervisor that runs vitest is
+  // adopted into its record.
   const instrumentLock = enforceTestRunLock("web npm test", { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
   const invocationId = qualificationInvocation(process.env);
   const tree = readMeasuredTree(projectDir);
