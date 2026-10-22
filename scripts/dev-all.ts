@@ -17,9 +17,8 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { createConnection } from "node:net";
 import { ownedChild, ownedSelf, type OwnedProcess } from "../engine/src/process/process-facts.ts";
-import { DEV_PID_DIRECTORY, devPidfilePath, removeDevPidfile, stopDevGroup, writeDevPidfile } from "./dev-processes.ts";
+import { DEV_PID_DIRECTORY, devPidfilePath, portAnswers, removeDevPidfile, stopDevGroup, writeDevPidfile } from "./dev-processes.ts";
 
 // Align with the server config owner (server/config.ts reads HARNESS_WEB_PORT,
 // default 5174) so the port-busy precheck targets the port the API server will
@@ -94,23 +93,14 @@ process.on("SIGTERM", () => shutdown(0));
  * Pre-check: refuse to start if the API or web port is already in use. A
  * busy port would make a child fail to bind and crash mid-shutdown (a
  * confusing exit), so we surface a clear, actionable message BEFORE
- * spawning anything. Uses a TCP connect probe (node:net — no deps, ). A refused connection means the port is free; an accepted
- * connection means something is already listening.
+ * spawning anything. Uses the one local port probe (`portAnswers`,
+ * dev-processes.ts): a refused connection means the port is free; an
+ * accepted connection means something is already listening.
  */
-function checkPortFree(port: number, label: string): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const sock = createConnection({ host: "127.0.0.1", port }, () => {
-      sock.end();
-      resolve(false); // someone answered → port busy
-    });
-    sock.on("error", () => resolve(true)); // refused → free
-    sock.setTimeout(400, () => { sock.destroy(); resolve(true); });
-  });
-}
 
 async function precheckPorts(): Promise<void> {
-  const apiFree = await checkPortFree(API_PORT, "api");
-  const webFree = await checkPortFree(WEB_PORT, "web");
+  const apiFree = !(await portAnswers(API_PORT));
+  const webFree = !(await portAnswers(WEB_PORT));
   if (apiFree && webFree) return;
   console.error("[dev:all] a required port is already in use:");
   if (!apiFree) console.error("  - API port " + API_PORT + " is busy.");
