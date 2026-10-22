@@ -1,0 +1,28 @@
+{
+  "name": "bridlewise-publisher",
+  "url": "https://github.com/LLM-4-People/bridlewise-testing",
+  "description": "Bridlewise publisher: the product branch, releases, the issue/project/discussion projection, Pages and the ledger. Its key exists only in the `publish` environment.",
+  "public": false,
+  "hook_attributes": {
+    "url": "https://github.com/LLM-4-People/bridlewise-testing",
+    "active": false
+  },
+  "redirect_url": "http://127.0.0.1:47811/callback",
+  "default_permissions": {
+    "administration": "read",
+    "contents": "write",
+    "discussions": "write",
+    "issues": "write",
+    "metadata": "read",
+    "organization_projects": "write",
+    "pages": "write",
+    "pull_requests": "write",
+    "repository_advisories": "write",
+    "secret_scanning_alerts": "read",
+    "security_events": "read",
+    "vulnerability_alerts": "read"
+  },
+  "default_events": [],
+  "request_oauth_on_install": false,
+  "setup_on_update": false
+}
