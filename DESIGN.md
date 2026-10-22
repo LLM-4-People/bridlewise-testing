@@ -120,3 +120,12 @@ themes and tokens are declared only in the owner, nothing is imported or
 fetched from elsewhere, and the sheets are plain CSS.
 `tests/public/site-design-system.test.mjs` proves each refusal and holds the
 text to 4.5:1 in both themes.
+
+A reading page is three columns at full width: the documentation's own
+navigation (the one navigation source's sections, the current page and its
+parent marked), the page at its reading measure, and "On this page" (the
+page's rendered second-level headings, shown from three sections up). Below
+1360px the outline folds away, and below 1100px the navigation folds into the
+header menu and the footer index. A decision record opens with its own front
+matter as a header (record id, status, how far it is built, when and by whom
+it was decided), and each section heading carries a link to itself.
