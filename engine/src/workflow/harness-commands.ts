@@ -1253,7 +1253,7 @@ export function communityFilesStep(communityFiles: CommunityFilesArm): CheckStep
  * module the IssueOps commands read too). A typed refusal is the arm's
  * `refused` answer, so `harness check` names it as a failing step.
  */
-export function regenerateCommunityFiles(root: string, write: boolean): CommunityFilesArm {
+function regenerateCommunityFiles(root: string, write: boolean): CommunityFilesArm {
   try {
     const report = syncCommunityFiles(trackedTop(root), write);
     return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed, refusal: "" });
