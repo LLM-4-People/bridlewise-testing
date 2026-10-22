@@ -667,7 +667,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "workflow-module-registrar", path: "src/workflow/module-registrar.ts",
       realm: "shared", layer: "domain", owner: "verification-workflow",
-      publicApi: { exportCount: 11, namesSha256: "7b1ca182019040a2e0eb607770d70a64ba3515258c7cca34b36240c62f49148c" },
+      publicApi: { exportCount: 12, namesSha256: "3af3cd9b1b908aa65fe3d6672deac549ae9197a3b2e4ec7c4b236928565c0b9a" },
       dependencies: ["node:fs","node:path","scripts/verification/architecture.ts","scripts/verification/static-source.ts","src/architecture-manifest.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/shared/path-utils.ts","src/shared/source-extensions.ts","src/shared/source-scan.ts","src/workflow/command-result.ts","src/workflow/module-contract-blocks.ts"],
       executionBoundary: "effect-adapter", effects: ["filesystem-read", "filesystem-write"],
       ports: { requires: ["architecture-analysis"], provides: ["module-registration"] },

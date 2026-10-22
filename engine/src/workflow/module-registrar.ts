@@ -384,7 +384,7 @@ function updateManifestFile(
   for (const unreg of unregistered) {
     if (!existsSync(resolve(root, unreg.path))) continue;
     const block = formatModuleContractBlock(unreg, ARCHITECTURE_MANIFEST);
-    const next = insertModuleContractBlock(content, block);
+    const next = insertModuleContractBlock(content, block, unreg.path);
     if (next === null) {
       uncorrectable.push(deepFreeze({
         path: unreg.path,
@@ -678,15 +678,29 @@ function formatModuleContractBlock(
     `    }),`;
 }
 
-function insertModuleContractBlock(content: string, block: string): string | null {
-  // The modules array is the LAST field in the ARCHITECTURE_MANIFEST object.
-  // Its closing bracket + the deepFreeze close form the pattern:
-  // \n ],\n});\n (at end of file)
-  // Insert the new block before the closing " ],\n});" so it becomes the
-  // last entry in the modules array.
+/**
+ * Inserts a new module's block BEFORE ITS SUCCESSOR BY PATH: the existing
+ * block with the smallest path greater than the new one (or at the end of the
+ * array when none is greater). The position depends only on the new path and
+ * the paths already present, never on what else a parallel branch adds, so
+ * two branches that each add a module write different places of the file and
+ * merge cleanly unless no existing module sorts between theirs (#221: an
+ * always-append tail made every pair of module-adding branches conflict).
+ */
+export function insertModuleContractBlock(content: string, block: string, modulePath: string): string | null {
+  // The modules array is the LAST field in the ARCHITECTURE_MANIFEST object; its close is "\n  ],\n});".
   const closeRegex = /\n  \],\n\}\);\n?$/s;
   if (!closeRegex.test(content)) return null;
-  return content.replace(closeRegex, `\n${block}\n  ],\n});\n`);
+  const blockRegex = /^    moduleContract\(\{[\s\S]*?\}\),\n/gm;
+  let successor: { index: number; path: string } | undefined;
+  let match: RegExpExecArray | null;
+  while ((match = blockRegex.exec(content)) !== null) {
+    const path = /path:\s*"([^"]+)"/u.exec(match[0])?.[1];
+    if (path === undefined || path <= modulePath) continue;
+    if (successor === undefined || path < successor.path) successor = { index: match.index, path };
+  }
+  if (successor === undefined) return content.replace(closeRegex, `\n${block}\n  ],\n});\n`);
+  return `${content.slice(0, successor.index)}${block}\n${content.slice(successor.index)}`;
 }
 
 function removeModuleContractBlock(content: string, modulePath: string): string | null {
