@@ -15,6 +15,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -191,6 +192,22 @@ test("A RUN THAT ENDS THE ATTEMPT EARLY is logged, every test refused with why, 
   await assert.rejects(reproduceFlake(request(fix), configuredGitRepository({}, repo.root), (file) => `engine/${file}`,
     async () => { throw new Error("the setup failed"); }, () => assert.fail("nothing is written"), at.settings), /the setup failed/u);
   assert.deepEqual(at.logged.map((attempt) => attempt.outcomes), [[{ identity: IDENTITY, refused: "the attempt ended before its runs were done: the setup failed" }]]);
+});
+
+test("AN ATTEMPT KEEPS NO HOME DIRECTORY (#238): a refusal that names this home or any /home/<name> is kept with `~`, in the record and in its bytes", async () => {
+  const repo = fixture();
+  repo.commit({ "engine/test/x.test.ts": "test\n", "engine/src/door.ts": "racy\n" }, "init");
+  const fix = repo.commit({ "engine/src/door.ts": "fixed\n" }, "fix");
+  const at = door(repo, DETERMINISTIC);
+  const why = `setup failed; full output (9 bytes): ${homedir()}/.cache/run/log.txt and /home/jdoe/x`;
+  await assert.rejects(reproduceFlake(request(fix), configuredGitRepository({}, repo.root), (file) => `engine/${file}`,
+    async () => { throw new Error(why); }, () => assert.fail("nothing is written"), at.settings), /setup failed/u);
+  assert.deepEqual(at.logged.map((attempt) => attempt.outcomes), [[{ identity: IDENTITY, refused: "the attempt ended before its runs were done: setup failed; full output (9 bytes): ~/.cache/run/log.txt and ~/x" }]]);
+  for (const name of readdirSync(flakeAttemptDirectory(repo.engineRoot))) {
+    const bytes = readFileSync(join(flakeAttemptDirectory(repo.engineRoot), name), "utf8");
+    assert.equal(bytes.includes(homedir()), false, "the kept attempt names no home directory");
+    assert.equal(bytes.includes("/home/"), false);
+  }
 });
 
 test("A SKIP ROW THAT MERELY VANISHED ON THE FIX IS REFUSED: absence is not a pass (a moved test is recorded by `harness flake move`)", async () => {
