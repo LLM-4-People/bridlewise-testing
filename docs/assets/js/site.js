@@ -5,12 +5,15 @@
   // The page leads in Logbook (paper): no attribute. Carbon is the one
   // explicit choice, remembered per viewer. The ground the browser paints
   // around the page is read from the live token, never restated here.
-  // A moved page names its new place; follow it (the visible link stays for
-  // a reader without scripts).
+  // A moved page names its new place; follow it when it is a page of this
+  // site (the visible link stays for a reader without scripts).
   var moved = document.querySelector("[data-moved-to]");
   if (moved) {
-    location.replace(moved.getAttribute("data-moved-to"));
-    return;
+    var target = new URL(moved.getAttribute("data-moved-to") || "", location.href);
+    if ((target.protocol === "https:" || target.protocol === "http:") && target.origin === location.origin) {
+      location.replace(target.pathname + target.search + target.hash);
+      return;
+    }
   }
 
   var root = document.documentElement;
