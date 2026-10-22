@@ -157,7 +157,11 @@ function ranSomething(file: string, passedNames: readonly string[]): boolean {
 }
 
 describe("every test file this repository holds is executed by something", () => {
-  test("no test file is selected by no runner pattern and executed by nobody", () => {
+  test("no test file is selected by no runner pattern and executed by nobody", async () => {
+   for (let iteration = 0; iteration < 30; iteration += 1) {
+    await new Promise((r) => setTimeout(r, 1500));
+    phase(`glob#${iteration}`, () => new Set(TEST_INCLUDE.flatMap((pattern) => globSync(pattern, { cwd: WEB_ROOT }))));
+    phase(`public#${iteration}`, () => publicRunnerFiles(WEB_ROOT));
     const tests = phase("ls-files", () => trackedTestFiles(WEB_ROOT));
     expect(tests.length, "the index yielded no test file at all").toBeGreaterThan(300);
     const selected = new Set(TEST_INCLUDE.flatMap((pattern) => globSync(pattern, { cwd: WEB_ROOT })));
@@ -169,11 +173,12 @@ describe("every test file this repository holds is executed by something", () =>
     for (const orphan of orphans) {
       const log = join(createTempDir("noload-ps-"), "ps.txt");
       const sampler = spawn("sh", ["-c", `while :; do date +%T.%N >> ${log}; ps -e -o pid=,ppid=,stat=,wchan:24=,time=,etime=,args= | awk -v root=${process.pid} '{ line[$1]=$0; par[$1]=$2 } END { for (p in line) { q=p; while (q in par && q!=root && q>1) q=par[q]; if (q==root && p!=root) print line[p] } }' | grep -v -E ' (ps|awk|sleep|date) ' | cut -c1-220 >> ${log}; sleep 1; done`], { stdio: "ignore", detached: true });
-      const run = phase(`node --test ${orphan}`, () => nodeTestRun(WEB_ROOT, orphan));
+      const t0 = performance.now();
+      const run = phase(`node --test ${orphan} #${iteration}`, () => nodeTestRun(WEB_ROOT, orphan));
       process.kill(-sampler.pid!, "SIGKILL");
       const durations = [...run.output.matchAll(/^(?:not )?ok (\d+) - [^\n]*\n(?:[^\n]*\n){0,3}?\s+duration_ms: ([\d.]+)/gmu)].map((m) => `${m[1]}:${Number(m[2]).toFixed(0)}`);
       console.error(`[noload-diag] child durations (test:ms): ${durations.join(" ")} | total ${/duration_ms ([\d.]+)\s*$/u.exec(run.output)?.[1]}`);
-      const ps = readFileSync(log, "utf8");
+      const ps = performance.now() - t0 > 3000 ? readFileSync(log, "utf8") : "(fast; not printed)";
       console.error(`[noload-diag] ps samples:\n${ps.length > 60000 ? ps.slice(0, 60000) : ps}`);
       expect(
         run.status,
@@ -188,7 +193,8 @@ describe("every test file this repository holds is executed by something", () =>
           `file loading and not about anything being checked:\n${run.output}`,
       ).toBe(true);
     }
-  });
+   }
+  }, 600_000);
 
   test("PLANT: the runner this arm uses reports a FAILING orphan rather than passing it", () => {
     const dir = createTempDir("orphan-runner-");
