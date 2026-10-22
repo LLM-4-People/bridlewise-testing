@@ -59,9 +59,9 @@ Read the [repository briefing](../../AGENTS.md). Every change follows the
   (`github.run_id`), and a group that must stay shared (the Pages
   deployment) queues with `queue: max`, because GitHub's default single-slot
   queue cancels a PENDING run when a newer one joins its group, even without
-  `cancel-in-progress`. The workflow files are the one statement of the
-  values; `tests/public/workflow-policy.test.mjs` refuses any workflow that
-  could cancel a `main` run.
+  `cancel-in-progress`. The workflows are generated from the gate catalogue
+  (`engine/src/workflow/gates/`); its generator is the one statement of the
+  values, and its lint refuses any workflow that could cancel a `main` run.
 - **Keep the checkout config at mode 0600.** `engine/bridlewise.config.json`
   must be 0600; the [setup commands](../../CONTRIBUTING.md#setup) include the
   repair, and the runtime refuses an insecure mode with `config_mode_insecure`

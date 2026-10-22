@@ -1,0 +1,58 @@
+# Governance
+
+Bridlewise is an experimental developer preview maintained in the
+[LLM-4-People](https://github.com/LLM-4-People) organization, in one repository:
+[{{repository}}]({{repositoryUrl}}). This file describes who decides and how. It
+is not a promise of support, a release schedule or production fitness.
+
+## Roles
+
+Everyone starts as a contributor. Each step up the ladder is proposed in a pull
+request to the role table (`docs/community/roles.json`) that states how the
+criteria are met, and is approved by a maintainer. The role table is the one
+source: it generates this page, the GitHub teams and who may use each bot
+command.
+
+{{roleTable}}
+
+A role grants access, never an exemption: the rules on `main` bind everyone,
+with no bypass list.
+
+The maintainers today:
+
+{{members}}
+
+## Independent verification
+
+Every change is verified by someone other than its author before it lands. A
+reviewer's or a maintainer's approval counts, on pull requests they did not
+author; so does the project's verifier agent. Who verified is recorded with the
+land.
+
+## How decisions are recorded
+
+- Decisions live in [`docs/decisions/`](docs/decisions/README.md), one record
+  each, with an id. A decision that changes a public contract, a safety boundary
+  or a compatibility claim needs a record before the merge, not after it.
+- A refusal is a decision too: if the harness will not do something, the reason
+  and the remedy belong in the record.
+- Anyone can propose a decision as an RFC in Discussions. An accepted RFC
+  becomes a decision-record pull request that lands like any other change.
+- Polls are signals, never decisions.
+
+## Releases
+
+Releases are tagged `v*` and are prereleases until the project says otherwise.
+From `v0.0.2-preview` onward, release assets carry checksums, SPDX SBOMs and a
+build-provenance attestation.
+
+## Compatibility and support
+
+The preview may break. There is no support SLA. The project does not accept
+responsibility for use with sensitive, proprietary, regulated or production
+code. If that constraint is unacceptable, do not use the preview.
+
+## Conduct and security
+
+Participation is covered by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Security
+reports are handled under [SECURITY.md](SECURITY.md).

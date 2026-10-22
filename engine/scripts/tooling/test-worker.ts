@@ -7,7 +7,7 @@ import {
   refreshCandidateTestIdentityExcluding,
 } from "./candidate-manifest.ts";
 import { enableSharedCompileCache } from "./compile-cache.ts";
-import { executeInventoryTestRun } from "./inventory-test-run.ts";
+import { executeInventoryTestRun, readCellSources } from "./inventory-test-run.ts";
 import { loadTestInventoryWithSnapshot } from "../test-inventory.ts";
 import { createTestReceipt, createTestResultReceipt, type TestResultReceipt } from "./test-receipt.ts";
 import { verifyS1Repository, type S1Verification } from "./s1-verification.ts";
@@ -63,7 +63,7 @@ export type CheckResult = Readonly<{
   integrityHash: string;
 }>;
 
-export async function executeTestWorker(mode: WorkerMode): Promise<Readonly<{
+export async function executeTestWorker(mode: WorkerMode, cellSourceIds?: ReadonlySet<string>): Promise<Readonly<{
   result: TestResultReceipt | CheckResult;
   stdout: Buffer;
   stderr: Buffer;
@@ -80,6 +80,7 @@ export async function executeTestWorker(mode: WorkerMode): Promise<Readonly<{
   const accounting = await executeInventoryTestRun(root, inventory, {
     ...testExecutionConfig,
     sourceSnapshot: snapshot,
+    ...(cellSourceIds === undefined ? {} : { cellSourceIds }),
   });
   // Derive the after-run candidate identity from the before-run build by
   // re-reading only stat-changed files instead of a second full pass.
@@ -125,6 +126,8 @@ export async function executeTestWorker(mode: WorkerMode): Promise<Readonly<{
   // code are consistent with the receipt. Previously mode==="test" used
   // `accounting.passed` which only reflected test pass/fail, not
   // candidate-identity checks — producing status:"passed" with exit code 1.
+  // A CELL's receipt keeps the whole-suite status (its withheld entries are counted skipped); the runner
+  // judges the cell by the cell's rule on that receipt (run-tests.ts), so the worker's exit stays the receipt's.
   const passed = result.result.status === "passed";
   const stdout = Buffer.from(`${canonicalJson({
     schemaVersion: "bridlewise-test-worker-output/v1",
@@ -151,11 +154,17 @@ function createCheckResult(root: string, testResultReceipt: TestResultReceipt): 
   return deepFreeze({ ...unsigned, integrityHash: canonicalHash(unsigned) });
 }
 
-function parseMode(argv: readonly string[]): WorkerMode {
-  if (argv.length !== 2 || argv[0] !== "--mode" || (argv[1] !== "test" && argv[1] !== "check")) {
-    throw new Error("Usage: test-worker --mode test|check");
-  }
-  return argv[1];
+type WorkerRequest = Readonly<{ mode: WorkerMode; cellSourceIds?: ReadonlySet<string> }>;
+
+/** `--mode test|check`, and for a CI cell `--mode test --cell <file>` (one engine-relative test source per line). */
+function parseRequest(argv: readonly string[]): WorkerRequest {
+  const usage = (): never => {
+    throw new Error("Usage: test-worker --mode test|check [--cell <file listing the cell's test sources>] (a cell runs only in test mode)");
+  };
+  if ((argv.length !== 2 && argv.length !== 4) || argv[0] !== "--mode" || (argv[1] !== "test" && argv[1] !== "check")) return usage();
+  if (argv.length === 2) return { mode: argv[1] };
+  if (argv[2] !== "--cell" || argv[1] !== "test") return usage();
+  return { mode: "test", cellSourceIds: readCellSources(argv[3]!) };
 }
 
 if (isEntryPoint(import.meta.url)) {
@@ -176,7 +185,8 @@ if (isEntryPoint(import.meta.url)) {
   refuseRemoteNetworkUnderTest();
   armTestKeyHome();
   try {
-    const execution = await executeTestWorker(parseMode(process.argv.slice(2)));
+    const request = parseRequest(process.argv.slice(2));
+    const execution = await executeTestWorker(request.mode, request.cellSourceIds);
     writeSync(3, Buffer.from(`${canonicalJson(execution.result)}\n`, "utf8"));
     process.stdout.write(execution.stdout);
     process.stderr.write(execution.stderr);

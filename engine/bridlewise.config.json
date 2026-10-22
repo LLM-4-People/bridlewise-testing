@@ -998,6 +998,69 @@
           "--prefer-offline"
         ],
         "timeoutMs": 300000
+      },
+      "docs-links": {
+        "cwd": ".",
+        "argv": [
+          "node",
+          "scripts/check-docs-links.mjs"
+        ],
+        "timeoutMs": 300000
+      },
+      "secret-scan": {
+        "cwd": ".",
+        "argv": [
+          "node",
+          "scripts/check-secrets.mjs"
+        ],
+        "timeoutMs": 300000
+      },
+      "public-tests": {
+        "cwd": ".",
+        "argv": [
+          "npm",
+          "run",
+          "test:public"
+        ],
+        "timeoutMs": 600000
+      },
+      "guardian-tests": {
+        "cwd": "engine/guardian",
+        "argv": [
+          "make",
+          "test"
+        ],
+        "timeoutMs": 600000
+      },
+      "guardian-pass-log": {
+        "cwd": "engine/guardian",
+        "argv": [
+          "bash",
+          "tests/require-pass-log.sh"
+        ],
+        "timeoutMs": 60000
+      },
+      "web-shard": {
+        "cwd": ".",
+        "argv": [
+          "node",
+          "--experimental-strip-types",
+          "scripts/run-tests.ts",
+          "--project=node",
+          "--project=dom",
+          "--reporter=default",
+          "--reporter=json"
+        ],
+        "timeoutMs": 3600000
+      },
+      "engine-cell": {
+        "cwd": "engine",
+        "argv": [
+          "node",
+          "scripts/tooling/run-tests.ts",
+          "--cell"
+        ],
+        "timeoutMs": 3600000
       }
     },
     "phases": {
@@ -1028,6 +1091,70 @@
   },
   "promotion": {
     "profileDirectory": "promotion"
+  },
+  "forge": {
+    "organization": "LLM-4-People",
+    "apiUrl": "https://api.github.com",
+    "webUrl": "https://github.com",
+    "userAgent": "bridlewise-forge",
+    "request": {
+      "timeoutMs": 30000,
+      "maxResponseBytes": 16777216,
+      "cleanupTimeoutMs": 2000,
+      "etagCacheEntries": 1024,
+      "maxPages": 50
+    },
+    "tokenRenewBeforeMs": 300000,
+    "repositories": [
+      {
+        "name": "bridlewise-testing",
+        "kind": "trunk",
+        "visibility": "public"
+      },
+      {
+        "name": ".github",
+        "kind": "meta",
+        "visibility": "public"
+      },
+      {
+        "name": "bridlewise-evidence",
+        "kind": "evidence",
+        "visibility": "public"
+      },
+      {
+        "name": "bridlewise-coordination",
+        "kind": "notes",
+        "visibility": "private"
+      },
+      {
+        "name": "bridlewise-archive",
+        "kind": "archive",
+        "visibility": "private"
+      },
+      {
+        "name": "bridlewise",
+        "kind": "archive",
+        "visibility": "public"
+      },
+      {
+        "name": "forge-proving-ground",
+        "kind": "none",
+        "visibility": "public",
+        "provingGround": true
+      }
+    ],
+    "appsPage": {
+      "port": 47811,
+      "legacyApps": [
+        {
+          "slug": "claude",
+          "repositories": [
+            "bridlewise-testing",
+            "bridlewise-coordination"
+          ]
+        }
+      ]
+    }
   },
   "codeIntelligence": {
     "autoIndexOnProjectAdd": true,

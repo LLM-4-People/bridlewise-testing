@@ -37,6 +37,7 @@ import { describe, expect, test } from "vitest";
 
 import type { TreeReader } from "../../engine/src/git/tree-reader.ts";
 import { unconsumedCommands } from "../../engine/src/workflow/checkout-setup.ts";
+import { catalogueCommandNames } from "../../engine/src/workflow/gates/catalogue.ts";
 import { excludedBy, profileCommandNames, type LoadedPromotionProfile } from "../../engine/src/workflow/promotion/profile.ts";
 import { moduleSpecifiers, normalizeRepositoryPath } from "../../engine/src/workflow/reachability.ts";
 import { classifyTree, deriveManifests, projectionAdvisories } from "../../engine/src/workflow/promotion/projection.ts";
@@ -118,10 +119,12 @@ describe("the source-side promotion guard", () => {
     expect(checkedDocuments, "no shipped README was exercised — the document guard's universe collapsed").toBeGreaterThan(0);
   });
 
-  test("every registry command is run by a workspace phase or a promotion profile (no dead command)", () => {
-    expect(unconsumedCommands(isolation, profiles.flatMap((loaded) => profileCommandNames(loaded.profile)))).toEqual([]);
+  test("every registry command is run by a workspace phase, a promotion profile or a gate (no dead command)", () => {
+    // The consumers are the ones `harness check`'s dead-commands step counts: the profiles and the gate catalogue.
+    const consumers = [...catalogueCommandNames(), ...profiles.flatMap((loaded) => profileCommandNames(loaded.profile))];
+    expect(unconsumedCommands(isolation, consumers)).toEqual([]);
     // The plant: a declared command nothing runs is named.
-    expect(unconsumedCommands({ ...isolation, commands: { ...isolation.commands, "planted-dead": { cwd: ".", argv: ["true"], timeoutMs: 1 } } }, profiles.flatMap((loaded) => profileCommandNames(loaded.profile)))).toEqual(["planted-dead"]);
+    expect(unconsumedCommands({ ...isolation, commands: { ...isolation.commands, "planted-dead": { cwd: ".", argv: ["true"], timeoutMs: 1 } } }, consumers)).toEqual(["planted-dead"]);
   });
 
   test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: each planted refusal turns the guard red, by name", (_name, loaded) => {

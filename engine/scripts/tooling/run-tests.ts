@@ -17,9 +17,10 @@ import {
   type ExecutionAuthority,
   type ExecutionOperation,
 } from "./test-execution.ts";
-import { computeTestResultReceiptDeterministicHash, testResultLedgerRows, type TestResultReceipt } from "./test-receipt.ts";
+import { cellReceiptPassing, computeTestResultReceiptDeterministicHash, testFailureMessages, testResultLedgerRows, type TestResultReceipt } from "./test-receipt.ts";
 import { asLockDoor, enforceTestRunLock } from "./test-run-lock.ts";
-import { HarnessError, extractErrorMessage } from "../../src/kernel/errors.ts";
+import { readCellSources } from "./inventory-test-run.ts";
+import { InputError, HarnessError, extractErrorMessage } from "../../src/kernel/errors.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { ensurePrivateStateDirectory } from "../../src/filesystem/private-state.ts";
@@ -110,6 +111,11 @@ type TestCommandResult = Readonly<{ operation: "maintenance" | "suite"; exitCode
 
 async function runCli(invocationId: string, observedTerminal: (execution: CompletedExecution) => void): Promise<TestCommandResult> {
   const argv = process.argv.slice(2);
+  // A CI CELL (`--cell <file>`, the gate catalogue's engine cells): the run dispatches only the listed
+  // sources and withholds the rest (counted skipped, never subtracted); it is judged by the cell's rule and
+  // never recorded as a suite run (a cell is not the suite's runtime or its qualification).
+  const cellIndex = argv.indexOf("--cell");
+  const cellList = cellIndex === -1 ? undefined : argv[cellIndex + 1];
   const operation = argv[0] === "--auto-add-dispositions" && argv.length % 2 === 1 &&
     argv.slice(1).every((value, index) => index % 2 === 1 || value === "--prune") ? "maintenance" : "suite";
   let releaseInstrumentLock: (() => void) | undefined;
@@ -118,6 +124,7 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     return { operation, exitCode };
   };
   try {
+    if (cellIndex !== -1 && (cellList === undefined || cellList.startsWith("--"))) throw new InputError("run-tests --cell takes the file listing the cell's test sources", "test_cell_invalid");
     enableSharedCompileCache();
     process.stderr.write(`${temporaryRootPreflightLine("run-tests", temporaryRootHeadroom())}\n`);
     const keptOut = temporaryRootKeepOutRefusal(fileURLToPath(new URL("../../", import.meta.url)));
@@ -168,7 +175,8 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     // THE HOST'S ONE INSTRUMENT LOCK: the whole suite is heavy, so the door
     // waits here while another heavy run holds the lock (saying who), and the
     // run's measurement records that it held it (the handle's stamp).
-    const instrumentLock = await enforceTestRunLock("engine npm test", { testFileCount: inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
+    const cellSize = cellList === undefined ? undefined : readCellSources(cellList).size;
+    const instrumentLock = await enforceTestRunLock(cellList === undefined ? "engine npm test" : "engine cell", { testFileCount: cellSize ?? inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
     releaseInstrumentLock = instrumentLock.release;
     // BEFORE THE RUN, AND AFTER THE SUB-CLI ABOVE: the corpora git cannot
     // report missing. See scripts/verification/required-fixture-roots.ts — an
@@ -256,7 +264,10 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
       launcherExited = pid;
       launcher.abort();
     }, ROOT_POLICY.verification.testRunSupervision.watchIntervalMs);
-    const execution = await runTestsWithEvidence({ stop: launcher.signal });
+    const execution = await runTestsWithEvidence({
+      stop: launcher.signal,
+      ...(cellList === undefined ? {} : { workerArguments: [fileURLToPath(new URL("./test-worker.ts", import.meta.url)), "--mode", "test", "--cell", resolve(cellList)] }),
+    });
     stopLauncherWatch();
     if (launcherExited !== undefined) {
       reportLauncherStop(launcherExited, Date.now() - runStartMs, (text) => process.stderr.write(text));
@@ -306,9 +317,11 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
         const summaryInput: TestRunSummaryInput = {
           resultIntegrityHash: receipt.integrityHash,
           deterministicHash: computeTestResultReceiptDeterministicHash(receipt),
-          status: receipt.result.status,
+          // A cell's status is the cell rule's (`cellReceiptPassing`): its withheld entries are counted skipped by design.
+          status: cellList === undefined ? receipt.result.status : cellPassed(execution) ? "passed" : "failed",
           exitCode: execution.exitCode,
           failures: receipt.result.diagnostic === null ? [] : receipt.result.diagnostic.failures,
+          failureMessages: testFailureMessages(receipt),
           reasons: receipt.result.diagnostic === null ? [] : receipt.result.diagnostic.reasons,
           testCount: receipt.testReceipt.counts.discovered,
           passCount: receipt.testReceipt.counts.passed,
@@ -334,6 +347,10 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     const harnessChanged = [...harnessFolderChanges(harnessAtStart, harnessFolderIdentity(root)), ...repositoryRefChanges(refsAtStart, repositoryRefIdentity(root))];
     if (harnessChanged.length > 0) {
       process.stderr.write(`\n[harness-folder] THE SUITE CHANGED THE LIVE HARNESS FOLDER OR MOVED ITS REPOSITORY (the folder every configuration bootstrap compares; the checkout's HEAD and branch): ${harnessChanged.join(", ")}. A test writes its own temp folder or a harness view (tests/helpers/isolated-config.ts) and runs git only in a repository of its own, never the live tree.\n`);
+    }
+    if (cellList !== undefined) {
+      process.stdout.write(`[engine-cell] ${String(cellSize)} source(s) dispatched, the rest withheld; judged by the cell rule, not recorded as a suite run (no budget verdict, no qualification)\n`);
+      return finish(cellPassed(execution) && harnessChanged.length === 0 ? 0 : 1);
     }
     const tested = testExecutionQualification(execution);
     const producer = harnessChanged.length === 0 ? tested : { ...tested,
@@ -367,6 +384,18 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     process.stderr.write(`${canonicalJson({ error: code, message: extractErrorMessage(error) })}\n`);
     return finish(1);
   }
+}
+
+/**
+ * A CELL'S VERDICT: the worker ran to a receipt it declared (the execution's
+ * outcome is the receipt's own `passed`/`failed`, never a crash, an overflow
+ * or a mismatch), and that receipt passes the cell's rule (its only skips are
+ * the withheld entries; every dispatched test passed).
+ */
+function cellPassed(execution: CompletedExecution): boolean {
+  return (execution.outcome === "passed" || execution.outcome === "failed") && execution.result !== null &&
+    execution.result.schemaVersion === ROOT_POLICY.receipts.testExecution.resultSchemaVersion &&
+    cellReceiptPassing(execution.result as TestResultReceipt);
 }
 
 /**

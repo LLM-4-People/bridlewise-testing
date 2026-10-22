@@ -81,7 +81,7 @@ export type CheckoutFailureClass = "errored" | "failed";
  * is the one-minute leg of the shared ambient reading, or null when the
  * sample was unreadable — never a fabricated zero.
  */
-export type CommandEvidence = Readonly<{ argv: readonly string[]; cwd: string; attempts: number; durationMs: number; load: number | null; parallelism: number; invocationId?: string; terminal?: SupervisedCommand }>;
+export type CommandEvidence = Readonly<{ argv: readonly string[]; cwd: string; attempts: number; durationMs: number; load: number | null; parallelism: number; invocationId?: string; terminal?: SupervisedCommand; logPath?: string }>;
 
 /** One step a checkout took: a link, the config mode, or a command (a gate). */
 export type CheckoutStep = Readonly<{
@@ -386,8 +386,10 @@ async function runOnce(checkoutRoot: string, name: string, command: CheckoutComm
     // the raw one-minute leg (not the per-CPU quantity) and records null when
     // the sample was unreadable, never 0.
     const ambient = readAmbientLoadPerCpu();
+    // The full log's path is evidence too: a gate that judges a command's own output (the guardian's pass-log
+    // check) reads that file, never a re-parse of the message.
     const evidence: CommandEvidence = { argv, cwd: command.cwd, attempts: attempt, durationMs: run.elapsedMs, load: ambient.loads?.[0] ?? null, parallelism: availableParallelism(),
-      ...(invocationId === undefined ? {} : { invocationId }), terminal: run };
+      ...(invocationId === undefined ? {} : { invocationId }), terminal: run, logPath };
     debugLog("workflow", passed ? "info" : "warn", `${name} ${passed ? "passed" : failure!}`, () => ({
       command: name, class: failure ?? "pass", ending: run.ending, exit: run.exitCode, signal: run.signal, durationMs: run.elapsedMs, attempt, load: evidence.load, parallelism: evidence.parallelism,
     }));

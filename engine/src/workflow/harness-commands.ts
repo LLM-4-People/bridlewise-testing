@@ -12,6 +12,8 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { resignTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
 import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES } from "../kernel/verification-paths.ts";
+import { catalogueCommandNames } from "./gates/catalogue.ts";
+import { syncGeneratedWorkflows } from "./gates/workflows.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
@@ -49,7 +51,9 @@ import { commandExitCode, parseHarnessCommandResult, renderCommandAnswer, takeOu
 import { DEFAULT_TYPECHECK_TIMEOUT_MS, DEFAULT_DISPOSITION_AUTO_ADD_TIMEOUT_MS, DEFAULT_SYNC_REGISTER_TIMEOUT_MS, DEFAULT_SYNC_REGENERATE_TIMEOUT_MS, DEFAULT_SYNC_CHECK_TIMEOUT_MS, DEFAULT_SYNC_BUNDLE_TIMEOUT_MS, DEFAULT_TIMELINE_COMMAND_LIMIT, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline } from "../git/index-baseline.ts";
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
+import { syncCommunityFiles } from "./community/health-files.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
+import { syncForgeFiles } from "./forge/generated-files.ts";
 import { acceptFrozenRecords, frozenRecordsMessage, syncFrozenRecords, type FrozenRecordsReport } from "./record-links.ts";
 import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
 import { engineAndCheckoutRoots, repositoryToplevel } from "../git/repository-ownership.ts";
@@ -145,12 +149,18 @@ export type HarnessCheckOutput = Readonly<{
   shippedHooks: CheckStepResult;
   /** Would `harness regenerate` rewrite the ignore file's generated evidence block (a manifest was added, moved or removed)? */
   evidenceIgnore: CheckStepResult;
+  /** Would `harness regenerate` rewrite a generated forge file under `.github/forge/` (src/workflow/forge/generated-files.ts)? */
+  forgeFiles: CheckStepResult;
   /** Does every file under a frozen record root hold the content its pinned manifest records (src/workflow/record-links.ts)? */
   frozenRecords: CheckStepResult;
   /** Does the published guardian spec-schema artifact equal a fresh projection of GUARDIAN_SPEC_SCHEMA (scripts/verification/guardian-spec-artifact.ts)? */
   guardianSpecArtifact: CheckStepResult;
   /** Does the canonical artifact inventory equal a fresh build over the governed roots (scripts/tooling/artifact-manifest.ts)? */
   artifactManifest: CheckStepResult;
+  /** Is every file under `.github/workflows/` its generator's output of the gate catalogue, and no other file there (src/workflow/gates/workflows.ts)? */
+  generatedWorkflows: CheckStepResult;
+  /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
+  communityFiles: CheckStepResult;
   allPassed: boolean;
 }>;
 
@@ -236,13 +246,32 @@ export type HarnessRegenerateOutput = Readonly<{
    */
   shippedHooks: DecisionIndexArm;
   /**
+   * The generated workflows (`GENERATED_WORKFLOW_FILES`): every file under
+   * `.github/workflows/`, written whole from the gate catalogue
+   * (src/workflow/gates/workflows.ts), never by hand.
+   */
+  generatedWorkflows: DecisionIndexArm;
+  /**
    * The ignore file's evidence block (`ROOT_POLICY.workflow.evidenceStore.ignoreBlock`),
    * derived from the tracked evidence manifests (src/workflow/evidence-store.ts),
    * so the folder materialize writes into is ignored by construction.
    */
   evidenceIgnore: DecisionIndexArm;
+  /**
+   * The forge's generated files (`.github/forge/`: the App manifests and
+   * their index), from the App registry and the `forge` configuration
+   * section (src/workflow/forge/generated-files.ts).
+   */
+  forgeFiles: DecisionIndexArm;
   /** The frozen record roots' pinned content (`ROOT_POLICY.verification.frozenRecordManifest`, src/workflow/record-links.ts). */
   frozenRecords: DecisionIndexArm;
+  /**
+   * The community health files and forms (CONTRIBUTING, CODE_OF_CONDUCT,
+   * SECURITY, SUPPORT, GOVERNANCE, the pull-request template, the issue and
+   * Discussion forms), generated from `docs/community/` and their facts' owners
+   * (src/workflow/community/health-files.ts), never edited by hand.
+   */
+  communityFiles: DecisionIndexArm;
   /**
    * The guardian spec-schema artifact, rebuilt from the live Zod schema
    * (`scripts/verification/guardian-spec-artifact.ts`) BEFORE the binding
@@ -479,6 +508,17 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the evidence ignore rule...");
   steps.push(evidenceIgnoreStep(regenerateEvidenceIgnore(root, false)));
 
+  emitProgress(onProgress, "Checking the generated forge files...");
+  const forgeFiles = regenerateForgeFiles(root, false);
+  steps.push(deepFreeze({
+    step: "forge-files",
+    status: forgeFiles.converged ? "pass" : "fail",
+    message: forgeFiles.converged
+      ? "every generated forge file under .github/forge/ is its owner's bytes"
+      : `generated forge files differ from their owners (run harness sync): ${forgeFiles.changed.join(", ")}`,
+    details: forgeFiles,
+  }));
+
   emitProgress(onProgress, "Checking the frozen record roots' pinned content...");
   steps.push(frozenRecordsStep(syncFrozenRecords(trackedTop(root), false)));
 
@@ -511,6 +551,12 @@ export async function harnessCheck(
     details: artifactManifest,
   }));
 
+  emitProgress(onProgress, "Checking the generated workflows...");
+  steps.push(generatedWorkflowsStep(regenerateGeneratedWorkflows(root, false)));
+
+  emitProgress(onProgress, "Checking the community health files and forms...");
+  steps.push(communityFilesStep(regenerateCommunityFiles(root, false)));
+
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
     typecheck: steps[0]!,
@@ -530,10 +576,13 @@ export async function harnessCheck(
     promotions: steps[14]!,
     shippedHooks: steps[15]!,
     evidenceIgnore: steps[16]!,
-    frozenRecords: steps[17]!,
-    guardianSpecArtifact: steps[18]!,
-    trackerBoard: steps[19]!,
-    artifactManifest: steps[20]!,
+    forgeFiles: steps[17]!,
+    frozenRecords: steps[18]!,
+    guardianSpecArtifact: steps[19]!,
+    trackerBoard: steps[20]!,
+    artifactManifest: steps[21]!,
+    generatedWorkflows: steps[22]!,
+    communityFiles: steps[23]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -714,8 +763,9 @@ function pathArguments(argv: readonly string[], verb: string, usageCode: string)
 
 /**
  * DEAD COMMANDS: a registry command (`workspaceIsolation.commands`) that no
- * workspace phase and no promotion profile of this checkout runs is dead
- * config (`unconsumedCommands`). The configuration schema cannot judge it — a
+ * workspace phase, no promotion profile and no gate of the gate catalogue
+ * (`./gates/catalogue.ts`, CI's one declaration) runs is dead config
+ * (`unconsumedCommands`). The configuration schema cannot judge it — a
  * profile is a data file on the source branch — so it is judged here, at
  * every check, where both consumers are visible: the profiles the working
  * tree declares (an invalid one fails the step). A checkout that declares a
@@ -728,7 +778,7 @@ function deadCommandsStep(root: string): CheckStepResult {
   const isolation = document.workspaceIsolation;
   if (top === undefined || isolation === undefined) return skipStep("dead-commands");
   const directory = document.promotion?.profileDirectory;
-  let consumers: readonly string[] = [];
+  let consumers: readonly string[] = catalogueCommandNames();
   if (directory !== undefined) {
     let profiles: readonly LoadedPromotionProfile[];
     try {
@@ -738,15 +788,15 @@ function deadCommandsStep(root: string): CheckStepResult {
       return deepFreeze({ step: "dead-commands", status: "fail", message: `${error.promotionCode}: ${error.message}`, details: error.facts });
     }
     if (profiles.length === 0) return deepFreeze({ step: "dead-commands", status: "pass", message: `not judged: ${directory}/ holds no promotion profile here, so not every consumer of the registry is visible`, details: null });
-    consumers = profiles.flatMap((loaded) => profileCommandNames(loaded.profile));
+    consumers = [...consumers, ...profiles.flatMap((loaded) => profileCommandNames(loaded.profile))];
   }
   const dead = unconsumedCommands(isolation, consumers);
   return deepFreeze({
     step: "dead-commands",
     status: dead.length === 0 ? "pass" : "fail",
     message: dead.length === 0
-      ? `every registry command is run by a workspace phase or a promotion profile (${String(Object.keys(isolation.commands).length)} commands)`
-      : `registry commands no workspace phase and no promotion profile runs (dead config: remove them, or run them): ${dead.join(", ")}`,
+      ? `every registry command is run by a workspace phase, a promotion profile or a gate (${String(Object.keys(isolation.commands).length)} commands)`
+      : `registry commands no workspace phase, no promotion profile and no gate runs (dead config: remove them, or run them): ${dead.join(", ")}`,
     details: { dead },
   });
 }
@@ -911,15 +961,21 @@ export function harnessRegenerate(
   const trackerBoard = syncTrackerBoard(trackedTop(root), write);
   // The shipped hooks: each canonical hook's text, from its owner.
   const shippedHooks = regenerateShippedHooks(root, write);
+  // The generated workflows: every `.github/workflows/` file, from the gate catalogue.
+  const generatedWorkflows = regenerateGeneratedWorkflows(root, write);
   // The evidence ignore rule: derived from the tracked evidence manifests.
   const evidenceIgnore = regenerateEvidenceIgnore(root, write);
+  // The forge's generated files: the App manifests and their index, from the registry and the `forge` section.
+  const forgeFiles = regenerateForgeFiles(root, write);
   // The frozen roots' pinned content: a change there is a manifest change the diff shows.
   const frozenRecords = syncFrozenRecords(trackedTop(root), write);
+  // The community health files and forms, from their sources (before the inventory digests them).
+  const communityFiles = regenerateCommunityFiles(root, write);
   // The canonical artifact inventory, LAST: every governed file the arms above
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, frozenRecords, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, generatedWorkflows, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -935,7 +991,7 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && generatedWorkflows.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1223,6 +1279,50 @@ export function trackerBoardStep(trackerBoard: TrackerBoardReport): CheckStepRes
   });
 }
 
+/** `harness check`'s generated-workflows step: a hand-edited, stale or foreign workflow file FAILS the check, naming each path. */
+export function generatedWorkflowsStep(generatedWorkflows: DecisionIndexArm): CheckStepResult {
+  return deepFreeze({
+    step: "generated-workflows",
+    status: generatedWorkflows.converged ? "pass" : "fail",
+    message: generatedWorkflows.converged
+      ? `every workflow is its generator's output of the gate catalogue${generatedWorkflows.status === "absent" ? " (this tree carries no workflow folder)" : ""}`
+      : `workflow files differ from the gate catalogue's generated output — a hand edit, a stale file or a file no generator owns (edit engine/src/workflow/gates/, then run harness sync): ${generatedWorkflows.changed.join(", ")}`,
+    details: generatedWorkflows,
+  });
+}
+
+/**
+ * The generated-workflows arm (in process: the gates owner is a runtime
+ * module). The workflows are the development tree's CI: a product-only tree
+ * (no test surface, the projection ships no `.github/`) is converged by
+ * absence. On the development tree a deleted folder is drift like any other
+ * — absence is decided by the tree's kind, never by the folder itself.
+ */
+function regenerateGeneratedWorkflows(root: string, write: boolean): DecisionIndexArm {
+  const top = trackedTop(root);
+  if (!testSurfacePresent(root)) return deepFreeze({ status: "absent" as const, converged: true, changed: [] });
+  const report = syncGeneratedWorkflows(top, write);
+  return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed });
+}
+
+/** `harness check`'s community-files step: a stale generated health file or form FAILS the check, naming each path. */
+export function communityFilesStep(communityFiles: DecisionIndexArm): CheckStepResult {
+  return deepFreeze({
+    step: "community-files",
+    status: communityFiles.converged ? "pass" : "fail",
+    message: communityFiles.converged
+      ? `the community health files and forms match their sources${communityFiles.status === "absent" ? " (this tree carries no community sources)" : ""}`
+      : `community files are stale against docs/community/ (run harness sync): ${communityFiles.changed.join(", ")}`,
+    details: communityFiles,
+  });
+}
+
+/** The community-files arm (in process: the community sources are a runtime module the IssueOps commands read too). */
+function regenerateCommunityFiles(root: string, write: boolean): DecisionIndexArm {
+  const report = syncCommunityFiles(trackedTop(root), write);
+  return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
+}
+
 /** `harness check`'s frozen-records step: a frozen root whose content left its pin FAILS the check, naming each path. */
 export function frozenRecordsStep(frozenRecords: FrozenRecordsReport): CheckStepResult {
   return deepFreeze({
@@ -1250,6 +1350,12 @@ function regenerateDecisionIndex(root: string, write: boolean): DecisionIndexArm
 /** The evidence ignore arm (in process: the evidence store is a runtime module): the generated block, from the tracked manifests. */
 function regenerateEvidenceIgnore(root: string, write: boolean): DecisionIndexArm {
   const report = syncEvidenceIgnore(trackedTop(root), write);
+  return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
+}
+
+/** The forge-files arm (in process): `.github/forge/` from the App registry and the `forge` configuration section. */
+function regenerateForgeFiles(root: string, write: boolean): DecisionIndexArm {
+  const report = syncForgeFiles(trackedTop(root), loadPinnedConfigSnapshot().document.forge, write);
   return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
 }
 
@@ -1921,7 +2027,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 export const HARNESS_SUBCOMMANDS = deepFreeze([
   "check", "test", "register", "regenerate", "sync", "new-module", "eval",
   "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "slot", "flake", "frozen",
+  "format", "index", "deletions", "evidence", "promote", "slot", "flake", "frozen", "gates", "door", "forge",
 ] as const);
 
 export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
@@ -2059,9 +2165,19 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
     } else if (subcommand === "slot") {
       const { runSlotCli } = await import("./slot-cli.ts");
       answer = await runSlotCli(rest);
+    } else if (subcommand === "forge") {
+      // GitHub, the one forge (src/workflow/forge/): its own answers and codes.
+      const { runForgeCli } = await import("./forge/cli.ts");
+      answer = await runForgeCli(root, rest, onProgress);
     } else if (subcommand === "flake") {
       const { runFlakeCli } = await import("./flake-cli.ts");
       answer = await runFlakeCli(rest);
+    } else if (subcommand === "door") {
+      const { runDoorCli } = await import("./door/door-cli.ts");
+      answer = await runDoorCli(root, rest);
+    } else if (subcommand === "gates") {
+      const { runGatesCli } = await import("./gates/gates-cli.ts");
+      answer = await runGatesCli(root, rest);
     } else if (subcommand === "workspace") {
       const { runWorkspaceCli } = await import("./workspace-cli.ts");
       answer = { result: await runWorkspaceCli(root, rest) };

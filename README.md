@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml)
 [![Docs and floor](https://img.shields.io/badge/docs-development%20floor-8fd3ff.svg)](https://llm-4-people.github.io/bridlewise-testing/floor/)
-[![Secret scan](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml/badge.svg?branch=main)](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml)
+[![CodeQL](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/codeql.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Status: developer preview](https://img.shields.io/badge/status-developer%20preview-d9a84e.svg)](#status)
 
@@ -144,18 +144,17 @@ A fresh clone cannot run the full suites. The runners refuse with a named prereq
 - **`openssl`** — used by the outbound-HTTP test.
 - **Landlock** — the guardian tests skip the kernel path with exit 3 when the host does not expose it. A skip is not a pass.
 
-The supported shard set is `tests/test-shards.json`. Verify it against the runner's own selection, then plan the shards:
+CI is generated. One gate catalogue (`engine/src/workflow/gates/`) declares every gate; `harness sync` writes every file under `.github/workflows/` from it, and `harness check` refuses a hand edit. The same verbs run locally:
 
 ```bash
-mkdir -p .bridlewise/shard-plan
-npm run test:list -- --out .bridlewise/shard-plan/live-manifest.json
-npm run test:verify-shards -- --manifest tests/test-shards.json --live .bridlewise/shard-plan/live-manifest.json
-node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
+cd engine
+node src/cli.ts harness gates list                                   # the catalogue
+node src/cli.ts harness gates plan --out ../.bridlewise/gates        # this tree's populations and shard cells
+node src/cli.ts harness gates run docs-links --plan ../.bridlewise/gates/plan.json --out ../.bridlewise/gates/results
+node src/cli.ts harness gates shard web-suite-1 --plan ../.bridlewise/gates/plan.json --out ../.bridlewise/gates/results
 ```
 
-`test:list` records a content fingerprint of the working tree before and after `vitest list`; `test:verify-shards` recomputes it and refuses a listing from another tree, another checkout, or a tree that moved while the listing ran. A bare `vitest list` does not run the global setup, so it takes no instrument lock or source fingerprint; its raw output is not accepted.
-
-The shard workflow is `.github/workflows/test-shards.yml`; CI calls it as the `shards` job on pushes and pull requests to `main`, and it remains dispatchable. Making it a required check is a branch-protection setting. See [docs/testing.md](docs/testing.md) for the full matrix, the named exclusions, and the receipt contract.
+The web population is every file the runner's own globs select less the catalogue's named exclusions; the engine population is its test inventory. The seal merges every cell's result into one receipt and refuses a missing, duplicate, unexpected, failed or wrong-commit cell. See [docs/testing.md](docs/testing.md) for the gates, the exclusions and the receipt contract.
 
 ## CLI tools
 

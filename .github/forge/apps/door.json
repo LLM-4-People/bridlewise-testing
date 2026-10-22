@@ -1,0 +1,24 @@
+{
+  "name": "bridlewise-door",
+  "url": "https://github.com/LLM-4-People/bridlewise-testing",
+  "description": "Bridlewise door: judges every land and posts the one required check, bridlewise/door. Its key exists only in the `door` environment.",
+  "public": false,
+  "hook_attributes": {
+    "url": "https://github.com/LLM-4-People/bridlewise-testing",
+    "active": false
+  },
+  "redirect_url": "http://127.0.0.1:47811/callback",
+  "default_permissions": {
+    "actions": "write",
+    "attestations": "write",
+    "checks": "write",
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "read",
+    "secret_scanning_alerts": "read",
+    "statuses": "write"
+  },
+  "default_events": [],
+  "request_oauth_on_install": false,
+  "setup_on_update": false
+}

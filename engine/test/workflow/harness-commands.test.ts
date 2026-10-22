@@ -160,7 +160,7 @@ test("M1: harnessCheck judges dead registry commands over the checkout's promoti
   const result = await checkSkipAll();
   assert.equal(result.result.deadCommands.step, "dead-commands");
   assert.equal(result.result.deadCommands.status, "pass", result.result.deadCommands.message);
-  assert.match(result.result.deadCommands.message, /every registry command is run by a workspace phase or a promotion profile/u, "this checkout declares its profiles, so the step judges");
+  assert.match(result.result.deadCommands.message, /every registry command is run by a workspace phase, a promotion profile or a gate/u, "this checkout declares its profiles, so the step judges");
 });
 
 test("HarnessCommands: harnessCheck result is frozen", async () => {
@@ -1284,7 +1284,7 @@ test("HarnessCommands: the check's generated-block steps FAIL on drift and name 
   assert.equal(trackerBoardStep({ status: "absent", converged: true, changed: [], problems: [] }).status, "pass");
   const result = await checkSkipAll();
   assert.equal(result.result.trackerBoard.step, "tracker-board", "the task-board step is wired into harnessCheck");
-  for (const step of [result.result.evidenceIgnore, result.result.frozenRecords, result.result.trackerBoard]) {
+  for (const step of [result.result.evidenceIgnore, result.result.forgeFiles, result.result.frozenRecords, result.result.trackerBoard]) {
     assert.equal(step.status, "pass", `${step.step} passes on this synced tree: ${step.message}`);
   }
   assert.equal(result.result.allPassed, Object.values(result.result).every((step) => typeof step !== "object" || step === null || !("status" in step) || step.status !== "fail"), "allPassed is every step");

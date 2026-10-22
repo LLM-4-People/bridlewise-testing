@@ -8,6 +8,7 @@ The `engine/test/workflow/` folder of the development surface.
 - `auto-generator.test.ts` — the `auto-generator.test` module.
 - `auto-heal.test.ts` — the `auto-heal.test` module.
 - `candidate-checkout.test.ts` — the candidate CLI driven on a working copy: missing target parents, refresh keeping the candidate's regenerated outputs (and taking real source edits), copy-back refusing a moved, conflicting or incomplete candidate before writing.
+- `engine-cell.test.ts` — an engine CI cell on a real inventory through the real dispatch: its sources dispatched, the rest withheld (expected, counted skipped, recorded), the whole-suite rule refusing and the cell rule accepting exactly that; a failing or skipping dispatched test fails the cell, nothing withheld is not a cell, and a stranger or empty cell is refused.
 - `evidence-store.test.ts` — the evidence store driven on planted repositories and private stores: ingest through the immutable owner (one object per payload, 0600 in 0700, the one-line-per-entry manifest; idempotent, other bytes for a recorded path refused), verify (missing, corrupt, unsafe; a link inside the store refused), materialize (recorded modes, an identical file left alone, refusals that write nothing, the generated ignore rule), containment (entries outside their folder, in `.git` or the hooks, linked parents for materialize and ingest, the exposed action), the private-home placement and location (under test without the variable: refused) and the keep-out entry, and the `harness evidence` verbs.
 - `flaky-burn-down.test.ts` — the burn-down list: an owned entry passes and is said, a new suspect fails, a closed, missing or mis-naming owner fails, an entry added without its owner row fails (read from git history), and an entry stays after its suspect leaves the window.
 - `file-mode-contract.test.ts` — the `file-mode-contract.test` module.
@@ -15,6 +16,7 @@ The `engine/test/workflow/` folder of the development surface.
 - `gating-never-subtracts.test.ts` — a WITHHELD TEST IS A SKIPPED TEST, NEVER A SUBTRACTED ONE. This is the regression test for the largest hole the suite has had.
 - `harness-commands-cli-fixes.test.ts` — the `harness-commands-cli-fixes.test` module.
 - `harness-commands-timeouts.test.ts` — the `harness-commands-timeouts.test` module.
+- `community-health-files.test.ts` — the community sources' refusals (role table, intake registry), the one YAML emitter, and the generated health files and forms: `harness sync` writes them, `harness check` names a hand edit or a stale form, and this repository's own files are current.
 - `harness-commands.test.ts` — the `harness-commands.test` module.
 - `inventory-test-run.test.ts` — the `inventory-test-run.test` module.
 - `module-registrar-scan.test.ts` — the `module-registrar-scan.test` module.
