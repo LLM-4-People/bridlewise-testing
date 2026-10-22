@@ -44,7 +44,6 @@ export function numericOption(value: number | undefined, fallback: number, name:
 
 // ── harness-commands.ts defaults ──────────────────────────────────────────
 
-export const DEFAULT_TYPECHECK_TIMEOUT_MS = 120_000;
 
 // ── the ONE command runner (checkout-setup.ts): errored-class retries ───────
 
@@ -63,7 +62,12 @@ export function commandRetryPolicy(document: Pick<ConfigDocument, "harness">): R
 export const DEFAULT_GIT_ADD_TIMEOUT_MS = 30_000;
 export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 
-// ── the harness's script subprocesses (`runScriptSubprocess`): NO-LOAD-BLOCK L2 ──
+// ── the harness's subprocess bounds (src/workflow/subprocess-bounds.ts): NO-LOAD-BLOCK L2 ──
+//
+// Every script subprocess (`runScriptSubprocess`), `harness check`'s tsc and
+// the commit guard's compile legs run under these, and nothing else bounds
+// them: the typecheck's own 120 s wall limit (`harness.typecheckTimeoutMs`)
+// is gone with the step timeouts below.
 //
 // `harness sync`'s steps, the dispositions' auto-add, the inventory and the
 // generators each ran under a WALL timeout of their own (120 s to 420 s), and
@@ -77,8 +81,10 @@ export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 //   heaviest step's measured work, so it ends a runaway, never a slow host.
 // - the hang backstop is the one wall bound left: very large, and a step that
 //   reaches it is reported HUNG, with how it ended, never retried here.
-/** CPU seconds each process of a script subprocess may use (RLIMIT_CPU). */
+/** CPU seconds each process of a script subprocess may use (RLIMIT_CPU's soft limit: SIGXCPU). */
 export const SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS = 1_800;
+/** CPU seconds past the soft limit at which the kernel kills a process that ignored SIGXCPU (the hard limit, which no child can raise). */
+export const SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS = 60;
 /** Wall time after which a script subprocess is hung, not slow. */
 export const SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS = 7_200_000;
 /** The most output a script subprocess may print before it is cut off (`harness check`'s payload is ~75 KB). */

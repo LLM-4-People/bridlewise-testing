@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { boundedEnding, cpuLimitedInvocation, SUBPROCESS_BOUNDS, type SubprocessBounds } from "./subprocess-bounds.ts";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
@@ -41,12 +42,12 @@ import { commandExitCode, parseHarnessCommandResult, renderCommandAnswer, takeOu
 // config section is absent. These are named constants — not inline literals —
 // so the fallback values are discoverable and auditable. The canonical owner
 // of these values is the central config contract (`workspaceGit.timeouts` for
-// git operations, `harness.typecheckTimeoutMs` for the typecheck step); the
+// git operations); the
 // constants here are only the fallback when config is unavailable. The
 // numeric defaults live in `./workflow-config.ts` (the canonical owner for
 // workflow operational defaults — no configurables outside
 // the config owner).
-import { DEFAULT_TYPECHECK_TIMEOUT_MS, SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS, SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS, SCRIPT_SUBPROCESS_OUTPUT_BYTES, DEFAULT_TIMELINE_COMMAND_LIMIT, worktreeOperationTimeouts } from "./workflow-config.ts";
+import { SCRIPT_SUBPROCESS_OUTPUT_BYTES, DEFAULT_TIMELINE_COMMAND_LIMIT, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline } from "../git/index-baseline.ts";
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
 import { syncCommunityFiles } from "./community/health-files.ts";
@@ -81,20 +82,11 @@ import { bootstrapProcess, isEntryPoint } from "../runtime/cli-debug.ts";
  * where the operator stood, not which tree the harness lives in.
  */
 export const HARNESS_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-export { DEFAULT_TYPECHECK_TIMEOUT_MS } from "./workflow-config.ts";
 // Sync orchestration bounds. Each sync step runs as its own CLI subprocess so
 // it observes file truth (a step's writes must be visible to the next step's
 // fresh module imports). The regenerate bound must exceed the sum of the
 // inner subprocess budgets (auto-add + test-inventory + registrar scans).
 
-// The defaults below apply only to a key the document leaves undeclared; a
-// refused document propagates (kernel/config.ts, config-refusal-propagates).
-export function resolveTypecheckTimeoutMs(): number {
-  const harnessConfig = loadPinnedConfigSnapshot().document.harness;
-  return typeof harnessConfig?.typecheckTimeoutMs === "number"
-    ? harnessConfig.typecheckTimeoutMs
-    : DEFAULT_TYPECHECK_TIMEOUT_MS;
-}
 
 export type HarnessCheckOptions = Readonly<{
   skipTypecheck?: boolean;
@@ -1757,29 +1749,26 @@ function subprocessFailureSummary(lines: readonly string[]): string | undefined 
   return meaningful?.trim();
 }
 
-/**
- * HOW a script subprocess ended, in words, for a run that left no payload:
- * its exit status, the signal that ended it, and which of the two L2 bounds
- * fired (see `SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS`). Never just "failed".
- */
-export function scriptSubprocessEnding(ended: Readonly<{ status: number | null; signal: NodeJS.Signals | null; errorCode?: string }>): string {
-  if (ended.errorCode === "ETIMEDOUT") {
-    return `HUNG: it was still running at the ${String(SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS / 1000)} s hang backstop (wall) and was killed with ${ended.signal ?? "SIGKILL"}`;
-  }
-  if (ended.signal === "SIGXCPU") {
-    return `it spent its CPU-time limit of ${String(SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS)} s of CPU work (RLIMIT_CPU) and was ended by SIGXCPU`;
-  }
-  if (ended.signal !== null) return `it was ended by signal ${ended.signal}`;
-  if (ended.errorCode !== undefined) return `it could not run to its end (${ended.errorCode})`;
-  return `it exited with status ${String(ended.status)}`;
+/** One synchronous run of `command args…` under `bounds` (src/workflow/subprocess-bounds.ts): the CPU limit, then the hang backstop. */
+function runBoundedSync(command: string, args: readonly string[], cwd: string, bounds: SubprocessBounds): SpawnSyncReturns<string> {
+  const invocation = cpuLimitedInvocation(command, args, bounds);
+  return spawnSync(invocation.command, [...invocation.args], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: bounds.hangBackstopMs,
+    killSignal: "SIGKILL",
+    maxBuffer: SCRIPT_SUBPROCESS_OUTPUT_BYTES,
+  });
 }
 
 export function runScriptSubprocess(
   root: string,
   scriptRelativePath: string,
   args: readonly string[],
-  options: Readonly<{ fullOutput?: boolean }> = {},
+  options: Readonly<{ fullOutput?: boolean; bounds?: SubprocessBounds }> = {},
 ): string {
+  const bounds = options.bounds ?? SUBPROCESS_BOUNDS;
   const scriptPath = resolve(root, scriptRelativePath);
   // A MISSING SCRIPT IS ITS OWN CAUSE. The subprocess's failure mode would
   // otherwise be Node's module loader: a MODULE_NOT_FOUND stack whose last
@@ -1793,18 +1782,8 @@ export function runScriptSubprocess(
     );
   }
   // NO-LOAD-BLOCK L2 (audit A-18): bounded in CPU WORK, never by a wall
-  // clock a loaded host runs out. `ulimit -t` (POSIX; the kernel's
-  // RLIMIT_CPU) caps each process of the step; the only wall bound is the
-  // very large hang backstop. `exec` keeps the script the process the
-  // backstop ends.
-  const result = spawnSync("/bin/sh", ["-c", 'ulimit -S -t "$1" && shift && exec "$@"', "sh", String(SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS), process.execPath, scriptPath, ...args], {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS,
-    killSignal: "SIGKILL",
-    maxBuffer: SCRIPT_SUBPROCESS_OUTPUT_BYTES,
-  });
+  // clock a loaded host runs out (src/workflow/subprocess-bounds.ts).
+  const result = runBoundedSync(process.execPath, [scriptPath, ...args], root, bounds);
   const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
   const succeeded = result.error === undefined && result.status === 0;
   let stdout = typeof result.stdout === "string" ? result.stdout : "";
@@ -1825,7 +1804,7 @@ export function runScriptSubprocess(
       // refusal's own (e.g. `source_syntax_invalid` names the source file).
       throw new HarnessError(`the ${scriptRelativePath} step failed: ${typed.message}`, typed.code);
     }
-    const ending = scriptSubprocessEnding({ status: result.status, signal: result.signal, ...(errorCode !== undefined ? { errorCode } : {}) });
+    const ending = boundedEnding({ status: result.status, signal: result.signal, ...(errorCode !== undefined ? { errorCode } : {}) }, bounds);
     const said = subprocessFailureSummary(lines);
     throw new InputError(
       `subprocess ${scriptRelativePath} ended without a status payload: ${ending}${said === undefined ? " (it printed nothing on stderr)" : `; its stderr says: ${said}`}`,
@@ -1894,14 +1873,20 @@ function resolveLockOptions(owner: string): AcquireLockOptions {
 }
 
 
-async function runTypecheck(root: string): Promise<CheckStepResult> {
-  try {
-    execFileSync(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc"), "--noEmit"], { cwd: root, encoding: "utf8", stdio: "pipe", timeout: resolveTypecheckTimeoutMs() });
+/**
+ * The whole-tree typecheck, bounded like every harness subprocess: by its
+ * CPU work and the one hang backstop, never by a wall limit (it was 120 s,
+ * and a loaded host failed `harness check` with it; NO-LOAD-BLOCK A-17).
+ */
+export async function runTypecheck(root: string, bounds: SubprocessBounds = SUBPROCESS_BOUNDS): Promise<CheckStepResult> {
+  const result = runBoundedSync(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc"), "--noEmit"], root, bounds);
+  const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  if (result.error === undefined && result.status === 0) {
     return deepFreeze({ step: "typecheck", status: "pass", message: "typecheck passed", details: null });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "typecheck failed";
-    return deepFreeze({ step: "typecheck", status: "fail", message, details: null });
   }
+  const ending = boundedEnding({ status: result.status, signal: result.signal, ...(errorCode !== undefined ? { errorCode } : {}) }, bounds);
+  const said = `${typeof result.stdout === "string" ? result.stdout : ""}${typeof result.stderr === "string" ? result.stderr : ""}`.trim();
+  return deepFreeze({ step: "typecheck", status: "fail", message: `typecheck failed: ${ending}${said.length === 0 ? "" : `\n${said}`}`, details: null });
 }
 
 /** The registrar's verdict: every module registered, none drifted, the composition-root lists derived. */

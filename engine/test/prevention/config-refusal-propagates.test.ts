@@ -270,7 +270,7 @@ test("config-refusal-propagates: no config read in the engine is caught, wrapped
   const sources = engineSources();
   const readers = configReaders(sources);
   // Liveness: the universe really holds the readers this guard exists for.
-  for (const known of ["readTestExecutionConfig", "resolveTypecheckTimeoutMs", "configuredPerformanceConfig", "isDevMode"]) {
+  for (const known of ["readTestExecutionConfig", "configuredPerformanceConfig", "isDevMode"]) {
     assert.ok(readers.exported.has(known), `the scan no longer sees the config reader ${known}`);
   }
   // …and the web server's one read door (module-private) answers through the
