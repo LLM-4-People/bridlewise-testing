@@ -98,7 +98,7 @@ beforeAll(async () => {
       outcome: "succeeded",
     });
   });
-}, 60_000);
+});
 
 afterAll(async () => {
   if (srv) await srv.stop();

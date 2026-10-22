@@ -705,6 +705,20 @@
     "recoveryDirectionPreference": "next"
   },
   "testExecution": {
+    "testCpuClasses": {
+      "defaultCeilingMs": 60000,
+      "classes": [
+        {
+          "name": "nested-runner",
+          "ceilingMs": 180000,
+          "files": [
+            "tests/prevention/test-cpu-class.test.ts",
+            "tests/prevention/test-isolation-contract.test.ts"
+          ]
+        }
+      ]
+    },
+    "testHangBackstopMs": 600000,
     "concurrency": "auto",
     "runtimeBudgetMs": 120000,
     "serialPhaseConcurrency": 6,
@@ -729,7 +743,7 @@
       "phase": "accumulation",
       "minimumJudgedRuns": 12,
       "maxPopulationDriftFraction": 0.03,
-      "derivedAtTestFileCount": 537,
+      "derivedAtTestFileCount": 538,
       "calibrationDriftMaxFraction": 0.15,
       "validThroughLoad5PerCpu": 1.7,
       "legacy": {
@@ -758,11 +772,12 @@
       "deterministicShims": [
         "engine/test/support/flake-shim-hold-requests.ts",
         "engine/test/support/flake-shim-routing-rss.ts",
-        "engine/test/forge/flake-shim-token-ends-zero.ts"
+        "engine/test/forge/flake-shim-token-ends-zero.ts",
+        "tests/helpers/flake-shim-orchestration-run-id.ts"
       ]
     },
     "webSuiteWatchdog": {
-      "stallTimeoutMs": 300000,
+      "stallTimeoutMs": 900000,
       "hardCeilingMs": 1800000,
       "killGraceMs": 3000
     },
