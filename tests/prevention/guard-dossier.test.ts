@@ -84,6 +84,7 @@ import {
   validateAllDossiers,
 } from "../../engine/scripts/tooling/verification/guard-dossier.ts";
 
+import { canonicalJsonLines } from "../../engine/src/kernel/integrity.ts";
 import { gitTrackedPaths } from "../helpers/source-scan.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
 import { modulePath } from "../helpers/module-resolver.ts";
@@ -254,6 +255,9 @@ describe("the tracked content floor", () => {
     expect(raw, "the committed file is exactly the canonical live snapshot").toEqual(
       JSON.parse(JSON.stringify(canonicalSnapshot(observed))) as unknown,
     );
+    // ONE GUARD PER LINE (#221): two reviewed rebases that add different guards touch different lines and merge;
+    // only two views of the same guard conflict. The file is its writer's bytes, never hand-laid-out.
+    expect(readFileSync(FLOOR_PATH, "utf8"), "the floor is laid out one guard per line").toBe(canonicalJsonLines({ ...canonicalSnapshot(observed) }));
   });
 
   test("a fresh checkout without the floor REFUSES, and nothing writes one", () => {

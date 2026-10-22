@@ -1,166 +1,22 @@
 {
-  "flag": "guard-dossier-ratchet-floor",
-  "schemaVersion": "bridlewise-guard-dossier-floor/v2",
-  "facts": [
-    {
-      "path": "engine/test/prevention/bundle-staleness.test.ts",
-      "lines": [
-        "GUARD SUBJECT: the shipped bundle is rebuilt from current source — a stale bundle is refused",
-        "GUARD OWNS: scripts/build-bundle.ts — the rebuild comparison",
-        "GUARD PLANT: edit a source module that the bundle DOES tree-shake in (a tree-shaken export is the inert first plant — it changes no bundle bytes) without rebuilding; the rebuilt bytes must differ from the on-disk bytes",
-        "GUARD DRIVEN: rebuild the bundle in memory from the live source tree and compare it byte for byte with the on-disk bundle — the same build path `harness sync` runs",
-        "GUARD LIVENESS: the on-disk bundle is asserted to exist FIRST — a verdict read against a missing bundle is not a staleness measurement"
-      ]
-    },
-    {
-      "path": "engine/test/prevention/config-refusal-propagates.test.ts",
-      "lines": [
-        "GUARD SUBJECT: a configuration refusal is never answered with a quiet default — no caller catches a config read",
-        "GUARD OWNS: every config read in engine/src, engine/scripts and server/ — the loader, the raw reader and decoder of kernel/config.ts, their absence doors, and every function that calls one directly",
-        "GUARD PLANT: wrap a config read in `try { … } catch { return defaults }`, in `bestEffort(() => …)`, or chain `.catch(…)` on it",
-        "GUARD DRIVEN: the loader itself (absent → the typed absence, planted alternate document → alternate_config_denied through IfPresent) and the CLI self-protection bootstrap in a working copy",
-        "GUARD LIVENESS: the detector flags each planted spelling before the universe is judged, and the universe holds the known readers"
-      ]
-    },
-    {
-      "path": "engine/test/prevention/esm-cjs-mismatch.test.ts",
-      "lines": [
-        "GUARD SUBJECT: the ESM/CJS mismatch detector flags a `.ts` module that uses CJS-only exports (`module.exports`, `exports.`) while being consumed as ESM",
-        "GUARD OWNS: src/quality-packs/prevention/esm-cjs-detector.ts — the detector's export/scope classification",
-        "GUARD PLANT: a `.ts` fixture exporting via `module.exports = …` (NOT `createRequire`, which is a permitted ESM target and the inert first plant) in the scanned scope; the detector must report it",
-        "GUARD DRIVEN: detectEsmCjsMismatches over the repo tree, entered through the same detector the quality pack runs — not a hand-built AST",
-        "GUARD LIVENESS: the scanned file population is asserted non-empty (an empty scope is a broken scan, not a clean bill), and the detector's report on the real tree is read before the plant verdict is trusted"
-      ]
-    },
-    {
-      "path": "engine/test/prevention/guard-dossier.test.ts",
-      "lines": [
-        "GUARD SUBJECT: engine prevention guards carry a structured `GUARD …:` dossier in the leading doc comment",
-        "GUARD OWNS: tests/helpers/prevention-dossier.ts (the parser/validator) + engine/scripts/verification/guard-dossier.ts (the discovery door) — shared with the web half, so the two runners cannot drift on what a conforming dossier is",
-        "GUARD PLANT: delete the `GUARD PLANT:` line from a dossier-bearing engine guard, or add an unknown `GUARD FOO:` field — the validator names the missing/unknown field and the malformed count rises above zero",
-        "GUARD DRIVEN: this file's tests drive parseDossier + validateDossier over real engine guard sources through node:test; the web half drives the ratchet floor",
-        "GUARD LIVENESS: the discovery door throws on an empty universe, asserted here by proving the discovered population is non-empty and the malformed count is a real number over real files"
-      ]
-    },
-    {
-      "path": "engine/test/prevention/private-state-modes.test.ts",
-      "lines": [
-        "GUARD SUBJECT: harness state directories are created private by ONE creator, and the private modes are spelled only by the root policy",
-        "GUARD OWNS: src/filesystem/private-state.ts (ensurePrivateStateDirectory, the two mode exports) and every engine source that would otherwise spell 0o700/0o600",
-        "GUARD PLANT: create a state directory with `mkdirSync(dir, { recursive: true, mode: 0o700 })`, or give the generic atomic writer a directory mode",
-        "GUARD DRIVEN: the creator under umask 002 on a fresh chain; the atomic writer's directories stay at the umask mode (atomic-write.test.ts)",
-        "GUARD LIVENESS: the literal scan flags a planted 0o700 before the universe is judged, and the universe holds the policy owner"
-      ]
-    },
-    {
-      "path": "engine/test/prevention/refusal-is-not-emptiness.test.ts",
-      "lines": [
-        "GUARD SUBJECT: a privacy/redaction refusal omits the payload at runtime rather than returning an empty-but-present payload field (a refusal is not an emptiness)",
-        "GUARD OWNS: src/privacy/evidence-handler.ts + src/privacy/file-viewer.ts — the refused variants of EvidenceRedactionResult / FileViewResult and the entry points that produce them",
-        "GUARD PLANT: re-add `redactedContent: \"\"` (or `content: \"\"`) to a refusal-producing entry point's blocked branch; a benign-content probe must first be ADMITTED so the refusal case is proven to have decided",
-        "GUARD DRIVEN: each evidence entry point discovered from the module's own exports, called with an uncertifiable policy, plus viewFile on a file carrying a secret — the real caller's entry points, not the inner redactor",
-        "GUARD LIVENESS: the benign-content probe must be admitted (status not blocked) BEFORE the refusal verdict is read — a guard that never reaches a refusal is measuring a non-driven path"
-      ]
-    },
-    {
-      "path": "engine/test/prevention/repository-ownership-reader.test.ts",
-      "lines": [
-        "GUARD SUBJECT: \"which files does the repository own\" has ONE reader — no other source asks git for a population",
-        "GUARD OWNS: engine/src/git/repository-ownership.ts (trackedFiles, ownedFiles, ignoredEntries, trackedIgnoredFiles, repositoryOwnership, and the one declared machine-local population machineIgnoredFiles)",
-        "GUARD PLANT: a `git ls-files` call passing `--others`, `--ignored`, `--cached` or an `--exclude*` rule anywhere else",
-        "GUARD DRIVEN: the reader's populations on a planted repository (tracked, owned, ignored, collapsed ignored, tracked-but-ignored), including a machine-local `.git/info/exclude` entry that must NOT change the answer",
-        "GUARD LIVENESS: the scan flags a planted call before the universe is judged, and the universe holds the reader itself"
-      ]
-    },
-    {
-      "path": "engine/test/prevention/single-source-walk.test.ts",
-      "lines": [
-        "GUARD SUBJECT: test code enumerates repository sources through the ONE ownership-pruned walk, never a hand-written recursive readdirSync walker",
-        "GUARD OWNS: every test source under engine/test and tests/ (fixtures and engine/test/support excluded) — the walker shape itself, not a name list",
-        "GUARD PLANT: define `function listTs(dir) { for (const e of readdirSync(dir)) … listTs(join(dir, e)) }`, or call `readdirSync(dir, { recursive: true })`",
-        "GUARD DRIVEN: the detector over planted sources (a declared walker, an arrow walker, a recursive-option read, and non-walkers that must pass)",
-        "GUARD LIVENESS: the planted walkers are flagged before the universe is judged, and the universe holds this guard's own file"
-      ]
-    },
-    {
-      "path": "tests/prevention/atomic-write-owner.test.ts",
-      "lines": [
-        "GUARD SUBJECT: atomic file replacement preserves the replaced file's exact permission bits, and every atomic-write call site routes through the one owner",
-        "GUARD OWNS: engine/src/filesystem/atomic-write.ts (`atomicWriteFile`) — the single owner of temp-write-then-rename, for the engine AND the server (the server's second copy, `server/filesystem/atomic-write.ts`, is deleted)",
-        "GUARD PLANT: strip the permission-preserving `chmodSync` from the owner's rename path so the fresh inode inherits the umask; a 0600 file must come back 0664 under umask 0002",
-        "GUARD DRIVEN: atomicWriteFile against real files at five permission modes (0600/0640/0644/0755/0400), plus a source scan refusing a second owner in the server",
-        "GUARD LIVENESS: the fixture file is asserted to hold the mode under test BEFORE the write, and the write is asserted to have happened — a no-op owner cannot satisfy the mode assertion"
-      ]
-    },
-    {
-      "path": "tests/prevention/checkout-write-door-armed.test.ts",
-      "lines": [
-        "GUARD SUBJECT: every vitest worker of this suite is under test for this checkout: the inherited marker names it, and a same-bytes write of a tracked file is refused",
-        "GUARD OWNS: vitest.config.ts (`armCheckoutUnderTest(import.meta.dirname)` when VITEST is set)",
-        "GUARD PLANT: delete the arming call from vitest.config.ts; the marker is absent in the worker and the tracked write lands",
-        "GUARD DRIVEN: the worker's protected set and marker, a refused atomicWriteFile of a tracked file, and a child spawned with a scrubbed env that is refused through the held marker",
-        "GUARD LIVENESS: the target is asserted byte-identical after each probe, and a write to this suite's own state directory is asserted to be allowed"
-      ]
-    },
-    {
-      "path": "tests/prevention/guard-dossier.test.ts",
-      "lines": [
-        "GUARD SUBJECT: prevention guards carry a structured `GUARD …:` dossier in the leading doc comment",
-        "GUARD OWNS: tests/helpers/prevention-dossier.ts (the parser/validator) + tests/helpers/dossier-floor.ts (the ratchet judge and its tracked floor) + engine/scripts/tooling/verification/guard-dossier.ts (the discovery door)",
-        "GUARD PLANT: delete the `GUARD PLANT:` line from a dossier-bearing guard, drop a guard from the observed population, swap a dossier line between two guards, or corrupt/remove the tracked floor — each is refused by content, and the dropped-guard plant reds if `judgeDossierFloor` is mutated to answer `ok: true`",
-        "GUARD DRIVEN: this file drives parseDossier + validateDossier over real guard sources, and judgeDossierFloor over the TRACKED content floor: the real population, a dropped guard, a line moved between guards, an empty universe, an all-ignored universe, an absent floor in a temp root, a corrupt floor, and the retired count-only format",
-        "GUARD LIVENESS: the discovery is asserted non-empty; the floor is asserted to be a committed git file; absent and corrupt floors refuse WITHOUT writing; the update command is asserted to be a separate registered command, and the judge leaves the tracked floor byte-identical"
-      ]
-    },
-    {
-      "path": "tests/prevention/invalidation-event-firer-census.test.ts",
-      "lines": [
-        "GUARD SUBJECT: every invalidation event name declared by a block read (`invalidateOn`) or subscribed to by a store or feed (`onInvalidation`) in the production trees is fired by some production path — a `fireInvalidation(\"<name>\")` call site or an action whose declared `invalidates` carries the name",
-        "GUARD OWNS: the declaration surface — `invalidateOn` on reads (server/blocks/* read specs + the client feeds' broker reads) and `invalidates` on actions (server/blocks/define.ts `BlockAction` + the client's `brokerAction` call sites); the firing surface — src/data/broker.ts `fireInvalidation` + the action loop that fires declared `invalidates` on success",
-        "GUARD PLANT: add `\"census:fake\"` to a production read's `invalidateOn` array (reds naming it), or delete the heal's `fireInvalidation(\"run:done\")` in src/client.ts (reds naming run:done — the original finding's exact shape)",
-        "GUARD DRIVEN: the census derivation over the real production trees (src/ + server/) through the sanctioned source views, plus the same derivation over a planted fixture source that spells every refusal shape",
-        "GUARD LIVENESS: the census must find a non-empty declared vocabulary AND a non-empty firing vocabulary — a blind derivation passes nothing here; it reds",
-        "GUARD BOUNDARY: a declaration or fire threaded with no array literal or call-site literal anywhere (a member expression like `descriptor.invalidates`, or the Broker's own generic `fireInvalidation(event)` dispatch loop) is invisible to the census by construction — every fired name must be spelled literally at its declaration or call site, which today every one is; engine/ and scripts/ do not participate in the client Broker bus (verified: no vocabulary there), so the universe is src/ + server/, and test files are never firers"
-      ]
-    },
-    {
-      "path": "tests/prevention/log-never-disabled.test.ts",
-      "lines": [
-        "GUARD SUBJECT: warn and error records are delivered with no configured debug system, master switch off, a below-floor level, or an excluded category; debug/info/trace remain lazy",
-        "GUARD OWNS: engine/src/shared/debug/debug-system.ts (debugLog, handleError, emitAlwaysReported)",
-        "GUARD PLANT: reset the debug system, then drive debugLog(\"lg\",\"warn\"|\"error\", …) and handleError(…) with no config and with enabled=false/level=\"error\"/categories=[\"other\"]; the old guard produced zero records for all of them",
-        "GUARD DRIVEN: the exported debugLog/handleError entry points a webWarn or a catch block calls, plus the console sink the configured path installs",
-        "GUARD LIVENESS: the unconfigured caller asserts the context thunk WAS evaluated (the path ran), the configured arm asserts the collecting sink received two records, and the debug arm asserts its thunk was NOT evaluated (the optional level stayed lazy)"
-      ]
-    },
-    {
-      "path": "tests/prevention/module-path-literal-owner.test.ts",
-      "lines": [
-        "GUARD SUBJECT: no prevention guard carries a literal naming a product module's repo-relative path; guards resolve a module by name.",
-        "GUARD OWNS: tests/helpers/module-resolver.ts (the resolution owner).",
-        "GUARD PLANT: a guard body spelling `\"server/llm/llm-bridge.ts\"` must red.",
-        "GUARD DRIVEN: the detector is driven against a planted literal in a string, never a tracked file, over the discovered web-guard population."
-      ]
-    },
-    {
-      "path": "tests/prevention/module-resolver.test.ts",
-      "lines": [
-        "GUARD SUBJECT: the resolver resolves a real module by name, refuses an absent name, and refuses an ambiguous basename — deny-by-default.",
-        "GUARD OWNS: tests/helpers/module-resolver.ts (resolveModule / moduleRefIn / modulePathMatching / consumersOf).",
-        "GUARD PLANT: an absent name must throw; a planted duplicate basename must throw naming both candidates; a moved module still resolves.",
-        "GUARD DRIVEN: each verdict is driven against the real tree (a unique module resolves, an absent name throws, the real errors.ts collision refuses) plus a real temp-dir move."
-      ]
-    },
-    {
-      "path": "tests/prevention/svelte-effect-self-loop.test.ts",
-      "lines": [
-        "GUARD SUBJECT: a Svelte `$effect` never synchronously reads+writes the same component state in its own body",
-        "GUARD OWNS: src/ components' `$effect` bodies — the scan's subject; the detector helpers are tests/helpers/function-scope.ts",
-        "GUARD PLANT: add `count++` (or `count += 1` / `count = …count…`) to a `$effect` body in a scanned component; a write inside a nested SYNCHRONOUS iterator callback (`list.forEach(() => { count++ })`) is the documented boundary, not a plant",
-        "GUARD DRIVEN: the AST scan over every discovered `.svelte` component, entering through the same callArgumentsOf/enclosingFunctionOf helpers the guard uses — never a hand-rolled regex",
-        "GUARD LIVENESS: the component population is asserted non-empty and the sanctioned source view (comments + strings blanked) is proven awake by a planted loop in a temp component",
-        "GUARD BOUNDARY: a write inside a nested callback to a synchronous iterator, and member-expression writes (`obj.count++`), are deliberately not caught"
-      ]
-    }
-  ]
+"facts":[
+  {"lines":["GUARD SUBJECT: the shipped bundle is rebuilt from current source — a stale bundle is refused","GUARD OWNS: scripts/build-bundle.ts — the rebuild comparison","GUARD PLANT: edit a source module that the bundle DOES tree-shake in (a tree-shaken export is the inert first plant — it changes no bundle bytes) without rebuilding; the rebuilt bytes must differ from the on-disk bytes","GUARD DRIVEN: rebuild the bundle in memory from the live source tree and compare it byte for byte with the on-disk bundle — the same build path `harness sync` runs","GUARD LIVENESS: the on-disk bundle is asserted to exist FIRST — a verdict read against a missing bundle is not a staleness measurement"],"path":"engine/test/prevention/bundle-staleness.test.ts"},
+  {"lines":["GUARD SUBJECT: a configuration refusal is never answered with a quiet default — no caller catches a config read","GUARD OWNS: every config read in engine/src, engine/scripts and server/ — the loader, the raw reader and decoder of kernel/config.ts, their absence doors, and every function that calls one directly","GUARD PLANT: wrap a config read in `try { … } catch { return defaults }`, in `bestEffort(() => …)`, or chain `.catch(…)` on it","GUARD DRIVEN: the loader itself (absent → the typed absence, planted alternate document → alternate_config_denied through IfPresent) and the CLI self-protection bootstrap in a working copy","GUARD LIVENESS: the detector flags each planted spelling before the universe is judged, and the universe holds the known readers"],"path":"engine/test/prevention/config-refusal-propagates.test.ts"},
+  {"lines":["GUARD SUBJECT: the ESM/CJS mismatch detector flags a `.ts` module that uses CJS-only exports (`module.exports`, `exports.`) while being consumed as ESM","GUARD OWNS: src/quality-packs/prevention/esm-cjs-detector.ts — the detector's export/scope classification","GUARD PLANT: a `.ts` fixture exporting via `module.exports = …` (NOT `createRequire`, which is a permitted ESM target and the inert first plant) in the scanned scope; the detector must report it","GUARD DRIVEN: detectEsmCjsMismatches over the repo tree, entered through the same detector the quality pack runs — not a hand-built AST","GUARD LIVENESS: the scanned file population is asserted non-empty (an empty scope is a broken scan, not a clean bill), and the detector's report on the real tree is read before the plant verdict is trusted"],"path":"engine/test/prevention/esm-cjs-mismatch.test.ts"},
+  {"lines":["GUARD SUBJECT: engine prevention guards carry a structured `GUARD …:` dossier in the leading doc comment","GUARD OWNS: tests/helpers/prevention-dossier.ts (the parser/validator) + engine/scripts/verification/guard-dossier.ts (the discovery door) — shared with the web half, so the two runners cannot drift on what a conforming dossier is","GUARD PLANT: delete the `GUARD PLANT:` line from a dossier-bearing engine guard, or add an unknown `GUARD FOO:` field — the validator names the missing/unknown field and the malformed count rises above zero","GUARD DRIVEN: this file's tests drive parseDossier + validateDossier over real engine guard sources through node:test; the web half drives the ratchet floor","GUARD LIVENESS: the discovery door throws on an empty universe, asserted here by proving the discovered population is non-empty and the malformed count is a real number over real files"],"path":"engine/test/prevention/guard-dossier.test.ts"},
+  {"lines":["GUARD SUBJECT: harness state directories are created private by ONE creator, and the private modes are spelled only by the root policy","GUARD OWNS: src/filesystem/private-state.ts (ensurePrivateStateDirectory, the two mode exports) and every engine source that would otherwise spell 0o700/0o600","GUARD PLANT: create a state directory with `mkdirSync(dir, { recursive: true, mode: 0o700 })`, or give the generic atomic writer a directory mode","GUARD DRIVEN: the creator under umask 002 on a fresh chain; the atomic writer's directories stay at the umask mode (atomic-write.test.ts)","GUARD LIVENESS: the literal scan flags a planted 0o700 before the universe is judged, and the universe holds the policy owner"],"path":"engine/test/prevention/private-state-modes.test.ts"},
+  {"lines":["GUARD SUBJECT: a privacy/redaction refusal omits the payload at runtime rather than returning an empty-but-present payload field (a refusal is not an emptiness)","GUARD OWNS: src/privacy/evidence-handler.ts + src/privacy/file-viewer.ts — the refused variants of EvidenceRedactionResult / FileViewResult and the entry points that produce them","GUARD PLANT: re-add `redactedContent: \"\"` (or `content: \"\"`) to a refusal-producing entry point's blocked branch; a benign-content probe must first be ADMITTED so the refusal case is proven to have decided","GUARD DRIVEN: each evidence entry point discovered from the module's own exports, called with an uncertifiable policy, plus viewFile on a file carrying a secret — the real caller's entry points, not the inner redactor","GUARD LIVENESS: the benign-content probe must be admitted (status not blocked) BEFORE the refusal verdict is read — a guard that never reaches a refusal is measuring a non-driven path"],"path":"engine/test/prevention/refusal-is-not-emptiness.test.ts"},
+  {"lines":["GUARD SUBJECT: \"which files does the repository own\" has ONE reader — no other source asks git for a population","GUARD OWNS: engine/src/git/repository-ownership.ts (trackedFiles, ownedFiles, ignoredEntries, trackedIgnoredFiles, repositoryOwnership, and the one declared machine-local population machineIgnoredFiles)","GUARD PLANT: a `git ls-files` call passing `--others`, `--ignored`, `--cached` or an `--exclude*` rule anywhere else","GUARD DRIVEN: the reader's populations on a planted repository (tracked, owned, ignored, collapsed ignored, tracked-but-ignored), including a machine-local `.git/info/exclude` entry that must NOT change the answer","GUARD LIVENESS: the scan flags a planted call before the universe is judged, and the universe holds the reader itself"],"path":"engine/test/prevention/repository-ownership-reader.test.ts"},
+  {"lines":["GUARD SUBJECT: test code enumerates repository sources through the ONE ownership-pruned walk, never a hand-written recursive readdirSync walker","GUARD OWNS: every test source under engine/test and tests/ (fixtures and engine/test/support excluded) — the walker shape itself, not a name list","GUARD PLANT: define `function listTs(dir) { for (const e of readdirSync(dir)) … listTs(join(dir, e)) }`, or call `readdirSync(dir, { recursive: true })`","GUARD DRIVEN: the detector over planted sources (a declared walker, an arrow walker, a recursive-option read, and non-walkers that must pass)","GUARD LIVENESS: the planted walkers are flagged before the universe is judged, and the universe holds this guard's own file"],"path":"engine/test/prevention/single-source-walk.test.ts"},
+  {"lines":["GUARD SUBJECT: atomic file replacement preserves the replaced file's exact permission bits, and every atomic-write call site routes through the one owner","GUARD OWNS: engine/src/filesystem/atomic-write.ts (`atomicWriteFile`) — the single owner of temp-write-then-rename, for the engine AND the server (the server's second copy, `server/filesystem/atomic-write.ts`, is deleted)","GUARD PLANT: strip the permission-preserving `chmodSync` from the owner's rename path so the fresh inode inherits the umask; a 0600 file must come back 0664 under umask 0002","GUARD DRIVEN: atomicWriteFile against real files at five permission modes (0600/0640/0644/0755/0400), plus a source scan refusing a second owner in the server","GUARD LIVENESS: the fixture file is asserted to hold the mode under test BEFORE the write, and the write is asserted to have happened — a no-op owner cannot satisfy the mode assertion"],"path":"tests/prevention/atomic-write-owner.test.ts"},
+  {"lines":["GUARD SUBJECT: every vitest worker of this suite is under test for this checkout: the inherited marker names it, and a same-bytes write of a tracked file is refused","GUARD OWNS: vitest.config.ts (`armCheckoutUnderTest(import.meta.dirname)` when VITEST is set)","GUARD PLANT: delete the arming call from vitest.config.ts; the marker is absent in the worker and the tracked write lands","GUARD DRIVEN: the worker's protected set and marker, a refused atomicWriteFile of a tracked file, and a child spawned with a scrubbed env that is refused through the held marker","GUARD LIVENESS: the target is asserted byte-identical after each probe, and a write to this suite's own state directory is asserted to be allowed"],"path":"tests/prevention/checkout-write-door-armed.test.ts"},
+  {"lines":["GUARD SUBJECT: prevention guards carry a structured `GUARD …:` dossier in the leading doc comment","GUARD OWNS: tests/helpers/prevention-dossier.ts (the parser/validator) + tests/helpers/dossier-floor.ts (the ratchet judge and its tracked floor) + engine/scripts/tooling/verification/guard-dossier.ts (the discovery door)","GUARD PLANT: delete the `GUARD PLANT:` line from a dossier-bearing guard, drop a guard from the observed population, swap a dossier line between two guards, or corrupt/remove the tracked floor — each is refused by content, and the dropped-guard plant reds if `judgeDossierFloor` is mutated to answer `ok: true`","GUARD DRIVEN: this file drives parseDossier + validateDossier over real guard sources, and judgeDossierFloor over the TRACKED content floor: the real population, a dropped guard, a line moved between guards, an empty universe, an all-ignored universe, an absent floor in a temp root, a corrupt floor, and the retired count-only format","GUARD LIVENESS: the discovery is asserted non-empty; the floor is asserted to be a committed git file; absent and corrupt floors refuse WITHOUT writing; the update command is asserted to be a separate registered command, and the judge leaves the tracked floor byte-identical"],"path":"tests/prevention/guard-dossier.test.ts"},
+  {"lines":["GUARD SUBJECT: every invalidation event name declared by a block read (`invalidateOn`) or subscribed to by a store or feed (`onInvalidation`) in the production trees is fired by some production path — a `fireInvalidation(\"<name>\")` call site or an action whose declared `invalidates` carries the name","GUARD OWNS: the declaration surface — `invalidateOn` on reads (server/blocks/* read specs + the client feeds' broker reads) and `invalidates` on actions (server/blocks/define.ts `BlockAction` + the client's `brokerAction` call sites); the firing surface — src/data/broker.ts `fireInvalidation` + the action loop that fires declared `invalidates` on success","GUARD PLANT: add `\"census:fake\"` to a production read's `invalidateOn` array (reds naming it), or delete the heal's `fireInvalidation(\"run:done\")` in src/client.ts (reds naming run:done — the original finding's exact shape)","GUARD DRIVEN: the census derivation over the real production trees (src/ + server/) through the sanctioned source views, plus the same derivation over a planted fixture source that spells every refusal shape","GUARD LIVENESS: the census must find a non-empty declared vocabulary AND a non-empty firing vocabulary — a blind derivation passes nothing here; it reds","GUARD BOUNDARY: a declaration or fire threaded with no array literal or call-site literal anywhere (a member expression like `descriptor.invalidates`, or the Broker's own generic `fireInvalidation(event)` dispatch loop) is invisible to the census by construction — every fired name must be spelled literally at its declaration or call site, which today every one is; engine/ and scripts/ do not participate in the client Broker bus (verified: no vocabulary there), so the universe is src/ + server/, and test files are never firers"],"path":"tests/prevention/invalidation-event-firer-census.test.ts"},
+  {"lines":["GUARD SUBJECT: warn and error records are delivered with no configured debug system, master switch off, a below-floor level, or an excluded category; debug/info/trace remain lazy","GUARD OWNS: engine/src/shared/debug/debug-system.ts (debugLog, handleError, emitAlwaysReported)","GUARD PLANT: reset the debug system, then drive debugLog(\"lg\",\"warn\"|\"error\", …) and handleError(…) with no config and with enabled=false/level=\"error\"/categories=[\"other\"]; the old guard produced zero records for all of them","GUARD DRIVEN: the exported debugLog/handleError entry points a webWarn or a catch block calls, plus the console sink the configured path installs","GUARD LIVENESS: the unconfigured caller asserts the context thunk WAS evaluated (the path ran), the configured arm asserts the collecting sink received two records, and the debug arm asserts its thunk was NOT evaluated (the optional level stayed lazy)"],"path":"tests/prevention/log-never-disabled.test.ts"},
+  {"lines":["GUARD SUBJECT: no prevention guard carries a literal naming a product module's repo-relative path; guards resolve a module by name.","GUARD OWNS: tests/helpers/module-resolver.ts (the resolution owner).","GUARD PLANT: a guard body spelling `\"server/llm/llm-bridge.ts\"` must red.","GUARD DRIVEN: the detector is driven against a planted literal in a string, never a tracked file, over the discovered web-guard population."],"path":"tests/prevention/module-path-literal-owner.test.ts"},
+  {"lines":["GUARD SUBJECT: the resolver resolves a real module by name, refuses an absent name, and refuses an ambiguous basename — deny-by-default.","GUARD OWNS: tests/helpers/module-resolver.ts (resolveModule / moduleRefIn / modulePathMatching / consumersOf).","GUARD PLANT: an absent name must throw; a planted duplicate basename must throw naming both candidates; a moved module still resolves.","GUARD DRIVEN: each verdict is driven against the real tree (a unique module resolves, an absent name throws, the real errors.ts collision refuses) plus a real temp-dir move."],"path":"tests/prevention/module-resolver.test.ts"},
+  {"lines":["GUARD SUBJECT: a Svelte `$effect` never synchronously reads+writes the same component state in its own body","GUARD OWNS: src/ components' `$effect` bodies — the scan's subject; the detector helpers are tests/helpers/function-scope.ts","GUARD PLANT: add `count++` (or `count += 1` / `count = …count…`) to a `$effect` body in a scanned component; a write inside a nested SYNCHRONOUS iterator callback (`list.forEach(() => { count++ })`) is the documented boundary, not a plant","GUARD DRIVEN: the AST scan over every discovered `.svelte` component, entering through the same callArgumentsOf/enclosingFunctionOf helpers the guard uses — never a hand-rolled regex","GUARD LIVENESS: the component population is asserted non-empty and the sanctioned source view (comments + strings blanked) is proven awake by a planted loop in a temp component","GUARD BOUNDARY: a write inside a nested callback to a synchronous iterator, and member-expression writes (`obj.count++`), are deliberately not caught"],"path":"tests/prevention/svelte-effect-self-loop.test.ts"}
+],
+"flag":"guard-dossier-ratchet-floor",
+"schemaVersion":"bridlewise-guard-dossier-floor/v2"
 }
