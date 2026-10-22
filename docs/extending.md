@@ -8,7 +8,7 @@ permalink: /extending/
 # Building on the harness
 
 > [!WARNING]
-> The extension surfaces are implemented but pre-admission. They can change without notice, and they are not hardened for sensitive codebases. Read [the security model](https://llm-4-people.github.io/bridlewise/security/) before exposing any extension to a model.
+> The extension surfaces are implemented but pre-admission. They can change without notice, and they are not hardened for sensitive codebases. Read [the security model](security-and-limits.md) before exposing any extension to a model.
 
 Bridlewise is arranged so a capability is declared once and its projections follow. This page names the owners and the extension points; it is a map, not a promise of API stability.
 
@@ -168,7 +168,7 @@ Owner: `engine/src/quality/`, `engine/src/quality-packs/`.
 
 ## Add a test
 
-Public smoke tests live in `tests/public/` and use `node:test`. The development floor has the larger suites; see [Testing](https://llm-4-people.github.io/bridlewise/testing/). A new capability needs:
+Public smoke tests live in `tests/public/` and use `node:test`. The development floor has the larger suites; see [Testing](testing.md). A new capability needs:
 
 - a unit test for the declared behavior;
 - a prevention test or guard when the capability protects an invariant;
@@ -185,7 +185,7 @@ Public smoke tests live in `tests/public/` and use `node:test`. The development 
 
 ## Where to start
 
-- [CLI reference](https://llm-4-people.github.io/bridlewise/cli/)
-- [Testing](https://llm-4-people.github.io/bridlewise/testing/)
-- [Architecture](https://llm-4-people.github.io/bridlewise/architecture/)
-- [Security model](https://llm-4-people.github.io/bridlewise/security/)
+- [CLI reference](cli.md)
+- [Testing](testing.md)
+- [Architecture](architecture.md)
+- [Security model](security-and-limits.md)
