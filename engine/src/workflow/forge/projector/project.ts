@@ -30,12 +30,12 @@
  *     gives); closed as completed, unpinned, once main is green again. It
  *     replaces the failure-issue workflow (one issue per failed run, title-keyed).
  */
-import { escapeMarkdownTableCell } from "../../../../../shared/markup.ts";
+import { escapeGithubText } from "../../../../../shared/markup.ts";
 import { compareUtf8Bytes } from "../../../kernel/ordered.ts";
 import { rewriteRelativeLinks } from "../../markdown-links.ts";
 import { itemStatuses, type ItemStatus } from "../../tracker-status.ts";
 import {
-  DIGEST_PLACEHOLDER, PROJECTION_CLASSES, PROJECTION_SCHEMA, STATE_REASONS,
+  DIGEST_PLACEHOLDER, ISSUE_BODY_LIMIT, PROJECTION_CLASSES, PROJECTION_SCHEMA, STATE_REASONS,
   itemMarker, laneLabel, type InputItem, type ProjectedObject, type Projection, type ProjectionInput,
 } from "./model.ts";
 
@@ -92,29 +92,47 @@ function milestoneObject(item: InputItem, status: ItemStatus, input: ProjectionI
   };
 }
 
-/** The MAIN-RED issue of one workflow judged on main. */
+/**
+ * The MAIN-RED issue of one workflow judged on main. Every text a run carries
+ * (a test's path, its message, an owner) is written through the markup owner's
+ * GitHub escape: no code span to break out of, no Markdown, no HTML, no
+ * `@mention`. The workflow is a lower-case name, the commit a full id and the
+ * run one of this repository's Actions runs (the ledger refuses anything
+ * else). The body stays under GitHub's limit: past it, the table ends with a
+ * stable note of how many failing tests it does not show.
+ */
 function mainRedIssue(run: ProjectionInput["mainRuns"][number], input: ProjectionInput): ProjectedObject {
   const key = `MAIN-RED/${run.workflow}`;
   const commit = `[\`${run.commit}\`](${input.repositoryUrl}/commit/${run.commit})`;
   const red = run.conclusion === "failure";
-  const owner = (owners: readonly string[]): string => (owners.length === 0 ? "**UNOWNED**" : owners.map((id) => `\`${id}\``).join(", "));
-  const firstLine = (message: string): string => escapeMarkdownTableCell(message.split("\n")[0] ?? "");
-  const body = red
+  const owner = (owners: readonly string[]): string => (owners.length === 0 ? "**UNOWNED**" : owners.map(escapeGithubText).join(", "));
+  const footer = ["", "---", `<sub>Projected from the ledger at ${input.ledger ?? "(none)"}; it mirrors main's last judged run.</sub>`];
+  const head = red
     ? [
       `The last judged \`${run.workflow}\` run on \`main\`, at ${commit}, **failed** ([the run](${run.runUrl})).`,
       "",
       run.failedTests.length === 0 ? "It names no failing test: the failure is a gate or a finding of the judge (see the run)." : "| Failing test | Owned by | First line |\n|---|---|---|",
-      ...run.failedTests.map((test) => `| \`${test.path}\` | ${owner(test.owners)} | ${firstLine(test.message)} |`),
-      "",
-      "An UNOWNED failure has no open record that names it: open one, or fix it. This issue closes when main is green again.",
     ]
     : [`The last judged \`${run.workflow}\` run on \`main\`, at ${commit}, **passed** ([the run](${run.runUrl})). Main is green again for \`${run.workflow}\`.`];
+  const tail = red ? ["", "An UNOWNED failure has no open record that names it: open one, or fix it. This issue closes when main is green again."] : [];
+  const rows = red ? run.failedTests.map((test) => `| ${escapeGithubText(test.path)} | ${owner(test.owners)} | ${escapeGithubText(test.message.split("\n")[0] ?? "")} |`) : [];
+  // The rows that fit GitHub's body limit (the marker at its full length), with room for the note that counts the rest.
+  const omittedNote = (omitted: number): string => `| … | | ${String(omitted)} more failing tests are not shown: GitHub caps an issue body at ${String(ISSUE_BODY_LIMIT)} characters; the run lists them all. |`;
+  const fixed = [itemMarker(key, "0".repeat(64)), ...head, ...tail, ...footer].join("\n").length;
+  const all = rows.reduce((total, line) => total + line.length + 1, 0);
+  let shown = rows.length;
+  if (fixed + all > ISSUE_BODY_LIMIT) {
+    const budget = ISSUE_BODY_LIMIT - fixed - omittedNote(rows.length).length - 1;
+    let used = 0;
+    for (shown = 0; shown < rows.length && used + rows[shown]!.length + 1 <= budget; shown += 1) used += rows[shown]!.length + 1;
+  }
+  const body = [...head, ...rows.slice(0, shown), ...(shown < rows.length ? [omittedNote(rows.length - shown)] : []), ...tail];
   return {
     class: "issue",
     key,
     fields: {
       title: red ? `main is red: ${run.workflow}` : `main is green again: ${run.workflow}`,
-      block: [itemMarker(key, DIGEST_PLACEHOLDER), ...body, "", "---", `<sub>Projected from the ledger at ${input.ledger ?? "(none)"}; it mirrors main's last judged run.</sub>`].join("\n"),
+      block: [itemMarker(key, DIGEST_PLACEHOLDER), ...body, ...footer].join("\n"),
       type: "Bug",
       labels: [],
       milestone: null,

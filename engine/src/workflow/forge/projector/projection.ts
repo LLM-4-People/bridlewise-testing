@@ -11,7 +11,7 @@
  */
 import { HarnessError } from "../../../kernel/errors.ts";
 import { canonicalHash, canonicalJson, deepFreeze, sha256 } from "../../../kernel/integrity.ts";
-import { commitTreeReader, gitOutput, resolveRevision, type GitRepository, type TreeReader } from "../../../git/tree-reader.ts";
+import { commitTreeReader, gitOutput, isAncestor, resolveRevision, type GitRepository, type TreeReader } from "../../../git/tree-reader.ts";
 import { decisionRecords, itemStatusFacts, openBoardRows, ownersOf, TRACKER_LANES, trackerItems } from "../../failure-owners.ts";
 import { mainHealth } from "./main-runs.ts";
 import { DECISION_INDEX, TRACKER_BOARD } from "../../../kernel/verification-paths.ts";
@@ -43,7 +43,7 @@ export function projectionInput(repository: GitRepository, source: string, ledge
     lanes: Object.entries(TRACKER_LANES).map(([lane, { color, description }]) => ({ lane, color, description })),
     decisions: decisionRecords(treeEntries(tree, DECISION_INDEX.path.slice(0, DECISION_INDEX.path.lastIndexOf("/")))).map(({ id, status, implementation }) => ({ id, status, implementation })),
     recordedEvidence: recordedEvidenceAt(tree),
-    mainRuns: ledgerCommit === null ? [] : mainRunsAt(repository, ledgerCommit, tree),
+    mainRuns: ledgerCommit === null ? [] : mainRunsAt(repository, ledgerCommit, tree, repositoryUrl),
   });
 }
 
@@ -53,8 +53,8 @@ export function projectionInput(repository: GitRepository, source: string, ledge
  * the same answer the workspace's ledger judge gives (failure-owners.ts
  * `ownersOf`), read from S, never from the working tree.
  */
-function mainRunsAt(repository: GitRepository, ledger: string, source: TreeReader): ProjectionInput["mainRuns"] {
-  const runs = mainHealth(commitTreeReader(repository, ledger));
+function mainRunsAt(repository: GitRepository, ledger: string, source: TreeReader, repositoryUrl: string): ProjectionInput["mainRuns"] {
+  const runs = mainHealth(commitTreeReader(repository, ledger), { repositoryUrl, isAncestor: (ancestor, descendant) => isAncestor(repository, ancestor, descendant) });
   const board = source.text(TRACKER_BOARD.path);
   const rows = board === null ? [] : openBoardRows(board);
   return runs.map((run) => ({ ...run, failedTests: run.failedTests.map((test) => ({ ...test, owners: ownersOf(rows, test.path) })) }));

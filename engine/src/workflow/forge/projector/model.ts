@@ -143,6 +143,9 @@ export type ProjectionInput = Readonly<{
 export function itemMarker(id: string, digest: string): string {
   return `<!-- bridlewise:item=${id} digest=${digest} -->`;
 }
+/** GitHub's limit on an issue body, in characters: a projected body is kept under it. */
+export const ISSUE_BODY_LIMIT = 65_536;
+
 /** The digest placeholder `project` writes and the host replaces (`finalizeProjection`). */
 export const DIGEST_PLACEHOLDER = "{digest}";
 
