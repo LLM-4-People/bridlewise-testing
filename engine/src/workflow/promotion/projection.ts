@@ -9,7 +9,10 @@
  * walked; an import into it is a refusal); a path the entry points reach is
  * in; an included path or prefix is in; a companion (e.g. a `README.md`) is
  * in when its folder holds a projected path; everything else is out (deny by
- * default). It runs over any {@link TreeReader}: a commit (the plan) or the
+ * default). The profile's overlay folder (`boundary.overlay`) adds the
+ * target-only files (documents and recipes, never a module): each ships at
+ * its path without the folder prefix, obeys the profile's excludes at that
+ * path, and may not name a path the projection already carries. It runs over any {@link TreeReader}: a commit (the plan) or the
  * source's working tree (the source-side boundary guard).
  *
  * {@link planPromotion} adds the derived files (`transforms.ts`), writes the
@@ -43,8 +46,8 @@ import { profileHistory, type TrailerLine } from "./trailers.ts";
 
 /** Why a path is, or is not, projected. */
 export type PathReason = Readonly<{
-  rule: "derived" | "entry" | "import" | "include" | "companion" | "excluded" | "unreachable" | "absent";
-  /** The transform kind, the importer, the include or exclude entry, or the companion's folder. */
+  rule: "derived" | "entry" | "import" | "include" | "companion" | "overlay" | "excluded" | "unreachable" | "absent";
+  /** The transform kind, the importer, the include or exclude entry, the companion's folder, or the overlay file the path is read from. */
   detail: string;
 }>;
 
@@ -57,8 +60,21 @@ export type Classification = Readonly<{
   reachability: Reachability;
   /** The packages each projected manifest's modules import (manifest path → package names). */
   importedPackages: ReadonlyMap<string, ReadonlySet<string>>;
+  /** The overlay: each target path its folder ships and the source path it is read from (`projected` holds the paths that ship at their own path). */
+  overlaid: ReadonlyMap<string, string>;
   refusals: readonly Refusal[];
 }>;
+
+/** The one reason a target path ships for (`projected`, or the overlay), or `undefined` when it does not. */
+export function shippedReason(classification: Classification, path: string): PathReason | undefined {
+  const overlay = classification.overlaid.get(path);
+  return overlay === undefined ? classification.projected.get(path) : { rule: "overlay", detail: overlay };
+}
+
+/** Every path the projection ships, each with the source path its content is read from (the overlay's, or its own). */
+export function shippedSources(classification: Classification): ReadonlyMap<string, string> {
+  return new Map([...[...classification.projected.keys()].map((path) => [path, path] as const), ...classification.overlaid]);
+}
 
 function refusal(code: PromotionCode, message: string, facts: Readonly<Record<string, unknown>> = {}): Refusal {
   return deepFreeze({ code, message, facts });
@@ -196,7 +212,19 @@ export function classifyTree(reader: TreeReader, profile: PromotionProfile): Cla
   for (const path of projected.keys()) {
     if (reader.entry(path)?.mode === GITLINK_MODE) refusals.push(refusal("promotion_gitlink_unsupported", `${path} is a gitlink (a submodule) in the projection`, { path }));
   }
-  return deepFreeze({ projected, notProjected, reachability, importedPackages, refusals: deepFreeze(refusals) });
+  const overlaid = new Map<string, string>();
+  const { overlay } = profile.boundary;
+  for (const path of overlay === null ? [] : paths.filter((candidate) => candidate.startsWith(overlay))) {
+    const target = path.slice(overlay!.length);
+    const mode = reader.entry(path)?.mode;
+    const excluded = excludedBy(profile, target);
+    if (excluded !== null) refusals.push(refusal("promotion_overlay_invalid", `${path} would ship at ${target}, which the profile excludes (by ${excluded}): the overlay obeys the boundary like every source path`, { overlay: path, target }));
+    else if (isWalkableModule(path)) refusals.push(refusal("promotion_overlay_invalid", `${path} is a module: the overlay ships target-only documents and recipes, never code the import walk would not judge (ship code from the source tree)`, { overlay: path, target }));
+    else if (projected.has(target)) refusals.push(refusal("promotion_overlay_invalid", `${path} overlays ${target}, which the projection already carries (${describe(projected.get(target))}): a path ships for one reason`, { overlay: path, target }));
+    else if (mode === SYMLINK_MODE || mode === GITLINK_MODE) refusals.push(refusal("promotion_overlay_invalid", `${path} is a ${mode === SYMLINK_MODE ? "symbolic link" : "gitlink"}: the overlay ships files only (a link would change its meaning at ${target})`, { overlay: path, target }));
+    else overlaid.set(target, path);
+  }
+  return deepFreeze({ projected, notProjected, reachability, importedPackages, overlaid, refusals: deepFreeze(refusals) });
 }
 
 /** The derived manifests of a classification: each package-manifest transform the tree holds (no command runs). */
@@ -264,24 +292,24 @@ export function projectionAdvisories(
     if (classification.notProjected.get(path)?.rule === "unreachable") found.push({ kind: "new_unprojected_paths", path, detail: "added on the source since the last promotion and not projected (deny by default): reach it from an entry point or include it if it ships" });
   }
   const derivedScripts = new Map([...manifestTexts].map(([path, text]) => [path, new Set(Object.keys((JSON.parse(text) as { scripts?: object }).scripts ?? {}))]));
-  const projected = [...classification.projected.keys()];
+  const shipped = shippedSources(classification);
   const manifests = [...derivedScripts.keys()];
-  const documents = projected.filter((path) => path.endsWith(".md"));
-  const makefiles = projected.filter((path) => path === "Makefile" || path.endsWith("/Makefile"));
-  reader.prefetch([...documents, ...makefiles]);
+  const documents = [...shipped.keys()].filter((path) => path.endsWith(".md"));
+  const makefiles = [...shipped.keys()].filter((path) => path === "Makefile" || path.endsWith("/Makefile"));
+  reader.prefetch([...documents, ...makefiles].map((path) => shipped.get(path)!));
   for (const path of documents) {
     const owner = owningManifest(path, manifests);
     if (owner === null) continue;
-    for (const match of (reader.text(path) ?? "").matchAll(/npm run (?:-s )?([a-z0-9][a-z0-9:_-]*)/gu)) {
+    for (const match of (reader.text(shipped.get(path)!) ?? "").matchAll(/npm run (?:-s )?([a-z0-9][a-z0-9:_-]*)/gu)) {
       if (!derivedScripts.get(owner)!.has(match[1]!)) found.push({ kind: "dangling_script_reference", path, detail: `names \`npm run ${match[1]!}\`, which the derived ${owner} does not carry` });
     }
   }
   const tree = new Set(reader.paths());
   for (const path of makefiles) {
-    for (const word of (reader.text(path) ?? "").split(/\s+/u)) {
+    for (const word of (reader.text(shipped.get(path)!) ?? "").split(/\s+/u)) {
       if (!word.includes("/") || word.includes("$(")) continue;
       const target = normalizeRepositoryPath(directoryOf(path), word.replace(/^[|:]+|[|:]+$/gu, ""));
-      if (tree.has(target) && !classification.projected.has(target)) found.push({ kind: "dangling_recipe_path", path, detail: `names ${target}, which the projection does not carry` });
+      if (tree.has(target) && !shipped.has(target)) found.push({ kind: "dangling_recipe_path", path, detail: `names ${target}, which the projection does not carry` });
     }
   }
   for (const edge of classification.reachability.opaque) {
@@ -376,6 +404,7 @@ function describe(reason: PathReason | undefined): string {
     case "import": return `reached from ${reason.detail}`;
     case "include": return `included (${reason.detail})`;
     case "companion": return `companion of ${reason.detail}`;
+    case "overlay": return `overlaid from ${reason.detail}`;
     case "excluded": return `excluded (${reason.detail})`;
     case "unreachable": return "unreachable (deny by default)";
     case "absent": return "absent on the source";
@@ -405,7 +434,7 @@ export function projectSource(repository: GitRepository, loaded: LoadedPromotion
   const promotions = target === null ? [] : profileHistory(repository, target, profile.name);
   const last = promotions[0] ?? null;
   const bootstrapBase = last === null && target !== null ? mergeBase(repository, target, source) : null;
-  const lastPromoted = deepFreeze({ commit: last?.commit ?? bootstrapBase, source: last?.trailers.promotedFrom ?? bootstrapBase, bootstrap: last === null });
+  const lastPromoted = deepFreeze({ commit: last?.commit ?? bootstrapBase, source: last?.trailers.projectedFrom ?? bootstrapBase, bootstrap: last === null });
   const reader = commitTreeReader(repository, source);
   const classified = Date.now();
   const classification = classifyTree(reader, profile);
@@ -452,8 +481,8 @@ export async function planPromotion(input: PromotionPlanInput): Promise<Promotio
   }
 
   const entries = new Map<string, Readonly<{ mode: string; oid: string }>>();
-  for (const path of classification.projected.keys()) {
-    const entry = reader.entry(path)!;
+  for (const [path, sourcePath] of shippedSources(classification)) {
+    const entry = reader.entry(sourcePath)!;
     const text = derived.get(path);
     entries.set(path, { mode: entry.mode, oid: text === undefined ? entry.oid! : writeBlob(repository, text) });
   }
@@ -480,7 +509,7 @@ export async function planPromotion(input: PromotionPlanInput): Promise<Promotio
   const deleted: PlannedPath[] = [];
   for (const [path, entry] of entries) {
     const theirs = targetReader?.entry(path) ?? null;
-    const reason = describe(classification.projected.get(path));
+    const reason = describe(shippedReason(classification, path));
     if (theirs === null) added.push({ path, reason });
     else if (theirs.mode !== entry.mode || theirs.oid !== entry.oid) modified.push({ path, reason: generated.has(path) ? `${reason}; regenerated at build` : reason });
   }
@@ -516,7 +545,7 @@ export async function planPromotion(input: PromotionPlanInput): Promise<Promotio
   // commit records that the source reproduces them, else every later source
   // change to such a path would read as a target edit again.
   const unchanged = directEdits.length === 0 && targetReader !== null && underived.length === 0 && [...new Set([...entries.keys(), ...targetPaths])].every(sameAsTarget);
-  const upToDate = last !== null && last.trailers.promotedFrom === input.source;
+  const upToDate = last !== null && last.trailers.projectedFrom === input.source;
   const code: PromotionCode = mostSevereCode(refusals.map((entry) => entry.code)) ?? (upToDate ? "promotion_up_to_date" : unchanged ? "promotion_unchanged" : "promotion_planned");
   return deepFreeze({
     planId,
@@ -547,7 +576,7 @@ export async function planPromotion(input: PromotionPlanInput): Promise<Promotio
 /** The reason chain of each of `paths` in `classification` (`harness promote explain`). */
 export function explainPaths(classification: Classification, paths: readonly string[]): readonly Readonly<{ path: string; projected: boolean; reason: string; chain: readonly string[] }>[] {
   return deepFreeze(paths.map((path) => {
-    const projected = classification.projected.get(path);
+    const projected = shippedReason(classification, path);
     const reason = projected ?? classification.notProjected.get(path);
     return {
       path,
