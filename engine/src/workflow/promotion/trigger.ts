@@ -41,6 +41,7 @@ import { ROOT_POLICY } from "../../kernel/root-policy.ts";
 import { resolveRevision } from "../../git/tree-reader.ts";
 import { startDetached } from "../../process/supervised-run.ts";
 import type { WorktreeGitPort } from "../../git/worktree-port.ts";
+import { remoteTrackingRef } from "../../git/git-port.ts";
 import { auditEvent, debugLog } from "../../shared/debug/debug-system.ts";
 import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { PromotionError, answer, answerWith, type PromotionAnswer, type PromotionCode } from "./codes.ts";
@@ -161,7 +162,7 @@ function chainUnattended(
 ): PromotionAnswer | null {
   const { profile } = context.loaded;
   if (profile.remote === null || UNCHAINED.has(ended)) return null;
-  const tracking = `refs/remotes/${profile.remote}/${branchOf(profile.source.ref)}`;
+  const tracking = remoteTrackingRef(profile.remote, branchOf(profile.source.ref));
   try {
     const fetched = git.fetchRefs(context.top, profile.remote, [`+${profile.source.ref}:${tracking}`], worktreeOperationTimeouts(context.document).fetchMs);
     if (fetched.refusal !== null) {

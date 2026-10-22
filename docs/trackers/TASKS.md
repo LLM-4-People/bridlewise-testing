@@ -1,6 +1,6 @@
 # Public floor tasks
 
-This is the public task board for the Bridlewise development floor. It is a working list, not a release schedule. Each row names one outcome; the detailed exit criteria live in the [build roadmap](https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/).
+This is the public task board for the Bridlewise development floor. It is a working list, not a release schedule. Each row names one outcome; the detailed exit criteria live in the [build roadmap](../floor/roadmap.md).
 
 Each row is one item file in `docs/trackers/items/` (format `bridlewise-tracker-item/v1`, read by `engine/src/workflow/failure-owners.ts`). The board below is generated from those files by `harness sync`: a row changes only by editing its item, and `harness check` refuses a board that differs from its items.
 

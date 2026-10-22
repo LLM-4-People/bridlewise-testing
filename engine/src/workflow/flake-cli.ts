@@ -96,7 +96,7 @@ import {
   unconfinedRecursiveRemoval,
 } from "../shared/flake-reproduction.ts";
 import { contentKeyComplete, failureIdentityFile } from "../shared/run-history.ts";
-import { configuredCheckoutCommandRunner, engineRelativePath, prepareCheckout, runCheckoutCommand, type CheckoutStep } from "./checkout-setup.ts";
+import { configuredCheckoutCommandRunner, engineRelativePath, prepareCheckout, runCheckoutCommand, runCheckoutPhase, type CheckoutStep } from "./checkout-setup.ts";
 import { wrapResult, type CommandAnswer } from "./command-result.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
 
@@ -432,11 +432,19 @@ function resolveCommit(repository: GitRepository, name: string): string {
   return found.stdout.toString("utf8").trim();
 }
 
-/** The engine test inventory at a commit: its hermetic identities and its live suite's files. */
-function inventoryAt(repository: GitRepository, commit: string, engineRelative: string): Readonly<{ hermetic: ReadonlySet<string>; liveFiles: ReadonlySet<string> }> {
-  const found = gitOutput(repository, ["cat-file", "blob", `${commit}:${engineRelative}/${VERIFICATION_PATHS.testInventory}`], { allowed: [0, 128] });
-  if (found.status !== 0) throw new InputError(`${commit} holds no engine test inventory`, "flake_move_inventory_missing");
-  const inventory = JSON.parse(found.stdout.toString("utf8")) as { tests?: { sourceId: string; name: string }[]; scope?: { qualifiedExternalSourceIds?: string[] } };
+/** A commit's engine test inventory: its hermetic identities and its live suite's files. */
+export type CommitInventory = Readonly<{ hermetic: ReadonlySet<string>; liveFiles: ReadonlySet<string> }>;
+
+/**
+ * THE INVENTORY OF A COMMIT, computed (the inventory is a cache of the tree and
+ * not committed, #221): the commit's text of the test inventory (`VERIFICATION_PATHS.testInventory`)
+ * as THAT commit's own generator writes it in a private checkout.
+ */
+export type InventoryAt = (commit: string) => Promise<string>;
+
+/** The hermetic identities and live files an inventory's text names. */
+export function commitInventoryOf(text: string): CommitInventory {
+  const inventory = JSON.parse(text) as { tests?: { sourceId: string; name: string }[]; scope?: { qualifiedExternalSourceIds?: string[] } };
   return {
     hermetic: new Set((inventory.tests ?? []).map((entry) => `${entry.sourceId}::${entry.name}`)),
     liveFiles: new Set(inventory.scope?.qualifiedExternalSourceIds ?? []),
@@ -448,11 +456,11 @@ function inventoryAt(repository: GitRepository, commit: string, engineRelative: 
  * inventory and not in the commit's, and the destination's file is a live
  * suite file of the commit's inventory. Refused otherwise, by name.
  */
-export function recordIdentityMove(request: IdentityMoveRequest, repository: GitRepository, engineRelative: string, write: (record: IdentityMove) => string, now: () => Date): string {
+export async function recordIdentityMove(request: IdentityMoveRequest, repository: GitRepository, inventoryAt: InventoryAt, write: (record: IdentityMove) => string, now: () => Date): Promise<string> {
   const commit = resolveCommit(repository, request.commit);
   const parent = resolveCommit(repository, `${commit}^`);
-  const before = inventoryAt(repository, parent, engineRelative);
-  const after = inventoryAt(repository, commit, engineRelative);
+  const before = commitInventoryOf(await inventoryAt(parent));
+  const after = commitInventoryOf(await inventoryAt(commit));
   if (!before.hermetic.has(request.from)) throw new InputError(`${request.from} is not a test of the hermetic suite at ${parent}: nothing moved`, "flake_move_refused");
   if (after.hermetic.has(request.from)) throw new InputError(`${request.from} is still a test of the hermetic suite at ${commit}: it did not leave`, "flake_move_refused");
   const destination = failureIdentityFile(request.to)!;
@@ -484,20 +492,96 @@ function writeRecordFile(name: string, bytes: string): string {
   return path;
 }
 
+/**
+ * A PRIVATE CHECKOUT OF THIS REPOSITORY AT A REVISION, beside the repository
+ * where its workspaces live (`workspaceIsolation.workspaceRoot`: a checkout
+ * under the user cache folder would sit inside the instrument lock's folder
+ * and the harness's kept-out state), set up by the one checkout setup
+ * (`prepareCheckout`) at every revision it moves to: a step that declares no
+ * inputs (the bundle) would otherwise keep the previous revision's output.
+ * `close` removes the worktree and its folder.
+ */
+type PrivateCheckout = Readonly<{
+  path: string;
+  moveTo: (commit: string) => Promise<void>;
+  run: (name: string, command: Parameters<typeof runCheckoutCommand>[2]) => Promise<CheckoutStep>;
+  close: () => void;
+}>;
+
+function privateCheckout(
+  snapshot: ReturnType<typeof loadPinnedConfigSnapshot>,
+  isolation: NonNullable<ReturnType<typeof loadPinnedConfigSnapshot>["document"]["workspaceIsolation"]>,
+  top: string,
+  topRepository: GitRepository,
+  engineRelative: string,
+  label: string,
+  supervisor: string,
+): PrivateCheckout {
+  const commandRunner = configuredCheckoutCommandRunner(snapshot.document, isolation, supervisor,
+    (step, commandArguments) => process.stderr.write(`[${label}] setup ${step}: ${commandArguments.join(" ")}\n`));
+  const workspaceRoot = workspaceRootOf(resolveRepositoryRegistry(configuredWorktreeGitPort(snapshot.document), top, worktreeOperationTimeouts(snapshot.document).inspectMs), isolation.workspaceRoot);
+  ensurePrivateStateDirectory(workspaceRoot);
+  const path = createOwnedTemporaryDirectory(workspaceRoot, "flake-reproduction-");
+  const run = (name: string, command: Parameters<typeof runCheckoutCommand>[2]): Promise<CheckoutStep> => runCheckoutCommand(path, name, command, commandRunner);
+  const at: { revision: string | null; added: boolean } = { revision: null, added: false };
+  return {
+    path,
+    run,
+    moveTo: async (commit) => {
+      if (at.revision === commit) return;
+      if (!at.added) {
+        gitOutput(topRepository, ["worktree", "add", "--detach", path, commit]);
+        at.added = true;
+      } else {
+        gitOutput(configuredGitRepository(snapshot.document, path), ["checkout", "-q", "--detach", commit]);
+      }
+      at.revision = commit;
+      const steps = await prepareCheckout(path, top, engineRelative, isolation, run);
+      const failed = steps.find((taken) => taken.status === "fail");
+      if (failed !== undefined) throw new InputError(`the ${label} checkout's setup at ${commit} failed at ${failed.step}: ${failed.message}\n${failed.details.join("\n")}`, "flake_reproduction_setup_failed");
+    },
+    close: () => {
+      if (at.added) gitOutput(topRepository, ["worktree", "remove", "--force", path], { allowed: [0, 128] });
+      removeOwnedTemporaryDirectory(path);
+      gitOutput(topRepository, ["worktree", "prune"], { allowed: [0, 128] });
+    },
+  };
+}
+
 export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswer<readonly ReproductionAnswer[]>> {
   const snapshot = loadPinnedConfigSnapshot();
   const repository = configuredGitRepository(snapshot.document, ENGINE_ROOT);
   const top = gitOutput(repository, ["rev-parse", "--show-toplevel"]).stdout.toString("utf8").trim();
   const engineRelative = engineRelativePath(top, ENGINE_ROOT);
   const topRepository = configuredGitRepository(snapshot.document, top);
-  if (argv[0] === "move") {
-    const move = parseFlakeMoveArgs(argv);
-    const recorded = recordIdentityMove(move, topRepository, engineRelative, (record) => writeRecordFile(identityMoveFileName(record.from), serializeIdentityMove(record)), () => new Date());
-    return { result: wrapResult("flake", [{ identity: move.from, recorded }], { status: "pass" }), exitCode: 0 };
-  }
-  const request = parseFlakeReproduceArgs(argv);
   const isolation = snapshot.document.workspaceIsolation;
   if (isolation === undefined) throw new InputError("workspaceIsolation config section is required: a reproduction checkout is set up by its setup phase", "workspace_isolation_config_missing");
+  if (argv[0] === "move") {
+    const move = parseFlakeMoveArgs(argv);
+    // Each side's inventory is its own commit's generator output (its regenerate phase), in one private checkout (#221).
+    // Two checkout setups (each side's revision): heavy by kind, so the move holds the host's one lock.
+    const moveLock = readTestExecutionConfig(ENGINE_ROOT).instrumentLock;
+    if (moveLock === undefined) throw new InputError("testExecution.instrumentLock is not declared: a move sets up checkouts under the host's one lock", "instrument_lock_undeclared");
+    const lock = await holdInstrumentLock({
+      config: moveLock, harnessRoot: ENGINE_ROOT, runner: "flake move (two inventories)",
+      testFileCount: wholeInstrumentTestFileCount(moveLock, "flake-reproduction"), onWait: (line) => process.stderr.write(`${line}\n`),
+    });
+    const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake move", testProcessSupervisorBinary());
+    try {
+      const inventoryAt: InventoryAt = async (commit) => {
+        await checkout.moveTo(commit);
+        const failed = (await runCheckoutPhase(isolation, "regenerate", checkout.run)).find((step) => step.status === "fail");
+        if (failed !== undefined) throw new InputError(`the test inventory of ${commit} could not be generated (${failed.step}): ${failed.message}`, "flake_move_inventory_missing");
+        return readFileSync(join(checkout.path, engineRelative, VERIFICATION_PATHS.testInventory), "utf8");
+      };
+      const recorded = await recordIdentityMove(move, topRepository, inventoryAt, (record) => writeRecordFile(identityMoveFileName(record.from), serializeIdentityMove(record)), () => new Date());
+      return { result: wrapResult("flake", [{ identity: move.from, recorded }], { status: "pass" }), exitCode: 0 };
+    } finally {
+      checkout.close();
+      lock.release();
+    }
+  }
+  const request = parseFlakeReproduceArgs(argv);
   const testPathOf = (file: string): string => request.suite === "engine" ? `${engineRelative}/${file}` : file;
   const config = readTestExecutionConfig(ENGINE_ROOT);
   const significance = config.flakeReproduction?.significance;
@@ -517,34 +601,11 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
     testFileCount: wholeInstrumentTestFileCount(declaredLock, "flake-reproduction"), onWait: (line) => process.stderr.write(`${line}\n`),
   });
   const supervisor = testProcessSupervisorBinary();
-  const commandRunner = configuredCheckoutCommandRunner(snapshot.document, isolation, supervisor,
-    (step, commandArguments) => process.stderr.write(`[flake reproduce] setup ${step}: ${commandArguments.join(" ")}\n`));
-  // BESIDE THE REPOSITORY, where its workspaces live (`workspaceIsolation.workspaceRoot`): a checkout under
-  // the user cache folder would sit inside the instrument lock's folder and the harness's kept-out state.
-  const workspaceRoot = workspaceRootOf(resolveRepositoryRegistry(configuredWorktreeGitPort(snapshot.document), top, worktreeOperationTimeouts(snapshot.document).inspectMs), isolation.workspaceRoot);
-  ensurePrivateStateDirectory(workspaceRoot);
-  const checkout = createOwnedTemporaryDirectory(workspaceRoot, "flake-reproduction-");
-  const runStep = (name: string, command: Parameters<typeof runCheckoutCommand>[2]): Promise<CheckoutStep> => runCheckoutCommand(checkout, name, command, commandRunner);
-  const refuseFailed = (steps: readonly CheckoutStep[], when: string): void => {
-    const failed = steps.find((taken) => taken.status === "fail");
-    if (failed !== undefined) throw new InputError(`the reproduction checkout's ${when} failed at ${failed.step}: ${failed.message}\n${failed.details.join("\n")}`, "flake_reproduction_setup_failed");
-  };
-  const at: { revision: string | null; added: boolean } = { revision: null, added: false };
+  const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake reproduce", supervisor);
   try {
     const answers = await reproduceFlake(request, topRepository, testPathOf, async (revision, files) => {
-      const commit = resolveCommit(topRepository, revision === "parent" ? `${request.fix}^` : request.fix);
-      if (!at.added) {
-        gitOutput(topRepository, ["worktree", "add", "--detach", checkout, commit]);
-        at.added = true;
-        refuseFailed(await prepareCheckout(checkout, top, engineRelative, isolation, runStep), "setup");
-      } else if (at.revision !== commit) {
-        // THE WHOLE SETUP AGAIN at the fix: a step that declares no inputs (the bundle) would
-        // otherwise keep the parent's output, and the fix would run on the parent's build.
-        gitOutput(configuredGitRepository(snapshot.document, checkout), ["checkout", "-q", "--detach", commit]);
-        refuseFailed(await prepareCheckout(checkout, top, engineRelative, isolation, runStep), "setup at the fix");
-      }
-      at.revision = commit;
-      return runTests(checkout, engineRelative, request, preloadFile, files, supervisor, config.engineSuiteWatchdog);
+      await checkout.moveTo(resolveCommit(topRepository, revision === "parent" ? `${request.fix}^` : request.fix));
+      return runTests(checkout.path, engineRelative, request, preloadFile, files, supervisor, config.engineSuiteWatchdog);
     }, (record, bytes) => writeRecordFile(flakeReproductionFileName(record.identity, record.fix.commit), bytes), {
       runs: request.statistical ? statisticalRunsOf(request, config) : deterministicRuns(request.preload, significance, deterministicShims),
       preloadSha256,
@@ -563,9 +624,7 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
     const recorded = answers.filter((answer) => "recorded" in answer).length;
     return { result: wrapResult("flake", answers, { status: recorded === answers.length ? "pass" : "fail" }), exitCode: recorded === answers.length ? 0 : 1 };
   } finally {
-    if (at.added) gitOutput(topRepository, ["worktree", "remove", "--force", checkout], { allowed: [0, 128] });
-    removeOwnedTemporaryDirectory(checkout);
-    gitOutput(topRepository, ["worktree", "prune"], { allowed: [0, 128] });
+    checkout.close();
     lock.release();
   }
 }

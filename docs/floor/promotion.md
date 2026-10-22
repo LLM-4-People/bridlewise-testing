@@ -1,6 +1,5 @@
 ---
 layout: default
-floor_assets: true
 page_class: floor
 title: "Promotion contract"
 description: "How the product branch is computed from main: the projection boundary, the overlay, deterministic gates, manual decisions, and release step."
@@ -19,7 +18,7 @@ This is the contract between `main` and the `product` branch of the one reposito
 
 The product branch is not edited directly and is not merged into. A source commit is checked on the floor, then carried through the promotion door. The rule is recorded as [UR-12]({{ '/decisions/UR-12-master-changes-only-through-the-promotion-door/' | relative_url }}) in the decision set.
 
-The profile is [`promotion/main-to-product.json`](https://github.com/LLM-4-People/bridlewise/blob/main/promotion/main-to-product.json). It declares:
+The profile is [`promotion/main-to-product.json`](../../promotion/main-to-product.json). It declares:
 
 | Field | Value in the current profile | Meaning |
 |---|---|---|
@@ -27,7 +26,7 @@ The profile is [`promotion/main-to-product.json`](https://github.com/LLM-4-Peopl
 | `target.ref` | `refs/heads/product` | The branch that receives the projection |
 | `remote` | `origin` | Where both refs are published: this repository |
 | `trigger` | `manual` | No local hook starts it; the trusted publish workflow will promote after each land (pending: the publisher, lane GH-5; until it lands nothing promotes) |
-| `boundary.overlay` | `product-only/` | The product-only files (its `README.md`, its `Makefile`): each ships at its path without the prefix |
+| `boundary.overlay` | `{ folder: product-only/, kinds: [*.md, Makefile] }` | The product-only files (its `README.md`, its `Makefile`): each ships at its path without the prefix, and only the declared kinds may |
 | `safety.maxDeletedFraction` | `0.1` | The largest share of the target a projection may delete before it refuses |
 
 The profile is read from the source commit, not from the target or the working tree. A change to the profile takes effect when it is committed on the source. Every promotion commit names the profile and its exact blob (`Promotion-Profile:`) and the `main` commit it was computed from (`Projected-From:`).
@@ -41,7 +40,7 @@ The target tree is computed from the source. It is not a merge result and it is 
 - `include` names files or folder prefixes that ship without an import edge. Included modules are walked like entry points.
 - `exclude` names paths that never ship and are never walked.
 - `companions` ship when their folder or a subfolder holds a shipped path.
-- `overlay` files (target-only documents and recipes, never a module) ship at their path without the folder prefix, and the excludes hold at that path. An overlay file that is a module, lands on an excluded path, or names a path the projection already carries is refused (`promotion_overlay_invalid`): a path ships for one reason.
+- `overlay` files ship at their path without the folder prefix, and only the kinds the overlay declares may, each from the engine's fixed allowlist (`*.md`, `*.txt`, named images, `Makefile`; compared without case, so no spelling of code or configuration passes). The excludes hold at the shipped path. An undeclared kind, a link, an excluded target, or a path the projection already carries is refused (`promotion_overlay_invalid`): a path ships for one reason.
 - Everything else is denied by default.
 
 The current profile excludes `tests/`, `bench/`, `docs/`, and `promotion/`, plus internal design and evidence folders. A shipped module that imports an excluded path is refused. The documentation site is built separately; `docs/` does not travel through this promotion profile.
@@ -54,7 +53,7 @@ The gate covers these stages. A refusal at any stage stops publication. An up-to
 
 | Order | Stage | What it checks | A refusal means |
 |---|---|---|---|
-| 1 | Profile | Strict `bridlewise-promotion-profile/v2` schema; no path both included and excluded; valid spawn bases; declared commands exist | The profile is invalid. Fix it on the source. |
+| 1 | Profile | Strict `bridlewise-promotion-profile/v3` schema; no path both included and excluded; valid spawn bases; declared commands exist | The profile is invalid. Fix it on the source. |
 | 2 | Boundary | Reachability from entry points and included modules; exclusions; package declarations; gitlinks | The source would ship a broken or undeclared module. Fix the source or the boundary. |
 | 3 | Derived files | Kept package scripts; pruned script segments; lockfiles re-resolved against the projected manifests | A manifest or lockfile transform cannot represent the source. Fix the source manifest. |
 | 4 | Plan safety | Target edits since the last promotion; the deletion budget; the never-rule; an up-to-date or unchanged projection | The target has edits the source does not reproduce, the projection deletes too much, or the source was merged with the target. Fix the source or use a reasoned override. |
@@ -119,7 +118,7 @@ A reusable reporter watches the public workflows in both repositories. A failure
 | `integrity` | A state that must not happen | Stop and preserve the evidence; do not publish |
 | `parked` | The remote has the commit, but the target checkout has overlapping edits | The next run or a fast-forward lands it |
 
-The full catalogue and the one remedy for each code live in the [promotion source](https://github.com/LLM-4-People/bridlewise-testing/tree/main/engine/src/workflow/promotion). Read the code and the remedy in the refusal instead of guessing from the exit status.
+The full catalogue and the one remedy for each code live in the [promotion source](../../engine/src/workflow/promotion). Read the code and the remedy in the refusal instead of guessing from the exit status.
 
 ## What this contract does not prove
 

@@ -32,6 +32,7 @@ The `tests/helpers/` folder of the development surface.
 - `migrate-path-literals.ts` — migrate prevention guards off hardcoded product-path literals onto the module resolver.
 - `mock-http.ts` — shared HTTP mock primitives for tests that exercise.
 - `module-resolver.ts` — tHE SINGLE OWNER OF "WHERE DOES A PRODUCT MODULE LIVE". ── THE DEFECT THIS OWNER ENDS ──────────────────────────────────────────── A module's.
+- `network-install.ts` — the one reader of "this shell text installs system packages from the network" (`networkInstalls`), shared by the workflow-policy, external-surface-registry and guardian-compiler-pin guards.
 - `multi-user.ts` — multi-user test helpers.
 - `native-authority.ts` — the shared native-authority ceiling suite: a delegation profile's tool names stay a ceiling under restrictions, proven on the admitted native request.
 - `playwright-liveness.ts` — tHE FOURTH DECLARATION CLASS: Playwright's `testDir` + `testMatch`. Three file-selecting declaration classes already refuse a dead member at their….
