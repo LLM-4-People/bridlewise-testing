@@ -16,7 +16,14 @@
  * {@link WORKER_BOOT_KEY} (the thread's own `workerData` keys are kept as they
  * are). It does not touch `execArgv`: an explicit list replaces node's own
  * inheritance, and a parent's process-level options (a test runner's) are
- * refused by a worker.
+ * refused by a worker. One inherited option does not fit a FILE entry: a
+ * parent started on eval input with `--input-type` (`node --input-type=module
+ * -e …`) hands it to the thread, which then refuses to start ("--input-type
+ * can only be used with string input") — and a thread that blocks on a worker
+ * (the synchronous work-bounded door) never sees the `error` event. Such a
+ * parent's thread starts on EVAL input that imports the prelude (an eval
+ * entry takes `--input-type`, and `import()` is the same in both kinds): the
+ * same prelude, the same inherited options, nothing re-parsed.
  *
  * The role decides what a lost fault does (`fault-policy.ts`): the database
  * facade's supervised threads are `server-thread`s (they live on; a dead one
@@ -45,14 +52,17 @@ const PRELUDE = new URL(import.meta.url);
  * `options` with the boot record added to its `workerData` (an object, or
  * none).
  */
-export function bootstrappedWorker(entry: URL | string, role: WorkerThreadRole, options: WorkerOptions = {}): [URL, WorkerOptions] {
+export function bootstrappedWorker(entry: URL | string, role: WorkerThreadRole, options: WorkerOptions = {}): [URL | string, WorkerOptions] {
   if (role !== "server-thread" && role !== "worker") throw new InputError(`not a worker thread role: ${String(role)}`, "worker_role_invalid");
   const data: unknown = options.workerData;
   if (data !== undefined && (data === null || typeof data !== "object" || Array.isArray(data))) {
     throw new InputError("a bootstrapped worker's workerData is an object (the prelude adds its boot record to it)", "worker_data_not_object");
   }
   const boot: WorkerBoot = { entry: entry instanceof URL ? entry.href : new URL(entry, "file://").href, role };
-  return [PRELUDE, { ...options, workerData: { ...(data as Record<string, unknown> | undefined), [WORKER_BOOT_KEY]: boot } }];
+  const workerOptions = { ...options, workerData: { ...(data as Record<string, unknown> | undefined), [WORKER_BOOT_KEY]: boot } };
+  // A thread that inherits `--input-type` starts on eval input importing the prelude (see the header).
+  const inheritsInputType = options.execArgv === undefined && process.execArgv.some((option) => option === "--input-type" || option.startsWith("--input-type="));
+  return inheritsInputType ? [`import(${JSON.stringify(PRELUDE.href)});`, { ...workerOptions, eval: true }] : [PRELUDE, workerOptions];
 }
 
 // ── The prelude half: this module as a worker thread's entry ──────────────
