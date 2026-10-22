@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import diagnosticsChannel from "node:diagnostics_channel";
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:net";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -812,9 +813,10 @@ test("pinned download: a redirect to a pinned host is followed as a fresh reques
   assert.equal(received[1]!.headers.get("accept"), null, "no header of the first request crosses the redirect");
 });
 
-test("pinned download: a request that carries a credential is refused before anything is sent, even toward a redirecting host", async () => {
+test("pinned download: a request that carries any header but the known credential-free ones is refused before anything is sent, even toward a redirecting host (the one header rule)", async () => {
   releaseHost(ASSET);
-  for (const header of ["Authorization", "authorization", "Proxy-Authorization", "Cookie", "X-API-Key", "X-Session-Token"]) {
+  const unknown = `X-${randomBytes(6).toString("hex")}`;
+  for (const header of ["Authorization", "authorization", "Proxy-Authorization", "Cookie", "X-API-Key", "X-Session-Token", "Authentication", "X-Jwt", "DPoP", "Session-Id", "X-Signature", "X-Access-Key-Id", unknown]) {
     await assert.rejects(downloadPinned(pinned({ protocolHeaders: { [header]: "Bearer k" } })), (error) => codeOf(error) === "outbound_download_credentialed" && !(error as Error).message.includes("Bearer k"), header);
     assert.equal(received.length, 0, `${header}: nothing was sent`);
   }

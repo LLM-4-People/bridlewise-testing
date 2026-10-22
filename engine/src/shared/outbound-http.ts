@@ -38,8 +38,9 @@
  *     no second request — except 304 Not Modified, a conditional request's
  *     answer, which points nowhere (the forge's ETag cache relies on it).
  *   - ONE EXCEPTION, SAFE BY CONSTRUCTION: A PINNED DOWNLOAD
- *     ({@link downloadPinned}). A GET that carries NO credential (a header
- *     the one sensitive-name owner flags is refused before anything is sent:
+ *     ({@link downloadPinned}). A GET that carries NO credential (any header
+ *     but the known credential-free ones, by the one header rule
+ *     `isSensitiveHeaderName`, is refused before anything is sent:
  *     `outbound_download_credentialed`), whose bytes have a PINNED sha256,
  *     may follow redirects — at most `maxRedirects`, each only to a host the
  *     caller pins (`redirectHosts`, else `outbound_redirect_refused`), each
@@ -134,7 +135,7 @@ import { PROXY_VARIABLES } from "../process/environment-projection.ts";
 import { processUnderTest } from "../filesystem/checkout-write-door.ts";
 import { liveHostConsented } from "../process/live-network.ts";
 import { countOutboundRefusal, firstSightOf, outboundPolicy } from "./outbound-policy.ts";
-import { isSensitiveKeyName } from "../privacy/secret-signals.ts";
+import { isSensitiveHeaderName } from "../privacy/secret-signals.ts";
 
 export const CONTENT_TYPE_SSE = "text/event-stream";
 
@@ -993,12 +994,6 @@ export type PinnedDownloadRequest = Readonly<{
   logCategory: string;
 }>;
 
-/** A header that carries a credential: the connection-level `Proxy-Authorization`, `Cookie`, or any name the one sensitive-name owner flags (`Authorization`, `X-API-Key`, …). */
-function carriesCredential(name: string): boolean {
-  const lower = name.toLowerCase();
-  return lower === "proxy-authorization" || lower === "cookie" || lower === "set-cookie" || isSensitiveKeyName(name);
-}
-
 /** A whole response body as bytes, within `maxBytes` (`outbound_body_too_large`). */
 async function readBodyBytes(response: Response, signal: AbortSignal, maxBytes: number, cleanupTimeoutMs: number, logCategory: string): Promise<Buffer> {
   if (response.body === null) return Buffer.alloc(0);
@@ -1022,7 +1017,8 @@ async function readBodyBytes(response: Response, signal: AbortSignal, maxBytes: 
 
 /**
  * DOWNLOAD `request.url`'s bytes, PINNED (the module doc's one exception):
- * refused before anything is sent when a header names a credential; a
+ * refused before anything is sent when it carries any header but the known
+ * credential-free ones (the one header rule, `isSensitiveHeaderName`); a
  * redirect followed only to a pinned host, as a new request with no header
  * of the first; the body read within `maxBytes`, and answered only when its
  * sha256 is the pinned one. Every hop is prepared and routed like any
@@ -1031,7 +1027,8 @@ async function readBodyBytes(response: Response, signal: AbortSignal, maxBytes: 
 export async function downloadPinned(request: PinnedDownloadRequest): Promise<Buffer> {
   const { logCategory } = request;
   const headers = request.protocolHeaders ?? {};
-  const credential = Object.keys(headers).find(carriesCredential);
+  // THE ONE header rule (src/privacy/secret-signals.ts): every header but the known credential-free ones is a credential.
+  const credential = Object.keys(headers).find(isSensitiveHeaderName);
   if (credential !== undefined) {
     refuse(logCategory, `A pinned download carries no credential, and this one names '${credential}': a redirect would carry it to a host the caller never named. Nothing was sent.`, "outbound_download_credentialed", { header: credential });
   }
