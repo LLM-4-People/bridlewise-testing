@@ -266,8 +266,12 @@ export function faceBlocks(css: string): { family: string; style: string }[] {
 }
 
 /** Whether a `font-family` or `font` value names its family only through a `--face-*` token (or is a CSS-wide keyword). */
-function readsFaceToken(value: string): boolean {
-  return CSS_WIDE.test(value.trim()) || /\bvar\(\s*--face-[\w-]+\s*\)/u.test(value) && !/["']/u.test(value);
+function readsFaceToken(property: string, value: string): boolean {
+  const v = value.replace(/\s*!important\s*$/u, "").trim();
+  if (CSS_WIDE.test(v)) return true;
+  // font-family is the token and nothing else (a family appended after it is a second declaration);
+  // the font shorthand ends in the token, with no family list of its own.
+  return property.toLowerCase() === "font-family" ? /^var\(\s*--face-[\w-]+\s*\)$/u.test(v) : /(?:^|\s)var\(\s*--face-[\w-]+\s*\)$/u.test(v) && !/[,"']/u.test(v);
 }
 
 /** Every font-source and declare-once violation in one build input. `owner` is true for the token owner. */
@@ -285,7 +289,7 @@ export function fontFindings(path: string, text: string, declared: ReadonlySet<s
     for (const d of fontDeclarations(css)) {
       if (d.property.startsWith("--face-")) {
         if (!owner) findings.push(`${where}: ${d.property} is defined outside ${TOKENS}`);
-      } else if (!d.inFace && !readsFaceToken(d.value)) findings.push(`${where}: ${d.property}: ${d.value} names a family instead of a --face-* token`);
+      } else if (!d.inFace && !readsFaceToken(d.property, d.value)) findings.push(`${where}: ${d.property}: ${d.value} names a family instead of a --face-* token`);
     }
     // One @font-face block per family and style; and each --face-* stack defined once.
     const count = (keys: string[]): Map<string, number> => keys.reduce((m, k) => m.set(k, (m.get(k) ?? 0) + 1), new Map<string, number>());
@@ -304,7 +308,7 @@ export function fontFindings(path: string, text: string, declared: ReadonlySet<s
       else if (/\burl\(\s*["']?(?:[a-z][a-z0-9+.-]*:)?\/\//iu.test(str)) findings.push(`${where}: a CSS url() to a remote source in ${str}`);
       else if (FONT_FILE.test(str) && !declared.has(str)) findings.push(`${where}: names the font file ${str}, which the owner does not declare`);
       else if (/(?:^|[;{\s])(?:font-family|font)\s*:/iu.test(str)) {
-        for (const d of fontDeclarations(str)) if (!d.property.startsWith("--face-") && !readsFaceToken(d.value)) findings.push(`${where}: ${d.property}: ${d.value} in a string names a family instead of a --face-* token`);
+        for (const d of fontDeclarations(str)) if (!d.property.startsWith("--face-") && !readsFaceToken(d.property, d.value)) findings.push(`${where}: ${d.property}: ${d.value} in a string names a family instead of a --face-* token`);
       }
     }
   };
@@ -319,7 +323,7 @@ export function fontFindings(path: string, text: string, declared: ReadonlySet<s
     for (const m of markup.matchAll(/\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/giu)) judgeCss(`x{${m[1] ?? m[2]}}`, `${where} (style attribute)`);
     for (const m of markup.matchAll(/\sstyle:(font-family|font)\s*=\s*(?:"([^"]*)"|'([^']*)'|\{([^}]*)\})/giu)) {
       const value = (m[2] ?? m[3] ?? m[4] ?? "").trim();
-      if (!readsFaceToken(value.replace(/^["'`]|["'`]$/gu, ""))) findings.push(`${where}: style:${m[1]} names a family instead of a --face-* token`);
+      if (!readsFaceToken(m[1]!, value.replace(/^["'`]|["'`]$/gu, ""))) findings.push(`${where}: style:${m[1]} names a family instead of a --face-* token`);
     }
   };
   if (kind === "css") judgeCss(text, path);
@@ -492,6 +496,8 @@ describe("fonts: one declaration, pinned files, no other source", () => {
       ["src/d.ts", 'el.style.cssText = "background: url(https://cdn.example.org/x)";'],
     ];
     for (const [path, text] of plants) expect(fontFindings(path, text, declared), `${path}: ${text}`).not.toEqual([]);
+    // The @font-face rule by its own name: a face outside the owner is refused even when its file is a declared one.
+    expect(fontFindings("src/cockpit/rooms/A.svelte", '<style>@font-face { font-family: "IBM Plex Sans Variable"; src: url("/fonts/ibm-plex-sans-var-roman-latin1.woff2"); }</style>', declared)).toEqual([`src/cockpit/rooms/A.svelte: @font-face outside ${TOKENS}`]);
     // A kind the guard cannot parse is refused, not skipped.
     expect(fontFindings("src/e.vue", "<template></template>", declared)).toEqual(["src/e.vue: a build input of a kind this guard does not parse (.vue)"]);
     // Upper-case and spaced tags are still cut out: a style in <STYLE > is judged, a link in a comment is not.
@@ -515,6 +521,8 @@ describe("fonts: one declaration, pinned files, no other source", () => {
     // A family named directly, in a stylesheet, a style attribute, a style directive and a script.
     expect(fontFindings("src/b.css", '.a { font-family: "IBM Plex Sans Variable", sans-serif; }', declared)).toHaveLength(1);
     expect(fontFindings("src/b.css", ".a { font: 600 1rem/1.2 Inter; }", declared)).toHaveLength(1);
+    expect(fontFindings("src/b.css", ".a { font-family: var(--face-sans), Georgia; }", declared), "a family appended after the token").toHaveLength(1);
+    expect(fontFindings("src/b.css", ".a { font: 600 1rem var(--face-sans), Georgia; }", declared), "the shorthand with a family list").toHaveLength(1);
     expect(fontFindings("src/c.svelte", '<p style="font-family: Inter">x</p>', declared)).toHaveLength(1);
     expect(fontFindings("src/c.svelte", '<p style:font-family="Inter">x</p>', declared)).toHaveLength(1);
     expect(fontFindings("src/d.ts", 'node.style.fontFamily = "Inter";', declared)).toHaveLength(1);
