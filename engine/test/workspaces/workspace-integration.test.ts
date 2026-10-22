@@ -301,7 +301,7 @@ test("not converged: a merge gate that rewrites a tracked file refuses the land 
 test("generated-output conflicts: a pin-only change and a wholly generated file resolve to the target; an authored change is reported", async () => {
   const { root } = initTempRepo("ws-pins");
   const workspaceRoot = mkWorkspaceTempDir("ws-pins-wt");
-  const pinned = (pin: string, body: string): string => `export const POLICY = {\n  bundleSha256: "${pin}",\n  body: "${body}",\n};\n`;
+  const pinned = (pin: string, body: string): string => `export const POLICY = {\n  pin: "${pin}",\n  body: "${body}",\n};\n`;
   commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
   commitFile(root, WHOLESALE, "export const MANIFEST = [\"base\"];\n");
   const base = rawGit(root, ["rev-parse", "HEAD"]);
@@ -342,7 +342,7 @@ test("generated-output conflicts: a pin-only change and a wholly generated file 
 test("the lease exempts a regeneration, never a path: an authored edit of a pin-bearing file or a README's prose needs a lease, a pin or consumer-block change does not, and another workspace's lease on it holds", async () => {
   const { root } = initTempRepo("ws-genonly");
   const workspaceRoot = mkWorkspaceTempDir("ws-genonly-wt");
-  const pinned = (pin: string, body: string): string => `export const POLICY = {\n  bundleSha256: "${pin}",\n  body: "${body}",\n};\n`;
+  const pinned = (pin: string, body: string): string => `export const POLICY = {\n  pin: "${pin}",\n  body: "${body}",\n};\n`;
   const readme = (prose: string, block: string): string => `# Module\n\n${prose}\n\n${README_CONSUMER_BLOCK.begin}\n${block}\n${README_CONSUMER_BLOCK.end}\n`;
   commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
   commitFile(root, "src/mod/README.md", readme("Hand-written prose.", "- consumer a"));
