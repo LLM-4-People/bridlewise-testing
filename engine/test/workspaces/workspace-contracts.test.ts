@@ -25,7 +25,6 @@ import {
   type UnsignedMergeReceipt,
   type WorkspaceRecord,
 } from "../../src/workflow/workspace-contracts.ts";
-import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 
 /** Matches a HarnessError by its typed code. */
 function throwsCode(code: string): (error: unknown) => boolean {
@@ -71,7 +70,7 @@ function makeRecord(): WorkspaceRecord {
     mergeReceipt: null,
     abortReason: null,
     history: [deepFreeze({ from: "admitted", to: "active", at: "2026-07-19T00:00:00.000Z", reason: "created" })],
-    forge: deepFreeze({ remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false }),
+    forge: deepFreeze({ remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false, land: null }),
     revision: 1,
   });
 }
@@ -230,7 +229,6 @@ test("canonicalizeWriteSetPath rejects traversal and absolute paths", () => {
 
 test("assertLeasableWriteSet refuses the wholly generated outputs (derived) and never-source segments", () => {
   for (const path of [
-    `engine/${VERIFICATION_PATHS.testInventory}`,
     "engine/src/architecture-manifest.ts",
     "engine/traceability/config-document-schema.json",
     "engine/src",
@@ -275,7 +273,11 @@ test("the forge state: a feature workspace has one and a read-only one none; the
   const published = { ...forge, pullRequest: { number: 7, url: "https://forge.test/pull/7" }, publishedHead: SHA_B };
   assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), forge: published }));
   assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), forge: { ...published, ready: true } }));
+  assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), state: "merging", forge: { ...published, ready: true, land: { head: SHA_B } } }), "a land in flight of the published, ready head");
   for (const [broken, why] of [
+    [{ ...makeRecord(), forge: { ...published, land: { head: SHA_B } } }, "a land of a head never readied"],
+    [{ ...makeRecord(), forge: { ...published, ready: true, land: { head: SHA_A } } }, "a land of another head than the published one"],
+    [{ ...makeRecord(), forge: { ...forge, land: undefined } }, "a forge state without its land field"],
     [{ ...makeRecord(), forge: null }, "a feature workspace without a forge state"],
     [{ ...makeRecord(), lease: readOnly, forge }, "a read-only workspace with a forge state"],
     [{ ...makeRecord(), forge: { ...forge, publishedHead: SHA_B } }, "a published head without a pull request"],
