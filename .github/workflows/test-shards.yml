@@ -142,7 +142,7 @@ jobs:
           # two shards for their whole 45-minute budget, #333). A missing
           # compiler is a named failure, never an install.
           command -v gcc-14 >/dev/null || { echo "::error::gcc-14 is not in the runner image; the guardian build needs it (#333)"; exit 1; }
-          gcc-14 --version | head -n 1
+          gcc-14 --version
 
       - name: Install hooks and build the confinement supervisor
         run: |

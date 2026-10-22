@@ -50,11 +50,13 @@ describe("the guardian compiler pin", () => {
     expect(build).toContain("spawnSync('make'");
   });
 
-  test("both workflows install the declared package and never spell the compiler again", () => {
+  test("both workflows probe the declared compiler from the runner image and never spell it again", () => {
     const compiler = declaredCompiler();
     for (const workflow of WORKFLOWS) {
       const text = readFileSync(workflow, "utf8");
-      expect(text, `${workflow} must install ${compiler}, the declared pin`).toContain(`sudo apt-get install -y ${compiler}`);
+      // Probed, never installed: a network install only ever waited on a mirror (#333).
+      expect(text, `${workflow} must probe ${compiler}, the declared pin`).toContain(`command -v ${compiler}`);
+      expect(text, `${workflow} must not install a compiler over the network`).not.toMatch(/apt-get\s+install/u);
       expect(text, `${workflow} must not pass CC=; the Makefile owns the choice`).not.toMatch(/\bCC=/u);
       expect(text, `${workflow} must invoke the guardian build owner`).toMatch(/make -C engine\/guardian (?:all|test)/u);
     }
@@ -64,7 +66,7 @@ describe("the guardian compiler pin", () => {
     const registry = JSON.parse(readFileSync(REGISTRY, "utf8")) as {
       surfaces: readonly { id: string; pinned?: { package?: string } }[];
     };
-    const surface = registry.surfaces.find((entry) => entry.id === "apt:gcc-14");
+    const surface = registry.surfaces.find((entry) => entry.id === `runner-image:${declaredCompiler()}`);
     expect(surface?.pinned?.package).toBe(declaredCompiler());
   });
 
