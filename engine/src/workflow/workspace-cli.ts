@@ -21,7 +21,8 @@ import {
   type WorkspaceManagerTimeouts,
 } from "./workspace-manager.ts";
 import { wrapResult, type HarnessCommandResult } from "./command-result.ts";
-import type { ConflictReport, MergeReceipt, ValidationReport, WorkspaceRecord } from "./workspace-contracts.ts";
+import type { ConflictReport, LandReceipt, MergeReceipt, ValidationReport, WorkspaceRecord } from "./workspace-contracts.ts";
+import { githubWorkspaceForgeFactory } from "./workspace-forge-github.ts";
 import type { PublishedRound } from "./workspace-forge.ts";
 
 /**
@@ -35,6 +36,7 @@ import type { PublishedRound } from "./workspace-forge.ts";
  *   validate <id> [--full]                   the gates; --full adds regenerate, converged and the merge gates
  *   publish <id>                             a round: the new commits as signed twins on the forge; the draft pull request
  *   ready <id>                               the pull request leaves draft: its published tree passed validate
+ *   land <id>                                enter the merge queue at the published head; wait; follow the trunk
  *   merge <id>                               integrate in the workspace, gate, land on the target
  *   recover <id>                             finish or roll back a merge whose integrator died
  *   abort <id> [--quarantine]                remove (or preserve) the worktree and branch
@@ -57,13 +59,14 @@ import type { PublishedRound } from "./workspace-forge.ts";
  */
 
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const SUBCOMMANDS = ["create", "extend", "validate", "publish", "ready", "merge", "recover", "abort", "snapshot", "list", "status", "sweep"] as const;
+const SUBCOMMANDS = ["create", "extend", "validate", "publish", "ready", "land", "merge", "recover", "abort", "snapshot", "list", "status", "sweep"] as const;
 
 export type WorkspaceCliOutput =
   | Readonly<{ action: "create" | "extend" | "ready" | "recover" | "abort" | "status"; record: WorkspaceRecord }>
   | Readonly<{ action: "publish"; record: WorkspaceRecord; round: PublishedRound }>
   | Readonly<{ action: "validate"; report: ValidationReport }>
   | Readonly<{ action: "merge"; receipt: MergeReceipt }>
+  | Readonly<{ action: "land"; receipt: LandReceipt }>
   | Readonly<{ action: "snapshot"; snapshot: WorkingTreeSnapshot }>
   | Readonly<{ action: "list"; records: readonly WorkspaceRecord[] }>
   | Readonly<{ action: "sweep"; swept: readonly string[]; orphaned: readonly string[] }>
@@ -109,6 +112,7 @@ export async function runWorkspaceCli(
     config: isolation,
     git,
     repository: (checkout: string) => configuredGitRepository(snapshot.document, checkout),
+    forge: githubWorkspaceForgeFactory(isolation.landTargets),
     ...(identity === null ? {} : { identity }),
     commands: { run: (checkout, name, command) => runCheckoutCommand(checkout, name, command, commandRunner()) },
     timeouts,
@@ -160,6 +164,10 @@ async function dispatch(
     const workspaceId = requireSingleId(args, "ready");
     return wrapResult("workspace ready", deepFreeze({ action: "ready", record: await manager.ready(workspaceId) }), { status: "pass" });
   }
+  if (action === "land") {
+    const workspaceId = requireSingleId(args, "land");
+    return conflictAware("workspace land", async () => deepFreeze({ action: "land", receipt: await manager.land(workspaceId) }));
+  }
   if (action === "merge") {
     const workspaceId = requireSingleId(args, "merge");
     return conflictAware("workspace merge", async () => deepFreeze({ action: "merge", receipt: await withInstrumentLock(`ws merge ${workspaceId}`, () => manager.merge(workspaceId)) }));
@@ -172,7 +180,7 @@ async function dispatch(
     const [workspaceId, flags] = splitId(args, "abort");
     const unknown = flags.filter((flag) => flag !== "--quarantine");
     if (unknown.length > 0) throw new InputError(`unknown workspace abort flag: ${unknown[0]!} (supported: --quarantine)`, "unknown_flag");
-    const record = manager.abort(workspaceId, { quarantine: flags.includes("--quarantine"), reason: "operator abort" });
+    const record = await manager.abort(workspaceId, { quarantine: flags.includes("--quarantine"), reason: "operator abort" });
     return wrapResult("workspace abort", deepFreeze({ action: "abort", record }), { status: "pass" });
   }
   if (action === "snapshot") {

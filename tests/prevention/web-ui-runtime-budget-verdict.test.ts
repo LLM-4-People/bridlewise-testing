@@ -58,7 +58,7 @@ import { currentQualificationOutcome, finalizeQualifiedRun, runForInvocation } f
 import type { RunQualificationTerminal } from "../../engine/src/shared/budget-verdict.ts";
 import { readTrackedTreeDirty } from "../../engine/src/shared/tree-identity.ts";
 import { readRunCpu, type CalibrationReading } from "../../engine/src/shared/run-cpu.ts";
-import { measureWebBudget } from "../../scripts/testing/measure-web-budget.ts";
+import { accumulationPopulation, measureWebBudget } from "../../scripts/testing/measure-web-budget.ts";
 import { engineConfigDocumentPath } from "../../engine/src/kernel/config.ts";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { resetServerConfig } from "../../server/kernel/config.ts";
@@ -905,6 +905,13 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
     // The LIVE population, not a frozen literal: re-basing the declaration
     // must not make this assertion pin the old tree.
     expect(report.declared.derivedAtTestFileCount).toBe(fullRunModuleCount());
+  });
+
+  test("the TOOL generates the accumulation population: current when it equals the live count, drifted on check, written on write", () => {
+    expect(accumulationPopulation(534, 534, false)).toBe("current");
+    expect(accumulationPopulation(534, 534, true)).toBe("current");
+    expect(accumulationPopulation(534, 535, false)).toBe("drifted");
+    expect(accumulationPopulation(536, 535, true)).toBe("write");
   });
 
   test("the TOOL writes only the document it measured: a HARNESS_CONFIG_PATH elsewhere is refused before any write (WF-1b3b design LOW 12)", () => {
