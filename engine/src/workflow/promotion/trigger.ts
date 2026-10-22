@@ -10,7 +10,7 @@
  *    declares (the profile lives on the source, so no machine setting and no
  *    second list) whose source is `refs/heads/<branch>`, whose remote is
  *    `<remote>` and whose trigger is `on-source-publish`.
- * 3. Each one not already carrying that commit (its last `Promoted-From`)
+ * 3. Each one not already carrying that commit (its last `Projected-From`)
  *    starts ONE unattended `apply --profile <p> --source <commit> --auto` in
  *    the background ({@link launchUnattendedApply}). A hold is never decided
  *    here: the local hold ref is only a mirror, so the run itself reads the
@@ -124,7 +124,7 @@ export function autoPromotion(
         notices.push(`promotion ${profile.name}: ${promotionState(last)} — ${last.result.code} (${last.result.message.split("\n")[0]!}); run: ${ROOT_POLICY.protocol.harnessCommand} promote status --profile ${profile.name}`);
       }
       const target = targetTip(context.repository, profile);
-      const reason = target !== null && profileHistory(context.repository, target, profile.name)[0]?.trailers.promotedFrom === commit ? "up to date" : null;
+      const reason = target !== null && profileHistory(context.repository, target, profile.name)[0]?.trailers.projectedFrom === commit ? "up to date" : null;
       if (reason !== null) {
         skipped.push({ profile: profile.name, source: commit, reason });
         auditEvent("promotion.trigger", { profile: profile.name, kind: "skipped", source: commit, reason });
