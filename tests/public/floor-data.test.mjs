@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildAtlas } from "../../scripts/floor/atlas.mjs";
+import { buildAtlas, readInventory } from "../../scripts/floor/atlas.mjs";
 import { assembleFloorSite } from "../../scripts/floor/site.mjs";
 import { buildStatus } from "../../scripts/floor/status.mjs";
 import { buildPromotionReceipt, verdictOutput } from "../../scripts/promotion-gate.mjs";
@@ -21,7 +21,8 @@ function readJson(path) {
 
 test("the floor atlas reconciles its generated counts with tracked sources", () => {
   const atlas = buildAtlas({ testingRoot: ROOT });
-  const inventory = readJson("engine/traceability/s1-test-inventory.json");
+  // The inventory is a cache of the tree, not committed (#221): its owner answers it.
+  const inventory = readInventory(ROOT).data;
   const dispositions = readJson("engine/traceability/test-surface-dispositions.json");
 
   assert.equal(atlas.schemaVersion, "bridlewise-floor-atlas/v1");

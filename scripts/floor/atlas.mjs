@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -53,9 +55,17 @@ function readDispositions(root) {
   return { file, entries };
 }
 
-function readInventory(root) {
+/**
+ * The engine's test inventory, from its one owner. It is a cache of the tree,
+ * not committed (#221), so the atlas asks the generator for the tree's own
+ * (`engine/scripts/test-inventory.ts --print`, about 2.5 s, nothing written):
+ * the counts are the tree's, never a stale cache's.
+ */
+export function readInventory(root) {
   const file = join(root, "engine/traceability/s1-test-inventory.json");
-  const data = readJson(file);
+  const data = JSON.parse(execFileSync(process.execPath, [join(root, "engine/scripts/test-inventory.ts"), "--print"], {
+    cwd: join(root, "engine"), encoding: "utf8", maxBuffer: ROOT_POLICY.verification.testDiscovery.maximumInventoryBytes, stdio: ["ignore", "pipe", "inherit"],
+  }));
   if (!Array.isArray(data.tests) || !Array.isArray(data.scope?.canonicalNodeSourceIds)) {
     throw new Error("s1-test-inventory.json has an unexpected schema");
   }

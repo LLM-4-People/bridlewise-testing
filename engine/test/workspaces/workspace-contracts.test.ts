@@ -25,7 +25,6 @@ import {
   type UnsignedMergeReceipt,
   type WorkspaceRecord,
 } from "../../src/workflow/workspace-contracts.ts";
-import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 
 /** Matches a HarnessError by its typed code. */
 function throwsCode(code: string): (error: unknown) => boolean {
@@ -229,7 +228,6 @@ test("canonicalizeWriteSetPath rejects traversal and absolute paths", () => {
 
 test("assertLeasableWriteSet refuses the wholly generated outputs (derived) and never-source segments", () => {
   for (const path of [
-    `engine/${VERIFICATION_PATHS.testInventory}`,
     "engine/src/architecture-manifest.ts",
     "engine/traceability/config-document-schema.json",
     "engine/src",
