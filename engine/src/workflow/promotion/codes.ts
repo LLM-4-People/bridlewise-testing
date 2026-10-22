@@ -57,7 +57,7 @@ export const PROMOTION_CODES = deepFreeze({
   promotion_hold_set: { class: "ok", remedy: "Automatic promotion is paused for this profile until `release-hold --reason <text>`." },
   promotion_hold_released: { class: "ok", remedy: "Automatic promotion resumes at the next source publication (or run `apply`)." },
   promotion_not_held: { class: "ok", remedy: "Nothing to release: no hold is set for this profile." },
-  promotion_usage: { class: "input", remedy: "Run `harness promote <status|plan|explain|apply|rollback|hold|release-hold|auto> [--profile <name>] [--source <rev>]` (apply: `--no-publish`, `--no-push`, `--accept-target-edits <path>… --reason <text>`, `--allow-deletions --reason <text>`, `--release-hold --reason <text>`, `--auto`; rollback: `--to <promotion commit> --reason <text>`; hold and release-hold: `--reason <text>`; auto: `--refs <refs>`)." },
+  promotion_usage: { class: "input", remedy: "Run `harness promote <status|plan|explain|apply|forge-publish|rollback|hold|release-hold|auto> [--profile <name>] [--source <rev>]` (apply: `--no-publish`, `--no-push`, `--accept-target-edits <path>… --reason <text>`, `--allow-deletions --reason <text>`, `--release-hold --reason <text>`, `--auto`; rollback: `--to <promotion commit> --reason <text>`; hold and release-hold: `--reason <text>`; auto: `--refs <refs>`; forge-publish: `--out <file>`)." },
   promotion_profile_missing: { class: "input", remedy: "Add the profile `<profile directory>/<name>.json` on the source branch (see promotion/README.md), or name an existing one with --profile." },
   promotion_profile_invalid: { class: "input", remedy: "Fix the profile on the source branch: the JSON pointer names the field and the rule it breaks." },
   promotion_source_missing: { class: "input", remedy: "Name a source revision that exists (--source <rev>), or create the profile's source branch." },
@@ -110,6 +110,13 @@ export const PROMOTION_CODES = deepFreeze({
   promotion_git_errored: { class: "errored", remedy: "None: a git step of the landing was ended by the environment (its ceiling, a signal, a full disk); run it again later (`workspaceGit.timeouts` bounds each step)." },
   promotion_git_failed: { class: "integrity", remedy: "Stop and keep the evidence: a git step of the landing refused (its operation and words are named, the candidate is kept); report it, never publish it." },
   promotion_pending_conflict: { class: "integrity", remedy: "Stop and keep the evidence: another run pinned the pending ref while this one held the target's lock; report it, never publish either commit." },
+  promotion_forge_published: { class: "ok", remedy: "Attest the projection receipt (its digest is the attestation's subject); the product branch on the forge is the published commit." },
+  promotion_forge_nothing_pending: { class: "precondition", remedy: "Build the promotion in this job first (`harness promote apply --no-publish`): forge-publish carries the profile's pending commit." },
+  promotion_forge_target_moved: { class: "precondition", remedy: "Another publication landed on the product branch since this promotion was built: run the publish job again; it rebuilds on the new head." },
+  promotion_source_unproven_commit: { class: "integrity", remedy: "Stop and keep the evidence: the pending commit is not a promotion commit (no Projected-From or Promotion-Profile trailer, or parents other than [product tip, source]); never publish it." },
+  promotion_forge_refused: { class: "precondition", remedy: "The forge refused the publication (the forge code and remedy are named): fix the publisher App's permission or the repository's rules, then run the job again." },
+  promotion_forge_errored: { class: "errored", remedy: "None: the forge failed or a budget is spent (the forge code says which, and when to resume); run the job again later — nothing was published, or the next run finds the branch moved and rebuilds." },
+  promotion_forge_mismatch: { class: "integrity", remedy: "Stop and keep the evidence: the forge stored or signed something other than the built commit (a blob, the tree, an unverified commit, or a branch not at the published commit); report it with the request ids." },
   promotion_unexpected: { class: "integrity", remedy: "Stop and keep the evidence: the landing ended on an error no code names (its message is given, the candidate is kept); report it." },
 } satisfies Record<string, CodeEntry>);
 

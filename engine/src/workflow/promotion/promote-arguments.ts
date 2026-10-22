@@ -12,6 +12,7 @@
  *   apply        [--profile <name>] [--source <rev>] [--no-publish] [--no-push] [--auto]
  *                [--accept-target-edits <path>… --reason <text>] [--allow-deletions --reason <text>]
  *                [--release-hold --reason <text>]
+ *   forge-publish [--profile <name>] --out <file>
  *   rollback     [--profile <name>] --to <promotion commit> --reason <text>
  *   hold         [--profile <name>] --reason <text>
  *   release-hold [--profile <name>] --reason <text>
@@ -27,7 +28,7 @@
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { PromotionError } from "./codes.ts";
 
-const PROMOTION_VERBS = deepFreeze(["status", "plan", "explain", "apply", "rollback", "hold", "release-hold", "auto"] as const);
+const PROMOTION_VERBS = deepFreeze(["status", "plan", "explain", "apply", "forge-publish", "rollback", "hold", "release-hold", "auto"] as const);
 export type PromotionVerb = typeof PROMOTION_VERBS[number];
 
 /**
@@ -53,6 +54,8 @@ export type PromotionRequest = Readonly<{
   reason?: string;
   to?: string;
   refs?: string;
+  /** `forge-publish`: where the projection receipt is written. */
+  out?: string;
 }>;
 
 function isPromotionVerb(value: string | undefined): value is PromotionVerb {
@@ -77,6 +80,7 @@ export function parsePromoteArguments(argv: readonly string[]): PromotionRequest
   let reason: string | undefined;
   let to: string | undefined;
   let refs: string | undefined;
+  let out: string | undefined;
   let acceptTargetEdits: string[] | undefined;
   const flags = new Set<string>();
   const paths: string[] = [];
@@ -94,6 +98,7 @@ export function parsePromoteArguments(argv: readonly string[]): PromotionRequest
     else if (argument === "--reason" && (verb === "apply" || REASONED_VERBS.has(verb))) reason = value();
     else if (argument === "--to" && verb === "rollback") to = value();
     else if (argument === "--refs" && verb === "auto") refs = value();
+    else if (argument === "--out" && verb === "forge-publish") out = value();
     else if (argument === "--accept-target-edits" && verb === "apply") {
       acceptTargetEdits = [];
       while (argv[index + 1] !== undefined && !argv[index + 1]!.startsWith("--")) acceptTargetEdits.push(argv[++index]!);
@@ -103,6 +108,7 @@ export function parsePromoteArguments(argv: readonly string[]): PromotionRequest
   }
   if (verb === "explain" && paths.length === 0) throw new PromotionError("promotion_usage", "explain needs at least one path");
   if (verb === "rollback" && to === undefined) throw new PromotionError("promotion_usage", "rollback needs --to <promotion commit>");
+  if (verb === "forge-publish" && out === undefined) throw new PromotionError("promotion_usage", "forge-publish needs --out <file> (the projection receipt the job attests)");
   if (verb === "auto" && refs === undefined) throw new PromotionError("promotion_usage", "auto needs --refs <the moved refs> (the trigger hook's entry)");
   if (flags.has("--auto") && (flags.has("--release-hold") || acceptTargetEdits !== undefined || flags.has("--allow-deletions"))) {
     throw new PromotionError("promotion_usage", "an unattended run (--auto) takes no override: overrides are a person's decision");
@@ -131,6 +137,7 @@ export function parsePromoteArguments(argv: readonly string[]): PromotionRequest
     ...(reason === undefined ? {} : { reason }),
     ...(to === undefined ? {} : { to }),
     ...(refs === undefined ? {} : { refs }),
+    ...(out === undefined ? {} : { out }),
   });
 }
 
@@ -150,6 +157,7 @@ export function formatPromoteArguments(request: PromotionRequest): readonly stri
     ...(request.releaseHold === true ? ["--release-hold"] : []),
     ...(request.to === undefined ? [] : ["--to", request.to]),
     ...(request.refs === undefined ? [] : ["--refs", request.refs]),
+    ...(request.out === undefined ? [] : ["--out", request.out]),
     ...(request.reason === undefined ? [] : ["--reason", request.reason]),
     ...(request.paths ?? []),
   ]);

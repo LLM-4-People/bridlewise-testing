@@ -54,6 +54,7 @@ import type { PromotionRequest } from "./promote-arguments.ts";
 import { engineRelativeIn, promoterPlacement, runInPromoterHome, type PromoterPlacement } from "./promoter-home.ts";
 import { branchOf, loadPromotionProfiles, parsePromotionProfile, profileCommandNames, selectPromotionProfile, type LoadedPromotionProfile } from "./profile.ts";
 import { classifyTree, explainPaths, planPromotion, projectSource, type PromotionPlan } from "./projection.ts";
+import { configuredProductForge, forgePublishVerb } from "../forge/publish/product.ts";
 import { profileHistory, profileOfTrailer, trailerHistory } from "./trailers.ts";
 
 /** The configuration a promotion reads: the command registry, the profile directory, the git it runs, the runner's retry policy and the lock wait. */
@@ -367,6 +368,10 @@ export function promotionAuto(root: string, refs: string, document: PromotionDoc
 async function verbAnswer(root: string, request: PromotionRequest, document: PromotionDocument | undefined, launch: UnattendedLaunch): Promise<PromotionAnswer> {
   if (request.verb === "auto") return promotionAuto(root, request.refs ?? "", document, launch);
   const repository = resolveRepositoryContext(root, document);
+  if (request.verb === "forge-publish") {
+    const loaded = selectPromotionProfile(declaredProfiles(repository), request.profile, `HEAD:${repository.profileDirectory}`);
+    return forgePublishVerb({ local: repository.repository, loaded, out: request.out!, forge: configuredProductForge() });
+  }
   const context = contextFor(repository, request.profile, request.source);
   if (request.verb === "status") return promotionStatus(context);
   if (request.verb === "apply" || request.verb === "rollback") return promotionBuild(context, request, (profile, source) => contextFor(repository, profile, source), launch);

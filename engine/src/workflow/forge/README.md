@@ -36,6 +36,7 @@ prompt and held in memory.
 
 - `forge-config.ts` — THE `forge` CONFIGURATION SECTION (spliced into the config document by `src/kernel/config-contracts.ts`): the organisation, the API and web origins, the request bounds (timeout, body size, cleanup, ETag cache entries, page bound), the token renewal margin and the repository topology (name, `kind`, visibility, the proving ground; exactly one trunk); `forgeEndpoint`, `trunkRepository`, `repositoriesOfKinds`. No default in code; it imports no configuration reader (the kernel imports it).
 - `configured-forge.ts` — THE ONE READER of the section (`configuredForge`, or `forge_not_configured`) and `configuredForgeClient(credential)`: every entry point that talks to GitHub builds its client here.
+- `publish/` — the publisher App's work on the port: the Git Data API (`git-data.ts`: a local commit re-made as a commit GitHub signs, a branch moved only forward) and the product publication (`product.ts`: `harness promote forge-publish`, the projection receipt). Its README says what the publish job runs.
 - `repository-reads.ts` — the floor's GitHub reads on the port (it replaced `scripts/floor/github.mjs`, a second client): `workflowRuns`, `latestByWorkflow`, `countOpenAlerts` (the declared population from a one-per-page probe's `rel="last"`, every page checked, a truncated population reported incomplete), `listReleases`, and `readFailureCode` (the status page's words for a typed refusal). Used by `scripts/floor/status.mjs`, `scripts/build-floor-data.mjs` and `scripts/promotion-gate.mjs`.
 
 ## Tests

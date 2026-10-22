@@ -37,6 +37,8 @@ export const FORGE_CODES = deepFreeze({
   forge_app_key_invalid: { class: "integrity", remedy: "The stored App record is unreadable or its key is not an RSA private key: recreate the key in the App's settings and store it again with `harness forge apps create`." },
   forge_token_unavailable: { class: "refused", remedy: "Provide the token the way the credential names (an environment variable set by the workflow, or the maintainer's prompt); it is never read from a file." },
   forge_token_scope_mismatch: { class: "integrity", remedy: "GitHub minted a token with permissions or repositories other than those asked: compare the App's installed permissions with the registry (`harness forge audit`) and stop until they agree." },
+  forge_branch_moved: { class: "refused", remedy: "The branch moved on the forge since it was read (another publication landed first): re-run the job; it rebuilds on the new head." },
+  forge_publication_mismatch: { class: "integrity", remedy: "Stop and keep the evidence: the forge stored or signed something other than the built object (a blob, the tree, an unverified commit, or a branch not at the published commit); report it with the request ids, never publish over it." },
   github_unauthorized: { class: "refused", remedy: "The credential was refused (401): it is expired, revoked or malformed. Mint a new App token or provide a valid one." },
   github_forbidden: { class: "refused", remedy: "GitHub refused the action for this principal (403): grant the App the permission the registry declares for it, or use the principal that holds it." },
   github_not_found: { class: "refused", remedy: "GitHub answered 404: the object does not exist, or this principal cannot see it (an App not installed on the repository answers 404 too)." },
