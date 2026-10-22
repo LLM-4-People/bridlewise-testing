@@ -966,7 +966,9 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
       assertAbsolutePath(request.cwd, "cwd");
       if (request.message.includes("\0")) throw new InputError("commit message must not contain NUL", "worktree_argument_invalid");
       const made = run("commit", {
-        args: ["-c", "gc.auto=0", "-C", request.cwd, "commit", "-q", "-m", request.message],
+        // Signed off by the committer the commit records: the repository's commit-msg hook refuses any commit
+        // without its committer's sign-off (the DCO, scripts/verification/sign-off.ts), a landing included.
+        args: ["-c", "gc.auto=0", "-C", request.cwd, "commit", "-q", "--signoff", "-m", request.message],
         cwd: request.cwd,
         timeoutMs: request.timeoutMs,
         allowedExitCodes: [0],
