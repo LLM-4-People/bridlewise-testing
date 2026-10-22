@@ -4251,7 +4251,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workflow-config", path: "src/workflow/workflow-config.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 43, namesSha256: "7bf109802abe058ee36fe0f2bb23a062ca98c292a7ca3001be4896ddff359cdb" },
+      owner: "verification-workflow", publicApi: { exportCount: 40, namesSha256: "933f372a55de73c19cd0cd4155c189ea3760767973a79ab9841560171b70f5b9" },
       dependencies: ["src/kernel/errors.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
@@ -5062,7 +5062,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-process-process-facts", path: "src/process/process-facts.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 42, namesSha256: "43dc2f6bb89192d45abb16c6a378cfa933b31809adea11415280cf989ef22fe2" },
+      owner: "process-infrastructure", publicApi: { exportCount: 44, namesSha256: "2ed71464f8b86f5154f9b86c3f3b492b125acc5321df00f37024e88ddd352829" },
       dependencies: ["node:fs","node:path","src/kernel/errors.ts","src/kernel/root-policy.ts","src/shared/debug/debug-system.ts"],
     }),
     moduleContract({
@@ -5690,7 +5690,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-process-subprocess-bounds", path: "src/process/subprocess-bounds.ts", realm: "shared", layer: "infrastructure",
       owner: "process-infrastructure", publicApi: { exportCount: 4, namesSha256: "574ac55bd3e8eabaab90dff123ce6ddd21e49de033699e94f0c681c07b206f02" },
-      dependencies: ["node:child_process","node:fs"],
+      dependencies: ["node:child_process","src/process/process-facts.ts"],
     }),
   ],
 });

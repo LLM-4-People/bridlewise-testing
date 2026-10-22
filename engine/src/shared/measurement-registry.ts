@@ -311,6 +311,7 @@ export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Objec
   "src/state/chat-messages.ts::settleHydratedRunningToolCalls": "settles hydrated running tool calls; a state repair, not a measurement",
   "engine/src/process/process-facts.ts::startWallTimeMsOf": "reads a process start stamp for the instrument lock's identity; identity, not a duration",
   "engine/src/process/process-facts.ts::processIdentity": "assembles the process's identity for the instrument lock; identity, not a measurement",
+  "engine/src/process/subprocess-bounds.ts::limitOwnCpu": "puts this process under the CPU-time limit and reads back the limit in force (/proc/self/limits); a bound being set, not a measured quantity",
   "server/observability/metrics-recorder.ts::recordLlmCall": "records one LLM call into the metrics collector; a recording hook, not a computed quantity",
   "server/observability/metrics-recorder.ts::recordToolCall": "records one tool call into the metrics collector; a recording hook, not a computed quantity",
 });

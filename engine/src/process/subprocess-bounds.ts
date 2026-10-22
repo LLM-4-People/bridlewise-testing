@@ -24,7 +24,8 @@
  * status, the signal, and which bound fired. Never just "failed".
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+
+import { ownCpuTimeLimit } from "./process-facts.ts";
 
 /** How a subprocess is bounded: its CPU per process, and the one hang backstop. */
 export type SubprocessBounds = Readonly<{ cpuLimitSeconds: number; cpuKillGraceSeconds: number; hangBackstopMs: number }>;
@@ -54,9 +55,9 @@ export function limitOwnCpu(bounds: SubprocessBounds): string | null {
   const hard = bounds.cpuLimitSeconds + bounds.cpuKillGraceSeconds;
   const set = spawnSync("prlimit", ["--pid", String(process.pid), `--cpu=${String(soft)}:${String(hard)}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (set.error !== undefined || set.status !== 0) return `prlimit ${set.error !== undefined ? set.error.message : `exited ${String(set.status)}: ${set.stderr.trim()}`}`;
-  const line = readFileSync("/proc/self/limits", "utf8").split("\n").find((one) => one.startsWith("Max cpu time"));
-  const [, inForceSoft, inForceHard] = /^Max cpu time\s+(\S+)\s+(\S+)/u.exec(line ?? "") ?? [];
-  return inForceSoft === String(soft) && inForceHard === String(hard) ? null : `the CPU limit in force reads ${line ?? "nothing"}, not ${String(soft)}:${String(hard)} s`;
+  const inForce = ownCpuTimeLimit();
+  return inForce?.soft === String(soft) && inForce.hard === String(hard) ? null
+    : `the CPU limit in force reads ${inForce === undefined ? "nothing" : `${inForce.soft}:${inForce.hard}`}, not ${String(soft)}:${String(hard)} s`;
 }
 
 /** How a bounded run ended, in words: its status, the signal, and which bound fired. */
