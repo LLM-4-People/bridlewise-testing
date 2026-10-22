@@ -191,10 +191,12 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     fixtures: { positive: [["https://hooks.slack", ".com/services/T", "0A1B2C3D4", "/B", "5E6F7G8H9", "/", "aB1cD2eF3gH4iJ5kL6mN7oP8"]], negative: ["https://hooks.slack.com/services/T0A1B2C3D4"] },
     category: "credential", description: "Slack incoming webhook URL", admission: /https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]{8,}\/B[A-Z0-9]{8,}\/[A-Za-z0-9]{24,}\b/u, classification: /https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]{8,}\/B[A-Z0-9]{8,}\/[A-Za-z0-9]{24,}\b/u },
   // GitHub has no secret type for a Discord webhook URL (only the bot token).
+  // The credential is the host and path (id + token); the scheme is not part of
+  // it, so the patterns start at the host and also catch `http://` or bare forms.
   { id: "discord-webhook-url",
-    github: { kind: "custom", pattern: "https://(?:ptb\\.|canary\\.)?discord(?:app)?\\.com/api/webhooks/[0-9]{17,20}/[A-Za-z0-9_-]{60,68}" }, treeScan: true,
+    github: { kind: "custom", pattern: "(?:ptb\\.|canary\\.)?discord(?:app)?\\.com/api/webhooks/[0-9]{17,20}/[A-Za-z0-9_-]{60,68}" }, treeScan: true,
     fixtures: { positive: [["https://discord", ".com/api/webhooks/", "123456789012345678", "/", "Wq3-Er5_Ty7".repeat(6)]], negative: ["https://discord.com/api/webhooks/123"] },
-    category: "credential", description: "Discord webhook URL", admission: /https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/[0-9]{17,20}\/[A-Za-z0-9_-]{60,68}/u, classification: /https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/[0-9]{17,20}\/[A-Za-z0-9_-]{60,68}/u },
+    category: "credential", description: "Discord webhook URL", admission: /(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/[0-9]{17,20}\/[A-Za-z0-9_-]{60,68}/u, classification: /(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/[0-9]{17,20}\/[A-Za-z0-9_-]{60,68}/u },
   { id: "aws-access-key",
     github: { kind: "provider", secretTypes: ["aws_access_key_id"] }, treeScan: true,
     fixtures: { positive: [["AK", "IA", "Q7XZ".repeat(4)]], negative: ["AKIA123"] },
