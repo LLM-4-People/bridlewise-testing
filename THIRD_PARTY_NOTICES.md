@@ -55,4 +55,4 @@ If you need to redistribute any excluded material, obtain it from its upstream o
 
 ## Fonts
 
-The cockpit self-hosts IBM Plex Sans and IBM Plex Mono (Copyright © 2017 IBM Corp., Reserved Font Name "Plex"), licensed under the SIL Open Font License 1.1. The files are the unmodified variable Latin-1 subsets of IBM's releases `@ibm/plex-sans-variable@0.2.0` and `@ibm/plex-mono-variable@1.0.0` (<https://github.com/IBM/plex/releases>), vendored in `public/fonts/` with the licence text in `public/fonts/OFL.txt`.
+The cockpit self-hosts IBM Plex Sans and IBM Plex Mono (Copyright © 2017 IBM Corp., Reserved Font Name "Plex"), licensed under the SIL Open Font License 1.1. The files are the unmodified variable Latin-1 subsets of IBM's releases `@ibm/plex-sans-variable@0.2.0` and `@ibm/plex-mono-variable@1.0.0` (<https://github.com/IBM/plex/releases>), vendored in `public/fonts/` with the licence text in `public/fonts/OFL.txt`. They come from the npm releases of those packages; `public/fonts/fonts.lock.json` pins each file's digest and the registry integrity of its package, and `node scripts/vendor-fonts.ts --verify-upstream` proves the files are byte-identical to IBM's.

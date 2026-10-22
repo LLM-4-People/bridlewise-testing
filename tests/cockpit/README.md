@@ -10,6 +10,7 @@ The `tests/cockpit/` folder of the development surface.
 - `artifact-containment.test.ts` — @vitest-environment jsdom.
 - `artifact-runtime-errors.test.ts` — @vitest-environment jsdom.
 - `boot-waves-owner.test.ts` — @vitest-environment node.
+- `brand-mark-owner.test.ts` — @vitest-environment node. One geometry, one palette: `Brand.svelte` paints every part from `brand-mark.ts`, the icon generator restates no colour, and no other file copies the mark's geometry (planted violations and near-misses).
 - `canvas-release-on-hide.test.ts` — @vitest-environment jsdom.
 - `cockpit-boot-owner.test.ts` — @vitest-environment jsdom.
 - `cockpit-chart-owner.test.ts` — @vitest-environment jsdom.
