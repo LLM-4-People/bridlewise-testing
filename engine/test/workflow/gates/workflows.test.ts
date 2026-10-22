@@ -27,14 +27,13 @@ import {
   ciWorkflow,
   failureIssueWorkflow,
   forkSafetyViolations,
-  promotionGateWorkflow,
   reusableFailureWorkflow,
   codeqlWorkflow,
   GENERATED_HEADER,
   GENERATED_WORKFLOW_PATHS,
   lintWorkflow,
   lintWorkflowSet,
-  publishWorkflow,
+  pagesWorkflow,
   syncGeneratedWorkflows,
   workflowText,
 } from "../../../src/workflow/gates/workflows.ts";
@@ -110,7 +109,7 @@ test("a tree with no workflow folder is stale (the folder is never an opt-out), 
 });
 
 test("every generated workflow passes the lint", () => {
-  for (const [name, build] of [["ci.yml", ciWorkflow], ["codeql.yml", codeqlWorkflow], ["publish.yml", publishWorkflow], ["audit.yml", auditWorkflow]] as const) {
+  for (const [name, build] of [["ci.yml", ciWorkflow], ["codeql.yml", codeqlWorkflow], ["pages.yml", pagesWorkflow], ["audit.yml", auditWorkflow]] as const) {
     assert.doesNotThrow(() => lintWorkflow(name, build()), name);
   }
 });
@@ -191,9 +190,12 @@ test("ci.yml: plan and seal run the harness on a VM (never the slim container); 
   assert.equal(compiler?.if, undefined, "every cell builds the runner's supervisor with the pinned compiler");
 });
 
-test("publish.yml queues every land and never cancels; codeql covers the three languages with security-extended", () => {
-  const publish = publishWorkflow() as Mutable;
-  assert.deepEqual(publish.concurrency, { group: "publish-main", queue: "max" });
+test("pages.yml deploys from main alone in a queue that never cancels; codeql covers the three languages with security-extended", () => {
+  const pages = pagesWorkflow() as Mutable;
+  const deploy = (pages.jobs as Record<string, Mutable>).deploy!;
+  assert.deepEqual(deploy.concurrency, { group: "pages-deploy", queue: "max", "cancel-in-progress": false });
+  assert.match(String(deploy.if), /github\.ref == 'refs\/heads\/main'/u);
+  assert.ok("pull_request" in (pages.on as Mutable) && "merge_group" in (pages.on as Mutable), "every pull request builds the site");
   const codeql = codeqlWorkflow() as Mutable;
   const analyze = (codeql.jobs as Record<string, Mutable>).analyze!;
   const languages = ((analyze.strategy as Mutable).matrix as { include: readonly Mutable[] }).include.map((cell) => cell.language);
@@ -212,24 +214,19 @@ test("every command the catalogue runs is declared in the live command registry 
 });
 
 test("no two generated workflows share a concurrency group prefix (one would cancel the other's runs)", () => {
-  assert.doesNotThrow(() => lintWorkflowSet({ "ci.yml": ciWorkflow(), "codeql.yml": codeqlWorkflow(), "publish.yml": publishWorkflow(), "audit.yml": auditWorkflow() }));
+  assert.doesNotThrow(() => lintWorkflowSet({ "ci.yml": ciWorkflow(), "codeql.yml": codeqlWorkflow(), "pages.yml": pagesWorkflow(), "audit.yml": auditWorkflow() }));
   assert.throws(() => lintWorkflowSet({ "ci.yml": ciWorkflow(), "copy.yml": ciWorkflow() }), refusedWith("workflow_lint_refused"));
 });
 
-test("the failure reporter watches every generated workflow by name, and the promotion gate splices no input into its script (#67 takes over main's hand-written ones)", () => {
+test("the failure reporter watches every generated workflow by name (#67 takes over main's hand-written one)", () => {
   const issue = failureIssueWorkflow() as Mutable;
   const watched = ((issue.on as Mutable).workflow_run as Mutable).workflows as string[];
-  assert.deepEqual(watched, [ciWorkflow(), codeqlWorkflow(), publishWorkflow(), auditWorkflow()].map((workflow) => (workflow as Mutable).name), "derived from the generated set, never a hand list");
+  assert.deepEqual(watched, [ciWorkflow(), codeqlWorkflow(), pagesWorkflow(), auditWorkflow()].map((workflow) => (workflow as Mutable).name), "derived from the generated set, never a hand list");
   assert.equal(((issue.jobs as Mutable).report as Mutable).uses, "./.github/workflows/reusable-workflow-failure.yml");
   const reporter = reusableFailureWorkflow() as Mutable;
   assert.deepEqual(Object.keys(reporter.on as Mutable), ["workflow_call"]);
   assert.equal(reporter.concurrency, undefined, "a reusable workflow runs in its caller's group");
-  const gate = promotionGateWorkflow() as Mutable;
-  const steps = ((gate.jobs as Mutable).gate as Mutable).steps as Mutable[];
-  const evaluate = steps.find((step) => step.id === "gate")!;
-  assert.doesNotMatch(String(evaluate.run), /\$\{\{/u, "the caller's inputs reach the script as environment data");
-  assert.equal((evaluate.env as Mutable).PRODUCT_SHA, "${{ inputs.product_sha }}");
-  for (const [name, build] of [["workflow-failure-issue.yml", failureIssueWorkflow], ["reusable-workflow-failure.yml", reusableFailureWorkflow], ["promotion-gate.yml", promotionGateWorkflow]] as const) {
+  for (const [name, build] of [["workflow-failure-issue.yml", failureIssueWorkflow], ["reusable-workflow-failure.yml", reusableFailureWorkflow]] as const) {
     assert.doesNotThrow(() => lintWorkflow(name, build()), name);
   }
 });

@@ -1,6 +1,5 @@
 ---
 layout: default
-floor_assets: true
 page_class: article
 title: "Roadmap: build the floor"
 description: "A milestone roadmap for the Bridlewise development floor: what shipped, what is in progress, what is planned but not done, and the evidence behind each status."
@@ -56,7 +55,7 @@ Every tracked workstream or exit criterion, ordered by horizon. The plan below c
 | later | **Measured scale and performance envelope** | [M3](#m3--product-hardening) | in progress | performance | [evidence: performance-probe](evidence.md#performance-probe) |
 | later | **Accessibility and responsive behavior as tested contracts** | [M3](#m3--product-hardening) | planned | web | [evidence: what-none-of-this-proves](evidence.md#what-none-of-this-proves) |
 | later | **A stable extension surface with compatibility notes** | [M3](#m3--product-hardening) | planned | engine extension | [extending](../extending.md) |
-| later | **Issue lanes with evidence requirements and a named next action** | [M4](#m4--sustainable-contribution) | planned | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
+| later | **Issue lanes with evidence requirements and a named next action** | [M4](#m4--sustainable-contribution) | planned | maintainers | [GitHub]({{ site.repository_url }}/issues) |
 
 <!-- END GENERATED: roadmap summary -->
 
@@ -85,7 +84,7 @@ This is the dated public-baseline audit. It is a point-in-time record, not a liv
 | Full-suite time | The 10-shard `ubuntu-24.04` receipt at `d47909de` measured `testPhaseMs` 86.7s and `testPhaseCpuMs` 636.8s: 2.81x the 244.0s single-host supported run. The 10x line is not met on this runner class. This row records that audit; later receipts, including the re-measured shard weights, are on the status page |
 | Readiness | Pre-admission. `preflight` reports `harnessReady: false` |
 | Security review | None |
-| Contribution path | Documented in [How to help]({{ '/floor/help/' | relative_url }}) and [CONTRIBUTING.md](https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md) |
+| Contribution path | Documented in [How to help]({{ '/floor/help/' | relative_url }}) and [CONTRIBUTING.md](../../CONTRIBUTING.md) |
 
 The snapshot is dated by the [status page]({{ '/floor/status/' | relative_url }}) and the [atlas]({{ '/floor/atlas/' | relative_url }}). This page names the direction; those pages carry the generated evidence.
 
@@ -110,7 +109,7 @@ A milestone is not "done" because a page says so. It is done when the exit crite
 - A promotion gate that reads runs at the exact commit, waits for in-flight checks, and emits a receipt.
 - `v0.0.3-preview`, published through the gate with checksums and attestations.
 
-**Evidence:** [Floor status]({{ '/floor/status/' | relative_url }}) · [Evidence commands]({{ '/floor/evidence/' | relative_url }}) · [Promotion contract]({{ '/floor/promotion/' | relative_url }}) · [Release](https://github.com/LLM-4-People/bridlewise/releases/tag/v0.0.3-preview)
+**Evidence:** [Floor status]({{ '/floor/status/' | relative_url }}) · [Evidence commands]({{ '/floor/evidence/' | relative_url }}) · [Promotion contract]({{ '/floor/promotion/' | relative_url }}) · [Release]({{ site.repository_url }}/releases/tag/v0.0.3-preview)
 
 ---
 
@@ -417,7 +416,7 @@ The machine-readable owner of this section is the ROADMAP-PLAN block immediately
       "state": "planned",
       "owner": "maintainers",
       "exit": "Every open issue names the evidence it needs or the decision it waits on.",
-      "evidence": "https://github.com/LLM-4-People/bridlewise-testing/issues",
+      "evidence": "{{ site.repository_url }}/issues",
       "source": "M4 workstream 2, existing roadmap; lives on GitHub, not in this tree",
       "horizon": "later"
     },
@@ -438,7 +437,7 @@ The machine-readable owner of this section is the ROADMAP-PLAN block immediately
       "state": "shipped",
       "owner": "maintainers",
       "exit": "The review guide asks for the reproduction, the prevention guard and the evidence, not only a green run.",
-      "evidence": "https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md",
+      "evidence": "../../CONTRIBUTING.md",
       "source": "M4 workstream 4, existing roadmap"
     },
     {
@@ -650,7 +649,7 @@ The machine-readable owner of this section is the ROADMAP-PLAN block immediately
       "title": "Every open issue names its missing evidence",
       "state": "planned",
       "owner": "maintainers",
-      "evidence": "https://github.com/LLM-4-People/bridlewise-testing/issues",
+      "evidence": "{{ site.repository_url }}/issues",
       "source": "M4 exit criterion 2, existing roadmap; judged on GitHub, not in this tree",
       "exit": "Every open issue states what evidence is missing or what decision is needed."
     },
@@ -660,7 +659,7 @@ The machine-readable owner of this section is the ROADMAP-PLAN block immediately
       "title": "The roadmap and issue labels agree",
       "state": "planned",
       "owner": "maintainers",
-      "evidence": "https://github.com/LLM-4-People/bridlewise-testing/issues",
+      "evidence": "{{ site.repository_url }}/issues",
       "source": "M4 exit criterion 3, existing roadmap; judged on GitHub, not in this tree",
       "exit": "The roadmap and the issue labels agree about the current milestone."
     },
@@ -840,9 +839,9 @@ Each milestone group names its workstreams and exit criteria with the owner, sta
 | Workstream | State | Owner | Evidence |
 |---|---|---|---|
 | **A contributor hub distinct from the product home**<br>Exit: The floor has its own front door, separate from the product documentation mirror.<br>Source: M4 workstream 1, existing roadmap | shipped | docs | [index](../index.md) |
-| **Issue lanes with evidence requirements and a named next action**<br>Exit: Every open issue names the evidence it needs or the decision it waits on.<br>Source: M4 workstream 2, existing roadmap; lives on GitHub, not in this tree | planned | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
+| **Issue lanes with evidence requirements and a named next action**<br>Exit: Every open issue names the evidence it needs or the decision it waits on.<br>Source: M4 workstream 2, existing roadmap; lives on GitHub, not in this tree | planned | maintainers | [GitHub]({{ site.repository_url }}/issues) |
 | **A first-patch path for docs, tests, guards, benchmarks and portability**<br>Exit: Each contribution lane starts from a public command and a reviewable first step.<br>Source: M4 workstream 3, existing roadmap | shipped | docs | [help](help.md) |
-| **Review expectations that reward reproduction and prevention**<br>Exit: The review guide asks for the reproduction, the prevention guard and the evidence, not only a green run.<br>Source: M4 workstream 4, existing roadmap | shipped | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md) |
+| **Review expectations that reward reproduction and prevention**<br>Exit: The review guide asks for the reproduction, the prevention guard and the evidence, not only a green run.<br>Source: M4 workstream 4, existing roadmap | shipped | maintainers | [CONTRIBUTING](../../CONTRIBUTING.md) |
 | **A roadmap that records state and exit criteria instead of a wish list**<br>Exit: Every planned-but-not-done item is rendered from its owner, and a guard refuses a stale status block.<br>Source: M4 workstream 5, existing roadmap; this change | shipped | docs | [this page: workstreams-and-exit-criteria](#workstreams-and-exit-criteria) |
 
 **Exit criteria**
@@ -850,8 +849,8 @@ Each milestone group names its workstreams and exit criteria with the owner, sta
 | Exit criterion | State | Owner | Evidence |
 |---|---|---|---|
 | **A new contributor can install, run the public gate, pick a labeled issue, and open a reviewable change using only public instructions.**<br>Source: M4 exit criterion 1, existing roadmap; install and run are proved, the labeled-issue path is not | in progress | docs | [evidence: a-fresh-clone](evidence.md#a-fresh-clone) |
-| **Every open issue states what evidence is missing or what decision is needed.**<br>Source: M4 exit criterion 2, existing roadmap; judged on GitHub, not in this tree | planned | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
-| **The roadmap and the issue labels agree about the current milestone.**<br>Source: M4 exit criterion 3, existing roadmap; judged on GitHub, not in this tree | planned | maintainers | [GitHub](https://github.com/LLM-4-People/bridlewise-testing/issues) |
+| **Every open issue states what evidence is missing or what decision is needed.**<br>Source: M4 exit criterion 2, existing roadmap; judged on GitHub, not in this tree | planned | maintainers | [GitHub]({{ site.repository_url }}/issues) |
+| **The roadmap and the issue labels agree about the current milestone.**<br>Source: M4 exit criterion 3, existing roadmap; judged on GitHub, not in this tree | planned | maintainers | [GitHub]({{ site.repository_url }}/issues) |
 | **A documentation example is verified against the command output before it ships.**<br>Source: M4 exit criterion 4, existing roadmap; docs:links checks targets, not command output | in progress | docs | [evidence: docs-links](evidence.md#docs-links) |
 
 <!-- END GENERATED: roadmap workstreams and exit criteria -->

@@ -5,7 +5,7 @@ name: Report workflow failure
     workflows:
       - CI
       - CodeQL
-      - Publish
+      - Docs site
       - Audit
     types:
       - completed

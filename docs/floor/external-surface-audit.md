@@ -63,15 +63,17 @@ matcher was corrected in the guard. The guard passed after the two tree fixes.
   selector, not a version tag; the guard's patterns correctly do not treat it
   as a floating reference.
 - **Pages/Jekyll.** `actions/jekyll-build-pages` is SHA-pinned like the other
-  Pages actions. The assembler passes the resolved product commit to Jekyll as
-  `build_revision`. `scripts/floor/site.mjs` adds no `plugins:`, `gems:` or
-  `remote_theme:` key, so a floating gem cannot enter through this tree.
+  Pages actions, and the site's only source is this repository's `docs/`. The
+  workflow passes the built commit to Jekyll as `build_revision`. The tracked
+  `docs/_config.yml` loads only the declared plugin (`jekyll-sitemap`, shipped
+  inside the pinned action), and the builder (`scripts/build-site.mjs`,
+  `scripts/floor/site.mjs`) adds no `plugins:`, `gems:` or `remote_theme:`
+  key, so a floating gem cannot enter through this tree.
 
 ## Known unpinned surfaces (declared, owner named, not changed here)
 
 | Location | Surface | Why it is not digest/exact-pinned | Owner |
 | --- | --- | --- | --- |
-| `.github/workflows/pages.yml:42` | Product docs ref defaults to `main`. | The site mirrors the product documentation, so the ref follows `main` by design; the resolved commit is recorded as the Jekyll build revision. It is a content input, never a code-execution input. Declared in `knownExceptions`. | Pages workflow |
 | `.github/workflows/ci.yml:78`, `.github/workflows/test-shards.yml:138` | `gcc-14` installed from the runner's Ubuntu archive. | An exact apt version string is runner-image-specific and would drift with the provider's archive; the runner label plus the declared package name is the reproducible pin available to this tree. The compiler itself is declared once in `engine/guardian/Makefile`; both workflows install it and invoke that owner without a `CC=` literal. Declared in `knownExceptions`. | Guardian build owner (`engine/guardian/Makefile`) |
 | `.devcontainer/Dockerfile:6` | `build-essential` installed from the base image's archive. | Same reason; the digest-pinned base image plus the package name is the pin. Declared in `knownExceptions`. | Devcontainer |
 
@@ -91,7 +93,6 @@ progress. This audit does not edit `engine/src/shared/run-cpu.ts`,
 | `.github/workflows/docs-links.yml:21` | `timeout-minutes: 5`. | Same shape. |
 | `.github/workflows/pages.yml:26` | `timeout-minutes: 20`. | Same shape. |
 | `.github/workflows/pages.yml:93` | `timeout-minutes: 10`. | Same shape. |
-| `.github/workflows/promotion-gate.yml:42` | `timeout-minutes: 30`. | Same shape. |
 | `.github/workflows/reusable-workflow-failure.yml:15` | `timeout-minutes: 10`. | Same shape. |
 | `.github/workflows/scorecard.yml:18` | `timeout-minutes: 15`. | Same shape. |
 | `.github/workflows/secret-scan.yml:20` | `timeout-minutes: 5`. | Same shape. |
@@ -134,12 +135,11 @@ the caller-supplied `wait_seconds` input (a wait, not a measurement).
   both jobs record `--stamp` beside the diagnostic file digest in the job summary.
   Capturing either value into the qualification receipt itself (rather than the
   summary) is still open.
-- **The Jekyll config and plugin set are product-owned.** The Pages workflow
-  copies `_config.yml` from the product docs checkout at run time; this repo
-  cannot see the product's plugin set. The guard's reachable half is the
-  assembler prohibition above. If the product adds a plugin, the public floor
-  cannot mechanically verify its pin. This is the honest boundary of the
-  public tree, not a clean bill for the product's Jekyll gems.
+- **Closed: the Jekyll config and plugin set were product-owned.** The Pages
+  workflow used to copy `_config.yml` from the product repository at run time,
+  out of this tree's sight. The site is now built from this repository alone,
+  so the guard reads the tracked `docs/_config.yml` and refuses any plugin,
+  gem or theme the registry does not declare.
 - **The devcontainer feature digest was resolved from the registry but no
   devcontainer build was run in this task.** The reference syntax
   (`feature@sha256:…`) is the devcontainer/OCI pinning form; a reviewer should

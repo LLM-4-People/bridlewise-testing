@@ -18,8 +18,9 @@
  *   - `codeql.yml`: CodeQL advanced setup (JavaScript/TypeScript, Actions,
  *     C/C++; `security-extended`), on pull requests, the merge queue, `main`
  *     and weekly.
- *   - `publish.yml`: the Pages site, published on every land in land order
- *     (`queue: max`, never cancelled).
+ *   - `pages.yml`: the docs site, built on every pull request and land and
+ *     deployed from `main` only, serialised in commit order (`queue: max`,
+ *     never cancelled).
  *   - `audit.yml`: the scheduled audit (OpenSSF Scorecard).
  *
  * LINTS THE GENERATOR ENFORCES ON ITS OWN OUTPUT (`lintWorkflow`): every
@@ -52,7 +53,7 @@ import {
   type Toolchain,
 } from "./catalogue.ts";
 import { Commented, emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
-import { FAILURE_REPORT_SCRIPT, PROMOTION_GATE_SCRIPT } from "./workflow-scripts.ts";
+import { FAILURE_REPORT_SCRIPT } from "./workflow-scripts.ts";
 
 const WORKFLOW_DIRECTORY = GENERATED_WORKFLOW_FILES.directory;
 
@@ -319,16 +320,34 @@ export function codeqlWorkflow(): Workflow {
   };
 }
 
-/** The publisher: the Pages site on every land, in land order, never dropped. */
-export function publishWorkflow(): Workflow {
+/**
+ * The docs site (GH-5, P4.3): one Pages site built from this repository's
+ * `docs/` alone. Every pull request and merge-queue build checks the site and
+ * stops at the artifact; only `main` deploys, serialised and in commit order
+ * (`scripts/floor/deploy-order.mjs`). A refused deploy order is overridden
+ * only by a `supersede_published` dispatch that the `pages-override`
+ * environment's reviewer approves (runbook P6).
+ */
+export function pagesWorkflow(): Workflow {
   return {
-    name: "Publish",
+    name: "Docs site",
     on: {
       push: { branches: ["main"] },
-      workflow_dispatch: { inputs: { product_ref: { description: "Product docs revision to mirror", required: false, default: "main", type: "string" } } },
+      pull_request: {},
+      merge_group: {},
+      workflow_dispatch: {
+        inputs: {
+          supersede_published: {
+            description: "Only to recover a refused deploy (runbook P6): the exact commit the live site was built from, as the refusal names it, or 'unknown'",
+            required: false,
+            default: "",
+            type: "string",
+          },
+        },
+      },
     },
     permissions: { contents: "read" },
-    concurrency: { group: "publish-main", "queue": "max" },
+    concurrency: perEventConcurrency("pages"),
     jobs: {
       build: {
         name: "Build the site",
@@ -338,53 +357,91 @@ export function publishWorkflow(): Workflow {
         permissions: { contents: "read", pages: "read", actions: "read", "security-events": "read", "vulnerability-alerts": "read" },
         steps: [
           checkoutStep(),
-          {
-            name: "Check out the product docs",
-            id: "product",
-            uses: uses("checkout"),
-            with: { repository: "LLM-4-People/bridlewise", ref: "${{ inputs.product_ref || 'main' }}", path: "product", "persist-credentials": false },
-          },
-          { name: "Set up Node", uses: uses("setup-node"), with: { "node-version-file": ".nvmrc" } },
+          { name: "Set up Node 24", uses: uses("setup-node"), with: { "node-version-file": ".nvmrc" } },
+          // The builder reads the site configuration with the repository's one YAML reader (the yaml package).
+          { name: "Install web dependencies", run: "npm ci --no-audit --no-fund --ignore-scripts" },
           { name: "Configure Pages", id: "pages", uses: uses("configure-pages") },
+          // Released docs snapshots (`<dir>/<version>/`) are downloaded and verified here once releases exist (the
+          // release train, P4.2); until then the folder is empty and the site lists no versions.
+          { name: "Collect the released docs snapshots", run: "mkdir -p \"$RUNNER_TEMP/versions\"" },
+          ...engineInstallSteps("Install the engine (the builder and the floor read through the forge port)"),
           {
-            name: "Assemble the mirror and floor",
-            env: { BASE_PATH: "${{ steps.pages.outputs.base_path }}" },
-            run: "node scripts/assemble-floor-site.mjs --product product/docs --testing . --out .site --baseurl \"$BASE_PATH\"",
+            name: "Build the site source",
+            env: { BASEURL: "${{ steps.pages.outputs.base_path }}" },
+            run: "node scripts/build-site.mjs source --out .site --baseurl \"$BASEURL\" --versions \"$RUNNER_TEMP/versions\"",
           },
-          // The floor data reads GitHub through the forge port and the test inventory through its owner: both are engine code.
-          { name: "Install the engine", run: "npm --prefix engine ci --no-audit --no-fund --ignore-scripts" },
-          { name: "Enforce the self-protection config mode", run: "chmod 600 engine/bridlewise.config.json" },
+          // The builder wrote the floor data offline; this refreshes the live status.
           {
             name: "Generate floor data",
             env: { GH_TOKEN: "${{ github.token }}" },
-            run: "node scripts/build-floor-data.mjs --testing . --product product --out .site/floor/data",
+            run: "node scripts/build-floor-data.mjs --root . --out .site/floor/data",
           },
           {
             name: "Build with Jekyll",
             uses: uses("jekyll-build-pages"),
-            with: { source: "./.site", destination: "./_site", build_revision: "${{ steps.product.outputs.commit }}" },
+            with: { source: "./.site", destination: "./_site", build_revision: "${{ github.sha }}" },
           },
           {
-            name: "Check the built site has no broken internal links",
-            env: { BASE_PATH: "${{ steps.pages.outputs.base_path }}" },
-            run: "node scripts/floor/site-links.mjs --site _site --baseurl \"$BASE_PATH\"",
+            name: "Merge the snapshots and check links and design",
+            env: { BASEURL: "${{ steps.pages.outputs.base_path }}" },
+            run: "node scripts/build-site.mjs finish --site _site --baseurl \"$BASEURL\" --versions \"$RUNNER_TEMP/versions\"",
           },
-          { name: "Check design coverage", run: "node scripts/floor/design-coverage.mjs --site _site" },
-          { name: "Upload the Pages artifact", uses: uses("upload-pages-artifact"), with: { path: "./_site", "include-hidden-files": true } },
+          { name: "Upload Pages artifact", uses: uses("upload-pages-artifact"), with: { path: "./_site", "include-hidden-files": true } },
+        ],
+      },
+      // A recorded override of a refused deploy order waits for the pages-override environment's reviewer.
+      "approve-override": {
+        name: "Approve the deploy-order override",
+        if: "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.supersede_published != ''",
+        needs: ["build"],
+        "runs-on": API_RUNNER,
+        "timeout-minutes": 5,
+        permissions: {},
+        environment: { name: "pages-override" },
+        steps: [
+          {
+            name: "Record the approved override",
+            env: { SUPERSEDE: "${{ inputs.supersede_published }}" },
+            run: "echo \"::notice title=Pages deploy-order override::approved to replace the site published from $SUPERSEDE\"",
+          },
         ],
       },
       deploy: {
         name: "Deploy to GitHub Pages",
-        if: "github.event.repository.visibility == 'public'",
-        needs: ["build"],
-        "runs-on": API_RUNNER,
+        // Only main deploys; an override deploys only once approved.
+        if: "always() && needs.build.result == 'success' && (needs.approve-override.result == 'success' || needs.approve-override.result == 'skipped') && github.event.repository.visibility == 'public' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'",
+        needs: ["build", "approve-override"],
+        "runs-on": GATE_RUNNER,
         "timeout-minutes": 10,
-        permissions: { pages: "write", "id-token": "write", actions: "read" },
+        // Deployments are serialised, and every pending one waits its turn: the default single-slot queue would
+        // cancel a pending main deployment.
+        concurrency: { group: "pages-deploy", queue: "max", "cancel-in-progress": false },
+        permissions: { contents: "read", deployments: "read", pages: "write", "id-token": "write", actions: "read" },
         environment: { name: "github-pages", url: "${{ steps.deployment.outputs.page_url }}" },
-        steps: [{ name: "Deploy", id: "deployment", uses: uses("deploy-pages") }],
+        steps: [
+          checkoutStep(),
+          { name: "Set up Node 24", uses: uses("setup-node"), with: { "node-version-file": ".nvmrc" } },
+          ...engineInstallSteps("Install the engine (the check reads GitHub through the forge port)"),
+          // Builds finish out of commit order; a site built from an older commit never replaces a newer one.
+          {
+            name: "Check the deploy order",
+            id: "order",
+            env: { GH_TOKEN: "${{ github.token }}", SUPERSEDE: "${{ inputs.supersede_published }}" },
+            run: "node scripts/floor/deploy-order.mjs --sha \"$GITHUB_SHA\" --supersede \"$SUPERSEDE\"",
+          },
+          { name: "Deploy", id: "deployment", if: "steps.order.outputs.deploy == 'true'", uses: uses("deploy-pages") },
+        ],
       },
     },
   };
+}
+
+/** The engine's install and its self-protection config mode, for a job that runs engine code. */
+function engineInstallSteps(name: string): readonly Step[] {
+  return [
+    { name, run: "npm --prefix engine ci --no-audit --no-fund --ignore-scripts" },
+    { name: "Enforce the self-protection config mode", run: "chmod 600 engine/bridlewise.config.json" },
+  ];
 }
 
 /** The scheduled audit. OpenSSF Scorecard is the only job a `publish_results` workflow may hold beside its own steps. */
@@ -414,7 +471,7 @@ export function auditWorkflow(): Workflow {
 
 /** The names the generated gating and scheduled workflows run under: the failure reporter watches exactly these. */
 function reportedWorkflowNames(): readonly string[] {
-  return [ciWorkflow(), codeqlWorkflow(), publishWorkflow(), auditWorkflow()].map((workflow) => String(workflow.name));
+  return [ciWorkflow(), codeqlWorkflow(), pagesWorkflow(), auditWorkflow()].map((workflow) => String(workflow.name));
 }
 
 /**
@@ -468,61 +525,6 @@ export function reusableFailureWorkflow(): Workflow {
   };
 }
 
-/**
- * The promotion gate (GH-5, #53), called by the product's promotion: the
- * testing floor at the commit that owns the gate runs its public suite, then
- * the gate script judges the product's runs and alerts and publishes one
- * verdict. The caller's inputs reach the script as environment data.
- */
-export function promotionGateWorkflow(): Workflow {
-  return {
-    name: "Promotion gate",
-    on: {
-      workflow_call: {
-        inputs: {
-          product_repo: { description: "Product repository", required: true, type: "string" },
-          product_sha: { description: "Product commit to verify", required: true, type: "string" },
-          product_tag: { description: "Product tag or release label", required: true, type: "string" },
-          testing_sha: { description: "Testing-floor commit that owns this gate", required: true, type: "string" },
-          wait_seconds: { description: "Wait for required product runs to finish at the commit", required: false, default: 0, type: "number" },
-        },
-        outputs: { verdict: { description: "allowed, or blocked:<reason> when the gate refuses", value: "${{ jobs.gate.outputs.verdict }}" } },
-      },
-    },
-    permissions: { contents: "read", actions: "read", "security-events": "read", "vulnerability-alerts": "read" },
-    jobs: {
-      gate: {
-        name: "Verify product and testing evidence",
-        "runs-on": GATE_RUNNER,
-        "timeout-minutes": 30,
-        permissions: { contents: "read", actions: "read", "security-events": "read", "vulnerability-alerts": "read" },
-        outputs: { verdict: "${{ steps.gate.outputs.verdict }}" },
-        steps: [
-          { name: "Check out the testing floor", uses: uses("checkout"), with: { repository: "LLM-4-People/bridlewise-testing", ref: "${{ inputs.testing_sha }}", path: "testing", "persist-credentials": false } },
-          { name: "Set up Node 24", uses: uses("setup-node"), with: { "node-version-file": ".nvmrc", cache: "npm", "cache-dependency-path": "testing/package-lock.json\ntesting/engine/package-lock.json\n" } },
-          { name: "Install the public test dependencies", "working-directory": "testing", run: "npm ci --no-audit --no-fund --ignore-scripts\nnpm --prefix engine ci --no-audit --no-fund --ignore-scripts\n" },
-          { name: "Enforce the self-protection config mode", "working-directory": "testing", run: "chmod 600 engine/bridlewise.config.json" },
-          { name: "Run the public testing-floor suite", "working-directory": "testing", run: "npm run test:public" },
-          {
-            name: "Evaluate the product gates",
-            id: "gate",
-            "working-directory": "testing",
-            env: {
-              GH_TOKEN: "${{ github.token }}",
-              PRODUCT_REPO: "${{ inputs.product_repo }}",
-              PRODUCT_SHA: "${{ inputs.product_sha }}",
-              PRODUCT_TAG: "${{ inputs.product_tag }}",
-              WAIT_SECONDS: "${{ inputs.wait_seconds }}",
-            },
-            run: PROMOTION_GATE_SCRIPT,
-          },
-          { name: "Upload the promotion receipt", if: "always()", uses: uses("upload-artifact"), with: { name: "promotion-receipt", path: "testing/promotion-receipt.json", "if-no-files-found": "warn" } },
-        ],
-      },
-    },
-  };
-}
-
 type WorkflowFile = (typeof GENERATED_WORKFLOW_FILES.files)[number];
 
 /** The builder of each generated workflow file (the file list is `GENERATED_WORKFLOW_FILES`, the one declaration). */
@@ -530,8 +532,7 @@ const WORKFLOW_BUILDERS: Readonly<Record<WorkflowFile, () => Workflow>> = deepFr
   "audit.yml": auditWorkflow,
   "ci.yml": () => ciWorkflow(),
   "codeql.yml": codeqlWorkflow,
-  "promotion-gate.yml": promotionGateWorkflow,
-  "publish.yml": publishWorkflow,
+  "pages.yml": pagesWorkflow,
   "reusable-workflow-failure.yml": reusableFailureWorkflow,
   "workflow-failure-issue.yml": failureIssueWorkflow,
 });

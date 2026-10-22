@@ -6,7 +6,7 @@ group: github
 status: in-force
 implementation: partial
 route: P5.2
-acted_in: [scripts/floor/roadmap-status.ts, tests/prevention/roadmap-status-owner.test.ts, .github/workflows/publish.yml]
+acted_in: [scripts/floor/roadmap-status.ts, tests/prevention/roadmap-status-owner.test.ts, .github/workflows/pages.yml]
 ---
 # GitHub always reflects the harness
 
@@ -26,7 +26,7 @@ etc".
   rebuilt from the records at any time.
 
 Done so far: the docs site is built from the repository on every push to
-(`.github/workflows/publish.yml`), and the roadmap's status tables are
+(`.github/workflows/pages.yml`), and the roadmap's status tables are
 generated from the tracker (`scripts/floor/roadmap-status.ts`), with
 `tests/prevention/roadmap-status-owner.test.ts` refusing a page that differs
 from the generator's output.

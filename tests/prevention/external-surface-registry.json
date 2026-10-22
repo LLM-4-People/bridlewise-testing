@@ -7,7 +7,9 @@
       ".github/workflows/audit.yml",
       ".github/workflows/ci.yml",
       ".github/workflows/codeql.yml",
-      ".github/workflows/publish.yml"
+      ".github/workflows/pages.yml",
+      ".github/workflows/reusable-workflow-failure.yml",
+      ".github/workflows/workflow-failure-issue.yml"
     ],
     "build": [
       ".devcontainer/Dockerfile",
@@ -21,7 +23,7 @@
       "engine/package-lock.json",
       ".node-version",
       ".nvmrc",
-      "scripts/assemble-floor-site.mjs",
+      "scripts/build-site.mjs",
       "scripts/floor/site.mjs"
     ]
   },
@@ -37,7 +39,7 @@
         ".github/workflows/audit.yml",
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
-        ".github/workflows/publish.yml"
+        ".github/workflows/pages.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. Dependabot's github-actions updates are configured but paused (open-pull-requests-limit: 0), so a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -50,7 +52,7 @@
       },
       "usedIn": [
         ".github/workflows/ci.yml",
-        ".github/workflows/publish.yml"
+        ".github/workflows/pages.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The Node tarball it installs is pinned by the node-runtime surface; a moved action SHA is refused until this declaration moves with it."
     },
@@ -135,7 +137,7 @@
         "version": "v6"
       },
       "usedIn": [
-        ".github/workflows/publish.yml"
+        ".github/workflows/pages.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. It resolves the Pages base path that the assembler consumes; a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -147,7 +149,7 @@
         "version": "v1"
       },
       "usedIn": [
-        ".github/workflows/publish.yml"
+        ".github/workflows/pages.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The action carries the Jekyll/Ruby builder image; its SHA is the only pin this tree can see for that image, so a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -159,7 +161,7 @@
         "version": "v5"
       },
       "usedIn": [
-        ".github/workflows/publish.yml"
+        ".github/workflows/pages.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The uploaded artifact is the Jekyll output directory; a moved tag or SHA is refused until this declaration moves with it."
     },
@@ -171,7 +173,7 @@
         "version": "v5"
       },
       "usedIn": [
-        ".github/workflows/publish.yml"
+        ".github/workflows/pages.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The Pages service and its environment are provider-managed; the action SHA is the tree-visible pin. A moved tag or SHA is refused until this declaration moves with it."
     },
@@ -188,6 +190,17 @@
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The scorecard checks it runs are upstream data, not a pin; a moved tag or SHA is refused until this declaration moves with it."
     },
     {
+      "id": "./.github/workflows/reusable-workflow-failure.yml",
+      "kind": "local-workflow",
+      "pinned": {
+        "path": ".github/workflows/reusable-workflow-failure.yml"
+      },
+      "usedIn": [
+        ".github/workflows/workflow-failure-issue.yml"
+      ],
+      "drift": "Local reusable workflow, not an external action. The guard requires the target to exist in the enumerated workflow universe and the call site to be declared here; a call to a workflow outside the universe is refused."
+    },
+    {
       "id": "runner:ubuntu-24.04",
       "kind": "runner",
       "pinned": {
@@ -199,7 +212,8 @@
         ".github/workflows/audit.yml",
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
-        ".github/workflows/publish.yml"
+        ".github/workflows/pages.yml",
+        ".github/workflows/reusable-workflow-failure.yml"
       ],
       "drift": "The label is provider-managed and its image floats within the 24.04 line. The gate catalogue (engine/src/workflow/gates/catalogue.ts, GATE_RUNNER) is its one declaration and every workflow is generated from it; this guard refuses any other runner label in the enumerated workflows. A larger runner class or a different OS is a deliberate catalogue and registry edit."
     },
@@ -212,9 +226,9 @@
         "toolchain": "A one-CPU GitHub-hosted container (5 GB; a 15-minute job ceiling) for the API-only jobs (plan, seal); it is never a sandboxed gate runner. Its image floats with the label."
       },
       "usedIn": [
-        ".github/workflows/publish.yml"
+        ".github/workflows/pages.yml"
       ],
-      "drift": "The label is provider-managed and its container image floats. The gate catalogue (API_RUNNER) is its one declaration; only an API-only job that runs no harness command uses it (the Pages deploy): the harness's S1 refuses the container's checkout, whose tree spans devices. Another label is a deliberate catalogue and registry edit."
+      "drift": "The label is provider-managed and its container image floats. The gate catalogue (API_RUNNER) is its one declaration; only an API-only job that runs no harness command uses it (the Pages deploy-order override's approval): the harness's S1 refuses the container's checkout, whose tree spans devices. Another label is a deliberate catalogue and registry edit."
     },
     {
       "id": "node:24.20.0",
@@ -243,7 +257,7 @@
         "package.json",
         "engine/package.json",
         ".github/workflows/ci.yml",
-        ".github/workflows/publish.yml"
+        ".github/workflows/pages.yml"
       ],
       "drift": "The guard requires .node-version and .nvmrc to equal 24.20.0 and every workflow setup-node to read .nvmrc (node-version-file), refusing a workflow that spells an exact node-version; the two floor manifests to share >=24.18.0 <25.0.0; and every declared verification manifest to keep its exact 24.18.0 pin inside that floor range. Any tracked package.json with an engines.node outside this declaration is refused. A Node move changes the two pin files and the manifests."
     },
@@ -368,30 +382,21 @@
       "id": "pages:jekyll",
       "kind": "build-path",
       "pinned": {
-        "workflow": ".github/workflows/publish.yml",
-        "assembler": "scripts/assemble-floor-site.mjs",
-        "configSource": "product/docs/_config.yml, checked out at run time; not tracked in this repository",
-        "builder": "actions/jekyll-build-pages, pinned by SHA in the github-action surface"
+        "workflow": ".github/workflows/pages.yml",
+        "builder": "scripts/build-site.mjs",
+        "config": "docs/_config.yml",
+        "plugins": [
+          "jekyll-sitemap"
+        ],
+        "builderAction": "actions/jekyll-build-pages, pinned by SHA in the github-action surface"
       },
       "usedIn": [
-        "scripts/assemble-floor-site.mjs",
-        "scripts/floor/site.mjs",
-        ".github/workflows/publish.yml"
+        ".github/workflows/pages.yml",
+        "docs/_config.yml",
+        "scripts/build-site.mjs",
+        "scripts/floor/site.mjs"
       ],
-      "drift": "The Jekyll builder is the SHA-pinned actions/jekyll-build-pages action. The site config and plugin set are product-owned and resolved at run time, so the assembler is forbidden from adding plugins:, gems: or remote_theme:. The guard checks that prohibition and the declared build_revision handoff; a new plugin path is refused until this declaration says how it is pinned."
-    },
-    {
-      "id": "pages:product-docs-ref",
-      "kind": "product-docs-ref",
-      "pinned": {
-        "ref": "main",
-        "floating": true,
-        "resolvedCommitRecorded": true
-      },
-      "usedIn": [
-        ".github/workflows/publish.yml"
-      ],
-      "drift": "Not pinned by SHA: the site mirrors the product docs, so the default ref follows main and the resolved commit is passed to Jekyll as build_revision. The guard requires this one declared expression and refuses any other literal branch ref. This is a declared content input, never a code-execution input; it is listed in knownExceptions."
+      "drift": "The Jekyll builder is the SHA-pinned actions/jekyll-build-pages action, and the site's only source is this repository's docs/ (no other repository is read). The tracked docs/_config.yml may load only the plugins declared here, which ship inside that pinned action; the builder may not add plugins:, gems: or remote_theme:. The workflow hands the built commit (github.sha) to Jekyll as build_revision. A new plugin path is refused until this declaration says how it is pinned."
     },
     {
       "id": "apt:gcc-14",
@@ -442,11 +447,6 @@
     }
   ],
   "knownExceptions": [
-    {
-      "surface": "pages:product-docs-ref",
-      "reason": "The docs site mirrors the product documentation, so the ref follows main by design; the resolved commit is recorded as the Jekyll build revision. It is a content input, not a code-execution input.",
-      "owner": ".github/workflows/publish.yml"
-    },
     {
       "surface": "apt:gcc-14",
       "reason": "An exact apt version string is runner-image-specific and would drift on the provider's archive; the runner label plus the declared package name is the reproducible pin available to this tree.",

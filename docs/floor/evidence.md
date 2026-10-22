@@ -1,6 +1,5 @@
 ---
 layout: default
-floor_assets: true
 page_class: floor
 title: "Verify the floor"
 description: "Commands that check the Bridlewise development floor and a product preview release, with expected output shapes and explicit non-proofs."
@@ -20,8 +19,8 @@ Expected outputs below are shapes from the 2026-10-19 public snapshot. Counts an
 ## Fresh clone gate
 
 ```bash
-git clone https://github.com/LLM-4-People/bridlewise-testing.git
-cd bridlewise-testing
+git clone {{ site.repository_url }}.git
+cd bridlewise
 npm ci
 npm --prefix engine ci
 chmod 600 engine/bridlewise.config.json
@@ -169,9 +168,9 @@ Receipt shape from that sample (abridged):
 
 The refusal arms were driven directly: merging one report while expecting two refused with `expected 2 shard report(s), received 1`; a union missing one planned file refused with `missing 1 manifest file(s): tests/prevention/no-unused-exports.test.ts`; and a report with `success=false` refused with `shard 2: vitest reported success=false`.
 
-On 2026-10-20, CI run [`39439338300`](https://github.com/LLM-4-People/bridlewise-testing/actions/runs/39439338300) at `3b4db454` carried the full set through that gate on a push, not a dispatch: `Typecheck, public tests, build`, `Plan the supported file set`, all ten shard jobs, and `Merge one qualification receipt` succeeded. The merge job uploaded the `test-shard-receipt` artifact, and the downloaded receipt names `headSha` `3b4db4548f8a20520bf0bf44640f4cf49dbbdb61`, ten `ubuntu-24.04` shards, manifest `e553d052b256` and assignment `62374d29…`, 521 files and 8722 tests (8722 passed, 0 failed, 0 skipped), the four exclusions with their evidence anchors, and `testPhaseMs` 88000 with `testPhaseCpuMs` 692556. This is the supported-set receipt as a CI artifact, not prose.
+On 2026-10-20, CI run [`39439338300`]({{ site.repository_url }}/actions/runs/39439338300) at `3b4db454` carried the full set through that gate on a push, not a dispatch: `Typecheck, public tests, build`, `Plan the supported file set`, all ten shard jobs, and `Merge one qualification receipt` succeeded. The merge job uploaded the `test-shard-receipt` artifact, and the downloaded receipt names `headSha` `3b4db4548f8a20520bf0bf44640f4cf49dbbdb61`, ten `ubuntu-24.04` shards, manifest `e553d052b256` and assignment `62374d29…`, 521 files and 8722 tests (8722 passed, 0 failed, 0 skipped), the four exclusions with their evidence anchors, and `testPhaseMs` 88000 with `testPhaseCpuMs` 692556. This is the supported-set receipt as a CI artifact, not prose.
 
-On 2026-10-20, CI run [`39470087124`](https://github.com/LLM-4-People/bridlewise-testing/actions/runs/39470087124) at `f54df4a5` ran the current set through the same gate. The downloaded `test-shard-receipt` artifact names ten `ubuntu-24.04` shards, manifest `b0e9f6305c0a`, assignment `80e3d108…`, 523 files and 8734 tests (8734 passed, 0 failed, 0 skipped), the four exclusions, `testPhaseMs` 83438 and `testPhaseCpuMs` 658687 (the summed shard duration). The shard walls were 62736, 66395, 56882, 49566, 69874, 67883, 71445, 81359, 67206 and 65341 ms: max/min **1.64x**, mean 65869 ms. Shard 8 was the heavy one (81359 ms, 53 files, 684 tests); its measured file times are led by `promotion-boundary` 29003 ms, `subprocess-confinement-owner` 22641 ms, `content-search-deadline` 11618 ms and `redaction-reaches-provider` 9362 ms. Shard 4 was the light one (49566 ms, 52 files, 579 tests); its leaders are `run-executes-once` 25727 ms and `database-thread-supervision` 10692 ms. The run's `test-shard-plan` artifact holds the exact per-shard file lists; the receipt itself records counts and timings.
+On 2026-10-20, CI run [`39470087124`]({{ site.repository_url }}/actions/runs/39470087124) at `f54df4a5` ran the current set through the same gate. The downloaded `test-shard-receipt` artifact names ten `ubuntu-24.04` shards, manifest `b0e9f6305c0a`, assignment `80e3d108…`, 523 files and 8734 tests (8734 passed, 0 failed, 0 skipped), the four exclusions, `testPhaseMs` 83438 and `testPhaseCpuMs` 658687 (the summed shard duration). The shard walls were 62736, 66395, 56882, 49566, 69874, 67883, 71445, 81359, 67206 and 65341 ms: max/min **1.64x**, mean 65869 ms. Shard 8 was the heavy one (81359 ms, 53 files, 684 tests); its measured file times are led by `promotion-boundary` 29003 ms, `subprocess-confinement-owner` 22641 ms, `content-search-deadline` 11618 ms and `redaction-reaches-provider` 9362 ms. Shard 4 was the light one (49566 ms, 52 files, 579 tests); its leaders are `run-executes-once` 25727 ms and `database-thread-supervision` 10692 ms. The run's `test-shard-plan` artifact holds the exact per-shard file lists; the receipt itself records counts and timings.
 
 The checked-in manifest still carried weights measured at `0ba57912`, and its plan predicted 148734–148736 ms for every shard (1.00x). The 1.64x wall spread was therefore stale per-file weights, not the assignment arithmetic. The ten `test-shard-report-*` artifacts give each file's `endTime - startTime`; against the checked-in weights the ratio ranges from 0.052x (`customization-write-path-owner`, 17400 → 896 ms) to 10.47x (`router`, 301 → 3152 ms), and the weight sum falls from 1487347 ms to 798882 ms (1.86x). The manifest owner's `measure` command rewrote all 523 weights and `measuredHeadSha` from those reports (`f54df4a5`, measuredAt `2026-10-20T17:56:30.903Z`). The new plan predicts 79888–79889 ms per shard (1.00x) and assigns 51–53 files per shard. The after wall spread is **not** measured: replaying the same file durations under the new assignment equalises the sums by construction, and a projection that packs each shard onto the three concurrent slots this run used has a 26630–39967 ms critical path (1.50x), because `test-isolation-contract` alone costs 39967 ms in whichever shard carries it. The next CI receipt is the wall-time confirmation; the remaining lever is splitting that file or a makespan-aware assignment, not another weight edit.
 
@@ -203,7 +202,7 @@ What it does not prove: the four excluded suites (two private-only guards, the p
 
 ## Corpus boundary
 
-The 4.1 GB corpus fixture root is not published. It is an assembled cache of dozens of public upstream checkouts. The cache carries mixed licenses, duplicate trees, nested Git histories, and test-only key, certificate, and environment fixtures. Publishing the cache as another public repository would redistribute third-party code under incompatible terms and would preserve historical material that a current-tree scan does not clear. The floor does not do that. The [third-party notices](https://github.com/LLM-4-People/bridlewise-testing/blob/main/THIRD_PARTY_NOTICES.md) record the boundary.
+The 4.1 GB corpus fixture root is not published. It is an assembled cache of dozens of public upstream checkouts. The cache carries mixed licenses, duplicate trees, nested Git histories, and test-only key, certificate, and environment fixtures. Publishing the cache as another public repository would redistribute third-party code under incompatible terms and would preserve historical material that a current-tree scan does not clear. The floor does not do that. The [third-party notices](../../THIRD_PARTY_NOTICES.md) record the boundary.
 
 To reproduce a corpus-backed test without publishing the cache, fetch the pinned subset. `engine/test/fixtures/corpus-manifest.json` names the three members the public tests read (lodash, express, babel/traverse), their upstream commits, licences, and the size and sha256 of every file. The fetch materialises only those files outside the checkout and links the result at the declared corpus root:
 
@@ -233,7 +232,7 @@ npm run perf:profile
 ./node_modules/.bin/vitest run tests/performance/regression.test.ts
 ```
 
-Result: the profile passed 3 of 3 tests and the regression gate passed 36 of 36. The report carried `instrumentLock: "held"` and `treeIdentity.headSha` `2caada8f8272c987378e3f7484cb76fb21349577` with `dirty: false`, generated at 11:25:03Z. The report and its run record are gitignored and were not published. The conditions are the idle-host contract in [the test map](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/testing.md#the-performance-profile-idle-host-contract).
+Result: the profile passed 3 of 3 tests and the regression gate passed 36 of 36. The report carried `instrumentLock: "held"` and `treeIdentity.headSha` `2caada8f8272c987378e3f7484cb76fb21349577` with `dirty: false`, generated at 11:25:03Z. The report and its run record are gitignored and were not published. The conditions are the idle-host contract in [the test map](../testing.md#the-performance-profile-idle-host-contract).
 
 Measured against the configured budgets: page LCP 2144ms (1500), worst long task 199ms (100), tab switches 81.6 to 148.2ms (200), chat-input typing 23.49ms mean (60), isolated API maximum 2032ms on `GET /api/schema/ui/values` (250), long-chat (1000 messages) render 5100ms (2000), long-session DOM growth 549 nodes (1500), viewport LCP 852 to 1220ms (2000). The LCP, worst-long-task, API and long-chat budgets are red. The supported shard set does not judge them, and this page does not call the profile a pass.
 
@@ -276,29 +275,27 @@ What it does not prove: that the guardian is a VM, a network firewall, a seccomp
 npm run promote -- status
 ```
 
-On a fresh public clone, the expected answer is a typed refusal:
+On a clone that holds `main`, the expected answer is the profile's status (shape; the counts move):
 
 ```json
 {
   "command": "promote status",
-  "generatedAt": "<iso8601>",
-  "integrityHash": "<sha256>",
   "result": {
-    "ok": false,
-    "code": "promotion_source_missing",
-    "class": "input",
-    "message": "the source branch refs/heads/testing of profile testing-to-master does not exist here",
-    "remedy": "Name a source revision that exists (--source <rev>), or create the profile's source branch.",
+    "ok": true,
+    "code": "promotion_status",
+    "class": "ok",
     "data": {
-      "source": "refs/heads/testing"
+      "profile": "main-to-product",
+      "source": "refs/heads/main",
+      "target": "refs/heads/product"
     }
   },
   "schemaVersion": "bridlewise-harness-command/v1",
-  "status": "fail"
+  "status": "pass"
 }
 ```
 
-The command may print one audit line to stderr before the JSON envelope. That is not a broken checkout. In the public snapshot used for this check, only `main` is published; the `testing` source ref belongs to the maintainer topology. A checkout that has the source ref returns `promotion_status` instead, with the profile, source, target, pending count, pending and hold refs, hold record, state, and last run.
+The command may print one audit line to stderr before the JSON envelope. That is not a broken checkout. A clone without the `product` branch (fetch it with `git fetch origin product`) reports that there is no target yet. A refusal names its class and its one remedy.
 
 What this proves: the request reached the promotion primitive and received its typed answer. A refusal names its class and its one remedy.
 
@@ -306,11 +303,11 @@ What it does not prove: that a promotion is due, that the target gate passes, th
 
 ## CI evidence
 
-Latest run for the floor:
+Latest run on `main`:
 
 ```bash
 gh run list \
-  --repo LLM-4-People/bridlewise-testing \
+  --repo LLM-4-People/bridlewise \
   --workflow ci.yml \
   --limit 1 \
   --json conclusion,headSha,url
@@ -319,21 +316,21 @@ gh run list \
 Expected shape:
 
 ```json
-[{"conclusion":"success","headSha":"<sha>","url":"https://github.com/LLM-4-People/bridlewise-testing/actions/runs/<id>"}]
+[{"conclusion":"success","headSha":"<sha>","url":"{{ site.repository_url }}/actions/runs/<id>"}]
 ```
 
 Read the jobs, not only the run:
 
 ```bash
 run_id=$(gh run list \
-  --repo LLM-4-People/bridlewise-testing \
+  --repo LLM-4-People/bridlewise \
   --workflow ci.yml \
   --limit 1 \
   --json databaseId \
   --jq '.[0].databaseId')
 
 gh run view "$run_id" \
-  --repo LLM-4-People/bridlewise-testing \
+  --repo LLM-4-People/bridlewise \
   --json jobs \
   --jq '.jobs[] | "\(.name): \(.conclusion)"'
 ```
@@ -344,17 +341,11 @@ Expected job line:
 Typecheck, public tests, build: success
 ```
 
-For the product repository, the expected job line is:
-
-```text
-Build and verify: success
-```
-
 What this proves: the configured steps passed at that commit.
 
 What it does not prove: that the full corpus-backed, live, or E2E suites ran. They do not run in that job.
 
-The product repository's own smoke commands and expected counts are on the mirrored [product evidence page]({{ '/evidence/' | relative_url }}). That page and this one check different trees.
+The product-facing checks and their limits are on the [evidence page]({{ '/evidence/' | relative_url }}).
 
 ## Product preview release
 

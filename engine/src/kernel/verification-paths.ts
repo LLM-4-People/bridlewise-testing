@@ -101,7 +101,7 @@ export const TRACKER_BOARD = deepFreeze({
  */
 export const GENERATED_WORKFLOW_FILES = deepFreeze({
   directory: ".github/workflows",
-  files: ["audit.yml", "ci.yml", "codeql.yml", "promotion-gate.yml", "publish.yml", "reusable-workflow-failure.yml", "workflow-failure-issue.yml"],
+  files: ["audit.yml", "ci.yml", "codeql.yml", "pages.yml", "reusable-workflow-failure.yml", "workflow-failure-issue.yml"],
   generator: "src/workflow/gates/workflows.ts",
 } as const);
 
