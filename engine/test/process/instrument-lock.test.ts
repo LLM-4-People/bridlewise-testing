@@ -178,7 +178,7 @@ test("a door killed outright never drops its record under its command: the super
   await door.next(/^RUNNING$/u, 15_000);
   const sleeper = allProcessIds().find((pid) => { const argv = commandLineOf(pid); return argv?.[0] === "sleep" && argv[1] === marker; });
   assert.ok(sleeper !== undefined, "the door's command runs");
-  assert.match(admittedRuns(lockPath)[0] ?? "", /^the door \(pid \d+, since .*, with 1 adopted process\(es\)\)$/u, "the supervisor is adopted into the record");
+  assert.match(admittedRuns(lockPath)[0] ?? "", /^the door \(pid \d+, since [^,]+, with 1 adopted process\(es\)\)$/u, "the supervisor is adopted into the record");
   door.process.kill("SIGKILL");
   await exited(door.process);
   assert.equal(admittedRuns(lockPath).length, 1, "the record is live while the adopted supervisor lives");
