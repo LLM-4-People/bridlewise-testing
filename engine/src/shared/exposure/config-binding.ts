@@ -123,7 +123,7 @@ function requireStore(): CustomizationConfigStore {
 const WRAPPER_TYPES = new Set(["optional", "default", "nullable", "readonly"]);
 
 type AnySchema = {
-  _def?: { type?: string; innerType?: AnySchema; defaultValue?: unknown };
+  _def?: { type?: string; innerType?: AnySchema; defaultValue?: unknown; options?: readonly AnySchema[] };
   shape?: Record<string, AnySchema>;
   safeParse?: (value: unknown) => { success: boolean };
 };
@@ -218,16 +218,32 @@ function sameConfigValue(left: unknown, right: unknown): boolean {
  * concrete value schema.
  */
 function resolvePathSchema(path: string): AnySchema | undefined {
-  const segments = path.split(".");
-  let schema: AnySchema | undefined = getConfigDocumentSchema() as unknown as AnySchema;
-  for (const segment of segments) {
-    const objectSchema = unwrapSchema(schema);
-    const shape = objectSchema?.shape;
-    if (shape === undefined) return undefined;
-    schema = unwrapSchema(shape[segment]);
-    if (schema === undefined) return undefined;
-  }
-  return schema;
+  const leaves = leafSchemas(getConfigDocumentSchema() as unknown as AnySchema, path.split("."));
+  if (leaves.length <= 1) return leaves[0];
+  // A section declared as a UNION (one shape per phase, e.g. a budget in its
+  // accumulation or rolling phase) declares a path when any of its shapes
+  // does; the value is admitted when one of those shapes' leaves admits it,
+  // and the store's whole-document gate still judges the result against the
+  // union, so a value valid only in the other phase is refused there.
+  return {
+    safeParse: (value: unknown) => {
+      for (const leaf of leaves) {
+        const result = leaf.safeParse!(value);
+        if (result.success) return result;
+      }
+      return leaves[0]!.safeParse!(value);
+    },
+  } as AnySchema;
+}
+
+/** Every leaf schema `segments` reaches from `schema`, through objects and through each option of a union. */
+function leafSchemas(schema: AnySchema | undefined, segments: readonly string[]): AnySchema[] {
+  const current = unwrapSchema(schema);
+  if (current === undefined) return [];
+  if (segments.length === 0) return current.safeParse === undefined ? [] : [current];
+  if (current._def?.type === "union") return (current._def.options ?? []).flatMap((option) => leafSchemas(option, segments));
+  const next = current.shape?.[segments[0]!];
+  return next === undefined ? [] : leafSchemas(next, segments.slice(1));
 }
 
 /**
