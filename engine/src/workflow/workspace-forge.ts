@@ -5,13 +5,13 @@
  * THE PORT ({@link WorkspaceForge}) is the narrow, semantic surface the
  * workspace manager consumes: the Git Data API (blobs, trees, commits, the
  * branch ref), the pull request (open as a draft, regenerate its body, mark it
- * ready, return it to draft, close it). It is STRUCTURAL. Its GitHub
- * implementation is THIS lane's (GH-3) typed operations written on the forge
- * port's client (`engine/src/workflow/forge/`, PR #52: the one REST/GraphQL
- * client on the ONE outbound HTTP door, App tokens minted through the
- * broker); until it is wired, the CLI gives the manager no forge and every
- * forge verb refuses `workspace_forge_unavailable`. Tests drive a fake backed
- * by a real bare repository. A request type carries
+ * ready, return it to draft, close it) and the land (the merge queue,
+ * entered only at the head this workspace published). It is STRUCTURAL. Its
+ * GitHub implementation is `workspace-forge-github.ts`: typed operations on
+ * the forge port's client (`engine/src/workflow/forge/`: the one
+ * REST/GraphQL client on the ONE outbound HTTP door, App tokens minted
+ * through the key custody). Tests drive a fake backed by a real bare
+ * repository. A request type carries
  * no author, committer or signature field at all, so an API commit made
  * through this port is GitHub's to sign (web-flow, "Verified") by
  * construction, never by a caller's discipline.
@@ -70,7 +70,19 @@ export type ForgePullRequest = Readonly<{
   state: "open" | "closed";
   merged: boolean;
   mergeCommitSha: string | null;
+  /** Whether it is in the merge queue now (read in the same read as `merged`: no read straddles the queue's merge). */
+  queued: boolean;
 }>;
+
+/**
+ * The answer to a request to land: the pull request ENQUEUED (with the head
+ * GitHub enqueued, read back from its own answer), or GitHub's refusal (not
+ * mergeable, a draft, closed, not at the expected head, a check or a review
+ * missing) — never a silent no-op.
+ */
+export type ForgeEnqueueAnswer =
+  | Readonly<{ kind: "enqueued"; headSha: string }>
+  | Readonly<{ kind: "refused"; message: string }>;
 
 /** One entry of a tree request: a file (or gitlink) at `path`, or its deletion (`sha: null`). */
 export type ForgeTreeEntry = Readonly<{ path: string; mode: "100644" | "100755" | "120000" | "160000"; sha: string | null }>;
@@ -112,8 +124,14 @@ export type WorkspaceForge = Readonly<{
   convertToDraft(number: number): Promise<void>;
   /** Closes the pull request with `comment` (the branch is kept). */
   closePullRequest(number: number, comment: string): Promise<void>;
-  /** The pull request as it is now. */
+  /** The pull request as it is now (ONE read of its whole state). */
   pullRequest(number: number): Promise<ForgePullRequest>;
+  /**
+   * Puts the pull request in the merge queue only while its head is
+   * `expectedHeadSha` (GraphQL `enqueuePullRequest` with `expectedHeadOid`;
+   * auto-merge is never used: it does not enqueue on ruleset queues).
+   */
+  enqueue(number: number, request: Readonly<{ expectedHeadSha: string }>): Promise<ForgeEnqueueAnswer>;
 }>;
 
 /** Where a workspace lands on the forge: its target's upstream. */
