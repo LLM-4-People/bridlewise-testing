@@ -29,7 +29,7 @@ import { testProcessSupervisorBinary } from "../../guardian/build.ts";
 import { liveFileLockHolder } from "../../src/filesystem/file-lock.ts";
 import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, INSTRUMENT_LOCK_TOKEN_VARIABLE, instrumentLockPath, instrumentLockStamp, isHeavyRun, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
 import { SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
-import { allProcessIds, commandLineOf, isProcessAlive, ownedChild, processIdentity, terminate } from "../../src/process/process-facts.ts";
+import { allProcessIds, commandLineOf, isProcessAlive, ownedChild, processIdentity, procfsDocument, terminate } from "../../src/process/process-facts.ts";
 import { namedTestFileCount } from "../../scripts/tooling/test-run-lock.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { requireHost } from "../support/host-requirement.ts";
@@ -160,7 +160,7 @@ test("EVERY SUPERVISOR AN ADMITTED RUN STARTS RUNS UNDER ITS CAPS: a cgroup scop
   const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
   assert.equal(ran.status, 0, ran.stderr);
   assert.match(ran.stdout, /cgroup=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope weight=42 memmax=\d+ soft=77 hard=80/u, ran.stdout);
-  const total = Number(readFileSync("/proc/meminfo", "utf8").match(/^MemTotal:\s+(\d+) kB/mu)![1]) * 1024;
+  const total = Number(procfsDocument("meminfo")!.match(/^MemTotal:\s+(\d+) kB/mu)![1]) * 1024;
   const memmax = Number(/memmax=(\d+)/u.exec(ran.stdout)![1]);
   assert.ok(Math.abs(memmax - total * 0.37) < total * 0.01, `MemoryMax is 37% of the host's memory (${String(memmax)} of ${String(total)})`);
 });
@@ -170,11 +170,11 @@ test("NO UNCAPPED PATH (the #362 review's plant): a child the admitting process 
   const script = join(createTempDir("instrument-lock-direct-script-"), "direct.mjs");
   const probe = [
     `const { borrowInstrumentLock } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    `const { ownCgroupPath, ownCpuTimeLimit } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "process", "process-facts.ts")).href)});`,
     `const { readFileSync } = await import("node:fs");`,
-    `const cgroup = readFileSync("/proc/self/cgroup", "utf8").trim().split(":").at(-1);`,
-    `const read = (name) => readFileSync("/sys/fs/cgroup" + cgroup + "/" + name, "utf8").trim();`,
-    `const limit = /^Max cpu time\\s+(\\S+)\\s+(\\S+)/mu.exec(readFileSync("/proc/self/limits", "utf8"));`,
-    `console.log("cgroup=" + cgroup + " weight=" + read("cpu.weight") + " soft=" + limit[1] + " hard=" + limit[2] + " borrowed=" + String(borrowInstrumentLock(process.argv[1], "a direct child")?.owns));`,
+    `const cgroup = ownCgroupPath();`,
+    `const limit = ownCpuTimeLimit();`,
+    `console.log("cgroup=" + cgroup + " weight=" + readFileSync("/sys/fs/cgroup" + cgroup + "/cpu.weight", "utf8").trim() + " soft=" + limit.soft + " hard=" + limit.hard + " borrowed=" + String(borrowInstrumentLock(process.argv[1], "a direct child")?.owns));`,
   ].join("\n");
   writeFileSync(script, [
     `const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)});`,

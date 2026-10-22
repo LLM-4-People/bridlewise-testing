@@ -42,7 +42,7 @@
 import { dirname, isAbsolute, join } from "node:path";
 
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 
 import { HarnessError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
@@ -55,7 +55,7 @@ import type { WholeInstrumentKind } from "../kernel/config-contracts.ts";
 import { hostUserCacheFolder } from "../filesystem/user-folders.ts";
 import { repositoryToplevel } from "../git/repository-ownership.ts";
 import { ownedInstrumentHold, setOwnedInstrumentHold } from "./instrument-lock-adoption.ts";
-import { ancestorsOf, isOwnProcessIdentityLive } from "./process-facts.ts";
+import { ancestorsOf, isOwnProcessIdentityLive, ownCgroupPath } from "./process-facts.ts";
 
 export type InstrumentLockConfig = Readonly<{
   /** The lock file, relative to the host user's cache folder (`hostUserCacheFolder`). */
@@ -175,8 +175,7 @@ function runScopeUnit(nonce: string): string {
 
 /** Whether THIS process is inside the scope of the run whose record carries `nonce` (`/proc/self/cgroup`, cgroup v2). */
 function insideRunScope(nonce: string): boolean {
-  const unified = readFileSync("/proc/self/cgroup", "utf8").split("\n").find((line) => line.startsWith("0::"));
-  return unified !== undefined && unified.endsWith(`/${runScopeUnit(nonce)}`);
+  return ownCgroupPath()?.endsWith(`/${runScopeUnit(nonce)}`) === true;
 }
 
 /** The live run this process runs inside (its own, or an ancestor's) AND inside whose capped scope it is, if any. */
