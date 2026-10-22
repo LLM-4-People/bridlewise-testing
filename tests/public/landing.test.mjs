@@ -20,6 +20,8 @@ export function unescapedOutputs(template) {
     if (/\|\s*(?:escape|relative_url|absolute_url)\s*$/u.test(expression)) return false;
     if (/^brand\.counts(?:\.[\w-]+|\["[\w-]+"\])$/u.test(expression)) return false;
     if (/^brand\.commit \| slice: 0, 8$/u.test(expression) || /^include\.id$/u.test(expression) || /^site\.repository_url$/u.test(expression)) return false;
+    // A computed count, and a time printed through the date filter, carry no markup.
+    if (/^total$/u.test(expression) || /\| date: "[%\w-]+"$/u.test(expression)) return false;
     return true;
   });
 }

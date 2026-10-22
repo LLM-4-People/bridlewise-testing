@@ -29,24 +29,26 @@ const REPOSITORY_ROOT = dirname(fileURLToPath(new URL("../../", import.meta.url)
 const SURFACES = ["readme-hero", "org-profile", "repo-metadata", "release-header"] as const;
 
 /** The checks and the commit of a floor status document (`bridlewise-floor-status/v1`), refused whole when malformed. */
-export function readStatus(path: string): Readonly<{ commit: string; checks: readonly CheckResult[] }> {
-  const document = JSON.parse(readFileSync(path, "utf8")) as { schemaVersion?: unknown; source?: { commit?: unknown }; checks?: unknown };
+export function readStatus(path: string): Readonly<{ commit: string; generatedAt: string; checks: readonly CheckResult[] }> {
+  const document = JSON.parse(readFileSync(path, "utf8")) as { schemaVersion?: unknown; generatedAt?: unknown; source?: { commit?: unknown }; checks?: unknown };
   if (document.schemaVersion !== "bridlewise-floor-status/v1") throw new InputError(`${path} is not a bridlewise-floor-status/v1 document`, "claims_status_invalid");
   const commit = document.source?.commit;
   if (typeof commit !== "string" || !/^[0-9a-f]{40}$/u.test(commit)) throw new InputError(`${path} names no source commit`, "claims_status_invalid");
   if (!Array.isArray(document.checks)) throw new InputError(`${path} carries no checks`, "claims_status_invalid");
+  const generatedAt = document.generatedAt;
+  if (typeof generatedAt !== "string" || Number.isNaN(Date.parse(generatedAt))) throw new InputError(`${path} names no generatedAt time`, "claims_status_invalid");
   const checks = document.checks.map((entry: unknown, index: number) => {
     const c = entry as Record<string, unknown>;
     if (typeof c?.id !== "string" || typeof c.status !== "string") throw new InputError(`${path}: checks[${index}] has no id or status`, "claims_status_invalid");
     return { id: c.id, status: c.status, headSha: typeof c.headSha === "string" ? c.headSha : null, runUrl: typeof c.runUrl === "string" ? c.runUrl : null };
   });
-  return { commit, checks };
+  return { commit, generatedAt, checks };
 }
 
 /** The site's data: every claim of the repository at `root` judged at the commit of the floor status snapshot at `statusPath`. */
 export function siteData(root: string, statusPath: string): Readonly<Record<string, unknown>> {
   const status = readStatus(statusPath);
-  return brandSite(readMessaging(root), judgeClaims(readClaims(root), status.checks, status.commit), status.commit, decisionStates(root));
+  return { ...brandSite(readMessaging(root), judgeClaims(readClaims(root), status.checks, status.commit), status.commit, decisionStates(root)), judgedAt: status.generatedAt };
 }
 
 /** One surface's text, rendered from this repository's sources. */
