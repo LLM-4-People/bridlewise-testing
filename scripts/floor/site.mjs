@@ -9,7 +9,8 @@
  *    (its body wrapped as raw text: a GitHub Markdown page holds no Liquid),
  *    the redirect pages for older URLs, the `/v/` versions page and
  *    `versions.json` listing the released docs snapshots, and the deployment
- *    base path written into `_config.yml`.
+ *    base path written into `_config.yml`, and the design system's generated
+ *    assets (`site-design.mjs`).
  * 2. Jekyll (`actions/jekyll-build-pages`) turns that source into `_site`.
  * 3. `finishSite` — each release's PRE-BUILT docs snapshot (built at release
  *    time with the base path `<base>/v/<version>`, an immutable release
@@ -36,6 +37,7 @@ import { coverage } from "./design-coverage.mjs";
 import { stableJson } from "./files.mjs";
 import { LEGACY_BASEURL, SITE_URL, coordinatesOf } from "./repository.mjs";
 import { crawlSiteLinks } from "./site-links.mjs";
+import { writeBrandData, writeSiteDesign } from "./site-design.mjs";
 import { BUILDER_OWNED_CONFIG_KEYS, DOCS_ROOT, legacyAliases, rewritePageLinks, siteLinkTargets, siteSourceViolations, sitePlan, siteUrlForPermalink } from "./site-pages.mjs";
 import { buildStatus } from "./status.mjs";
 
@@ -141,6 +143,20 @@ function versionsPage(versions, baseurl) {
  * `root`, for the deployment base path `baseurl`, listing the snapshots of
  * `versionsDir` (or none).
  */
+/**
+ * THE ONE FLOOR-DATA WRITER: the atlas and the status snapshot into
+ * `<site>/floor/data/`, and the claims judged against that snapshot
+ * (`writeBrandData`), so a snapshot and the verdicts drawn from it are always
+ * written together. The source step writes the offline snapshot;
+ * `scripts/build-floor-data.mjs` rewrites it online.
+ */
+export function writeFloorData({ root, site, atlas, status }) {
+  mkdirSync(join(site, "floor/data"), { recursive: true });
+  writeFileSync(join(site, "floor/data/atlas.json"), stableJson(atlas));
+  writeFileSync(join(site, "floor/data/status.json"), stableJson(status));
+  writeBrandData({ root, site });
+}
+
 /**
  * The floor data a build writes: the atlas of the tree and its status, read
  * offline (a snapshot's status is its history; the Pages workflow refreshes
@@ -248,10 +264,10 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
   writeFileSync(markupModule, `// GENERATED from ${MARKUP_OWNER} by scripts/floor/site.mjs (types stripped); edit the owner.\n${stripTypeScriptTypes(readFileSync(join(repositoryRoot, MARKUP_OWNER), "utf8"))}`);
   // The floor pages read their data from floor/data; every build writes it
   // ({@link floorDataOf}), so a release snapshot is a whole site.
-  const { atlas, status } = await floorData(repositoryRoot);
-  mkdirSync(join(outRoot, "floor/data"), { recursive: true });
-  writeFileSync(join(outRoot, "floor/data/atlas.json"), stableJson(atlas));
-  writeFileSync(join(outRoot, "floor/data/status.json"), stableJson(status));
+  writeFloorData({ root: repositoryRoot, site: outRoot, ...(await floorData(repositoryRoot)) });
+  // The design system's generated half: the token sheet, fonts, icon, mark
+  // and figures, from their one owners (`site-design.mjs`).
+  writeSiteDesign({ root: repositoryRoot, outRoot });
 
   // Every site path a page or layout names must be one this source builds:
   // a page, a redirect, the versions page, a served file, or one Jekyll

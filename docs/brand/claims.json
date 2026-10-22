@@ -1,0 +1,114 @@
+{
+  "schema": "bridlewise-claims/v1",
+  "claims": [
+    {
+      "id": "not-ready",
+      "kind": "holds-when-green",
+      "text": "It tells you it is not ready for production: its readiness check answers harnessReady false",
+      "checks": [
+        "ci"
+      ],
+      "evidence": "tests/public/cli.test.mjs"
+    },
+    {
+      "id": "typed-refusals",
+      "kind": "holds-when-green",
+      "text": "A refusal is typed: it names the rule and what to do, never a quiet substitute",
+      "checks": [
+        "ci"
+      ],
+      "evidence": "tests/public/cli.test.mjs"
+    },
+    {
+      "id": "no-commit-from-chat",
+      "kind": "holds-when-green",
+      "text": "From chat, the model cannot commit: git_commit answers governance_required and the commit stays yours",
+      "checks": [
+        "ci"
+      ],
+      "evidence": "tests/unit/tool-executor-unified.test.ts",
+      "example": {
+        "call": "git_commit { \"message\": \"fix the login redirect\" }",
+        "code": "governance_required",
+        "message": "git_commit is not executable from a chat tool call — committing requires write-set governance and explicit user approval. Stage changes with the editor/git tools and let the user commit via the Git panel.",
+        "source": "server/tools/tool-executor.ts"
+      }
+    },
+    {
+      "id": "run-once",
+      "kind": "holds-when-green",
+      "text": "A run executes once: reopening it never starts a second execution",
+      "checks": [
+        "ci"
+      ],
+      "evidence": "tests/prevention/run-executes-once.test.ts"
+    },
+    {
+      "id": "confined-commands",
+      "kind": "holds-when-green",
+      "text": "Commands the model starts cannot read outside the project (Linux, Landlock)",
+      "checks": [
+        "ci"
+      ],
+      "evidence": "tests/prevention/subprocess-confinement-owner.test.ts"
+    },
+    {
+      "id": "redaction-before-provider",
+      "kind": "holds-when-green",
+      "text": "Secrets are redacted before the provider sees the prompt",
+      "checks": [
+        "ci"
+      ],
+      "evidence": "tests/prevention/redaction-reaches-provider.test.ts"
+    },
+    {
+      "id": "no-committed-secrets",
+      "kind": "holds-when-green",
+      "text": "No secret is committed to the public tree",
+      "checks": [
+        "secret"
+      ],
+      "evidence": "scripts/check-secrets.mjs"
+    },
+    {
+      "id": "codeql-runs",
+      "kind": "holds-when-green",
+      "text": "CodeQL analyses every change",
+      "checks": [
+        "codeql"
+      ],
+      "evidence": ".github/workflows/codeql.yml"
+    },
+    {
+      "id": "core-no-bypass",
+      "kind": "designed",
+      "text": "A malicious module cannot bypass the core",
+      "decision": "UD-CORE-NO-BYPASS"
+    },
+    {
+      "id": "credentials-unseen",
+      "kind": "designed",
+      "text": "The model never sees a credential",
+      "decision": "CRED-DIR"
+    },
+    {
+      "id": "memory-layers",
+      "kind": "designed",
+      "text": "Layered memory with provenance and forgetting",
+      "decision": "MEM-DIR"
+    },
+    {
+      "id": "security-audit",
+      "kind": "not-claimed",
+      "text": "An independent security audit",
+      "reason": "None has been done: no third-party review, penetration test or certification exists.",
+      "evidence": "docs/floor/evidence.md#what-none-of-this-proves"
+    },
+    {
+      "id": "signed-releases",
+      "kind": "not-claimed",
+      "text": "Signed releases",
+      "reason": "Releases carry checksums and a promotion receipt, but no signature yet."
+    }
+  ]
+}

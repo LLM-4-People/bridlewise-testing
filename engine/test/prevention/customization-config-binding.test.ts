@@ -138,6 +138,10 @@ test("config binding: isConfigPathDeclared is the deny-by-default membership tes
   assert.equal(isConfigPathDeclared("safety.eventFeed"), true, "safety.eventFeed is a declared write-gate path");
   assert.equal(isConfigPathDeclared("safety.toolCallGate"), true, "safety.toolCallGate is a declared write-gate path");
   assert.equal(isConfigPathDeclared("safety.eventFeed.families.workaround.enabled"), true, "event-feed family knobs are addressable");
+  // A section declared as a union (a budget in its accumulation or rolling phase) declares a path when any of its shapes does.
+  assert.equal(isConfigPathDeclared("testExecution.webUiSuiteCpuBudget.derivedAtTestFileCount"), true, "a field both phases declare is addressable through the union");
+  assert.equal(isConfigPathDeclared("testExecution.webUiSuiteCpuBudget.baselineFloorUnitsPerTestFile"), true, "a field one phase declares is addressable through the union");
+  assert.equal(isConfigPathDeclared("testExecution.webUiSuiteCpuBudget.noSuchField"), false, "a field no phase declares must not resolve");
 });
 
 test("config binding: read-through returns the document's value, not the default", () => {
