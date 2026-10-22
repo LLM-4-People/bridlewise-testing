@@ -4,8 +4,8 @@
  *
  * PURE: this module imports only the product's schema names (themselves
  * pure) and touches no I/O, clock or randomness.
- * It is loaded into the projector's sealed realm (`realm.ts`), where any of
- * those would be a typed refusal.
+ * It is linked into the projector's confined program (`confined.ts`), where
+ * the kernel refuses any file or network it would reach.
  *
  * D is a list of OBJECTS, each one GitHub object the projector owns: its
  * CLASS (`PROJECTION_CLASSES`, also the order classes are written in), its
@@ -105,7 +105,7 @@ export type ProjectionInput = Readonly<{
   lanes: readonly InputLane[];
 }>;
 
-/** The projector's marker opening an item's generated block; `digest` is filled in by the host (the realm has no hash). */
+/** The projector's marker opening an item's generated block; `digest` is filled in by the host (the confined program imports no hash). */
 export function itemMarker(id: string, digest: string): string {
   return `<!-- bridlewise:item=${id} digest=${digest} -->`;
 }

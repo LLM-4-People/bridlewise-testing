@@ -18,9 +18,10 @@
  *      caller appends to the ledger.
  *
  * A second run on the same D against the state the first left makes no write
- * (V-25: idempotent). A live object D does not hold (an issue whose record
- * was removed, a label no registry declares) is an ORPHAN: reported, never
- * written here.
+ * (V-25: idempotent). A live object the projector OWNS that D does not hold
+ * (an issue whose record was removed, a lane label no lane declares) is an
+ * ORPHAN: reported, never written here. A person's own label or issue is
+ * GitHub's, never an orphan.
  */
 import { HarnessError } from "../../../kernel/errors.ts";
 import { canonicalHash, canonicalJson, deepFreeze } from "../../../kernel/integrity.ts";
@@ -97,7 +98,7 @@ export function planProjection(projection: Projection, live: readonly LiveObject
   });
   const wanted = new Set(projection.objects.map(id));
   const classes = new Set<ProjectionClass>(projection.objects.map((object) => object.class));
-  const orphans = live.filter((object) => classes.has(object.class) && !wanted.has(id(object))).map(id).sort();
+  const orphans = live.filter((object) => object.owned && classes.has(object.class) && !wanted.has(id(object))).map(id).sort();
   return deepFreeze({ writes, orphans });
 }
 

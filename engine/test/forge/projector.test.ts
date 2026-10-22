@@ -5,13 +5,17 @@
  * and verifying every git-owned field.
  *
  *   V-25 idempotent: a second run on the same (S, L) makes zero writes.
- *   V-26 pure: two processes give the same digest; a touch of the network, the
- *        clock, randomness or code-from-strings is a typed refusal.
+ *   V-26 pure, by the kernel: the projection runs in a separate process under
+ *        the guardian (no readable file but node's own, nothing writable, no
+ *        socket, a CPU ceiling, no environment); a write, a harness or /proc
+ *        read, a connect are refused; the clock and randomness, which no
+ *        kernel boundary refuses, are caught by computing twice.
  *   V-28 a field GitHub silently drops is `projection_unverified`, never a success.
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createServer, type AddressInfo } from "node:net";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -20,14 +24,22 @@ import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { applyProjection, planProjection, projectionFailure } from "../../src/workflow/forge/projector/apply.ts";
 import { PROJECTION_INPUT_SCHEMA, type ProjectionInput } from "../../src/workflow/forge/projector/model.ts";
-import { computeProjection, projectionInput } from "../../src/workflow/forge/projector/projection.ts";
-import { PROJECTION_REALM, sealedCall } from "../../src/workflow/forge/projector/realm.ts";
+import { computeProjection, deterministicCall, projectionInput } from "../../src/workflow/forge/projector/projection.ts";
+import { confinedCall, PROJECTION_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
+import { compileSelfProtectionConfigToSpec, resolveGuardianBinaryPath } from "../../src/filesystem/self-protection/guardian-binary.ts";
+import { narrowGuardianSpec } from "../../src/filesystem/self-protection/confined-run.ts";
+import { DEFAULT_SELF_PROTECTION_CONFIG, parseSelfProtectionConfig } from "../../src/filesystem/self-protection/self-protection-config.ts";
+import { emptyKeepOutFacts } from "../support/keep-out-facts.ts";
+import { requireHost } from "../support/host-requirement.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
 import { memoryStore } from "./projection-store.ts";
 
 const SOURCE = "0123456789abcdef0123456789abcdef01234567";
 const REPOSITORY_ROOT = join(import.meta.dirname, "..", "..", "..");
+const ENGINE_ROOT = join(REPOSITORY_ROOT, "engine");
+/** Every projection here runs confined: this engine's guardian, an empty keep-out registry of the test's own, a generous CPU ceiling. */
+const CONFINEMENT: ProjectorConfinement = { harnessRoot: ENGINE_ROOT, keepOut: emptyKeepOutFacts(), cpuSeconds: 60 };
 
 const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> = {}): ProjectionInput["items"][number] => ({
   id, type: "Task", title: null, state: "open", resolution: null, lane: "floor", parent: null, blockedBy: [],
@@ -44,10 +56,13 @@ const INPUT = input([
 ]);
 
 test("D is the tracker's issues and labels, with permalinks at S and the projector's marker", () => {
-  const { projection, digest } = computeProjection(INPUT);
+  const { projection, digest } = computeProjection(INPUT, CONFINEMENT);
   assert.match(digest, /^[0-9a-f]{64}$/u);
   assert.deepEqual(projection.objects.map((object) => `${object.class}/${object.key}`), ["label/lane:floor", "issue/A-PARENT", "issue/B-CHILD", "issue/C-DONE"]);
   const child = projection.objects.find((object) => object.key === "B-CHILD")!;
+  // Input order never reaches D: blocked-by is sorted.
+  const unordered = computeProjection(input([item("A-ONE", { blockedBy: ["Z-LAST", "B-FIRST"] }), item("Z-LAST"), item("B-FIRST")]), CONFINEMENT).projection;
+  assert.deepEqual(unordered.objects.find((object) => object.key === "A-ONE")!.fields.blockedBy, ["B-FIRST", "Z-LAST"]);
   assert.equal(child.fields.title, "B-CHILD", "an item without a title is titled by its id");
   assert.deepEqual([child.fields.parent, child.fields.blockedBy, child.fields.labels], ["A-PARENT", ["C-DONE"], ["lane:floor"]]);
   const block = String(child.fields.block);
@@ -57,50 +72,88 @@ test("D is the tracker's issues and labels, with permalinks at S and the project
   const done = projection.objects.find((object) => object.key === "C-DONE")!;
   assert.deepEqual([done.fields.state, done.fields.stateReason], ["closed", "not_planned"]);
   // An input of another schema, or one that would key two objects alike, is refused typed.
-  assert.throws(() => computeProjection({ ...INPUT, schema: "other/v9" } as unknown as ProjectionInput), (error: HarnessError) => error.code === "projection_input_invalid");
-  assert.throws(() => computeProjection(input([item("A-ONE"), item("A-ONE")])), (error: HarnessError) => error.code === "projection_input_invalid" && /issue\/A-ONE/u.test(error.message));
+  assert.throws(() => computeProjection({ ...INPUT, schema: "other/v9" } as unknown as ProjectionInput, CONFINEMENT), (error: HarnessError) => error.code === "projection_input_invalid");
+  assert.throws(() => computeProjection(input([item("A-ONE"), item("A-ONE")]), CONFINEMENT), (error: HarnessError) => error.code === "projection_input_invalid" && /issue\/A-ONE/u.test(error.message));
   // Another source commit is another D (the permalinks move with it).
-  assert.notEqual(computeProjection(input(INPUT.items, "f".repeat(40))).digest, digest);
+  assert.notEqual(computeProjection(input(INPUT.items, "f".repeat(40)), CONFINEMENT).digest, digest);
 });
 
-test("V-26: project() is pure — the same digest in two processes, and every impure touch is a typed refusal", () => {
-  const first = computeProjection(INPUT);
-  const second = computeProjection(JSON.parse(JSON.stringify(INPUT)) as ProjectionInput);
-  assert.equal(first.digest, second.digest, "two sealed processes, one digest");
-  const directory = createTempDir("projector-realm-");
-  const planted = (name: string, source: string, imports: readonly string[] = []): { entry: string; modules: string[]; exportName: string } => {
+test("V-26: purity is a kernel property — two confined processes give one digest, and every reach outside the input is refused", async () => {
+  requireHost(resolveGuardianBinaryPath(ENGINE_ROOT) !== undefined, "the built guardian (make -C engine/guardian all)");
+  const first = computeProjection(INPUT, CONFINEMENT);
+  const second = computeProjection(JSON.parse(JSON.stringify(INPUT)) as ProjectionInput, CONFINEMENT);
+  assert.equal(first.digest, second.digest, "two confined processes (each computing twice), one digest");
+  const directory = createTempDir("projector-confined-");
+  const planted = (name: string, source: string, siblings: Readonly<Record<string, string>> = {}): ConfinedModule => {
     const entry = join(directory, `${name}.ts`);
     writeFileSync(entry, source);
-    return { entry, modules: [entry, ...imports], exportName: "projectText" };
+    for (const [file, text] of Object.entries(siblings)) writeFileSync(join(directory, file), text);
+    return { entry, modules: [entry], exportName: "projectText" };
   };
-  for (const [name, source, code, what] of [
-    ["clock", "export function projectText(): string { return String(Date.now()); }", "projection_impure", /Date/u],
-    ["intl", "export function projectText(): string { return new Intl.DateTimeFormat().format(); }", "projection_impure", /Intl/u],
-    ["random", "export function projectText(): string { return String(Math.random()); }", "projection_impure", /Math\.random/u],
-    ["fetch", "export function projectText(): string { void fetch('https://example.org'); return ''; }", "projection_impure", /fetch/u],
-    ["process", "export function projectText(): string { return String(process.pid); }", "projection_impure", /process/u],
-    ["timer", "export function projectText(): string { setTimeout(() => {}, 1); return ''; }", "projection_impure", /setTimeout/u],
-    ["locale", "export function projectText(): string { return String('a'.localeCompare('b')); }", "projection_impure", /localeCompare/u],
-    ["eval", "export function projectText(): string { return String((0, eval)('1')); }", "projection_impure", /code generation/u],
-    ["function", "export function projectText(): string { return String(projectText.constructor('return 1')()); }", "projection_impure", /code generation/u],
-    ["escape", "export function projectText(): string { return String((globalThis as any).constructor.constructor('return process')()); }", "projection_impure", /code generation/u],
-    ["network", "import { request } from 'node:http';\nexport function projectText(): string { return String(request); }", "projection_import_refused", /node:http/u],
-    ["outside", `import { sha256 } from '${join(REPOSITORY_ROOT, "engine/src/kernel/integrity.ts")}';\nexport function projectText(): string { return sha256('x'); }`, "projection_import_refused", /integrity\.ts/u],
-    ["not-text", "export function projectText(): number { return 1; }", "projection_failed", /answered number, not text/u],
-  ] as const) {
-    assert.throws(() => sealedCall(planted(name, source), "{}"), (error: HarnessError) => {
-      assert.equal(error.code, code, `${name}: ${error.message}`);
-      assert.match(error.message, what, name);
+  const refused = (module: ConfinedModule, code: string, what: RegExp, call: () => unknown = () => deterministicCall(module, "{}", CONFINEMENT)): void => {
+    assert.throws(call, (error: HarnessError) => {
+      assert.equal(error.code, code, `${module.entry}: ${error.message}`);
+      assert.match(error.message, what, module.entry);
       return true;
-    }, name);
+    });
+  };
+  // A WRITE through a dynamic import of node:fs (the realm's escape): the kernel refuses it, nothing is written.
+  const written = join(directory, "written-by-the-projection");
+  // (A computed specifier: no static link can see it, so only the kernel stands in the way; a literal one is refused at link, below.)
+  refused(planted("write", `const fs = await import(["node", "fs"].join(":"));\nfs.writeFileSync(${JSON.stringify(written)}, "x");\nexport function projectText(): string { return ""; }`), "projection_impure", /EACCES/u);
+  assert.equal(existsSync(written), false, "the write never happened");
+  // A READ of the harness's own code, and of /proc (a clock): refused.
+  refused(planted("read", `const fs = process.getBuiltinModule("node:fs");\nexport function projectText(): string { return fs.readFileSync(${JSON.stringify(join(ENGINE_ROOT, "src/kernel/root-policy.ts"))}, "utf8"); }`), "projection_impure", /EACCES/u);
+  refused(planted("uptime", `const fs = process.getBuiltinModule("node:fs");\nexport function projectText(): string { return fs.readFileSync("/proc/uptime", "utf8"); }`), "projection_impure", /EACCES/u);
+  // A CONNECT to a live local server: refused at socket(), the server never sees it.
+  const server = createServer((socket) => { connections += 1; socket.end(); });
+  let connections = 0;
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const port = (server.address() as AddressInfo).port;
+  try {
+    refused(planted("connect", `const net = await import(["node", "net"].join(":"));\nawait new Promise((resolve, reject) => { const socket = net.connect(${String(port)}, "127.0.0.1"); socket.on("connect", resolve); socket.on("error", reject); });\nexport function projectText(): string { return "connected"; }`), "projection_impure", /EACCES/u);
+    refused(planted("fetch", `await fetch("http://127.0.0.1:${String(port)}/");\nexport function projectText(): string { return "fetched"; }`), "projection_impure", /EACCES/u);
+  } finally {
+    server.close();
   }
-  // A pure module of the declared set computes: the realm refuses touches, never pure work.
-  assert.equal(sealedCall(planted("pure", "export function projectText(input: string): string { return [...input].reverse().join(''); }"), "abc"), "cba");
-  assert.ok(PROJECTION_REALM.modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || path === join(REPOSITORY_ROOT, "shared/markdown.ts")), "the projection's realm loads only the source it declares");
+  assert.equal(connections, 0, "no connection reached the server");
+  // The CLOCK and RANDOMNESS reach no kernel wall (the vDSO): two confined runs that answer differently are refused.
+  refused(planted("clock", "export function projectText(): string { return String(Date.now()) + String(performance.now()); }"), "projection_nondeterministic", /answered differently/u);
+  refused(planted("random", "export function projectText(): string { return String(Math.random()); }"), "projection_nondeterministic", /answered differently/u);
+  // The LINK refuses what the program does not declare, before anything runs.
+  refused(planted("sibling", "import { value } from './undeclared.ts';\nexport function projectText(): string { return value; }", { "undeclared.ts": "export const value = 'x';" }), "projection_import_refused", /undeclared\.ts .* is not a module of the confined program/u);
+  refused(planted("builtin", "import { readFileSync } from 'node:fs';\nexport function projectText(): string { return String(readFileSync); }"), "projection_import_refused", /node:fs/u);
+  refused(planted("literal-dynamic", "const fs = await import('node:fs');\nexport function projectText(): string { return String(fs); }"), "projection_import_refused", /node:fs/u);
+  refused(planted("bare", "import x from 'zod';\nexport function projectText(): string { return String(x); }"), "projection_import_refused", /zod/u);
+  // A CPU spin is ended by its CPU ceiling (by CPU work, never wall time).
+  refused(planted("spin", "export function projectText(): string { for (;;) {} }"), "projection_cpu_exhausted", /CPU seconds/u, () => confinedCall(planted("spin", "export function projectText(): string { for (;;) {} }"), "{}", { ...CONFINEMENT, cpuSeconds: 1 }));
+  refused(planted("not-text", "export function projectText(): number { return 1; }"), "projection_failed", /answered number, not text/u);
+  // The parent's environment never reaches the program: a NODE_OPTIONS preload is ignored.
+  const preload = join(directory, "preload.cjs");
+  writeFileSync(preload, "process.stdout.write('PRELOADED');");
+  const saved = process.env.NODE_OPTIONS;
+  process.env.NODE_OPTIONS = `--require=${preload}`;
+  try {
+    assert.equal(confinedCall(planted("pure", "export function projectText(input: string): string { return [...input].reverse().join(''); }"), "abc", CONFINEMENT), "cba", "honest pure work computes, and the preload never ran");
+  } finally {
+    if (saved === undefined) delete process.env.NODE_OPTIONS;
+    else process.env.NODE_OPTIONS = saved;
+  }
+  // A host whose guardian cannot confine is a typed refusal, never an unconfined run.
+  refused(planted("pure2", "export function projectText(): string { return 'x'; }"), "projection_confinement_refused", /binary_missing/u, () => confinedCall(planted("pure2", "export function projectText(): string { return 'x'; }"), "{}", { ...CONFINEMENT, harnessRoot: createTempDir("no-guardian-") }));
+  // Narrowing only takes authority away: a rule outside the compiled floor, or wider than it, is refused.
+  const scratch = createTempDir("narrow-");
+  const compiled = compileSelfProtectionConfigToSpec(parseSelfProtectionConfig({ ...DEFAULT_SELF_PROTECTION_CONFIG, enabled: true, tempDir: scratch }), ENGINE_ROOT, scratch, process.execPath, emptyKeepOutFacts());
+  assert.deepEqual(narrowGuardianSpec(compiled, [{ path: "/usr/lib", access: ["READ_FILE"] }]).allow_rules, [{ path: "/usr/lib", access: ["READ_FILE"] }]);
+  assert.equal(narrowGuardianSpec(compiled, [{ path: "/usr/lib", access: ["READ_FILE"] }]).temp_dir, undefined, "the temp folder grant is dropped");
+  for (const rule of [{ path: "/home", access: ["READ_FILE"] as const }, { path: "/usr", access: ["WRITE_FILE"] as const }, { path: join(ENGINE_ROOT, "src"), access: ["READ_FILE"] as const }]) {
+    assert.throws(() => narrowGuardianSpec(compiled, [rule]), (error: HarnessError) => error.code === "confined_rule_outside_floor", rule.path);
+  }
+  assert.ok(PROJECTION_PROGRAM.modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || path === join(REPOSITORY_ROOT, "shared/markdown.ts")), "the projection's program links only the source it declares");
 });
 
 test("the first run creates in phase order, verifies, and its receipt names every write", async () => {
-  const { projection, digest } = computeProjection(INPUT);
+  const { projection, digest } = computeProjection(INPUT, CONFINEMENT);
   const github = memoryStore();
   const receipt = await applyProjection(projection, github.store, { allowance: 100 });
   assert.equal(projectionFailure(receipt), null);
@@ -117,18 +170,18 @@ test("the first run creates in phase order, verifies, and its receipt names ever
 });
 
 test("V-25: a second run on the same (S, L) makes zero writes, and a changed record writes only its difference", async () => {
-  const { projection } = computeProjection(INPUT);
+  const { projection } = computeProjection(INPUT, CONFINEMENT);
   const github = memoryStore();
   const first = await applyProjection(projection, github.store, { allowance: 100 });
   const before = github.writes().length;
-  const again = await applyProjection(computeProjection(INPUT).projection, github.store, { allowance: 100 });
+  const again = await applyProjection(computeProjection(INPUT, CONFINEMENT).projection, github.store, { allowance: 100 });
   assert.equal(github.writes().length, before, "no write reached the store");
   assert.deepEqual(again.writes, []);
   assert.equal(again.verified, true);
   assert.equal(again.observedDigest, first.observedDigest, "GitHub is observed exactly as the first run left it");
   // One item closes: one state write, nothing else.
   const changed = input([INPUT.items[0]!, { ...INPUT.items[1]!, state: "closed", resolution: "completed" }, INPUT.items[2]!]);
-  const next = await applyProjection(computeProjection(changed).projection, github.store, { allowance: 100 });
+  const next = await applyProjection(computeProjection(changed, CONFINEMENT).projection, github.store, { allowance: 100 });
   assert.deepEqual(next.writes.map((write) => `${write.phase}:${write.class}/${write.key}:${write.fields.join(",")}`), [
     "create:issue/B-CHILD:block", "state:issue/B-CHILD:state,stateReason",
   ], "the block's digest moves with the record; the state is set; nothing else");
@@ -137,7 +190,7 @@ test("V-25: a second run on the same (S, L) makes zero writes, and a changed rec
 
 test("V-28: a field GitHub silently does not keep is projection_unverified, never a success", async () => {
   const github = memoryStore({ drops: ["issue.type"] });
-  const receipt = await applyProjection(computeProjection(INPUT).projection, github.store, { allowance: 100 });
+  const receipt = await applyProjection(computeProjection(INPUT, CONFINEMENT).projection, github.store, { allowance: 100 });
   assert.equal(receipt.verified, false);
   assert.deepEqual(receipt.unverified.map((field) => `${field.class}/${field.key}.${field.field}`), ["issue/A-PARENT.type", "issue/B-CHILD.type", "issue/C-DONE.type"]);
   assert.equal(receipt.unverified[0]!.expected, "Workstream");
@@ -148,7 +201,7 @@ test("V-28: a field GitHub silently does not keep is projection_unverified, neve
 });
 
 test("an exhausted allowance stops typed and retryable, and the next run resumes the diff to a verified state", async () => {
-  const { projection } = computeProjection(INPUT);
+  const { projection } = computeProjection(INPUT, CONFINEMENT);
   const github = memoryStore();
   const first = await applyProjection(projection, github.store, { allowance: 2 });
   assert.equal(first.writes.length, 2);
@@ -163,7 +216,7 @@ test("an exhausted allowance stops typed and retryable, and the next run resumes
 
 test("a refused write stops the run with the object it was writing; the rest stays as it was", async () => {
   const github = memoryStore({ refuseAt: { write: 1, error: new HarnessError("forbidden", "github_forbidden") } });
-  const receipt = await applyProjection(computeProjection(INPUT).projection, github.store, { allowance: 100 });
+  const receipt = await applyProjection(computeProjection(INPUT, CONFINEMENT).projection, github.store, { allowance: 100 });
   assert.deepEqual(receipt.refusals.map((refusal) => [refusal.code, refusal.class, refusal.key, refusal.retryable]), [["github_forbidden", "issue", "A-PARENT", false]]);
   assert.equal(receipt.writes.length, 1);
   assert.equal(receipt.verified, false);
@@ -171,15 +224,18 @@ test("a refused write stops the run with the object it was writing; the rest sta
   assert.equal(github.get("issue", "B-CHILD"), undefined, "nothing after the refusal was written");
 });
 
-test("a live object D does not hold is an orphan: reported, never written", async () => {
+test("an OWNED live object D does not hold is an orphan: reported, never written; a person's label or issue is never one", async () => {
   const github = memoryStore();
-  github.put({ class: "issue", key: "GONE", fields: { title: "GONE" } });
-  github.put({ class: "label", key: "lane:retired", fields: { color: "000000", description: "x" } });
-  const { projection } = computeProjection(INPUT);
-  assert.deepEqual(planProjection(projection, [{ class: "issue", key: "GONE", fields: {} }]).orphans, ["issue/GONE"]);
+  github.put({ class: "issue", key: "GONE", fields: { title: "GONE" }, owned: true });
+  github.put({ class: "label", key: "lane:retired", fields: { color: "000000", description: "x" }, owned: true });
+  // A person's label and a person's issue are GitHub's own: never orphans.
+  github.put({ class: "label", key: "bug", fields: { color: "d73a4a", description: "Something isn't working" }, owned: false });
+  github.put({ class: "issue", key: "#7", fields: { title: "A reporter's question" }, owned: false });
+  const { projection } = computeProjection(INPUT, CONFINEMENT);
+  assert.deepEqual(planProjection(projection, [{ class: "issue", key: "GONE", fields: {}, owned: true }]).orphans, ["issue/GONE"]);
   const receipt = await applyProjection(projection, github.store, { allowance: 100 });
   assert.deepEqual(receipt.orphans, ["issue/GONE", "label/lane:retired"]);
-  assert.ok(receipt.writes.every((write) => write.key !== "GONE" && write.key !== "lane:retired"));
+  assert.ok(receipt.writes.every((write) => !["GONE", "lane:retired", "bug", "#7"].includes(write.key)));
 });
 
 test("the input is read from the source COMMIT, never the working tree", () => {
@@ -201,7 +257,7 @@ test("the input is read from the source COMMIT, never the working tree", () => {
 
 test("this repository's own HEAD projects: every tracker item is an issue, every lane a label", () => {
   const read = projectionInput(configuredGitRepository({}, REPOSITORY_ROOT), "HEAD", null, "https://github.com/LLM-4-People/bridlewise-testing");
-  const { projection } = computeProjection(read);
+  const { projection } = computeProjection(read, CONFINEMENT);
   assert.equal(projection.objects.filter((object) => object.class === "issue").length, read.items.length);
   assert.ok(read.items.length > 0);
   assert.equal(projection.objects.filter((object) => object.class === "label").length, read.lanes.length);
