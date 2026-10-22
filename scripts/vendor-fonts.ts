@@ -24,10 +24,11 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import { atomicWriteFile } from "../engine/src/filesystem/atomic-write.ts";
 import { HarnessError } from "../engine/src/kernel/errors.ts";
+import { bootstrapProcess, isEntryPoint } from "../engine/src/runtime/cli-debug.ts";
 import { syncServiceWorker } from "./service-worker-cache.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -121,7 +122,8 @@ function verifyUpstream(): unknown {
   return { verified, receipt };
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   const mode = process.argv[2];
   const result = mode === "--write" ? write() : mode === "--check" ? checkFonts() : mode === "--verify-upstream" ? verifyUpstream() : null;
   if (result === null) throw new HarnessError("Usage: vendor-fonts --write | --check | --verify-upstream", "input_error");
