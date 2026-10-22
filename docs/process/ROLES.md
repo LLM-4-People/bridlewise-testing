@@ -23,6 +23,10 @@ reviewer who finds an unverified claim sends it back.
 
 ## Release owner
 
-Runs the promotion gate at the exact commit, waits for in-flight checks,
-records the receipt, and publishes only when the receipt passes. Keeps the
-developer preview warning and the supported-version statement current.
+Declares the product's next version (the root `package.json` on `main`) and
+sets the release train's mode (`promotion.release.train`). The train itself
+decides a departure (`harness release plan`), generates the notes, assembles
+and attests the assets, and publishes the release immutable; a person
+dispatches it only in `manual` mode and approves it only in `approval` mode.
+Keeps the developer preview warning and the supported-version statement
+current.

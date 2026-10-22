@@ -45,6 +45,6 @@ folder owns what they are told and who may do what.
 The folder lives at `engine/src/workflow/community/`.
 
 - `health-files.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `sources.ts` is consumed by `engine/src/workflow/community/health-files.ts`.
+- `sources.ts` is consumed by `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/forge/cli.ts`.
 
 <!-- /consumers:generated -->
