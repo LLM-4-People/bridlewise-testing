@@ -75,10 +75,14 @@ jobs:
       - name: Build engine bundle
         run: npm --prefix engine run build:bundle
 
-      - name: Install the pinned compiler
+      - name: Require the pinned compiler from the runner image
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-14
+          # gcc-14 ships in the ubuntu-24.04 image. Installing it over the
+          # network only ever waited on a package mirror (a hung mirror held
+          # two shards for their whole 45-minute budget, #333). A missing
+          # compiler is a named failure, never an install.
+          command -v gcc-14 >/dev/null || { echo "::error::gcc-14 is not in the runner image; the guardian build needs it (#333)"; exit 1; }
+          gcc-14 --version
 
       - name: Build guardian
         run: make -C engine/guardian all
@@ -192,10 +196,14 @@ jobs:
       - name: Install engine dependencies
         run: npm --prefix engine ci --no-audit --no-fund
 
-      - name: Install the pinned compiler
+      - name: Require the pinned compiler from the runner image
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-14
+          # gcc-14 ships in the ubuntu-24.04 image. Installing it over the
+          # network only ever waited on a package mirror (a hung mirror held
+          # two shards for their whole 45-minute budget, #333). A missing
+          # compiler is a named failure, never an install.
+          command -v gcc-14 >/dev/null || { echo "::error::gcc-14 is not in the runner image; the guardian build needs it (#333)"; exit 1; }
+          gcc-14 --version
 
       - name: Install hooks and build the confinement supervisor
         run: |

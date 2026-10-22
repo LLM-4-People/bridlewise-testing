@@ -17,16 +17,17 @@ import { repositoryRegistryArea, type RepositoryRegistry, type RepositoryRegistr
  * (`repository-registry.ts`: `<git common dir>/<product name>/`), so every
  * worktree of the repository reads the same records:
  *
- * - the CURRENT store (`workspaces-v4/<id>.json`): every record this code
+ * - the CURRENT store (`workspaces-v5/<id>.json`): every record this code
  *   writes, of the current version, and the only place it writes;
- * - the OLDER stores, newest first (`workspaces-v3/`: `ws publish`/`ready`
- *   before the land; `workspaces/`: v2, before the forge), which older code
+ * - the OLDER stores, newest first (`workspaces-v4/`: `ws land` before the
+ *   stacks; `workspaces-v3/`: `ws publish`/`ready` before the land;
+ *   `workspaces/`: v2, before the forge), which older code
  *   (another checkout of the same repository, another lane) still reads and
  *   writes. An older record is migrated IN MEMORY on every read (the one
  *   chain, `migrateWorkspaceRecord`) and is READ-ONLY to this code: a
  *   workspace known only to an older store belongs to the checkout of the
  *   version that made it, so every save of one is refused
- *   (`workspace_owned_by_v2_checkout`, `workspace_owned_by_v3_checkout`) and
+ *   (`workspace_owned_by_v<N>_checkout`, N the older version) and
  *   no current twin is ever made of it. The older stores are left exactly as
  *   they are until the recorded cutover that archives them (runbook P7 for
  *   v2).
@@ -64,7 +65,7 @@ export type WorkspaceRecordStores = Readonly<{ current: string; older: readonly 
 
 /** The record stores of `registry`: its current area and each older version's. */
 export function workspaceRecordStores(registry: RepositoryRegistry): WorkspaceRecordStores {
-  const areas: Readonly<Record<OlderWorkspaceSchemaVersion, RepositoryRegistryArea>> = { [OLDER_WORKSPACE_SCHEMA_VERSIONS[0]]: "workspacesV3", [OLDER_WORKSPACE_SCHEMA_VERSIONS[1]]: "workspacesV2" } as Record<OlderWorkspaceSchemaVersion, RepositoryRegistryArea>;
+  const areas: Readonly<Record<OlderWorkspaceSchemaVersion, RepositoryRegistryArea>> = { [OLDER_WORKSPACE_SCHEMA_VERSIONS[0]]: "workspacesV4", [OLDER_WORKSPACE_SCHEMA_VERSIONS[1]]: "workspacesV3", [OLDER_WORKSPACE_SCHEMA_VERSIONS[2]]: "workspacesV2" } as Record<OlderWorkspaceSchemaVersion, RepositoryRegistryArea>;
   return deepFreeze({
     current: repositoryRegistryArea(registry, "workspaces"),
     older: OLDER_WORKSPACE_SCHEMA_VERSIONS.map((version) => ({ version, directory: repositoryRegistryArea(registry, areas[version]) })),
@@ -73,8 +74,9 @@ export function workspaceRecordStores(registry: RepositoryRegistry): WorkspaceRe
 
 /** Each older version's refusal code. */
 const OWNED_BY: Readonly<Record<OlderWorkspaceSchemaVersion, string>> = {
-  [OLDER_WORKSPACE_SCHEMA_VERSIONS[0]]: "workspace_owned_by_v3_checkout",
-  [OLDER_WORKSPACE_SCHEMA_VERSIONS[1]]: "workspace_owned_by_v2_checkout",
+  [OLDER_WORKSPACE_SCHEMA_VERSIONS[0]]: "workspace_owned_by_v4_checkout",
+  [OLDER_WORKSPACE_SCHEMA_VERSIONS[1]]: "workspace_owned_by_v3_checkout",
+  [OLDER_WORKSPACE_SCHEMA_VERSIONS[2]]: "workspace_owned_by_v2_checkout",
 } as Record<OlderWorkspaceSchemaVersion, string>;
 
 /**
