@@ -291,8 +291,16 @@ function markdownHeadings(markdown: string): ReadonlySet<string> {
   return headings;
 }
 
+/**
+ * Evidence that lives online, not in this tree: an absolute URL, or one under
+ * the repository's own URL as the site configuration carries it
+ * (`{{ site.repository_url }}/issues`; the site builder writes that value from
+ * package.json, the one declaration).
+ */
+const ONLINE_EVIDENCE = /^(?:https?:\/\/|\{\{ site\.repository_url \}\}\/)/u;
+
 function localEvidenceViolation(evidence: string, repositoryRoot: string): string | null {
-  if (/^https?:\/\//u.test(evidence)) return null;
+  if (ONLINE_EVIDENCE.test(evidence)) return null;
   const hash = evidence.indexOf("#");
   const pathPart = hash === -1 ? evidence : evidence.slice(0, hash);
   const anchor = hash === -1 ? "" : evidence.slice(hash + 1);
@@ -512,7 +520,7 @@ function cell(value: string): string {
 }
 
 function link(evidence: string): string {
-  if (/^https?:\/\//u.test(evidence)) return `[GitHub](${evidence})`;
+  if (ONLINE_EVIDENCE.test(evidence)) return `[GitHub](${evidence})`;
   const hash = evidence.indexOf("#");
   const pathPart = hash === -1 ? evidence : evidence.slice(0, hash);
   const anchor = hash === -1 ? "" : evidence.slice(hash + 1);

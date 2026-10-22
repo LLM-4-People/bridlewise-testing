@@ -23,7 +23,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { absoluteProcessDocLinkReason } from "./repository-links.ts";
-import { floorPageLinkViolations } from "./floor/site-pages.mjs";
+import { siteSourceViolations } from "./floor/site-pages.mjs";
 
 const linkPattern = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 
@@ -128,31 +128,21 @@ export function checkDocsLinks({ root = process.cwd(), files } = {}) {
 }
 
 /**
- * The site-publication half of the docs-links gate. A relative Markdown link
- * from a floor or tracker page names a source file GitHub can render; on the
- * assembled site the same page lives at its pretty URL and the target must be
- * a page the assembler publishes. `floorPageLinkViolations` asks the publish
- * plan's OWN owner (`scripts/floor/site-pages.mjs`), so a new tree that the
- * assembler starts copying, or a page the plan stops publishing, changes this
- * answer in one place.
- *
- * This is the check whose absence let `../trackers/TASKS.md` ship: the file
- * existed, so the repository link check was green, and the site never built
- * `trackers/TASKS/`.
+ * The site half of the docs-links gate. The site is built from `docs/`, and
+ * its builder refuses two pages for one URL and a page link that names
+ * nothing. `siteSourceViolations` asks the publish plan's OWN owner
+ * (`scripts/floor/site-pages.mjs`) the builder's exact question, so a link
+ * the build would refuse is red in the normal test run, before any build.
  */
-export function checkFloorSiteLinks({ root = process.cwd() } = {}) {
-  const violations = floorPageLinkViolations({ testingRoot: root });
-  return violations.map(
-    ({ page, target, docsPath }) =>
-      `${page}: ${target} (the floor site does not publish ${docsPath})`,
-  );
+export function checkSiteLinks({ root = process.cwd() } = {}) {
+  return siteSourceViolations({ root });
 }
 
 const invokedDirectly = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invokedDirectly) {
   const { files, missing } = checkDocsLinks();
-  const floorMissing = checkFloorSiteLinks();
-  const failures = [...missing, ...floorMissing];
+  const siteMissing = checkSiteLinks();
+  const failures = [...missing, ...siteMissing];
   if (failures.length === 0) {
     console.log(`docs links: clean (${files.length} Markdown files)`);
     process.exit(0);
