@@ -19,7 +19,7 @@ import { parseArgs } from "node:util";
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 
-import { isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
+import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { RENDERED_RULES, type PageRule, type RequestRule, type Surface } from "./rules.ts";
 
 class RenderedRefusal extends Error {
@@ -157,6 +157,7 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (error: unknown) => {
     process.stderr.write(`[rendered] REFUSED ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
