@@ -36,12 +36,19 @@ import ts from "typescript5";
  *   (`&amp;`, `&#60;`, `"&" + "amp;"`, `` `&#${code};` ``,
  *   `"&#" + String.fromCodePoint(c) + ";"`). Escaping and decoding are the
  *   owner's; a literal entity in code is a hand-rolled table or chain.
- * - `tag-filter`: a pattern (the first argument of `replace`, `replaceAll`,
- *   `split`, `match`, `matchAll`, `search`, `RegExp`; the regex receiver of
- *   `test`/`exec`) that opens a markup comment, names an element whose
- *   content an HTML sanitizer must special-case (`script`, `style`,
- *   `iframe`, `pre`, `code`, …), or is a generic tag class (`<[^>]…`,
- *   `<\/?[a-z]…`). Lookbehinds and named groups are regex syntax, not tags.
+ * - `tag-filter`: a REGEX pattern (the first argument of `replace`,
+ *   `replaceAll`, `split`, `match`, `matchAll`, `search`, `RegExp`; the
+ *   regex receiver of `test`/`exec`) that opens a markup comment or names an
+ *   element a sanitizer must special-case (`script`, `style`, `iframe`,
+ *   `pre`, `code`, …), or that BEHAVES as a generic tag matcher: run by the
+ *   JavaScript regex engine, it matches unrelated opening tags whole and
+ *   none of the same texts without their brackets. Lookbehinds and named
+ *   groups are regex syntax, not tags.
+ *
+ * A pattern is resolved before it is judged: a literal where it stands, a
+ * module-level `const` it names, a `RegExp(…)` built from either (with its
+ * flags), a template (its holes stand for an element name), and a computed
+ * member (`s["replace"]`) is the call it names.
  * - `markup-char`: a `replace`/`replaceAll` whose pattern is only markup
  *   characters (`/&/g`, `"<"`, `/[<>&]/g`): one link of an escape chain.
  * - `cell-escape`: a `replace`/`replaceAll` whose replacement inserts a
@@ -65,11 +72,31 @@ const HOLE = "\u0000";
 // `&#x3c;`, `&${name};`, `&#${code};`, `&#x${hex};`.
 const ENTITY = /&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]+|#[xX][0-9A-Fa-f]+|\u0000);|&#[xX]?[0-9A-Fa-f]*\u0000/u;
 const SPECIAL_ELEMENTS = "script|style|iframe|object|embed|svg|math|template|title|textarea|noscript|xmp|plaintext|pre|code|!--";
-const TAG_FILTER = new RegExp(String.raw`<(?:\\?\/)?(?:${SPECIAL_ELEMENTS})|<!--|<(?:\\?\/)?\??\[|<(?:\\?\/)?\(\?:`, "iu");
-// A GENERIC tag stripper by pattern semantics: `<`, an optional `/`, then a
-// lazy or negated-class run, then `>` (`<.*?>`, `<.+>`, `<[^>]*>`,
-// `<\/?[^>]+>`, `<[\s\S]*?>`, `<[^]*?>`).
-const GENERIC_TAG = /<(?:\\?\/)?\??(?:\.|\[\^[^\]]*\]|\[\\s\\S\]|\[\^\]|\[\\S\\s\])[*+]\??>/u;
+// Elements a sanitizer must special-case, named in a regex (any case), and
+// the markup comment opener. Generic tag classes are judged by behaviour
+// below, not by spelling.
+const TAG_FILTER = new RegExp(String.raw`<(?:\\?\/)?(?:${SPECIAL_ELEMENTS})|<!--`, "iu");
+// A GENERIC tag matcher, by what the regex DOES (the JavaScript regex engine
+// is the parser and the judge): it matches each of these whole, unrelated
+// opening tags (an element of any name, with or without attributes). `<.*?>`, `<[^>]+>`, `<\/?[a-z][^>]*>` and every other spelling of
+// "`<`, a run, `>`" do; a specific element (`<Spark\b[^>]*>`), a generic
+// type in source (`fn name<[^>]*>(`) or a bare `<` do not.
+const GENERIC_TAG_PROBES = Object.freeze(["<b>", '<a href="x">', "<div class='y' data-z=1>"]);
+// …and depends on the brackets: the same text without them matches nowhere
+// (a pattern that eats any run, `[^\r\n]+` or `^[\x20-\x7e]+$`, is not a
+// tag matcher).
+const BRACKETLESS_CONTROLS = Object.freeze(["b", 'a href="x"', "div class='y' data-z=1"]);
+function matchesGenericTags(resolved) {
+  if (resolved === null || !resolved.regex) return false;
+  let pattern;
+  try {
+    pattern = new RegExp(resolved.text.replaceAll(HOLE, "[a-z]+"), resolved.flags.replace(/[gy]/gu, ""));
+  } catch {
+    return false;
+  }
+  return GENERIC_TAG_PROBES.every((probe) => pattern.exec(probe)?.[0] === probe)
+    && BRACKETLESS_CONTROLS.every((control) => !pattern.test(control));
+}
 const REGEX_SYNTAX_ANGLES = /\(\?<[=!]|\(\?<[A-Za-z_$][\w$]*>|\\k<[A-Za-z_$][\w$]*>/gu;
 // A pattern that is only markup characters: `&`, `<`, `[<>&"']`, `\&`.
 // Quotes count inside a class only beside at least one of `<`, `>`, `&`.
@@ -88,16 +115,16 @@ const READS = new Set(["match", "matchAll", "search"]);
  */
 const DECLARED = new Map([
   ["engine/src/quality/languages/c-cpp/parser.ts", "strips the `<`, `>` and `\"` delimiters of a C `#include` path, which is C syntax, not markup"],
+  ["engine/verification/benchmarks/shared/qualification-authority-audit.mjs", "extracts the exact `<!-- authority-claims:v1 BEGIN -->` marker block from a Markdown record; it reads, never sanitizes"],
+  ["scripts/floor/site-links.mjs", "reads every tag of the BUILT site to crawl its href/src attributes; it reads, never sanitizes"],
+  ["tests/cockpit/cockpit-mouse-path-owner.test.ts", "reads the tags of this repository's own Svelte components to find their pointer controls"],
+  ["tests/cockpit/editor-surface-owner.test.ts", "reads the tags of this repository's own Svelte components to find the editor surface"],
   ["engine/src/workflow/reachability.ts", "extracts the `<script>` blocks of this repository's own Svelte sources to follow their imports; it reads, never sanitizes"],
-  ["engine/src/shared/source-structure.ts", "the source-structure owner locates `<script>` blocks of Svelte sources for its parser; it reads, never sanitizes"],
   ["server/safety/artifact-check.ts", "the artifact safety owner locates `<script>` elements of a generated artifact to SYNTAX-CHECK them; it never rewrites or sanitizes the artifact"],
   ["tests/cockpit/rest-visibility-floor.test.ts", "reads the `<style>` block of this repository's own Svelte components"],
   ["tests/cockpit/artifact-runtime-errors.test.ts", "unwraps a fixed `<script>…</script>` fixture string it built itself"],
-  ["tests/cockpit/index-rail-owner.test.ts", "plants a component edit inside the `</style>` of a fixture copy"],
   ["tests/prevention/template-mode-lexing.test.ts", "locates markup comments in Svelte sources to check the source lexer's spans against them"],
   ["tests/cockpit/artifact-containment.test.ts", "asserts that a generated artifact page still contains its `<iframe>`; it reads, never sanitizes"],
-  ["tests/cockpit/flow-past-view-owner.test.ts", "matches a TypeScript call's generic type arguments (`fetchJson<…>(`) in source, not markup"],
-  ["tests/prevention/roadmap-status-owner.test.ts", "removes one exact `<!-- ROADMAP-PLAN-BEGIN` marker from a copy of the page to plant a missing block"],
   ["tests/prevention/source-structure-parser-differential.test.ts", "an independent oracle locating `<script>` blocks, compared with the source-structure owner"],
 ]);
 
@@ -118,7 +145,51 @@ function folded(node) {
   return literalText(node) ?? HOLE;
 }
 
-const calleeName = (node) => (ts.isPropertyAccessExpression(node) ? node.name.text : ts.isIdentifier(node) ? node.text : null);
+/** The name a call invokes: `s.replace`, `s["replace"]`, `RegExp`. */
+function calleeName(node) {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (ts.isElementAccessExpression(node) && literalText(node.argumentExpression) !== null) return literalText(node.argumentExpression);
+  return ts.isIdentifier(node) ? node.text : null;
+}
+
+/**
+ * The initializer of a MODULE-LEVEL `const` of this file (no unwrapping).
+ * Module level only: a parameter or a local of the same name elsewhere in
+ * the file is a different binding, and scoping it properly is data flow
+ * (#180).
+ */
+function declaredInitializer(name, file) {
+  for (const statement of file.statements) {
+    if (!ts.isVariableStatement(statement) || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === name) return declaration.initializer ?? null;
+    }
+  }
+  return null;
+}
+
+/**
+ * A pattern argument resolved to its text: a literal where it stands, a
+ * same-file constant it names, or a `RegExp(…)` built from either (with its
+ * flags). Template holes stay holes. `{ regex }` says whether the text is a
+ * regular expression (a regex literal or a `RegExp`) or a literal string.
+ * Imports, `.call` and runtime-built patterns need data flow (#180).
+ */
+function resolvePattern(node, file, depth = 0) {
+  if (node === undefined || node === null || depth > 4) return null;
+  if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node)) return resolvePattern(node.expression, file, depth + 1);
+  if (ts.isRegularExpressionLiteral(node)) return { text: literalText(node), flags: node.text.slice(node.text.lastIndexOf("/") + 1), regex: true };
+  const text = literalText(node);
+  if (text !== null) return { text, flags: "", regex: false };
+  if (ts.isIdentifier(node)) return resolvePattern(declaredInitializer(node.text, file), file, depth + 1);
+  if ((ts.isNewExpression(node) || ts.isCallExpression(node)) && calleeName(node.expression) === "RegExp") {
+    const inner = resolvePattern(node.arguments?.[0], file, depth + 1);
+    if (inner === null) return null;
+    const flags = node.arguments?.[1] === undefined ? "" : resolvePattern(node.arguments[1], file, depth + 1)?.text ?? "";
+    return { text: inner.text, flags, regex: true };
+  }
+  return null;
+}
 
 /** The initializer of a same-file `const`/`let`/`var`, unwrapped from call wrappers (`Object.freeze(…)`, `deepFreeze(…)`, `new Map(…)`). */
 function declaredValue(name, file) {
@@ -189,10 +260,14 @@ function programViolations(path, code, lineOffsetOf) {
     if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
       const name = calleeName(node.expression);
       const args = node.arguments ?? [];
-      let pattern = null;
-      if (name !== null && (TRANSFORMS.has(name) || READS.has(name) || name === "RegExp")) pattern = args[0] === undefined ? null : literalText(args[0]);
-      if ((name === "test" || name === "exec") && ts.isPropertyAccessExpression(node.expression)) pattern = literalText(node.expression.expression);
-      if (pattern !== null && (TAG_FILTER.test(pattern.replace(REGEX_SYNTAX_ANGLES, "")) || GENERIC_TAG.test(pattern.replace(REGEX_SYNTAX_ANGLES, "")))) {
+      let resolved = null;
+      if (name !== null && (TRANSFORMS.has(name) || READS.has(name))) resolved = resolvePattern(args[0], file);
+      if (name === "RegExp") resolved = resolvePattern(node, file);
+      if ((name === "test" || name === "exec") && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression))) {
+        resolved = resolvePattern(node.expression.expression, file);
+      }
+      const pattern = resolved?.text ?? null;
+      if (resolved?.regex === true && (TAG_FILTER.test(pattern.replace(REGEX_SYNTAX_ANGLES, "")) || matchesGenericTags(resolved))) {
         report(node, "tag-filter (use htmlWithout / stripTags)");
       }
       if ((name === "replace" || name === "replaceAll") && pattern !== null && MARKUP_CHARS_ONLY.test(pattern)) report(node, "markup-char (use escapeHtml)");
@@ -302,6 +377,24 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
     "server/i.ts": 'const MAP = Object.freeze({ "<": "&" + "lt;", ">": "&" + "gt;" });\nconst a = s.replace(/[<>"]/g, (c) => MAP[c]);\nconst b = s.replace(/[^\\w ]/g, (c) => "&#" + c.charCodeAt(0) + ";");\nfunction enc(c: string) { return "&" + "amp;"; }\nconst d = s.replace(/x/g, enc);\nconst DECODE = { amp: "&", lt: "<" };\nconst e = s.replace(/&(\\w+);/g, (_m, n) => DECODE[n]);\n',
     // the three cheap gaps: a callback cell escape, generic strippers, a hex encoder
     "scripts/j.mjs": 'const cell = value.replace(/\\|/g, (pipe) => "\\\\" + pipe);\nconst a = html.replace(/<.*?>/g, "");\nconst b = html.replaceAll(/<[\\s\\S]+?>/g, " ");\nconst hex = (c) => "&#x" + c.codePointAt(0).toString(16) + ";";\nconst hex2 = (c) => `&#x${c.toString(16)};`;\n',
+    // six generic stripper spellings, each judged by behaviour
+    "server/k.ts": [
+      'const a = s.replace(/<[^>]*>/g, "");',
+      'const b = s.replace(/<.*?>/g, "");',
+      'const c = s.replace(/<[\\s\\S]+?>/g, "");',
+      'const d = s.replace(/<\\/?[a-z][^>]*>/gi, "");',
+      'const e = s.replace(/<[^<>]+>/g, "");',
+      'const f = s.replace(/<(?:[^>"\']|"[^"]*"|\'[^\']*\')*>/g, "");',
+    ].join("\n") + "\n",
+    // the pattern through a module constant, RegExp(const), a template hole and a computed member
+    "server/l.ts": [
+      "const TAG = /<[^>]+>/g;",
+      'const TAG_SOURCE = "<[^>]*>";',
+      'const plain = s.replace(TAG, "");',
+      'const built = s.replace(new RegExp(TAG_SOURCE, "g"), "");',
+      'const opener = (name: string) => s.replace(new RegExp(`<${name}[^>]*>`, "g"), "");',
+      'const computed = s["replace"](/<.*?>/g, "");',
+    ].join("\n") + "\n",
     "src/h.svelte": "<script>\n  const plain = html.replace(/<[^>]+>/g, \"\");\n</script>\n<p>{text.replaceAll(\"&\", \"&\" + \"amp;\")}</p>\n<p>a&nbsp;b</p>\n",
   };
   const found = Object.fromEntries(Object.entries(planted).map(([path, text]) => [path, violations(path, text)]));
@@ -316,6 +409,9 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
     "tests/g.test.ts": ["tag-filter"],
     "server/i.ts": ["entity", "entity", "markup-char", "markup-callback", "markup-callback", "entity", "entity", "markup-callback", "entity-pattern", "markup-callback"],
     "scripts/j.mjs": ["cell-escape", "tag-filter", "tag-filter", "entity", "entity"],
+    "server/k.ts": ["tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter"],
+    // `new RegExp(…)` is judged as a call of its own, then again as the replace pattern it feeds
+    "server/l.ts": ["tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter"],
     "src/h.svelte": ["tag-filter", "markup-char", "markup-callback", "entity"],
   }, JSON.stringify(found));
   assert.match(found["scripts/c.mjs"][0], /^scripts\/c\.mjs:1 /u, "a wrapped call is reported at its start");
@@ -343,6 +439,9 @@ test("near misses are not flagged", () => {
       'const masked = text.replace(/[^\\r\\n]+/gu, MARKER);',
       'const segments = command.split(/&&|\\|\\||[;\\n]/u);',
       'const arrow = code.replace(/=>/g, "->");',
+      'const anyRun = text.replace(/[^\\r\\n]+/gu, "*");',
+      'const printable = /^[\\x20-\\x7e]+$/u.test(key);',
+      'const typeArgs = source.match(/fn\\s+(\\w+)\\s*(<[^>]*>)?\\s*\\(/);',
       'const generics = type.match(/Array<\\w+>/);',
       'const pipes = table.split(/\\|/).map((cell) => cell.trim());',
       '// html.replace(/<script[\\s\\S]*?<\\/script>/g, "") is what the owner replaced',
