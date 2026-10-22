@@ -383,11 +383,12 @@ describe("one geometry, one palette", () => {
     const svg = markSvg(colors) as string;
     // The record lines painted with the beam's value (the remap the review planted): named in the SVG and in the PNG.
     const remapped = { ...colors, [BRAND_MARK.lines[0]!.ink]: colors[BRAND_MARK.beam.ink] };
-    expect(svgPaintFindings(markSvg(remapped), palette).join("\n")).toMatch(/record line 1: stroke is .*, not --ink-2/u);
+    const line = BRAND_MARK.lines[0]!.ink;
+    expect(svgPaintFindings(markSvg(remapped), palette)).toContain(`record line 1: stroke is ${colors[BRAND_MARK.beam.ink]}, not ${line} (${palette[line]})`);
     expect(pngPaintFindings(markPng(192, remapped), palette).join("\n")).toMatch(/record line 1: the pixel/u);
     // The tile and the rein swapped.
     const swapped = { ...colors, [BRAND_MARK.tile]: colors[BRAND_MARK.rein.ink], [BRAND_MARK.rein.ink]: colors[BRAND_MARK.tile] };
-    expect(pngPaintFindings(markPng(192, swapped), palette).join("\n")).toMatch(/the tile: .*\n.*the rein: /u);
+    expect(pngPaintFindings(markPng(192, swapped), palette).map((finding) => finding.split(":")[0])).toEqual(["the tile", "the rein"]);
     // A part dropped from the SVG, and a part drawn twice.
     const beam = svg.slice(svg.indexOf("<circle"), svg.indexOf("/>", svg.indexOf("<circle")) + 2);
     expect(svgPaintFindings(plant(svg, beam, ""), palette).join("\n")).toMatch(/the beam: drawn 0 times/u);

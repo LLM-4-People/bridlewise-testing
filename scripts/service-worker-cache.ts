@@ -28,6 +28,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { atomicWriteFile } from "../engine/src/filesystem/atomic-write.ts";
 import { HarnessError } from "../engine/src/kernel/errors.ts";
+import { sourceViewOf } from "../engine/scripts/verification/source-view.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 export const SERVICE_WORKER_PATH = "public/sw.js";
@@ -69,12 +70,17 @@ const PRECACHE_LIST = Object.freeze({ begin: "const PRECACHE_URLS = [", end: "];
 /** The navigation root: precached as the app shell, served from index.html rather than a file of its own name. */
 const NAVIGATION_ROOT = "/";
 
-/** The URLs the worker precaches at install, read from its `PRECACHE_URLS` list; refused when the list is missing or empty. */
+/**
+ * The URLs the worker precaches at install, read from its `PRECACHE_URLS` list
+ * in the worker's code with its strings (a URL left in a comment is not
+ * precached); refused when the list is missing or empty.
+ */
 export function precachedUrls(worker: string): readonly string[] {
-  const begin = worker.indexOf(PRECACHE_LIST.begin);
-  const end = begin < 0 ? -1 : worker.indexOf(PRECACHE_LIST.end, begin);
+  const code = sourceViewOf(worker, SERVICE_WORKER_PATH).codeWithStrings();
+  const begin = code.indexOf(PRECACHE_LIST.begin);
+  const end = begin < 0 ? -1 : code.indexOf(PRECACHE_LIST.end, begin);
   if (end < 0) throw new HarnessError(`the service worker carries no "${PRECACHE_LIST.begin}" list`, "service_worker_precache_list_missing");
-  const urls = [...worker.slice(begin + PRECACHE_LIST.begin.length, end).matchAll(/"([^"]*)"/gu)].map((match) => match[1]!);
+  const urls = [...code.slice(begin + PRECACHE_LIST.begin.length, end).matchAll(/"([^"]*)"/gu)].map((match) => match[1]!);
   if (urls.length === 0) throw new HarnessError("the service worker's precache list names no URL", "service_worker_precache_list_empty");
   return urls;
 }
@@ -101,8 +107,8 @@ export function withAssetsDigest(worker: string, digest: string): string {
 
 /** The committed worker as it should read for the public assets of the repository at `root`. */
 export function committedServiceWorker(root: string = ROOT): string {
-  const worker = readFileSync(join(root, SERVICE_WORKER_PATH), "utf8");
-  return withAssetsDigest(worker, coveredDigest(worker, cachedFiles(join(root, "public"))));
+  const committed = readFileSync(join(root, SERVICE_WORKER_PATH), "utf8");
+  return withAssetsDigest(committed, coveredDigest(committed, cachedFiles(join(root, "public"))));
 }
 
 /** Writes (or with `check`, judges) the committed worker's digest line; one JSON line, the generator protocol. */
