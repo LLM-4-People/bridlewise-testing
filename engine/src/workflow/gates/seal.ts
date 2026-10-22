@@ -27,7 +27,7 @@ import { GATE_CATALOGUE, type Gate } from "./catalogue.ts";
 import type { GatePlan } from "./plan.ts";
 import { GATE_RESULT_SCHEMA, type GateResult } from "./cell-run.ts";
 
-export const GATE_RECEIPT_SCHEMA = schemaId("gate-receipt", 1);
+const GATE_RECEIPT_SCHEMA = schemaId("gate-receipt", 1);
 
 /** A job's outcome as GitHub reports it in `toJSON(needs)`. */
 export type JobOutcome = "success" | "failure" | "cancelled" | "skipped";

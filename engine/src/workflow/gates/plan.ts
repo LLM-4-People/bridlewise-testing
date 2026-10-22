@@ -23,7 +23,7 @@ import { schemaId } from "../../kernel/product-identity.ts";
 import { GATE_CATALOGUE, GATE_CATALOGUE_VERSION, MAX_SHARDS, POPULATION_EXCLUSIONS, type Gate } from "./catalogue.ts";
 import type { PopulationListing } from "./populations.ts";
 
-export const GATE_PLAN_SCHEMA = schemaId("gate-plan", 1);
+const GATE_PLAN_SCHEMA = schemaId("gate-plan", 1);
 
 export type ShardCell = Readonly<{
   /** The cell id: `<gate>-<index>`; the artifact and matrix name. */

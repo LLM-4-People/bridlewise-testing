@@ -123,8 +123,10 @@ export const API_RUNNER: RunnerClass = "ubuntu-slim";
  * the dependency review, CodeQL's languages, the door). The generator never
  * plans more shards than this.
  */
-export const CONCURRENT_JOB_CAP = 20;
 export const MAX_SHARDS = 12;
+
+/** The engine's folder in the repository: the engine runner's sources and state are named relative to it. */
+export const ENGINE_FOLDER = "engine";
 
 /**
  * Test files a suite's population deliberately leaves out, each with its
@@ -223,7 +225,7 @@ const GATES: readonly Gate[] = [
 const GATE_ID = /^[a-z][a-z0-9-]{1,39}$/u;
 
 /** Refuses a catalogue that breaks its own schema: every consumer reads a validated catalogue. */
-export function validateCatalogue(gates: readonly Gate[]): readonly Gate[] {
+function validateCatalogue(gates: readonly Gate[]): readonly Gate[] {
   const seen = new Set<string>();
   for (const gate of gates) {
     if (!GATE_ID.test(gate.id)) throw new InputError(`gate id ${JSON.stringify(gate.id)} is not a lower-case slug`, "gate_catalogue_invalid");
