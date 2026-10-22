@@ -89,9 +89,10 @@ async function appsAudit(rest: readonly string[], wiring: ForgeCliWiring): Promi
 /**
  * What the verbs that talk to GitHub reach: the forge section, the endpoint
  * it names, and the host Apps' key custody. In production these are this
- * checkout's configured section and its key home. The CLI-level tests pass
+ * checkout's configured section and its key home; the CLI-level tests pass
  * a test section, a fake GitHub's endpoint and a key home of their own, and
- * drive the very same verbs.
+ * drive the very same verbs. ONE parameter object for every verb (#312's
+ * apps audit reads `hostCustody`).
  */
 export type ForgeCliWiring = Readonly<{
   settings: () => ForgeSettings;
