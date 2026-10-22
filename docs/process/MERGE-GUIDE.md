@@ -87,14 +87,11 @@ branch only from where the workspace left it: another writer's commits are
 refused, `branch_moved_by_another_writer`) and opens or regenerates the DRAFT
 pull request; `ready` takes it out of draft once its published tree passed
 `validate`, and any later round that publishes a new head returns it to
-draft. Records are stored per version: each older store (v3, before the
-land; v2, before the forge), which older code still uses, is read and
-migrated in memory through one chain (v2 → v3 → v4) and never written. A
-workspace only an older store knows is read-only to this version until the
-recorded P7 cutover: every verb that would change it refuses
-(`workspace_owned_by_v3_checkout` or `workspace_owned_by_v2_checkout`,
-naming its record and worktree) — act on it from the checkout of the version
-that made it.
+draft. Records are stored per version, and older records are read-only to
+newer code. They are upcast in memory and never written, as the decision
+[WS-RECORDS](../decisions/WS-RECORDS-older-workspace-records-are-read-only.md)
+states. Act on an older workspace from the checkout of the version that made
+it.
 
 ## 1c. Feature → `main` on the forge: `ws land`
 
@@ -142,10 +139,42 @@ MERGE QUEUE and waits for the queue's verdict. Auto-merge is never used.
 `ws abort` closes the workspace's open pull request with a comment and keeps
 its branch.
 
+## 1d. Stacks: an ordered chain of workspaces, each landed by `ws land`
+
+`ws create --agent <name> --write-set <path…> --stack-on <id>` starts a
+workspace on another one's published head, for work too large for one
+review. The child takes its parent's target and names no target, base or
+overlay of its own. The parent must be live (`active` or `validating`) and
+published (`workspace_stack_invalid`, `workspace_stack_parent_ended`,
+`workspace_not_published`).
+
+- **Judged from the parent while the parent is open.** `validate` and
+  `publish` take the child's change from the parent's published head. The
+  publisher re-makes only the child's own commits: the parent's signed
+  twins are already on the forge. A child may lease its parent's paths,
+  because a stack is ordered by construction, and a parent's land never
+  waits for its own children's leases. A sibling stays a rival.
+- **One pull request per part, always against the trunk.** It is never
+  opened against the parent's branch: the repository deletes a landed
+  branch (`delete_branch_on_merge`), and the pull requests based on it
+  would close with it. Until the parent lands, the child's pull request
+  also carries the parent's commits. Its body names the parent ("Stacked
+  on #N") and lists only the child's own commits.
+- **One way to land.** `ws land` (and `ws merge`) of a child refuses until
+  its parent has landed (`workspace_stack_parent_unlanded`). After that,
+  the child is an ordinary workspace: the trunk holds its parent's head,
+  the fork point is that head, and its own change lands through the merge
+  queue with its own receipt.
+- **A parent that moves or ends.** A parent that publishes another head
+  leaves its child refused (`workspace_stack_parent_moved`) until the child
+  is rebased onto that head. A parent that ends without landing leaves its
+  child with nothing to stand on (`workspace_stack_parent_ended`).
+
 ## 2. The commands
 
 ```bash
 node src/cli.ts harness workspace create --agent <name> --write-set <path…> [--target <branch>] [--base <ref>]
+node src/cli.ts harness workspace create --agent <name> --write-set <path…> --stack-on <id>
 node src/cli.ts harness workspace validate <id> [--full]
 node src/cli.ts harness workspace publish <id> | ready <id>
 node src/cli.ts harness workspace land <id>

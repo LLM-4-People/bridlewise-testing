@@ -28,8 +28,9 @@
  * is never overwritten (`branch_moved_by_another_writer`), with ONE exception,
  * a crashed round: a forge head whose commits are, one for one, twins of the
  * local commits (the same trees) is adopted. Then each new local commit of
- * the workspace's branch is re-made on the forge through the Git Data API, in
- * topological order:
+ * the workspace's branch (beyond the trunk and, for a STACKED workspace, its
+ * parent's published head, whose signed twins are already there) is re-made
+ * on the forge through the Git Data API, in topological order:
  *   1. `createBlob` for each blob the commit's tree diff (against its first
  *      parent) adds or changes, once per round — the answered id must be the
  *      local blob id (`workspace_publish_object_mismatch`);
@@ -212,6 +213,13 @@ export type PublishRequest = Readonly<{
   branch: string;
   /** Where this workspace last left the forge branch (its last round's head), or null before its first round. */
   expectedHead: string | null;
+  /**
+   * A STACKED workspace's base: the head its parent published (already on the
+   * forge, signed). Its commits are never re-made: only what the branch holds
+   * beyond it (and beyond the trunk) is this workspace's round. Null for a
+   * workspace on the trunk itself.
+   */
+  stackBase: string | null;
   fetchMs: number;
 }>;
 
@@ -324,28 +332,30 @@ export async function remakeCommit(forge: GitDataForge, repository: GitRepositor
  * a crashed round's twins, which are adopted.
  */
 export async function publishBranch(request: PublishRequest): Promise<PublishedRound> {
-  const { forge, repository, git, target, branch, expectedHead } = request;
+  const { forge, repository, git, target, branch, expectedHead, stackBase } = request;
   const root = repository.root;
   const moved = (current: string | null): never => fail("branch_moved_by_another_writer",
     `${branch} on ${target.remote} is at ${current ?? "(absent)"}, not where this workspace left it (${expectedHead ?? "absent"}): another writer pushed to it, and its work is never overwritten — integrate it locally (fetch and rebase onto it), or take the pull request over by hand`,
     { branch, current: current ?? "", expected: expectedHead ?? "" });
   const remoteHead = await forge.branchHead(branch);
   fetchForgeBranches(git, root, target.remote, remoteHead === null ? [target.trunk] : [target.trunk, branch], request.fetchMs);
+  // What is already on the forge: the trunk and, for a stacked workspace, its parent's published head.
   const trunkRef = remoteTrackingRef(target.remote, target.trunk);
+  const onForge = [trunkRef, ...(stackBase === null ? [] : [stackBase])];
   if (remoteHead !== null && git.revParse(root, remoteTrackingRef(target.remote, branch), request.fetchMs) !== remoteHead) {
     fail("workspace_publish_remote_moved", `${branch} moved on ${target.remote} while it was read: publish again`, { branch });
   }
   const head = git.revParse(root, "HEAD", request.fetchMs);
   const headTree = git.revParse(root, `${head}^{tree}`, request.fetchMs);
   if (remoteHead !== expectedHead) {
-    if (remoteHead === null || !isTwinOfLocal(repository, remoteHead, head, [trunkRef, ...(expectedHead === null ? [] : [expectedHead])])) return moved(remoteHead);
+    if (remoteHead === null || !isTwinOfLocal(repository, remoteHead, head, [...onForge, ...(expectedHead === null ? [] : [expectedHead])])) return moved(remoteHead);
     // A crashed round: the forge already holds this workspace's twins. Adopt them.
     const adopted = git.updateRef(root, `refs/heads/${branch}`, remoteHead, head, request.fetchMs);
     if (adopted.refusal !== null) fail("workspace_publish_local_moved", `${branch} moved locally while a crashed round was adopted (${adopted.refusal})`, { branch });
     return deepFreeze({ head: remoteHead, tree: headTree, commits: deepFreeze([]), blobs: 0 });
   }
   if (head === remoteHead) return deepFreeze({ head, tree: headTree, commits: deepFreeze([]), blobs: 0 });
-  const listed = commitsBeyond(repository, head, [trunkRef, ...(remoteHead === null ? [] : [remoteHead])]);
+  const listed = commitsBeyond(repository, head, [...onForge, ...(remoteHead === null ? [] : [remoteHead])]);
   if (listed.length === 0) {
     fail("workspace_publish_empty", `${branch} holds no commit beyond ${target.remote}/${target.trunk}: commit the round's work first`, { branch });
   }
