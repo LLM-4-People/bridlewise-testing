@@ -85,7 +85,7 @@ const PRODUCT_ROOTS: readonly ProductRootSpec[] = [
   {
     root: "engine/src",
     // cli.mjs is the bash-facing CLI; architecture-manifest.ts is the generated
-    // dependency-edge manifest the bundle pin and regenerator reference by path.
+    // dependency-edge manifest the regenerator and the architecture verifiers reference by path.
     entries: new Set(["cli.ts", "cli.mjs", "index.ts", "bundle-entry.ts", "architecture-manifest.ts"]),
     sourceExts: /\.(ts|mjs)$/,
   },

@@ -108,7 +108,7 @@ npm run bridlewise -- harness extension list
 | `harness new-module <path>` | Scaffold a module from the registered template | Yes |
 | `harness register` | Register modules in the architecture manifest | Yes |
 | `harness regenerate` | Regenerate projections; `--prune <test path>` removes a stale test entry | Yes |
-| `harness sync` | Converge generated hooks/projections; `--with-bundle` also rebuilds and re-pins the engine bundle; `--prune <test path>` | Yes |
+| `harness sync` | Converge generated hooks/projections; `--with-bundle` also rebuilds the engine bundle (its digest is never committed); `--prune <test path>` | Yes |
 | `harness index` | Rebuild the code-intelligence index | Yes |
 
 `sync --with-bundle` is the operation that keeps the guardian payload and its hash pin consistent with the engine source. Run it after changing `engine/src` during development, then review the generated diff.
@@ -127,6 +127,8 @@ These verbs are for maintainers of the development floor. They assume the privat
 | `harness frozen` | Inspect or accept frozen records |
 | `harness rollback` | Roll back a recorded change |
 | `harness slot` | Run a bounded long task under the slot supervisor |
+| `harness forge apps manifests [--check]` | Write (or check) the generated App manifests under `.github/forge/` from the App registry (`engine/src/workflow/forge/`) |
+| `harness forge apps create` | Serve the local Apps page (127.0.0.1) that creates the four GitHub Apps from their manifests and stores each key where the registry says |
 
 ## Development scripts
 
