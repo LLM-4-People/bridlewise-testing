@@ -420,12 +420,15 @@ test("stdio: a host that refuses to start the server surfaces as mcp_spawn_refus
 // nothing is proven about the polite path). The arms therefore wait for the
 // child's OWN boot witness before closing: the ready file is written by the
 // child's first statement, so its presence means its SIGTERM handler exists.
-async function waitForFile(path: string, attempts: number, periodMs: number): Promise<boolean> {
-  for (let i = 0; i < attempts; i += 1) {
-    if (existsSync(path)) return true;
-    await new Promise((resolve) => setTimeout(resolve, periodMs));
-  }
-  return existsSync(path);
+/**
+ * Until the child announces itself by its file: an EVENT, waited for as long
+ * as it takes (the test's own hang backstop ends a child that never boots).
+ * It used to give up after 250 polls of 20 ms, a 5 s wall judgement a loaded
+ * host's slow node boot could fail (NO-LOAD-BLOCK).
+ */
+async function untilFileExists(path: string, periodMs: number): Promise<true> {
+  while (!existsSync(path)) await new Promise((resolve) => setTimeout(resolve, periodMs));
+  return true;
 }
 
 // The count of THIS worker's live script children carrying a unique marker
@@ -439,11 +442,16 @@ function liveMarkCount(marker: string): number {
 }
 
 function spawnScriptedChild(options: { ready: string; flushed: string; flushMs: number; ignoreSigterm: boolean; selfExitMs: number; terminationMs: number }) {
+  // READY IS ANNOUNCED ONLY ONCE THE SIGTERM HANDLER IS INSTALLED. The child
+  // used to write its ready file first: a child preempted between the two (a
+  // loaded host) was ready by its file while a SIGTERM still took the default
+  // action and killed it, so it never flushed and the polite arm read no
+  // flushed file at all.
   const esc =
-    "require('node:fs').writeFileSync(process.env.STDIO_READY_PATH,'');" +
     (options.ignoreSigterm
       ? "process.on('SIGTERM',()=>{});"
       : "process.on('SIGTERM',()=>{require('node:fs').writeFileSync(process.env.STDIO_FLUSHED_PATH,'received\\n',{flag:'a'});setTimeout(()=>{require('node:fs').writeFileSync(process.env.STDIO_FLUSHED_PATH,'completed\\n',{flag:'a'});process.exit(0)}," + options.flushMs + ")});") +
+    "require('node:fs').writeFileSync(process.env.STDIO_READY_PATH,'');" +
     "setTimeout(()=>process.exit(0)," + options.selfExitMs + ")";
   return createStdioTransport(
     {
@@ -468,7 +476,7 @@ test("stdio: close escalates a ready child that ignores SIGTERM within the confi
   const flushed = join(dir, "flushed.txt");
   const transport = spawnScriptedChild({ ready, flushed, flushMs: 0, ignoreSigterm: true, selfExitMs: 30_000, terminationMs: 50 });
   await transport.connect();
-  assert.equal(await waitForFile(ready, 250, 20), true, "the child must boot before its signal behaviour means anything");
+  assert.equal(await untilFileExists(ready, 20), true, "the child must boot before its signal behaviour means anything");
   const started = Date.now();
   await transport.close();
   const elapsed = Date.now() - started;
@@ -574,7 +582,7 @@ test("stdio: a generous termination bound lets a ready child finish its SIGTERM 
   const flushed = join(dir, "flushed.txt");
   const transport = spawnScriptedChild({ ready, flushed, flushMs: 400, ignoreSigterm: false, selfExitMs: 30_000, terminationMs: 10_000 });
   await transport.connect();
-  assert.equal(await waitForFile(ready, 250, 20), true, "the child must boot before its signal behaviour means anything");
+  assert.equal(await untilFileExists(ready, 20), true, "the child must boot before its signal behaviour means anything");
   await transport.close();
   assert.equal(transport.isConnected, false);
   assert.equal(
