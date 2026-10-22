@@ -95,3 +95,43 @@ Motion is finite and event-bound through the existing motion owner. A confirmed
 change can receive one brief arrival treatment; idle surfaces do no decorative
 work. Honor reduced motion and keep feedback readable after movement ends.
 No continuous sparks, polling for animation, or new runtime dependencies.
+
+## Public surfaces
+
+The Pages site, the README images, the social cards and the icons wear the
+same system. They read `src/cockpit/tokens.css` through one reader,
+`shared/token-reader.ts`, and never restate a value. The site loads a sheet
+generated at build time: only the tokens its stylesheets read
+(`scripts/floor/site-design.mjs`). The owner's "public page" block adds the few
+measures a reading page needs: the page column, the prose measure, a fixed rem
+reading ramp and the one fluid display size.
+
+The public site leads in Logbook (paper); Carbon is the remembered alternative.
+A page is a logbook page. A section starts on a hairline, and a ledger starts
+on a heavy rule with dashed rules between its entries. A receipt is a white
+slip with dotted leaders and a mono stamp. A refusal pairs the model's call
+(the turn hue on its top edge) with the harness's answer (warn on its top edge,
+never the fill). A claim's state is a word in its state ink. Kickers are
+sentence case, never tracked capitals. Text is ink-1 or ink-2 only (ink-3 and
+ink-4 fail AA on paper). The site build parses every stylesheet it hands
+Jekyll and refuses one that is not this system (`scripts/floor/site-style.mjs`):
+every colour, duration and face is a token `var()` with no fallback, the
+themes and tokens are declared only in the owner, nothing is imported or
+fetched from elsewhere, and the sheets are plain CSS. No layout, include or
+HTML page carries a style of its own (`<style>`, `style=`) or loads a sheet,
+font or script from another origin. The boundary under both is the browser's:
+every page carries one Content-Security-Policy first
+(`scripts/floor/site-design.mjs` `sitePolicy`). Only the site's own scripts,
+sheets, fonts and images load. There is no inline script or `<style>`, and
+the only style attributes are the Markdown table alignments, allowed by hash.
+`tests/public/site-design-system.test.mjs` proves each refusal and holds the
+text to 4.5:1 in both themes.
+
+Figures are generated, never drawn by hand (`shared/figures.ts`). A figure for
+a README is a light/dark SVG pair in concrete token colours behind a
+`<picture>`, with its facts repeated as a sentence beside it. The decision
+index's status bar is one: it is written with the index, from the same
+records. A figure on the site is declared as data (`docs/_data/figures/`) and
+drawn inline with `fig-*` classes, so it follows the theme switch. Parts are
+labelled directly with their counts, and a hatched part is hatched, so
+identity is never carried by colour alone.

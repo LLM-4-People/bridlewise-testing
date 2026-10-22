@@ -2,31 +2,31 @@
 (function () {
   "use strict";
 
+  // The page leads in Logbook (paper): no attribute. Carbon is the one
+  // explicit choice, remembered per viewer. The ground the browser paints
+  // around the page is read from the live token, never restated here.
   var root = document.documentElement;
   var themeButton = document.querySelector("[data-theme-toggle]");
   var themeLabel = document.querySelector("[data-theme-label]");
   var themeMeta = document.querySelector('meta[name="theme-color"]');
-  var navButton = document.querySelector("[data-nav-toggle]");
-  var navLabel = document.querySelector(".nav-toggle-label");
-  var body = document.body;
 
   function currentTheme() {
-    return root.dataset.theme === "logbook" ? "logbook" : "carbon";
+    return root.dataset.theme === "carbon" ? "carbon" : "logbook";
   }
 
   function paintThemeControls() {
-    if (!themeButton) return;
-    var next = currentTheme() === "logbook" ? "carbon" : "logbook";
-    var nextName = next === "logbook" ? "logbook" : "carbon";
-    if (themeLabel) themeLabel.textContent = nextName.charAt(0).toUpperCase() + nextName.slice(1);
-    themeButton.setAttribute("aria-label", "Switch to " + nextName + " theme");
-    if (themeMeta) themeMeta.setAttribute("content", currentTheme() === "logbook" ? "#f4f0e6" : "#101216");
+    var dark = currentTheme() === "carbon";
+    if (themeLabel) themeLabel.textContent = dark ? "Light" : "Dark";
+    if (themeButton) themeButton.setAttribute("aria-label", dark ? "Use the light theme" : "Use the dark theme");
+    if (themeMeta) themeMeta.setAttribute("content", getComputedStyle(root).getPropertyValue("--ground-0").trim());
   }
 
   function setTheme(theme) {
-    root.dataset.theme = theme;
+    if (theme === "carbon") root.dataset.theme = "carbon";
+    else delete root.dataset.theme;
     try {
-      localStorage.setItem("bridlewise-theme", theme);
+      if (theme === "carbon") localStorage.setItem("bridlewise-theme", "carbon");
+      else localStorage.removeItem("bridlewise-theme");
     } catch (error) {}
     paintThemeControls();
   }
@@ -34,21 +34,19 @@
   if (themeButton) {
     paintThemeControls();
     themeButton.addEventListener("click", function () {
-      setTheme(currentTheme() === "logbook" ? "carbon" : "logbook");
+      setTheme(currentTheme() === "carbon" ? "logbook" : "carbon");
     });
   }
 
-  function setNav(open, returnFocus) {
-    if (!navButton) return;
-    body.classList.toggle("nav-open", open);
-    navButton.setAttribute("aria-expanded", open ? "true" : "false");
-    if (navLabel) navLabel.textContent = open ? "Close" : "Menu";
-    if (open) {
-      var first = document.querySelector("#site-nav a");
-      if (first) first.focus();
-    } else if (returnFocus) {
-      navButton.focus();
-    }
+  // The phone menu is a <details>: Escape closes it and returns focus.
+  var menu = document.querySelector(".site-menu");
+  if (menu) {
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && menu.open) {
+        menu.open = false;
+        menu.querySelector("summary").focus();
+      }
+    });
   }
 
   // GitHub renders `> [!WARNING]` as an alert; Jekyll does not. Strip the
@@ -70,30 +68,6 @@
     }
   }
 
-  if (navButton) {
-    navButton.addEventListener("click", function () {
-      setNav(!body.classList.contains("nav-open"), false);
-    });
-
-    document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape" && body.classList.contains("nav-open")) {
-        setNav(false, true);
-      }
-    });
-
-    var navLinks = document.querySelectorAll("#site-nav a");
-    for (var i = 0; i < navLinks.length; i += 1) {
-      navLinks[i].addEventListener("click", function () {
-        if (window.matchMedia("(max-width: 960px)").matches) setNav(false, false);
-      });
-    }
-
-    window.addEventListener("resize", function () {
-      if (window.innerWidth > 960 && body.classList.contains("nav-open")) {
-        setNav(false, false);
-      }
-    });
-  }
 })();
 
 /* Command-palette search over the static page index. No network beyond the

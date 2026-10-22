@@ -20,7 +20,7 @@ Nothing in this document is a claim of production readiness. The engine is pre-a
 ## The shape
 
 <figure class="system-figure">
-  <img src="{{ '/assets/architecture.svg' | relative_url }}" alt="Bridlewise architecture: the cockpit calls a loopback server over HTTP and SSE; the server owns SQLite and the run and tool executors; the engine owns agents, tools, intelligence, and memory and reaches the project through the Landlock guardian; the engine calls the configured provider; keys live in a key home outside the checkout.">
+  {% include figures/architecture.svg %}
   <figcaption>The local shape. The provider is the one intentional egress; the key home is outside every checkout.</figcaption>
 </figure>
 

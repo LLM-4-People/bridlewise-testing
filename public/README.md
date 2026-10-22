@@ -8,11 +8,17 @@ offline-capable.
 
 - `manifest.json` — the PWA manifest: the app's name, theme colors, display
   mode, and the icon set under `icons/`. `index.html` links it.
-- `sw.js` — the hand-written service worker (no dependencies). Cache-first
+- `sw.js` — the hand-written service worker (no dependencies). Its cache
+  version is a hand-raised generation plus a generated digest of every asset it
+  caches (`scripts/service-worker-cache.ts`; the build sets the built worker's
+  digest over every emitted file, bundles included). Cache-first
   for immutable static assets, stale-while-revalidate for JS/CSS modules,
   network-first for navigations and GET API calls, passthrough for mutations
   and SSE streams.
 - `icons/` — the app icons the manifest references.
+- `fonts/` — IBM Plex Sans and IBM Plex Mono, the variable Latin-1 subsets
+  the cockpit's token owner (`src/cockpit/tokens.css`) declares with
+  `@font-face`, plus their licence (`OFL.txt`, SIL Open Font License 1.1).
 
 ## Where it lives and what consumes it
 
