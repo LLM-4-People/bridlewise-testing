@@ -15,7 +15,7 @@ import { SHARED_CSS } from "../../scripts/floor/design-coverage.mjs";
 import { markInclude } from "../../scripts/floor/site-design.mjs";
 import { sitePlan } from "../../scripts/floor/site-pages.mjs";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
-import { readNames, readTokenOwner, themeColor, tokenSheet } from "../../shared/token-reader.ts";
+import { readNames, readTokenOwner, themeColor, THEMES, tokenSheet } from "../../shared/token-reader.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (path) => readFileSync(join(ROOT, path), "utf8");
@@ -130,7 +130,8 @@ const TEXT_GROUNDS = ["--ground-0", "--ground-1", "--ground-2"];
 
 test("text meets WCAG 2.2 AA (4.5:1) on every ground, in both themes; a control's edge meets 3:1", () => {
   const failures = [];
-  for (const theme of ["logbook", "carbon"]) {
+  assert.deepEqual([...THEMES], ["logbook", "carbon"], "Logbook leads");
+  for (const theme of THEMES) {
     for (const ground of TEXT_GROUNDS) {
       const background = themeColor(OWNER, theme, ground);
       for (const ink of TEXT_INKS) {
