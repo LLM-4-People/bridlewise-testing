@@ -18,7 +18,8 @@ import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { GATE_CATALOGUE, MAX_SHARDS, POPULATION_EXCLUSIONS } from "../../../src/workflow/gates/catalogue.ts";
+import { VERIFICATION_PATHS } from "../../../src/kernel/verification-paths.ts";
+import { ENGINE_FOLDER, GATE_CATALOGUE, MAX_SHARDS, POPULATION_EXCLUSIONS } from "../../../src/workflow/gates/catalogue.ts";
 import { allocateShards, catalogueDigest, matrixCells, packShards, parsePlan, planGates } from "../../../src/workflow/gates/plan.ts";
 import { listPopulation, webPopulation, type PopulationListing } from "../../../src/workflow/gates/populations.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
@@ -137,9 +138,9 @@ test("the CLI reads the runner's own globs from the tree; the engine population 
   writeFileSync(join(root, "tests/test-include.ts"), `export const TEST_INCLUDE = ${JSON.stringify(GLOBS)};\n`);
   assert.deepEqual((await listPopulation(root, "web-tests")).files, ["tests/unit/a.test.ts"]);
   mkdirSync(join(root, "engine/traceability"), { recursive: true });
-  writeFileSync(join(root, "engine/traceability/s1-test-inventory.json"), JSON.stringify({ tests: [{ sourceId: "test/b.test.ts" }, { sourceId: "test/a.test.ts" }, { sourceId: "test/a.test.ts" }] }));
+  writeFileSync(join(root, ENGINE_FOLDER, VERIFICATION_PATHS.testInventory), JSON.stringify({ tests: [{ sourceId: "test/b.test.ts" }, { sourceId: "test/a.test.ts" }, { sourceId: "test/a.test.ts" }] }));
   assert.deepEqual((await listPopulation(root, "engine-tests")).files, ["engine/test/a.test.ts", "engine/test/b.test.ts"]);
-  writeFileSync(join(root, "engine/traceability/s1-test-inventory.json"), JSON.stringify({ tests: [{ sourceId: "../escape.test.ts" }] }));
+  writeFileSync(join(root, ENGINE_FOLDER, VERIFICATION_PATHS.testInventory), JSON.stringify({ tests: [{ sourceId: "../escape.test.ts" }] }));
   await assert.rejects(listPopulation(root, "engine-tests"), refusedWith("gate_population_unreadable"));
   // A tree whose runner declares no glob is refused (a fresh tree: the module loader keeps the first one it read).
   const noGlobs = scratchRepository(["tests/unit/a.test.ts"]);

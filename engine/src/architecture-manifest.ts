@@ -1009,8 +1009,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "inventory-test-run", path: "scripts/tooling/inventory-test-run.ts", realm: "builder",
       layer: "verification", owner: "verification",
-      publicApi: { exportCount: 8, namesSha256: "4e5afac1d2eecaf78459dc20061d8c9a780309e973b0a5b0a8dbd210618facbb" },
-      dependencies: ["node:events","node:fs","node:path","node:stream/promises","node:test","scripts/test-inventory.ts","scripts/tooling/network-under-test.ts","scripts/tooling/test-receipt.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
+      publicApi: { exportCount: 7, namesSha256: "87e3a5e5eaee9bbd1a2bbb1d99cd69735b0dca9beb3e892ca49491cd5422e9ed" },
+      dependencies: ["node:events","node:path","node:stream/promises","node:test","scripts/test-inventory.ts","scripts/tooling/network-under-test.ts","scripts/tooling/test-receipt.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
       executionBoundary: "verification",
       ports: {
         requires: ["canonical-test-inventory-generation-and-validation"],
@@ -1040,7 +1040,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "run-tests", path: "scripts/tooling/run-tests.ts", realm: "builder", layer: "verification", owner: "verification",
       publicApi: { exportCount: 14, namesSha256: "b30130d578bdd6f2f0703ff63c0809140ff6a5e235d02a2bf92bb8b899052982" },
-      dependencies: ["guardian/build.ts","node:child_process","node:fs","node:path","node:process","node:url","scripts/test-inventory.ts","scripts/tooling/compile-cache.ts","scripts/tooling/inventory-test-run.ts","scripts/tooling/launcher-watch.ts","scripts/tooling/recorded-command.ts","scripts/tooling/test-execution.ts","scripts/tooling/test-receipt.ts","scripts/tooling/test-run-lock.ts","scripts/verification/required-fixture-roots.ts","scripts/verification/test-surface.ts","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/filesystem/temporary-root.ts","src/git/repository-ownership.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/runtime/admitted-node-runtime.ts","src/runtime/cli-debug.ts","src/shared/ambient-load.ts","src/shared/best-effort.ts","src/shared/budget-verdict.ts","src/shared/dev-mode-env.ts","src/shared/run-cpu.ts","src/shared/run-history.ts","src/shared/tree-identity.ts","src/shared/type-guards.ts","src/workflow/test-result-collector.ts"],
+      dependencies: ["guardian/build.ts","node:child_process","node:fs","node:path","node:process","node:url","scripts/test-inventory.ts","scripts/tooling/compile-cache.ts","scripts/tooling/launcher-watch.ts","scripts/tooling/recorded-command.ts","scripts/tooling/test-execution.ts","scripts/tooling/test-receipt.ts","scripts/tooling/test-run-lock.ts","scripts/verification/required-fixture-roots.ts","scripts/verification/test-surface.ts","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/filesystem/temporary-root.ts","src/git/repository-ownership.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/runtime/admitted-node-runtime.ts","src/runtime/cli-debug.ts","src/shared/ambient-load.ts","src/shared/best-effort.ts","src/shared/budget-verdict.ts","src/shared/dev-mode-env.ts","src/shared/run-cpu.ts","src/shared/run-history.ts","src/shared/tree-identity.ts","src/shared/type-guards.ts","src/workflow/test-result-collector.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
       effects: ["child-process", "filesystem-read", "filesystem-write", "process-status"],
       ports: { requires: ["parent-observed-command-execution", "test-execution-evidence"], provides: ["test-runner"] },
@@ -1094,8 +1094,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "test-receipt", path: "scripts/tooling/test-receipt.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 23, namesSha256: "fdbd6d29f15503fc4b5a41832cbf6ae54009c63a4dddf8789b91f8be3d9fd07d" },
-      dependencies: ["scripts/test-inventory.ts","scripts/tooling/candidate-manifest.ts","scripts/verification/test-surface.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/kernel/ordered.ts","src/kernel/root-policy.ts","src/kernel/safe-structural.ts","src/shared/run-history.ts","src/workflow/test-result-collector.ts","zod"],
+      owner: "verification", publicApi: { exportCount: 24, namesSha256: "e71e011f62d981440b7bc19f3f5cda09324f3f995b01d060b8d99b25fb14a09f" },
+      dependencies: ["node:fs","scripts/test-inventory.ts","scripts/tooling/candidate-manifest.ts","scripts/verification/test-surface.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/kernel/ordered.ts","src/kernel/root-policy.ts","src/kernel/safe-structural.ts","src/shared/run-history.ts","src/workflow/test-result-collector.ts","zod"],
       executionBoundary: "verification",
     }),
     moduleContract({
@@ -5567,27 +5567,27 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-gates-catalogue", path: "src/workflow/gates/catalogue.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 21, namesSha256: "588c9c59ee618625b1c04f0ad7ef8aa5df67ae68ce9a3b770881cde02e6f9dfe" },
+      owner: "verification-workflow", publicApi: { exportCount: 20, namesSha256: "941c656a0aacc5be3618d31efcff66d1579cdbc8fc82f22c52b6b29e46e35571" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-gates-cli", path: "src/workflow/gates/gates-cli.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "7a628d6e7b7bb87babef94f74a83c0eeea8a3aa5d967299978b0b2d75dcea726" },
+      owner: "verification-workflow", publicApi: { exportCount: 1, namesSha256: "5ca33272c12260227499de5289684edf65e20feacdc73eaa2e19ea3557f23e14" },
       dependencies: ["guardian/build.ts","node:fs","node:path","node:util","src/git/repository-ownership.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/tree-identity.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/cell-run.ts","src/workflow/gates/key.ts","src/workflow/gates/plan.ts","src/workflow/gates/populations.ts","src/workflow/gates/seal.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-plan", path: "src/workflow/gates/plan.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 11, namesSha256: "51198850e98dc5f85d2275d9d1678fc2c53320dd4cdf8990113ba102993ed035" },
+      owner: "verification-workflow", publicApi: { exportCount: 10, namesSha256: "08b192ff3d9acf1a50aa77384361f8e6f774fbdb1118585c950f12268832a6a4" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/key.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-populations", path: "src/workflow/gates/populations.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 4, namesSha256: "18d323ca0203a8a29ebe691d08b0706c843ba3bd2aeefa3112219c76e9740362" },
-      dependencies: ["node:fs","node:path","node:url","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/gates/catalogue.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 3, namesSha256: "3feae9fdffc1c93f9e036464cc00b5624f3e85acb0a4a557cecd87cd1c223221" },
+      dependencies: ["node:fs","node:path","node:url","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/workflow/gates/catalogue.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-seal", path: "src/workflow/gates/seal.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 9, namesSha256: "1bc71e902f5f71010d7be08627d0f895462afaf414f967aeadf8c0344805b202" },
+      owner: "verification-workflow", publicApi: { exportCount: 8, namesSha256: "9273649ea9bcd02a249dff074e885c3e9186f16eda6a67c5fc0362edf0289ed4" },
       dependencies: ["node:fs","node:path","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/cell-run.ts"],
     }),
     moduleContract({
@@ -5597,13 +5597,13 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-gates-workflows", path: "src/workflow/gates/workflows.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 14, namesSha256: "a310c0860b6c5f4ae81db13e16e66e0d5be0a55ae4eb45d60790553fb8b91222" },
+      owner: "verification-workflow", publicApi: { exportCount: 13, namesSha256: "6631fa7e4daaeb16977162118b25c51647d9fdb3a1116f8d63c2937586d88128" },
       dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/text/yaml-emit.ts","src/workflow/gates/catalogue.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-cell-run", path: "src/workflow/gates/cell-run.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 11, namesSha256: "9eb984e26c933343614be74344e9ad37c0a2ac5e10d20619a5645541ec4f806b" },
-      dependencies: ["node:fs","node:path","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/shared/tree-identity.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/vitest-report.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 10, namesSha256: "01f002e39c17653aa96aaf8c484f1ece0d4b0613eccbfd471ea6b10015286271" },
+      dependencies: ["node:fs","node:path","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/shared/tree-identity.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/vitest-report.ts","src/workflow/test-result-collector.ts"],
     }),
     moduleContract({
       id: "src-text-yaml-emit", path: "src/text/yaml-emit.ts", realm: "shared", layer: "domain",

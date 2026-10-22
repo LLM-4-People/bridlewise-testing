@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 import type { GateOutcome } from "../../src/shared/budget-verdict.ts";
 import { failureDigest, failureIdentityFile, failureLocation, skippedIdentity } from "../../src/shared/run-history.ts";
@@ -639,4 +640,14 @@ function assertTestResultConsistency(
     !sameOrderedValues(result.diagnostic.reasons, expectedReasons)) {
     throw new Error("test result accounting is invalid");
   }
+}
+
+/**
+ * THE ONE READER OF AN ENGINE CELL FILE (`run-tests --cell <file>`, the gate
+ * catalogue's engine cells): one engine-relative test source per line, blank
+ * lines ignored. The worker dispatches these sources (`cellSourceIds`) and the
+ * runner sizes its instrument-lock request by them.
+ */
+export function readCellSources(path: string): ReadonlySet<string> {
+  return new Set(readFileSync(path, "utf8").split("\n").map((line) => line.trim()).filter((line) => line.length > 0));
 }

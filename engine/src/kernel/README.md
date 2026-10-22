@@ -58,7 +58,7 @@ The folder lives at `engine/src/kernel/`.
 - `safe-structural.ts` is consumed by `engine/scripts/tooling/test-receipt.ts`, `engine/scripts/verification/safe-repository-reader.ts`, `engine/scripts/verification/slice-projection-captured-values.ts`, `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/filesystem/repository-root-capability-contracts.ts`, `engine/src/filesystem/repository-root-capability-internal.ts` and 23 more.
 - `schema-subset.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/offline-contracts.ts`, `engine/src/kernel/protocol-projections.ts`.
 - `test-surface-manifest.ts` is consumed by `engine/scripts/tooling/test-run-lock.ts`, `engine/scripts/verification/hermetic-skips.ts`, `engine/scripts/verification/test-surface.ts`, `engine/src/workflow/harness-commands.ts`.
-- `verification-paths.ts` is consumed by `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-worker.ts`, `engine/scripts/verification/decision-index.ts`, `engine/scripts/verification/shipped-hooks.ts` and 13 more.
+- `verification-paths.ts` is consumed by `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-worker.ts`, `engine/scripts/verification/decision-index.ts`, `engine/scripts/verification/shipped-hooks.ts` and 14 more.
 - `web-performance-budgets.ts` is consumed by `engine/scripts/verification/measurement-contract.ts`, `engine/src/kernel/root-policy.ts`.
 
 <!-- /consumers:generated -->
