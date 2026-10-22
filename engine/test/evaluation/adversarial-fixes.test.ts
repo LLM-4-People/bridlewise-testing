@@ -19,11 +19,11 @@ import type {
   ProviderAdapter,
   ToolCall,
 } from "../../src/runtime/provider-adapter.ts";
-import { makeMockProvider } from "../support/mock-provider.ts";
+import { makeMockProvider, referenceTransportUpstream } from "../support/mock-provider.ts";
 import { makeTimelineRecorder } from "../support/timeline.ts";
 import { devMatrix } from "../support/matrix.ts";
 import { mkTempDir } from "../support/temp-dir.ts";
-import { address, serve, type UpstreamRequest } from "../support/loopback-upstream.ts";
+import { address, serve } from "../support/loopback-upstream.ts";
 
 /**
  * Adversarial / mutation tests for the 7 DER-014/017 data-recording fixes
@@ -67,15 +67,7 @@ function findCellForArm(matrix: MatrixDocument, arm: ConditionArm): { cell_id: s
 test("FIX1: runReferenceTransport=true produces isReference=true in all runs", async () => {
   const matrix = devMatrix();
   const cell = matrix.cells[0]!;
-  const mockFetch = async (_url: string, init: UpstreamRequest): Promise<Response> => {
-    const body = JSON.parse(init.body as string) as { messages?: { content?: string }[] };
-    const isProbe = body.messages?.[0]?.content === "Reply with exactly: IDENTITY_PROBE_OK";
-    const content = isProbe ? "IDENTITY_PROBE_OK" : "reference response";
-    return new Response(JSON.stringify({
-      choices: [{ message: { content }, finish_reason: "stop" }],
-      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-    }), { status: 200, headers: { "content-type": "application/json", "x-request-id": "ref-001" } });
-  };
+  const mockFetch = referenceTransportUpstream({ content: "reference response", headers: { "x-request-id": "ref-001" } });
   const runner = createScenarioRunner({});
   serve(mockFetch);
   const result = await runner.runCell(makeRequest(matrix, cell.cell_id, "test", {
@@ -127,15 +119,7 @@ test("FIX1 (mutation guard): isReference is never undefined even if runReference
 test("FIX1 (edge): R1-reference cell with maxRuns=0 produces empty runs array, no crash", async () => {
   const matrix = devMatrix();
   const r1Cell = findCellForArm(matrix, "R1-reference") ?? matrix.cells[0]!;
-  const mockFetch = async (_url: string, init: UpstreamRequest): Promise<Response> => {
-    const body = JSON.parse(init.body as string) as { messages?: { content?: string }[] };
-    const isProbe = body.messages?.[0]?.content === "Reply with exactly: IDENTITY_PROBE_OK";
-    const content = isProbe ? "IDENTITY_PROBE_OK" : "ref";
-    return new Response(JSON.stringify({
-      choices: [{ message: { content }, finish_reason: "stop" }],
-      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-    }), { status: 200, headers: { "content-type": "application/json" } });
-  };
+  const mockFetch = referenceTransportUpstream({ content: "ref" });
   const runner = createScenarioRunner({});
   serve(mockFetch);
   const result = await runner.runCell(makeRequest(matrix, r1Cell.cell_id, "test", {
