@@ -34,7 +34,10 @@ in
   `.merge`, resolved at create; a target with none is refused,
   `workspace_target_untracked`). `publish` re-makes each new local commit
   through the Git Data API with no author or committer (the forge signs it:
-  Verified), checks every answered blob, tree and signature, sets the
+  Verified), checks every answered blob, tree and signature (`remakeCommit`,
+  THE ONE re-make on the Git Data part of the port, `GitDataForge`: the
+  product's publication, `forge/publish/product.ts`, uses it too, over the
+  GitHub adapter `forge/publish/git-data.ts`), sets the
   workspace's branch by compare-and-swap from where the workspace left it
   (another writer's commits are refused, `branch_moved_by_another_writer`; a
   crashed round's twins are adopted) and moves the local branch to the signed
@@ -283,7 +286,7 @@ The folder lives at `engine/src/workflow/`.
 - `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/git/worktree-port.ts` and 19 more.
 - `workspace-cli.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
 - `workspace-contracts.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`, `engine/src/workflow/workspace-registry.ts`.
-- `workspace-forge.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`.
+- `workspace-forge.ts` is consumed by `engine/src/workflow/forge/publish/git-data.ts`, `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`.
 - `workspace-manager.ts` is consumed by `engine/src/workflow/workspace-cli.ts`.
 - `workspace-registry.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/workspace-manager.ts`.
 

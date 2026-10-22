@@ -17,9 +17,9 @@ import { join } from "node:path";
 import test from "node:test";
 
 import type { GitRepository } from "../../../src/git/tree-reader.ts";
-import { advanceBranch, remakeCommit, treeDelta } from "../../../src/workflow/forge/publish/git-data.ts";
+import { githubGitData } from "../../../src/workflow/forge/publish/git-data.ts";
+import { remakeCommit } from "../../../src/workflow/workspace-forge.ts";
 import { publishProduct, receiptBytes, type ProjectionReceipt } from "../../../src/workflow/forge/publish/product.ts";
-import { isForgeError } from "../../../src/workflow/forge/codes.ts";
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
 import { forgePublishWith, resolvePromotionContext, verifyBuiltProjection } from "../../../src/workflow/promotion/context.ts";
 import { formatPromoteArguments, parsePromoteArguments } from "../../../src/workflow/promotion/promote-arguments.ts";
@@ -75,9 +75,6 @@ async function refusedWith(code: string, run: () => Promise<unknown>): Promise<P
   assert.fail(`expected ${code}`);
 }
 
-async function forgeRefusal(code: string, run: () => Promise<unknown>): Promise<void> {
-  await assert.rejects(run, (error: unknown) => isForgeError(error, code as never) || (assert.fail(`expected ${code}, got ${String(error)}`)));
-}
 
 const head = (w: World): string => w.forge.git(["rev-parse", `refs/heads/${BRANCH}`]);
 const publish = (w: World, commit = w.commit): Promise<ProjectionReceipt> => publishProduct({ client: w.forge.forge.client, repository: REPOSITORY, branch: BRANCH, local: w.local, commit });
@@ -92,7 +89,7 @@ test("the built promotion is re-made on the forge as a signed commit holding the
   assert.deepEqual(w.forge.git(["rev-list", "--parents", "-n", "1", published]).split(" ").slice(1), [w.target, w.source]);
   assert.match(w.forge.git(["log", "-1", "--format=%B", published]), new RegExp(`Projected-From: ${w.source}`, "u"));
   assert.deepEqual({ ...receipt }, { schema: "bridlewise-product-projection/v1", repository: REPOSITORY, branch: BRANCH, commit: published, built: w.commit, tree: receipt.tree, source: w.source, profile: "main-to-product@0123456", target: w.target });
-  assert.equal(w.forge.count("blobs"), treeDelta(w.local, w.target, w.commit).filter((entry) => entry.sha !== null).length, "only the changed blobs are uploaded");
+  assert.equal(w.forge.count("blobs"), w.git(["diff-tree", "-r", "--no-renames", "--diff-filter=AM", "--name-only", w.target, w.commit]).split("\n").filter((line) => line.length > 0).length, "only the changed blobs are uploaded");
 });
 
 test("a product branch that moved since the build is refused, and nothing is written", async () => {
@@ -111,31 +108,33 @@ test("BARRIERS of the re-make: a wrong blob id, a tree other than the built one,
     await refusedWith("promotion_forge_mismatch", () => publish(w));
     assert.equal(head(w), w.target, `${knob}: the product branch did not move`);
     assert.equal(w.forge.count("refs"), 0, `${knob}: no ref update was asked`);
+    if (knob !== "unverified") assert.equal(w.forge.count("commits"), 0, `${knob}: refused before any commit is made on the forge`);
   }
 });
 
-test("BARRIER force: false — a branch is only ever moved forward (a non-descendant is refused by the forge)", async () => {
-  const w = world("publish-force");
-  const unrelated = w.git(["commit-tree", w.git(["rev-parse", `${w.source}^{tree}`]), "-m", "no common history"]);
-  w.git(["push", "-q", w.forge.bare, `${unrelated}:refs/heads/scratch`]);
-  await forgeRefusal("github_validation_failed", () => advanceBranch(w.forge.forge.client, REPOSITORY, BRANCH, w.target, unrelated));
-  assert.equal(head(w), w.target, "a force-moved branch would now name the unrelated commit");
-  const sent = w.forge.fake.requests.filter((request) => request.method === "PATCH").map((request) => (request.body as { force?: unknown }).force);
-  assert.deepEqual(sent, [false], "the request says force: false");
-});
-
-test("BARRIER the head check — a branch that no longer names the expected head is refused before any update", async () => {
+test("BARRIER the compare-and-swap: a branch that no longer names the expected head is never moved, and nothing overwrites it", async () => {
   const w = world("publish-cas");
   const moved = w.git(["commit-tree", w.git(["rev-parse", `${w.target}^{tree}`]), "-p", w.target, "-m", "moved meanwhile"]);
   w.git(["push", "-q", w.forge.bare, `${moved}:refs/heads/${BRANCH}`]);
   const onTop = w.git(["commit-tree", w.git(["rev-parse", `${w.target}^{tree}`]), "-p", moved, "-m", "a descendant of the moved head"]);
   w.git(["push", "-q", w.forge.bare, `${onTop}:refs/heads/scratch`]);
-  await forgeRefusal("forge_branch_moved", () => advanceBranch(w.forge.forge.client, REPOSITORY, BRANCH, w.target, onTop));
-  assert.equal(w.forge.count("refs"), 0, "without the check this fast-forward would have been applied over a head nobody read");
+  const set = await githubGitData(w.forge.forge.client, REPOSITORY).setBranch({ branch: BRANCH, sha: onTop, previous: w.target });
+  assert.deepEqual(set, { applied: false }, "a move from a head the branch no longer names is refused, even a fast-forward");
   assert.equal(head(w), moved);
+  const sent = w.forge.fake.requests.filter((request) => request.path === "/graphql").map((request) => (request.body as { variables: { input: { refUpdates: { beforeOid: string; force: boolean }[] } } }).variables.input.refUpdates[0]!);
+  assert.deepEqual(sent.map((update) => [update.beforeOid, update.force]), [[w.target, false]], "the move names its expected head and never forces");
+  assert.equal(w.forge.fake.requests.some((request) => request.method === "PATCH"), false, "REST PATCH (no compare-and-swap) is never used");
 });
 
-test("BARRIER the re-read — a ref update the forge answers but never applies is an integrity refusal", async () => {
+test("BARRIER only forward: a move to a commit that does not descend from the head is refused", async () => {
+  const w = world("publish-forward");
+  const unrelated = w.git(["commit-tree", w.git(["rev-parse", `${w.source}^{tree}`]), "-m", "no common history"]);
+  w.git(["push", "-q", w.forge.bare, `${unrelated}:refs/heads/scratch`]);
+  assert.deepEqual(await githubGitData(w.forge.forge.client, REPOSITORY).setBranch({ branch: BRANCH, sha: unrelated, previous: w.target }), { applied: false });
+  assert.equal(head(w), w.target, "a forced move would now name the unrelated commit");
+});
+
+test("BARRIER the read-back: a branch move the forge answers but never applies is an integrity refusal", async () => {
   const w = world("publish-reread");
   w.forge.knobs.ignoreRefUpdate = true;
   await refusedWith("promotion_forge_mismatch", () => publish(w));
@@ -156,14 +155,14 @@ test("the forge's refusals keep their class: a failure is errored, a permission 
   errored.forge.fake.refuseNext({ method: "POST", path: /\/git\/blobs$/u }, { status: 503, message: "unavailable" });
   assert.equal((await refusedWith("promotion_forge_errored", () => publish(errored))).facts["forgeCode"], "github_unavailable");
   const refused = world("publish-refused");
-  refused.forge.fake.refuseNext({ method: "PATCH" }, { status: 403, message: "Resource not accessible by integration" });
+  refused.forge.fake.refuseNext({ method: "POST", path: /^\/graphql$/u }, { status: 403, message: "Resource not accessible by integration" });
   await refusedWith("promotion_forge_refused", () => publish(refused));
   assert.equal(head(refused), refused.target);
 });
 
 test("remakeCommit carries a commit whose parents the forge already holds, with the local message, and never an author", async () => {
   const w = world("publish-remake");
-  const made = await remakeCommit({ client: w.forge.forge.client, repository: REPOSITORY, local: w.local, commit: w.commit, parents: [w.target, w.source] });
+  const made = await remakeCommit(githubGitData(w.forge.forge.client, REPOSITORY), w.local, w.commit, (parent) => parent, new Set());
   assert.equal(made.verified, true);
   for (const request of w.forge.fake.requests.filter((entry) => entry.path.endsWith("/git/commits"))) {
     const body = request.body as Record<string, unknown>;

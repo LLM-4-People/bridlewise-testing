@@ -3,7 +3,9 @@
  * GitHub (`../fake-github.ts`) with the Git Data routes the publisher uses,
  * answered by a REAL bare repository — blobs (`hash-object`), trees (a
  * private index over `base_tree`), commits (`commit-tree`, the forge's own
- * identity) and branch refs (a fast-forward check unless `force`). So "the
+ * identity) and branch refs (create while absent; GraphQL `updateRefs` with a
+ * `beforeOid` compare-and-swap and a fast-forward check unless `force`; a
+ * REST `PATCH` of a ref is refused, since it has no compare-and-swap). So "the
  * forge built the same tree" is git's answer, not the fake's. Knobs plant the
  * forge misbehaving: an unsigned commit, a wrong tree, a wrong blob id, a ref
  * update it answers but never applies.
@@ -28,7 +30,7 @@ export type GitForge = Readonly<{
   knobs: ForgeKnobs;
   /** `git <args>` in the forge's bare repository. */
   git: (args: readonly string[]) => string;
-  /** The requests of one Git Data kind (`blobs`, `trees`, `commits`) or a ref update (`refs`). */
+  /** The requests of one Git Data kind (`blobs`, `trees`, `commits`) or a ref update (`refs`: a create or an updateRefs mutation). */
   count: (kind: "blobs" | "trees" | "commits" | "refs") => number;
 }>;
 
@@ -67,17 +69,32 @@ export function gitForge(prefix: string, repository: string): GitForge {
     const sha = git(["commit-tree", body.tree, ...body.parents.flatMap((parent) => ["-p", parent])], { input: body.message, env: { GIT_AUTHOR_NAME: "bridlewise-publisher[bot]", GIT_COMMITTER_NAME: "GitHub" } });
     return { status: 201, body: { sha, tree: { sha: body.tree }, verification: knobs.unverified ? { verified: false, reason: "unsigned" } : { verified: true, reason: "valid" } } };
   });
-  fake.route("PATCH", new RegExp(`^${base}/refs/heads/(.+)$`, "u"), (request, match) => {
-    const body = request.body as { sha: string; force?: boolean };
-    const current = refOf(match[1]!);
-    if (current === null) return { status: 422, body: { message: "Reference does not exist" } };
-    let fastForward = true;
-    try { git(["merge-base", "--is-ancestor", current, body.sha]); } catch { fastForward = false; }
-    if (!fastForward && body.force !== true) return { status: 422, body: { message: "Update is not a fast forward" } };
-    if (!knobs.ignoreRefUpdate) git(["update-ref", `refs/heads/${match[1]!}`, body.sha]);
-    return { status: 200, body: { ref: `refs/heads/${match[1]!}`, object: { sha: body.sha } } };
+  // The compare-and-swap the port uses: create while absent, move while at `beforeOid` (GraphQL updateRefs).
+  fake.route("GET", new RegExp(`^/repos/${repository}$`, "u"), () => ({ status: 200, body: { full_name: repository, node_id: "R_forge" } }));
+  fake.route("POST", new RegExp(`^${base}/refs$`, "u"), (request) => {
+    const body = request.body as { ref: string; sha: string };
+    const branch = body.ref.replace(/^refs\/heads\//u, "");
+    if (refOf(branch) !== null) return { status: 422, body: { message: "Reference already exists" } };
+    if (!knobs.ignoreRefUpdate) git(["update-ref", body.ref, body.sha]);
+    return { status: 201, body: { ref: body.ref, object: { sha: body.sha } } };
   });
+  fake.route("POST", /^\/graphql$/u, (request) => {
+    const body = request.body as { query: string; variables: { input: { repositoryId: string; refUpdates: { name: string; beforeOid: string; afterOid: string; force: boolean }[] } } };
+    if (!body.query.includes("updateRefs")) return undefined;
+    for (const update of body.variables.input.refUpdates) {
+      const current = refOf(update.name.replace(/^refs\/heads\//u, ""));
+      if (current !== update.beforeOid) return { status: 200, body: { data: null, errors: [{ type: "UNPROCESSABLE", message: `the ref ${update.name} is at ${String(current)}, not ${update.beforeOid}` }] } };
+      let fastForward = true;
+      try { git(["merge-base", "--is-ancestor", current, update.afterOid]); } catch { fastForward = false; }
+      if (!fastForward && update.force !== true) return { status: 200, body: { data: null, errors: [{ type: "UNPROCESSABLE", message: "not a fast forward" }] } };
+    }
+    if (!knobs.ignoreRefUpdate) for (const update of body.variables.input.refUpdates) git(["update-ref", update.name, update.afterOid]);
+    return { status: 200, body: { data: { updateRefs: { clientMutationId: null } } } };
+  });
+  fake.route("PATCH", /\/git\/refs\//u, () => ({ status: 500, body: { message: "this forge refuses PATCH /git/refs: it has no compare-and-swap" } }));
   const client = githubClient(fake.endpoint(), memoryCredential("app:bridlewise-publisher", fake.userToken("publisher")));
-  const count = (kind: "blobs" | "trees" | "commits" | "refs"): number => fake.requests.filter((request) => (kind === "refs" ? request.method === "PATCH" && request.path.includes("/git/refs/") : request.method === "POST" && request.path.endsWith(`/git/${kind}`))).length;
+  const count = (kind: "blobs" | "trees" | "commits" | "refs"): number => fake.requests.filter((request) => (kind === "refs"
+    ? (request.method === "POST" && (request.path.endsWith("/git/refs") || (request.path === "/graphql" && String((request.body as { query?: unknown }).query).includes("updateRefs"))))
+    : request.method === "POST" && request.path.endsWith(`/git/${kind}`))).length;
   return { fake, forge: { client, repository }, bare, knobs, git: (args) => git(args), count };
 }

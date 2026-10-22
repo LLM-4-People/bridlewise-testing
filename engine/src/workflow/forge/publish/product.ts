@@ -7,12 +7,13 @@
  *   - its trailers must name its source (`Projected-From`) and its profile;
  *   - the forge's product branch must still be T, the commit's first parent
  *     (`promotion_forge_target_moved` otherwise: another publication landed);
- *   - the commit is re-made on the forge with parents `[T, S]` through the
- *     Git Data API ({@link remakeCommit}): GitHub signs it as the publisher
- *     App, and its tree must be the locally built tree — the projection was
- *     recomputed from S in this job, so the published tree IS the recomputed
- *     one;
- *   - the branch moves forward only ({@link advanceBranch}), and is re-read.
+ *   - the commit is re-made on the forge with parents `[T, S]` by THE ONE
+ *     re-make (`remakeCommit`, `workflow/workspace-forge.ts`, over the GitHub
+ *     adapter `git-data.ts`): GitHub signs it as the publisher App, and its
+ *     tree must be the built tree;
+ *   - the branch moves by compare-and-swap from T (never an overwrite); the
+ *     adapter reads it back, and a move the forge answered but never applied
+ *     is an integrity refusal.
  * The answer is the PROJECTION RECEIPT (`bridlewise-product-projection/v1`):
  * what was published, from which source, by which profile blob, onto which
  * head. The publish job attests it (its digest is the attestation's
@@ -30,7 +31,9 @@ import { ForgeError } from "../codes.ts";
 import type { ForgeClient } from "../port.ts";
 import { promotionTrailersOf } from "../../promotion/trailers.ts";
 import { PromotionError } from "../../promotion/codes.ts";
-import { advanceBranch, branchHead, remakeCommit } from "./git-data.ts";
+import { githubGitData } from "./git-data.ts";
+import { remakeCommit } from "../../workspace-forge.ts";
+import { HarnessError } from "../../../kernel/errors.ts";
 import { atomicWriteFile } from "../../../filesystem/atomic-write.ts";
 import { answer, type PromotionAnswer } from "../../promotion/codes.ts";
 import { configuredForge, configuredForgeClient } from "../configured-forge.ts";
@@ -65,7 +68,13 @@ export function receiptBytes(receipt: ProjectionReceipt): string {
   return `${canonicalJson(receipt)}\n`;
 }
 
+/** The workspace re-make's own answers that mean the forge stored or signed something else. */
+const REMAKE_MISMATCHES: ReadonlySet<string> = new Set(["workspace_publish_object_mismatch", "workspace_publish_unverified", "workspace_publish_mode", "workspace_publish_encoding", "workspace_publish_root_commit"]);
+
 function forgeRefusal(error: unknown): never {
+  if (error instanceof HarnessError && !(error instanceof ForgeError) && REMAKE_MISMATCHES.has(error.code)) {
+    throw new PromotionError("promotion_forge_mismatch", `${error.code}: ${error.message}`, { remakeCode: error.code });
+  }
   if (error instanceof ForgeError) {
     const code = error.forgeCode === "forge_publication_mismatch"
       ? "promotion_forge_mismatch"
@@ -87,11 +96,18 @@ export async function publishProduct(input: Readonly<{ client: ForgeClient; repo
     throw new PromotionError("promotion_source_unproven_commit", `${commit} has the parents ${parents.join(", ")}: a promotion commit's parents are [the product tip, its Projected-From source]`, { commit, parents });
   }
   const [target, source] = parents as [string, string];
+  const forge = githubGitData(client, repository);
+  const moved = (found: string | null): PromotionError => new PromotionError("promotion_forge_target_moved", `${branch} on ${repository} is ${String(found)}, but the promotion was built on ${target}: another publication landed meanwhile`, { branch, expected: target, found });
   try {
-    const head = await branchHead(client, repository, branch);
-    if (head !== target) throw new PromotionError("promotion_forge_target_moved", `${branch} on ${repository} is ${String(head)}, but the promotion was built on ${target}: another publication landed meanwhile`, { branch, expected: target, found: head });
-    const made = await remakeCommit({ client, repository, local, commit, parents: [target, source] });
-    await advanceBranch(client, repository, branch, target, made.sha);
+    const head = await forge.branchHead(branch);
+    if (head !== target) throw moved(head);
+    const made = await remakeCommit(forge, local, commit, (parent) => parent, new Set());
+    if (!(await forge.setBranch({ branch, sha: made.sha, previous: target })).applied) {
+      const found = await forge.branchHead(branch);
+      // Still at T: the forge answered the move but never applied it; elsewhere: another publication.
+      if (found === target) throw new PromotionError("promotion_forge_mismatch", `${branch} on ${repository} is still ${target} after the forge accepted its move to ${made.sha}`, { branch, expected: made.sha, found });
+      throw moved(found);
+    }
     return deepFreeze({ schema: PROJECTION_RECEIPT_SCHEMA, repository, branch, commit: made.sha, built: commit, tree: made.tree, source, profile: trailers.profile, target });
   } catch (error) {
     if (error instanceof PromotionError) throw error;

@@ -5684,18 +5684,18 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workspace-forge", path: "src/workflow/workspace-forge.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 12, namesSha256: "18d1a88c5ad3aa7286c134b6207c6900f1f1284f4d1e7fab0ebfc28e6a95a096" },
+      owner: "verification-workflow", publicApi: { exportCount: 14, namesSha256: "6a30434e9e3cc51571fafb1667acfdd17ec99fad8565fd0274171f006d7515e3" },
       dependencies: ["src/git/git-port.ts","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-publish-git-data", path: "src/workflow/forge/publish/git-data.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "902ff6dc49964f00f2f56b795c391aebfb26de8bb8f32e44aef70ef63ae590a2" },
-      dependencies: ["src/git/tree-reader.ts","src/kernel/integrity.ts","src/workflow/forge/codes.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 1, namesSha256: "64194d89cdfc9fcf71bc3163911acf19a2665a7fcc17f9ac7745af9e76559aa7" },
+      dependencies: ["src/workflow/forge/codes.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-publish-product", path: "src/workflow/forge/publish/product.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "75c02b8795850659a69def29abfde5d295d3eca00db506f7291d1ac2143c8e52" },
-      dependencies: ["src/filesystem/atomic-write.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/forge/app-registry.ts","src/workflow/forge/codes.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/publish/git-data.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/trailers.ts"],
+      dependencies: ["src/filesystem/atomic-write.ts","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/forge/app-registry.ts","src/workflow/forge/codes.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/publish/git-data.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/trailers.ts","src/workflow/workspace-forge.ts"],
     }),
   ],
 });
