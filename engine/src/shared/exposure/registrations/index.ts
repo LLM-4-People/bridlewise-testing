@@ -53,6 +53,7 @@ import { registerWorkspaceGitExposure, resetWorkspaceGitRegistration } from "./w
 import { registerPromotionExposure, resetPromotionRegistration } from "./promotion.ts";
 import { registerTestExecutionExposure, resetTestExecutionRegistration } from "./test-execution.ts";
 import { registerHarnessCommandsExposure, resetHarnessCommandsRegistration } from "./harness-commands.ts";
+import { registerReleaseExposure, resetReleaseRegistration } from "./release.ts";
 import { registerAgentsExposure, resetAgentsRegistration } from "./agents.ts";
 import { registerSettingsExposure, resetSettingsRegistration } from "./settings.ts";
 import { registerNetworkExposure, resetNetworkRegistration } from "./network.ts";
@@ -90,6 +91,7 @@ const MODULE_REGISTRATIONS = [
   ["promotion", registerPromotionExposure],
   ["testExecution", registerTestExecutionExposure],
   ["harnessCommands", registerHarnessCommandsExposure],
+  ["release", registerReleaseExposure],
   ["agents", registerAgentsExposure],
   ["settings", registerSettingsExposure],
   ["network", registerNetworkExposure],
@@ -183,6 +185,7 @@ function resetRegistrationFlags(): void {
   resetPromotionRegistration();
   resetTestExecutionRegistration();
   resetHarnessCommandsRegistration();
+  resetReleaseRegistration();
   resetAgentsRegistration();
   resetSettingsRegistration();
   resetNetworkRegistration();
@@ -266,6 +269,7 @@ export { registerWorkspaceGitExposure, installWorkspaceGitStateSource, type Work
 export { registerPromotionExposure, installPromotionSource, type PromotionSource } from "./promotion.ts";
 export { registerTestExecutionExposure } from "./test-execution.ts";
 export { registerHarnessCommandsExposure } from "./harness-commands.ts";
+export { registerReleaseExposure } from "./release.ts";
 export { registerAgentsExposure } from "./agents.ts";
 export { registerNetworkExposure } from "./network.ts";
 export { registerDatabaseExposure, installDatabaseFactsSource, installDatabaseThreadsSource, installDatabaseKeyTool, installDatabaseShellOperations, type DatabaseShellOperations, type DatabaseKeyTool, type DatabaseSafetyFacts, type DatabaseThreadFacts } from "./database.ts";
