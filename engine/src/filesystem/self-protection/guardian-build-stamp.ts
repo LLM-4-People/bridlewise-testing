@@ -159,7 +159,7 @@ export function readGuardianBuildStampSpec(harnessRoot: string): GuardianBuildSt
 }
 
 /** The exact bytes both the Makefile and this module hash, as UTF-8 text. */
-export function guardianBuildStampPayload(
+function guardianBuildStampPayload(
   spec: GuardianBuildStampSpec,
   sourceDigests: readonly string[],
 ): string {
