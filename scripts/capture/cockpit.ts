@@ -39,7 +39,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import type { Browser, BrowserContext, Page } from "playwright-core";
 
 import { allProcessIds, ancestorsOf, commandLineOf } from "../../engine/src/process/process-facts.ts";
 import { portAnswers, portListeners } from "../dev-processes.ts";
@@ -80,7 +80,7 @@ import {
   type ViewportId,
 } from "./cockpit-plan.ts";
 import { decodePngRgb, encodeGif } from "./gif.ts";
-import { instrumentContext, judgePage } from "../rendered/judge.ts";
+import { instrumentContext, judgePage, launchBrowser } from "../rendered/judge.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -123,6 +123,8 @@ interface Options {
   readonly keepScratch: boolean;
   /** Judge every view as rendered (scripts/rendered/) without writing images, video or a manifest: the CI check. */
   readonly judgeOnly: boolean;
+  /** The browser executable to drive (CI: the runner image's), else Playwright's own Chromium. */
+  readonly browser: string | null;
 }
 
 function parseArgs(argv: readonly string[]): Options {
@@ -130,15 +132,17 @@ function parseArgs(argv: readonly string[]): Options {
   let demoRoot = DEFAULT_DEMO_ROOT;
   let keepScratch = false;
   let judgeOnly = false;
+  let browser: string | null = null;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--out") out = resolve(argv[++i] ?? "");
     else if (arg === "--demo-root") demoRoot = resolve(argv[++i] ?? "");
     else if (arg === "--keep-scratch") keepScratch = true;
     else if (arg === "--judge-only") judgeOnly = true;
-    else throw new CaptureRefusal("argument_unknown", `${String(arg)} (known: --out <dir>, --demo-root <dir>, --keep-scratch, --judge-only)`);
+    else if (arg === "--browser") browser = resolve(argv[++i] ?? "");
+    else throw new CaptureRefusal("argument_unknown", `${String(arg)} (known: --out <dir>, --demo-root <dir>, --keep-scratch, --judge-only, --browser <executable>)`);
   }
-  return { out, demoRoot, keepScratch, judgeOnly };
+  return { out, demoRoot, keepScratch, judgeOnly, browser };
 }
 
 // ── Preflight ──
@@ -763,7 +767,7 @@ async function main(): Promise<void> {
     const repo = writeDemoRepository(options.demoRoot);
     demoCreated = true;
     sd(app, env, "start");
-    browser = await chromium.launch({ channel: "chromium", headless: true, args: [...CHROMIUM_ARGS] });
+    browser = await launchBrowser(options.browser, CHROMIUM_ARGS);
     const state: Run = {
       options, commit, out, repo, ffmpeg, scratch,
       password: (await import("node:crypto")).randomBytes(18).toString("base64url"),

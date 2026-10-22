@@ -4,7 +4,7 @@
  * plants one break, in a spelling a static guard could miss. Every plant must
  * be caught, by the rule that owns it, and the clean page must pass.
  *
- *   node scripts/rendered/proof.ts
+ *   node scripts/rendered/proof.ts [--browser <executable>]
  *
  * Exits 1, naming each plant that passed or the clean page's findings.
  */
@@ -12,11 +12,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { chromium } from "playwright-core";
+import { parseArgs } from "node:util";
 
 import { isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
-import { instrumentContext, judgePage, serveSite } from "./judge.ts";
+import { instrumentContext, judgePage, launchBrowser, serveSite } from "./judge.ts";
 import { CONTENT_SECURITY_POLICY, RENDERED_RULES, type PageRule } from "./rules.ts";
 
 /** The mark as Brand.svelte draws it, from the one geometry and its tokens (never a copy of its coordinates). */
@@ -80,7 +80,7 @@ const CLEAN_TOO: readonly Plant[] = [
 ];
 
 /** Builds the fixture site, judges every page as the cockpit is judged (every rule), and returns what failed. */
-async function prove(): Promise<readonly string[]> {
+async function prove(executable: string | null): Promise<readonly string[]> {
   const dir = mkdtempSync(join(tmpdir(), "rendered-proof-"));
   const failures: string[] = [];
   try {
@@ -91,7 +91,7 @@ async function prove(): Promise<readonly string[]> {
     const rows = (only: readonly string[] | undefined): readonly PageRule[] | undefined =>
       only === undefined ? undefined : RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && only.includes(r.id));
     const { server, origin } = await serveSite(dir, "/proof");
-    const browser = await chromium.launch({ headless: true });
+    const browser = await launchBrowser(executable);
     try {
       const judge = async (file: string, only?: readonly string[]): Promise<readonly string[]> => {
         const context = await browser.newContext({ serviceWorkers: "block" });
@@ -126,7 +126,8 @@ async function prove(): Promise<readonly string[]> {
 }
 
 if (isEntryPoint(import.meta.url)) {
-  prove().then((failures) => {
+  const { values } = parseArgs({ args: process.argv.slice(2), options: { browser: { type: "string" } } });
+  prove(values.browser ?? null).then((failures) => {
     for (const failure of failures) process.stdout.write(`${failure}\n`);
     process.stdout.write(`${JSON.stringify({ plants: PLANTS.length, caught: PLANTS.length - failures.filter((f) => !f.startsWith("the clean page")).length, cleanPagePasses: !failures.some((f) => f.startsWith("the clean page")) })}\n`);
     process.exitCode = failures.length === 0 ? 0 : 1;
