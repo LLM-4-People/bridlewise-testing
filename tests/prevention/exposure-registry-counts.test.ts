@@ -238,7 +238,7 @@ describe("exposure registry — surface may grow, never shrink (ratchet guard)",
       expect(s.module.length, `signal '${s.id}' needs a module`).toBeGreaterThan(0);
       expect(RECOGNIZED_SIGNAL_TYPES.has(s.type), `signal '${s.id}' has unknown type '${s.type}' (not in the canonical SIGNAL_TYPES)`).toBe(true);
     }
-  }, 30000);
+  });
 
   test("every action + customization id is namespaced (module.name) so grouping works", () => {
     for (const a of listActions()) {

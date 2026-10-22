@@ -85,6 +85,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
+import { isMap, isScalar, isSeq, parseDocument, type Document } from "yaml";
+
+// The site builder is plain Node ESM with no declaration file; the test reads the values it exports.
+// @ts-expect-error -- a .mjs module has no declaration file in the TS program.
+import { BUILDER_OWNED_CONFIG_KEYS } from "../../scripts/floor/site-pages.mjs";
+import { networkInstalls } from "../helpers/network-install.ts";
 
 const ROOT = process.cwd();
 const REGISTRY_PATH = "tests/prevention/external-surface-registry.json";
@@ -344,7 +350,6 @@ function audit(tree: Tree): Finding[] {
     "dependency-tree",
     "container-image",
     "build-path",
-    "product-docs-ref",
     "system-package",
     "private-service",
   ]);
@@ -984,59 +989,82 @@ function audit(tree: Tree): Finding[] {
     if (typeof label === "string") compareUsedIn(runner, actualRunnerFiles.get(label) ?? new Set<string>(), "runner-usedin-mismatch");
   }
 
-  // ── Pages/Jekyll build path and the product docs channel ─────────────
+  // ── Pages/Jekyll build path ──────────────────────────────────────────
+  // Both files are READ AS YAML (the repository's one YAML reader): a comment
+  // inside a list, a repeated key, a flow mapping and a flow list are the same
+  // document to Jekyll and to GitHub, so they are to this guard. A file that
+  // does not parse is itself a finding: what the guard cannot read, it cannot
+  // certify.
   const buildPath = one("build-path");
   if (buildPath !== null) {
     const workflow = buildPath.pinned["workflow"];
-    const assembler = buildPath.pinned["assembler"];
-    if (typeof workflow !== "string" || typeof assembler !== "string") {
-      findings.push({ rule: "registry-schema", detail: "the build-path surface needs workflow and assembler" });
+    const builder = buildPath.pinned["builder"];
+    const config = buildPath.pinned["config"];
+    const plugins = buildPath.pinned["plugins"];
+    if (typeof workflow !== "string" || typeof builder !== "string" || typeof config !== "string" || !Array.isArray(plugins)) {
+      findings.push({ rule: "registry-schema", detail: "the build-path surface needs workflow, builder, config and plugins" });
     } else {
-      if (!tree.has(workflow)) findings.push({ rule: "pages-build-path", detail: `Pages workflow ${workflow} is missing` });
-      if (!tree.has(assembler)) findings.push({ rule: "pages-build-path", detail: `site assembler ${assembler} is missing` });
+      for (const [what, path] of [["Pages workflow", workflow], ["site builder", builder], ["site config", config]] as const) {
+        if (!tree.has(path)) findings.push({ rule: "pages-build-path", detail: `${what} ${path} is missing` });
+      }
+      const parsed = (path: string): Document | null => {
+        const document = parseDocument(tree.read(path), { uniqueKeys: true, prettyErrors: false });
+        const errors = [...document.errors, ...document.warnings];
+        for (const error of errors) findings.push({ rule: "pages-build-path", detail: `${path} is unreadable YAML: ${error.message.split("\n")[0] ?? ""}` });
+        if (errors.length === 0 && !isMap(document.contents)) findings.push({ rule: "pages-build-path", detail: `${path} is not a mapping` });
+        return errors.length === 0 && isMap(document.contents) ? document : null;
+      };
       if (tree.has(workflow)) {
-        const text = tree.read(workflow);
-        if (!text.includes("build_revision: ${{ steps.product.outputs.commit }}")) {
-          findings.push({ rule: "pages-build-path", detail: `${workflow} no longer hands the resolved product commit to Jekyll as build_revision` });
+        const document = parsed(workflow);
+        const steps: Record<string, unknown>[] = [];
+        const jobs = document?.toJS() as { jobs?: Record<string, { steps?: unknown }> } | undefined;
+        for (const job of Object.values(jobs?.jobs ?? {})) {
+          if (Array.isArray(job?.steps)) for (const step of job.steps) if (isRecord(step)) steps.push(step);
         }
-        if (!text.includes("uses: actions/jekyll-build-pages@")) {
+        const jekyll = steps.filter((step) => typeof step["uses"] === "string" && step["uses"].startsWith("actions/jekyll-build-pages@"));
+        if (document !== null && jekyll.length === 0) {
           findings.push({ rule: "pages-build-path", detail: `${workflow} no longer builds through actions/jekyll-build-pages` });
         }
+        for (const step of jekyll) {
+          const withBlock = step["with"];
+          if (!isRecord(withBlock) || withBlock["build_revision"] !== "${{ github.sha }}") {
+            findings.push({ rule: "pages-build-path", detail: `${workflow} no longer hands the built commit to Jekyll as build_revision` });
+          }
+        }
+        for (const step of steps) {
+          const withBlock = step["with"];
+          if (isRecord(withBlock) && "repository" in withBlock) {
+            findings.push({ rule: "pages-build-path", detail: `${workflow} checks out another repository (${String(withBlock["repository"])}); the site's only source is this tree's docs/` });
+          }
+          const run = step["run"];
+          if (typeof run === "string" && /\b(?:git\s+(?:clone|fetch|pull|remote\s+add)|gh\s+repo\s+clone)\b/u.test(run)) {
+            findings.push({ rule: "pages-build-path", detail: `${workflow} fetches another tree in a run step; the site's only source is this tree's docs/` });
+          }
+        }
       }
-      if (tree.has(assembler) && /^\s*(?:plugins|gems|remote_theme)\s*:/m.test(tree.read(assembler))) {
-        findings.push({
-          rule: "pages-build-path",
-          detail: `${assembler} adds a Jekyll plugin/theme key; that surface has no declared pin`,
-        });
+      if (tree.has(config)) {
+        const document = parsed(config);
+        if (document !== null) {
+          const node = document.get("plugins", true);
+          const loaded = isSeq(node) ? node.items.map((item) => (isScalar(item) ? String(item.value) : JSON.stringify(item))) : node === undefined ? [] : [JSON.stringify(document.toJS().plugins)];
+          if (JSON.stringify(loaded) !== JSON.stringify(plugins)) {
+            findings.push({ rule: "pages-build-path", detail: `${config} loads the plugins [${loaded.join(", ")}], the declaration pins [${plugins.join(", ")}]` });
+          }
+          for (const key of ["gems", "theme", "remote_theme", "whitelist"]) {
+            if (document.has(key)) findings.push({ rule: "pages-build-path", detail: `${config} adds a Jekyll ${key}; that surface has no declared pin` });
+          }
+        }
+      }
+      // The builder writes only the keys it owns (its config writer refuses any
+      // other), so it cannot add a plugin, gem or theme behind the config's back.
+      for (const key of ["plugins", "gems", "theme", "remote_theme", "whitelist"]) {
+        if ((BUILDER_OWNED_CONFIG_KEYS as readonly string[]).includes(key)) findings.push({ rule: "pages-build-path", detail: `the site builder owns the Jekyll key ${key}; that surface has no declared pin` });
       }
       const actualBuildPathFiles = new Set<string>();
-      for (const path of [workflow, assembler, "scripts/floor/site.mjs"]) {
+      for (const path of [workflow, config, builder, "scripts/floor/site.mjs"]) {
         if (tree.has(path)) actualBuildPathFiles.add(path);
       }
       compareUsedIn(buildPath, actualBuildPathFiles, "pages-build-path-usedin-mismatch");
-    }
-  }
-  const productRef = one("product-docs-ref");
-  if (productRef !== null) {
-    const ref = productRef.pinned["ref"];
-    if (typeof ref !== "string" || productRef.pinned["floating"] !== true) {
-      findings.push({ rule: "registry-schema", detail: "the product-docs-ref surface must declare a ref and floating: true" });
-    } else {
-      for (const path of productRef.usedIn) {
-        if (!tree.has(path)) continue;
-        const text = tree.read(path);
-        if (!text.includes("ref: ${{ inputs.product_ref || '" + ref + "' }}")) {
-          findings.push({ rule: "product-docs-ref", detail: `${path} no longer checks out the declared product ref ${ref}` });
-        }
-        if (!text.includes(`default: ${ref}`)) {
-          findings.push({ rule: "product-docs-ref", detail: `${path} no longer defaults the product ref to ${ref}` });
-        }
-      }
-      const actualProductRefFiles = new Set<string>();
-      for (const path of productRef.usedIn) {
-        if (tree.has(path) && tree.read(path).includes("product_ref")) actualProductRefFiles.add(path);
-      }
-      compareUsedIn(productRef, actualProductRefFiles, "product-docs-ref-usedin-mismatch");
     }
   }
 
@@ -1050,34 +1078,44 @@ function audit(tree: Tree): Finding[] {
     command.replace(/\\\s*$/u, "").trim().replace(/\s+/gu, " ").replace(/^sudo\s+/u, "");
   const declaredPackages = new Set<string>();
   const declaredInstalls = new Map<string, string>();
+  // A package the runner image ships is PROBED (`pinned.probe`), never
+  // installed: a network install only ever waited on a mirror (#333). Its
+  // call sites are the files that carry the probe, and an apt line that
+  // installs it anyway is refused as drift from its declaration.
+  const declaredProbes = new Map<string, string>();
   for (const surface of ofKind("system-package")) {
     const name = surface.pinned["package"];
     const install = surface.pinned["install"];
+    const probe = surface.pinned["probe"];
     if (typeof name === "string") {
       declaredPackages.add(name);
       if (typeof install === "string" && install.trim().length > 0) declaredInstalls.set(name, normalizeInstall(install));
-      else findings.push({ rule: "registry-schema", detail: `${surface.id} needs the install command it declares` });
+      else if (typeof probe === "string" && probe.trim().length > 0) declaredProbes.set(name, probe.trim());
+      else findings.push({ rule: "registry-schema", detail: `${surface.id} needs the install command or the probe it declares` });
     } else findings.push({ rule: "registry-schema", detail: `${surface.id} needs a package name` });
   }
   const actualPackageFiles = new Map<string, Set<string>>();
   for (const { path, text } of universeTexts) {
-    for (const match of text.matchAll(/apt-get\s+install\s+([^;&|\n]+)/g)) {
-      const captured = match[1] ?? "";
-      for (const rawToken of captured.split(/\s+/)) {
-        const token = rawToken.replace(/\\$/, "").replace(/^["']|["']$/g, "");
-        if (token.length === 0 || token.startsWith("-")) continue;
+    for (const install of networkInstalls(text).filter((entry) => entry.subcommand === "install" || entry.subcommand === "add")) {
+      const at = lineOf(text, install.manager);
+      for (const token of install.packages) {
         if (!declaredPackages.has(token)) {
           findings.push({
             rule: "system-package-undeclared",
-            detail: `${path}:${lineOf(text, match[0])} installs ${token}, which the registry does not declare`,
+            detail: `${path}:${at} installs ${token}, which the registry does not declare`,
           });
         } else {
-          const actualInstall = normalizeInstall(`apt-get install ${captured}`);
+          const actualInstall = normalizeInstall(install.command);
           const declared = declaredInstalls.get(token);
-          if (declared !== undefined && declared !== actualInstall) {
+          if (declaredProbes.has(token)) {
             findings.push({
               rule: "system-package-install-drift",
-              detail: `${path}:${lineOf(text, match[0])} installs with ${JSON.stringify(actualInstall)}, but ${token} declares ${JSON.stringify(declared)}`,
+              detail: `${path}:${at} installs ${token} from the network, but ${token} is declared probed from the runner image (${declaredProbes.get(token)!})`,
+            });
+          } else if (declared !== undefined && declared !== actualInstall) {
+            findings.push({
+              rule: "system-package-install-drift",
+              detail: `${path}:${at} installs with ${JSON.stringify(actualInstall)}, but ${token} declares ${JSON.stringify(declared)}`,
             });
           }
           const set = actualPackageFiles.get(token) ?? new Set<string>();
@@ -1085,6 +1123,14 @@ function audit(tree: Tree): Finding[] {
           actualPackageFiles.set(token, set);
         }
       }
+    }
+  }
+  for (const [name, probe] of declaredProbes) {
+    for (const { path, text } of universeTexts) {
+      if (!text.includes(probe)) continue;
+      const set = actualPackageFiles.get(name) ?? new Set<string>();
+      set.add(path);
+      actualPackageFiles.set(name, set);
     }
   }
   for (const surface of ofKind("system-package")) {
@@ -1119,7 +1165,7 @@ function audit(tree: Tree): Finding[] {
       findings.push({ rule: "private-surface", detail: `${surface.id} contains a URL; private endpoints do not belong in this public registry` });
     }
   }
-  const exemptableKinds = new Set(["product-docs-ref", "system-package"]);
+  const exemptableKinds = new Set(["system-package"]);
   for (const exception of exceptions) {
     const surface = registry.surfaces.find((entry) => entry.id === exception.surface);
     if (surface === undefined) {
@@ -1254,11 +1300,27 @@ describe("external surfaces — plants fail for the defect they name", () => {
     expectRule(planted({ ".github/workflows/ci.yml": changed }), "node-range", "spells node-version");
   });
 
-  test("an apt install line that drifted from its declaration is refused", () => {
+  test("a network install of the probed compiler is refused, and so is a lost probe", () => {
     const original = LIVE.read(".github/workflows/ci.yml");
-    const changed = original.replace("sudo apt-get install -y gcc-14", "sudo apt-get install -y --no-install-recommends gcc-14");
-    expect(changed).not.toBe(original);
-    expectRule(planted({ ".github/workflows/ci.yml": changed }), "system-package-install-drift", "gcc-14");
+    for (const install of [
+      "sudo apt-get install -y gcc-14",
+      // Options before the subcommand, a continued line, a prefixed environment (review of #335).
+      "sudo apt-get -o Acquire::Retries=3 install -y gcc-14",
+      "sudo apt-get \\\n            install -y gcc-14",
+      "env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-14",
+      // A package manager named through a variable (review of #335).
+      "sudo $PM install -y gcc-14",
+      "timeout 60 ${PM:-apt-get} install -y gcc-14",
+      "bash -c \"$PM install -y gcc-14\"",
+      "eval \"apt-get install -y gcc-14\"",
+    ]) {
+      const installed = original.replace("command -v gcc-14 >/dev/null ||", `${install} && command -v gcc-14 >/dev/null ||`);
+      expect(installed).not.toBe(original);
+      expectRule(planted({ ".github/workflows/ci.yml": installed }), "system-package-install-drift", "gcc-14");
+    }
+    const unprobed = original.replaceAll("command -v gcc-14", "which gcc-14");
+    expect(unprobed).not.toBe(original);
+    expectRule(planted({ ".github/workflows/ci.yml": unprobed }), "system-package-usedin-mismatch", "gcc-14");
   });
 
   test("a half-upgraded CodeQL release is refused", () => {
@@ -1285,5 +1347,38 @@ describe("external surfaces — plants fail for the defect they name", () => {
     if (!isRecord(entry)) throw new Error("package-lock.json entry is not an object");
     const changed = JSON.stringify({ ...lock, packages: { ...packages, [victim]: { ...entry, integrity: undefined } } }, null, 2) + "\n";
     expectRule(planted({ "package-lock.json": changed }), "lockfile-integrity", victim);
+  });
+
+  test("the site build path: an undeclared plugin, a theme, another repository's checkout and a lost build revision are refused", () => {
+    const config = LIVE.read("docs/_config.yml");
+    const declared = "plugins:\n  - jekyll-sitemap\n";
+    expect(config).toContain(declared);
+    const withConfig = (text: string): Finding[] => planted({ "docs/_config.yml": text }).filter((finding) => finding.rule === "pages-build-path");
+    expectRule(planted({ "docs/_config.yml": config.replace(declared, `${declared}  - jekyll-redirect-from\n`) }), "pages-build-path", "jekyll-redirect-from");
+    // The review's bypasses: a comment inside the list, a second plugins key, and a flow list.
+    expectRule(planted({ "docs/_config.yml": config.replace(declared, `${declared}  # extra\n  - jekyll-redirect-from\n`) }), "pages-build-path", "jekyll-redirect-from");
+    expectRule(planted({ "docs/_config.yml": `${config}plugins:\n  - jekyll-redirect-from\n` }), "pages-build-path", "docs/_config.yml is unreadable YAML");
+    expectRule(planted({ "docs/_config.yml": config.replace(declared, "plugins: [jekyll-sitemap, jekyll-redirect-from]\n") }), "pages-build-path", "jekyll-redirect-from");
+    expectRule(planted({ "docs/_config.yml": `${config}remote_theme: someone/theme\n` }), "pages-build-path", "adds a Jekyll remote_theme");
+    expectRule(planted({ "docs/_config.yml": `${config}whitelist: [jekyll-feed]\n` }), "pages-build-path", "adds a Jekyll whitelist");
+
+    const workflow = LIVE.read(".github/workflows/pages.yml");
+    const checkout = "        with:\n          persist-credentials: false\n";
+    expect(workflow).toContain(checkout);
+    expectRule(planted({ ".github/workflows/pages.yml": workflow.replace(checkout, "        with:\n          repository: LLM-4-People/elsewhere\n          persist-credentials: false\n") }), "pages-build-path", "checks out another repository");
+    expectRule(planted({ ".github/workflows/pages.yml": workflow.replace(checkout, "        with: { repository: LLM-4-People/elsewhere, persist-credentials: false }\n") }), "pages-build-path", "checks out another repository");
+    const build = "      - name: Build the site source\n";
+    expect(workflow).toContain(build);
+    expectRule(planted({ ".github/workflows/pages.yml": workflow.replace(build, "      - name: Fetch\n        run: git clone https://github.com/LLM-4-People/elsewhere product\n\n" + build) }), "pages-build-path", "fetches another tree");
+    const revision = workflow.replace("build_revision: ${{ github.sha }}", "build_revision: main");
+    expect(revision).not.toBe(workflow);
+    expectRule(planted({ ".github/workflows/pages.yml": revision }), "pages-build-path", "build_revision");
+    expectRule(planted({ ".github/workflows/pages.yml": workflow.replace("uses: actions/jekyll-build-pages@", "uses: someone/jekyll-build-pages@") }), "pages-build-path", "no longer builds through actions/jekyll-build-pages");
+
+    // Near misses: the declared list with extra spacing, a comment naming a
+    // plugin outside the list, and a flow list of exactly the declaration.
+    expect(withConfig(config.replace(declared, "plugins:\n  -   jekyll-sitemap\n"))).toEqual([]);
+    expect(withConfig(`${config}# plugins like jekyll-redirect-from are not loaded\n`)).toEqual([]);
+    expect(withConfig(config.replace(declared, "plugins: [jekyll-sitemap]\n"))).toEqual([]);
   });
 });

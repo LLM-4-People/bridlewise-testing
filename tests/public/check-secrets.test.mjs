@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -8,6 +9,8 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
+const { readRunCpu } = await import("../../engine/src/shared/run-cpu.ts");
+const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, createPrivacyMatcher, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
   const dir = mkdtempSync(join(tmpdir(), "bridlewise-secret-scan-"));
@@ -52,7 +55,7 @@ test("the scanner fails on a provider-shaped key outside a fixture path", () => 
     execFileSync("git", ["add", "config.txt"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /provider-token-shape/);
+    assert.match(result.stderr, /: token-prefix: /);
     assert.doesNotMatch(result.stderr, /C{24}/, "the scanner must not print the candidate value");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -66,7 +69,7 @@ test("the scanner fails on an internal absolute path", () => {
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /forbidden-path/);
+    assert.match(result.stderr, /: home-path: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -81,7 +84,7 @@ test("the scanner fails on a BARE home directory", () => {
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /forbidden-path/);
+    assert.match(result.stderr, /: home-path: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -109,7 +112,7 @@ test("the scanner fails on a private-key block outside a fixture path", () => {
     execFileSync("git", ["add", "config.ts"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /private-key-block/);
+    assert.match(result.stderr, /: private-key: /);
     assert.match(result.stderr, /config\.ts:1/);
     assert.doesNotMatch(result.stderr, /BEGIN OPENSSH PRIVATE KEY/, "the header itself must not be printed");
     assert.doesNotMatch(result.stdout, /secret scan: clean/, "a hard finding cannot print the clean line");
@@ -125,7 +128,7 @@ test("an EXAMPLE keyword on the line does not allowlist a provider-shaped key", 
     execFileSync("git", ["add", "config.ts"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /provider-token-shape/);
+    assert.match(result.stderr, /: token-prefix: /);
     assert.doesNotMatch(result.stderr, /Z{24}/, "the scanner must not print the candidate value");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -142,7 +145,7 @@ test("a key in a SHIPPED source directory is not a fixture", () => {
       execFileSync("git", ["add", shipped], { cwd: dir });
       const result = scan(dir);
       assert.equal(result.status, 1, `${shipped} must not be allowlisted: ${result.stderr}`);
-      assert.match(result.stderr, /provider-token-shape/);
+      assert.match(result.stderr, /: token-prefix: /);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -157,19 +160,20 @@ test("a key under docs/ is not a fixture", () => {
     execFileSync("git", ["add", "docs/guide.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /provider-token-shape/);
+    assert.match(result.stderr, /: token-prefix: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("an EXACT placeholder token is allowlisted without a keyword", () => {
-  const dir = makeRepo();
+test("a placeholder-looking key outside the fixture trees is a finding like any other", () => {
+  // The scanner once excused seven exact "placeholder" spellings anywhere in
+  // the tree; a value is never excused for its spelling.
+  const dir = repoWith({ "example.md": `reference: sk-${"A".repeat(24)}\n` });
   try {
-    writeFileSync(join(dir, "example.md"), "reference: sk-AAAAAAAAAAAAAAAAAAAAAAAA\n");
-    execFileSync("git", ["add", "example.md"], { cwd: dir });
     const result = scan(dir);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /example\.md:1: token-prefix: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -207,21 +211,6 @@ test("every format the canonical owner calls a secret file fails the scan", asyn
   }
 });
 
-test("a key pasted into .gitleaks.toml fails like a key anywhere else", () => {
-  // `.gitleaks.toml` is shipped configuration, not a fixture. It used to be in
-  // the fixture allowlist, so a real key there was counted synthetic.
-  const dir = repoWith({ ".gitleaks.toml": `regexes = ["sk-${"Z".repeat(24)}"]\n` });
-  try {
-    const result = scan(dir);
-    assert.equal(result.status, 1, result.stdout);
-    assert.match(result.stderr, /provider-token-shape/);
-    assert.doesNotMatch(result.stderr, /Z{24}/, "the scanner must not print the candidate value");
-    assert.doesNotMatch(result.stdout, /secret scan: clean/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => {
   const headers = [
     "-----BEGIN ENCRYPTED PRIVATE KEY-----",
@@ -232,7 +221,7 @@ test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => 
     try {
       const result = scan(dir);
       assert.equal(result.status, 1, `${header} certified clean:\n${result.stdout}`);
-      assert.match(result.stderr, /private-key-block/);
+      assert.match(result.stderr, /: private-key: /);
       assert.doesNotMatch(result.stderr, /BEGIN [A-Z ]*PRIVATE KEY/, "the header must not be printed");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -247,8 +236,8 @@ test("a text blob named .png is scanned by content, not by extension", () => {
   try {
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
-    assert.match(result.stderr, /private-key-block/);
-    assert.match(result.stderr, /forbidden-path/);
+    assert.match(result.stderr, /: private-key: /);
+    assert.match(result.stderr, /: home-path: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -260,7 +249,7 @@ test("a file above the old 2 MiB cap has its tail scanned", () => {
   try {
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
-    assert.match(result.stderr, /private-key-block/);
+    assert.match(result.stderr, /: private-key: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -274,7 +263,7 @@ test("a symlink is scanned through its committed target string, never followed",
     execFileSync("git", ["add", "docs/profile"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
-    assert.match(result.stderr, /forbidden-path/);
+    assert.match(result.stderr, /: home-path: /);
     assert.match(result.stderr, /docs\/profile/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -289,7 +278,7 @@ test("a dotted account name is not a documented placeholder", () => {
     try {
       const result = scan(dir);
       assert.equal(result.status, 1, `${line.trim()} certified clean`);
-      assert.match(result.stderr, /forbidden-path/);
+      assert.match(result.stderr, /: home-path: /);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -314,7 +303,7 @@ test("repeated slashes and JSON slash escapes name the same forbidden path", () 
     try {
       const result = scan(dir);
       assert.equal(result.status, 1, `${line.trim()} certified clean:\n${result.stdout}`);
-      assert.match(result.stderr, /forbidden-path/);
+      assert.match(result.stderr, /: home-path: /);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -326,9 +315,263 @@ test("a credential shape in a tracked file NAME is a path finding", () => {
   try {
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
-    assert.match(result.stderr, /path-content/);
-    assert.match(result.stderr, /provider-token shape in a file path/);
+    assert.match(result.stderr, /: github-personal-token: GitHub personal access token in a file path/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── the scanner reads the ONE catalogue ─────────────────────────────────
+//
+// Every row of `engine/src/privacy/secret-signals.ts` either is applied by the
+// scanner (`treeScan: true`) or says why not; each applied row's own
+// fixtures, assembled at runtime, are found and reported BY THE ROW ID, in a
+// shipped file and in a file name, while every row's negatives pass.
+test("every tree-scanned catalogue row is found by its id; the others say why not", () => {
+  const scanned = SECRET_TEXT_SIGNAL_CATALOG.filter((signal) => signal.treeScan === true);
+  assert.ok(scanned.length >= 12, `only ${String(scanned.length)} rows are tree-scanned`);
+  for (const signal of SECRET_TEXT_SIGNAL_CATALOG) {
+    if (signal.treeScan !== true) {
+      assert.ok(signal.treeScan.reason.length > 20, `${signal.id} skips the tree scan without a reason`);
+      continue;
+    }
+    signal.fixtures.positive.forEach((_parts, index) => {
+      const value = signalFixture(signal.id, index);
+      const dir = repoWith({ "src/shipped.ts": `const value = ${JSON.stringify(value)};\n` });
+      try {
+        const result = scan(dir);
+        assert.equal(result.status, 1, `${signal.id}[${String(index)}] certified clean:\n${result.stdout}`);
+        assert.match(result.stderr, new RegExp(`src/shipped\\.ts:1: ${signal.id}: `, "u"), `${signal.id}[${String(index)}]`);
+        assert.ok(!result.stderr.includes(value), `${signal.id}: the scanner printed the value`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+  const negatives = SECRET_TEXT_SIGNAL_CATALOG.flatMap((signal) => signal.fixtures.negative);
+  const clean = repoWith({ "src/near-misses.ts": `${negatives.map((value) => JSON.stringify(value)).join("\n")}\n` });
+  try {
+    const result = scan(clean);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(clean, { recursive: true, force: true });
+  }
+});
+
+test("a 520-character installation token with dots is found by its row id, outside and inside a fixture tree", () => {
+  const token = signalFixture("github-installation-token", 0);
+  assert.equal(token.length, 520);
+  assert.equal(token.split(".").length, 3, "the fixture is a three-part JWT");
+  const dir = repoWith({ "docs/run.log": `GITHUB_TOKEN ${token}.\n`, "tests/fixture.txt": `${token}\n` });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /docs\/run\.log:1: github-installation-token: GitHub App installation token/);
+    assert.doesNotMatch(result.stderr, /tests\/fixture\.txt/, "a fixture tree is still allowlisted until P0.6 removes it");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("each publication-privacy row is reported by its id; database state by file name", () => {
+  // A NAME row never spells its name (this repository is public), so it
+  // cannot be planted here; the one matcher it runs through is driven with a
+  // synthetic row below. The SHAPE rows are planted end to end.
+  const shapeRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => "pattern" in signal).map((signal) => signal.id);
+  assert.deepEqual([...shapeRows].sort(), ["database-state", "home-path"],
+    "a new pattern row must not spell a protected name: give it `names` and `digests` instead");
+  for (const signal of PUBLICATION_PRIVACY_SIGNALS.filter((row) => !("pattern" in row))) {
+    assert.ok(signal.digests.length > 0 && signal.digests.every((pin) => /^[0-9a-f]{64}$/u.test(pin.sha256) && Number.isSafeInteger(pin.length) && pin.length > 0),
+      `${signal.id} carries no SHA-256 digest with its name's length`);
+  }
+  const planted = { "home-path": "see /home/private-user/work\n" };
+  for (const [id, line] of Object.entries(planted)) {
+    const dir = repoWith({ "src/notes.md": line });
+    try {
+      const result = scan(dir);
+      assert.equal(result.status, 1, `${id} certified clean`);
+      assert.match(result.stderr, new RegExp(`src/notes\\.md:1: ${id}: `, "u"));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  for (const name of ["data/state.db", "data/app.sqlite", "data/app.sqlite3-wal", "data/.db"]) {
+    const dir = repoWith({ [name]: "x\n" });
+    try {
+      const result = scan(dir);
+      assert.equal(result.status, 1, `${name} certified clean`);
+      assert.match(result.stderr, /forbidden-file: database state/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  const nearMiss = repoWith({ "src/db.ts": "export const db = 1;\n", "docs/sqlite.md": "# SQLite\n" });
+  try {
+    assert.equal(scan(nearMiss).status, 0);
+  } finally {
+    rmSync(nearMiss, { recursive: true, force: true });
+  }
+});
+
+test("a name row matches by digest: whole labels, any case, as a subdomain or a prefix; never inside a label", () => {
+  // Synthetic protected names (RFC 2606 `.invalid`), through the same matcher
+  // every privacy row runs through.
+  const pin = (name) => ({ length: name.length, sha256: createHash("sha256").update(name).digest("hex") });
+  const match = createPrivacyMatcher([
+    { id: "host", names: "dotted", digests: [pin("probe.internal.invalid")] },
+    { id: "other", names: "dotted", digests: [pin("other.example.invalid")] },
+    { id: "scratch", names: "scratch-path", digests: [pin("/tmp/probescratch")] },
+  ]);
+  for (const text of [
+    "remote: https://probe.internal.invalid/x.git",
+    "base: https://api.probe.internal.invalid/v1",
+    "PROBE.Internal.INVALID",
+    "probe.internal.invalid.example:443",
+    // A long dotted run stays linear (the scanner reads multi-megabyte lines).
+    `${"a.".repeat(200_000)}probe.internal.invalid`,
+  ]) assert.deepEqual(match(text), ["host"], text.slice(0, 60));
+  for (const text of ["xprobe.internal.invalid", "x-probe.internal.invalid", "probe.internal.invalidx", "probe-internal-invalid", "probe.internal", "probe..internal.invalid"]) {
+    assert.deepEqual(match(text), [], text);
+  }
+  // Several name rows in one text, judged in one cut, reported in row order.
+  assert.deepEqual(match("other.example.invalid then probe.internal.invalid in /tmp/probescratch/x"), ["host", "other", "scratch"]);
+  assert.deepEqual(match("scratch: /tmp/probescratch-2/run"), ["scratch"], "a word boundary ends the directory, as before");
+  assert.deepEqual(match("scratch: /tmp/probescratchx"), []);
+  assert.deepEqual(match("scratch: /var/tmp/other"), []);
+  // The scanner applies every privacy row through this matcher (one door).
+  assert.match(readFileSync(SCANNER, "utf8"), /publicationPrivacyFindings\(normalizedLine, "text"\)/u);
+});
+
+test("the privacy matcher's CPU work is bounded: one cut per text, only length-matching windows hashed", () => {
+  // CPU WORK, never wall time (process.cpuUsage, best of three): the matcher
+  // over lines dense with dotted names, against the irreducible cost of cutting
+  // the same lines into name runs once. The previous design (each name row
+  // re-cut the text and hashed every window) is planted and must break the
+  // same budget, so the bound is shown to see the regression it guards.
+  const pin = (name) => ({ length: name.length, sha256: createHash("sha256").update(name).digest("hex") });
+  const rows = [
+    { id: "a", names: "dotted", digests: [pin("probe.internal.invalid")] },
+    { id: "b", names: "dotted", digests: [pin("other.host.invalid")] },
+    { id: "c", names: "dotted", digests: [pin("state-dir.local-evidence.ex")] },
+    { id: "d", names: "scratch-path", digests: [pin("/tmp/probescrat")] },
+  ];
+  const match = createPrivacyMatcher(rows);
+  const lines = Array.from({ length: 20_000 }, (_, index) =>
+    `import { x${index} } from "./src/module-${index}.helpers.ts"; // https://docs.example.org/api/v1.2.${index}/index.html a.b.c.d.e.f.g.h /tmp/build${index}`);
+  const cpu = (work) => {
+    let best = Number.POSITIVE_INFINITY;
+    for (let round = 0; round < 3; round += 1) {
+      const start = process.cpuUsage();
+      work();
+      const used = process.cpuUsage(start);
+      best = Math.min(best, used.user + used.system);
+    }
+    return best;
+  };
+  const cut = cpu(() => {
+    for (const line of lines) for (const run of line.matchAll(/[A-Za-z0-9_.-]+/gu)) void run;
+  });
+  const BUDGET = 10;
+  const matcher = cpu(() => {
+    for (const line of lines) match(line);
+  });
+  assert.ok(matcher <= BUDGET * cut, `the privacy matcher used ${String(matcher)} µs CPU, over ${String(BUDGET)}× the ${String(cut)} µs cut`);
+  const perRow = (text) => {
+    const found = [];
+    for (const row of rows) {
+      const candidates = [];
+      if (row.names === "scratch-path") {
+        for (const hit of text.matchAll(/\/tmp\/\w+/gu)) candidates.push(hit[0]);
+      } else {
+        for (const hit of text.matchAll(/[A-Za-z0-9_.-]+/gu)) {
+          const labels = hit[0].split(".");
+          for (let first = 0; first < labels.length - 1; first += 1) {
+            for (let last = first + 2; last <= Math.min(labels.length, first + 6); last += 1) candidates.push(labels.slice(first, last).join("."));
+          }
+        }
+      }
+      for (const candidate of candidates) {
+        const digest = createHash("sha256").update(candidate.toLowerCase()).digest("hex");
+        if (row.digests.some((entry) => entry.sha256 === digest)) found.push(row.id);
+      }
+    }
+    return found;
+  };
+  const planted = cpu(() => {
+    for (const line of lines) perRow(line);
+  });
+  assert.ok(planted > BUDGET * cut, `the planted per-row design (${String(planted)} µs) did not break the budget: the bound sees nothing`);
+});
+
+/**
+ * THE ROWS THIS CATALOGUE MUST HOLD, pinned by id (github-only §8.2): each is
+ * present, applied by the repository scan, and projected to GitHub as the
+ * named native secret type or a custom pattern. Deleting or demoting any one
+ * of them reds here — the generic checks above iterate whatever rows exist,
+ * so they cannot see a row disappear.
+ */
+const REQUIRED_ROWS = Object.freeze({
+  "github-personal-token": { kind: "provider", secretType: "github_personal_access_token" },
+  "github-installation-token": { kind: "provider", secretType: "github_app_installation_access_token" },
+  "github-oauth-token": { kind: "provider", secretType: "github_oauth_access_token" },
+  "github-user-to-server-token": { kind: "custom" },
+  "github-refresh-token": { kind: "provider", secretType: "github_refresh_token" },
+  "neuralwatt-key": { kind: "custom" },
+});
+
+test("every required row is present, scanned over the tree, and projected to GitHub", () => {
+  const files = {};
+  for (const [id, expected] of Object.entries(REQUIRED_ROWS)) {
+    const row = SECRET_TEXT_SIGNAL_CATALOG.find((signal) => signal.id === id);
+    assert.ok(row !== undefined, `the catalogue lost the required row ${id}`);
+    assert.equal(row.treeScan, true, `${id} is not applied by the repository scan`);
+    assert.equal(row.github.kind, expected.kind, `${id} is projected to GitHub as ${String(row.github.kind)}`);
+    if (expected.kind === "provider") {
+      assert.ok(row.github.secretTypes.includes(expected.secretType), `${id} is not projected to GitHub's ${expected.secretType}`);
+    } else {
+      assert.ok(new RegExp(row.github.pattern, "u").test(signalFixture(id)), `${id}: the GitHub custom pattern misses the row's fixture`);
+    }
+    files[`plants/${id}.txt`] = `value = ${signalFixture(id)}\n`;
+  }
+  const dir = repoWith(files);
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, "the scanner passed a tree planted with every required row");
+    for (const id of Object.keys(REQUIRED_ROWS)) {
+      assert.match(result.stderr, new RegExp(`plants/${id}\\.txt:1: ${id}: `, "u"), `the tree scan did not report ${id} in its plant`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a large JSON document costs the scanner about what its raw lines do: no per-value search of the whole text (#301)", () => {
+  // CPU WORK of the scanner child (procfs, the engine's one CPU reader), never
+  // wall time. The same document is scanned as valid JSON (raw lines plus the
+  // decoded-string pass, which any file that parses as JSON gets) and with one
+  // leading byte that stops it parsing (raw lines only); the decoded pass used
+  // to search the whole document once per string value (`lineOf`, which also
+  // split the prefix into lines), which made the JSON scan quadratic.
+  const values = Array.from({ length: 8_000 }, (_, index) => ({ id: `entry-${index}`, path: `docs/section-${index}/page.md`, note: `plain value ${index}` }));
+  const text = `${JSON.stringify(values, null, 1)}\n`;
+  const childCpu = (files) => {
+    const dir = repoWith(files);
+    try {
+      let best = Number.POSITIVE_INFINITY;
+      for (let round = 0; round < 2; round += 1) {
+        const before = readRunCpu();
+        const result = scan(dir);
+        const after = readRunCpu();
+        assert.equal(result.status, 0, result.stderr);
+        assert.ok(before !== null && after !== null, "this host cannot measure child CPU (no procfs)");
+        best = Math.min(best, after.childCpuMs - before.childCpuMs);
+      }
+      return best;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const asText = childCpu({ "data/values.txt": `#${text}` });
+  const asJson = childCpu({ "data/values.json": text });
+  assert.ok(asJson <= 2.5 * asText, `the JSON scan used ${String(asJson)} ms CPU against ${String(asText)} ms for the same bytes as text`);
 });

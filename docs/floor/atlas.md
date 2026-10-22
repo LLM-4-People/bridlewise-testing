@@ -1,6 +1,5 @@
 ---
 layout: default
-floor_assets: true
 page_class: floor
 title: "Test atlas"
 description: "A generated map of Bridlewise test surface files, dispositions, prevention guards, and decision records. Existence is not a passing result."
@@ -138,7 +137,7 @@ The atlas is a map of what the floor recognizes. It lists test surface files and
 
 | Kind | Source | What the row means | What it does not mean |
 |---|---|---|---|
-| Test surface | `engine/traceability/s1-test-inventory.json`, `test-surface-dispositions.json`, and the web test tree | A file is recognized as a test surface entry and given one disposition. For engine inventory entries, the test count is the number of test names bound to that file. Web files outside that inventory are marked `not-inventoried`. | That the file ran, passed, or applies to your checkout |
+| Test surface | the engine test inventory (computed from the tree by `engine/scripts/test-inventory.ts --print`; not committed), `test-surface-dispositions.json`, and the web test tree | A file is recognized as a test surface entry and given one disposition. For engine inventory entries, the test count is the number of test names bound to that file. Web files outside that inventory are marked `not-inventoried`. | That the file ran, passed, or applies to your checkout |
 | Prevention guard | `tests/prevention/` headers | A guard declares a failure class, a plant, the driven behavior, and a liveness check. | That the guard is live on the current build or that its plant still exists |
 | Decision record | `docs/decisions/*.md` front matter | A rule or decision has an id, a group, a status, and an implementation state. Paths in `acted_in` cite where it was carried out. | That the implementation is correct, complete, or still in force |
 

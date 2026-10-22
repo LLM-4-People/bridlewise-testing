@@ -15,7 +15,6 @@ import assert from "node:assert/strict";
 
 import {
   DEFAULT_STATIC_LITERAL_EXTRACTION_FILESYSTEM_CACHE_MAX_ENTRIES,
-  DEFAULT_SYNC_BUNDLE_TIMEOUT_MS,
 } from "../../src/workflow/workflow-config.ts";
 import { canonicalHash, canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
 import { schemaId } from "../../src/kernel/product-identity.ts";
@@ -36,14 +35,6 @@ test("static-literal extraction cache: config field is a positive finite number"
     Number.isFinite(DEFAULT_STATIC_LITERAL_EXTRACTION_FILESYSTEM_CACHE_MAX_ENTRIES) &&
       DEFAULT_STATIC_LITERAL_EXTRACTION_FILESYSTEM_CACHE_MAX_ENTRIES > 0,
     "cache max entries must be a positive finite number",
-  );
-});
-
-test("static-literal extraction cache: sync bundle timeout is a positive finite number", () => {
-  assert.equal(typeof DEFAULT_SYNC_BUNDLE_TIMEOUT_MS, "number");
-  assert.ok(
-    Number.isFinite(DEFAULT_SYNC_BUNDLE_TIMEOUT_MS) && DEFAULT_SYNC_BUNDLE_TIMEOUT_MS > 0,
-    "sync bundle timeout must be a positive finite number",
   );
 });
 

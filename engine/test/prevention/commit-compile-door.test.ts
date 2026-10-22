@@ -52,6 +52,16 @@ function commit(root: string, message: string): Readonly<{ status: number; stder
   return { status: result.status ?? -1, stderr: result.stderr };
 }
 
+/**
+ * A commit the scenario needs to land: refused, it fails WITH the guard's own
+ * words. A bare status check failed in CI as "1 !== 0" and named no cause
+ * (#293), so the refusal could not be diagnosed.
+ */
+function assertCommitted(root: string, message: string): void {
+  const result = commit(root, message);
+  assert.equal(result.status, 0, `the commit "${message.split("\n")[0]!}" was refused:\n${result.stderr}`);
+}
+
 function writeFile(root: string, rel: string, body: string): void {
   mkdirSync(join(root, rel, ".."), { recursive: true });
   writeFileSync(join(root, rel), body);
@@ -174,7 +184,7 @@ test("DRIVEN: a staged code change whose compile leg fails is REFUSED — and BO
 test("DRIVEN: the compile legs judge the STAGED bytes — an unstaged fix does not pass a broken commit, an unstaged break does not refuse a sound one", () => {
   const root = compileFixtureRepository("pass");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   // Staged: a failing leg. Working tree: the passing one (an unstaged "fix").
   writeFile(root, "run-tc.sh", `pwd >> "${root}/witness.txt"\nexit 3\n`);
   writeFile(root, "src/a.ts", "export const a = 1;\n");
@@ -193,7 +203,7 @@ test("DRIVEN: the compile legs judge the STAGED bytes — an unstaged fix does n
 test("DRIVEN: a commit staging no code runs NEITHER compile leg — the machinery never pays the compiler", () => {
   const root = compileFixtureRepository("pass");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   // The absence verdict below needs its own witness in THIS fixture: the
   // code-shaped baseline provably ran the legs, so their machinery is live.
   assert.equal(
@@ -221,7 +231,7 @@ test("DRIVEN: a lock-only staged change stages the compile legs — dependency r
   // the door's contract; it already pays the legs for package.json.
   const root = compileFixtureRepository("pass");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   // Liveness witness: the baseline provably ran both legs on a code-shaped
   // commit, so the witness mechanism is known-live before the lock drive.
   assert.equal(existsSync(join(root, "witness.txt")), true, "the baseline ran NO compile leg — the witness mechanism never proved it can record");
@@ -254,7 +264,7 @@ test("DRIVEN: a staged code file whose PATH holds a newline still stages the leg
   // check reads the same index with `-z`, so the two reads disagreed).
   const root = compileFixtureRepository("pass");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   rmSync(join(root, "witness.txt"));
 
   writeFile(root, "run-tc.sh", `pwd >> "${root}/witness.txt"\nexit 3\n`);
@@ -303,7 +313,7 @@ test("DRIVEN: a staged RENAME of a code file out of every code-shaped path still
   const root = compileFixtureRepository("pass");
   writeFile(root, "engine/src/mod.ts", "export const mod = 1;\n");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   assert.equal(existsSync(join(root, "witness.txt")), true, "the baseline ran NO compile leg — the witness mechanism is not live");
   rmSync(join(root, "witness.txt"));
   mkdirSync(join(root, "attic"));
@@ -319,7 +329,7 @@ test("DRIVEN: a staged RENAME of a code file out of every code-shaped path still
 test("DRIVEN: a killed guard's materialized tree is swept by the next guard — a live guard's tree is never touched", () => {
   const root = compileFixtureRepository("pass");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   const parent = join(root, ".bridlewise", "state", "commit-guard");
   // A pid that WAS a process and is not any more.
   const exited = spawnSync(process.execPath, ["-e", "0"]);
@@ -332,7 +342,7 @@ test("DRIVEN: a killed guard's materialized tree is swept by the next guard — 
   for (const directory of [abandoned, live, recycled]) writeFile(directory, "tree/file.ts", "export {};\n");
   writeFile(root, "src/next.ts", "export const next = 1;\n");
   execFileSync("git", ["add", "src/next.ts"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "a code commit materializes the staged tree").status, 0);
+  assertCommitted(root, "a code commit materializes the staged tree");
   assert.equal(existsSync(abandoned), false, "the abandoned tree of a dead guard survived the next guard");
   assert.equal(existsSync(recycled), false, "a tree whose pid was recycled by a later process survived (pid alone is not an owner)");
   assert.equal(existsSync(live), true, "a live guard's tree was removed");
@@ -354,7 +364,7 @@ function contentJudgedRepository(): string {
   writeFile(root, "engine/run-tc.sh", script);
   writeFile(root, "src/a.ts", "export const a = 1;\n");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   assert.equal(existsSync(join(root, "witness.txt")), true, "the baseline ran NO compile leg — the witness mechanism is not live");
   return root;
 }
@@ -422,7 +432,7 @@ test("DRIVEN: in a LINKED WORKTREE and under --git-dir/--work-tree the engine le
   // committed with exit 0, in every linked worktree (the live checkout is one).
   const root = compileFixtureRepository("pass");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   assert.ok(bothStagedLegs(root, readFileSync(join(root, "witness.txt"), "utf8")), "the main checkout's baseline did not run both legs");
   const worktree = `${root}-linked`;
   execFileSync("git", ["worktree", "add", "-q", "-b", "linked", worktree], { cwd: root, stdio: "pipe" });
@@ -483,7 +493,7 @@ test("DRIVEN: a commit that DELETES a guarded hook, or stages one that no longer
   // rewrite to `exit 0` both committed (the real hook still ran, and passed).
   const root = compileFixtureRepository("pass");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   for (const hook of GUARDED_HOOKS) {
     const path = `${HOOKS_DIRECTORY}/${hook}`;
     execFileSync("git", ["rm", "-q", "--cached", "--", path], { cwd: root, stdio: "pipe" });
@@ -524,7 +534,7 @@ test("DRIVEN: a commit that turns a workflow lesson to acted must name it in a L
   const lesson = (status: string): string => `---\nid: L-2026-01-01-x\ndate: 2026-01-01\nsource: s\nkind: guard\nstatus: ${status}\n---\n## Observation\n## Lesson\n## Change\n`;
   writeFile(root, path, lesson("pending\nroute: T-1"));
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   writeFile(root, path, lesson("acted\nacted_in: [run-tc.sh]"));
   execFileSync("git", ["add", "--", path], { cwd: root, stdio: "pipe" });
   const unnamed = commit(root, "act on the lesson\n\nLesson: L-2026-01-01-other");
@@ -540,7 +550,7 @@ test("DRIVEN: a commit that turns a workflow lesson to acted must name it in a L
   // A later edit of an already-acted lesson needs no trailer.
   writeFile(root, path, `${lesson("acted\nacted_in: [run-tc.sh]")}more\n`);
   execFileSync("git", ["add", "--", path], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "edit the acted lesson").status, 0);
+  assertCommitted(root, "edit the acted lesson");
 });
 
 /** A lesson file's text in the given status (`acted` names a tracked path). */
@@ -555,7 +565,7 @@ function lessonFixture(id: string): Readonly<{ root: string; path: string; main:
   const path = `docs/trackers/workflow-lessons/${id}.md`;
   writeFile(root, path, lessonText(id, "pending"));
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   return { root, path, main: execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" }).trim() };
 }
 
@@ -575,7 +585,7 @@ test("DRIVEN: the records a commit writes name paths it holds — judged by that
   assert.match(unheld.stderr, /no\/such\/file\.ts is not a path git holds/u);
   writeFile(root, path, lessonText("2026-01-01-held", "acted"));
   execFileSync("git", ["add", "--", path], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "act on the lesson\n\nLesson: L-2026-01-01-held").status, 0);
+  assertCommitted(root, "act on the lesson\n\nLesson: L-2026-01-01-held");
   // The named file is later moved away: the closed lesson is not reopened.
   execFileSync("git", ["mv", "run-tc.sh", "run-typecheck.sh"], { cwd: root, stdio: "pipe" });
   writeFile(root, "package.json", `{"name":"x","private":true,"scripts":{"typecheck":"sh run-typecheck.sh"}}\n`);
@@ -591,11 +601,11 @@ test("DRIVEN: a --no-ff MERGE of a branch whose own commit acted on a lesson (wi
   git(root, "checkout", "-q", "-b", "side");
   writeFile(root, path, lessonText("2026-01-01-merged", "acted"));
   execFileSync("git", ["add", "--", path], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "act on the lesson\n\nLesson: L-2026-01-01-merged").status, 0);
+  assertCommitted(root, "act on the lesson\n\nLesson: L-2026-01-01-merged");
   git(root, "checkout", "-q", main);
   writeFile(root, "note.md", "unrelated\n");
   execFileSync("git", ["add", "--", "note.md"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "an unrelated change on the main line").status, 0);
+  assertCommitted(root, "an unrelated change on the main line");
   const merged = git(root, "merge", "--no-ff", "-q", "-m", "merge: workspace side", "side");
   assert.equal(merged.status, 0, `the merge of a branch that already named its lesson was refused:\n${merged.stderr}`);
 
@@ -609,7 +619,7 @@ test("DRIVEN: a --no-ff MERGE of a branch whose own commit acted on a lesson (wi
   git(other.root, "checkout", "-q", other.main);
   writeFile(other.root, "note.md", "unrelated\n");
   execFileSync("git", ["add", "--", "note.md"], { cwd: other.root, stdio: "pipe" });
-  assert.equal(commit(other.root, "an unrelated change on the main line").status, 0);
+  assertCommitted(other.root, "an unrelated change on the main line");
   const before = commitCount(other.root);
   const refused = git(other.root, "merge", "--no-ff", "-q", "-m", "merge: workspace side", "side");
   assert.notEqual(refused.status, 0, "a merge bringing an unnamed act was accepted");
@@ -661,7 +671,7 @@ test("DRIVEN: an --amend that drops a lesson's trailer is REPORTED by post-commi
 test("DRIVEN: a commit that removes the execute bit from a tracked hook is REFUSED — git would silently stop running it", () => {
   const root = compileFixtureRepository("pass");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   execFileSync("git", ["update-index", "--chmod=-x", "--", join(HOOKS_DIRECTORY, HOOK_NAME)], { cwd: root, stdio: "pipe" });
   const refused = commit(root, "drop the hook's execute bit");
   assert.notEqual(refused.status, 0, "a commit disabling the commit hook in every clone was ACCEPTED");
@@ -680,7 +690,7 @@ test("DRIVEN: a commit that removes the execute bit from a tracked hook is REFUS
 test("DRIVEN: an index entry that left its recorded baseline and is not part of the commit is WARNED about — never a refusal", () => {
   const root = compileFixtureRepository("pass");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   writeFile(root, "src/committed.ts", "export const committed = 1;\n");
   writeFile(root, "src/inherited.ts", "export const inherited = 1;\n");
   execFileSync("git", ["add", "src/committed.ts", "src/inherited.ts"], { cwd: root, stdio: "pipe" });
@@ -701,7 +711,7 @@ test("DRIVEN: a commit that itself drops a protected staged blob (a committed `g
   const root = compileFixtureRepository("pass");
   writeFile(root, "docs/tracked.md", "# committed\n");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "baseline").status, 0);
+  assertCommitted(root, "baseline");
   writeFile(root, "docs/tracked.md", "# committed\nan inherited staged edit\n");
   execFileSync("git", ["add", "docs/tracked.md"], { cwd: root, stdio: "pipe" });
   recordIndexBaseline(root);
@@ -715,16 +725,18 @@ test("DRIVEN: a commit that itself drops a protected staged blob (a committed `g
 const BOUNDED_LEG_START = "// --- bounded typecheck leg (extracted and driven by engine/test/prevention/commit-compile-door.test.ts) ---";
 const BOUNDED_LEG_END = "// --- end bounded typecheck leg ---";
 
-test("DRIVEN: a compile leg that outlives its bound is KILLED and REFUSED — a hanging compiler cannot hold a commit", () => {
+test("DRIVEN: a compile leg still running at its hang backstop is KILLED and REFUSED as hung — and it is bounded by CPU work, never a wall limit", () => {
   const source = readFileSync(COMMIT_GUARD, "utf8");
   const from = source.indexOf(BOUNDED_LEG_START);
   const to = source.indexOf(BOUNDED_LEG_END);
   assert.ok(from !== -1 && to > from, "the guard carries the bounded typecheck leg block this test drives");
-  // The door must resolve the bound from the harness's own typecheck timeout
-  // and refuse the timed-out outcome by name — not merely print its output.
-  assert.match(source, /runTypecheckLeg\(stagedTree, "web", timeoutMs\)/u);
-  assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", timeoutMs\)/u);
-  assert.match(source, /harness\?\.typecheckTimeoutMs/u);
+  // The door bounds both legs with the harness's one subprocess bound (CPU
+  // work + one hang backstop, src/workflow/subprocess-bounds.ts) and refuses
+  // the killed outcome by name — not merely print its output.
+  assert.match(source, /runTypecheckLeg\(stagedTree, "web", SUBPROCESS_BOUNDS\)/u);
+  assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", SUBPROCESS_BOUNDS\)/u);
+  assert.match(source, /cpuLimitedInvocation\("npm", \["run", "typecheck"\], bounds\)/u);
+  assert.doesNotMatch(source, /typecheckTimeoutMs/u, "no wall limit bounds a compile leg");
   assert.match(source, /outcome\.timedOut/u);
   assert.match(source, /typecheckLegRefusal\(outcome\)/u);
 
@@ -735,22 +747,21 @@ test("DRIVEN: a compile leg that outlives its bound is KILLED and REFUSED — a 
   const block = source.slice(from + BOUNDED_LEG_START.length, to);
   const leg = join(root, "typecheck-leg.ts");
   const processFacts = pathToFileURL(join(INTEGRATION_ROOT, "src/process/process-facts.ts")).href;
-  writeFileSync(leg, `import { spawn } from "node:child_process";\nimport { ownedChild, terminate } from ${JSON.stringify(processFacts)};\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
+  const subprocessBounds = pathToFileURL(join(INTEGRATION_ROOT, "src/workflow/subprocess-bounds.ts")).href;
+  writeFileSync(leg, `import { spawn } from "node:child_process";\nimport { ownedChild, terminate } from ${JSON.stringify(processFacts)};\nimport { boundedEnding, cpuLimitedInvocation, type SubprocessBounds } from ${JSON.stringify(subprocessBounds)};\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
   const tree = join(root, "tree");
   writeFile(root, "tree/package.json", `${JSON.stringify({ name: "bounded-leg-fixture", private: true, scripts: { typecheck: 'node -e "setTimeout(() => {}, 60000)"' } })}\n`);
   const driver = join(root, "drive.ts");
   writeFileSync(driver, [
     `import { runTypecheckLeg, typecheckLegRefusal } from ${JSON.stringify(pathToFileURL(leg).href)};`,
-    "const started = Date.now();",
-    `const outcome = await runTypecheckLeg(${JSON.stringify(tree)}, "web", 250);`,
-    "process.stdout.write(JSON.stringify({ timedOut: outcome.timedOut, status: outcome.status, elapsedMs: Date.now() - started, refusal: typecheckLegRefusal(outcome) }));",
+    `const outcome = await runTypecheckLeg(${JSON.stringify(tree)}, "web", { cpuLimitSeconds: 60, cpuKillGraceSeconds: 5, hangBackstopMs: 250 });`,
+    "process.stdout.write(JSON.stringify({ timedOut: outcome.timedOut, status: outcome.status, refusal: typecheckLegRefusal(outcome) }));",
     "",
   ].join("\n"));
-  const run = spawnSync(process.execPath, ["--experimental-strip-types", driver], { encoding: "utf8", timeout: 20_000 });
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", driver], { encoding: "utf8" });
   assert.equal(run.status, 0, `the bounded-leg driver failed:\n${run.stderr}`);
   const outcome = JSON.parse(run.stdout);
-  assert.equal(outcome.timedOut, true, "the leg was not killed at its bound");
+  assert.equal(outcome.timedOut, true, "the leg was not killed at its hang backstop");
   assert.equal(outcome.status, null, "a killed leg must not report an exit status");
-  assert.ok(outcome.elapsedMs < 10_000, `the leg outlived its bound: ${String(outcome.elapsedMs)}ms`);
-  assert.match(outcome.refusal, /remained unfinished after its 250ms bound/u);
+  assert.match(outcome.refusal, /did not finish: HUNG: it was still running at the 0\.25 s hang backstop \(wall\)/u);
 });

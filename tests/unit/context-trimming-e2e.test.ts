@@ -170,7 +170,7 @@ describe("context SSE event — huge history is trimmed within the budget (748% 
     // whole-request name.
     const contextTokens = ctx.contextTokens as number;
     expect(contextTokens).toBeGreaterThan(historyTokens);
-  }, 15000);
+  });
 });
 
 describe("context SSE event — the total counts every channel the request carries (UIE-054)", () => {
@@ -224,7 +224,7 @@ describe("context SSE event — the total counts every channel the request carri
     ).toBeGreaterThan(0);
 
     await runToSettle(`${baseUrl}/api/run/${runId}/stream`, runId);
-  }, 15000);
+  });
 });
 
 /** Consume the SSE stream to its end so the run settles and the suite
@@ -302,5 +302,5 @@ describe("context SSE event — the limit is the ACTIVE MODEL's own window", () 
         defaultModel: "gemma-4-31b",
       });
     }
-  }, 15000);
+  });
 });
