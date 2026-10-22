@@ -5573,7 +5573,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-gates-gates-cli", path: "src/workflow/gates/gates-cli.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 1, namesSha256: "5ca33272c12260227499de5289684edf65e20feacdc73eaa2e19ea3557f23e14" },
-      dependencies: ["guardian/build.ts","node:fs","node:path","node:util","src/git/repository-ownership.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/tree-identity.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/cell-run.ts","src/workflow/gates/plan.ts","src/workflow/gates/populations.ts","src/workflow/gates/seal.ts"],
+      dependencies: ["guardian/build.ts","node:fs","node:path","node:util","src/git/repository-ownership.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/tree-identity.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/cell-run.ts","src/workflow/gates/plan.ts","src/workflow/gates/populations.ts","src/workflow/gates/seal.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-plan", path: "src/workflow/gates/plan.ts", realm: "runtime", layer: "infrastructure",

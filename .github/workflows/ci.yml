@@ -86,8 +86,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-14
-      - name: "Set up: bundle"
-        run: node engine/src/cli.ts harness gates setup bundle
       - name: Download the plan
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -99,7 +97,7 @@ jobs:
       - name: Typecheck engine and engine tests
         if: ${{ !cancelled() }}
         run: node engine/src/cli.ts harness gates run typecheck-engine --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"
-      - name: Harness check (generated values, bindings, guards)
+      - name: Generated values and harness check
         if: ${{ !cancelled() }}
         run: node engine/src/cli.ts harness gates run harness-check --plan "$RUNNER_TEMP/gate-plan/plan.json" --out "$RUNNER_TEMP/gate-results"
       - name: Secret and privacy scan

@@ -8,6 +8,7 @@
  *   harness gates setup <registry command>…
  *   harness gates run   <gate> --plan <plan.json> --out <dir>
  *   harness gates shard <cell> --plan <plan.json> --out <dir>
+ *   harness gates unchanged                                  (after harness sync: the checkout is the commit)
  *   harness gates seal  --plan <plan.json> --results <dir> --out <dir> [--event <name>]
  *
  * `plan` lists the populations of the working tree and writes `plan.json`
@@ -35,6 +36,8 @@ import { matrixCells, parsePlan, planGates, type GatePlan } from "./plan.ts";
 import { listPopulation } from "./populations.ts";
 import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
 import { loadPinnedConfigSnapshot } from "../../kernel/config.ts";
+import { configuredWorktreeGitPort } from "../../git/worktree-port.ts";
+import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { checkoutCommandRunner, configuredCheckoutCommandRunner, runDeclaredCommands } from "../checkout-setup.ts";
 import { registryCommand, runLightGate, runShard, type RunEnvironment } from "./cell-run.ts";
 import { parseJobOutcomes, readResults, renderReceipt, sealReceipt } from "./seal.ts";
@@ -47,7 +50,7 @@ const CI_EVENT_VARIABLE = "GITHUB_EVENT_NAME";
 const JOB_RESULTS_VARIABLE = "JOB_RESULTS";
 const STEP_SUMMARY_VARIABLE = "GITHUB_STEP_SUMMARY";
 
-const VERBS = ["list", "population", "plan", "setup", "run", "shard", "seal"] as const;
+const VERBS = ["list", "population", "plan", "setup", "run", "shard", "unchanged", "seal"] as const;
 
 function repositoryRootOf(engineRoot: string): string {
   const top = repositoryToplevel(engineRoot, "directory");
@@ -142,6 +145,17 @@ export async function runGatesCli(engineRoot: string, argv: readonly string[], o
     });
     const failed = steps.filter((step) => step.status !== "pass").map((step) => step.step);
     return { result: wrapResult("gates", deepFreeze({ setup: steps.map((step) => ({ command: step.step, status: step.status })) }), { status: failed.length === 0 ? "pass" : "fail" }) };
+  }
+  if (verb === "unchanged") {
+    // THE GENERATED-VALUES GATE'S SECOND HALF: after every generator ran (`harness sync`), the checkout must be
+    // exactly the commit, tracked AND untracked: a generator that rewrote a file, or wrote one nobody committed
+    // and no ignore rule covers, means a stale or missing generated value (UR-02; the one status reader).
+    options(verb, rest, {}, 0);
+    const { document } = loadPinnedConfigSnapshot();
+    const changed = configuredWorktreeGitPort(document).status(repositoryRoot, worktreeOperationTimeouts(document).inspectMs);
+    for (const entry of changed) onProgress(`changed by a generator: ${entry.path}${entry.untracked ? " (untracked)" : ""}`);
+    if (changed.length > 0) onProgress("a generated value is stale: run `cd engine && node src/cli.ts harness sync --with-bundle` and commit its output");
+    return { result: wrapResult("gates", deepFreeze({ unchanged: changed.length === 0, changed: changed.map((entry) => entry.path) }), { status: changed.length === 0 ? "pass" : "fail" }) };
   }
   if (verb === "run" || verb === "shard") {
     const { values, positionals } = options(verb, rest, { plan: "string", out: "string" }, 1);

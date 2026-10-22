@@ -1061,6 +1061,17 @@
           "--cell"
         ],
         "timeoutMs": 3600000
+      },
+      "tree-unchanged": {
+        "cwd": "engine",
+        "argv": [
+          "node",
+          "src/cli.ts",
+          "harness",
+          "gates",
+          "unchanged"
+        ],
+        "timeoutMs": 900000
       }
     },
     "phases": {
