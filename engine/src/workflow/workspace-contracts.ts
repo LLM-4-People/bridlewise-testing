@@ -49,14 +49,16 @@ import { wholesaleGeneratedPaths } from "./hash-binding-registry.ts";
  * silently truncated.
  */
 
-export const WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 4);
+export const WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 5);
 /** The version before the forge: records of it are migrated in memory on read ({@link migrateWorkspaceRecord}), never written (read-only to this version). */
 const WORKSPACE_SCHEMA_V2 = schemaId("workspace", 2);
 /** The version of `ws publish`/`ready` before the land (its records are migrated in memory, never written: read-only to this version). */
 const WORKSPACE_SCHEMA_V3 = schemaId("workspace", 3);
+/** The version of `ws land` before the stacks (its records are migrated in memory, never written: read-only to this version). */
+const WORKSPACE_SCHEMA_V4 = schemaId("workspace", 4);
 
 /** The versions before this one, newest first: their stores are read, migrated in memory, and never written (`workspace-registry.ts`). */
-export const OLDER_WORKSPACE_SCHEMA_VERSIONS = deepFreeze([WORKSPACE_SCHEMA_V3, WORKSPACE_SCHEMA_V2] as const);
+export const OLDER_WORKSPACE_SCHEMA_VERSIONS = deepFreeze([WORKSPACE_SCHEMA_V4, WORKSPACE_SCHEMA_V3, WORKSPACE_SCHEMA_V2] as const);
 export type OlderWorkspaceSchemaVersion = typeof OLDER_WORKSPACE_SCHEMA_VERSIONS[number];
 
 export const WORKSPACE_STATES = deepFreeze([
@@ -284,6 +286,15 @@ const workspaceForgeSchema = z.strictObject({
    * workspace may be found merged at. Null when no land is in flight.
    */
   land: z.strictObject({ head: GIT_SHA_SCHEMA }).nullable(),
+  /**
+   * The workspace this one is STACKED on (`create --stack-on`): its branch
+   * starts at that workspace's published head, its pull request is opened
+   * against the trunk like any other (never against the parent's branch:
+   * the forge deletes a landed branch and closes the pull requests based on
+   * it), and it lands only after the parent did. Null for a workspace on the
+   * trunk itself.
+   */
+  stackedOn: WORKSPACE_ID_SCHEMA.nullable(),
 }).superRefine((forge, context) => {
   if ((forge.pullRequest === null) !== (forge.publishedHead === null)) {
     context.addIssue({ code: "custom", path: ["pullRequest"], message: "the first published round opens the pull request: both exist, or neither" });
@@ -311,8 +322,8 @@ export function isLegacyForgeState(forge: WorkspaceForgeState | LegacyForgeState
   return "legacy" in forge;
 }
 
-/** A local merge receipt written by an older version (v2, v3): kept verbatim (its hash binds its own version), never re-tagged. */
-const legacyMergeReceiptSchema = mergeReceiptSchema.extend({ schemaVersion: z.enum([WORKSPACE_SCHEMA_V2, WORKSPACE_SCHEMA_V3]) });
+/** A local merge receipt written by an older version (v2, v3, v4): kept verbatim (its hash binds its own version), never re-tagged. */
+const legacyMergeReceiptSchema = mergeReceiptSchema.extend({ schemaVersion: z.enum([WORKSPACE_SCHEMA_V2, WORKSPACE_SCHEMA_V3, WORKSPACE_SCHEMA_V4]) });
 
 /**
  * How the LOCAL target followed a forge land: the local follows of the tree
@@ -365,6 +376,8 @@ const landReceiptSchema = z.strictObject({
   receiptHash: sha256HexSchema,
 });
 export type LandReceipt = DeepReadonly<z.infer<typeof landReceiptSchema>>;
+/** A land receipt written by v4: kept verbatim (its hash binds its own version), never re-tagged. */
+const legacyLandReceiptSchema = landReceiptSchema.extend({ schemaVersion: z.literal(WORKSPACE_SCHEMA_V4) });
 export type UnsignedLandReceipt = Omit<LandReceipt, "receiptHash">;
 
 const LAND_RECEIPT_HASH_DOMAIN = cryptoDomain("workspace-land-receipt", 1);
@@ -392,7 +405,7 @@ export const workspaceRecordSchema = z.strictObject({
   validationReport: validationReportSchema.nullable(),
   conflictReport: conflictReportSchema.nullable(),
   /** The local integrator's merge receipt, a forge land's receipt, or an older version's merge receipt (verbatim). */
-  mergeReceipt: z.union([mergeReceiptSchema, landReceiptSchema, legacyMergeReceiptSchema]).nullable(),
+  mergeReceipt: z.union([mergeReceiptSchema, landReceiptSchema, legacyMergeReceiptSchema, legacyLandReceiptSchema]).nullable(),
   abortReason: REASON_SCHEMA.nullable(),
   history: z.array(workspaceTransitionSchema).max(4096),
   /** The forge state of a feature workspace (or its legacy marker); null for a read-only one (it never publishes). */
@@ -610,7 +623,8 @@ export function parseWorkspaceRecord(value: unknown): WorkspaceRecord {
  * - v2 → v3 (the forge): the record, its lease and its reports re-tagged;
  *   the forge state `null` for a read-only workspace and the legacy marker
  *   for a feature one ({@link legacyForgeSchema});
- * - v3 → v4 (the land): re-tagged; a live forge state gains `land: null`.
+ * - v3 → v4 (the land): re-tagged; a live forge state gains `land: null`;
+ * - v4 → v5 (the stacks): re-tagged; a live forge state gains `stackedOn: null`.
  * A merge receipt is kept verbatim at every step (its hash binds its own
  * version). A current record is answered as it is; any other version is
  * refused (`workspace_record_invalid`). Answers the parsed record and
@@ -630,10 +644,14 @@ export function migrateWorkspaceRecord(value: unknown): Readonly<{ record: Works
     const lease = stored["lease"] as Readonly<Record<string, unknown>> | undefined;
     stored = { ...retagRecord(stored, WORKSPACE_SCHEMA_V3), forge: lease?.["kind"] === "read-only" ? null : { legacy: true } };
   }
-  const forge = stored["forge"] as Readonly<Record<string, unknown>> | null | undefined;
-  // v3 had no land: a v3 record that names one was written by no version's code.
-  if (forge !== null && typeof forge === "object" && "land" in forge) throw new InputError("a v3 workspace record names a land, which v3 never had", "workspace_record_invalid");
-  stored = { ...retagRecord(stored, WORKSPACE_SCHEMA_VERSION), forge: forge === null || forge === undefined || "legacy" in forge ? forge ?? null : { ...forge, land: null } };
+  // One step per version, each gaining what its successor added (a field the older version already names was written by no version's code).
+  const step = (version: string, field: string, gained: unknown): void => {
+    const forge = stored["forge"] as Readonly<Record<string, unknown>> | null | undefined;
+    if (forge !== null && typeof forge === "object" && field in forge) throw new InputError(`a workspace record before ${version} names \`${field}\`, which its version never had`, "workspace_record_invalid");
+    stored = { ...retagRecord(stored, version), forge: forge === null || forge === undefined || "legacy" in forge ? forge ?? null : { ...forge, [field]: gained } };
+  };
+  if (stored["schemaVersion"] === WORKSPACE_SCHEMA_V3) step(WORKSPACE_SCHEMA_V4, "land", null);
+  step(WORKSPACE_SCHEMA_VERSION, "stackedOn", null);
   return deepFreeze({ record: parseWorkspaceRecord(stored), migrated: true });
 }
 

@@ -434,7 +434,7 @@ describe("functionBody agrees with TypeScript's own parser over both production 
       if (answered !== undefined) wronglyAnswered.push(`${file} ${name}: answered ${JSON.stringify(answered)} for a declaration with no body`);
     }
   }
-  }, 120_000);
+  });
 
   test("the corpus is really walked — population as a runtime number", () => {
     expect(files.length, `first-party production sources differentiated: ${String(files.length)}`).toBeGreaterThanOrEqual(700);
@@ -575,7 +575,7 @@ describe("functionBody reads a component's script block", () => {
       }
     }
   }
-  }, 120_000);
+  });
 
   test("the component corpus is really walked — population as a runtime number", () => {
     // Floors re-derived at the cutover (the old component tree left; the

@@ -570,7 +570,13 @@ describe("agent orchestration: orchestrated agents surface in the calling run's 
   // consumed real tokens — §5's fabricated-zero shape).
   test("a mirrored orchestrated agent carries the real token usage, not a fabricated zero", async () => {
     stubOrchestratedLlm({ "gather sources": "the research output" }, []);
-    const runId = `run-orch-tokens-${Math.random().toString(36).slice(2)}`;
+    // The run id is a TIMELINE IDENTITY, and the store refuses one that reads
+    // as a credential. `run-orch-tokens-<12 random base-36 digits>` read as a
+    // declared token about one draw in forty (measured: 498 of 20,000), and
+    // then the mirror was refused and the view showed 0 tokens (#205, #222).
+    // A word that declares nothing keeps the draw out of the detector's way:
+    // 0 of 20,000 for `run-orch-usage-`.
+    const runId = `run-orch-usage-${Math.random().toString(36).slice(2)}`;
     const orchResult = await executeToolCall(
       "delegate_to_orchestrator",
       { tasks: [{ agentName: "researcher", task: "gather sources", taskId: "research" }] },

@@ -87,7 +87,7 @@ describe("repository-map worker — non-blocking (502 wedge fix)", () => {
     // build was in flight, which is impossible under a blocking build.)
     const map = await mapPromise;
     expect(map.files.length).toBeGreaterThan(0);
-  }, 30_000);
+  });
 
   test("concurrent async calls for the same path share one worker build", async () => {
     seedProject(projectPath, 20);
@@ -104,7 +104,7 @@ describe("repository-map worker — non-blocking (502 wedge fix)", () => {
     // Cache is now ready — sync read succeeds (no throw, no re-build).
     const syncMap = getRepositoryMap(projectPath);
     expect(syncMap.files.length).toBe(mapA.files.length);
-  }, 30_000);
+  });
 
   test("sync accessor throws a typed MapNotReadyError on a miss (does not block)", () => {
     seedProject(projectPath, 5);
@@ -152,7 +152,7 @@ describe("repository-map worker — prompt injection (skip when not ready)", () 
     expect(result).toContain("## Codebase intelligence");
     expect(result).toContain("Pre-indexed map:");
     expect(result.startsWith(prompt)).toBe(true);
-  }, 30_000);
+  });
 });
 
 describe("repository-map worker — improper usage (no worker leak on bad path)", () => {

@@ -10,6 +10,7 @@ Run these commands from the engine package root of the development checkout.
 
 ```bash
 node src/cli.ts harness workspace create --agent <name> --write-set <path…> [--target <branch>] [--base <ref>]
+node src/cli.ts harness workspace create --agent <name> --write-set <path…> --stack-on <id>
 node src/cli.ts harness workspace create --agent <name> --overlay [--write-set <path…>]
 node src/cli.ts harness workspace create --agent <name> --read-only [--base <ref>]
 node src/cli.ts harness workspace extend <id> --write-set <path…>
@@ -50,20 +51,20 @@ and [§1c](../../../docs/process/MERGE-GUIDE.md#1c-feature--main-on-the-forge-ws
   operations on the forge client of `engine/src/workflow/forge/`, as the
   `agent` App, for the configured trunk repository only (the CLI's factory
   refuses any other remote, `workspace_forge_remote_unknown`).
+- **Stacks** (`create --stack-on <id>`, MERGE-GUIDE §1d): an ordered chain
+  of workspaces, each landed through the same `ws land`. A child starts at
+  its parent's published head and is judged from it while the parent is
+  open. Its pull request targets the trunk, never the parent's branch,
+  which the forge deletes on merge. It lands only after its parent
+  (`workspace_stack_parent_unlanded`).
 - **Records** use PER-VERSION STORAGE (`workspace-registry.ts`): this code
-  writes only the current store (`workspaces-v4/`); each older store
-  (`workspaces-v3/`, before the land; `workspaces/`, v2, before the forge),
-  which older code still uses, is read and migrated IN MEMORY through the one
-  chain v2 → v3 → v4 (`migrateWorkspaceRecord`) and never written. A
-  workspace only an older store knows is READ-ONLY to this code until the
-  recorded P7 cutover: every saving or destructive verb (and the store's
-  save) refuses it (`workspace_owned_by_v3_checkout` /
-  `workspace_owned_by_v2_checkout`, naming its record and worktree) before
-  touching anything, no current twin is ever made of it, and `sweep` never
-  ends it. `sweep` reports a live record whose worktree is gone (`orphaned`),
-  leaving it to its owner.
+  writes only the current store (`workspaces-v5/`) and reads the older ones
+  through the one in-memory chain (`migrateWorkspaceRecord`), under the rule of
+  [WS-RECORDS](../../../docs/decisions/WS-RECORDS-older-workspace-records-are-read-only.md).
+  `sweep` reports a live record whose worktree is gone (`orphaned`), leaving it
+  to its owner.
 - **Registry**: `<git common dir>/bridlewise/` (`repository-registry.ts`, the one derivation; the records in `workspace-registry.ts`):
-  `workspaces-v4/<id>.json` (and the older stores), `locks/` (the admission and merge locks),
+  `workspaces-v5/<id>.json` (and the older stores), `locks/` (the admission and merge locks),
   `timeline/` (the shards and the integrator's ledger) — one per repository,
   the same from every worktree. The `workspaceGit.workspaces` signal reads it;
   the `workspaceGit.sweepWorkspaces` action sweeps it (and recovers a dead
@@ -291,7 +292,7 @@ The folder lives at `engine/src/workflow/`.
 - `test-result-collector.ts` is consumed by `engine/scripts/tooling/flake-reproduction-reporter.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-guards.ts`, `engine/scripts/tooling/test-receipt.ts`, `engine/scripts/tooling/test-run-lock.ts` and 6 more.
 - `timeline-shard.ts` is consumed by `engine/src/workflow/workspace-manager.ts`.
 - `tree-landing.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/workspace-manager.ts`.
-- `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/git/worktree-port.ts` and 20 more.
+- `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/git/worktree-port.ts` and 21 more.
 - `workspace-cli.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
 - `workspace-contracts.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`, `engine/src/workflow/workspace-registry.ts`.
 - `workspace-forge-github.ts` is consumed by `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/workspace-cli.ts`.

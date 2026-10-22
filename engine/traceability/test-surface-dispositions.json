@@ -2397,6 +2397,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/privacy/sensitive-header-names.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/process/environment-projection.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4229,6 +4237,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workspaces/workspace-stack.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workspaces/worktree-port.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4277,5 +4293,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "e61cbaff495366d3c398c416deb0d92e64e35305b8133601619b1d49790a4cf7"
+  "integrityHash": "fc51d3467e12e622ff0be971c4f83696b5c1910aea183598c667fab6557f2bb0"
 }
