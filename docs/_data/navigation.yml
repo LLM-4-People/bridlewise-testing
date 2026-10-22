@@ -5,6 +5,8 @@
 # from the builder-owned configuration.
 
 primary:
+  - title: Claims
+    path: /floor/claims/
   - title: Quickstart
     path: /quickstart/
   - title: Docs
@@ -13,8 +15,6 @@ primary:
     path: /floor/roadmap/
   - title: Decisions
     path: /decisions/
-  - title: Evidence
-    path: /evidence/
   - title: Limits
     path: /security/
 
@@ -49,6 +49,8 @@ sections:
         path: /glossary/
   - title: Check it
     links:
+      - title: Claims
+        path: /floor/claims/
       - title: Security and limits
         path: /security/
       - title: Known issues

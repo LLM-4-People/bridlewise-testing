@@ -798,9 +798,26 @@ main blockquote > :last-child {
 }
 
 .receipt-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-3);
   margin: 0 0 var(--sp-3);
   font-size: var(--f-page-size);
   font-weight: 600;
+}
+
+.receipt-serial {
+  color: var(--ink-2);
+  font-family: var(--face-mono);
+  font-size: var(--f-nano-size);
+  font-weight: 400;
+}
+
+.receipt-foot {
+  margin: var(--sp-2) 0 0;
+  color: var(--ink-2);
+  font-size: var(--f-nano-size);
 }
 
 .receipt dl {
@@ -833,15 +850,31 @@ main blockquote > :last-child {
   margin: 0;
   color: var(--ink-1);
   font-family: var(--face-mono);
-  font-size: var(--f-data-size);
+  font-size: var(--f-page-size);
+  font-weight: 560;
   text-align: right;
   overflow-wrap: anywhere;
 }
 
+/* The total sits under a double rule, as a receipt's sum does. */
+.receipt-total {
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: calc(var(--hairline-w) * 3) double var(--ink-1);
+}
+
+.receipt-total dt {
+  color: var(--ink-1);
+  font-weight: 600;
+}
+
+/* A stamp: one framed mono line naming when and where something was judged. */
 .stamp {
+  display: inline-block;
   margin: var(--sp-4) 0 0;
-  padding-top: var(--sp-3);
-  border-top: var(--hairline-w) dashed var(--line-2);
+  padding: var(--sp-1) var(--sp-2);
+  border: var(--hairline-w) solid var(--ink-2);
+  border-radius: var(--sp-0);
   color: var(--ink-2);
   font-family: var(--face-mono);
   font-size: var(--f-nano-size);
@@ -1101,15 +1134,24 @@ figcaption {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--sp-7);
-  align-items: end;
+  align-items: start;
   padding-block: var(--sp-7) var(--sp-6);
 }
 
 @media (min-width: 960px) {
   .landing-hero {
     grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-    padding-block-start: calc(var(--sp-7) * 2);
   }
+
+  /* The slip's top meets the promise's first line. */
+  .landing-hero > .receipt {
+    margin-top: var(--sp-3);
+  }
+}
+
+/* The register starts right under the promise it backs. */
+.landing-hero + .section {
+  margin-top: var(--sp-6);
 }
 
 .landing-promise h1 {
@@ -1122,7 +1164,7 @@ figcaption {
 
 .landing-hero .receipt {
   max-width: none;
-  margin: 0;
+  margin-block: 0;
 }
 
 /* A section that pairs its words with one specimen. */
