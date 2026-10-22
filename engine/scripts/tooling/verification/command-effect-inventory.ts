@@ -7,7 +7,8 @@ import {
   type ArchitectureExternalCommand,
 } from "../../../src/architecture-manifest.ts";
 import { ARCHITECTURE_SOURCE_EXTENSIONS } from "../../../src/shared/source-extensions.ts";
-import { deepFreeze, sha256 } from "../../../src/kernel/integrity.ts";
+import { deepFreeze } from "../../../src/kernel/integrity.ts";
+import { externalCommandSourceFinding } from "../../../src/kernel/architecture-external-commands.ts";
 import { ROOT_POLICY } from "../../../src/kernel/root-policy.ts";
 import type { CommandEffectContract } from
   "../../../verification/benchmarks/shared/command-effect-contract.mjs";
@@ -304,19 +305,9 @@ export function verifyCommandEffectInventory(input: CommandEffectInventoryInput)
     }
   }
   for (const command of externalCommands.values()) {
-    const source = sourceByPath.get(command.path);
-    // A NOT-PUBLISHED command declares the boundary (src/kernel/architecture-
-    // external-commands.ts): this tree deliberately carries no source, so an
-    // absent source is the declared state, and a present one breaks it.
-    if (command.publication === "not-published") {
-      if (source !== undefined) violations.push(`command-effect-external-source-not-published-present:${command.path}`);
-      continue;
-    }
-    if (source === undefined) {
-      violations.push(`command-effect-external-source-missing:${command.path}`);
-    } else if (sha256(source) !== command.sourceSha256) {
-      violations.push(`command-effect-external-source-drift:${command.path}`);
-    }
+    // The one publication rule: a declared absence is still refused by name.
+    const finding = externalCommandSourceFinding(command, sourceByPath.get(command.path));
+    if (finding.kind !== "current") violations.push(finding.violation);
   }
 
   const discovered = [...factsByPath.values()].filter((facts) =>
