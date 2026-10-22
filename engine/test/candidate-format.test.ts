@@ -22,7 +22,7 @@ import {
   type SafeRepositoryRootAccess,
 } from "../scripts/verification/safe-repository-reader.ts";
 import { HarnessError } from "../src/kernel/errors.ts";
-import { canonicalHash, canonicalJson, sha256 } from "../src/kernel/integrity.ts";
+import { canonicalHash, canonicalJson, canonicalJsonLines, sha256 } from "../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
 import {
   createQualifiedRepositoryLocalTemporaryDirectory,
@@ -434,10 +434,9 @@ test("artifact admission reuses strict text decoding and retains archives only a
   const manifest = withSeparateTestRepositoryRootReadAccess((access) => buildArtifactAdmissionManifest({
     root: access,
     paths: candidate.files.map((file) => file.path),
-    generatedAt: "2026-07-12T13:30:00Z",
     previousManifest,
   }));
-  assert.equal(manifest.schemaVersion, "bridlewise-artifact-admission/v3");
+  assert.equal(manifest.schemaVersion, "bridlewise-artifact-admission/v4");
   const rejectedArchives = manifest.entries.filter((entry) => entry.contentFormat === "rejected-binary-fixture");
   // MEMBERSHIP, NOT ARITY. This was `assert.equal(rejectedArchives.length, 2)`
   // — a hardcoded count against a live scan of the real workspace, with no
@@ -464,19 +463,16 @@ test("artifact admission reuses strict text decoding and retains archives only a
     assert.throws(() => buildArtifactAdmissionManifest({
       root: fixture.access,
       paths: ["docs/research/invalid.md"],
-      generatedAt: "2026-07-12T13:30:00Z",
     }), /rejected secret-like or binary content/u);
     copyInto(root, "docs/research/fake.tar.gz", Buffer.from([0x1f, 0x8b, 0x00]));
     assert.throws(() => buildArtifactAdmissionManifest({
       root: fixture.access,
       paths: ["docs/research/fake.tar.gz"],
-      generatedAt: "2026-07-12T13:30:00Z",
     }), /rejected content format/u);
     copyInto(root, "docs/research/invalid.md", Buffer.from([0x61, 0x00, 0x0a]));
     assert.throws(() => buildArtifactAdmissionManifest({
       root: fixture.access,
       paths: ["docs/research/invalid.md"],
-      generatedAt: "2026-07-12T13:30:00Z",
     }), /rejected secret-like or binary content/u);
   } finally {
     removeRepositoryLocalTemporaryDirectory(root);
@@ -667,17 +663,15 @@ test("the canonical artifact inventory is current: a fresh build over this tree'
   // policyHash described the private floor's old policy, 272 violations were
   // filtered away by the S1 baseline, and every check passed because nothing
   // built the document. This test asks the owner for the tree's current bytes
-  // (the SAME generatedAt the committed document records, so the comparison is
-  // about content, not the clock) and requires byte equality.
+  // (the record carries no clock, #221) and requires byte equality.
   const manifestPath = join(REPOSITORY_ROOT, "traceability/artifacts/manifest.json");
   const committed = readFileSync(manifestPath, "utf8");
-  const parsed = JSON.parse(committed) as { generatedAt: string };
+  const parsed: unknown = JSON.parse(committed);
   const built = withSeparateTestRepositoryRootReadAccess((access) => buildArtifactAdmissionManifest({
     root: access,
-    generatedAt: parsed.generatedAt,
     previousManifest: parsed,
   }));
-  assert.equal(`${canonicalJson(built)}\n`, committed, "the committed inventory must equal a fresh build over the governed roots");
+  assert.equal(canonicalJsonLines(built), committed, "the committed inventory must equal a fresh build over the governed roots");
   assert.equal(built.policyHash, canonicalHash(ROOT_POLICY.artifactGovernance), "the inventory carries the canonical policy hash, not a stale one");
   assert.ok(built.entries.length > 0, "the inventory must cover the governed roots (an empty population certifies nothing)");
   assert.equal(built.entries.length, new Set(built.entries.map((entry) => entry.path)).size, "every artifact is inventoried once");

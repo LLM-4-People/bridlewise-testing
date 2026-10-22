@@ -396,7 +396,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       Buffer.from([0xff, 0x00, 0xfe]));
     const cacheSafeManifest = buildArtifactAdmissionManifest({
       root: admissionRoot,
-      generatedAt: "2026-07-12T10:30:33Z",
     });
     assert.deepEqual(cacheSafeManifest.entries.map((entry) => entry.path), [
       "docs/research/retained.md",
@@ -415,7 +414,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     }
     const pendingReviewManifest = buildArtifactAdmissionManifest({
       root: admissionRoot,
-      generatedAt: "2026-07-12T10:30:33Z",
     });
     assert.ok(pendingReviewManifest.entries.filter((entry) =>
       entry.path.startsWith(reviewPolicy.governedPrefix)).every((entry) =>
@@ -426,7 +424,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     writeFileSync(join(admissionRoot, finalReviewPath), `${finalReviewPath}\n`);
     const staleReviewManifest = buildArtifactAdmissionManifest({
       root: admissionRoot,
-      generatedAt: "2026-07-12T10:30:33Z",
     });
     assert.ok(staleReviewManifest.entries.filter((entry) =>
       entry.path.startsWith(reviewPolicy.governedPrefix)).every((entry) =>
@@ -435,7 +432,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       `${path} ${sha256(readFileSync(join(admissionRoot, path)))}`).join("\n")}\n`);
     const completeReviewManifest = buildArtifactAdmissionManifest({
       root: admissionRoot,
-      generatedAt: "2026-07-12T10:30:33Z",
     });
     assert.ok(completeReviewManifest.entries.filter((entry) =>
       entry.path.startsWith(reviewPolicy.governedPrefix)).every((entry) =>

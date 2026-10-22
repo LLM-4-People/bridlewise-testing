@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
-import { isOfOverlayKind, OVERLAY_KINDS, parsePromotionProfile, profileCommandNames, selectPromotionProfile } from "../../../src/workflow/promotion/profile.ts";
+import { isOfOverlayKind, OVERLAY_KINDS, parsePromotionProfile, profileCommandNames, profileTreeViolations, selectPromotionProfile } from "../../../src/workflow/promotion/profile.ts";
 import { PROFILE_DIRECTORY, PROFILE_NAME, PROFILE_PATH, fixtureProfile, json } from "./promotion-fixture.ts";
 
 const COMMANDS: ReadonlySet<string> = new Set(["lockfile", "gate"]);
@@ -49,6 +49,23 @@ test("T-P10: every invalid profile is refused with the pointer of its violation"
     assert.deepEqual(pointers(fixtureProfile({ boundary: { spawnCalls: [{ callee: "runScript", argument: 1, base }] } })), ["/boundary/spawnCalls/0/base"], base);
   }
   assert.deepEqual(pointers(fixtureProfile({ boundary: { spawnCalls: [{ callee: "runScript", argument: 1, base: "" }] } })), []);
+});
+
+test("a profile names only paths its checkout tracks: an absent file or an empty folder is named by its pointer (harness check, #279)", () => {
+  const profile = fixtureProfile() as { boundary: { entryPoints: string[]; include: string[] } };
+  const named = [...profile.boundary.entryPoints, ...profile.boundary.include];
+  const tree = new Set(named.map((value) => (value.endsWith("/") ? `${value}held.ts` : value)));
+  const parsed = parsePromotionProfile(json(profile), { path: PROFILE_PATH, profileDirectory: PROFILE_DIRECTORY, commandNames: COMMANDS });
+  const parse = (presentPaths: ReadonlySet<string>): readonly string[] => profileTreeViolations(parsed, presentPaths).map(([pointer]) => pointer);
+  assert.deepEqual(parse(tree), [], "every named path is held");
+  const fileIndex = profile.boundary.include.findIndex((value) => !value.endsWith("/"));
+  const deleted = new Set([...tree].filter((path) => path !== profile.boundary.include[fileIndex]));
+  assert.deepEqual(parse(deleted), [`/boundary/include/${String(fileIndex)}`], "a deleted file the profile still names");
+  const folderIndex = profile.boundary.include.findIndex((value) => value.endsWith("/"));
+  if (folderIndex >= 0) {
+    const emptied = new Set([...tree].filter((path) => !path.startsWith(profile.boundary.include[folderIndex]!)));
+    assert.deepEqual(parse(emptied), [`/boundary/include/${String(folderIndex)}`], "a folder the tree holds nothing under");
+  }
 });
 
 test("the overlay: a folder prefix the boundary excludes, apart from the profile directory, with kinds only from the fixed allowlist, compared without case", () => {
