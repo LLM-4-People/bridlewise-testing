@@ -332,7 +332,8 @@ describe("D. the source step", () => {
     const out = join(root, ".site");
     await source({ root, out, baseurl: "/bridlewise" });
     const moved = readFileSync(join(out, "floor/trackers/TASKS.md/index.html"), "utf8");
-    expect(moved).toContain('location.replace("/bridlewise/trackers/TASKS/")');
+    expect(moved).toContain('data-moved-to="/bridlewise/trackers/TASKS/"');
+    expect(moved).not.toContain("<script");
     expect(moved).toContain('<a href="/bridlewise/trackers/TASKS/">');
     // `/trackers/TASKS.md` is the page's own source file in the Jekyll
     // source: the redirect folder cannot and does not take its name.

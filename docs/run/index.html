@@ -10,6 +10,7 @@ sitemap: true
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
+  {% include csp.html %}
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="canonical" href="{{ page.url | absolute_url }}">
   <meta property="og:type" content="article">
@@ -22,17 +23,7 @@ sitemap: true
   <meta name="description" content="An illustrative, interactive Bridlewise run record. Synthetic data, no live model, no engine connection.">
   <title>Run 0001 · trace the request boundary · Bridlewise</title>
   <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
-  <script>
-    (function () {
-      try {
-        if (localStorage.getItem("bridlewise:run-demo:theme") === "light") {
-          document.documentElement.setAttribute("data-theme", "light");
-        }
-      } catch (error) {
-        /* The demo still works when storage is unavailable. */
-      }
-    }());
-  </script>
+  <script src="run-theme.js"></script>
   <link rel="stylesheet" href="run-demo.css">
 </head>
 <body>
