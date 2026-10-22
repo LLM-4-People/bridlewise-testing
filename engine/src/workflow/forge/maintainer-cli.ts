@@ -92,7 +92,7 @@ export function runBoundedCommand(command: string, args: readonly string[], inpu
 }
 
 /** THE RUN of the maintainer's `gh`. */
-export const runGh: MaintainerCliRun = (args, input, limits) => runBoundedCommand("gh", args, input, limits);
+const runGh: MaintainerCliRun = (args, input, limits) => runBoundedCommand("gh", args, input, limits);
 
 export type MaintainerCli = Readonly<{
   /** Whether `gh` is installed and logged in to the web origin's host (`gh auth status`). */

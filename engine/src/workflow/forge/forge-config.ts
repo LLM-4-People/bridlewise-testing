@@ -17,7 +17,7 @@ import type { ForgeRepositoryKind } from "./app-registry.ts";
 import type { ForgeEndpoint } from "./port.ts";
 
 /** The `kind` custom property's allowed values (runbook P1.8); `none` is a repository the topology does not govern. */
-export const FORGE_REPOSITORY_KINDS = deepFreeze(["trunk", "meta", "evidence", "notes", "archive", "none"] as const);
+const FORGE_REPOSITORY_KINDS = deepFreeze(["trunk", "meta", "evidence", "notes", "archive", "none"] as const);
 
 const NAME = /^[A-Za-z0-9._-]{1,100}$/u;
 const ORGANIZATION = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/u;

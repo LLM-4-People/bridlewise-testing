@@ -28,7 +28,7 @@ export type ForgeClass = typeof FORGE_CLASSES[number];
 type CodeEntry = Readonly<{ class: ForgeClass; remedy: string }>;
 
 /** Every code the forge answers with (see the header). */
-export const FORGE_CODES = deepFreeze({
+const FORGE_CODES = deepFreeze({
   forge_not_configured: { class: "input", remedy: "Declare the `forge` section in engine/bridlewise.config.json (its schema is `forge-config.ts`)." },
   forge_usage: { class: "input", remedy: "Run `harness forge apps manifests [--check]` or `harness forge apps create`." },
   forge_request_invalid: { class: "input", remedy: "Fix the request: the path must be an API path starting with `/`, with no scheme, host, `..` or fragment, and a query of plain values." },
@@ -64,11 +64,6 @@ export type ForgeCode = keyof typeof FORGE_CODES;
 
 /** Facts a forge refusal may carry: plain values only, never a credential. */
 export type ForgeFacts = Readonly<Record<string, string | number | boolean | readonly string[]>>;
-
-/** The class of `code`. */
-export function forgeClass(code: ForgeCode): ForgeClass {
-  return FORGE_CODES[code].class;
-}
 
 /** One typed refusal of the forge: a code from {@link FORGE_CODES}, its remedy, and the facts that name what was refused. */
 export class ForgeError extends HarnessError {

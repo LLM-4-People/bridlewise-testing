@@ -30,7 +30,7 @@ import { join } from "node:path";
 
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { ensurePrivateStateDirectory, PRIVATE_STATE_FILE_MODE } from "../../filesystem/private-state.ts";
-import { admitHarnessKeyHome, type AdmittedKeyHome } from "../../filesystem/self-protection/key-home.ts";
+import type { AdmittedKeyHome } from "../../filesystem/self-protection/key-home.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 import { parseJsonExact } from "../../kernel/json-integrity.ts";
 import { auditEvent } from "../../shared/debug/debug-system.ts";
@@ -178,9 +178,4 @@ export function keyHomeCustody(keyHome: AdmittedKeyHome): AppKeyCustody {
       return sign("sha256", data, privateKeyOf(record.pem, role, recordFile(keyHome, role)));
     },
   });
-}
-
-/** The custody over THE harness key home (admitted through its one admission). */
-export function harnessAppKeyCustody(): AppKeyCustody {
-  return keyHomeCustody(admitHarnessKeyHome([]));
 }
