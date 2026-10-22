@@ -24,7 +24,6 @@ import { declaredCauseFixes } from "../../src/git/flake-cause-fixes.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { claimLooks, reproducedDigests, flakeAttemptDirectory, flakeAttemptFileName, flakeReproductionDirectory, flakeReproductionFileName, noOpFixProbability, readFlakeAttempts, readFlakeReproductions, runsNeeded, serializeFlakeReproduction, type FlakeAttempt, type FlakeReproduction, type IdentityMove } from "../../src/shared/flake-reproduction.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
-import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { flakyVerdictWithin } from "../../src/shared/run-history.ts";
 import { appendFlakeAttempt, assertShimWorldConfined, createShimWorld, deterministicRuns, parseFlakeMoveArgs, parseFlakeReproduceArgs, recordableConditions, recordIdentityMove, reproduceFlake, shimEnvironment, statisticalRunsOf, type ReproductionAnswer, type ReproductionReport, type ReproductionRun, type ReproductionSettings } from "../../src/workflow/flake-cli.ts";
 import { createTempDir } from "../support/temp-dir.ts";
@@ -289,23 +288,31 @@ test("A FIX THAT CHANGED NO DECLARED CAUSE'S MEANING runs nothing: an untouched 
   await refuse("engine/test/x.test.ts");
 });
 
-test("A MOVE is recorded only when the inventories show it: on the hermetic suite at the parent, gone at the commit, its destination a live suite file", () => {
+test("A MOVE is recorded only when the inventories show it: on the hermetic suite at the parent, gone at the commit, its destination a live suite file", async () => {
   const repo = fixture();
   const inventory = (tests: readonly (readonly [string, string])[], live: readonly string[]): string =>
     `${JSON.stringify({ tests: tests.map(([sourceId, name]) => ({ sourceId, name })), scope: { qualifiedExternalSourceIds: live } })}\n`;
-  repo.commit({ [`engine/${VERIFICATION_PATHS.testInventory}`]: inventory([["test/x.test.ts", "counts every run"], ["test/x.test.ts", "stays"]], []) }, "before");
-  const moved = repo.commit({ [`engine/${VERIFICATION_PATHS.testInventory}`]: inventory([["test/x.test.ts", "stays"]], ["live/x.test.ts"]) }, "move to the live suite");
+  // Each commit's inventory is its own generator's output (#221): planted here per commit, as the private checkout would write it.
+  const before = repo.commit({ "engine/test/x.test.ts": "before\n" }, "before");
+  const moved = repo.commit({ "engine/test/x.test.ts": "after\n" }, "move to the live suite");
+  const inventories = new Map([
+    [before, inventory([["test/x.test.ts", "counts every run"], ["test/x.test.ts", "stays"]], [])],
+    [moved, inventory([["test/x.test.ts", "stays"]], ["live/x.test.ts"])],
+  ]);
+  const asked: string[] = [];
+  const inventoryAt = async (commit: string): Promise<string> => { asked.push(commit); return inventories.get(commit) ?? assert.fail(`no inventory planted for ${commit}`); };
   const written: IdentityMove[] = [];
-  const move = (from: string, to: string): string => recordIdentityMove(parseFlakeMoveArgs(["move", "--suite", "engine", "--commit", moved, "--from", from, "--to", to]),
-    configuredGitRepository({}, repo.root), "engine", (record) => { written.push(record); return record.from; }, () => new Date("2026-10-08T00:00:00.000Z"));
-  assert.equal(move(IDENTITY, "live/x.test.ts::counts every run, live"), IDENTITY);
+  const move = (from: string, to: string): Promise<string> => recordIdentityMove(parseFlakeMoveArgs(["move", "--suite", "engine", "--commit", moved, "--from", from, "--to", to]),
+    configuredGitRepository({}, repo.root), inventoryAt, (record) => { written.push(record); return record.from; }, () => new Date("2026-10-08T00:00:00.000Z"));
+  assert.equal(await move(IDENTITY, "live/x.test.ts::counts every run, live"), IDENTITY);
+  assert.deepEqual(asked, [before, moved], "the parent's and the commit's inventories, each by its own commit");
   assert.deepEqual(written[0], { schemaVersion: "bridlewise-identity-move/v1", suite: "engine", from: IDENTITY, to: "live/x.test.ts::counts every run, live", commit: moved, recordedAt: "2026-10-08T00:00:00.000Z" });
   for (const [what, from, to] of [
     ["it never was a hermetic test", "test/x.test.ts::never", "live/x.test.ts::never"],
     ["it is still a hermetic test", "test/x.test.ts::stays", "live/x.test.ts::stays"],
     ["the destination is no live suite file", IDENTITY, "test/elsewhere.test.ts::counts every run"],
   ] as const) {
-    assert.throws(() => move(from, to), (error: unknown) => (error as { code?: string }).code === "flake_move_refused", what);
+    await assert.rejects(move(from, to), (error: unknown) => (error as { code?: string }).code === "flake_move_refused", what);
   }
   assert.throws(() => parseFlakeMoveArgs(["move", "--suite", "web", "--commit", moved, "--from", IDENTITY, "--to", "live/x.test.ts::y"]), /only the engine has a live suite/u);
   assert.throws(() => parseFlakeMoveArgs(["move", "--suite", "engine", "--commit", moved, "--from", IDENTITY]), /are required/u);

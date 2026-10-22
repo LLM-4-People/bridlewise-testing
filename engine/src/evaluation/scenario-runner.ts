@@ -190,9 +190,6 @@ function buildAdapterFromRequest(request: CellExecutionRequest): ProviderAdapter
       timeoutMs: request.providerConfig.timeoutMs,
       retries: request.providerConfig.retries,
       ...(request.providerConfig.responses !== undefined ? { responses: request.providerConfig.responses } : {}),
-      ...(request.providerConfig.chatCompletionsPath !== undefined
-        ? { chatCompletionsPath: request.providerConfig.chatCompletionsPath }
-        : {}),
     },
     apiKey: request.apiKey,
   };
