@@ -55,3 +55,10 @@ jobs:
         run: |
           set -x
           for i in 1 2; do sudo systemd-run --scope -q --uid="$(id -u)" --gid="$(id -g)" --setenv=PROBE=$i -p MemoryMax=256M -p CPUWeight=100 sh -c 'echo "scope $PROBE $(cut -d: -f3 /proc/self/cgroup)"; sleep 2' & done; wait
+      - name: F — the USER scope enforces the memory cap and the CPU weight, no sudo
+        continue-on-error: true
+        run: |
+          set -x
+          systemd-run --user --scope -q -p MemoryMax=64M -p CPUWeight=50 sh -c 'cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/cpu.weight'
+          systemd-run --user --scope -q -p MemoryMax=64M -p MemorySwapMax=0 \
+            node -e 'const a=[];for(let i=0;i<64;i++)a.push(Buffer.alloc(8*1024*1024,1));console.log("allocated 512 MiB: NOT capped")'; echo "exit=$?"
