@@ -4,7 +4,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { verifyS1Structure } from "../../scripts/tooling/s1-verification.ts";
 import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
-import { canonicalHash, canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
+import { canonicalHash, sha256 } from "../../src/kernel/integrity.ts";
+import { configContractArtifactText } from "../../src/kernel/config-contracts.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { ALIGNMENT_CONFIG_FIXTURE, makeRuntimeCandidate, removeOwnedTemporaryDirectories, invoke, invokeBootstrap, errorCode, writeConfig, config, appendCandidateSource, mutateCandidateTextExact, mutateTextExact, raceRuntime, candidateModulePath, REPOSITORY_ROOT } from "../support/s1-scenario-shared.ts";
 
@@ -125,7 +126,7 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     coherentArtifact.schemaHash = canonicalHash(coherentArtifact.schema);
     coherentArtifact.identity.schemaHash = coherentArtifact.schemaHash;
     coherentArtifact.identityHash = canonicalHash(coherentArtifact.identity);
-    writeFileSync(coherentArtifactPath, `${canonicalJson(coherentArtifact)}\n`);
+    writeFileSync(coherentArtifactPath, configContractArtifactText(coherentArtifact));
     assert.ok(verifyS1Structure(coherentArtifactWidening).violations.includes(
       "config-contract-artifact-drift",
     ));
@@ -289,7 +290,7 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     coordinatedArtifact.sourceSha256 = coordinatedSourceSha256;
     coordinatedArtifact.identity.sourceSha256 = coordinatedSourceSha256;
     coordinatedArtifact.identityHash = canonicalHash(coordinatedArtifact.identity);
-    writeFileSync(coordinatedArtifactPath, `${canonicalJson(coordinatedArtifact)}\n`);
+    writeFileSync(coordinatedArtifactPath, configContractArtifactText(coordinatedArtifact));
     const coordinatedViolations = verifyS1Structure(coordinatedManualMutation).violations;
     assert.ok(coordinatedViolations.includes("config-contract-root-policy-projection"));
     assert.equal(coordinatedViolations.includes("config-contract-source-hash"), false);

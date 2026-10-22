@@ -46,6 +46,7 @@ import { configDocumentPath, getConfigDocumentSchema, inspectConfigDocument } fr
 import {
   getConfigContractArtifact,
   buildConfigContract,
+  configContractArtifactText,
   type ConfigContractPolicyProjection,
 } from "../../src/kernel/config-contracts.ts";
 import { extractErrorMessage } from "../../src/kernel/errors.ts";
@@ -872,7 +873,7 @@ function verifyConfigContract(root: string, violations: string[]): void {
       "config_contract_artifact_key_duplicate",
     );
     const artifact: unknown = JSON.parse(artifactText);
-    const expectedArtifactText = `${canonicalJson(candidateContract.artifact)}\n`;
+    const expectedArtifactText = configContractArtifactText(candidateContract.artifact);
     if (artifactText !== expectedArtifactText || canonicalHash(artifact) !== canonicalHash(
       candidateContract.artifact,
     )) {

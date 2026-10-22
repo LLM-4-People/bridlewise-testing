@@ -19,6 +19,7 @@ import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
 import { PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256 } from "../kernel/architecture-external-commands.ts";
 import { verifyExternalCommands, type ArchitectureSource } from "../../scripts/verification/architecture.ts";
 import { currentConfigContractArtifact, generateAutoGeneratorReport, type AutoGeneratorReport } from "./auto-generator.ts";
+import { configContractArtifactText } from "../kernel/config-contracts.ts";
 import {
   generatedOutputPaths,
   generatedReadmePaths,
@@ -188,7 +189,7 @@ export type HarnessRegenerateOutput = Readonly<{
    * Config-document schema artifact regeneration (EXP468 finding fix).
    * `harness regenerate` now rewrites `traceability/config-document-schema.json`
    * from the artifact the on-disk root policy declares
-   * (`currentConfigContractArtifact`), in canonical-JSON form, so the artifact
+   * (`currentConfigContractArtifact`), in its one text form (`configContractArtifactText`), so the artifact
    * cannot drift from `src/kernel/config-contracts.ts` after a contract edit,
    * and one pass converges even when this pass re-pinned the contract source.
    */
@@ -1428,12 +1429,10 @@ function regenerateConfigSchemaArtifact(root: string, write: boolean): Readonly<
   artifactPath: string;
 }> {
   const artifactPath = resolve(root, ROOT_POLICY.configuration.contract.generatedSchemaPath);
-  // The canonical-JSON form is what `test/config/config-contracts.test.ts`
-  // expects (no pretty-printing drift). `canonicalJson` produces a stable
-  // byte-string for the same object regardless of key insertion order.
-  // Built from the on-disk policy pins: the bindings repair above may have
-  // re-pinned the contract source in this very process.
-  const canonicalContent = `${canonicalJson(currentConfigContractArtifact(root))}\n`;
+  // The artifact's one text form (`configContractArtifactText`: canonical,
+  // one entry per line), built from the on-disk policy pins: the bindings
+  // repair above may have re-pinned the contract source in this very process.
+  const canonicalContent = configContractArtifactText(currentConfigContractArtifact(root));
   const schemaHash = sha256(canonicalContent);
   if (!existsSync(artifactPath)) {
     if (!write) {

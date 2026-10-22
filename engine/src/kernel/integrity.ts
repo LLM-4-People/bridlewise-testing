@@ -50,6 +50,17 @@ export function canonicalJson(value: unknown): string {
 }
 
 /**
+ * THE INDENTED CANONICAL FORM of a committed generated document whose entries
+ * nest (a JSON Schema, #221): the same canonical value as {@link canonicalJson}
+ * (keys sorted, one value per key), laid out two spaces per level with every
+ * field and every array element on its own line, at every depth. Two changes
+ * to different entries touch different lines, so parallel branches merge.
+ */
+export function canonicalJsonIndented(value: unknown): string {
+  return encode(value, new Set<object>(), "");
+}
+
+/**
  * THE LINE-PER-ENTRY CANONICAL FORM of a committed generated document (#221):
  * the same canonical JSON (keys sorted, one value per key), laid out with each
  * top-level field on its own line and each element of a top-level array on its
@@ -179,7 +190,14 @@ export function isPositiveFinite(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
-function encode(value: unknown, ancestors: Set<object>): string {
+/** A container's entries between its brackets: compact, or one per line under `indent` (an empty one stays `[]`/`{}`). */
+function laidOut(open: string, close: string, entries: readonly string[], indent: string | undefined): string {
+  if (indent === undefined || entries.length === 0) return `${open}${entries.join(",")}${close}`;
+  return `${open}\n${entries.map((entry) => `${indent}  ${entry}`).join(",\n")}\n${indent}${close}`;
+}
+
+/** Canonical JSON of `value`; with `indent` (the current line's indent), laid out one entry per line, two spaces per level. */
+function encode(value: unknown, ancestors: Set<object>, indent?: string): string {
   if (value === null || typeof value === "boolean" || typeof value === "string") {
     return JSON.stringify(value);
   }
@@ -194,11 +212,12 @@ function encode(value: unknown, ancestors: Set<object>): string {
     if (Array.isArray(value)) {
       const entries: string[] = [];
       const length = value.length;
+      const inner = indent === undefined ? undefined : `${indent}  `;
       for (let index = 0; index < length; index += 1) {
         if (!Object.hasOwn(value, index)) throw new InputError("Canonical data contains a sparse array");
-        entries.push(encode(value[index], ancestors));
+        entries.push(encode(value[index], ancestors, inner));
       }
-      return `[${entries.join(",")}]`;
+      return laidOut("[", "]", entries, indent);
     }
     if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
       throw new InputError("Canonical data contains an unsupported object");
@@ -207,10 +226,11 @@ function encode(value: unknown, ancestors: Set<object>): string {
       throw new InputError("Canonical data contains an unsupported key");
     }
     const object = value as Readonly<Record<string, unknown>>;
+    const inner = indent === undefined ? undefined : `${indent}  `;
     const fields = Object.keys(object).toSorted().map((key) =>
-      `${JSON.stringify(key)}:${encode(object[key]!, ancestors)}`
+      `${JSON.stringify(key)}:${inner === undefined ? "" : " "}${encode(object[key]!, ancestors, inner)}`
     );
-    return `{${fields.join(",")}}`;
+    return laidOut("{", "}", fields, indent);
   } finally {
     ancestors.delete(value);
   }

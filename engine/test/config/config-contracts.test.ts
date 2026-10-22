@@ -8,10 +8,11 @@ import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import {
   getConfigContractArtifact,
   buildConfigContract,
+  configContractArtifactText,
   getConfigDocumentSchema,
   type ConfigContractPolicyProjection,
 } from "../../src/kernel/config-contracts.ts";
-import { canonicalHash, canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
+import { canonicalHash, sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 
 const CONFIG_DOCUMENT_SCHEMA = getConfigDocumentSchema();
@@ -89,7 +90,7 @@ test("config contract source, identity, and generated projection are byte-bound"
 
   const artifactText = readFileSync(ARTIFACT_PATH, "utf8");
   const artifact: unknown = JSON.parse(artifactText);
-  assert.equal(artifactText, `${canonicalJson(CONFIG_DOCUMENT_SCHEMA_ARTIFACT)}\n`);
+  assert.equal(artifactText, configContractArtifactText(CONFIG_DOCUMENT_SCHEMA_ARTIFACT));
   assert.deepEqual(artifact, CONFIG_DOCUMENT_SCHEMA_ARTIFACT);
 });
 

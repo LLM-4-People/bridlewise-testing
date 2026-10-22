@@ -1805,6 +1805,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/prevention/generated-files-clock-free.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/prevention/git-freshness.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4261,5 +4269,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "57ebb5434a2bb1f96d11e879173ec944a165041a6f5cb4975cc0a80978f4a1d4"
+  "integrityHash": "6c53cb1f7800187bd06a0b161d4a40a4973fe52718b61b26a8d3c14f61c3aee4"
 }
