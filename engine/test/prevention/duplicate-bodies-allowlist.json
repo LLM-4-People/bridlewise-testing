@@ -291,12 +291,6 @@
       "reason": "same-file sibling group (currentAdmittedNodeRuntimeRecord/admittedNodeRuntimePrincipal/admittedNodeRuntimeExecutable) — parallel functions with same normalized structure; parameterize or allowlist"
     },
     {
-      "hash": "b047a5520a20af57bcd979011655650dd7bd131a725dbaff78f40c3bed72b578",
-      "file": "src/architecture-manifest.ts",
-      "count": 1,
-      "reason": "same-file sibling group (blockedPythonCommand/blockedResearchShellCommand) — parallel functions with same normalized structure; parameterize or allowlist"
-    },
-    {
       "hash": "cc30f1bbd5108cfade77b79cd8e0ff2abc6031b9b5ff8947e6792766ceaf7d47",
       "file": "src/memory/attempt-history.ts",
       "count": 2,
