@@ -61,7 +61,13 @@ const ENTITY = /&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]+|#[xX][0-9A-Fa-f]+|\u0000);
 const SPECIAL_ELEMENTS = "script|style|iframe|object|embed|svg|math|template|title|textarea|noscript|xmp|plaintext|pre|code|!--";
 const TAG_FILTER = new RegExp(String.raw`<(?:\\?\/)?(?:${SPECIAL_ELEMENTS})|<!--|<(?:\\?\/)?\??\[|<(?:\\?\/)?\(\?:`, "iu");
 const REGEX_SYNTAX_ANGLES = /\(\?<[=!]|\(\?<[A-Za-z_$][\w$]*>|\\k<[A-Za-z_$][\w$]*>/gu;
-const MARKUP_CHARS_ONLY = /^(?:\[\^?(?:[<>&]|\\[<>&])+\]|[<>&]|\\[<>&])$/u;
+// A pattern that is only markup characters: `&`, `<`, `[<>&"']`, `\&`.
+// Quotes count inside a class only beside at least one of `<`, `>`, `&`.
+const MARKUP_CHARS_ONLY = /^(?:\[\^?(?=[^\]]*[<>&])(?:[<>&"']|\\[<>&"'])+\]|[<>&]|\\[<>&])$/u;
+// A decode pattern: `&` then, within one reference's length, `;` (`&(\w+);`,
+// `&#(\d+);`, `&([a-z]+|#\d+);`), or `&#` itself.
+const ENTITY_PATTERN = /&#|&(?:\\w|\(|\[|[A-Za-z])[^;\s|&]{0,40};/u;
+const MARKUP_CHAR = /[<>&]/u;
 const TRANSFORMS = new Set(["replace", "replaceAll", "split"]);
 const READS = new Set(["match", "matchAll", "search"]);
 
@@ -71,6 +77,7 @@ const READS = new Set(["match", "matchAll", "search"]);
  * longer trips a rule is refused.
  */
 const DECLARED = new Map([
+  ["engine/src/quality/languages/c-cpp/parser.ts", "strips the `<`, `>` and `\"` delimiters of a C `#include` path, which is C syntax, not markup"],
   ["engine/src/workflow/reachability.ts", "extracts the `<script>` blocks of this repository's own Svelte sources to follow their imports; it reads, never sanitizes"],
   ["engine/src/shared/source-structure.ts", "the source-structure owner locates `<script>` blocks of Svelte sources for its parser; it reads, never sanitizes"],
   ["server/safety/artifact-check.ts", "the artifact safety owner locates `<script>` elements of a generated artifact to SYNTAX-CHECK them; it never rewrites or sanitizes the artifact"],
@@ -103,6 +110,55 @@ function folded(node) {
 
 const calleeName = (node) => (ts.isPropertyAccessExpression(node) ? node.name.text : ts.isIdentifier(node) ? node.text : null);
 
+/** The initializer of a same-file `const`/`let`/`var`, unwrapped from call wrappers (`Object.freeze(…)`, `deepFreeze(…)`, `new Map(…)`). */
+function declaredValue(name, file) {
+  let found = null;
+  const visit = (node) => {
+    if (found !== null) return;
+    if ((ts.isVariableDeclaration(node) || ts.isFunctionDeclaration(node)) && node.name !== undefined && ts.isIdentifier(node.name) && node.name.text === name) {
+      found = ts.isFunctionDeclaration(node) ? node : node.initializer ?? null;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  while (found !== null && (ts.isCallExpression(found) || ts.isNewExpression(found) || ts.isAsExpression(found) || ts.isParenthesizedExpression(found))) {
+    found = ts.isAsExpression(found) || ts.isParenthesizedExpression(found) ? found.expression : found.arguments?.[0] ?? null;
+  }
+  return found;
+}
+
+/** Whether a replacement argument is a function: an inline callback, or the name of a same-file function. */
+function isReplacer(argument, file) {
+  if (ts.isArrowFunction(argument) || ts.isFunctionExpression(argument)) return true;
+  if (!ts.isIdentifier(argument)) return isPlus(argument);
+  const value = declaredValue(argument.text, file);
+  return value !== null && (ts.isFunctionDeclaration(value) || ts.isArrowFunction(value) || ts.isFunctionExpression(value));
+}
+
+/**
+ * Whether a replacement that is not a literal (a callback, a function name)
+ * can yield markup: any literal it holds (folded across `+`), or any value in
+ * a same-file table it indexes or names, carries `<`, `>`, `&` or an entity.
+ */
+function callbackYieldsMarkup(argument, file) {
+  const seen = new Set();
+  const texts = [];
+  const collect = (node) => {
+    if (node === null || node === undefined || seen.has(node)) return;
+    seen.add(node);
+    if (isPlus(node)) texts.push(folded(node));
+    else if (literalText(node) !== null && !ts.isRegularExpressionLiteral(node)) texts.push(literalText(node));
+    if (ts.isIdentifier(node) && !(node.parent !== undefined && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)) {
+      const value = declaredValue(node.text, file);
+      if (value !== null && value !== argument) collect(value);
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(argument);
+  return texts.some((text) => MARKUP_CHAR.test(text) || ENTITY.test(text));
+}
+
 /** The violations of one parsed program, each `path:line rule`. */
 function programViolations(path, code, lineOffsetOf) {
   const file = ts.createSourceFile(path, code, ts.ScriptTarget.Latest, true, /\.[cm]?ts$/u.test(path) ? ts.ScriptKind.TS : ts.ScriptKind.JS);
@@ -123,8 +179,14 @@ function programViolations(path, code, lineOffsetOf) {
       if ((name === "test" || name === "exec") && ts.isPropertyAccessExpression(node.expression)) pattern = literalText(node.expression.expression);
       if (pattern !== null && TAG_FILTER.test(pattern.replace(REGEX_SYNTAX_ANGLES, ""))) report(node, "tag-filter (use htmlWithout / stripTags)");
       if ((name === "replace" || name === "replaceAll") && pattern !== null && MARKUP_CHARS_ONLY.test(pattern)) report(node, "markup-char (use escapeHtml)");
+      if (name !== null && (TRANSFORMS.has(name) || READS.has(name) || name === "RegExp" || name === "test" || name === "exec") && pattern !== null && ENTITY_PATTERN.test(pattern)) {
+        report(node, "entity-pattern (use decodeHtmlEntities)");
+      }
       const replacement = (name === "replace" || name === "replaceAll") && args[1] !== undefined ? literalText(args[1]) : null;
       if (replacement !== null && /\\\|/u.test(replacement)) report(node, "cell-escape (use escapeMarkdownTableCell)");
+      if ((name === "replace" || name === "replaceAll") && args[1] !== undefined && replacement === null && isReplacer(args[1], file) && callbackYieldsMarkup(args[1], file)) {
+        report(node, "markup-callback (use escapeHtml / decodeHtmlEntities)");
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -213,6 +275,8 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
     "shared/f.ts": 'const step = text.replace(/&/g, AMP);\nconst entity = new RegExp("<!--[\\\\s\\\\S]*?-->", "g");\n',
     // a tag filter as the receiver of test, and a tag strip in a Svelte script and template
     "tests/g.test.ts": "const dangerous = /<iframe/i.test(html);\n",
+    // the callback forms: a lookup table, an inline callback, a named encoder, a decoder
+    "server/i.ts": 'const MAP = Object.freeze({ "<": "&" + "lt;", ">": "&" + "gt;" });\nconst a = s.replace(/[<>"]/g, (c) => MAP[c]);\nconst b = s.replace(/[^\\w ]/g, (c) => "&#" + c.charCodeAt(0) + ";");\nfunction enc(c: string) { return "&" + "amp;"; }\nconst d = s.replace(/x/g, enc);\nconst DECODE = { amp: "&", lt: "<" };\nconst e = s.replace(/&(\\w+);/g, (_m, n) => DECODE[n]);\n',
     "src/h.svelte": "<script>\n  const plain = html.replace(/<[^>]+>/g, \"\");\n</script>\n<p>{text.replaceAll(\"&\", \"&\" + \"amp;\")}</p>\n<p>a&nbsp;b</p>\n",
   };
   const found = Object.fromEntries(Object.entries(planted).map(([path, text]) => [path, violations(path, text)]));
@@ -225,11 +289,12 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
     "scripts/floor/e.ts": ["cell-escape"],
     "shared/f.ts": ["markup-char", "tag-filter"],
     "tests/g.test.ts": ["tag-filter"],
-    "src/h.svelte": ["tag-filter", "markup-char", "entity"],
+    "server/i.ts": ["entity", "entity", "markup-char", "markup-callback", "markup-callback", "entity", "entity", "markup-callback", "entity-pattern", "markup-callback"],
+    "src/h.svelte": ["tag-filter", "markup-char", "markup-callback", "entity"],
   }, JSON.stringify(found));
   assert.match(found["scripts/c.mjs"][0], /^scripts\/c\.mjs:1 /u, "a wrapped call is reported at its start");
   assert.match(found["src/h.svelte"][0], /^src\/h\.svelte:2 /u, "a Svelte script keeps its file lines");
-  assert.match(found["src/h.svelte"][2], /^src\/h\.svelte:4 /u, "a Svelte template expression keeps its file line");
+  assert.match(found["src/h.svelte"][3], /^src\/h\.svelte:4 /u, "a Svelte template expression keeps its file line");
 });
 
 test("near misses are not flagged", () => {
@@ -244,6 +309,13 @@ test("near misses are not flagged", () => {
       'const rust = "fn parse(id: &str) -> &str";',
       'const escaped = value.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");',
       'const sql = "a & b";',
+      'const upper = name.replace(/(^|-)(\\w)/g, (_m, sep, c) => c.toUpperCase());',
+      'const LABELS = { ok: "fine", bad: "broken" };',
+      'const label = code.replace(/\\w+/g, (word) => LABELS[word] ?? word);',
+      'const generic = type.replace(/T/g, () => "U");',
+      'const MARKER = "<redacted>";',
+      'const masked = text.replace(/[^\\r\\n]+/gu, MARKER);',
+      'const segments = command.split(/&&|\\|\\||[;\\n]/u);',
       '// html.replace(/<script[\\s\\S]*?<\\/script>/g, "") is what the owner replaced',
     ].join("\n"),
     "b.svelte": "<script>\n  const x = 1;\n</script>\n<p>a&nbsp;b &lt;tag&gt; {x}</p>\n<!-- a <script> in a comment -->\n",
