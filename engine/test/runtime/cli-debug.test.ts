@@ -16,13 +16,14 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
 import { walk } from "../../scripts/verification/source-walk.ts";
 import { readSourceView } from "../../scripts/verification/source-view.ts";
+import { moduleSpecifiers } from "../../src/workflow/reachability.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 const ENGINE_ROOT = join(import.meta.dirname, "..", "..");
@@ -30,8 +31,13 @@ const BOOTSTRAP = pathToFileURL(join(ENGINE_ROOT, "src", "runtime", "cli-debug.t
 const PRIVATE_STATE = pathToFileURL(join(ENGINE_ROOT, "src", "filesystem", "private-state.ts")).href;
 
 /** Entry points that must NOT configure the process's debug system, with the reason. */
+/** Entry points that run no bootstrap, keyed by their path from the repository root, each with its reason. */
 const NOT_BOOTSTRAPPED: Readonly<Record<string, string>> = {
-  "scripts/tooling/test-worker.ts": "it hosts the test files' own process: configuring its debug system would change the state every test in it starts from",
+  "engine/scripts/tooling/test-worker.ts": "it hosts the test files' own process: configuring its debug system would change the state every test in it starts from",
+  "scripts/check-docs-links.mjs": "a dependency-free CI utility: it runs as the gate's first step and in docs-links.yml, before or without any package install, so it reaches only node built-ins and the leaf entry-point module; its findings go to stderr and its exit code",
+  "scripts/floor/site-links.mjs": "a dependency-free CI utility: the Pages job builds with Jekyll and installs no package; its findings go to stderr and its exit code",
+  "scripts/test-shard-manifest.mjs": "a dependency-free CI utility: the shard toolchain's merge job (the required receipt check) installs no package; its refusals go to stderr and its exit code",
+  "scripts/test-shard-merge.mjs": "a dependency-free CI utility: the shard merge job (the required receipt check) installs no package; its refusals go to stderr and its exit code",
 };
 /** Top-level programs (no main guard: the whole module is the program). */
 const TOP_LEVEL_PROGRAMS = ["scripts/commit-guard.ts", "src/intelligence/farm-child.ts", "src/tools/concurrent/long-task-wrapper.mjs"] as const;
@@ -69,7 +75,7 @@ const ENTRY_GUARD = "if (isEntryPoint(import.meta.url)) {";
 const PRIVATE_MAIN_TEST = /\bprocess\.argv\[1\]|\bimport\.meta\.main\b|\brequire\.main\b/u;
 /** Files that read `process.argv[1]` for another reason, with it. */
 const ARGV_READERS: Readonly<Record<string, string>> = {
-  "engine/src/runtime/cli-debug.ts": "the owner of the one main-ness test",
+  "engine/src/runtime/entry-point.ts": "the owner of the one main-ness test",
   "engine/src/filesystem/checkout-write-door.ts": "it describes this process's own command line (the script it runs) to the write door, never to decide main-ness",
   "engine/scripts/tooling/bootstrap-permissions.ts": "the trusted bootstrap: its import surface is a fixed verified set (s1-verification trusted-bootstrap-import-surface) that excludes the runtime's CLI module, and it exists to repair the settings file's mode (reading the settings first would refuse the repair), so it keeps its own main test and runs no bootstrap",
   "engine/src/shared/workflow/e2e-runner.mjs": "a standalone utility that stays OUTSIDE the harness module graph (entrypoint-recording-wiring: an argv-dispatching .mjs may import no harness module unless it is fully wired), so it keeps its own main test and runs no bootstrap",
@@ -94,14 +100,63 @@ test("ONE main-ness test: no entry point decides it is the program by any spelli
   }
 });
 
+/**
+ * The packages a source reaches through its imports, from `root`: every
+ * edge the ONE module-specifier reader (`src/workflow/reachability.ts`
+ * `moduleSpecifiers`, which reads tokens) names, in every form (single,
+ * double or backtick quotes, `export … from`, dynamic `import()` of a
+ * literal), relative edges followed, bare non-`node:` specifiers collected.
+ * An import the reader cannot name (a computed `import()`) is reported too:
+ * what is not read is not certified.
+ */
+function reachedPackages(start: string, root: string = REPOSITORY_ROOT): readonly string[] {
+  const packages = new Set<string>();
+  const seen = new Set<string>();
+  const queue = [start];
+  while (queue.length > 0) {
+    const path = queue.pop()!;
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const edges = moduleSpecifiers(path, readFileSync(join(root, path), "utf8"));
+    for (const specifier of edges.imports) {
+      if (specifier.startsWith(".")) queue.push(relative(root, resolve(root, dirname(path), specifier)).split("\\").join("/"));
+      else if (!specifier.startsWith("node:")) packages.add(`${path} -> ${specifier}`);
+    }
+    for (const opaque of edges.opaque) packages.add(`${path} -> ${opaque}`);
+  }
+  return [...packages].sort();
+}
+
+test("the import-graph reader follows every import form, through the one specifier reader (planted)", () => {
+  const dir = createTempDir("import-graph-");
+  writeFileSync(join(dir, "a.mjs"), "import x from './b.mjs';\nexport { y } from \"./c.mjs\";\nawait import(`./d.mjs`);\n// import 'commented-out';\n");
+  writeFileSync(join(dir, "b.mjs"), "import z from 'zod';\nexport const x = z;\n");
+  writeFileSync(join(dir, "c.mjs"), "export * from \"yaml\";\nexport const y = 1;\n");
+  writeFileSync(join(dir, "d.mjs"), "await import('picomatch');\nconst name = 'x';\nawait import(name);\n");
+  assert.deepEqual(reachedPackages("a.mjs", dir), [
+    "b.mjs -> zod",
+    "c.mjs -> yaml",
+    "d.mjs -> import(<computed>)",
+    "d.mjs -> picomatch",
+  ]);
+});
+
+test("a dependency-free utility reaches no package: its whole import graph is node built-ins and the leaf entry-point module", () => {
+  const utilities = Object.entries(NOT_BOOTSTRAPPED).filter(([, reason]) => reason.startsWith("a dependency-free CI utility")).map(([path]) => path);
+  assert.ok(utilities.length >= 4, "the dependency-free utilities are no longer declared");
+  for (const path of utilities) assert.deepEqual(reachedPackages(path), [], `${path} is declared dependency-free but reaches a package`);
+  // The reader is not vacuous: an entry point that runs the bootstrap reaches packages through it.
+  assert.ok(reachedPackages("engine/scripts/verification/corpus.ts").length > 0, "the import-graph reader saw no package behind the bootstrap");
+});
+
 test("every process entry point runs the process bootstrap first (derived by scanning), bar the declared exceptions", () => {
   const entries = entryFiles().filter((file) => file.code.includes(ENTRY_GUARD));
   assert.ok(entries.length >= 35, `the scan found ${String(entries.length)} entry points: it is not seeing them`);
   for (const path of Object.keys(NOT_BOOTSTRAPPED)) {
-    assert.ok(entries.some((entry) => entry.path === `engine/${path}`), `the declared exception ${path} is no longer an entry point: remove it`);
+    assert.ok(entries.some((entry) => entry.path === path), `the declared exception ${path} is no longer an entry point: remove it`);
   }
   const missing = entries
-    .filter((entry) => !(entry.path.replace(/^engine\//u, "") in NOT_BOOTSTRAPPED))
+    .filter((entry) => !(entry.path in NOT_BOOTSTRAPPED))
     .filter((entry) => !BOOTSTRAP_CALL.test(entry.code.slice(entry.code.indexOf(ENTRY_GUARD) + ENTRY_GUARD.length).trimStart()))
     .map((entry) => entry.path);
   for (const program of TOP_LEVEL_PROGRAMS) {

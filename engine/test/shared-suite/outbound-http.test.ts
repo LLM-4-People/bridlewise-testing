@@ -87,6 +87,12 @@ test("outbound http: a 3xx of any kind is a typed refusal with no second request
     assert.equal(received.length, 1, `${status}: exactly one request`);
   }
   assert.ok((outboundSignals().refusals["outbound_redirect_refused"] ?? 0) >= 5, "the refusal is counted as a signal");
+  // 304 Not Modified (a conditional request's answer) points nowhere: it is answered, never refused as a redirect.
+  const refusedBefore = outboundSignals().refusals["outbound_redirect_refused"] ?? 0;
+  answering(() => new Response(null, { status: 304, headers: { etag: "\"v1\"" } }));
+  const notModified = await outboundFetch(request({ method: "GET", protocolHeaders: { "If-None-Match": "\"v1\"" } }));
+  assert.equal(notModified.status, 304);
+  assert.equal(outboundSignals().refusals["outbound_redirect_refused"] ?? 0, refusedBefore);
 });
 
 test("outbound http: cleartext to another host is refused by the ONE door setting (or warned); loopback — exactly — is allowed", async () => {
