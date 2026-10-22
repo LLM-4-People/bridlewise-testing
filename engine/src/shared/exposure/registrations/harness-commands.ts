@@ -35,7 +35,6 @@ import {
 import { readNumberCustomization, writeConfigCustomization } from "../config-binding.ts";
 import {
   commandRetryPolicy,
-  DEFAULT_TYPECHECK_TIMEOUT_MS,
   DEFAULT_LOCK_TIMEOUT_MS,
   DEFAULT_LOCK_POLL_INTERVAL_MS,
   DEFAULT_LOCK_STALE_MS,
@@ -43,17 +42,6 @@ import {
 import { IDENTITY_ATTESTATION_TIMEOUT_MS } from "../../../evaluation/evaluation-config.ts";
 
 const ROWS = [
-  {
-    id: "typecheckTimeoutMs",
-    configPath: "harness.typecheckTimeoutMs",
-    name: "How long one typecheck step may run",
-    description:
-      "The check command runs the project's typecheck step under this bound; a step that overruns is abandoned and reported rather than hanging the command. Lower = a wedged typechecker ends sooner; higher = a large project still finishes. Takes effect on the next run.",
-    default: DEFAULT_TYPECHECK_TIMEOUT_MS,
-    min: 1,
-    max: 600_000,
-    unit: "milliseconds",
-  },
   {
     id: "commandErroredRetries",
     configPath: "harness.commandErroredRetries",

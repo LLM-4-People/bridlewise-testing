@@ -25,6 +25,7 @@
 import type { ConfigDocument } from "../kernel/config-contracts.ts";
 import { InputError } from "../kernel/errors.ts";
 import { statePath } from "../kernel/product-identity.ts";
+import type { CpuBounds } from "../process/supervised-run.ts";
 
 /**
  * A workflow operational option, or its default when absent: a present value
@@ -44,7 +45,6 @@ export function numericOption(value: number | undefined, fallback: number, name:
 
 // ── harness-commands.ts defaults ──────────────────────────────────────────
 
-export const DEFAULT_TYPECHECK_TIMEOUT_MS = 120_000;
 
 // ── the ONE command runner (checkout-setup.ts): errored-class retries ───────
 
@@ -62,17 +62,34 @@ export function commandRetryPolicy(document: Pick<ConfigDocument, "harness">): R
 }
 export const DEFAULT_GIT_ADD_TIMEOUT_MS = 30_000;
 export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
-export const DEFAULT_DISPOSITION_AUTO_ADD_TIMEOUT_MS = 120_000;
-export const DEFAULT_SYNC_REGISTER_TIMEOUT_MS = 180_000;
-export const DEFAULT_SYNC_REGENERATE_TIMEOUT_MS = 420_000;
-export const DEFAULT_SYNC_CHECK_TIMEOUT_MS = 240_000;
 
-// Subprocess timeout for `harness sync --with-bundle`'s bundle-build step.
-// The esbuild bundle (scripts/build-bundle.ts) is a fast deterministic build
-// (~3-5s warm); the bound is generous to absorb a cold node module resolve.
-// The bundle rebuilds after the first `regenerate`, so it compiles the
-// stabilized pins; no digest of it is committed (#221).
-export const DEFAULT_SYNC_BUNDLE_TIMEOUT_MS = 120_000;
+// ── the harness's subprocess bounds: NO-LOAD-BLOCK L2, through the ONE work-bounded run ──
+//
+// Every script subprocess (`runScriptSubprocess`), `harness check`'s tsc and
+// the commit guard's compile legs run through `runCpuBounded`
+// (src/process/supervised-run.ts) under these, and nothing else bounds them.
+//
+// `harness sync`'s steps, the dispositions' auto-add, the inventory and the
+// generators each ran under a WALL timeout of their own (120 s to 420 s), and
+// a loaded host killed them: sync's step 5/5 (`harness check`, 240 s) died
+// "without a status payload" and blocked merges (audit row A-18). A busy host
+// makes a step WAIT for a core; it does not make it do more work. So a step
+// is bounded by its WORK:
+//
+// - its process group's CPU time, many times the heaviest step's measured
+//   work, so it ends a runaway, never a slow host (the kernel's RLIMIT_CPU
+//   backs it per process, past it);
+// - a STALL: no output AND no CPU time for two hours. That is a hang, never a
+//   slow step; a step still working is never stopped by it;
+// - the output it may print (`harness check`'s payload is ~75 KB).
+/** The bounds of every harness script subprocess, the typecheck and the commit guard's legs. */
+export const SCRIPT_SUBPROCESS_BOUNDS: CpuBounds = Object.freeze({
+  cpuBudgetMs: 1_800_000,
+  stallMs: 7_200_000,
+  pollMs: 1_000,
+  killGraceMs: 5_000,
+  outputBytes: 256 * 1024 * 1024,
+});
 
 // ── resource-lock.ts defaults ─────────────────────────────────────────────
 

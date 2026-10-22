@@ -58,6 +58,6 @@ export function hostUserCacheFolder(): string {
  * store the process keeps out (design M5).
  */
 export const USER_FOLDER_BOOT_VARIABLES: readonly string[] = Object.freeze([...new Set([
-  ...[ROOT_POLICY.selfProtection.keyHome, ROOT_POLICY.workflow.evidenceStore].flatMap((home) => [home.environmentVariable, home.baseVariable]),
+  ...[ROOT_POLICY.selfProtection.keyHome, ROOT_POLICY.workflow.evidenceStore, ROOT_POLICY.workflow.historyImport].flatMap((home) => [home.environmentVariable, home.baseVariable]),
   ROOT_POLICY.filesystemInfrastructure.userCacheHome.baseVariable,
 ])]);

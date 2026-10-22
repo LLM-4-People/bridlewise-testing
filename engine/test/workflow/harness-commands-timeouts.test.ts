@@ -3,58 +3,27 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import {
-  DEFAULT_TYPECHECK_TIMEOUT_MS,
-  resolveTypecheckTimeoutMs,
-} from "../../src/workflow/harness-commands.ts";
 import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
 
 /**
- * Regression test for FIX-2 (MAJOR): hardcoded subprocess timeouts bypass config.
- *
- * Root cause: `runTypecheck` in `harness-commands.ts` used an inline literal
- * timeout (`120_000` for tsc). The `harness` config section exists for it,
- * but was not consumed.
- *
- * Fix: the function now calls `resolveTypecheckTimeoutMs`, which reads the
- * central config document with fallback to a named default constant. (The
- * git add/commit timeouts' consumer was the deleted `harness integrate`; the
+ * The typecheck has NO wall limit (NO-LOAD-BLOCK A-17): `runTypecheck` runs
+ * tsc through the harness's one subprocess bound (runCpuBounded under
+ * SCRIPT_SUBPROCESS_BOUNDS: its work, never a wall clock), and the config's
+ * old `harness.typecheckTimeoutMs` (120 s of wall) is gone. (The git
+ * add/commit timeouts' consumer was the deleted `harness integrate`; the
  * workspace command is their consumer now, asserted below.)
  */
 
 const ROOT = process.cwd();
 
-test("resolveTypecheckTimeoutMs: returns the configured harness.typecheckTimeoutMs", () => {
-  const snapshot = loadPinnedConfigSnapshot();
-  const configured = snapshot.document.harness?.typecheckTimeoutMs;
-  assert.ok(typeof configured === "number", "the config document must set harness.typecheckTimeoutMs");
-  const resolved = resolveTypecheckTimeoutMs();
-  assert.equal(resolved, configured, "resolveTypecheckTimeoutMs must return the configured value");
-});
-
-test("resolveTypecheckTimeoutMs: default constant is a sensible positive number", () => {
-  assert.ok(DEFAULT_TYPECHECK_TIMEOUT_MS > 0, "default typecheck timeout must be positive");
-  assert.ok(Number.isFinite(DEFAULT_TYPECHECK_TIMEOUT_MS), "default typecheck timeout must be finite");
-});
-
-test("harness-commands source: runTypecheck consumes its config resolver, not an inline literal", () => {
-  // Contract test: the source must not contain hardcoded timeout literals
-  // in the runTypecheck function. The resolver must be called.
-  // This catches a regression where someone re-introduces an inline literal.
+test("the typecheck is bounded by CPU work, never a wall limit: no typecheckTimeoutMs in the config, the bound is the shared one", () => {
+  assert.equal((loadPinnedConfigSnapshot().document.harness as Record<string, unknown> | undefined)?.["typecheckTimeoutMs"], undefined);
   const source = readFileSync(join(ROOT, "src", "workflow", "harness-commands.ts"), "utf8");
-  // Locate the runTypecheck function body.
-  const runTypecheckStart = source.indexOf("async function runTypecheck(");
-  assert.ok(runTypecheckStart !== -1, "runTypecheck function must exist");
-  const runTypecheckEnd = source.indexOf("\n}\n", runTypecheckStart);
-  const runTypecheckBody = source.slice(runTypecheckStart, runTypecheckEnd);
-  assert.ok(
-    /resolveTypecheckTimeoutMs\(\)/u.test(runTypecheckBody),
-    "runTypecheck must call resolveTypecheckTimeoutMs() instead of using an inline literal",
-  );
-  assert.ok(
-    !/timeout:\s*\d+_?000\b/u.test(runTypecheckBody),
-    "runTypecheck must not contain an inline timeout literal",
-  );
+  const start = source.indexOf("export async function runTypecheck(");
+  assert.ok(start !== -1, "runTypecheck function must exist");
+  const body = source.slice(start, source.indexOf("\n}\n", start));
+  assert.match(body, /runCpuBounded\(/u, "runTypecheck must run tsc through the one subprocess bound");
+  assert.doesNotMatch(body, /timeout:/u, "runTypecheck must not carry a wall timeout of its own");
 });
 
 test("workspace-cli source: the workspace command resolves its timeouts from the pinned config document, not inline literals", () => {

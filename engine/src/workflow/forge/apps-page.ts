@@ -49,12 +49,12 @@ import { debugLog } from "../../shared/debug/debug-system.ts";
 import type { AdmittedKeyHome } from "../../filesystem/self-protection/key-home.ts";
 import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { appKeyState, pushHeldKey, storeAppKey, type StoredAppIdentity } from "./app-keys.ts";
-import { ForgeError, isForgeError } from "./codes.ts";
+import { FORGE_LOG_CATEGORY, ForgeError, isForgeError } from "./codes.ts";
 import { anonymousCredential } from "./credentials.ts";
 import type { DiscussionCategory } from "../community/sources.ts";
 import { repositoriesOfKinds, trunkRepository, type ForgeSettings } from "./forge-config.ts";
 import { appManifest, appsPageOrigin } from "./generated-files.ts";
-import { FORGE_LOG_CATEGORY, githubClient } from "./github.ts";
+import { githubClient } from "./github.ts";
 import type { MaintainerCli } from "./maintainer-cli.ts";
 import type { ForgeEndpoint } from "./port.ts";
 

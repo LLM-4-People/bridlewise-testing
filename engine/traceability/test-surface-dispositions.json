@@ -4,6 +4,18 @@
   "policyHash": "5745d10c91083861fafb1330ed68318b364d1038ade69284359577784cfd2622",
   "entries": [
     {
+      "path": "live/history-import.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "qualified-external-oracle",
+      "rationale": "The ONE live suite (LIVE-SUITE): the whole history-import pipeline (harness forge import-history) with the PINNED gitleaks and git-filter-repo, which live outside the checkout in the import home HARNESS_IMPORT_HOME names; no network (every repository is local). Run by `npm run test:live` only, which refuses at load without that home and names a missing tool's provisioning command; its hermetic half (every step that needs only git) stays in test/forge/history-import.test.ts.",
+      "evidenceLinks": [
+        "package.json",
+        "test/prevention/hermetic-suites-have-no-skips.test.ts",
+        "test/forge/history-import.test.ts"
+      ],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "live/mcp-servers.test.ts",
       "language": "javascript-typescript",
       "disposition": "qualified-external-oracle",
@@ -942,6 +954,14 @@
     },
     {
       "path": "test/forge/github-client.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/history-import.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -4245,5 +4265,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "58b412eb4dbe4fa6c0310199e9f220d617562010c8fed21327f34f714802564d"
+  "integrityHash": "e9e176f53a73c64a1a9c49358da59c8abe43f1fb6c0f8d060b47db1fd891631a"
 }

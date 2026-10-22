@@ -300,7 +300,7 @@ function fixtureDocument(commands: WorkspaceIsolationConfig["commands"], workRoo
       phases: { setup: [], validate: ["gate"], regenerate: [], merge: [] },
     },
     promotion: { profileDirectory: PROFILE_DIRECTORY },
-    harness: { typecheckTimeoutMs: 60_000, commandErroredRetries: 0, commandRetryBackoffMs: 1 },
+    harness: { commandErroredRetries: 0, commandRetryBackoffMs: 1 },
   });
 }
 
