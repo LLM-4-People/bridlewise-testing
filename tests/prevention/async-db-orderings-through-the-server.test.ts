@@ -164,7 +164,7 @@ beforeAll(async () => {
   // failure inside the first assertion.
   const health = await req("GET", "/api/health");
   expect(health.status, `server did not serve /api/health:\n${logs.join("")}`).toBe(200);
-}, 90_000);
+});
 
 afterAll(async () => {
   if (child !== undefined && child.exitCode === null) {
@@ -226,7 +226,7 @@ describe("W1 through the server — the writer is one, so nothing is lost, dupli
     expect(history.status).toBe(200);
     const rows = (history.body as { messages: ReadonlyArray<{ content: string }> }).messages;
     expect(rows.map((m) => m.content).filter((c) => c.startsWith("w1s-"))).toEqual(contents);
-  }, 60_000);
+  });
 
   test("60 concurrent writes lose nothing, duplicate nothing, and settle into ONE stable order", async () => {
     const contents = Array.from({ length: 60 }, (_, i) => `w1c-${String(i).padStart(3, "0")}`);
@@ -250,7 +250,7 @@ describe("W1 through the server — the writer is one, so nothing is lost, dupli
     expect([...first].sort()).toEqual([...contents].sort());
     // And ONE order, not a different one each time it is asked.
     expect(await readOnce()).toEqual(first);
-  }, 90_000);
+  });
 });
 
 describe("W2 through the server — a read observes every write issued before it", () => {
@@ -288,7 +288,7 @@ describe("W2 through the server — a read observes every write issued before it
           "across the request boundary",
       ).toBe(true);
     }
-  }, 90_000);
+  });
 });
 
 describe("W3 through the server — the ledger keeps one writer and its causality", () => {
@@ -372,5 +372,5 @@ describe("W3 through the server — the ledger keeps one writer and its causalit
     } finally {
       ledger.close();
     }
-  }, 60_000);
+  });
 });

@@ -7,8 +7,8 @@
  *
  * Its areas, one owner each:
  *
- * - `workspaces-v4/` — the workspace records (`workspace-registry.ts`), and
- *   `workspaces-v3/` and `workspaces/`, the versions before them, read only
+ * - `workspaces-v5/` — the workspace records (`workspace-registry.ts`), and
+ *   `workspaces-v4/`, `workspaces-v3/` and `workspaces/`, the versions before them, read only
  *   (per-version storage);
  * - `locks/` — the repository-wide locks (the workspace admission and merge
  *   locks; a promotion's lock per target ref);
@@ -42,7 +42,9 @@ export type RepositoryRegistry = Readonly<{
 /** The registry's areas (see the header), each a directory under its root. */
 export const REPOSITORY_REGISTRY_AREAS = deepFreeze({
   /** The current workspace records (`workspace-registry.ts`: per-version storage). */
-  workspaces: "workspaces-v4",
+  workspaces: "workspaces-v5",
+  /** The v4 records (`ws land` before the stacks): read only, never written, until their recorded cutover. */
+  workspacesV4: "workspaces-v4",
   /** The v3 records (`ws publish`/`ready` before the land): read only, never written, until their recorded cutover. */
   workspacesV3: "workspaces-v3",
   /** The v2 records (before the forge): read only, never written, until the P7 cutover archives them. */
