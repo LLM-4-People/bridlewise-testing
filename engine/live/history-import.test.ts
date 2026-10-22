@@ -37,7 +37,7 @@ import { importHistory, IMPORT_REVIEW_SCHEMA, removedMarker } from "../src/workf
 import { historyToolPath, historyToolPin, resolveHistoryTool, type HistoryToolName } from "../src/workflow/forge/history-tools.ts";
 import { armTestKeyHome } from "../test/support/test-key-home.ts";
 import { createTempDir } from "../test/support/temp-dir.ts";
-import { CORAL_KEY, GIT, git, GITHUB_TOKEN, MAKORA_KEY, pemLine, plantedRepository, SHORT_PASSWORD, write } from "../test/forge/history-fixture.ts";
+import { CORAL_KEY, entryOf, GIT, git, GITHUB_TOKEN, MAKORA_KEY, pemLine, plantedRepository, SHORT_PASSWORD, write } from "../test/forge/history-fixture.ts";
 
 const POLICY = ROOT_POLICY.workflow.historyImport;
 const OPERATOR_HOME = process.env[POLICY.environmentVariable];
@@ -102,7 +102,7 @@ test("a planted history (UTF-16LE included) is found, purged, re-scanned to zero
   const target = bareTarget();
   const receipt = await importHistory({ source, target }, { home, git: GIT });
 
-  assert.deepEqual(receipt.findings.catalogue, { "coralbricks-key": 2, "dsn-credential": 2, "makora-key": 2, "token-prefix": 3 });
+  assert.deepEqual(receipt.findings.catalogue, Object.fromEntries([[entryOf(CORAL_KEY), 2], [entryOf(`Pwd=${SHORT_PASSWORD};`), 2], [entryOf(MAKORA_KEY), 2], [entryOf(GITHUB_TOKEN), 3]].sort(([a], [b]) => (String(a) < String(b) ? -1 : 1))));
   assert.ok((receipt.findings.oracle.covered["github-pat"] ?? 0) >= 1, "the oracle saw the token and the catalogue covers it");
   assert.equal(receipt.purge.strippedBlobs.length, 3, "the binary blob and both UTF-16LE blobs are stripped whole");
   assert.equal(receipt.after.catalogueHits, 0);
@@ -111,7 +111,7 @@ test("a planted history (UTF-16LE included) is found, purged, re-scanned to zero
 
   const content = everything(target);
   for (const value of [GITHUB_TOKEN, CORAL_KEY, MAKORA_KEY, `Pwd=${SHORT_PASSWORD}`]) assert.ok(!holds(content, value), "a planted value reached the target");
-  for (const entry of ["token-prefix", "makora-key", "coralbricks-key", "dsn-credential"]) assert.ok(content.includes(removedMarker(entry)), `${entry} has its marker`);
+  for (const entry of [GITHUB_TOKEN, MAKORA_KEY, CORAL_KEY, `Pwd=${SHORT_PASSWORD};`].map(entryOf)) assert.ok(content.includes(removedMarker(entry)), `${entry} has its marker`);
   assert.ok(content.includes("risk-assessment-report-for-the-quarter") && content.includes("cb_handle_click_event_listener"), "the near-misses are untouched");
 
   // The receipt: recorded without a path, and the one on the ledger is the one answered.

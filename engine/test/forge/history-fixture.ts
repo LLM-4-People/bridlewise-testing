@@ -13,6 +13,8 @@ import { dirname, join } from "node:path";
 
 import { resolveGitExecutable } from "../../src/git/git-adapter.ts";
 import type { GitRepository } from "../../src/git/tree-reader.ts";
+import { DEFAULT_PRIVACY_POLICY } from "../../src/privacy/privacy-policy.ts";
+import { detectSensitiveSpans } from "../../src/privacy/redaction-engine.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 export const GIT = resolveGitExecutable();
@@ -31,6 +33,17 @@ export const SHORT_PASSWORD = "s3cr";
 export function pemLine(kind: "BEGIN" | "END"): string {
   const dashes = "-".repeat(5);
   return `${dashes}${kind} RSA ${["PRIV", "ATE"].join("")} KEY${dashes}`;
+}
+
+/**
+ * The catalogue row that owns `value`, as the importer's catalogue scan reports it (the redaction engine's
+ * format layer): the tests name rows through the catalogue, never by a spelling it may rename. A value the
+ * catalogue does not see as exactly one span fails here, loudly.
+ */
+export function entryOf(value: string): string {
+  const spans = detectSensitiveSpans(value, DEFAULT_PRIVACY_POLICY);
+  if (spans.length !== 1) throw new Error(`the catalogue reads ${String(spans.length)} span(s) in a planted value, not one`);
+  return spans[0]!.signalId;
 }
 
 export function git(root: string, ...args: readonly string[]): string {
