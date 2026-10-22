@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-ROADMAP
 type: Task
 title: Publish the milestone roadmap
