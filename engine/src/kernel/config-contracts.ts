@@ -1580,8 +1580,9 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // how long it waits before the first retry (doubled each time). A command
   // that merely FAILED (any other non-zero exit) is never retried.
   // (`typecheckTimeoutMs`, the typecheck's 120 s WALL limit, is gone: a
-  // typecheck is bounded by its CPU work and one hang backstop like every
-  // harness subprocess, src/workflow/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
+  // typecheck is bounded by its work (CPU, a stall of no output and no CPU) like
+  // every harness subprocess, through runCpuBounded (src/process/supervised-run.ts) under
+  // SCRIPT_SUBPROCESS_BOUNDS (src/workflow/workflow-config.ts); NO-LOAD-BLOCK A-17.)
   const harnessConfigSchema = z.strictObject({
     commandErroredRetries: z.number().int().min(0).max(10).optional(),
     commandRetryBackoffMs: z.number().int().min(0).max(3_600_000).optional(),

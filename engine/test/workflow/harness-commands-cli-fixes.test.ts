@@ -16,7 +16,8 @@ import {
   type HarnessMetricsOutput,
   type HarnessRollbackOutput,
 } from "../../src/workflow/harness-commands.ts";
-import { boundedEnding, SUBPROCESS_BOUNDS } from "../../src/workflow/subprocess-bounds.ts";
+import { cpuBoundedEndingText } from "../../src/process/supervised-run.ts";
+import { SCRIPT_SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
 import { runBenchmarkCli, parseBenchmarkArgs } from "../../src/performance/benchmark-cli.ts";
 import { runDiagnosticCli, parseDiagnosticArgs } from "../../src/performance/diagnostic-cli.ts";
 import { createTimelineStore } from "../../src/timeline/timeline-store.ts";
@@ -428,11 +429,11 @@ test("the harness root is the engine package, not the caller's cwd", () => {
   assert.ok(readFileSync(join(HARNESS_ROOT, "package.json"), "utf8").includes('"name": "bridlewise"'));
 });
 
-test("a builder script missing from the supplied root names the file and the root, not Node's version banner", () => {
+test("a builder script missing from the supplied root names the file and the root, not Node's version banner", async () => {
   const dir = createTempDir("harness-missing-builder-");
   try {
-    assert.throws(
-      () => runScriptSubprocess(dir, "scripts/pin-authority-regeneration.ts", ["--check"]),
+    await assert.rejects(
+      runScriptSubprocess(dir, "scripts/pin-authority-regeneration.ts", ["--check"]),
       (error: unknown) => {
         assert.ok(error instanceof InputError);
         assert.match(error.message, /does not contain scripts\/pin-authority-regeneration\.ts/u);
@@ -469,22 +470,32 @@ test("the DOCUMENTED root invocation reaches the pin-authorities step instead of
 });
 
 // ---------------------------------------------------------------------------
-// A script subprocess is bounded in CPU work, never killed by a wall clock a
-// loaded host runs out (NO-LOAD-BLOCK L2, audit A-18), and one that ends
-// without a payload says HOW it ended (status, signal, which bound fired).
+// A script subprocess is bounded by its WORK through the one work-bounded run
+// (runCpuBounded), never killed by a wall clock a loaded host runs out
+// (NO-LOAD-BLOCK L2, audit A-18), and one that ends without a payload says
+// HOW it ended (status, signal, which bound fired). Every fixture ENDS ON ITS
+// OWN (a CPU cap, a lifetime), so a bound mutated away fails by name.
 // ---------------------------------------------------------------------------
 
-test("a script subprocess that dies without a payload names how it ended: the signal, or its exit status", () => {
+/** A fixture body that burns `cpuMs` of its own CPU (user plus system), then exits. */
+function burnFor(cpuMs: number): string {
+  return `const used = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; }; const until = used() + ${String(cpuMs)}; while (used() < until) {}\n`;
+}
+
+/** Bounds small enough for a fixture to reach each one. */
+const SMALL = { cpuBudgetMs: 60_000, stallMs: 60_000, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 } as const;
+
+test("a script subprocess that dies without a payload names how it ended: the signal, or its exit status", async () => {
   const dir = createTempDir("harness-subprocess-ending-");
   try {
     mkdirSync(join(dir, "scripts"), { recursive: true });
     writeFileSync(join(dir, "scripts", "signalled.ts"), "process.kill(process.pid, 'SIGTERM');\nsetTimeout(() => {}, 10_000);\n");
     writeFileSync(join(dir, "scripts", "silent-exit.ts"), "process.exit(3);\n");
-    assert.throws(() => runScriptSubprocess(dir, "scripts/signalled.ts", []), (error: unknown) => {
+    await assert.rejects(runScriptSubprocess(dir, "scripts/signalled.ts", []), (error: unknown) => {
       assert.match((error as Error).message, /scripts\/signalled\.ts ended without a status payload: it was ended by signal SIGTERM/u);
       return true;
     });
-    assert.throws(() => runScriptSubprocess(dir, "scripts/silent-exit.ts", []), (error: unknown) => {
+    await assert.rejects(runScriptSubprocess(dir, "scripts/silent-exit.ts", []), (error: unknown) => {
       assert.match((error as Error).message, /it exited with status 3 \(it printed nothing on stderr\)/u);
       return true;
     });
@@ -493,9 +504,11 @@ test("a script subprocess that dies without a payload names how it ended: the si
   }
 });
 
-test("the two L2 bounds are named when they fire: the CPU-time limit (SIGXCPU) and the hang backstop (HUNG)", () => {
-  assert.match(boundedEnding({ status: null, signal: "SIGXCPU" }, SUBPROCESS_BOUNDS), /spent its CPU-time limit of 1800 s of CPU work \(RLIMIT_CPU\)/u);
-  assert.match(boundedEnding({ status: null, signal: "SIGKILL", errorCode: "ETIMEDOUT" }, SUBPROCESS_BOUNDS), /^HUNG: it was still running at the 7200 s hang backstop \(wall\) and was killed with SIGKILL/u);
+test("the harness's bounds are named when they fire: the group's CPU budget, the kernel backstop (SIGXCPU) and the stall", () => {
+  const ended = { status: null, signal: null, cpuMs: 1_800_123, startError: null } as const;
+  assert.match(cpuBoundedEndingText({ ...ended, ending: "cpu-exhausted" }, SCRIPT_SUBPROCESS_BOUNDS), /its process group spent its CPU budget of 1800000 ms \(1800123 ms used\) and was stopped/u);
+  assert.match(cpuBoundedEndingText({ ...ended, ending: "cpu-rlimit", signal: "SIGXCPU" }, SCRIPT_SUBPROCESS_BOUNDS), /its own CPU-time limit \(RLIMIT_CPU, the kernel backstop past the 1800000 ms budget\) and was ended by SIGXCPU/u);
+  assert.match(cpuBoundedEndingText({ ...ended, ending: "stalled" }, SCRIPT_SUBPROCESS_BOUNDS), /no output and no CPU time for 7200000 ms \(stalled\)/u);
 });
 
 /** Each bound, driven THROUGH runScriptSubprocess with bounds small enough to fire. */
@@ -506,11 +519,11 @@ function boundedFixture(name: string, body: string): Readonly<{ dir: string; scr
   return { dir, script: `scripts/${name}.ts` };
 }
 
-test("BOUND 1, the CPU-time limit: a step past it is ended by SIGXCPU and says so", () => {
-  const { dir, script } = boundedFixture("spin", "for (;;) {}\n");
+test("BOUND 1, the CPU budget: a step whose group spends it is stopped and says so", async () => {
+  const { dir, script } = boundedFixture("spin", burnFor(10_000));
   try {
-    assert.throws(() => runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 1, cpuKillGraceSeconds: 5, hangBackstopMs: 120_000 } }), (error: unknown) => {
-      assert.match((error as Error).message, /spent its CPU-time limit of 1 s of CPU work \(RLIMIT_CPU\) and was ended by SIGXCPU/u);
+    await assert.rejects(runScriptSubprocess(dir, script, [], { bounds: { ...SMALL, cpuBudgetMs: 500 } }), (error: unknown) => {
+      assert.match((error as Error).message, /ended without a status payload: its process group spent its CPU budget of 500 ms/u);
       return true;
     });
   } finally {
@@ -518,21 +531,22 @@ test("BOUND 1, the CPU-time limit: a step past it is ended by SIGXCPU and says s
   }
 });
 
-test("BOUND 1 is BINDING: the hard limit is set too, so no child can raise its CPU limit", () => {
-  const { dir, script } = boundedFixture("limits", 'import { execFileSync } from "node:child_process";\nconst read = (flag: string) => execFileSync("/bin/sh", ["-c", `ulimit ${flag} -t`], { encoding: "utf8" }).trim();\nlet raised = "refused";\ntry { execFileSync("/bin/sh", ["-c", "ulimit -H -t unlimited"], { stdio: "ignore" }); raised = "raised"; } catch {}\nprocess.stdout.write(JSON.stringify({ soft: read("-S"), hard: read("-H"), raised }));\n');
+test("BOUND 1 is BACKED by the kernel: RLIMIT_CPU is set past the budget, hard as well as soft, so no child can raise it", async () => {
+  const { dir, script } = boundedFixture("limits", 'import { execFileSync } from "node:child_process";\nconst read = (flag: string) => execFileSync("/bin/sh", ["-c", `ulimit ${flag} -t`], { encoding: "utf8" }).trim();\nlet raised = "refused";\ntry { execFileSync("/bin/sh", ["-c", "ulimit -H -t unlimited"], { stdio: "ignore" }); raised = "raised"; } catch {}\nprocess.stdout.write(JSON.stringify({ soft: read("-S"), hard: read("-H"), raised, parent: process.ppid === Number(process.argv[2]) }));\n');
   try {
-    const answer = JSON.parse(runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 7, cpuKillGraceSeconds: 3, hangBackstopMs: 120_000 } })) as { soft: string; hard: string; raised: string };
-    assert.deepEqual(answer, { soft: "7", hard: "10", raised: "refused" });
+    // soft = ceil((7000 + 2 × 100 + 2000) / 1000) + 1 = 11 s; hard = soft + ceil(2000 / 1000) + 1 = 14 s.
+    const answer = JSON.parse(await runScriptSubprocess(dir, script, [String(process.pid)], { bounds: { ...SMALL, cpuBudgetMs: 7_000, pollMs: 100, killGraceMs: 2_000 } })) as Record<string, unknown>;
+    assert.deepEqual(answer, { soft: "11", hard: "14", raised: "refused", parent: true }, "the limit is set, binding, and the command was exec'd (its parent is this process, no shell between)");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("BOUND 2, the hang backstop: a step still running at it is killed and reported HUNG (script_subprocess_hung)", () => {
-  const { dir, script } = boundedFixture("sleeps", "setTimeout(() => {}, 60_000);\n");
+test("BOUND 2, the stall: a step with no output and no CPU is stopped and reported hung (script_subprocess_hung)", async () => {
+  const { dir, script } = boundedFixture("sleeps", "setTimeout(() => {}, 30_000);\n");
   try {
-    assert.throws(() => runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 60, cpuKillGraceSeconds: 5, hangBackstopMs: 300 } }), (error: unknown) => {
-      assert.match((error as Error).message, /ended without a status payload: HUNG: it was still running at the 0\.3 s hang backstop \(wall\) and was killed with SIGKILL/u);
+    await assert.rejects(runScriptSubprocess(dir, script, [], { bounds: { ...SMALL, stallMs: 300 } }), (error: unknown) => {
+      assert.match((error as Error).message, /ended without a status payload: it produced no output and no CPU time for 300 ms \(stalled\) and was stopped/u);
       assert.equal((error as { code?: unknown }).code, "script_subprocess_hung");
       return true;
     });
@@ -541,10 +555,10 @@ test("BOUND 2, the hang backstop: a step still running at it is killed and repor
   }
 });
 
-test("a typed refusal printed by a step that was then KILLED is reported as the kill, never as the refusal", () => {
+test("a typed refusal printed by a step that was then KILLED is reported as the kill, never as the refusal", async () => {
   const { dir, script } = boundedFixture("refused-then-killed", 'process.stderr.write(JSON.stringify({ error: "some_refusal", message: "the step refused" }) + "\\n");\nprocess.kill(process.pid, "SIGTERM");\nsetTimeout(() => {}, 10_000);\n');
   try {
-    assert.throws(() => runScriptSubprocess(dir, script, []), (error: unknown) => {
+    await assert.rejects(runScriptSubprocess(dir, script, []), (error: unknown) => {
       assert.match((error as Error).message, /ended without a status payload: it was ended by signal SIGTERM/u);
       assert.notEqual((error as { code?: unknown }).code, "some_refusal");
       return true;

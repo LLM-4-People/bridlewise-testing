@@ -27,6 +27,7 @@
  */
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { constants } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
@@ -464,6 +465,28 @@ test("the work-bounded run bounds the whole GROUP: a grandchild holding the pipe
   assert.equal(leaderSpent.ending, "cpu-exhausted");
   assert.ok((leaderSpent.cpuMs ?? 0) > TIGHT.cpuBudgetMs, `the total kept the exited leader's work (${String(leaderSpent.cpuMs)} ms)`);
   assert.equal(isProcessAlive(Number(readFileSync(spent, "utf8"))), false);
+});
+
+test("the kernel backstop: a process that LEFT the group (setsid, NB-1) is still ended at its own CPU-time limit (RLIMIT_CPU, SIGXCPU); the command itself is exec'd", async () => {
+  const dir = createTempDir("bounded-rlimit-");
+  // The leader starts, in a session of its own (out of the group: no budget, no stop reaches it), a shell that runs a
+  // burner and records how it ended, then exits. The burner burns up to SPIN_CAP_MS of CPU; at its soft limit (2 s for
+  // TIGHT: ceil((400 + 2 × 50 + 200) / 1000) + 1) the kernel ends it with SIGXCPU (status 128 + 24). Without the
+  // backstop it burns its cap and exits 0. (A JavaScript SIGXCPU handler never runs: the busy loop holds the event loop.)
+  const escapee = join(dir, "escapee");
+  const record = join(dir, "ended");
+  const parent = join(dir, "parent");
+  const run = await runCpuBounded(NODE, ["-e", [
+    `require("node:fs").writeFileSync(${JSON.stringify(parent)}, String(process.ppid));`,
+    `const g = require("node:child_process").spawn("/bin/sh", ["-c", '"$0" -e "$1"; echo $? > "$2"', process.execPath, ${JSON.stringify(SPIN)}, ${JSON.stringify(record)}], { detached: true, stdio: "ignore" });`,
+    `require("node:fs").writeFileSync(${JSON.stringify(escapee)}, String(g.pid)); g.unref();`,
+  ].join(" ")], { cwd: dir, env: ENV, bounds: TIGHT });
+  assert.equal(run.ending, "exited");
+  assert.equal(Number(readFileSync(parent, "utf8")), process.pid, "the command was exec'd: its parent is this process, no shell between");
+  const pid = Number(readFileSync(escapee, "utf8"));
+  // The escapee ends on its own either way (the burner's CPU cap): wait for that, never for a clock.
+  while (isProcessAlive(pid)) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(readFileSync(record, "utf8").trim(), String(128 + constants.signals.SIGXCPU), "the escapee's burner was ended by the kernel's CPU-time limit (SIGXCPU), not its own cap");
 });
 
 test("the work-bounded run's bounds, each pinned by a test a mutation turns red (S1, S2, P1, G1)", async () => {

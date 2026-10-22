@@ -57,7 +57,7 @@ export async function runBoundedCommand(command: string, args: readonly string[]
     input: Buffer.from(input ?? "", "utf8"),
     bounds: { cpuBudgetMs: limits.cpuLimitMs, stallMs: limits.stallMs, pollMs: Math.max(CLOCK_TICK_MS, Math.min(1_000, Math.floor(limits.stallMs / 4))), killGraceMs: limits.killGraceMs, outputBytes: OUTPUT_BOUND },
   });
-  const ending = run.ending === "cpu-exhausted" ? "cpu-limit" : run.ending === "unstarted" ? "exited" : run.ending;
+  const ending = run.ending === "cpu-exhausted" || run.ending === "cpu-rlimit" ? "cpu-limit" : run.ending === "unstarted" ? "exited" : run.ending;
   return Object.freeze({
     status: run.status,
     stdout: run.stdout.toString("utf8"),

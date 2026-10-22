@@ -725,43 +725,42 @@ test("DRIVEN: a commit that itself drops a protected staged blob (a committed `g
 const BOUNDED_LEG_START = "// --- bounded typecheck leg (extracted and driven by engine/test/prevention/commit-compile-door.test.ts) ---";
 const BOUNDED_LEG_END = "// --- end bounded typecheck leg ---";
 
-test("DRIVEN: a compile leg still running at its hang backstop is KILLED and REFUSED as hung — and it is bounded by CPU work, never a wall limit", () => {
+test("DRIVEN: a compile leg that makes no progress is STOPPED as a group and REFUSED as stalled — and it is bounded by its work, never a wall limit", () => {
   const source = readFileSync(COMMIT_GUARD, "utf8");
   const from = source.indexOf(BOUNDED_LEG_START);
   const to = source.indexOf(BOUNDED_LEG_END);
   assert.ok(from !== -1 && to > from, "the guard carries the bounded typecheck leg block this test drives");
-  // The door bounds both legs with the harness's one subprocess bound (CPU
-  // work + one hang backstop, src/workflow/subprocess-bounds.ts) and refuses
-  // the killed outcome by name — not merely print its output.
-  assert.match(source, /runTypecheckLeg\(stagedTree, "web", SUBPROCESS_BOUNDS\)/u);
-  assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", SUBPROCESS_BOUNDS\)/u);
-  assert.match(source, /cpuLimitedInvocation\("npm", \["run", "typecheck"\], bounds\)/u);
+  // The door bounds both legs with the harness's one subprocess bound (the one
+  // work-bounded run, runCpuBounded, under SCRIPT_SUBPROCESS_BOUNDS) and refuses
+  // the stopped outcome by name — not merely print its output.
+  assert.match(source, /runTypecheckLeg\(stagedTree, "web", SCRIPT_SUBPROCESS_BOUNDS\)/u);
+  assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", SCRIPT_SUBPROCESS_BOUNDS\)/u);
+  assert.match(source, /runCpuBounded\("npm", \["run", "typecheck"\]/u);
   assert.doesNotMatch(source, /typecheckTimeoutMs/u, "no wall limit bounds a compile leg");
-  assert.match(source, /outcome\.timedOut/u);
+  assert.match(source, /outcome\.run\.ending !== "exited"/u);
   assert.match(source, /typecheckLegRefusal\(outcome\)/u);
 
   // Drive the REAL block, extracted from the guard's source, with a short
-  // bound: a fixture `typecheck` that sleeps for a minute must be killed and
-  // answered as a timed-out refusal well before it finishes.
+  // stall window: a fixture `typecheck` that sleeps (no output, no CPU) must
+  // be stopped and answered as a stalled refusal well before it finishes.
   const root = createTempDir("ch-typecheck-bound-");
   const block = source.slice(from + BOUNDED_LEG_START.length, to);
   const leg = join(root, "typecheck-leg.ts");
-  const processFacts = pathToFileURL(join(INTEGRATION_ROOT, "src/process/process-facts.ts")).href;
-  const subprocessBounds = pathToFileURL(join(INTEGRATION_ROOT, "src/workflow/subprocess-bounds.ts")).href;
-  writeFileSync(leg, `import { spawn } from "node:child_process";\nimport { ownedChild, terminate } from ${JSON.stringify(processFacts)};\nimport { boundedEnding, cpuLimitedInvocation, type SubprocessBounds } from ${JSON.stringify(subprocessBounds)};\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
+  const supervisedRun = pathToFileURL(join(INTEGRATION_ROOT, "src/process/supervised-run.ts")).href;
+  writeFileSync(leg, `import { cpuBoundedEndingText, runCpuBounded, type CpuBoundedRun, type CpuBounds } from ${JSON.stringify(supervisedRun)};\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
   const tree = join(root, "tree");
   writeFile(root, "tree/package.json", `${JSON.stringify({ name: "bounded-leg-fixture", private: true, scripts: { typecheck: 'node -e "setTimeout(() => {}, 60000)"' } })}\n`);
   const driver = join(root, "drive.ts");
   writeFileSync(driver, [
     `import { runTypecheckLeg, typecheckLegRefusal } from ${JSON.stringify(pathToFileURL(leg).href)};`,
-    `const outcome = await runTypecheckLeg(${JSON.stringify(tree)}, "web", { cpuLimitSeconds: 60, cpuKillGraceSeconds: 5, hangBackstopMs: 250 });`,
-    "process.stdout.write(JSON.stringify({ timedOut: outcome.timedOut, status: outcome.status, refusal: typecheckLegRefusal(outcome) }));",
+    `const outcome = await runTypecheckLeg(${JSON.stringify(tree)}, "web", { cpuBudgetMs: 60_000, stallMs: 1_000, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 });`,
+    "process.stdout.write(JSON.stringify({ ending: outcome.run.ending, status: outcome.run.status, refusal: typecheckLegRefusal(outcome) }));",
     "",
   ].join("\n"));
   const run = spawnSync(process.execPath, ["--experimental-strip-types", driver], { encoding: "utf8" });
   assert.equal(run.status, 0, `the bounded-leg driver failed:\n${run.stderr}`);
   const outcome = JSON.parse(run.stdout);
-  assert.equal(outcome.timedOut, true, "the leg was not killed at its hang backstop");
-  assert.equal(outcome.status, null, "a killed leg must not report an exit status");
-  assert.match(outcome.refusal, /did not finish: HUNG: it was still running at the 0\.25 s hang backstop \(wall\)/u);
+  assert.equal(outcome.ending, "stalled", "the leg was not stopped as stalled");
+  assert.equal(outcome.status, null, "a stopped leg must not report an exit status");
+  assert.match(outcome.refusal, /did not finish: it produced no output and no CPU time for 1000 ms \(stalled\) and was stopped/u);
 });
