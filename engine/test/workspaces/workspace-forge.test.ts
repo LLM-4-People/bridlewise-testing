@@ -277,6 +277,22 @@ test("a validation survives the publish (the twin holds the same tree): the loca
   assert.equal(receipt.changedPaths[0], "src/a.ts");
 });
 
+test("the fake forge's forward-only move is GitHub's `force: false`: a move that is not a fast-forward is refused (and nothing moves), a fast-forward applies, and a workspace's own rewrite (forwardOnly: false) applies", async () => {
+  const { bare, forge } = forgeFixture("ws-forge-forward-only");
+  const base = rawGit(bare, ["rev-parse", "refs/heads/main"]);
+  const tree = rawGit(bare, ["rev-parse", `${base}^{tree}`]);
+  const ahead = rawGit(bare, ["commit-tree", tree, "-p", base, "-m", "a fast-forward"]);
+  const aside = rawGit(bare, ["commit-tree", tree, "-p", base, "-m", "a rewrite"]);
+  assert.deepEqual(await forge.setBranch({ branch: "product", sha: ahead, previous: null, forwardOnly: true }), { applied: true }, "a create is no move");
+  await assert.rejects(() => forge.setBranch({ branch: "product", sha: aside, previous: ahead, forwardOnly: true }), throwsCode("github_validation_failed"), "not a fast-forward");
+  assert.equal(forgeRev(bare, "refs/heads/product"), ahead, "a refused move moves nothing");
+  const further = rawGit(bare, ["commit-tree", tree, "-p", ahead, "-m", "further"]);
+  assert.deepEqual(await forge.setBranch({ branch: "product", sha: further, previous: ahead, forwardOnly: true }), { applied: true });
+  assert.deepEqual(await forge.setBranch({ branch: "product", sha: aside, previous: further, forwardOnly: false }), { applied: true }, "a rewrite applies when it is allowed");
+  assert.equal(forgeRev(bare, "refs/heads/product"), aside);
+  assert.deepEqual(await forge.setBranch({ branch: "product", sha: further, previous: ahead, forwardOnly: true }), { applied: false }, "a branch elsewhere is the compare-and-swap's answer, never the forward-only refusal");
+});
+
 test("the branch move is a compare-and-swap: another writer's push between the read and the move is never overwritten", async () => {
   const { bare, root, config, manager } = forgeFixture("ws-forge-cas");
   const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
