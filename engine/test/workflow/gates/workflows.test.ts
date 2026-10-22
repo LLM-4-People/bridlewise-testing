@@ -25,6 +25,9 @@ import { catalogueCommandNames, GATE_CATALOGUE } from "../../../src/workflow/gat
 import {
   auditWorkflow,
   ciWorkflow,
+  failureIssueWorkflow,
+  promotionGateWorkflow,
+  reusableFailureWorkflow,
   codeqlWorkflow,
   GENERATED_HEADER,
   GENERATED_WORKFLOW_PATHS,
@@ -210,4 +213,22 @@ test("every command the catalogue runs is declared in the live command registry 
 test("no two generated workflows share a concurrency group prefix (one would cancel the other's runs)", () => {
   assert.doesNotThrow(() => lintWorkflowSet({ "ci.yml": ciWorkflow(), "codeql.yml": codeqlWorkflow(), "publish.yml": publishWorkflow(), "audit.yml": auditWorkflow() }));
   assert.throws(() => lintWorkflowSet({ "ci.yml": ciWorkflow(), "copy.yml": ciWorkflow() }), refusedWith("workflow_lint_refused"));
+});
+
+test("the failure reporter watches every generated workflow by name, and the promotion gate splices no input into its script (#67 takes over main's hand-written ones)", () => {
+  const issue = failureIssueWorkflow() as Mutable;
+  const watched = ((issue.on as Mutable).workflow_run as Mutable).workflows as string[];
+  assert.deepEqual(watched, [ciWorkflow(), codeqlWorkflow(), publishWorkflow(), auditWorkflow()].map((workflow) => (workflow as Mutable).name), "derived from the generated set, never a hand list");
+  assert.equal(((issue.jobs as Mutable).report as Mutable).uses, "./.github/workflows/reusable-workflow-failure.yml");
+  const reporter = reusableFailureWorkflow() as Mutable;
+  assert.deepEqual(Object.keys(reporter.on as Mutable), ["workflow_call"]);
+  assert.equal(reporter.concurrency, undefined, "a reusable workflow runs in its caller's group");
+  const gate = promotionGateWorkflow() as Mutable;
+  const steps = ((gate.jobs as Mutable).gate as Mutable).steps as Mutable[];
+  const evaluate = steps.find((step) => step.id === "gate")!;
+  assert.doesNotMatch(String(evaluate.run), /\$\{\{/u, "the caller's inputs reach the script as environment data");
+  assert.equal((evaluate.env as Mutable).PRODUCT_SHA, "${{ inputs.product_sha }}");
+  for (const [name, build] of [["workflow-failure-issue.yml", failureIssueWorkflow], ["reusable-workflow-failure.yml", reusableFailureWorkflow], ["promotion-gate.yml", promotionGateWorkflow]] as const) {
+    assert.doesNotThrow(() => lintWorkflow(name, build()), name);
+  }
 });

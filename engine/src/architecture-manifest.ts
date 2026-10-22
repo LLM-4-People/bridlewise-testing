@@ -5599,8 +5599,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-gates-workflows", path: "src/workflow/gates/workflows.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 11, namesSha256: "448015fea4515e8fa46b00598a14e7ca3d2b1a18b44a926ba0da3c634e9930e1" },
-      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/text/yaml-emit.ts","src/workflow/gates/catalogue.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 14, namesSha256: "b5193996e995651e1b6ac0857d4003317f8f9c7d2fb5027505060ec6e45dfb89" },
+      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/text/yaml-emit.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/workflow-scripts.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-cell-run", path: "src/workflow/gates/cell-run.ts", realm: "runtime", layer: "infrastructure",
@@ -5701,6 +5701,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-workflow-promotion-release-train", path: "src/workflow/promotion/release-train.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "3b52f7acddb70486d0b61809ea140df94baef344d493c1e3000b1d0d67d6e1fd" },
       dependencies: ["src/extensions/semver.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/trailers.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-gates-workflow-scripts", path: "src/workflow/gates/workflow-scripts.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "325a6af9824c05e2cec53944ed5fa9879b664161345d6af85e981d5be95bbe39" },
+      dependencies: [],
     }),
   ],
 });

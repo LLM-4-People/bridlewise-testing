@@ -52,6 +52,7 @@ import {
   type Toolchain,
 } from "./catalogue.ts";
 import { Commented, emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
+import { FAILURE_REPORT_SCRIPT, PROMOTION_GATE_SCRIPT } from "./workflow-scripts.ts";
 
 const WORKFLOW_DIRECTORY = GENERATED_WORKFLOW_FILES.directory;
 
@@ -350,6 +351,9 @@ export function publishWorkflow(): Workflow {
             env: { BASE_PATH: "${{ steps.pages.outputs.base_path }}" },
             run: "node scripts/assemble-floor-site.mjs --product product/docs --testing . --out .site --baseurl \"$BASE_PATH\"",
           },
+          // The floor data reads GitHub through the forge port and the test inventory through its owner: both are engine code.
+          { name: "Install the engine", run: "npm --prefix engine ci --no-audit --no-fund --ignore-scripts" },
+          { name: "Enforce the self-protection config mode", run: "chmod 600 engine/bridlewise.config.json" },
           {
             name: "Generate floor data",
             env: { GH_TOKEN: "${{ github.token }}" },
@@ -408,6 +412,117 @@ export function auditWorkflow(): Workflow {
   };
 }
 
+/** The names the generated gating and scheduled workflows run under: the failure reporter watches exactly these. */
+function reportedWorkflowNames(): readonly string[] {
+  return [ciWorkflow(), codeqlWorkflow(), publishWorkflow(), auditWorkflow()].map((workflow) => String(workflow.name));
+}
+
+/**
+ * The failure reporter's trigger: every completed run of a generated workflow
+ * (a `workflow_run` holds the base repository's token, so it calls the
+ * reusable reporter, whose one step reads the run's facts as environment
+ * data, never spliced into its script).
+ */
+export function failureIssueWorkflow(): Workflow {
+  return {
+    name: "Report workflow failure",
+    on: { workflow_run: { workflows: [...reportedWorkflowNames()], types: ["completed"] } },
+    permissions: { contents: "read", issues: "write", actions: "read" },
+    concurrency: { group: "failure-report-${{ github.event.workflow_run.id }}", queue: "max" },
+    jobs: {
+      report: {
+        permissions: { contents: "read", issues: "write", actions: "read" },
+        uses: "./.github/workflows/reusable-workflow-failure.yml",
+      },
+    },
+  };
+}
+
+/** The reusable failure reporter: opens or updates the run's `ci-failure` issue on a failure, closes it on a recovery. */
+export function reusableFailureWorkflow(): Workflow {
+  return {
+    name: "Report workflow failure",
+    on: { workflow_call: null },
+    permissions: { contents: "read", issues: "write", actions: "read" },
+    jobs: {
+      report: {
+        name: "Open or close the failure issue",
+        "runs-on": GATE_RUNNER,
+        "timeout-minutes": 10,
+        permissions: { contents: "read", issues: "write", actions: "read" },
+        env: {
+          GH_TOKEN: "${{ github.token }}",
+          GH_REPO: "${{ github.repository }}",
+          RUN_ID: "${{ github.event.workflow_run.id }}",
+          RUN_NAME: "${{ github.event.workflow_run.name }}",
+          RUN_CONCLUSION: "${{ github.event.workflow_run.conclusion }}",
+          RUN_URL: "${{ github.event.workflow_run.html_url }}",
+          HEAD_SHA: "${{ github.event.workflow_run.head_sha }}",
+          HEAD_BRANCH: "${{ github.event.workflow_run.head_branch }}",
+          EVENT: "${{ github.event.workflow_run.event }}",
+          PR_NUMBER: "${{ github.event.workflow_run.pull_requests[0].number }}",
+        },
+        steps: [{ name: "Report failure or recovery", shell: "bash", run: FAILURE_REPORT_SCRIPT }],
+      },
+    },
+  };
+}
+
+/**
+ * The promotion gate (GH-5, #53), called by the product's promotion: the
+ * testing floor at the commit that owns the gate runs its public suite, then
+ * the gate script judges the product's runs and alerts and publishes one
+ * verdict. The caller's inputs reach the script as environment data.
+ */
+export function promotionGateWorkflow(): Workflow {
+  return {
+    name: "Promotion gate",
+    on: {
+      workflow_call: {
+        inputs: {
+          product_repo: { description: "Product repository", required: true, type: "string" },
+          product_sha: { description: "Product commit to verify", required: true, type: "string" },
+          product_tag: { description: "Product tag or release label", required: true, type: "string" },
+          testing_sha: { description: "Testing-floor commit that owns this gate", required: true, type: "string" },
+          wait_seconds: { description: "Wait for required product runs to finish at the commit", required: false, default: 0, type: "number" },
+        },
+        outputs: { verdict: { description: "allowed, or blocked:<reason> when the gate refuses", value: "${{ jobs.gate.outputs.verdict }}" } },
+      },
+    },
+    permissions: { contents: "read", actions: "read", "security-events": "read", "vulnerability-alerts": "read" },
+    jobs: {
+      gate: {
+        name: "Verify product and testing evidence",
+        "runs-on": GATE_RUNNER,
+        "timeout-minutes": 30,
+        permissions: { contents: "read", actions: "read", "security-events": "read", "vulnerability-alerts": "read" },
+        outputs: { verdict: "${{ steps.gate.outputs.verdict }}" },
+        steps: [
+          { name: "Check out the testing floor", uses: uses("checkout"), with: { repository: "LLM-4-People/bridlewise-testing", ref: "${{ inputs.testing_sha }}", path: "testing", "persist-credentials": false } },
+          { name: "Set up Node 24", uses: uses("setup-node"), with: { "node-version-file": ".nvmrc", cache: "npm", "cache-dependency-path": "testing/package-lock.json\ntesting/engine/package-lock.json\n" } },
+          { name: "Install the public test dependencies", "working-directory": "testing", run: "npm ci --no-audit --no-fund --ignore-scripts\nnpm --prefix engine ci --no-audit --no-fund --ignore-scripts\n" },
+          { name: "Enforce the self-protection config mode", "working-directory": "testing", run: "chmod 600 engine/bridlewise.config.json" },
+          { name: "Run the public testing-floor suite", "working-directory": "testing", run: "npm run test:public" },
+          {
+            name: "Evaluate the product gates",
+            id: "gate",
+            "working-directory": "testing",
+            env: {
+              GH_TOKEN: "${{ github.token }}",
+              PRODUCT_REPO: "${{ inputs.product_repo }}",
+              PRODUCT_SHA: "${{ inputs.product_sha }}",
+              PRODUCT_TAG: "${{ inputs.product_tag }}",
+              WAIT_SECONDS: "${{ inputs.wait_seconds }}",
+            },
+            run: PROMOTION_GATE_SCRIPT,
+          },
+          { name: "Upload the promotion receipt", if: "always()", uses: uses("upload-artifact"), with: { name: "promotion-receipt", path: "testing/promotion-receipt.json", "if-no-files-found": "warn" } },
+        ],
+      },
+    },
+  };
+}
+
 type WorkflowFile = (typeof GENERATED_WORKFLOW_FILES.files)[number];
 
 /** The builder of each generated workflow file (the file list is `GENERATED_WORKFLOW_FILES`, the one declaration). */
@@ -415,7 +530,10 @@ const WORKFLOW_BUILDERS: Readonly<Record<WorkflowFile, () => Workflow>> = deepFr
   "audit.yml": auditWorkflow,
   "ci.yml": () => ciWorkflow(),
   "codeql.yml": codeqlWorkflow,
+  "promotion-gate.yml": promotionGateWorkflow,
   "publish.yml": publishWorkflow,
+  "reusable-workflow-failure.yml": reusableFailureWorkflow,
+  "workflow-failure-issue.yml": failureIssueWorkflow,
 });
 
 /** The generated workflow files, repository-relative. The folder holds exactly these. */
@@ -443,11 +561,15 @@ export function lintWorkflow(name: string, workflow: Workflow): void {
   const push = on.push as Readonly<Record<string, YamlValue>> | undefined;
   if (push !== undefined && (Object.keys(push).some((filter) => filter !== "branches") || JSON.stringify(push.branches) !== JSON.stringify(["main"]))) refuse("push names only branches: [main] (no path or excluded-branch filter skips a main commit)");
   if (workflow.permissions === undefined) refuse("no workflow-level permissions");
+  // A reusable workflow (`workflow_call` alone) runs inside its caller's run and the caller's group: it states none.
+  const reusable = Object.keys(on).length === 1 && "workflow_call" in on;
   const concurrency = workflow.concurrency as Readonly<Record<string, YamlValue>> | undefined;
-  if (concurrency === undefined) refuse("no concurrency block");
-  const cancel = concurrency!["cancel-in-progress"];
-  if (cancel !== undefined && cancel !== PR_GROUP_CANCEL) refuse("only a pull request's group cancels");
-  if (cancel === undefined && concurrency!.queue !== "max") refuse("a shared group without cancel queues with queue: max (the default single slot cancels a pending run)");
+  if (concurrency === undefined && !reusable) refuse("no concurrency block");
+  if (concurrency !== undefined) {
+    const cancel = concurrency["cancel-in-progress"];
+    if (cancel !== undefined && cancel !== PR_GROUP_CANCEL) refuse("only a pull request's group cancels");
+    if (cancel === undefined && concurrency.queue !== "max") refuse("a shared group without cancel queues with queue: max (the default single slot cancels a pending run)");
+  }
   const jobs = workflow.jobs as Readonly<Record<string, Readonly<Record<string, YamlValue>>>>;
   for (const [jobId, job] of Object.entries(jobs)) {
     if (job.permissions === undefined) refuse(`job ${jobId} states no permissions`);
@@ -468,6 +590,7 @@ export function lintWorkflow(name: string, workflow: Workflow): void {
 export function lintWorkflowSet(workflows: Readonly<Record<string, Workflow>>): void {
   const owners = new Map<string, string>();
   for (const [name, workflow] of Object.entries(workflows)) {
+    if (workflow.concurrency === undefined) continue;
     const group = String((workflow.concurrency as Readonly<Record<string, YamlValue>>).group);
     const prefix = /^\$\{\{ github\.event_name == 'pull_request' && format\('([a-z-]+)-pr-/u.exec(group)?.[1] ?? group.split("$")[0]!.replace(/-$/u, "");
     const owner = owners.get(prefix);

@@ -2254,7 +2254,7 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "3fa44723416fa3d57e9a19ae2eefc13a14a2f8156731b9a5d16d60e7408e54ce",
+    testInventoryHash: "97603e9df535389624d5a2883472529b1e6bd34aa7af5e15d235173059bb3151",
     testSurfaceDispositionBinding: {
       fileSha256: "e9d93d0d5363521e50df2447a34ed2c13154266e3db75c3810072faa907a86d0",
       identityHash: "741ad32af7d79e5729412f98cf1ed99d54e8340d887679b00c6ff093cca5be8a",
