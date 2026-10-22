@@ -5491,7 +5491,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-flake-cli", path: "src/workflow/flake-cli.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 24, namesSha256: "45a1520fc0a25ee07953c56a8f7084072d3527cf13509df583d199b6954d8a41" },
+      owner: "verification-workflow", publicApi: { exportCount: 23, namesSha256: "bf10f7081dd4c1f3feb87ee3d270554d3ce6c3bc9b8a1232a04019c4fd8e219b" },
       dependencies: ["guardian/build.ts","node:fs","node:os","node:path","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/filesystem/temporary-root.ts","src/git/flake-cause-fixes.ts","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/privacy/evidence-handler.ts","src/privacy/secret-signals.ts","src/process/instrument-lock.ts","src/process/supervised-run.ts","src/shared/ambient-load.ts","src/shared/flake-reproduction.ts","src/shared/run-history.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/evidence-store.ts","src/workflow/repository-registry.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
@@ -5542,7 +5542,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-filesystem-self-protection-guardian-build-stamp", path: "src/filesystem/self-protection/guardian-build-stamp.ts", realm: "shared", layer: "trusted-kernel",
-      owner: "self-protection", publicApi: { exportCount: 6, namesSha256: "943446b21d01053ddefbf88668db7fc2f24d914f28c277e2026b302238372ff9" },
+      owner: "self-protection", publicApi: { exportCount: 5, namesSha256: "231e5318271bbd18bdccce4df4beffa6fa4fc420c6bea73ddd5bd8a3d47a50ac" },
       dependencies: ["node:fs","node:path","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts"],
     }),
     moduleContract({
