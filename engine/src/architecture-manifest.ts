@@ -180,6 +180,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
   compositionRoots: {
     builder: [
       "scripts/bootstrap-hooks.ts",
+      "scripts/brand/cli.ts",
       "scripts/build-bundle.ts",
       "scripts/commit-guard.ts",
       "scripts/concurrent/worker-entry.mjs",
@@ -5735,6 +5736,22 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-workflow-tracker-status", path: "src/workflow/tracker-status.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 9, namesSha256: "498e953994b156614453f7f1dc3563755d217f86f6ede3d8c4b74244f21dcc1a" },
       dependencies: [],
+    }),
+    moduleContract({
+      id: "scripts-brand-claims", path: "scripts/brand/claims.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 7, namesSha256: "dcf9b110c6b7bb642b8849a75b7dade53dc3256cd7c11289d97346ec7aa78c69" },
+      dependencies: ["node:fs","node:path","scripts/verification/tracker-entries.ts","src/kernel/errors.ts","src/workflow/failure-owners.ts"],
+    }),
+    moduleContract({
+      id: "scripts-brand-cli", path: "scripts/brand/cli.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 2, namesSha256: "8adfe9a16bd524a0a5b9ce5ebced0f50ac47d8a85ba048d9788f4f919fb0265a" },
+      dependencies: ["node:fs","node:path","node:url","node:util","scripts/brand/claims.ts","scripts/brand/messaging.ts","scripts/brand/render.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/runtime/cli-debug.ts"],
+      executionBoundary: "composition-root", compositionRoot: true,
+    }),
+    moduleContract({
+      id: "scripts-brand-render", path: "scripts/brand/render.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 9, namesSha256: "efc075d122d150c14783cf90298895cba3f615aa542cfe159c2a7cc2212037c2" },
+      dependencies: ["../shared/markup.ts"],
     }),
   ],
 });

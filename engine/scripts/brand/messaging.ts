@@ -1,10 +1,12 @@
 /**
- * THE MESSAGING SOURCE — the project's public identity in one file
- * (`docs/brand/messaging.json`): its name and the addresses every generated
- * surface links to. The README blocks, the site pages, the roadmap, the org
- * profile, the repository description and the social images read it; none
- * restates a name or a URL. Renaming the repository or moving the site is a
- * one-line change here.
+ * THE MESSAGING SOURCE — the project's public words and identity in one file
+ * (`docs/brand/messaging.json`): the name, the addresses, the promise, the
+ * summary, the honest status line, the licence, the repository description
+ * and topics, and the name's own story (the dictionary entry). Every
+ * generated surface reads it: the README's front block, the org profile, the
+ * repository metadata, the release-note header, the claims page, the roadmap
+ * and (through DESIGN's renderers) the social images. None restates a word of
+ * it. Renaming the repository or moving the site is a one-line change here.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,6 +15,10 @@ import { InputError } from "../../src/kernel/errors.ts";
 
 export const MESSAGING_PATH = "docs/brand/messaging.json";
 export const MESSAGING_SCHEMA = "bridlewise-messaging/v1";
+/** GitHub's own limits for a repository's description and topics. */
+const DESCRIPTION_MAX = 350;
+const TOPICS_MAX = 20;
+const TOPIC = /^[a-z0-9][a-z0-9-]{0,49}$/u;
 
 export type Messaging = Readonly<{
   name: string;
@@ -20,19 +26,55 @@ export type Messaging = Readonly<{
   repositoryUrl: string;
   /** The site's root, with a trailing slash. */
   siteUrl: string;
+  /** The one-line promise (concept A): what every surface leads with. */
+  promise: string;
+  /** Two sentences: what it is, and what makes it different. */
+  summary: string;
+  /** The developer-preview line every surface carries, verbatim. */
+  status: string;
+  license: string;
+  /** The repository description (GitHub: at most 350 characters). */
+  description: string;
+  /** The repository topics (GitHub: at most 20, lower-case words joined by hyphens). */
+  topics: readonly string[];
+  /** The name's own story (concept B): a cited dictionary entry and the line it supports. */
+  about: Readonly<{ word: string; partOfSpeech: string; definition: string; source: string; sourceUrl: string; line: string }>;
 }>;
+
+const TEXT_FIELDS = ["name", "promise", "summary", "status", "license", "description"] as const;
+const ABOUT_FIELDS = ["word", "partOfSpeech", "definition", "source", "sourceUrl", "line"] as const;
 
 /** Every way `document` breaks the messaging format. */
 export function messagingViolations(document: unknown): readonly string[] {
   if (typeof document !== "object" || document === null || Array.isArray(document)) return ["the source is not a JSON object"];
   const record = document as Record<string, unknown>;
   const problems: string[] = [];
-  const known = ["schema", "name", "repositoryUrl", "siteUrl"];
+  const known = ["schema", "repositoryUrl", "siteUrl", "topics", "about", ...TEXT_FIELDS];
   for (const key of Object.keys(record)) if (!known.includes(key)) problems.push(`${key} is not a field of the messaging source`);
   if (record.schema !== MESSAGING_SCHEMA) problems.push(`schema must be ${MESSAGING_SCHEMA}`);
-  if (typeof record.name !== "string" || record.name.trim().length === 0) problems.push("name is required");
+  for (const field of TEXT_FIELDS) if (typeof record[field] !== "string" || (record[field] as string).trim().length === 0) problems.push(`${field} is required`);
   if (typeof record.repositoryUrl !== "string" || !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/u.test(record.repositoryUrl)) problems.push("repositoryUrl must be https://github.com/<owner>/<repository> with no trailing slash");
   if (typeof record.siteUrl !== "string" || !/^https:\/\/\S+\/$/u.test(record.siteUrl)) problems.push("siteUrl must be an https URL ending in /");
+  if (typeof record.description === "string" && record.description.length > DESCRIPTION_MAX) problems.push(`description is ${record.description.length} characters; GitHub allows ${DESCRIPTION_MAX}`);
+  if (typeof record.status === "string" && !/developer preview/iu.test(record.status)) problems.push("status must say it is a developer preview");
+  if (typeof record.description === "string" && !/developer preview/iu.test(record.description)) problems.push("description must say it is a developer preview");
+  if (!Array.isArray(record.topics) || record.topics.length === 0 || record.topics.length > TOPICS_MAX) problems.push(`topics must be 1 to ${TOPICS_MAX} topics`);
+  else {
+    for (const topic of record.topics) if (typeof topic !== "string" || !TOPIC.test(topic)) problems.push(`topic ${JSON.stringify(topic)} is not lower-case words joined by hyphens (at most 50 characters)`);
+    if (new Set(record.topics).size !== record.topics.length) problems.push("a topic is listed twice");
+  }
+  const about = record.about as Record<string, unknown> | undefined;
+  if (typeof about !== "object" || about === null) problems.push("about is required");
+  else {
+    for (const key of Object.keys(about)) if (!(ABOUT_FIELDS as readonly string[]).includes(key)) problems.push(`about.${key} is not a field of the name's story`);
+    for (const field of ABOUT_FIELDS) if (typeof about[field] !== "string" || (about[field] as string).trim().length === 0) problems.push(`about.${field} is required`);
+    if (typeof about.sourceUrl === "string" && !/^https:\/\/\S+$/u.test(about.sourceUrl)) problems.push("about.sourceUrl must be the https address the definition is quoted from");
+  }
+  // No promise words: the copy never names a date or a guarantee.
+  for (const field of [...TEXT_FIELDS] as const) {
+    const value = record[field];
+    if (typeof value === "string" && /\b(?:guarantee[ds]?|will ship|coming soon|10x|blazing|revolutionary)\b|\b(?:19|20)\d\d-\d\d-\d\d\b/iu.test(value)) problems.push(`${field} makes a promise or names a date`);
+  }
   return problems;
 }
 
@@ -46,6 +88,5 @@ export function readMessaging(root: string): Messaging {
   }
   const problems = messagingViolations(document);
   if (problems.length > 0) throw new InputError(`${MESSAGING_PATH} breaks ${MESSAGING_SCHEMA}:\n${problems.join("\n")}`, "messaging_source_invalid");
-  const { name, repositoryUrl, siteUrl } = document as Messaging;
-  return Object.freeze({ name, repositoryUrl, siteUrl });
+  return Object.freeze(document as Messaging);
 }
