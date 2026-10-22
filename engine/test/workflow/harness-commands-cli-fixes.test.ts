@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import test from "node:test";
 
@@ -13,6 +13,7 @@ import {
   promotionsStep,
   runHarnessCli,
   runScriptSubprocess,
+  scriptSubprocessEnding,
   type HarnessMetricsOutput,
   type HarnessRollbackOutput,
 } from "../../src/workflow/harness-commands.ts";
@@ -431,7 +432,7 @@ test("a builder script missing from the supplied root names the file and the roo
   const dir = createTempDir("harness-missing-builder-");
   try {
     assert.throws(
-      () => runScriptSubprocess(dir, "scripts/pin-authority-regeneration.ts", ["--check"], 5_000),
+      () => runScriptSubprocess(dir, "scripts/pin-authority-regeneration.ts", ["--check"]),
       (error: unknown) => {
         assert.ok(error instanceof InputError);
         assert.match(error.message, /does not contain scripts\/pin-authority-regeneration\.ts/u);
@@ -461,8 +462,43 @@ test("the DOCUMENTED root invocation reaches the pin-authorities step instead of
   );
   assert.equal(result.error, undefined, "the documented invocation must complete");
   assert.equal(typeof result.status, "number", "the process must exit, not be killed");
-  assert.doesNotMatch(result.stderr ?? "", /failed without a status payload/u);
+  assert.doesNotMatch(result.stderr ?? "", /without a status payload/u);
   const answer = JSON.parse(result.stdout) as { result?: { pinAuthorities?: { step?: string; status?: string } } };
   assert.equal(answer.result?.pinAuthorities?.step, "pin-authorities");
   assert.ok(["pass", "fail"].includes(String(answer.result?.pinAuthorities?.status)));
+});
+
+// ---------------------------------------------------------------------------
+// A script subprocess is bounded in CPU work, never killed by a wall clock a
+// loaded host runs out (NO-LOAD-BLOCK L2, audit A-18), and one that ends
+// without a payload says HOW it ended (status, signal, which bound fired).
+// ---------------------------------------------------------------------------
+
+test("a script subprocess that dies without a payload names how it ended: the signal, or its exit status", () => {
+  const dir = createTempDir("harness-subprocess-ending-");
+  try {
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    writeFileSync(join(dir, "scripts", "signalled.ts"), "process.kill(process.pid, 'SIGTERM');\nsetTimeout(() => {}, 10_000);\n");
+    writeFileSync(join(dir, "scripts", "silent-exit.ts"), "process.exit(3);\n");
+    assert.throws(() => runScriptSubprocess(dir, "scripts/signalled.ts", []), (error: unknown) => {
+      assert.match((error as Error).message, /scripts\/signalled\.ts ended without a status payload: it was ended by signal SIGTERM/u);
+      return true;
+    });
+    assert.throws(() => runScriptSubprocess(dir, "scripts/silent-exit.ts", []), (error: unknown) => {
+      assert.match((error as Error).message, /it exited with status 3 \(it printed nothing on stderr\)/u);
+      return true;
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the two L2 bounds are named when they fire: the CPU-time limit (SIGXCPU) and the hang backstop (HUNG)", () => {
+  assert.match(scriptSubprocessEnding({ status: null, signal: "SIGXCPU" }), /spent its CPU-time limit of \d+ s of CPU work \(RLIMIT_CPU\)/u);
+  assert.match(scriptSubprocessEnding({ status: null, signal: "SIGKILL", errorCode: "ETIMEDOUT" }), /^HUNG: it was still running at the \d+ s hang backstop \(wall\) and was killed with SIGKILL/u);
+});
+
+test("the CPU-time limit is real: a process past its RLIMIT_CPU is ended by SIGXCPU (the mechanism the runner applies)", () => {
+  const spun = spawnSync("/bin/sh", ["-c", 'ulimit -S -t "$1" && shift && exec "$@"', "sh", "1", process.execPath, "-e", "for(;;){}"], { encoding: "utf8" });
+  assert.equal(spun.signal, "SIGXCPU");
 });

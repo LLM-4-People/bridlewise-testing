@@ -685,7 +685,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "workflow-harness-commands", path: "src/workflow/harness-commands.ts",
       realm: "runtime", layer: "interface", owner: "verification-workflow",
-      publicApi: { exportCount: 62, namesSha256: "ede65de3cbcd9a8211afb05fcb335b8f02cc2b8b85d6d8ddcd141d029d3a8315" },
+      publicApi: { exportCount: 63, namesSha256: "d14be6fa7d8630708af97bd706f556a69a67c8cb385011bf00374679d8239c86" },
       dependencies: ["node:child_process","node:fs","node:path","node:sqlite","node:url","scripts/verification/architecture.ts","src/architecture-manifest.ts","src/evaluation/cli.ts","src/extensions/extension-manifest.ts","src/filesystem/atomic-write.ts","src/filesystem/journaled-commit.ts","src/git/declared-deletions.ts","src/git/index-baseline.ts","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/architecture-external-commands.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/kernel/test-surface-manifest.ts","src/kernel/verification-paths.ts","src/performance/benchmark-cli.ts","src/performance/configured-performance.ts","src/performance/diagnostic-cli.ts","src/performance/metrics-collector.ts","src/runtime/cli-debug.ts","src/runtime/harness-bootstrap.ts","src/shared/source-scan.ts","src/timeline/recording-context.ts","src/timeline/rollback.ts","src/timeline/timeline-store.ts","src/workflow/auto-generator.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/community/health-files.ts","src/workflow/evidence-store.ts","src/workflow/failure-owners.ts","src/workflow/flake-cli.ts","src/workflow/forge/cli.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/generated-files.ts","src/workflow/format-command.ts","src/workflow/hash-binding-registry.ts","src/workflow/module-registrar.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/promote-cli.ts","src/workflow/promotion/release-cli.ts","src/workflow/record-links.ts","src/workflow/repository-registry.ts","src/workflow/resource-lock.ts","src/workflow/slot-cli.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts","src/workflow/workspace-cli.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
       effects: ["child-process", "filesystem-read", "filesystem-write", "git", "process-status"],
@@ -4251,7 +4251,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workflow-config", path: "src/workflow/workflow-config.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 44, namesSha256: "17d74fc14e1ebb4c1ce5aae9e5252fde3c1e22f212c0d9ae2c89696331b0033e" },
+      owner: "verification-workflow", publicApi: { exportCount: 42, namesSha256: "1e291b78fc55a69e58d78c7491becf74d5fb488a9bf9041853ee1dfa3602d361" },
       dependencies: ["src/kernel/errors.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({

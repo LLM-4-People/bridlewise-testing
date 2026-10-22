@@ -62,17 +62,27 @@ export function commandRetryPolicy(document: Pick<ConfigDocument, "harness">): R
 }
 export const DEFAULT_GIT_ADD_TIMEOUT_MS = 30_000;
 export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
-export const DEFAULT_DISPOSITION_AUTO_ADD_TIMEOUT_MS = 120_000;
-export const DEFAULT_SYNC_REGISTER_TIMEOUT_MS = 180_000;
-export const DEFAULT_SYNC_REGENERATE_TIMEOUT_MS = 420_000;
-export const DEFAULT_SYNC_CHECK_TIMEOUT_MS = 240_000;
 
-// Subprocess timeout for `harness sync --with-bundle`'s bundle-build step.
-// The esbuild bundle (scripts/build-bundle.ts) is a fast deterministic build
-// (~3-5s warm); the bound is generous to absorb a cold node module resolve.
-// The bundle rebuilds after the first `regenerate`, so it compiles the
-// stabilized pins; no digest of it is committed (#221).
-export const DEFAULT_SYNC_BUNDLE_TIMEOUT_MS = 120_000;
+// ── the harness's script subprocesses (`runScriptSubprocess`): NO-LOAD-BLOCK L2 ──
+//
+// `harness sync`'s steps, the dispositions' auto-add, the inventory and the
+// generators each ran under a WALL timeout of their own (120 s to 420 s), and
+// a loaded host killed them: sync's step 5/5 (`harness check`, 240 s) died
+// "without a status payload" and blocked merges (audit row A-18). A busy host
+// makes a step WAIT for a core; it does not make it do more work. So a step
+// is bounded in CPU WORK, and wall time only ends a hang:
+//
+// - the CPU-time limit applies to each process of the step (`ulimit -t`, the
+//   kernel's RLIMIT_CPU: SIGXCPU when it is spent). It is many times the
+//   heaviest step's measured work, so it ends a runaway, never a slow host.
+// - the hang backstop is the one wall bound left: very large, and a step that
+//   reaches it is reported HUNG, with how it ended, never retried here.
+/** CPU seconds each process of a script subprocess may use (RLIMIT_CPU). */
+export const SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS = 1_800;
+/** Wall time after which a script subprocess is hung, not slow. */
+export const SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS = 7_200_000;
+/** The most output a script subprocess may print before it is cut off (`harness check`'s payload is ~75 KB). */
+export const SCRIPT_SUBPROCESS_OUTPUT_BYTES = 256 * 1024 * 1024;
 
 // ── resource-lock.ts defaults ─────────────────────────────────────────────
 
