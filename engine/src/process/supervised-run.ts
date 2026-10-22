@@ -36,7 +36,9 @@
  * handed in: this layer runs processes, it builds nothing.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { accessSync, constants as fsConstants, statSync } from "node:fs";
 import { constants } from "node:os";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import type { Readable } from "node:stream";
 
 import { HarnessError, InputError } from "../kernel/errors.ts";
@@ -44,6 +46,7 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { isProcessAlive, isProcessGroupAlive, isProcessIdentityLive, ownedAnnouncement, ownedChild, processGroupMembers, terminate, type OwnedProcess, type ProcessIdentity } from "./process-facts.ts";
 import { adoptIntoOwnedInstrumentLock } from "./instrument-lock-adoption.ts";
 import { guarded } from "./fault-policy.ts";
+import { assertSubprocessBounds, cpuLimitedInvocation, type BoundedEnding, type SubprocessBounds } from "./subprocess-bounds.ts";
 
 /** The signal a receipt's negative status names (`-15` → `SIGTERM`), or null for an exit status. */
 function signalOfStatus(status: number): NodeJS.Signals | null {
@@ -291,25 +294,9 @@ export function superviseCommand(options: SupervisedCommandOptions): Promise<Sup
   });
 }
 
-/** How a {@link runCpuBounded} run is bounded: by its work, never its wall time. */
-export type CpuBounds = Readonly<{
-  /** Its process group's CPU time (the members' own and their reaped children's), in ms. */
-  cpuBudgetMs: number;
-  /** A stall: no output AND no CPU time for this long. A loaded host slows a run; it never stalls one. */
-  stallMs: number;
-  /** How often the group's CPU time and the output are read. */
-  pollMs: number;
-  /** Between the stop's SIGTERM and SIGKILL. */
-  killGraceMs: number;
-  /** The output (stdout and stderr) held in memory, at most. */
-  outputBytes: number;
-}>;
-
-/** How a {@link runCpuBounded} run ended: its own exit, or the bound that stopped it. */
-export type CpuBoundedEnding = "exited" | "cpu-exhausted" | "stalled" | "output-exceeded" | "unmeasurable" | "unstarted";
-
+/** What a {@link runCpuBounded} run answered. */
 export type CpuBoundedRun = Readonly<{
-  ending: CpuBoundedEnding;
+  ending: BoundedEnding;
   /** Its exit status (`null` when a signal or a stop ended it, or it never started). */
   status: number | null;
   signal: NodeJS.Signals | null;
@@ -353,47 +340,79 @@ function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ c
 }
 
 /**
- * Runs `command` bounded by its WORK (see {@link CpuBounds}), as a PROCESS
- * GROUP: the command leads a group of its own (`detached`), `input` goes to
- * its stdin, and its output is held in memory. The run lasts until its output
- * pipes CLOSE — a descendant that inherited them keeps the run going after
- * the leader exits, and stays under the same bounds. Every `pollMs` the
- * group's CPU (its members' and the work of every member that vanished:
- * {@link groupCpuAccountant}) and its output are read; the GROUP is stopped —
- * only through the owned-process `terminate`, by its process group — when
- * it spent `cpuBudgetMs`, when its output passed `outputBytes`, when it
- * produced no output and no CPU time for `stallMs` (a grandchild holding the
- * pipe asleep is a stall), or when procfs cannot measure a group whose
- * leader still runs. After a stop, a pipe still open past `killGraceMs` is
- * let go: only a process OUTSIDE the group can hold it.
+ * `command` as the file it names: a path is taken as it is; a bare name is looked up on the `PATH` the run
+ * is given (the environment the command itself sees), the first executable file wins. Undefined when there
+ * is none: the run is `unstarted` with `ENOENT`, as a spawn of a missing command answers.
+ */
+function resolvedCommand(command: string, cwd: string, env: Readonly<Record<string, string>>): string | undefined {
+  const executable = (path: string): boolean => {
+    try {
+      accessSync(path, fsConstants.X_OK);
+      return statSync(path).isFile();
+    } catch (error) {
+      // Absent, not executable, or under a file: this candidate is not the command.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "EACCES" || code === "ENOTDIR") return false;
+      throw error;
+    }
+  };
+  if (command.includes("/")) {
+    const path = isAbsolute(command) ? command : resolve(cwd, command);
+    return executable(path) ? path : undefined;
+  }
+  return (env["PATH"] ?? "").split(delimiter).filter((directory) => directory.length > 0)
+    .map((directory) => resolve(cwd, join(directory, command))).find(executable);
+}
+
+/**
+ * THE ONE BOUNDED SUBPROCESS RUN: `command` bounded by its WORK under
+ * {@link SubprocessBounds} (src/process/subprocess-bounds.ts), as a PROCESS
+ * GROUP: the command leads a group of its own (`detached`), exec'd under the
+ * kernel's CPU limit (`cpuLimitedInvocation`: its pid is the one spawned),
+ * `input` goes to its stdin, and its output is held in memory. The run lasts
+ * until its output pipes CLOSE — a descendant that inherited them keeps the
+ * run going after the leader exits, and stays under the same bounds. Every
+ * `pollMs` the group's CPU (its members' and the work of every member that
+ * vanished: {@link groupCpuAccountant}) and its output are read; the GROUP is
+ * stopped — only through the owned-process `terminate`, by its process group
+ * — when it spent `cpuBudgetMs`, when its output passed `outputBytes`, when it
+ * produced no output and less than `minimumCpuRate` of a core's CPU (averaged
+ * since its last progress) for `stallMs` (a grandchild holding the pipe
+ * asleep, or a poller that wakes for a moment now and then, is a stall), when
+ * it is still running at `hangBackstopMs` of wall time (hung), or when procfs
+ * cannot measure a group whose leader still runs. After a stop, a pipe still
+ * open past `killGraceMs` is let go: only a process OUTSIDE the group can hold
+ * it. A command killed by SIGXCPU ends `cpu-rlimit`: the kernel's limit.
  *
  * NB-1, STATED: a group is the bound of a COOPERATIVE command (the pinned
- * tools). A descendant that calls `setsid` leaves the group and escapes it;
- * containing an UNTRUSTED command is the confinement owner's (a cgroup or the
- * native subreaper of the test-run mode), never this mode's.
+ * tools, the harness's own steps). A descendant that calls `setsid` leaves the
+ * group and escapes the budget, the stall and the stop; the kernel's CPU limit
+ * still ends each such process, but it is PER PROCESS (an escapee that forks
+ * starts a fresh count), so it bounds each escapee's work, never their sum.
+ * Containing an UNTRUSTED command is the confinement owner's (a cgroup scope,
+ * as the instrument lock's per-run caps, or the native subreaper of the
+ * test-run mode), never this mode's.
  *
- * It never answers a refusal: the caller maps the ending to its own.
+ * It never answers a refusal: the caller maps the ending to its own
+ * (`boundedEnding` words it).
  */
 export async function runCpuBounded(
   command: string,
   args: readonly string[],
-  options: Readonly<{ cwd: string; env: Readonly<Record<string, string>>; input?: Buffer; bounds: CpuBounds }>,
+  options: Readonly<{ cwd: string; env: Readonly<Record<string, string>>; input?: Buffer; bounds: SubprocessBounds }>,
 ): Promise<CpuBoundedRun> {
   const { bounds } = options;
-  // A missing or meaningless bound is refused HERE, before anything runs: an absent budget compares
-  // false forever and a run under it would never stop (no fallback value is ever chosen).
-  const invalid = (["cpuBudgetMs", "stallMs", "pollMs", "killGraceMs", "outputBytes"] as const).filter((name) => {
-    const value = (bounds as Readonly<Record<string, unknown>> | undefined)?.[name];
-    return typeof value !== "number" || !Number.isFinite(value) || value <= 0;
-  });
-  if (invalid.length > 0) throw new InputError(`a work-bounded run needs every bound as a positive finite number; missing or invalid: ${invalid.join(", ")}`, "cpu_bounds_invalid");
-  // A watch no more frequent than the stall window cannot see a stall end before it is judged one.
-  if (bounds.pollMs >= bounds.stallMs) throw new InputError(`a work-bounded run must read its group more often than its stall window: pollMs ${String(bounds.pollMs)} is not below stallMs ${String(bounds.stallMs)}`, "cpu_bounds_invalid");
-  const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
+  assertSubprocessBounds(bounds);
+  const executable = resolvedCommand(command, options.cwd, options.env);
+  if (executable === undefined) {
+    return Object.freeze({ ending: "unstarted", status: null, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), cpuMs: null, startError: "ENOENT" });
+  }
+  const invocation = cpuLimitedInvocation(executable, args, bounds);
+  const child = spawn(invocation.command, [...invocation.args], { cwd: options.cwd, env: options.env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   let outputBytes = 0;
-  let stopping: CpuBoundedEnding | undefined;
+  let stopping: BoundedEnding | undefined;
   let cpuMs: number | null = null;
   let closed = false;
   let exitStatus: Readonly<{ status: number | null; signal: NodeJS.Signals | null }> | undefined;
@@ -430,7 +449,7 @@ export async function runCpuBounded(
     }
   }
   const accountant = owned === undefined ? undefined : groupCpuAccountant(owned.pid);
-  const stop = (ending: CpuBoundedEnding): void => {
+  const stop = (ending: BoundedEnding): void => {
     if (stopping !== undefined || owned === undefined) return;
     stopping = ending;
     void terminate({ group: owned }, { graceMs: bounds.killGraceMs }).then(guarded("process.cpu-bounded.stopped", () => {
@@ -443,9 +462,12 @@ export async function runCpuBounded(
       }), bounds.killGraceMs).unref();
     }));
   };
-  let lastCpuMs = 0;
+  const startedAt = Date.now();
+  // Progress is new output, or CPU work since the last progress at least `minimumCpuRate` of a core over the
+  // time since then (an average, so a poller that wakes for a tick now and then never counts as working).
+  let progressCpuMs = 0;
+  let progressAt = startedAt;
   let lastOutputBytes = 0;
-  let lastProgressAt = Date.now();
   const watch = setInterval(guarded("process.cpu-bounded.watch", () => {
     if (stopping !== undefined || closed || owned === undefined || accountant === undefined) return;
     const { cpuMs: read, members } = accountant.sample();
@@ -455,17 +477,20 @@ export async function runCpuBounded(
       return;
     }
     cpuMs = read;
+    const now = Date.now();
     if (read > bounds.cpuBudgetMs) stop("cpu-exhausted");
     else if (outputBytes > bounds.outputBytes) stop("output-exceeded");
-    else if (read > lastCpuMs || outputBytes > lastOutputBytes) lastProgressAt = Date.now();
-    else if (Date.now() - lastProgressAt >= bounds.stallMs) stop("stalled");
-    lastCpuMs = read;
+    else if (now - startedAt >= bounds.hangBackstopMs) stop("hung");
+    else if (outputBytes > lastOutputBytes || (read > progressCpuMs && read - progressCpuMs >= bounds.minimumCpuRate * (now - progressAt))) {
+      progressCpuMs = read;
+      progressAt = now;
+    } else if (now - progressAt >= bounds.stallMs) stop("stalled");
     lastOutputBytes = outputBytes;
   }), bounds.pollMs);
   try {
     const end = await ended;
     return Object.freeze({
-      ending: end.error !== undefined ? "unstarted" : stopping ?? "exited",
+      ending: end.error !== undefined ? "unstarted" : stopping ?? (exitStatus?.signal === "SIGXCPU" ? "cpu-rlimit" : "exited"),
       status: exitStatus?.status ?? null,
       signal: exitStatus?.signal ?? null,
       stdout: Buffer.concat(stdout),

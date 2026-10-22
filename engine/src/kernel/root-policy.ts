@@ -2798,15 +2798,17 @@ const ROOT_POLICY_VALUE = {
       identity: { name: `${PRODUCT_NAME} history importer`, email: "history-import@example.invalid" },
       /**
        * HOW A PINNED TOOL (gitleaks, filter-repo, the python3 it runs on) IS
-       * BOUNDED: never by its wall time (a loaded host slows a process down;
-       * it does not make it wrong). Its process group's CPU time
-       * (`toolCpuBudgetMs`) is the budget, and a run is a STALL only when it
-       * produced no output AND no CPU time for `toolStallMs`; both are read
-       * every `toolPollMs`, and a stopped group gets `toolKillGraceMs`
-       * between SIGTERM and SIGKILL.
+       * BOUNDED by its work, through the one bounded run (src/process/
+       * subprocess-bounds.ts): its process group's CPU time
+       * (`toolCpuBudgetMs`) is the budget, and a run is a STALL when it
+       * produced no output and less than the harness's minimum CPU rate for
+       * `toolStallMs`; both are read every `toolPollMs`, and a stopped group
+       * gets `toolKillGraceMs` between SIGTERM and SIGKILL. Wall time only
+       * ends a hang (`toolHangBackstopMs`, past any honest import).
        */
       toolCpuBudgetMs: 14_400_000,
       toolStallMs: 900_000,
+      toolHangBackstopMs: 43_200_000,
       toolPollMs: 2_000,
       toolKillGraceMs: 3_000,
       /** The git door's per-call ceiling for the importer's git calls (src/git/tree-reader.ts `gitOutput`; that door bounds by wall time, an issue of its own owner). */

@@ -27,6 +27,7 @@ import { COMMAND_ENVIRONMENT, projectEnvironment } from "../../process/environme
 import { CLOCK_TICK_MS } from "../../process/process-facts.ts";
 import { runCpuBounded } from "../../process/supervised-run.ts";
 import { ForgeError } from "./codes.ts";
+import { SUBPROCESS_BOUNDS } from "../workflow-config.ts";
 
 /** What `gh` needs besides the command set: its own configuration home. */
 const GH_ENVIRONMENT: readonly string[] = Object.freeze([...COMMAND_ENVIRONMENT, "XDG_CONFIG_HOME", "GH_CONFIG_DIR", "GH_HOST"]);
@@ -55,9 +56,10 @@ export async function runBoundedCommand(command: string, args: readonly string[]
     cwd: process.cwd(),
     env: projectEnvironment(process.env, GH_ENVIRONMENT),
     input: Buffer.from(input ?? "", "utf8"),
-    bounds: { cpuBudgetMs: limits.cpuLimitMs, stallMs: limits.stallMs, pollMs: Math.max(CLOCK_TICK_MS, Math.min(1_000, Math.floor(limits.stallMs / 4))), killGraceMs: limits.killGraceMs, outputBytes: OUTPUT_BOUND },
+    // The forge's own limits; the progress floor and the hang backstop are the harness's (SUBPROCESS_BOUNDS).
+    bounds: { ...SUBPROCESS_BOUNDS, cpuBudgetMs: limits.cpuLimitMs, stallMs: limits.stallMs, pollMs: Math.max(CLOCK_TICK_MS, Math.min(1_000, Math.floor(limits.stallMs / 4))), killGraceMs: limits.killGraceMs, outputBytes: OUTPUT_BOUND },
   });
-  const ending = run.ending === "cpu-exhausted" ? "cpu-limit" : run.ending === "unstarted" ? "exited" : run.ending;
+  const ending = run.ending === "cpu-exhausted" || run.ending === "cpu-rlimit" ? "cpu-limit" : run.ending === "hung" ? "stalled" : run.ending === "unstarted" ? "exited" : run.ending;
   return Object.freeze({
     status: run.status,
     stdout: run.stdout.toString("utf8"),

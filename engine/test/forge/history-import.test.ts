@@ -27,6 +27,7 @@
  */
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { constants } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
@@ -57,7 +58,8 @@ import {
 } from "../../src/workflow/forge/history-import.ts";
 import { historyToolPath, historyToolPin, resolveHistoryTool, runBounded } from "../../src/workflow/forge/history-tools.ts";
 import { isProcessAlive } from "../../src/process/process-facts.ts";
-import { runCpuBounded, type CpuBounds } from "../../src/process/supervised-run.ts";
+import { runCpuBounded } from "../../src/process/supervised-run.ts";
+import { boundedEnding, type SubprocessBounds } from "../../src/process/subprocess-bounds.ts";
 import { armTestKeyHome } from "../support/test-key-home.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { CORAL_KEY, entryOf, GIT, git, GITHUB_TOKEN, MAKORA_KEY, pemLine, plantedRepository, repository, SHORT_PASSWORD, write } from "./history-fixture.ts";
@@ -366,8 +368,8 @@ test("the door: credentials in a URL are refused before anything runs; usage is 
   }
 });
 
-/** Tight bounds for the runner's tests: a 400 ms CPU budget, a 600 ms stall window, read every 50 ms. */
-const TIGHT: CpuBounds = { cpuBudgetMs: 400, stallMs: 600, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 };
+/** Tight bounds for the runner's tests: a 400 ms CPU budget, a 600 ms stall window under a 5% CPU floor, read every 50 ms; a 2 min hang backstop. */
+const TIGHT: SubprocessBounds = { cpuBudgetMs: 400, minimumCpuRate: 0.05, stallMs: 600, hangBackstopMs: 120_000, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 };
 const NODE = process.execPath;
 const ENV = { PATH: process.env["PATH"] ?? "" };
 
@@ -391,7 +393,7 @@ const SPIN = burn(SPIN_CAP_MS);
 const QUIET = `setTimeout(() => {}, ${String(QUIET_LIFE_MS)});`;
 
 /** The pid a script prints first (its own), so a test can prove the whole group is gone. */
-async function refusedRun(script: string, bounds: CpuBounds): Promise<Readonly<{ code: string | undefined }>> {
+async function refusedRun(script: string, bounds: SubprocessBounds): Promise<Readonly<{ code: string | undefined }>> {
   try {
     await runBounded("probe", [NODE, "-e", script], { cwd: process.cwd(), env: ENV, bounds });
     return { code: undefined };
@@ -466,17 +468,57 @@ test("the work-bounded run bounds the whole GROUP: a grandchild holding the pipe
   assert.equal(isProcessAlive(Number(readFileSync(spent, "utf8"))), false);
 });
 
+test("the kernel backstop: a process that LEFT the group (setsid, NB-1) is still ended at its own CPU-time limit (RLIMIT_CPU, SIGXCPU); the command itself is exec'd", async () => {
+  const dir = createTempDir("bounded-rlimit-");
+  // The leader starts, in a session of its own (out of the group: no budget, no stop reaches it), a shell that runs a
+  // burner and records how it ended, then exits. The burner burns up to SPIN_CAP_MS of CPU; at its soft limit (2 s for
+  // TIGHT: ceil((400 + 2 × 50 + 200) / 1000) + 1) the kernel ends it with SIGXCPU (status 128 + 24). Without the
+  // backstop it burns its cap and exits 0. (A JavaScript SIGXCPU handler never runs: the busy loop holds the event loop.)
+  const escapee = join(dir, "escapee");
+  const record = join(dir, "ended");
+  const parent = join(dir, "parent");
+  const run = await runCpuBounded(NODE, ["-e", [
+    `require("node:fs").writeFileSync(${JSON.stringify(parent)}, String(process.ppid));`,
+    `const g = require("node:child_process").spawn("/bin/sh", ["-c", '"$0" -e "$1"; echo $? > "$2"', process.execPath, ${JSON.stringify(SPIN)}, ${JSON.stringify(record)}], { detached: true, stdio: "ignore" });`,
+    `require("node:fs").writeFileSync(${JSON.stringify(escapee)}, String(g.pid)); g.unref();`,
+  ].join(" ")], { cwd: dir, env: ENV, bounds: TIGHT });
+  assert.equal(run.ending, "exited");
+  assert.equal(Number(readFileSync(parent, "utf8")), process.pid, "the command was exec'd: its parent is this process, no shell between");
+  const pid = Number(readFileSync(escapee, "utf8"));
+  // The escapee ends on its own either way (the burner's CPU cap): wait for that, never for a clock.
+  while (isProcessAlive(pid)) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(readFileSync(record, "utf8").trim(), String(128 + constants.signals.SIGXCPU), "the escapee's burner was ended by the kernel's CPU-time limit (SIGXCPU), not its own cap");
+});
+
+test("the endings no budget decides, each pinned (review findings 2 and 3): SIGXCPU is `cpu-rlimit`; a poller under the CPU floor is a stall; a run past the wall backstop is hung", async () => {
+  const dir = createTempDir("bounded-endings-");
+  // Finding 2: a command the kernel's CPU limit ends (SIGXCPU) ends `cpu-rlimit`, worded as the kernel's limit, never `exited`.
+  const xcpu = await runCpuBounded(NODE, ["-e", `process.kill(process.pid, "SIGXCPU"); ${QUIET}`], { cwd: dir, env: ENV, bounds: TIGHT });
+  assert.equal(xcpu.ending, "cpu-rlimit");
+  assert.match(boundedEnding(xcpu, TIGHT), /CPU-time limit of 2 s of CPU work \(RLIMIT_CPU, the kernel backstop\) and was ended by SIGXCPU/u);
+  // Finding 3: a poller that wakes every 200 ms for 2 ms of work (~1% of a core) prints nothing and is NOT progressing
+  // under the 5% floor: it is stalled within the window. Without the floor every tick counts and it runs its whole life.
+  const poller = await runCpuBounded(NODE, ["-e", `const used = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; }; setInterval(() => { const until = used() + 2; while (used() < until) {} }, 200); setTimeout(() => process.exit(0), 10_000);`], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 60_000, stallMs: 1_500 } });
+  assert.equal(poller.ending, "stalled", `a 1% poller is not working (${String(poller.cpuMs)} ms of CPU)`);
+  assert.match(boundedEnding(poller, { ...TIGHT, stallMs: 1_500 }), /less than 5% of a core's CPU work for 1500 ms \(stalled\)/u);
+  // The hang backstop, the one wall bound: a run that keeps printing (progress) is still stopped at it, as hung.
+  const chatty = await runCpuBounded(NODE, ["-e", `setInterval(() => console.log("."), 100); setTimeout(() => process.exit(0), 10_000);`], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 60_000, hangBackstopMs: 1_000 } });
+  assert.equal(chatty.ending, "hung");
+  assert.match(boundedEnding(chatty, { ...TIGHT, hangBackstopMs: 1_000 }), /^HUNG: it was still running at the 1 s hang backstop \(wall\)/u);
+});
+
 test("the work-bounded run's bounds, each pinned by a test a mutation turns red (S1, S2, P1, G1)", async () => {
   const dir = createTempDir("bounded-bounds-");
   // S1: a missing, non-finite or zero bound is refused at call time, before anything runs (never a hang).
   const marker = join(dir, "ran");
-  for (const name of ["cpuBudgetMs", "stallMs", "pollMs", "killGraceMs", "outputBytes"] as const) {
+  for (const name of ["cpuBudgetMs", "minimumCpuRate", "stallMs", "hangBackstopMs", "pollMs", "killGraceMs", "outputBytes"] as const) {
     for (const value of [undefined, Number.NaN, 0]) {
-      const bounds = { ...TIGHT, [name]: value } as unknown as CpuBounds;
+      const bounds = { ...TIGHT, [name]: value } as unknown as SubprocessBounds;
       await assert.rejects(runCpuBounded(NODE, ["-e", `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`], { cwd: dir, env: ENV, bounds }), (error: Error & { code?: string }) => error.code === "cpu_bounds_invalid" && error.message.includes(name), `${name}=${String(value)}`);
     }
   }
   await assert.rejects(runCpuBounded(NODE, ["-e", `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`], { cwd: dir, env: ENV, bounds: { ...TIGHT, pollMs: TIGHT.stallMs } }), (error: Error & { code?: string }) => error.code === "cpu_bounds_invalid" && error.message.includes("pollMs"));
+  await assert.rejects(runCpuBounded(NODE, ["-e", `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`], { cwd: dir, env: ENV, bounds: { ...TIGHT, minimumCpuRate: 1.5 } }), (error: Error & { code?: string }) => error.code === "cpu_bounds_invalid" && error.message.includes("minimumCpuRate"));
   assert.equal(existsSync(marker), false, "nothing was spawned under an invalid bound");
   // S2: CPU is progress: a child busy for four stall windows of CPU, printing nothing, exits; it is never stalled.
   const busy = await runCpuBounded(NODE, ["-e", burn(1_200)], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 60_000, stallMs: 300 } });

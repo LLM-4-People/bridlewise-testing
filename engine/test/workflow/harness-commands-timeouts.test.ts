@@ -8,7 +8,7 @@ import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
 /**
  * The typecheck has NO wall limit (NO-LOAD-BLOCK A-17): `runTypecheck` runs
  * tsc through the harness's one subprocess bound (CPU work per process and
- * one hang backstop, src/process/subprocess-bounds.ts), and the config's
+ * one hang backstop, through the one bounded run `runCpuBounded`, src/process/subprocess-bounds.ts), and the config's
  * old `harness.typecheckTimeoutMs` (120 s of wall) is gone. (The git
  * add/commit timeouts' consumer was the deleted `harness integrate`; the
  * workspace command is their consumer now, asserted below.)
@@ -22,7 +22,7 @@ test("the typecheck is bounded by CPU work, never a wall limit: no typecheckTime
   const start = source.indexOf("export async function runTypecheck(");
   assert.ok(start !== -1, "runTypecheck function must exist");
   const body = source.slice(start, source.indexOf("\n}\n", start));
-  assert.match(body, /runBoundedSync\(/u, "runTypecheck must run tsc through the one subprocess bound");
+  assert.match(body, /runCpuBounded\(/u, "runTypecheck must run tsc through the one subprocess bound");
   assert.doesNotMatch(body, /timeout:/u, "runTypecheck must not carry a wall timeout of its own");
 });
 

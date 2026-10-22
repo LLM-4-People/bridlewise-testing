@@ -30,7 +30,9 @@ import { basename, join } from "node:path";
 
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { ROOT_POLICY } from "../../kernel/root-policy.ts";
-import { runCpuBounded, type CpuBounds, type CpuBoundedEnding } from "../../process/supervised-run.ts";
+import { runCpuBounded } from "../../process/supervised-run.ts";
+import { boundedEnding, type BoundedEnding, type SubprocessBounds } from "../../process/subprocess-bounds.ts";
+import { SUBPROCESS_BOUNDS } from "../workflow-config.ts";
 import { ForgeError, type ForgeCode } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
 
@@ -142,24 +144,30 @@ function historyToolArgv(tool: ResolvedHistoryTool, args: readonly string[]): re
 /** What one tool run answered. */
 export type HistoryToolRun = Readonly<{ status: number; stdout: string; stderr: string }>;
 
-function policyBounds(): CpuBounds {
+function policyBounds(): SubprocessBounds {
   const policy = ROOT_POLICY.workflow.historyImport;
-  return { cpuBudgetMs: policy.toolCpuBudgetMs, stallMs: policy.toolStallMs, pollMs: policy.toolPollMs, killGraceMs: policy.toolKillGraceMs, outputBytes: ROOT_POLICY.runtime.limits.maximumGitOutputBytes };
+  return {
+    cpuBudgetMs: policy.toolCpuBudgetMs, minimumCpuRate: SUBPROCESS_BOUNDS.minimumCpuRate, stallMs: policy.toolStallMs, hangBackstopMs: policy.toolHangBackstopMs,
+    pollMs: policy.toolPollMs, killGraceMs: policy.toolKillGraceMs, outputBytes: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
+  };
 }
 
-/** The forge's answer for each way the one supervisor stops a run (`src/process/supervised-run.ts`). */
-const STOPPED: Readonly<Record<Exclude<CpuBoundedEnding, "exited" | "unstarted">, Readonly<{ code: ForgeCode; reason: (bounds: CpuBounds) => string }>>> = {
-  "cpu-exhausted": { code: "history_tool_cpu_exhausted", reason: (bounds) => `it spent its CPU budget of ${String(bounds.cpuBudgetMs)} ms` },
-  stalled: { code: "history_tool_stalled", reason: (bounds) => `it produced no output and no CPU time for ${String(bounds.stallMs)} ms` },
-  "output-exceeded": { code: "history_tool_output_exceeded", reason: (bounds) => `its output passed ${String(bounds.outputBytes)} bytes` },
-  unmeasurable: { code: "history_tool_unmeasurable", reason: () => "procfs cannot measure its process group's CPU time, so its budget cannot be judged" },
+/** The forge's code for each way the one bounded run is stopped (src/process/subprocess-bounds.ts); its words are the bound's own (`boundedEnding`). */
+const STOPPED: Readonly<Record<Exclude<BoundedEnding, "exited" | "unstarted">, ForgeCode>> = {
+  "cpu-exhausted": "history_tool_cpu_exhausted",
+  "cpu-rlimit": "history_tool_cpu_exhausted",
+  stalled: "history_tool_stalled",
+  hung: "history_tool_stalled",
+  "output-exceeded": "history_tool_output_exceeded",
+  unmeasurable: "history_tool_unmeasurable",
 };
 
 /**
  * THE BOUNDED RUN of a pinned tool (or the host program it runs on), through
- * the one process supervisor's work-bounded mode (`runCpuBounded`): bounded
- * by its process group's CPU time and a stall check (no output AND no CPU
- * time), NEVER by wall time (the user's no-load-block rule). A run the
+ * the one bounded run (`runCpuBounded`, src/process/subprocess-bounds.ts):
+ * bounded by its process group's CPU time, a stall check (no output and CPU
+ * below the floor), the kernel's CPU limit and one wall backstop for a hang,
+ * never by a wall clock a loaded host runs out. A run the
  * supervisor stopped is its typed refusal (`history_tool_cpu_exhausted`,
  * `history_tool_stalled`, `history_tool_output_exceeded`,
  * `history_tool_unmeasurable`); one that ended with a status outside
@@ -170,19 +178,18 @@ const STOPPED: Readonly<Record<Exclude<CpuBoundedEnding, "exited" | "unstarted">
 export async function runBounded(
   label: string,
   argv: readonly string[],
-  options: Readonly<{ cwd: string; env: Readonly<Record<string, string>>; allowed?: readonly number[]; input?: Buffer; bounds?: CpuBounds }>,
+  options: Readonly<{ cwd: string; env: Readonly<Record<string, string>>; allowed?: readonly number[]; input?: Buffer; bounds?: SubprocessBounds }>,
 ): Promise<HistoryToolRun> {
   const bounds = options.bounds ?? policyBounds();
   const run = await runCpuBounded(argv[0]!, argv.slice(1), { cwd: options.cwd, env: options.env, bounds, ...(options.input === undefined ? {} : { input: options.input }) });
   const err = run.stderr.toString("utf8");
   if (run.ending !== "exited" && run.ending !== "unstarted") {
-    const stopped = STOPPED[run.ending];
-    throw new ForgeError(stopped.code, `${label} was stopped: ${stopped.reason(bounds)}`, { tool: label });
+    throw new ForgeError(STOPPED[run.ending], `${label} was stopped: ${boundedEnding(run, bounds)}`, { tool: label });
   }
   if (run.status === null || !(options.allowed ?? [0]).includes(run.status)) {
-    const reason = run.ending === "unstarted"
-      ? `it did not run (${run.startError ?? "unknown"})`
-      : run.signal !== null ? `it ended by ${run.signal}` : `it exited ${String(run.status)}: ${err.trim().split("\n").slice(-5).join(" | ")}`;
+    const reason = run.ending === "exited" && run.signal === null
+      ? `${boundedEnding(run, bounds)}: ${err.trim().split("\n").slice(-5).join(" | ")}`
+      : boundedEnding(run, bounds);
     throw new ForgeError("history_tool_failed", `${label} failed: ${reason}`, { tool: label });
   }
   return deepFreeze({ status: run.status, stdout: run.stdout.toString("utf8"), stderr: err });
