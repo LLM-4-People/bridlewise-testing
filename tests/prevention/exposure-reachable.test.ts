@@ -1276,8 +1276,10 @@ describe("exposure is declared and reachable", () => {
       // (accumulation | rolling). The census walks `strictObject` shapes; a
       // union is ONE declared leaf to it, so its branch leaves are not
       // counted here — the budget's own tests assert the branches' required
-      // fields and the signals read them directly.
-      testExecution: 26,
+      // fields and the signals read them directly. 26 → 29: the per-test
+      // limits (TEST-CPU-CLASSES): the default CPU ceiling, the classes
+      // (one array leaf) and the hang backstop, all served read-only.
+      testExecution: 29,
       // 1 → 3: the ONE command runner's errored-class retries (PROMO-1).
       harness: 3,
       evaluation: 2,
@@ -1307,7 +1309,7 @@ describe("exposure is declared and reachable", () => {
       sectionCounts[section] = declared.size - before;
     }
     expect(sectionCounts, "each section must declare exactly its measured leaves — a new leaf reds its own section here").toEqual(expectedSectionCounts);
-    expect(declared.size, "the class's twelve sections declare seventy leaves in total").toBe(70);
+    expect(declared.size, "the class's twelve sections declare seventy-three leaves in total").toBe(73);
 
     // The class's rows live in THREE modules (testExecution,
     // harnessCommands, agents) spanning FIVE sections — the census binds
@@ -1348,6 +1350,9 @@ describe("exposure is declared and reachable", () => {
       ["testExecution.flakeReproductionSignificance", "testExecution.flakeReproduction.significance"],
       ["testExecution.instrumentLockWholeInstruments", "testExecution.instrumentLock.wholeInstruments"],
       ["testExecution.flakeReproductionShims", "testExecution.flakeReproduction.deterministicShims"],
+      ["testExecution.testCpuDefaultCeiling", "testExecution.testCpuClasses.defaultCeilingMs"],
+      ["testExecution.testCpuClasses", "testExecution.testCpuClasses.classes"],
+      ["testExecution.testHangBackstop", "testExecution.testHangBackstopMs"],
     ];
     const neverWritablePrefixes = [
       "testExecution.webUiSuiteCpuBudget",
@@ -1357,6 +1362,8 @@ describe("exposure is declared and reachable", () => {
       "testExecution.engineSuiteWatchdog",
       "testExecution.instrumentLock",
       "testExecution.flakeReproduction",
+      "testExecution.testCpuClasses",
+      "testExecution.testHangBackstopMs",
     ];
     for (const customization of listCustomizations()) {
       const path = customization.configPath;

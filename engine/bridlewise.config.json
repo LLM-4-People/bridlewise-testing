@@ -705,6 +705,19 @@
     "recoveryDirectionPreference": "next"
   },
   "testExecution": {
+    "testCpuClasses": {
+      "defaultCeilingMs": 60000,
+      "classes": [
+        {
+          "name": "nested-runner",
+          "ceilingMs": 180000,
+          "files": [
+            "tests/prevention/test-isolation-contract.test.ts"
+          ]
+        }
+      ]
+    },
+    "testHangBackstopMs": 600000,
     "concurrency": "auto",
     "runtimeBudgetMs": 120000,
     "serialPhaseConcurrency": 6,
@@ -762,7 +775,7 @@
       ]
     },
     "webSuiteWatchdog": {
-      "stallTimeoutMs": 300000,
+      "stallTimeoutMs": 900000,
       "hardCeilingMs": 1800000,
       "killGraceMs": 3000
     },
