@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 
 import { COMMIT_GUARD_PROGRAM, COMMIT_MESSAGE_FLAG, canonicalHookDuty, commitLossVerdict, hookTextIsCanonical, MERGE_COMMIT_FLAG, SHIPPED_HOOKS } from "./verification/staged-move-loss.ts";
 import { LESSON_TRAILER, missingLessonTrailers, stagedTrackerEntryViolations } from "./verification/lesson-trailers.ts";
+import { messageSignOffProblem } from "./verification/sign-off.ts";
 import { stagedRatchetGrowth } from "./verification/ratchet.ts";
 import { qualificationEvidence, readRunHistory, readRunFailureRows, WEB_RUN_HISTORY_PATH } from "../src/shared/run-history.ts";
 import { createWorkingCopy } from "../src/git/working-copy.ts";
@@ -94,6 +95,12 @@ function checkCommitMessage(): void {
         `\nCOMMIT REFUSED — a ${FLAKE_CAUSE_TRAILER} trailer of this message is malformed (a declaration nobody can evaluate):\n` +
           `${flakeCauses.map((problem) => `  - ${problem}`).join("\n")}\n\n`,
       );
+      process.exitCode = 1;
+    }
+    // THE DCO: every commit, a merge too, carries its committer's sign-off (scripts/verification/sign-off.ts).
+    const signOff = messageSignOffProblem(root, message);
+    if (signOff !== null) {
+      process.stderr.write(`\nCOMMIT REFUSED — the commit is not signed off (the DCO is binding): ${signOff}\n\n`);
       process.exitCode = 1;
     }
     const missing = missingLessonTrailers(root, message);

@@ -3773,6 +3773,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/verification/sign-off.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/verification/static-source-tokenizer.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4253,5 +4261,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "a13ee3a3771b363ee3aa44c78be3f10a5c6075ead377b24288b948422e8e0f8a"
+  "integrityHash": "b2b0b7162248f6c8427afea8250ec35f9af279eff91c21ce4bc4efc1591e2185"
 }
