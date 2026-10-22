@@ -1995,7 +1995,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 export const HARNESS_SUBCOMMANDS = deepFreeze([
   "check", "test", "register", "regenerate", "sync", "new-module", "eval",
   "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "slot", "flake", "frozen",
+  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen",
 ] as const);
 
 export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
@@ -2143,6 +2143,10 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
       // Exit code: the class of the answer's code (src/workflow/promotion/codes.ts); its own report.
       const { runPromoteCli } = await import("./promotion/promote-cli.ts");
       answer = await runPromoteCli(root, rest);
+    } else if (subcommand === "release") {
+      // The product's release train (src/workflow/promotion/release-cli.ts): the promotion envelope and exit codes.
+      const { runReleaseCli } = await import("./promotion/release-cli.ts");
+      answer = await runReleaseCli(root, rest);
     } else if (subcommand === "format") {
       const write = !rest.includes("--check");
       const unknown = rest.filter((a) => a !== "--check");

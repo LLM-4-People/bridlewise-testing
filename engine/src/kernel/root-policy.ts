@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "790a2e585967426e69fc9fad776a55e9e9ad5ca2e1091dccd151d0434a4e6a42",
+      sourceSha256: "a6b5f80b18975f200fe6d6fd0161aea7347f024628df2073330d0582ea117fe5",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -1366,7 +1366,7 @@ const ROOT_POLICY_VALUE = {
      */
     binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "65dbd2be23b186e90f6c612f203fd44175a1d082a6161f5782ecd08eebebc758",
+    bundleSha256: "3f2abdce003629be5f773bdb53a4588a6b3f5033f51007f92f3e903ede9e7bd1",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
@@ -2254,10 +2254,10 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "3904ec601a872bccbf4e6e7ac06c03fa7f9e2e81ce7680e390fe1af2a253b77c",
+    testInventoryHash: "e65b440e33c07ecbaf7dc53b32bfda7b634c96ff51ac15bad37a8e4194a3ccda",
     testSurfaceDispositionBinding: {
-      fileSha256: "a52a3e62af74528989bbf379fc4823d7de97dd0c235628fbf3d1044b4b7551fa",
-      identityHash: "3c1514947ebfe4df2c6c595460674c09ff2e34930274bb9726064a45ba6bc29a",
+      fileSha256: "549a1b271370b67018b85e73cf289699bd0e5843048e77d6019e7d7a81f7f8f6",
+      identityHash: "1971488a04c2a1278374700a6f87b8c5df06b672618e7182f435e6a139a4193e",
     },
     testDiscovery: {
       inventoryScope: {
