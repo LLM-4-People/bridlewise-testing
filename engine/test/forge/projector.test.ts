@@ -28,6 +28,7 @@ import { computeProjection, deterministicCall, projectionInput } from "../../src
 import { confinedCall, PROJECTION_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
 import { compileSelfProtectionConfigToSpec, resolveGuardianBinaryPath } from "../../src/filesystem/self-protection/guardian-binary.ts";
 import { narrowGuardianSpec } from "../../src/filesystem/self-protection/confined-run.ts";
+import { procfsPath } from "../../src/process/process-facts.ts";
 import { DEFAULT_SELF_PROTECTION_CONFIG, parseSelfProtectionConfig } from "../../src/filesystem/self-protection/self-protection-config.ts";
 import { emptyKeepOutFacts } from "../support/keep-out-facts.ts";
 import { requireHost } from "../support/host-requirement.ts";
@@ -104,7 +105,7 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   assert.equal(existsSync(written), false, "the write never happened");
   // A READ of the harness's own code, and of /proc (a clock): refused.
   refused(planted("read", `const fs = process.getBuiltinModule("node:fs");\nexport function projectText(): string { return fs.readFileSync(${JSON.stringify(join(ENGINE_ROOT, "src/kernel/root-policy.ts"))}, "utf8"); }`), "projection_impure", /EACCES/u);
-  refused(planted("uptime", `const fs = process.getBuiltinModule("node:fs");\nexport function projectText(): string { return fs.readFileSync("/proc/uptime", "utf8"); }`), "projection_impure", /EACCES/u);
+  refused(planted("uptime", `const fs = process.getBuiltinModule("node:fs");\nexport function projectText(): string { return fs.readFileSync(${JSON.stringify(procfsPath("uptime"))}, "utf8"); }`), "projection_impure", /EACCES/u);
   // A CONNECT to a live local server: refused at socket(), the server never sees it.
   const server = createServer((socket) => { connections += 1; socket.end(); });
   let connections = 0;

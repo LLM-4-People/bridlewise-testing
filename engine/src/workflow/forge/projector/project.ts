@@ -18,15 +18,12 @@
  *     relative link made a permalink at S, and a footer that permalinks the
  *     record itself, so any public claim can be audited down to the commit.
  */
+import { compareUtf8Bytes } from "../../../kernel/ordered.ts";
 import { rewriteRelativeLinks } from "../../markdown-links.ts";
 import {
   DIGEST_PLACEHOLDER, PROJECTION_CLASSES, PROJECTION_SCHEMA, STATE_REASONS,
   itemMarker, laneLabel, type InputItem, type ProjectedObject, type Projection, type ProjectionInput,
 } from "./model.ts";
-
-function byCode(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
 
 function folderOf(path: string): string {
   const slash = path.lastIndexOf("/");
@@ -56,7 +53,7 @@ function itemIssue(item: InputItem, input: ProjectionInput): ProjectedObject {
       type: item.type,
       labels: [laneLabel(item.lane)],
       parent: item.parent,
-      blockedBy: [...item.blockedBy].sort(byCode),
+      blockedBy: [...item.blockedBy].sort(compareUtf8Bytes),
       state: item.state,
       stateReason: item.resolution === null ? null : STATE_REASONS[item.resolution],
     },
@@ -68,7 +65,7 @@ export function project(input: ProjectionInput): Projection {
   const labels: ProjectedObject[] = input.lanes.map((lane) => ({ class: "label", key: laneLabel(lane.lane), fields: { color: lane.color, description: lane.description } }));
   const issues = input.items.map((item) => itemIssue(item, input));
   const order = (object: ProjectedObject): number => PROJECTION_CLASSES.indexOf(object.class);
-  const objects = [...labels, ...issues].sort((left, right) => order(left) - order(right) || byCode(left.key, right.key));
+  const objects = [...labels, ...issues].sort((left, right) => order(left) - order(right) || compareUtf8Bytes(left.key, right.key));
   return { schema: PROJECTION_SCHEMA, source: input.source, ledger: input.ledger, objects };
 }
 
