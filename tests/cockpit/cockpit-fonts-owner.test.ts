@@ -91,14 +91,33 @@ export function cssUnits(css: string): CssUnit[] {
   return units;
 }
 
-/** The `<style>` bodies and the markup (everything outside `<style>` and `<script>`) of an HTML or Svelte file. */
+/**
+ * The `<style>` bodies, the `<script>` bodies and the markup (everything else,
+ * comments removed) of an HTML or Svelte file, cut by index, case-insensitively.
+ */
 export function splitMarkup(source: string): Readonly<{ styles: string[]; scripts: string[]; markup: string }> {
+  const lower = source.toLowerCase();
   const styles: string[] = [];
   const scripts: string[] = [];
-  const markup = source
-    .replace(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/giu, (_whole, body: string) => { styles.push(body); return " "; })
-    .replace(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/giu, (_whole, body: string) => { scripts.push(body); return " "; })
-    .replace(/<!--[\s\S]*?-->/gu, " ");
+  let markup = "";
+  let i = 0;
+  while (i < source.length) {
+    const next = [lower.indexOf("<style", i), lower.indexOf("<script", i), lower.indexOf("<!--", i)].filter((at) => at >= 0).sort((a, b) => a - b)[0];
+    if (next === undefined) { markup += source.slice(i); break; }
+    markup += `${source.slice(i, next)} `;
+    if (lower.startsWith("<!--", next)) {
+      const end = lower.indexOf("-->", next + 4);
+      i = end < 0 ? source.length : end + 3;
+      continue;
+    }
+    const name = lower.startsWith("<style", next) ? "style" : "script";
+    const open = lower.indexOf(">", next);
+    const close = open < 0 ? -1 : lower.indexOf(`</${name}`, open);
+    const body = open < 0 ? "" : source.slice(open + 1, close < 0 ? source.length : close);
+    (name === "style" ? styles : scripts).push(body);
+    const after = close < 0 ? -1 : lower.indexOf(">", close);
+    i = after < 0 ? source.length : after + 1;
+  }
   return { styles, scripts, markup };
 }
 
@@ -250,6 +269,8 @@ describe("fonts: one declaration, pinned files, no other source", () => {
       ["src/d.ts", 'export const font = "/static/brand.ttf";'],
     ];
     for (const [path, text] of plants) expect(fontFindings(path, text, declared), `${path}: ${text}`).not.toEqual([]);
+    // Upper-case and spaced tags are still cut out: a style in <STYLE > is judged, a font in a comment is not.
+    expect(fontFindings("index.html", '<STYLE type="text/css">@import "https://fonts.googleapis.com/css?family=X";</STYLE ><!-- <link rel="stylesheet" href="https://fonts.googleapis.com/x"> -->', declared)).toHaveLength(1);
     // Near-misses: the owner's own faces; a comment and a prose string naming a host; a declared preload; a non-font url.
     expect(fontFindings(TOKENS, owner, declared)).toEqual([]);
     expect(fontFindings("src/a.css", "/* never fonts.googleapis.com */ .a { background: url(/icons/icon.svg); font-family: var(--face-sans); }", declared)).toEqual([]);
