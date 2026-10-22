@@ -9,7 +9,6 @@ owner-role: maintainers
 milestone: M4
 horizon: later
 order: 1
-evidence: https://github.com/LLM-4-People/bridlewise-testing/issues
 opened: 2026-10-20
 ---
 

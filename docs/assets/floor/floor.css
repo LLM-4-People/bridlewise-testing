@@ -153,3 +153,439 @@
 .floor-pill[data-state="not-run"] {
   color: var(--warn);
 }
+
+/* ══ THE ROADMAP (engine/scripts/roadmap/render.ts, filled in at publish) ══
+   A page of the same logbook: lanes are ledgers on a heavy rule, an item is
+   an entry on a dashed rule, a milestone opens on a hairline with its tag
+   stamped in mono, and every state is a word in its state ink (the shared
+   `.state`). The progress bar is the only bar: its segments are sized by the
+   renderer's typed `--floor-share` stamp. */
+
+.floor-roadmap > header {
+  margin-bottom: var(--sp-6);
+}
+
+.floor-lede {
+  max-width: 60ch;
+  margin: 0 0 var(--sp-4);
+  color: var(--ink-2);
+  font-size: var(--f-lede-size);
+  line-height: 1.55;
+}
+
+.floor-facts {
+  margin: 0 0 var(--sp-2);
+  color: var(--ink-1);
+  font-family: var(--face-mono);
+  font-size: var(--f-data-size);
+}
+
+.floor-links,
+.floor-quiet,
+.floor-count {
+  color: var(--ink-2);
+  font-size: var(--f-micro-size);
+}
+
+.floor-links {
+  margin: 0;
+}
+
+.floor-count {
+  margin-inline-start: var(--sp-2);
+  font-family: var(--face-mono);
+  font-weight: 400;
+}
+
+.floor-gap {
+  color: var(--warn);
+}
+
+/* Now, next, later: three ledgers side by side. */
+.floor-lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: var(--sp-6);
+}
+
+.floor-lane {
+  min-width: 0;
+  border-top: var(--rule-w) solid var(--ink-1);
+}
+
+.floor-lane h3 {
+  margin: var(--sp-3) 0 var(--sp-2);
+  font-size: var(--f-page-h3);
+}
+
+.floor-lane-cards {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.floor-lane-card {
+  margin: 0;
+  padding: var(--sp-3) 0;
+  border-bottom: var(--hairline-w) dashed var(--line-2);
+}
+
+.floor-lane-card-title {
+  color: var(--ink-1);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.floor-lane-card-title:hover {
+  text-decoration: underline;
+}
+
+.floor-lane-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+  margin-top: var(--sp-1);
+  font-size: var(--f-micro-size);
+}
+
+.floor-lane-card p {
+  margin: var(--sp-1) 0 0;
+  color: var(--ink-2);
+  font-size: var(--f-micro-size);
+}
+
+/* A milestone's tag, stamped. */
+.floor-ms {
+  display: inline-block;
+  padding: 0 var(--sp-1);
+  border: var(--hairline-w) solid var(--ink-2);
+  border-radius: var(--sp-0);
+  color: var(--ink-2);
+  font-family: var(--face-mono);
+  font-size: var(--f-nano-size);
+  line-height: var(--lh-readout);
+}
+
+.floor-milestone {
+  margin-top: var(--sp-7);
+  padding-top: var(--sp-5);
+  border-top: var(--hairline-w) solid var(--line-1);
+}
+
+h2 + .floor-milestone {
+  margin-top: var(--sp-5);
+  padding-top: 0;
+  border-top: 0;
+}
+
+.floor-milestone h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin: 0;
+  font-size: var(--f-page-h3);
+}
+
+.floor-ms-state {
+  margin: var(--sp-1) 0 var(--sp-3);
+  color: var(--ink-2);
+  font-family: var(--face-mono);
+  font-size: var(--f-micro-size);
+}
+
+.floor-progress {
+  display: flex;
+  gap: var(--sp-0);
+  max-width: 36rem;
+  height: var(--sp-2);
+  border-radius: var(--sp-0);
+  background: var(--layer-select);
+  overflow: hidden;
+}
+
+.floor-progress > span {
+  width: var(--floor-share);
+}
+
+.floor-progress-done {
+  background: var(--ok);
+}
+
+.floor-progress-moving {
+  background: var(--accent);
+}
+
+.floor-ms-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: var(--sp-5);
+  margin: var(--sp-4) 0;
+}
+
+.floor-ms-grid h3,
+.floor-ms-grid h4 {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--f-micro-size);
+  font-weight: 600;
+}
+
+.floor-ms-grid p {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--f-ui-size);
+}
+
+/* An item: a disclosure on a dashed rule; its record opens in place. */
+.floor-items {
+  border-top: var(--hairline-w) solid var(--line-2);
+}
+
+.floor-item {
+  border-bottom: var(--hairline-w) dashed var(--line-2);
+}
+
+.floor-item > summary {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+  align-items: baseline;
+  min-height: var(--hit-min);
+  padding: var(--sp-2) 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.floor-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.floor-item > summary:hover .floor-item-title {
+  text-decoration: underline;
+}
+
+.floor-item > summary .state {
+  font-size: var(--f-micro-size);
+}
+
+.floor-item > summary code {
+  color: var(--ink-2);
+  font-size: var(--f-nano-size);
+}
+
+.floor-item[data-status="not-planned"] .floor-item-title {
+  color: var(--ink-2);
+}
+
+.floor-item:target,
+.floor-item[open] {
+  background: var(--layer-hover);
+}
+
+.floor-item dl {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: var(--sp-1) var(--sp-4);
+  margin: 0;
+  padding: 0 var(--sp-3) var(--sp-4);
+  font-size: var(--f-micro-size);
+}
+
+.floor-item dt {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+.floor-item dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.floor-feed,
+.floor-gaps,
+.floor-method {
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.floor-feed li,
+.floor-gaps li,
+.floor-method li {
+  margin: 0;
+  padding: var(--sp-2) 0;
+  border-bottom: var(--hairline-w) dashed var(--line-2);
+  font-size: var(--f-ui-size);
+}
+
+.floor-method li {
+  max-width: var(--page-measure);
+}
+
+.floor-feed time {
+  margin-inline-end: var(--sp-3);
+  color: var(--ink-2);
+  font-family: var(--face-mono);
+  font-size: var(--f-micro-size);
+}
+
+.floor-table {
+  display: table;
+  font-size: var(--f-micro-size);
+}
+
+.floor-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0;
+  font-size: var(--f-micro-size);
+}
+
+.floor-filter select,
+.floor-filter input {
+  min-height: var(--hit-min);
+  border: var(--hairline-w) solid var(--ink-2);
+  border-radius: var(--radius-card);
+  background: var(--ground-2);
+  color: var(--ink-1);
+  font: inherit;
+}
+
+/* The dependency graph: drawn in the live theme; hover or focus lights a chain. */
+.floor-graph {
+  max-height: 70vh;
+  overflow: auto;
+  border: var(--hairline-w) solid var(--line-1);
+  border-radius: var(--radius-card);
+  background: var(--ground-1);
+}
+
+.floor-graph-figure {
+  display: block;
+  max-width: none;
+}
+
+.floor-graph .node rect {
+  fill: var(--ground-2);
+  stroke: var(--line-2);
+}
+
+.floor-graph .node-label {
+  fill: var(--ink-1);
+  font-family: var(--face-sans);
+  font-size: var(--f-nano-size);
+}
+
+.floor-graph .node-title {
+  fill: var(--ink-1);
+}
+
+.floor-graph .node-id {
+  fill: var(--ink-2);
+  font-family: var(--face-mono);
+}
+
+.floor-graph .node[data-status="shipped"] rect {
+  stroke: var(--ok);
+}
+
+.floor-graph .node[data-status="in progress"] rect {
+  stroke: var(--accent);
+}
+
+.floor-graph .node.blocked rect {
+  stroke: var(--warn);
+  stroke-dasharray: 4 3;
+}
+
+.floor-graph .node.critical rect {
+  stroke-width: var(--rule-w);
+}
+
+.floor-graph .node:focus-visible rect {
+  stroke: var(--focus-ring-color);
+  stroke-width: var(--focus-ring-width);
+}
+
+.floor-graph .edge {
+  fill: none;
+  stroke: var(--ink-2);
+}
+
+.floor-graph .edge-arrow {
+  fill: var(--ink-2);
+}
+
+.floor-graph .edge.critical {
+  stroke: var(--ink-1);
+  stroke-width: var(--rule-w);
+}
+
+/* A dependency (one item blocks another) is solid; hierarchy (a part of its parent) is dotted. */
+.floor-graph .edge.blocks {
+  stroke: var(--ink-1);
+}
+
+.floor-graph .edge.parent {
+  stroke-dasharray: 2 3;
+}
+
+/* Edges never catch the pointer: hover and focus belong to the items. */
+.floor-graph .edges {
+  pointer-events: none;
+}
+
+.floor-graph .nodes .node {
+  cursor: pointer;
+}
+
+/* A lit chain: everything off it recedes to the faintest marks. */
+.floor-graph .dimmed .node:not(.upstream):not(.downstream):not(.focus) rect,
+.floor-graph .dimmed .edge:not(.upstream):not(.downstream) {
+  stroke: var(--line-1);
+}
+
+.floor-graph .dimmed .node:not(.upstream):not(.downstream):not(.focus) .node-label,
+.floor-graph .dimmed .node:not(.upstream):not(.downstream):not(.focus) .node-id {
+  fill: var(--line-2);
+}
+
+.floor-graph .hidden {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .floor-item > summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-1);
+  }
+
+  .floor-item dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The one-page print (/floor/roadmap/print/). */
+.floor-print-lanes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+
+.floor-print {
+  font-size: var(--f-micro-size);
+}
+
+@media print {
+  .floor-links,
+  .floor-graph,
+  .floor-filter {
+    display: none;
+  }
+
+  .floor-print a {
+    color: inherit;
+    text-decoration: none;
+  }
+}

@@ -9,7 +9,7 @@ lane: roadmap
 owner-role: maintainers
 milestone: M4
 order: 3
-evidence: https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md
+evidence: CONTRIBUTING.md
 opened: 2026-10-20
 closed: 2026-10-20
 ---

@@ -785,6 +785,20 @@
   --f-lede-size: clamp(1.125rem, 1rem + 0.5vw, 1.3125rem);
 }
 
+/**
+ * THE ROADMAP'S SHARE — a per-element stamp on the public site. The roadmap
+ * renderer (engine/scripts/roadmap/render.ts) stamps each progress segment
+ * with the share of a milestone it stands for (`style="--floor-share: 40%"`),
+ * and the site's floor stylesheet sizes the segment from it. Registered here,
+ * like the cockpit's stamps, so the value is TYPED: a malformed stamp is
+ * refused on its own and the segment falls to nothing, never to a guess.
+ */
+@property --floor-share {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
 /* ── Light — "logbook": warm paper, a real theme, every token re-derived. */
 :root[data-cockpit-theme="light"] {
   --ground-0: #f6f4ef;

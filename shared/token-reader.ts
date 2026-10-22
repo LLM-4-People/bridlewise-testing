@@ -22,7 +22,9 @@
  *   cannot hold a CSS colour function.
  * - `tokenSheet(owner, used, options)` writes the stylesheet a static surface
  *   loads: only the tokens its own CSS reads (and what those read), with the
- *   lead theme on `:root` and the other behind `[data-theme]`.
+ *   lead theme on `:root` and the other behind `[data-theme]`, and the
+ *   `@property` registration of every per-element stamp it reads (a value a
+ *   page stamps inline, typed by the owner, never declared by the surface).
  *
  * Nothing here holds a colour or a length. A name the owner does not declare
  * is a typed refusal (`TokenOwnerError`), never a quiet substitute.
@@ -49,6 +51,8 @@ export interface TokenOwner {
   readonly media: readonly MediaRemap[];
   /** Every `@font-face` block, verbatim (comments removed). */
   readonly fontFaces: readonly string[];
+  /** Every registered per-element stamp (`@property --name { … }`), by name, verbatim. */
+  readonly properties: ReadonlyMap<string, string>;
 }
 
 export type TokenRefusal =
@@ -130,7 +134,13 @@ export function readTokenOwner(css: string): TokenOwner {
   const logbook = new Map<string, string>();
   const media: MediaRemap[] = [];
   const fontFaces: string[] = [];
+  const properties = new Map<string, string>();
   for (const block of blocksOf(stripComments(css))) {
+    const registered = /^@property\s+(--[\w-]+)$/u.exec(block.prelude)?.[1];
+    if (registered !== undefined) {
+      properties.set(registered, `@property ${registered} {\n${block.body.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => `  ${line}`).join("\n")}\n}`);
+      continue;
+    }
     if (block.prelude === ":root") {
       for (const [name, value] of declarationsOf(block.body)) base.set(name, value);
     } else if (block.prelude === LOGBOOK_SELECTOR) {
@@ -146,7 +156,7 @@ export function readTokenOwner(css: string): TokenOwner {
     }
   }
   if (base.size === 0) throw new TokenOwnerError("token_owner_unreadable", "the owner declares no :root token");
-  return { base, logbook, media, fontFaces };
+  return { base, logbook, media, fontFaces, properties };
 }
 
 /**
@@ -294,6 +304,10 @@ function closure(owner: TokenOwner, names: Iterable<string>): Set<string> {
   while (pending.length > 0) {
     const name = pending.pop()!;
     if (seen.has(name)) continue;
+    if (owner.properties.has(name)) {
+      seen.add(name);
+      continue;
+    }
     if (!all.some((values) => values.has(name))) throw new TokenOwnerError("token_undeclared", `${name} is read but the token owner does not declare it`);
     seen.add(name);
     for (const values of all) {
@@ -346,9 +360,11 @@ export function tokenSheet(owner: TokenOwner, used: Iterable<string>, options: T
     .map((remap) => ({ query: remap.query, entries: [...remap.values].filter(([name]) => names.includes(name)) }))
     .filter((remap) => remap.entries.length > 0)
     .map((remap) => `@media ${remap.query} {\n${ruleOf(":root", remap.entries, "  ")}\n}`);
+  const stamps = names.filter((name) => owner.properties.has(name)).map((name) => owner.properties.get(name)!);
   return [
     `/* ${options.banner} */`,
     ...faces,
+    ...stamps,
     ruleOf(":root", leadEntries),
     ruleOf(`:root[${options.themeAttribute}="${other}"]`, secondEntries),
     ...remaps,

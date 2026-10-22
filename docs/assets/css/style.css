@@ -758,13 +758,18 @@ main blockquote > :last-child {
 
 .state[data-state="holds"],
 .state[data-state="done"],
-.state[data-state="pass"] {
+.state[data-state="pass"],
+.state[data-state="shipped"],
+.state[data-state="built"] {
   color: var(--ok);
 }
 
 .state[data-state="designed"],
 .state[data-state="refused"],
 .state[data-state="partial"],
+.state[data-state="partly-built"],
+.state[data-state="claimed"],
+.state[data-state="blocked"],
 .state[data-state="unchecked"],
 .state[data-state="not-run"],
 .state[data-state="unknown"] {
@@ -772,13 +777,23 @@ main blockquote > :last-child {
 }
 
 .state[data-state="not-claimed"],
-.state[data-state="planned"] {
+.state[data-state="planned"],
+.state[data-state="not-planned"],
+.state[data-state="superseded"] {
   color: var(--ink-2);
 }
 
 .state[data-state="retracted"],
 .state[data-state="fail"] {
   color: var(--alarm);
+}
+
+.state[data-state="in-progress"] {
+  color: var(--accent);
+}
+
+.state[data-state="standing"] {
+  color: var(--ink-1);
 }
 
 .retracted {

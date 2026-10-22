@@ -39,6 +39,11 @@ const FIXTURE = `
 @media (max-width: 900px) {
   .cockpit .y { color: var(--ink); }
 }
+@property --share {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
 :root { --t: 90ms; }
 `;
 
@@ -108,6 +113,10 @@ test("the sheet holds only what is read, the lead theme on :root and the other's
   assert.match(lead, /--unit: 4px;/u, "what a read token reads comes along");
   assert.doesNotMatch(sheet, /--ink:|--ground:|--soft:|--t:/u, "an unread token stays out");
   assert.match(other, /color-scheme: dark;\n {2}--beam: #8fd3ff;\n\}/u, "the other theme carries only its differences");
+  const stamped = tokenSheet(owner, readNames(".bar { width: var(--share); }"), options);
+  assert.match(stamped, /@property --share \{\n {2}syntax: "<percentage>";/u, "a read stamp ships its typed registration");
+  assert.doesNotMatch(stamped, /--share:/u, "a stamp is registered, never declared by the surface");
+  assert.equal(readTokenOwner(FIXTURE).properties.size, 1);
   const withMotion = tokenSheet(owner, ["--t"], options);
   assert.match(withMotion, /@media \(prefers-reduced-motion: reduce\) \{\n {2}:root \{\n {4}--t: 1ms;/u, "a read token's remap comes along");
   assert.throws(() => tokenSheet(owner, ["--typo"], options), (error) => error.code === "token_undeclared" && /--typo/u.test(error.message));

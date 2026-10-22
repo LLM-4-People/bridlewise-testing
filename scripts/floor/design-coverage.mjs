@@ -55,6 +55,11 @@ export const MISSING_ALLOWLIST = new Map([
 export const UNUSED_ALLOWLIST = new Map([
   ["floor-pill", "Created by docs/assets/floor/floor.js for live status/atlas rows."],
   ["floor-empty", "Toggled by floor.js when a live region has no rows."],
+  ["dimmed", "Set on the roadmap graph by its own script (engine/scripts/roadmap/graph.ts) while a chain is lit."],
+  ["upstream", "Set by the roadmap graph's script on the items a focused item waits on."],
+  ["downstream", "Set by the roadmap graph's script on the items that wait on a focused item."],
+  ["focus", "Set by the roadmap graph's script on the item under the pointer or focus."],
+  ["hidden", "Set by the roadmap graph's milestone filter on the items it hides."],
 ]);
 
 function walk(directory, extension, output = []) {

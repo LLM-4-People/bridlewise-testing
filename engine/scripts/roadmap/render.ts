@@ -157,13 +157,13 @@ function burnUpSvg(feed: RoadmapFeed, m: FeedMilestone): string {
 }
 
 function chip(item: FeedItem): string {
-  return `<span class="floor-state" data-status="${slug(item.state)}">${h(stateWords(item.state))}</span>`;
+  return `<span class="state" data-state="${slug(item.state)}">${h(stateWords(item.state))}</span>`;
 }
 
 function itemDetail(feed: RoadmapFeed, item: FeedItem, reason: string, repositoryUrl: string): string {
   const rows: string[] = [];
   const decisions = item.decisions.map((id) => feed.decisions.find((d) => d.id === id)).filter((d) => d !== undefined);
-  rows.push(`<dt>Why</dt><dd>${decisions.length === 0 ? `<span class="floor-gap">No decision record is linked yet.</span>` : decisions.map((d) => `${h(d.title)} <span class="floor-impl" data-impl="${slug(d.progress)}">${h(d.progress)}</span>`).join("; ")}</dd>`);
+  rows.push(`<dt>Why</dt><dd>${decisions.length === 0 ? `<span class="floor-gap">No decision record is linked yet.</span>` : decisions.map((d) => `${h(d.title)} <span class="state" data-state="${slug(d.progress)}">${h(d.progress)}</span>`).join("; ")}</dd>`);
   rows.push(`<dt>State</dt><dd>${chip(item)} ${h(reason)} ${link(item.record, "Read the item")}</dd>`);
   rows.push(`<dt>Decisions</dt><dd>${item.decisions.length === 0 ? `<span class="floor-gap">none linked</span>` : item.decisions.map((id) => h(id)).join(" · ")}</dd>`);
   rows.push(`<dt>Tests</dt><dd>${item.tests.length === 0 ? `<span class="floor-gap">none linked</span>` : item.tests.map((t) => link(t.url, t.path)).join(" · ")}</dd>`);
@@ -240,7 +240,7 @@ export function renderPage(feed: RoadmapFeed, ctx: RenderContext): string {
     unassigned.length === 0 ? "" : `<section class="floor-milestone" id="milestone-none"><header><h3>Not in a milestone yet</h3><p class="floor-ms-state">${unassigned.length} items. Placing them is work too.</p></header><div class="floor-items">${unassigned.map((item) => itemDetail(feed, item, placed.get(item.id)!.reason, ctx.repositoryUrl)).join("")}</div></section>`,
     `</section>`,
     graphSection,
-    `<section aria-labelledby="built"><h2 id="built">Decided, and how far it is built</h2><p>${progress.map(([p, n]) => `${n} ${p}`).join(" · ")}, from each in-force decision record's own state. Standing rules govern work and are never "built".</p><details><summary>Every decision</summary><table class="floor-table"><thead><tr><th scope="col">Record</th><th scope="col">Decision</th><th scope="col">State</th><th scope="col">Carried by</th></tr></thead><tbody>${feed.decisions.map((d) => `<tr><td>${h(d.id)}</td><td>${h(d.title)}</td><td><span class="floor-impl" data-impl="${slug(d.progress)}">${h(d.progress)}</span></td><td>${d.carriedBy.length === 0 ? `<span class="floor-gap">no item yet</span>` : d.carriedBy.map((id) => `<a href="#item-${h(id)}">${h(id)}</a>`).join(" ")}</td></tr>`).join("")}</tbody></table></details></section>`,
+    `<section aria-labelledby="built"><h2 id="built">Decided, and how far it is built</h2><p>${progress.map(([p, n]) => `${n} ${p}`).join(" · ")}, from each in-force decision record's own state. Standing rules govern work and are never "built".</p><details><summary>Every decision</summary><table class="floor-table"><thead><tr><th scope="col">Record</th><th scope="col">Decision</th><th scope="col">State</th><th scope="col">Carried by</th></tr></thead><tbody>${feed.decisions.map((d) => `<tr><td>${h(d.id)}</td><td>${h(d.title)}</td><td><span class="state" data-state="${slug(d.progress)}">${h(d.progress)}</span></td><td>${d.carriedBy.length === 0 ? `<span class="floor-gap">no item yet</span>` : d.carriedBy.map((id) => `<a href="#item-${h(id)}">${h(id)}</a>`).join(" ")}</td></tr>`).join("")}</tbody></table></details></section>`,
     `<section aria-labelledby="risks"><h2 id="risks">Risks</h2>${risks.length === 0 ? `<p class="floor-quiet">No open risk.</p>` : `<ul>${risks.map((r) => `<li><a href="#item-${h(r.id)}">${h(r.title)}</a>${r.severity === null ? "" : ` (${h(r.severity)})`}: ${h(r.because)}</li>`).join("")}</ul>`}</section>`,
     `<section aria-labelledby="gaps"><h2 id="gaps">What we do not plan</h2>${gaps.length === 0 ? `<p class="floor-quiet">Nothing is recorded as not planned.</p>` : `<ul class="floor-gaps">${gaps.map((g) => `<li>${link(g.record, g.title)}</li>`).join("")}</ul>`}</section>`,
     `<section aria-labelledby="method"><h2 id="method">How this is computed</h2><ul class="floor-method">`,
