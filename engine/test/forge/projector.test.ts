@@ -313,46 +313,54 @@ test("a Milestone item is a milestone and the head of its hierarchy: milestone �
   assert.deepEqual([closed("issue", "M1").state, closed("issue", "M1").stateReason], ["closed", "completed"]);
 });
 
-test("V-27: a foreign edit in each class is detected and handled per mode — approval proposes, auto restores (an issue gets a notice), manual reports", async () => {
+test("V-27: a foreign edit in each class is detected and handled per mode — approval proposes, auto restores (an issue gets a notice), manual reports; a field no record holds is re-projected in every mode, never proposed", async () => {
   const { projection } = computeProjection(MILESTONE_INPUT, CONFINEMENT);
+  const projected = (klass: string, key: string, field: string) => projection.objects.find((entry) => entry.class === klass && entry.key === key)!.fields[field]!;
   const edits = [
+    // Fields no record holds: a lane's colour (from code) and an issue's generated block.
     { klass: "label", key: "lane:roadmap", fields: { color: "000000" } },
+    { klass: "issue", key: "T-ONE", fields: { block: "Rewritten in the UI" } },
+    // Fields a record holds.
     { klass: "milestone", key: "M1", fields: { title: "Renamed in the UI" } },
     { klass: "issue", key: "T-TWO", fields: { title: "Retitled in the UI", labels: ["lane:roadmap", "wontfix"] } },
   ] as const;
+  const order = (line: string): number => ["label", "milestone", "issue"].indexOf(line.split("/")[0]!);
   for (const mode of ["approval", "auto", "manual"] as const) {
     const github = memoryStore();
     const first = await applyProjection(projection, github.store, { allowance: 100, previous: null, foreignEdit: mode });
     assert.equal(first.verified, true);
     for (const edit of edits) github.edit(edit.klass, edit.key, edit.fields);
-    const before = github.writes().length;
     const run = await applyProjection(projection, github.store, { allowance: 100, previous: first, foreignEdit: mode });
-    assert.deepEqual(run.foreignEdits.map((edit) => `${edit.class}/${edit.key}:${edit.fields.join(",")}:${edit.action}`), [
-      `label/lane:roadmap:color:${mode === "auto" ? "restored" : mode === "approval" ? "proposed" : "reported"}`,
-      `milestone/M1:title:${mode === "auto" ? "restored" : mode === "approval" ? "proposed" : "reported"}`,
-      `issue/T-TWO:labels,title:${mode === "auto" ? "restored" : mode === "approval" ? "proposed" : "reported"}`,
-    ].sort((left, right) => ["label", "milestone", "issue"].indexOf(left.split("/")[0]!) - ["label", "milestone", "issue"].indexOf(right.split("/")[0]!)), mode);
+    const action = mode === "auto" ? "restored" : mode === "approval" ? "proposed" : "reported";
+    assert.deepEqual(run.foreignEdits.map((edit) => `${edit.class}/${edit.key}:${edit.fields.join(",")}:${edit.action}`).sort((left, right) => order(left) - order(right) || left.localeCompare(right)), [
+      "label/lane:roadmap:color:restored",
+      `milestone/M1:title:${action}`,
+      "issue/T-ONE:block:restored",
+      `issue/T-TWO:labels,title:${action}`,
+    ], mode);
+    // In every mode, the projector-owned fields are written back and never proposed.
+    assert.equal(github.get("label", "lane:roadmap")?.fields.color, projected("label", "lane:roadmap", "color"), mode);
+    assert.equal(github.get("issue", "T-ONE")?.fields.block, projected("issue", "T-ONE", "block"), mode);
+    assert.ok(run.proposals.every((proposal) => proposal.change !== "edited" || (!("color" in proposal.fields) && !("block" in proposal.fields))), `${mode}: no projector-owned field flows back`);
     if (mode === "auto") {
       assert.equal(run.verified, true, "auto: every projected value is restored and verified");
       assert.equal(github.get("issue", "T-TWO")?.fields.title, "T-TWO");
-      assert.equal(github.get("label", "lane:roadmap")?.fields.color, "0e8a16");
-      assert.deepEqual(github.notices().map((notice) => notice.split(":")[0]), ["issue/T-TWO"], "only an issue can carry a notice");
-      assert.match(github.notices()[0]!, /projected from its record and were restored\. To change them, change the record \(`T-TWO`\) in a pull request/u);
+      assert.deepEqual(github.notices().map((notice) => notice.split(":")[0]).sort(), ["issue/T-ONE", "issue/T-TWO"], "only an issue can carry a notice");
       assert.equal(projectionFailure(run), null);
       continue;
     }
-    assert.equal(github.writes().length, before, `${mode}: nothing is written over a foreign edit`);
-    assert.equal(github.get("issue", "T-TWO")?.fields.title, "Retitled in the UI");
+    assert.equal(github.get("issue", "T-TWO")?.fields.title, "Retitled in the UI", `${mode}: a record's field is never written over a foreign edit`);
     assert.equal(run.verified, false);
     assert.equal(projectionFailure(run)?.code, "projection_drift");
     assert.deepEqual(run.proposals, mode === "approval"
-      ? [{ class: "label", key: "lane:roadmap", change: "edited", fields: { color: "000000" } }, { class: "milestone", key: "M1", change: "edited", fields: { title: "Renamed in the UI" } }, { class: "issue", key: "T-TWO", change: "edited", fields: { labels: ["lane:roadmap", "wontfix"], title: "Retitled in the UI" } }]
-      : [], `${mode}: a proposal only under approval`);
-    // The edit stays foreign on the next run (the baseline is kept), until the record or GitHub moves.
+      ? [{ class: "milestone", key: "M1", change: "edited", fields: { title: "Renamed in the UI" } }, { class: "issue", key: "T-TWO", change: "edited", fields: { labels: ["lane:roadmap", "wontfix"], title: "Retitled in the UI" } }]
+      : [], `${mode}: a proposal only under approval, and only of a record's fields`);
+    // The record's edits stay foreign on the next run (the baseline is kept), until the record or GitHub moves.
     const again = await applyProjection(projection, github.store, { allowance: 100, previous: run, foreignEdit: mode });
-    assert.equal(again.foreignEdits.length, 3, `${mode}: still held, never silently adopted as the new baseline`);
+    assert.equal(again.foreignEdits.length, 2, `${mode}: still held, never silently adopted as the new baseline`);
     // GitHub moved back to the projection: nothing is foreign any more.
-    for (const edit of edits) github.edit(edit.klass, edit.key, Object.fromEntries(Object.keys(edit.fields).map((field) => [field, projection.objects.find((entry) => entry.class === edit.klass && entry.key === edit.key)!.fields[field]!])));
+    github.edit("milestone", "M1", { title: projected("milestone", "M1", "title") });
+    github.edit("issue", "T-TWO", { title: projected("issue", "T-TWO", "title"), labels: projected("issue", "T-TWO", "labels") });
     const healed = await applyProjection(projection, github.store, { allowance: 100, previous: again, foreignEdit: mode });
     assert.deepEqual([healed.foreignEdits, healed.verified], [[], true], `${mode}: once GitHub meets the record again, the projection is verified`);
   }

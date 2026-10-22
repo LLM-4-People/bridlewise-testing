@@ -68,6 +68,19 @@ export const FIELD_PHASES: Readonly<Record<ProjectionClass, Readonly<Record<stri
   }),
 });
 
+/**
+ * The git-owned fields NO record holds: the projector computes them (an
+ * issue's generated block and its pin, a milestone's computed description and
+ * state) or takes them from code (a lane label's colour and description). An
+ * edit of one on GitHub has no record change to propose: it is re-projected,
+ * whatever the foreign-edit mode.
+ */
+export const PROJECTOR_OWNED_FIELDS: Readonly<Record<ProjectionClass, readonly string[]>> = Object.freeze({
+  label: Object.freeze(["color", "description"]),
+  milestone: Object.freeze(["description", "state"]),
+  issue: Object.freeze(["block", "pinned"]),
+});
+
 /** What GitHub holds for a just-created object before its `link` and `state` writes: a field D gives this value needs no write. */
 export const BORN_FIELDS: Readonly<Record<ProjectionClass, Fields>> = Object.freeze({
   label: Object.freeze({}),

@@ -5715,7 +5715,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-forge-projector-model", path: "src/workflow/forge/projector/model.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 19, namesSha256: "886b3d6b8543fc966fac1559aa643e6ab5c7e8b6873571f5c4375c873e3ecd50" },
+      owner: "verification-workflow", publicApi: { exportCount: 20, namesSha256: "b4096aee70d66bd190c76642bdc85aa254ce8f97de8b5d4958a1aae3b247d8f5" },
       dependencies: ["src/kernel/product-identity.ts"],
     }),
     moduleContract({

@@ -31,7 +31,7 @@ What is projected today:
 
 Every other field of a GitHub object is GitHub-owned and never written.
 
-**Foreign edits (V-27), judged per field.** Each receipt records, for every object, the digest of each git-owned field as projected and observed.
+**Foreign edits (V-27), judged per field.** A field no record holds (`PROJECTOR_OWNED_FIELDS`: an issue's generated block and pin, a milestone's computed description and state, a lane label's colour and description) is never a record change: an edit of it on GitHub is re-projected in every mode and never proposed. Each receipt records, for every object, the digest of each git-owned field as projected and observed.
 - A field is foreign-edited when its live value differs both from D and from the value the previous receipt recorded for that field.
 - A field with no recorded value is simply written. That covers a field newly owned by git and a first run.
 - A projected object the previous receipt recorded that is gone from GitHub was deleted there, and that deletion is itself a foreign change.
