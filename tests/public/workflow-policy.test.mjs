@@ -36,8 +36,14 @@ import { isAlias, isMap, isPair, isScalar, isSeq, LineCounter, parseDocument, vi
  * any caller's, followed through `uses: ./.github/workflows/…`) names no
  * pull-request-controlled value anywhere (a checkout's `ref`, an `env` at any
  * level, a job output, `run` text) and never fetches, checks out or reads a
- * pull request's head. The one exception is a declared data-only job, which
- * may carry such values into an issue's text and checks out nothing.
+ * pull request's head. The one exception is a declared data-only job, whose
+ * declared env variables may carry such values into an issue's text while it
+ * checks out nothing; its run text gets no exemption.
+ *
+ * No script splices outsider text (github-only §10.1, script injection): in
+ * EVERY workflow, privileged or not, an outsider-controlled expression
+ * (`github.event.*`, `github.head_ref`) never appears inside `run` text or an
+ * inline script; such values reach a step only through `env:`.
  *
  * Each file is READ AS YAML (the `yaml` package, the repository's one YAML
  * reader), never matched line by line: indentation, flow maps and flow lists
@@ -224,7 +230,7 @@ const PRIVILEGED_EVENTS = new Set([
 /** An expression whose value a pull request (a fork) controls: its head commit, branch or repository, or a dispatch payload. */
 const PULL_REQUEST_CONTROLLED = /github\.event\.(?:workflow_run\.(?:head_|pull_requests)|pull_request\.head|check_suite\.(?:head_|pull_requests)|check_run\.(?:head_sha|pull_requests|check_suite\.(?:head_|pull_requests))|deployment(?:_status)?\.|status\.(?:sha|branches|commit)|client_payload|issue\.pull_request)|github\.head_ref/iu;
 /** Text (a run step, a ref, an env value) that fetches, checks out or reads a pull request's head, however the value got there. */
-const HEAD_IN_RUN = /\bpull\/\S*\/(?:head|merge)\b|refs\/pull\/|\bgh\s+pr\s+checkout\b|\bhead_(?:sha|branch|ref|repository)\b|\bpull_requests\b|\bclient_payload\b/iu;
+const HEAD_IN_RUN = /\bpull\/\S*\/(?:head|merge)\b|refs\/pull\/|\bgh\s+pr\s+checkout\b|\bhead_(?:sha|branch|ref|repository)\b|\bpull_requests\b|\bclient_payload\b/u;
 /**
  * The ONE declared data-only path: a job that reads pull-request-controlled
  * values only as data (into an issue's text), with no checkout and no git
@@ -296,13 +302,40 @@ function forkSafetyViolations(workflow, workflows = [workflow]) {
   const dataJob = dataOnly === undefined ? undefined : document.jobs?.[dataOnly.job];
   const dataJobClean = dataJob !== undefined && !(dataJob.steps ?? []).some((step) => (typeof step?.uses === "string" && CHECKOUT.test(step.uses)) || (typeof step?.run === "string" && GIT_FETCH.test(step.run)));
   // Inside the declared data-only job (and only while it checks out and fetches nothing), its declared env
-  // variables may carry the values, and its run text may use them.
-  const declared = (path) => dataOnly !== undefined && dataJobClean
-    && (dataOnly.variables.some((variable) => path === `jobs.${dataOnly.job}.env.${variable}`) || new RegExp(`^jobs\\.${dataOnly.job}\\.steps\\[\\d+\\]\\.run$`, "u").test(path));
+  // variables may carry the values; its run text gets no exemption (it reads them as $VARIABLES).
+  const declared = (path) => dataOnly !== undefined && dataJobClean && dataOnly.variables.some((variable) => path === `jobs.${dataOnly.job}.env.${variable}`);
   for (const { path, value } of stringsOf(document)) {
     if (path === "on" || path.startsWith("on.") || declared(path)) continue;
     if (PULL_REQUEST_CONTROLLED.test(value)) violations.push(`${workflow.path}: ${path} names a value a pull request controls (${value.trim().split("\n")[0]}) in a run that holds the base repository's privilege`);
     else if (HEAD_IN_RUN.test(value)) violations.push(`${workflow.path}: ${path} fetches, checks out or reads a pull request's head in a run that holds the base repository's privilege`);
+  }
+  return violations;
+}
+
+/** An expression context an outsider controls: any event field (a comment, a title, a branch name, a body), the head ref. */
+const UNTRUSTED_CONTEXT = /\bgithub\.(?:event\b|head_ref\b)/u;
+
+/**
+ * The script-injection violations of one workflow, privileged or not: an
+ * outsider-controlled expression written inside a step's `run` text (or an
+ * inline script), where GitHub splices it into the shell before it runs.
+ * Untrusted values reach a step only through `env:`, as declared variables
+ * the script reads quoted (`"$TITLE"`).
+ */
+function injectionViolations(workflow) {
+  const { unreadable } = readWorkflow(workflow);
+  if (unreadable.length > 0) return unreadable;
+  const document = parseDocument(workflow.text).toJS() ?? {};
+  const violations = [];
+  for (const [jobName, job] of Object.entries(document.jobs ?? {})) {
+    for (const [index, step] of (Array.isArray(job?.steps) ? job.steps : []).entries()) {
+      for (const [field, text] of [["run", step?.run], ["with.script", step?.with?.script]]) {
+        if (typeof text !== "string") continue;
+        for (const match of text.matchAll(/\$\{\{([\s\S]*?)\}\}/gu)) {
+          if (UNTRUSTED_CONTEXT.test(match[1])) violations.push(`${workflow.path}: jobs.${jobName}.steps[${String(index)}].${field} inlines \${{${match[1]}}}, which an outsider controls; pass it through env and read the variable`);
+        }
+      }
+    }
   }
   return violations;
 }
@@ -551,4 +584,32 @@ test("fork-safety refuses every planted bypass and passes the near misses", () =
   assert.deepEqual(plant(job("issue_comment", checkout(""))), []);
   assert.deepEqual(plant(job("pull_request", checkout("        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n"))), []);
   assert.deepEqual(plant(job("push", "    steps:\n      - run: git fetch origin main\n")), []);
+});
+
+test("no live workflow inlines an outsider-controlled expression into a script", () => {
+  assert.deepEqual(liveWorkflows().flatMap(injectionViolations), []);
+});
+
+test("script injection is refused in every workflow, privileged or not; env-passed values and trusted contexts pass", () => {
+  const plant = (event, step) => injectionViolations({ path: ".github/workflows/plant.yml", text: `on: ${event}\njobs:\n  j:\n    runs-on: x\n    steps:\n${step}` });
+  for (const [event, expression] of [
+    ["issue_comment", "github.event.comment.body"],
+    ["issues", "github.event.issue.title"],
+    ["discussion", "github.event.discussion.body"],
+    ["workflow_run", "github.event.workflow_run.display_title"],
+    ["workflow_run", "github.event.workflow_run.head_branch"],
+    ["pull_request", "github.event.pull_request.title"],
+    ["pull_request", "github.head_ref"],
+  ]) {
+    assert.equal(plant(event, `      - run: echo "\${{ ${expression} }}"\n`).length, 1, `${event}: ${expression}`);
+  }
+  assert.equal(plant("issue_comment", "      - uses: actions/github-script@0123456789abcdef0123456789abcdef01234567\n        with:\n          script: console.log(\"${{ github.event.comment.body }}\")\n").length, 1, "an inline script");
+  // The data-only job's run text gets no exemption: an inline head branch in the failure reporter is refused.
+  const reporter = { path: ".github/workflows/reusable-workflow-failure.yml", text: "on: workflow_call\njobs:\n  report:\n    runs-on: x\n    env:\n      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}\n    steps:\n      - run: gh issue create --title \"${{ github.event.workflow_run.head_branch }}\"\n" };
+  const reporterCaller = { path: ".github/workflows/workflow-failure-issue.yml", text: "on: workflow_run\njobs:\n  report:\n    uses: ./.github/workflows/reusable-workflow-failure.yml\n" };
+  assert.equal(injectionViolations(reporter).length, 1);
+  assert.ok(forkSafetyViolations(reporter, [reporter, reporterCaller]).length >= 1, "an inline head expression in the data-only job's run text");
+  // Near misses: the value through env, a trusted context, an input.
+  assert.deepEqual(plant("issue_comment", "      - env:\n          BODY: ${{ github.event.comment.body }}\n        run: printf '%s' \"$BODY\"\n"), []);
+  assert.deepEqual(plant("push", "      - run: echo \"${{ github.sha }} ${{ github.repository }} ${{ matrix.shard }} ${{ inputs.runner }}\"\n"), []);
 });
