@@ -10,6 +10,7 @@ The `engine/test/process/` folder of the development surface.
 - `network-under-test.test.ts` — a test run dials nothing but this machine, at the socket: the platform fetch, `http.request` and `net.connect` to a public address (by address and by name) are refused in a guarded process, loopback is reached, only a consented live host passes, and both runners that arm the checkout write door install the guard.
 - `spawn-bounded-sync.test.ts` — the one bounded synchronous run (`spawnBoundedSync`): the command runs under the CPU limit, a caller's own wall timeout is never applied, and a run still going at the hang backstop is ended and reported HUNG.
 - `supervised-run.test.ts` — the one test-run supervisor, over the real native primitive: a detached grandchild never survives a supervised command, its fd-3 report is passed through, a stop reaches the command before the kill, the engine worker's recorded launch runs supervised, and a malformed receipt is refused.
+- `worker-bootstrap.test.ts` — a bootstrapped worker thread of a parent started on eval input with `--input-type` (both forms) starts, runs its entry and is still held by the prelude's fault policy: node hands the thread that option, which a file entry refuses.
 
 ## Where it lives and what consumes it
 
