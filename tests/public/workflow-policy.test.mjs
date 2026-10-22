@@ -29,12 +29,15 @@ import { isAlias, isMap, isPair, isScalar, isSeq, LineCounter, parseDocument, vi
  * `push` trigger skips no main commit: a required check it produces would
  * otherwise stay pending on every PR a filter skips.
  *
- * Contributions from forks are safe by design (github-only §10.1): no
- * workflow triggers on `pull_request_target` (it runs with the base
- * repository's write token and secrets while a fork's code is in reach), and a
- * workflow on a privileged trigger (`workflow_run`, `issue_comment`, `issues`,
- * `discussion`, `discussion_comment`, `schedule`) never checks out a pull
- * request's head: it runs `main`'s code and reads a fork's results as data.
+ * Contributions from forks are safe by design (github-only §10.1), judged
+ * by WHAT RUNS WITH PRIVILEGE, never by a trigger's name: no workflow runs
+ * under `pull_request_target`; and a workflow whose run holds the base
+ * repository's token or secrets (its own trigger, or for a reusable workflow
+ * any caller's, followed through `uses: ./.github/workflows/…`) names no
+ * pull-request-controlled value anywhere (a checkout's `ref`, an `env` at any
+ * level, a job output, `run` text) and never fetches, checks out or reads a
+ * pull request's head. The one exception is a declared data-only job, which
+ * may carry such values into an issue's text and checks out nothing.
  *
  * Each file is READ AS YAML (the `yaml` package, the repository's one YAML
  * reader), never matched line by line: indentation, flow maps and flow lists
@@ -209,31 +212,97 @@ function mergeQueueViolations(workflow) {
   return violations;
 }
 
-/** The triggers whose runs hold the base repository's write token or secrets while acting on outside input. */
-const PRIVILEGED_EVENTS = new Set(["workflow_run", "issue_comment", "issues", "discussion", "discussion_comment", "schedule"]);
-/** An expression naming a pull request's head (its commit, branch or repository), which a privileged run must never check out. */
-const PULL_REQUEST_HEAD = /github\.event\.(?:workflow_run\.head_(?:sha|branch|repository)|pull_request\.head\.|issue\.pull_request)|github\.head_ref|refs\/pull\//u;
+/**
+ * The triggers whose runs execute in the BASE repository's context, with its
+ * write token or secrets, while their event can name a fork's code: what
+ * matters is what runs with privilege, not the trigger's name.
+ */
+const PRIVILEGED_EVENTS = new Set([
+  "pull_request_target", "workflow_run", "check_suite", "check_run", "repository_dispatch", "deployment_status", "status",
+  "issue_comment", "issues", "discussion", "discussion_comment", "schedule",
+]);
+/** An expression whose value a pull request (a fork) controls: its head commit, branch or repository, or a dispatch payload. */
+const PULL_REQUEST_CONTROLLED = /github\.event\.(?:workflow_run\.(?:head_|pull_requests)|pull_request\.head|check_suite\.(?:head_|pull_requests)|check_run\.(?:head_sha|pull_requests|check_suite\.(?:head_|pull_requests))|deployment(?:_status)?\.|status\.(?:sha|branches|commit)|client_payload|issue\.pull_request)|github\.head_ref/iu;
+/** Text (a run step, a ref, an env value) that fetches, checks out or reads a pull request's head, however the value got there. */
+const HEAD_IN_RUN = /\bpull\/\S*\/(?:head|merge)\b|refs\/pull\/|\bgh\s+pr\s+checkout\b|\bhead_(?:sha|branch|ref|repository)\b|\bpull_requests\b|\bclient_payload\b/iu;
+/**
+ * The ONE declared data-only path: a job that reads pull-request-controlled
+ * values only as data (into an issue's text), with no checkout and no git
+ * fetch of any kind. Each entry names the job, the env variables that carry
+ * the values, and why; an entry that names nothing live is itself refused.
+ */
+const DATA_ONLY = new Map([
+  [".github/workflows/reusable-workflow-failure.yml", {
+    job: "report",
+    variables: ["HEAD_SHA", "HEAD_BRANCH", "PR_NUMBER"],
+    why: "the failure reporter writes the failed run's commit, branch and pull-request number into an issue's text; it checks out nothing and fetches nothing",
+  }],
+]);
+const CHECKOUT = /^actions\/checkout@/iu;
+const GIT_FETCH = /\bgit\s+(?:fetch|checkout|switch|clone|pull|worktree)\b|\bgh\s+(?:pr|repo)\s+(?:checkout|clone)\b/iu;
+
+/** Every string of a parsed value, with where it sits (`jobs.x.steps[0].run`). */
+function stringsOf(value, path = "") {
+  if (typeof value === "string") return [{ path, value }];
+  if (Array.isArray(value)) return value.flatMap((item, index) => stringsOf(item, `${path}[${String(index)}]`));
+  if (value !== null && typeof value === "object") return Object.entries(value).flatMap(([key, item]) => stringsOf(item, path === "" ? key : `${path}.${key}`));
+  return [];
+}
 
 /**
- * The fork-safety violations of one workflow: a `pull_request_target`
- * trigger, or a privileged run whose `actions/checkout` step names a pull
- * request's head (`ref` or `repository`).
+ * The events each workflow effectively runs under: its own, plus, for a
+ * reusable workflow (`workflow_call`), every event of every workflow that
+ * calls it through `uses: ./.github/workflows/<file>`, followed to a fixed
+ * point. A reusable workflow nobody in the tree calls is judged privileged.
  */
-function forkSafetyViolations(workflow) {
-  const { events, unreadable } = readWorkflow(workflow);
-  if (unreadable.length > 0) return unreadable;
-  const violations = [];
-  if (events.has("pull_request_target")) violations.push(`${workflow.path}: triggers on pull_request_target, which runs with write access and secrets beside a fork's code; use pull_request`);
-  if (![...events].some((event) => PRIVILEGED_EVENTS.has(event))) return violations;
-  const document = parseDocument(workflow.text).toJS();
-  for (const [jobName, job] of Object.entries(document?.jobs ?? {})) {
-    for (const step of Array.isArray(job?.steps) ? job.steps : []) {
-      if (typeof step?.uses !== "string" || !step.uses.startsWith("actions/checkout@")) continue;
-      for (const key of ["ref", "repository"]) {
-        const value = step.with?.[key];
-        if (typeof value === "string" && PULL_REQUEST_HEAD.test(value)) violations.push(`${workflow.path}: job ${jobName} checks out a pull request's head (${key}: ${value}) on a privileged trigger`);
-      }
+function effectiveEvents(workflows) {
+  const own = new Map(workflows.map((workflow) => [workflow.path, new Set(readWorkflow(workflow).events)]));
+  const calls = workflows.flatMap((workflow) => {
+    const jobs = parseDocument(workflow.text).toJS()?.jobs ?? {};
+    return Object.values(jobs).flatMap((job) => (typeof job?.uses === "string" && job.uses.startsWith("./") ? [{ caller: workflow.path, callee: job.uses.slice(2).replace(/@.*$/u, "") }] : []));
+  });
+  const effective = new Map([...own].map(([path, events]) => [path, new Set(events)]));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const { caller, callee } of calls) {
+      const target = effective.get(callee);
+      if (target === undefined) continue;
+      for (const event of effective.get(caller) ?? []) if (!target.has(event)) { target.add(event); changed = true; }
     }
+  }
+  for (const [path, events] of effective) {
+    if (events.has("workflow_call") && !calls.some((call) => call.callee === path)) events.add("uncalled-reusable");
+  }
+  return effective;
+}
+
+/**
+ * The fork-safety violations of `workflow` among `workflows` (for its
+ * callers): a `pull_request_target` trigger; and, in a workflow that runs
+ * with privilege (its own or a caller's trigger), ANY pull-request-controlled
+ * expression wherever it sits — `with`, `env` at every level, job outputs,
+ * `run` text — and any run text that fetches, checks out or reads a head,
+ * outside the declared data-only path.
+ */
+function forkSafetyViolations(workflow, workflows = [workflow]) {
+  const { unreadable } = readWorkflow(workflow);
+  if (unreadable.length > 0) return unreadable;
+  const events = effectiveEvents(workflows.some((entry) => entry.path === workflow.path) ? workflows : [...workflows, workflow]).get(workflow.path);
+  const violations = [];
+  if (events.has("pull_request_target")) violations.push(`${workflow.path}: runs under pull_request_target, which holds write access and secrets beside a fork's code; use pull_request`);
+  if (![...events].some((event) => PRIVILEGED_EVENTS.has(event) || event === "uncalled-reusable")) return violations;
+  const document = parseDocument(workflow.text).toJS() ?? {};
+  const dataOnly = DATA_ONLY.get(workflow.path);
+  const dataJob = dataOnly === undefined ? undefined : document.jobs?.[dataOnly.job];
+  const dataJobClean = dataJob !== undefined && !(dataJob.steps ?? []).some((step) => (typeof step?.uses === "string" && CHECKOUT.test(step.uses)) || (typeof step?.run === "string" && GIT_FETCH.test(step.run)));
+  // Inside the declared data-only job (and only while it checks out and fetches nothing), its declared env
+  // variables may carry the values, and its run text may use them.
+  const declared = (path) => dataOnly !== undefined && dataJobClean
+    && (dataOnly.variables.some((variable) => path === `jobs.${dataOnly.job}.env.${variable}`) || new RegExp(`^jobs\\.${dataOnly.job}\\.steps\\[\\d+\\]\\.run$`, "u").test(path));
+  for (const { path, value } of stringsOf(document)) {
+    if (path === "on" || path.startsWith("on.") || declared(path)) continue;
+    if (PULL_REQUEST_CONTROLLED.test(value)) violations.push(`${workflow.path}: ${path} names a value a pull request controls (${value.trim().split("\n")[0]}) in a run that holds the base repository's privilege`);
+    else if (HEAD_IN_RUN.test(value)) violations.push(`${workflow.path}: ${path} fetches, checks out or reads a pull request's head in a run that holds the base repository's privilege`);
   }
   return violations;
 }
@@ -422,22 +491,64 @@ test("two workflows sharing a group prefix are refused", () => {
   assert.equal(sharedGroupPrefixes(shared).length, 1);
 });
 
-test("every live workflow is fork-safe: no pull_request_target, no privileged run checks out a pull request's head", () => {
-  assert.deepEqual(liveWorkflows().flatMap(forkSafetyViolations), []);
+test("every live workflow is fork-safe, and the data-only path names a live job", () => {
+  const workflows = liveWorkflows();
+  assert.deepEqual(workflows.flatMap((workflow) => forkSafetyViolations(workflow, workflows)), []);
+  for (const [path, entry] of DATA_ONLY) {
+    const workflow = workflows.find((candidate) => candidate.path === path);
+    assert.ok(workflow !== undefined, `the data-only entry ${path} names no workflow`);
+    const env = parseDocument(workflow.text).toJS()?.jobs?.[entry.job]?.env ?? {};
+    for (const variable of entry.variables) assert.ok(variable in env, `the data-only entry ${path} names ${entry.job}.env.${variable}, which is gone`);
+  }
 });
 
-test("fork-safety refuses the planted spellings and passes the near misses", () => {
-  const plant = (text) => forkSafetyViolations({ path: ".github/workflows/plant.yml", text });
-  const job = (event, withBlock) => `on: ${event}\njobs:\n  j:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n${withBlock}`;
+test("fork-safety refuses every planted bypass and passes the near misses", () => {
+  const SHA = "0123456789abcdef0123456789abcdef01234567";
+  const plant = (text, others = []) => {
+    const workflow = { path: ".github/workflows/plant.yml", text };
+    return forkSafetyViolations(workflow, [workflow, ...others]);
+  };
+  const job = (event, body) => `on: ${event}\njobs:\n  j:\n    runs-on: ubuntu-24.04\n${body}`;
+  const checkout = (withBlock) => `    steps:\n      - uses: actions/checkout@${SHA}\n${withBlock}`;
+  // pull_request_target in three spellings.
   assert.equal(plant("on: pull_request_target\njobs:\n  j:\n    runs-on: x\n    steps: []\n").length, 1);
   assert.equal(plant("on: [push, pull_request_target]\njobs:\n  j:\n    runs-on: x\n    steps: []\n").length, 1);
   assert.equal(plant("on:\n  pull_request_target:\n    types: [opened]\njobs:\n  j:\n    runs-on: x\n    steps: []\n").length, 1);
-  for (const ref of ["${{ github.event.workflow_run.head_sha }}", "${{ github.event.pull_request.head.sha }}", "${{ github.head_ref }}", "refs/pull/${{ github.event.issue.number }}/head"]) {
-    assert.equal(plant(job("workflow_run", `        with:\n          ref: "${ref}"\n`)).length, 1, ref);
+  // A checkout of a head, on each privileged trigger, in any case.
+  for (const [event, ref] of [
+    ["workflow_run", "${{ github.event.workflow_run.head_sha }}"],
+    ["issue_comment", "refs/pull/${{ github.event.issue.number }}/head"],
+    ["check_suite", "${{ github.event.check_suite.head_sha }}"],
+    ["check_run", "${{ github.event.check_run.head_sha }}"],
+    ["repository_dispatch", "${{ github.event.client_payload.sha }}"],
+    ["deployment_status", "${{ github.event.deployment.sha }}"],
+    ["status", "${{ github.event.sha }}${{ github.event.status.sha }}"],
+  ]) {
+    assert.ok(plant(job(event, checkout(`        with:\n          ref: "${ref}"\n`))).length >= 1, `${event}: ${ref}`);
   }
-  assert.equal(plant(job("issue_comment", "        with:\n          repository: ${{ github.event.workflow_run.head_repository.full_name }}\n")).length, 1);
-  // Near misses: a privileged run on main's code, and a pull_request run checking out its own head.
-  assert.deepEqual(plant(job("workflow_run", "        with:\n          ref: main\n")), []);
-  assert.deepEqual(plant(job("issue_comment", "")), []);
-  assert.deepEqual(plant(job("pull_request", "        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n")), []);
+  assert.ok(plant(job("workflow_run", `    steps:\n      - uses: Actions/Checkout@${SHA}\n        with:\n          ref: \${{ github.head_ref }}\n`)).length >= 1, "a checkout spelled in another case");
+  // 1. A run step that fetches the head.
+  assert.ok(plant(job("workflow_run", "    steps:\n      - run: git fetch origin pull/${{ github.event.workflow_run.pull_requests[0].number }}/head && git checkout FETCH_HEAD\n")).length >= 1);
+  assert.ok(plant(job("workflow_run", "    steps:\n      - run: git fetch origin \"pull/$N/head\"\n")).length >= 1, "a fetch through a shell variable");
+  assert.ok(plant(job("workflow_run", "    steps:\n      - run: echo \"sha=$(jq -r .workflow_run.head_sha \"$GITHUB_EVENT_PATH\")\" >> \"$GITHUB_OUTPUT\"\n")).length >= 1, "a head read from the event file");
+  // 2. A reusable workflow called from a privileged one, and one nobody calls.
+  const reusable = (body) => `on: workflow_call\njobs:\n  j:\n    runs-on: ubuntu-24.04\n${body}`;
+  const caller = { path: ".github/workflows/caller.yml", text: "on: workflow_run\njobs:\n  call:\n    uses: ./.github/workflows/plant.yml\n" };
+  assert.ok(plant(reusable(checkout("        with:\n          ref: ${{ github.event.workflow_run.head_sha }}\n")), [caller]).length >= 1, "called from workflow_run");
+  assert.ok(plant(reusable(checkout("        with:\n          ref: ${{ github.event.workflow_run.head_sha }}\n"))).length >= 1, "a reusable workflow nobody calls");
+  // 3. Indirection through env and needs.
+  assert.ok(plant(`on: workflow_run\nenv:\n  REF: \${{ github.event.workflow_run.head_sha }}\njobs:\n  j:\n    runs-on: x\n${checkout("        with:\n          ref: ${{ env.REF }}\n")}`).length >= 1, "workflow-level env");
+  assert.ok(plant(`on: workflow_run\njobs:\n  prep:\n    runs-on: x\n    outputs:\n      sha: \${{ github.event.workflow_run.head_sha }}\n    steps: []\n  j:\n    needs: prep\n    runs-on: x\n${checkout("        with:\n          ref: ${{ needs.prep.outputs.sha }}\n")}`).length >= 1, "a job output");
+  // 4. The data-only path holds only for its declared job and only while it checks nothing out.
+  const failureReporter = (steps) => ({ path: ".github/workflows/reusable-workflow-failure.yml", text: `on: workflow_call\njobs:\n  report:\n    runs-on: x\n    env:\n      HEAD_SHA: \${{ github.event.workflow_run.head_sha }}\n      HEAD_BRANCH: \${{ github.event.workflow_run.head_branch }}\n      PR_NUMBER: \${{ github.event.workflow_run.pull_requests[0].number }}\n    steps:\n${steps}` });
+  const reporterCaller = { path: ".github/workflows/workflow-failure-issue.yml", text: "on: workflow_run\njobs:\n  report:\n    uses: ./.github/workflows/reusable-workflow-failure.yml\n" };
+  const clean = failureReporter("      - run: gh issue create --body \"$HEAD_SHA\"\n");
+  assert.deepEqual(forkSafetyViolations(clean, [clean, reporterCaller]), [], "the declared data-only job");
+  const fetching = failureReporter("      - run: git fetch origin \"$HEAD_SHA\"\n");
+  assert.ok(forkSafetyViolations(fetching, [fetching, reporterCaller]).length >= 1, "a data-only job that fetches loses the exemption");
+  // Near misses: a privileged run on main, a pull_request run checking out its own head, a plain push.
+  assert.deepEqual(plant(job("workflow_run", checkout("        with:\n          ref: main\n"))), []);
+  assert.deepEqual(plant(job("issue_comment", checkout(""))), []);
+  assert.deepEqual(plant(job("pull_request", checkout("        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n"))), []);
+  assert.deepEqual(plant(job("push", "    steps:\n      - run: git fetch origin main\n")), []);
 });
