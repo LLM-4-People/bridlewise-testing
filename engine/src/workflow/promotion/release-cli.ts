@@ -5,7 +5,7 @@
  * code and a `--text` report.
  *
  *   plan      --releases <records.jsonl> [--now <iso time>] [--manual]
- *   notes     --releases … --repository <owner/name> --out <file> [--now …] [--manual]
+ *   notes     --releases … --repository <forge>/<owner>/<name> --out <file> [--now …] [--manual]
  *   assemble  --releases … --out <empty folder> --bundle <file> --guardian <file>
  *             --sbom <file> --docs-site <file> [--now …] [--manual]
  *
@@ -64,7 +64,7 @@ export function parseReleaseArguments(argv: readonly string[]): ReleaseRequest {
   const required = verb === "notes" ? ["--releases", "--repository", "--out"] : verb === "assemble" ? VALUE_FLAGS.assemble.filter((flag) => flag !== "--now") : ["--releases"];
   const absent = required.filter((flag) => !values.has(flag));
   if (absent.length > 0) throw usage(`${verb} needs ${absent.join(", ")}`);
-  if (values.has("--repository") && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(values.get("--repository")!)) throw usage("--repository is <owner>/<name>");
+  if (values.has("--repository") && !/^https:\/\/[^/\s]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(values.get("--repository")!)) throw usage("--repository is the repository's web address, <forge>/<owner>/<name> (the release job passes $GITHUB_SERVER_URL/$GITHUB_REPOSITORY)");
   if (values.has("--now") && Number.isNaN(Date.parse(values.get("--now")!))) throw usage("--now is an ISO time");
   return deepFreeze({ verb: verb as ReleaseVerb, values, manual });
 }

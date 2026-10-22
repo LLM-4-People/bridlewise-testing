@@ -133,7 +133,7 @@ test("the notes: landed pull requests, decision records and credited names betwe
   const fixture = promotionFixture("release-notes");
   const first = project(fixture, { "package.json": manifest(fixture, "1.0.0") });
   const firstPlan = plan(fixture);
-  const firstNotes = renderReleaseNotes(fixture.repository, firstPlan, SETTINGS, "owner/name");
+  const firstNotes = renderReleaseNotes(fixture.repository, firstPlan, SETTINGS, "https://forge.example/owner/name");
   assert.match(firstNotes, /first release projected from `main`/u);
   assert.match(firstNotes, /https:\/\/example\.invalid\/prior-releases/u);
   assert.doesNotMatch(firstNotes, /Developer preview/u, "1.0.0 is no pre-release");
@@ -152,10 +152,10 @@ test("the notes: landed pull requests, decision records and credited names betwe
   assert.deepEqual(landedPullRequests(fixture.repository, from, next.product.source), [{ number: 8, title: "Add a decision" }, { number: 9, title: "Ship the topic" }]);
   assert.deepEqual(decisionChanges(fixture.repository, from, next.product.source), [{ status: "added", path: "docs/decisions/D-90-a-decision.md", title: "Decide the thing" }]);
   assert.deepEqual(creditedPeople(fixture.repository, from, next.product.source), ["@octo-cat", "Ada Writer", "Bo Pair", "Cy Third", "Dee Plain", "Paren Name"], "a name, or a private address's login; a bare address credits nobody");
-  const notes = renderReleaseNotes(fixture.repository, next, SETTINGS, "owner/name");
+  const notes = renderReleaseNotes(fixture.repository, next, SETTINGS, "https://forge.example/owner/name");
   for (const expected of ["- Add a decision (#8)", "- Ship the topic (#9)", "added: [Decide the thing]", "@octo-cat, Ada Writer, Bo Pair, Cy Third, Dee Plain, Paren Name", "gh release verify v1.1.0 --repo owner/name", "compare/v1.0.0...v1.1.0"]) assert.ok(notes.includes(expected), `${expected}\n${notes}`);
   assert.doesNotMatch(notes, /@[A-Za-z0-9.-]+\.[a-z]{2,}|noreply/u, "no address is published, in any form a trailer can take");
-  assert.equal(renderReleaseNotes(fixture.repository, next, SETTINGS, "owner/name"), notes, "the same plan gives the same notes");
+  assert.equal(renderReleaseNotes(fixture.repository, next, SETTINGS, "https://forge.example/owner/name"), notes, "the same plan gives the same notes");
 });
 
 test("a product seeded with earlier previews: their tags are previous releases, and the first projected release reads no records across them", () => {
@@ -167,9 +167,9 @@ test("a product seeded with earlier previews: their tags are previous releases, 
   assert.deepEqual([seeded.due, seeded.previous?.tag, seeded.previous?.source, seeded.productChanged], [true, "v0.0.3-preview", null, true]);
   const fresh = plan(fixture, { now: new Date(Date.parse(fixture.git(["log", "-1", "--format=%cI", "v0.0.3-preview"])) + HOUR) });
   assert.deepEqual([fresh.lastPublishedAt, fresh.hoursSincePrevious, fresh.reasons], [null, null, []], "no release record here (the previews' records stay in the archived repository): no tag's or commit's date is ever taken for one");
-  const notes = renderReleaseNotes(fixture.repository, seeded, SETTINGS, "owner/name");
+  const notes = renderReleaseNotes(fixture.repository, seeded, SETTINGS, "https://forge.example/owner/name");
   assert.match(notes, /first release projected from `main`/u);
-  assert.match(notes, /\[v0\.0\.3-preview\]\(https:\/\/github\.com\/owner\/name\/releases\/tag\/v0\.0\.3-preview\), predates the projection/u);
+  assert.match(notes, /\[v0\.0\.3-preview\]\(https:\/\/forge\.example\/owner\/name\/releases\/tag\/v0\.0\.3-preview\), predates the projection/u);
   for (const absent of ["An old change", "Old Author", "## Landed", "## Decisions"]) assert.ok(!notes.includes(absent), `${absent}: no history is read across a seeded preview`);
   project(fixture, { "package.json": manifest(fixture, "0.0.2") });
   refusedWith("promotion_release_version_invalid", () => plan(fixture));
@@ -223,7 +223,7 @@ test("the assets: every input required, canonical names, the source archive of t
   const releasePlan = plan(fixture);
   const inputs = createTempDir("release-inputs-");
   const write = (name: string, content: string): string => (writeFileSync(join(inputs, name), content), join(inputs, name));
-  const all = { bundle: write("bundle.js", "export {};\n"), guardian: write("guardian", "\x7fELF"), sbom: write("sbom.json", json({ spdxVersion: "SPDX-2.3", packages: [] })), docsSite: write("site.tar.gz", "site") };
+  const all = { bundle: write("engine.js", "export {};\n"), guardian: write("guardian", "\x7fELF"), sbom: write("sbom.json", json({ spdxVersion: "SPDX-2.3", packages: [] })), docsSite: write("site.tar.gz", "site") };
 
   const missing = createTempDir("release-out-missing-");
   assert.throws(() => assembleRelease({ repository: fixture.repository, plan: releasePlan, out: missing, inputs: { bundle: all.bundle, sbom: all.sbom, docsSite: write("empty", "") }, platform: "linux-x64" }), (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_release_assets_incomplete" && JSON.stringify(error.facts["missing"]) === JSON.stringify(["guardian", "docsSite"]));
@@ -242,7 +242,7 @@ test("the assets: every input required, canonical names, the source archive of t
 });
 
 test("the door: its grammar refuses typed, and a due plan writes the notes while a waiting one builds nothing", async () => {
-  for (const argv of [[], ["publish"], ["plan", "--out", "x"], ["notes", "--out", "x"], ["notes", "--releases", "r", "--repository", "not a slug", "--out", "x"], ["plan", "--releases", "r", "--now", "yesterday"], ["assemble", "--out", "x"], ["plan", "--now"]]) {
+  for (const argv of [[], ["publish"], ["plan", "--out", "x"], ["notes", "--out", "x"], ["notes", "--releases", "r", "--repository", "owner/name", "--out", "x"], ["notes", "--releases", "r", "--repository", "http://forge.example/owner/name", "--out", "x"], ["plan", "--releases", "r", "--now", "yesterday"], ["assemble", "--out", "x"], ["plan", "--now"]]) {
     assert.throws(() => parseReleaseArguments(argv), (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_release_usage", argv.join(" "));
   }
   assert.equal(parseReleaseArguments(["plan", "--releases", "r.jsonl", "--manual", "--now", "2026-10-21T00:00:00Z"]).manual, true);
@@ -255,7 +255,7 @@ test("the door: its grammar refuses typed, and a due plan writes the notes while
   assert.equal((await runReleaseCli(fixture.root, ["plan", "--releases", none], fixture.document)).result.result.code, "promotion_release_settings_missing");
   const released = project(fixture, { "package.json": manifest(fixture, "1.0.0") });
   const notesOut = join(createTempDir("release-door-"), "notes.md");
-  const due = await runReleaseCli(fixture.root, ["notes", "--releases", none, "--repository", "owner/name", "--out", notesOut], withRelease);
+  const due = await runReleaseCli(fixture.root, ["notes", "--releases", none, "--repository", "https://forge.example/owner/name", "--out", notesOut], withRelease);
   assert.deepEqual([due.result.result.code, due.exitCode], ["promotion_release_notes_written", 0]);
   assert.match(readFileSync(notesOut, "utf8"), /gh release verify v1\.0\.0/u);
   releaseTag(fixture, "v1.0.0", released);

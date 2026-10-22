@@ -94,11 +94,17 @@ export function creditedPeople(repository: GitRepository, from: string | null, t
   return [...names].sort((a, b) => a.localeCompare(b));
 }
 
-/** The release's notes (Markdown) for `plan`, in the repository `slug` (`owner/name`). */
-export function renderReleaseNotes(repository: GitRepository, plan: ReleasePlan, settings: ReleaseSettings, slug: string): string {
+/**
+ * The release's notes (Markdown) for `plan`, in the repository whose web
+ * address is `repositoryUrl` (`<forge>/<owner>/<name>`, as the forge names
+ * it: the release job passes `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY`, so no
+ * host is spelled here and a rename changes nothing in code).
+ */
+export function renderReleaseNotes(repository: GitRepository, plan: ReleasePlan, settings: ReleaseSettings, repositoryUrl: string): string {
   const from = plan.previous?.source ?? null;
   const to = plan.product.source;
-  const url = `https://github.com/${slug}`;
+  const url = repositoryUrl.replace(/\/+$/u, "");
+  const slug = url.split("/").slice(-2).join("/");
   const lines: string[] = [];
   if (plan.prerelease) {
     lines.push("> [!WARNING]", "> **Developer preview. Not production-ready.** Do not use Bridlewise with sensitive, proprietary, regulated or production codebases. Read SECURITY.md before running anything.", "");
