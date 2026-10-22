@@ -21,6 +21,7 @@
  */
 import { dirname } from "node:path";
 
+import { figurePicture, partBarSentence, type PartBar } from "../../../shared/figures.ts";
 import { DECISION_INDEX } from "../../src/kernel/verification-paths.ts";
 import { entryViolations, listValue, parseFrontMatter, type FrontMatter } from "../../src/workflow/failure-owners.ts";
 
@@ -214,6 +215,45 @@ function indexRow(name: string, fields: FrontMatter, title: string): string {
 }
 
 /**
+ * Where the decision-status figure lives (repository-relative), and how the
+ * index (docs/decisions/README.md) reaches it; `decision-index.ts` writes it
+ * with the index.
+ */
+export const DECISION_STATUS_FIGURE = Object.freeze({ directory: "docs/assets/generated", fromIndex: "../assets/generated", stem: "decision-status" } as const);
+
+/**
+ * Every decision record by how far it is built, from the records' own front
+ * matter: a superseded record is superseded whatever it reached; a record in
+ * force is built, partly built, designed but not built, or a standing rule.
+ * The parts are the figure's (`shared/figures.ts`), inked from the token owner.
+ */
+export function decisionStatus(entries: readonly { readonly name: string; readonly text: string }[]): PartBar {
+  const counts = { done: 0, partial: 0, pending: 0, standing: 0, superseded: 0 };
+  for (const { text } of entries) {
+    const fields = parseFrontMatter(text)?.fields;
+    if (fields === undefined) continue;
+    if (fields.get("status") === "superseded") counts.superseded += 1;
+    else {
+      const implementation = fields.get("implementation");
+      if (implementation === "done" || implementation === "partial" || implementation === "pending" || implementation === "standing") counts[implementation] += 1;
+    }
+  }
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  return {
+    title: `${String(total)} decision records`,
+    subtitle: "by how far each is built",
+    parts: [
+      { label: "built", count: counts.done, ink: "--ok" },
+      { label: "partly built", count: counts.partial, ink: "--ok", hatched: true },
+      { label: "designed, not built", count: counts.pending, ink: "--warn" },
+      { label: "standing rules", count: counts.standing, ink: "--ink-2" },
+      { label: "superseded", count: counts.superseded, ink: "--ink-2", hatched: true },
+    ],
+    source: "generated from docs/decisions/*.md front matter",
+  };
+}
+
+/**
  * THE DECISION INDEX, generated from the decision files alone (their front
  * matter and `# ` title): one section per {@link DECISION_GROUPS} entry that
  * holds a decision, the rows in file-name order. It is the text between the
@@ -222,6 +262,8 @@ function indexRow(name: string, fields: FrontMatter, title: string): string {
  * lie after a `pending → done` flip).
  */
 export function renderDecisionIndex(entries: readonly { readonly name: string; readonly text: string }[]): string {
+  const status = decisionStatus(entries);
+  const figure = `${figurePicture(DECISION_STATUS_FIGURE.fromIndex, DECISION_STATUS_FIGURE.stem, partBarSentence(status))}\n\n${partBarSentence(status)}\n`;
   const sections = Object.entries(DECISION_GROUPS).flatMap(([group, heading]) => {
     const rows = entries.flatMap(({ name, text }) => {
       const parsed = parseFrontMatter(text);
@@ -230,5 +272,5 @@ export function renderDecisionIndex(entries: readonly { readonly name: string; r
     });
     return rows.length === 0 ? [] : [`## ${heading}\n\n| Id | Decision | By | State |\n|---|---|---|---|\n${rows.join("\n")}\n`];
   });
-  return sections.join("\n");
+  return [figure, ...sections].join("\n");
 }

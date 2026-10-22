@@ -120,3 +120,12 @@ themes and tokens are declared only in the owner, nothing is imported or
 fetched from elsewhere, and the sheets are plain CSS.
 `tests/public/site-design-system.test.mjs` proves each refusal and holds the
 text to 4.5:1 in both themes.
+
+Figures are generated, never drawn by hand (`shared/figures.ts`). A figure for
+a README is a light/dark SVG pair in concrete token colours behind a
+`<picture>`, with its facts repeated as a sentence beside it. The decision
+index's status bar is one: it is written with the index, from the same
+records. A figure on the site is declared as data (`docs/_data/figures/`) and
+drawn inline with `fig-*` classes, so it follows the theme switch. Parts are
+labelled directly with their counts, and a hatched part is hatched, so
+identity is never carried by colour alone.
