@@ -1,4 +1,5 @@
 import {
+  branchTip,
   countOpenAlerts,
   latestByWorkflow,
   listReleases,
@@ -6,22 +7,19 @@ import {
   workflowRuns,
 } from "../../engine/src/workflow/forge/repository-reads.ts";
 import { repoInfo } from "./files.mjs";
+import { REPOSITORY } from "./repository.mjs";
 
 export const STATUS_SCHEMA = "bridlewise-floor-status/v1";
-export const TESTING_REPOSITORY = "LLM-4-People/bridlewise-testing";
-export const PRODUCT_REPOSITORY = "LLM-4-People/bridlewise";
+
+/** The promotion this snapshot reports: `main` projected onto the `product` branch of the same repository. */
+export const PROMOTION = Object.freeze({ profile: "main-to-product", source: "refs/heads/main", target: "refs/heads/product" });
 
 const REQUIRED = [
-  { id: "testing.ci", label: "Testing CI", repository: TESTING_REPOSITORY, workflow: "CI", required: true },
-  { id: "testing.codeql", label: "Testing CodeQL", repository: TESTING_REPOSITORY, workflow: "CodeQL", required: true },
-  { id: "testing.docs", label: "Testing docs links", repository: TESTING_REPOSITORY, workflow: "Docs links", required: true },
-  { id: "testing.secret", label: "Testing secret scan", repository: TESTING_REPOSITORY, workflow: "Secret scan", required: true },
-  { id: "product.ci", label: "Product CI", repository: PRODUCT_REPOSITORY, workflow: "CI", required: true },
-  { id: "product.codeql", label: "Product CodeQL", repository: PRODUCT_REPOSITORY, workflow: "CodeQL", required: true },
-  { id: "product.docs", label: "Product docs links", repository: PRODUCT_REPOSITORY, workflow: "Docs links", required: true },
-  { id: "product.secret", label: "Product secret scan", repository: PRODUCT_REPOSITORY, workflow: "Secret scan", required: true },
-  { id: "testing.pages", label: "Testing Pages", repository: TESTING_REPOSITORY, workflow: "Docs site", required: false },
-  { id: "product.pages", label: "Product Pages", repository: PRODUCT_REPOSITORY, workflow: "Docs site", required: false },
+  { id: "ci", label: "CI", workflow: "CI", required: true },
+  { id: "codeql", label: "CodeQL", workflow: "CodeQL", required: true },
+  { id: "docs", label: "Docs links", workflow: "Docs links", required: true },
+  { id: "secret", label: "Secret scan", workflow: "Secret scan", required: true },
+  { id: "pages", label: "Pages", workflow: "Docs site", required: false },
 ];
 
 function durationMs(run) {
@@ -124,152 +122,97 @@ function settled(result, code = "api-error") {
 }
 
 /**
- * The floor status. GitHub is read through the forge port: `client` (the
- * build's token) for the testing repository, `publicClient` (no credential)
- * for the product's public reads. Offline, neither is asked.
+ * The floor status of this repository (its coordinates from package.json):
+ * the required workflow runs and alert queues at the source commit, and the
+ * `product` branch's tip. GitHub is read through the forge port with
+ * `client` (the build's token); offline, nothing is asked.
  */
 export async function buildStatus({
-  testingRoot,
-  productRoot = null,
+  root,
   client = null,
-  publicClient = null,
   now = new Date(),
   counts = null,
   offline = false,
 }) {
-  const testing = repoInfo(testingRoot);
-  const product = repoInfo(productRoot);
-  if (!offline && (client === null || publicClient === null)) throw new Error("buildStatus needs the forge clients unless offline");
-
+  const source = repoInfo(root);
+  if (!offline && client === null) throw new Error("buildStatus needs the forge client unless offline");
   const offlineResult = { status: "rejected", reason: Object.assign(new Error("offline"), { code: "offline" }) };
-  const [testingRunsResult, productRunsResult, testingCodeResult, testingDepResult, releasesResult] =
-    offline
-      ? [offlineResult, offlineResult, offlineResult, offlineResult, offlineResult]
-      : await Promise.allSettled([
-          workflowRuns(client, TESTING_REPOSITORY),
-          workflowRuns(publicClient, PRODUCT_REPOSITORY),
-          countOpenAlerts(client, TESTING_REPOSITORY, "code-scanning"),
-          countOpenAlerts(client, TESTING_REPOSITORY, "dependabot"),
-          listReleases(publicClient, PRODUCT_REPOSITORY),
-        ]);
+  const [runsResult, codeResult, dependencyResult, releasesResult, productResult] = offline
+    ? [offlineResult, offlineResult, offlineResult, offlineResult, offlineResult]
+    : await Promise.allSettled([
+        workflowRuns(client, REPOSITORY),
+        countOpenAlerts(client, REPOSITORY, "code-scanning"),
+        countOpenAlerts(client, REPOSITORY, "dependabot"),
+        listReleases(client, REPOSITORY),
+        branchTip(client, REPOSITORY, PROMOTION.target.slice("refs/heads/".length)),
+      ]);
 
-  const testingRuns = settled(testingRunsResult);
-  const productRuns = settled(productRunsResult);
-  const testingCode = settled(testingCodeResult);
-  const testingDependencies = settled(testingDepResult);
+  const runs = settled(runsResult);
+  const codeScanning = settled(codeResult);
+  const dependencies = settled(dependencyResult);
   const releases = settled(releasesResult);
+  const product = settled(productResult);
+  const latest = runs.ok ? latestByWorkflow(runs.value) : new Map();
 
-  const testingLatest = testingRuns.ok ? latestByWorkflow(testingRuns.value) : new Map();
-  const productLatest = productRuns.ok ? latestByWorkflow(productRuns.value) : new Map();
-
-  const checks = [];
-  for (const definition of REQUIRED) {
-    const latest = definition.repository === TESTING_REPOSITORY ? testingLatest : productLatest;
-    const commit = definition.repository === TESTING_REPOSITORY ? testing.commit : product.commit;
-    checks.push(checkFromRun(definition, latest.get(definition.workflow), commit));
-  }
+  const checks = REQUIRED.map((definition) => checkFromRun(definition, latest.get(definition.workflow), source.commit));
   checks.push(
-    securityCheck(
-      "testing.code_scanning",
-      "Testing code scanning",
-      testingCode,
-      true,
-    ),
-    securityCheck(
-      "testing.dependabot",
-      "Testing Dependabot",
-      testingDependencies,
-      true,
-    ),
-    securityCheck(
-      "product.code_scanning",
-      "Product code scanning",
-      { ok: false, code: "authentication" },
-      false,
-    ),
-    securityCheck(
-      "product.dependabot",
-      "Product Dependabot",
-      { ok: false, code: "authentication" },
-      false,
-    ),
+    securityCheck("code_scanning", "Code scanning", codeScanning, true),
+    securityCheck("dependabot", "Dependabot", dependencies, true),
   );
 
   const required = checks.filter((check) => check.required);
   const failed = required.filter((check) => check.status === "fail");
   const unknown = required.filter((check) => check.status !== "pass" && check.status !== "fail");
-  const promotionState =
-    failed.length > 0 ? "blocked" : unknown.length > 0 ? "unknown" : "ready";
+  const promotionState = failed.length > 0 ? "blocked" : unknown.length > 0 ? "unknown" : "ready";
 
-  const runs = [];
-  for (const run of testingLatest.values()) {
-    runs.push({
-      repository: TESTING_REPOSITORY,
+  const workflowRunRows = [...latest.values()]
+    .map((run) => ({
+      repository: REPOSITORY,
       workflow: run.name ?? "unknown",
       runId: run.id,
       status: run.status,
       conclusion: run.conclusion,
       headSha: run.headSha,
       url: run.url,
-    });
-  }
-  for (const run of productLatest.values()) {
-    runs.push({
-      repository: PRODUCT_REPOSITORY,
-      workflow: run.name ?? "unknown",
-      runId: run.id,
-      status: run.status,
-      conclusion: run.conclusion,
-      headSha: run.headSha,
-      url: run.url,
-    });
-  }
-  runs.sort((left, right) =>
-    `${left.repository}:${left.workflow}`.localeCompare(`${right.repository}:${right.workflow}`),
-  );
-
-  const githubAvailable = testingRuns.ok && productRuns.ok;
-  const githubReasons = [];
-  if (!testingRuns.ok) githubReasons.push(`testing ${testingRuns.code}`);
-  if (!productRuns.ok) githubReasons.push(`product ${productRuns.code}`);
+    }))
+    .sort((left, right) => left.workflow.localeCompare(right.workflow));
 
   return {
     schemaVersion: STATUS_SCHEMA,
     generatedAt: now.toISOString(),
     mode: "public-pages",
     source: {
-      repository: TESTING_REPOSITORY,
-      ref: "refs/heads/main",
-      commit: testing.commit,
-      committedAt: testing.committedAt,
+      repository: REPOSITORY,
+      ref: PROMOTION.source,
+      commit: source.commit,
+      committedAt: source.committedAt,
     },
     product: {
-      repository: PRODUCT_REPOSITORY,
-      ref: "refs/heads/main",
-      commit: product.commit,
-      committedAt: product.committedAt,
+      repository: REPOSITORY,
+      ref: PROMOTION.target,
+      commit: product.ok ? product.value?.commit ?? null : null,
+      committedAt: product.ok ? product.value?.committedAt ?? null : null,
     },
     promotion: {
-      profile: "public-preview",
+      profile: PROMOTION.profile,
       state: promotionState,
       pending: { commits: null, oldestPendingAgeHours: null },
       hold: null,
       lastRun: null,
-      reason:
-        "The public Pages snapshot is not a release gate. The product release workflow runs the promotion gate with a product-scoped token.",
+      reason: product.ok && product.value === null
+        ? `${PROMOTION.target} does not exist yet: no promotion has been published.`
+        : `The public Pages snapshot is not a release gate. ${PROMOTION.target} is the projection of ${PROMOTION.source} (profile ${PROMOTION.profile}).`,
       failed: failed.map((check) => check.id),
       unknown: unknown.map((check) => check.id),
     },
     checks,
     github: {
-      available: githubAvailable,
+      available: runs.ok,
       checkedAt: now.toISOString(),
-      reason: githubAvailable ? null : githubReasons.join(", "),
-      runs,
+      reason: runs.ok ? null : runs.code,
+      runs: workflowRunRows,
     },
-    release: releases.ok
-      ? releases.value.find((release) => !release.draft) ?? null
-      : null,
+    release: releases.ok ? releases.value.find((release) => !release.draft) ?? null : null,
     counts: counts ?? null,
   };
 }

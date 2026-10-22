@@ -1,0 +1,38 @@
+{
+  "abortReason": null,
+  "agentName": "codex-dec1-correctness",
+  "changedPaths": [],
+  "conflictReport": null,
+  "history": [
+    {
+      "at": "2026-10-03T04:47:12.432Z",
+      "from": "admitted",
+      "reason": "workspace created",
+      "to": "active"
+    }
+  ],
+  "lease": {
+    "agentName": "codex-dec1-correctness",
+    "baseSha": "115df5c70eedc0545b3094131edee8e8d8fc9373",
+    "branch": null,
+    "expiresAt": "2026-10-04T04:45:53.437Z",
+    "generation": 1,
+    "heartbeatAt": "2026-10-03T04:45:53.437Z",
+    "issuedAt": "2026-10-03T04:45:53.437Z",
+    "kind": "read-only",
+    "nonce": "2a1273a6a462",
+    "overlay": null,
+    "schemaVersion": "bridlewise-workspace/v2",
+    "targetBranch": null,
+    "workspaceId": "codex-dec1-correctness-2a1273a6a462",
+    "worktreePath": "/home/user/bridlewise-wt/codex-dec1-correctness-2a1273a6a462",
+    "writeSet": [],
+    "writeSetIdentity": null
+  },
+  "mergeReceipt": null,
+  "revision": 2,
+  "schemaVersion": "bridlewise-workspace/v2",
+  "state": "active",
+  "validationReport": null,
+  "workspaceId": "codex-dec1-correctness-2a1273a6a462"
+}

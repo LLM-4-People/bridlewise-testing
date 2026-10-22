@@ -4,7 +4,7 @@ published: false
 
 # Floor content integration notes
 
-These drafts are content for the testing Pages site. They do not modify the product documentation. The site root is a contributor hub; the product docs are mirrored at their original paths with a landing page at `/product/`; this folder adds `/floor/`.
+These pages are the floor part of the one Pages site, which is built from `docs/` on `main`. The site root is the product home, the contributor hub is `/contribute/`, and this folder adds `/floor/`.
 
 This README is integration notes, not a site page. `published: false` keeps it out of the Jekyll output if it sits in the source tree.
 
@@ -12,8 +12,8 @@ This README is integration notes, not a site page. `published: false` keeps it o
 
 | File | Permalink | Purpose |
 |---|---|---|
-| `index.md` | `/` | Contributor hub, the testing site front door |
-| `product.md` | `/product/` | Product documentation entry point |
+| `index.md` | `/` | Product home, the site's front door |
+| `contribute.md` | `/contribute/` | Contributor hub |
 | `floor/index.md` | `/floor/` | Floor landing page |
 | `floor/help.md` | `/floor/help/` | Contribution lanes and review checklist |
 | `floor/roadmap.md` | `/floor/roadmap/` | Milestones, workstreams, exit criteria, and generated status blocks |
@@ -25,16 +25,19 @@ This README is integration notes, not a site page. `published: false` keeps it o
 
 All published pages use `layout: default`, `title`, `description`, and `permalink`. They use `relative_url` for site links. Do not hardcode `baseurl` or the repository name.
 
-## Site assembly
+## Site build
 
-1. Mirror the product `docs/` tree at the testing site root without editing product page bodies.
-2. Overlay the testing `docs/index.md` as the site root and `docs/product.md` as `/product/`. The product documentation keeps its original page paths so mirrored internal links still resolve.
-3. Set the testing site's own `_config.yml` `url`, `baseurl`, `title`, and `testing_url`. Set `testing_hub_url: "/"` and `testing_floor_url: "/floor/"`. Do not inherit the product site's `baseurl`; `relative_url` must resolve under the testing Pages path. Keep `repository_url` at the product repository so mirrored product links still point to the product.
-4. Add these files under the testing site's `floor/` directory, and publish `docs/trackers/` under `trackers/`: the roadmap links `../trackers/TASKS.md`, which is a GitHub path but not a site URL. Keep `/floor/` outside the mirror overwrite. A tracker page is plain Markdown, so the assembler adds the front matter Jekyll needs; without it Jekyll copies the file verbatim and never builds the pretty URL.
-5. Add a `Build` link to the testing site navigation and a `Contributor hub` link to the footer when `testing_hub_url` is set. Keep the `Floor` link to `/floor/`.
-6. Keep the developer-preview warning in the layout. The floor pages repeat it but do not replace the site-wide banner.
-7. Do not add a separate layout or design-token system. Reuse the product `default` layout and styles. Add floor-only classes for the atlas and status controls if needed.
-8. Rewrite the copied floor and tracker pages' relative Markdown links at assembly time to the URLs the site publishes (`../trackers/TASKS.md` becomes `/bridlewise-testing/trackers/TASKS/`); never edit the committed source, because GitHub resolves the relative links against the repository. `scripts/floor/site-pages.mjs` owns the mapping, and `node scripts/floor/site-links.mjs --site _site --baseurl <base>` crawls the built site before deploy and fails on an unresolved internal link.
+`node scripts/build-site.mjs` (the steps are `scripts/floor/site.mjs`; the publish plan and link map are `scripts/floor/site-pages.mjs`) builds the site from this repository alone:
+
+1. `source --out .site --baseurl <base> [--versions <dir>]`: copy `docs/` (every Markdown file is a page unless `published: false`; its URL is its `permalink` or its pretty path, and two pages for one URL refuse the build), rewrite each page's relative links (a published page or a served asset becomes its site URL; any other repository path becomes its GitHub URL; a link naming nothing refuses the build), give each plain Markdown page a front matter and wrap its body as raw text, write the redirect pages for older URLs (`/product/`, `/roadmap/`, the trackers' former `/floor/trackers/` home and each page's `.md` spelling), list the released versions at `/v/`, write the floor data (`floor/data/atlas.json` and an offline `status.json`), and refuse any page that names a path the build does not produce. A link into the versions folder in any form is refused: pages link the versions page through `site.versions_url`. The committed source is never edited: GitHub resolves the relative links against the repository.
+2. Refresh the live status online (`node scripts/build-floor-data.mjs --root . --out .site/floor/data`, through the forge client), then Jekyll builds `.site` into `_site`.
+3. `finish --site _site --baseurl <base> [--versions <dir>]`: merge each release's pre-built documentation snapshot at `/v/<version>/`, then crawl every internal link of the whole output and run the design coverage over the pages this build rendered.
+
+A release snapshot is built at release time with `source --baseurl <base>/v/<version> --release <version>` (whole, floor data included), then Jekyll, and attached to the release; the Pages build only merges it.
+
+### The deploy order, and its one override
+
+A deploy publishes only a commit that is the live site's commit or descends from it (`scripts/floor/deploy-order.mjs`, run in the deploy queue). An ancestor of the live commit is skipped as superseded. A relation the check cannot establish is refused with a typed code: `site_deploy_history_rewritten` (GitHub no longer holds the live commit, as after the history rewrite of runbook P6), `site_deploy_diverged`, or `site_deploy_published_unknown` (no recent deployment published a site). The one way out is recorded: dispatch the Docs site workflow from `main` with `supersede_published` set to the exact commit the refusal names (or `unknown`). That run waits for the `pages-override` environment's reviewer, and its record holds who asked, for which commit, and why it was refused. An override naming any other commit is refused (`site_deploy_override_mismatch`). Use `layout: default`, `title`, `description`, and `permalink` on hand-written pages and `relative_url` for site links; do not hardcode `baseurl` or the repository name. One layout, one design layer: do not add a separate layout or token system.
 
 ## Generated data
 
@@ -54,7 +57,7 @@ Write them into the Jekyll source before the build, not into `_site` after it. D
   "schemaVersion": "bridlewise-floor-atlas/v1",
   "generatedAt": "2026-10-19T00:00:00Z",
   "source": {
-    "repository": "LLM-4-People/bridlewise-testing",
+    "repository": "LLM-4-People/bridlewise",
     "commit": "<sha>",
     "inventoryHash": "<sha256>",
     "dispositionHash": "<sha256>"
@@ -115,19 +118,19 @@ Write them into the Jekyll source before the build, not into `_site` after it. D
   "schemaVersion": "bridlewise-floor-status/v1",
   "generatedAt": "2026-10-19T00:00:00Z",
   "source": {
-    "repository": "LLM-4-People/bridlewise-testing",
-    "ref": "refs/heads/testing",
+    "repository": "LLM-4-People/bridlewise",
+    "ref": "refs/heads/main",
     "commit": "<sha>",
     "committedAt": "2026-10-19T00:00:00Z"
   },
   "product": {
     "repository": "LLM-4-People/bridlewise",
-    "ref": "refs/heads/master",
+    "ref": "refs/heads/product",
     "commit": "<sha>",
     "committedAt": "2026-10-19T00:00:00Z"
   },
   "promotion": {
-    "profile": "testing-to-master",
+    "profile": "main-to-product",
     "state": "idle",
     "pending": {
       "commits": 0,
@@ -156,13 +159,13 @@ Write them into the Jekyll source before the build, not into `_site` after it. D
     "reason": null,
     "runs": [
       {
-        "repository": "LLM-4-People/bridlewise-testing",
+        "repository": "LLM-4-People/bridlewise",
         "workflow": "ci.yml",
         "runId": 123,
         "status": "completed",
         "conclusion": "success",
         "headSha": "<sha>",
-        "url": "https://github.com/LLM-4-People/bridlewise-testing/actions/runs/123"
+        "url": "https://github.com/<owner>/<name>/actions/runs/123"
       }
     ]
   }
@@ -170,8 +173,8 @@ Write them into the Jekyll source before the build, not into `_site` after it. D
 ```
 
 - Generate `promotion` in a checkout that has the profile's source and target refs. The public Pages build may not have them and has no write access. Do not run the promoter on the Pages runner. If the block cannot be read, omit it or emit `"state": "unknown"`; never emit `idle` as a default. `unknown` is a valid state value.
-- `checks` is the promotion gate result set, not every test in the floor. Use `pass`, `fail`, `unknown`, or `not-run`. Unknown is not pass.
-- `github.runs` is the latest run per repository and workflow. Keep `conclusion` null while running or when it cannot be read.
+- `checks` is the snapshot's required workflow runs and alert queues, not every test in the floor. Use `pass`, `fail`, `unknown`, or `not-run`. Unknown is not pass.
+- `github.runs` is the latest run per workflow. Keep `conclusion` null while running or when it cannot be read.
 - Redact the promotion `preflight`, work-root paths, target-checkout paths, environment values, and any hold reason not written for publication. A public reason such as `rate-limit` is enough for `github.reason`.
 - On API failure, write `available: false`, a short `reason`, and only the runs actually read. Do not write a synthetic success and do not fail the build into a page that looks current.
 - If the whole document cannot be generated, do not publish an empty file. Let the page show its error state.
@@ -210,7 +213,7 @@ Behavior:
 ## Verification
 
 1. Build with the same Jekyll source the Pages workflow uses. Do not add a Gemfile only for these pages.
-2. Visit `/`, `/product/`, `/floor/`, `/floor/help/`, `/floor/roadmap/`, `/floor/promotion/`, `/floor/atlas/`, `/floor/evidence/`, and `/floor/status/`.
+2. Visit `/`, `/contribute/`, `/v/`, `/floor/`, `/floor/help/`, `/floor/roadmap/`, `/floor/promotion/`, `/floor/atlas/`, `/floor/evidence/`, and `/floor/status/`.
 3. Test the atlas with valid data, no data, no filter matches, invalid JSON, a missing file, and an unknown schema.
 4. Test status with `github.available: true`, `false`, missing `promotion`, a stale `generatedAt`, and a missing file.
 5. Use keyboard only. Check focus, labels, `aria-live` counts, and the no-JavaScript fallback.

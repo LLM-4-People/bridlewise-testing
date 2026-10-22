@@ -71,6 +71,7 @@ function makeRecord(): WorkspaceRecord {
     mergeReceipt: null,
     abortReason: null,
     history: [deepFreeze({ from: "admitted", to: "active", at: "2026-07-19T00:00:00.000Z", reason: "created" })],
+    forge: deepFreeze({ remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false }),
     revision: 1,
   });
 }
@@ -255,7 +256,7 @@ test("assertLeasableWriteSet leases authored files that carry generated parts: p
 
 test("a read-only lease has no write set, no identity, no branch and no target; a feature lease has all four", () => {
   const readOnly = { ...makeLease(), kind: "read-only", writeSet: [], writeSetIdentity: null, branch: null, targetBranch: null };
-  assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), lease: readOnly }));
+  assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), lease: readOnly, forge: null }));
   for (const broken of [
     { ...readOnly, writeSet: ["src"] },
     { ...readOnly, branch: "agent/worker/abc123def456" },
@@ -263,9 +264,28 @@ test("a read-only lease has no write set, no identity, no branch and no target; 
     { ...makeLease(), writeSet: [] },
     { ...makeLease(), targetBranch: null },
   ]) {
-    assert.throws(() => parseWorkspaceRecord({ ...makeRecord(), lease: broken }), throwsCode("workspace_record_invalid"));
+    assert.throws(() => parseWorkspaceRecord({ ...makeRecord(), lease: broken, forge: broken.kind === "read-only" ? null : makeRecord().forge }), throwsCode("workspace_record_invalid"));
   }
-  assert.throws(() => parseWorkspaceRecord({ ...makeRecord(), lease: readOnly, state: "merging" }), throwsCode("workspace_record_invalid"), "a read-only workspace never merges");
+  assert.throws(() => parseWorkspaceRecord({ ...makeRecord(), lease: readOnly, forge: null, state: "merging" }), throwsCode("workspace_record_invalid"), "a read-only workspace never merges");
+});
+
+test("the forge state: a feature workspace has one and a read-only one none; the pull request and the published head come together; only an opened one is ready", () => {
+  const readOnly = { ...makeLease(), kind: "read-only", writeSet: [], writeSetIdentity: null, branch: null, targetBranch: null };
+  const forge = makeRecord().forge!;
+  const published = { ...forge, pullRequest: { number: 7, url: "https://forge.test/pull/7" }, publishedHead: SHA_B };
+  assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), forge: published }));
+  assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), forge: { ...published, ready: true } }));
+  for (const [broken, why] of [
+    [{ ...makeRecord(), forge: null }, "a feature workspace without a forge state"],
+    [{ ...makeRecord(), lease: readOnly, forge }, "a read-only workspace with a forge state"],
+    [{ ...makeRecord(), forge: { ...forge, publishedHead: SHA_B } }, "a published head without a pull request"],
+    [{ ...makeRecord(), forge: { ...published, publishedHead: null } }, "a pull request without a published head"],
+    [{ ...makeRecord(), forge: { ...forge, ready: true } }, "ready without a pull request"],
+    [{ ...makeRecord(), forge: { ...forge, remote: "-upload-pack" } }, "a remote name that is an option"],
+    [{ ...makeRecord(), forge: { ...forge, unexpected: 1 } }, "an unknown key"],
+  ] as const) {
+    assert.throws(() => parseWorkspaceRecord(broken), throwsCode("workspace_record_invalid"), why);
+  }
 });
 
 test("gate names are the built-ins and the configured command names: an open, shaped name", () => {

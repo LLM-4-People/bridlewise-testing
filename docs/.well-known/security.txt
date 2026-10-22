@@ -1,0 +1,7 @@
+---
+---
+Contact: {{ site.repository_url }}/security/advisories/new
+Expires: 2027-10-19T00:00:00.000Z
+Preferred-Languages: en
+Canonical: {{ site.url }}{{ site.baseurl }}/.well-known/security.txt
+Policy: {{ site.repository_url }}/blob/main/SECURITY.md
