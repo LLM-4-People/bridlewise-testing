@@ -110,13 +110,20 @@ export const DECISION_GROUPS = Object.freeze({
   scale: "Scale",
   memory: "Memory layers",
   labs: "Labs (docs, browser, intelligence)",
+  // The GitHub-only rules (GITHUB-*, GH-*) and the public messaging rules (MKT-*).
+  github: "GitHub",
+  brand: "Brand and public messaging",
 } as const);
 
 /**
  * Every way the decision files `entries` break the decision format, judged
  * together: ids and their `covers` aliases are unique; `superseded_by` and
  * `overrides` name OTHER ids that exist; every supersession chain ends at a
- * decision in force, without a cycle.
+ * decision in force, without a cycle; and an amendment is recorded on both
+ * ends: a decision another one `overrides` names it in `amended_by`, and
+ * every `amended_by` names a decision whose `overrides` names this one (or
+ * one of the ids it covers), so a reader of the older decision always learns
+ * it was amended, and by what.
  */
 export function decisionViolations(entries: readonly { readonly name: string; readonly text: string }[], tracked?: ReadonlySet<string>): readonly string[] {
   const known = new Map<string, string>();
@@ -141,9 +148,26 @@ export function decisionViolations(entries: readonly { readonly name: string; re
     if (fields === undefined) continue;
     for (const alias of [fields.get("id") ?? "", ...(listValue(fields.get("covers") ?? "") ?? [])]) if (alias.length > 0 && !fieldsOf.has(alias)) fieldsOf.set(alias, fields);
   }
+  // Who amends whom: each `overrides` target (an id or a covered alias) → the ids of the decisions that override it.
+  const amenders = new Map<string, Set<string>>();
+  for (const { text } of entries) {
+    const fields = parseFrontMatter(text)?.fields;
+    const amender = fields?.get("id") ?? "";
+    for (const target of listValue(fields?.get("overrides") ?? "") ?? []) {
+      const holder = fieldsOf.get(target)?.get("id") ?? target;
+      // Overriding itself is refused once, by the overrides field's own check.
+      if (holder === amender) continue;
+      if (!amenders.has(holder)) amenders.set(holder, new Set());
+      amenders.get(holder)!.add(amender);
+    }
+  }
   for (const { name, text } of entries) {
     const id = parseFrontMatter(text)?.fields.get("id") ?? "";
     const knownId = (item: string): string | null => (item === id ? `${item} is this decision itself` : known.has(item) ? null : `${item} names no decision`);
+    const amendedBy = new Set(listValue(parseFrontMatter(text)?.fields.get("amended_by") ?? "") ?? []);
+    for (const amender of amenders.get(id) ?? []) {
+      if (!amendedBy.has(amender)) problems.push(`${name}: ${amender} overrides it, so its amended_by must name ${amender}`);
+    }
     if (DECISION_ID.test(id) && !name.startsWith(`${id}-`)) problems.push(`${name}: its id ${id} does not name it`);
     // A supersession chain ends at a decision in force: never a cycle, never a dead end.
     const seen = new Set<string>([id]);
@@ -163,6 +187,7 @@ export function decisionViolations(entries: readonly { readonly name: string; re
         status: { required: true, values: DECISION_STATUSES },
         superseded_by: { required: (fields) => fields.get("status") === "superseded", forbiddenWhen: (fields) => fields.get("status") !== "superseded", check: knownId },
         overrides: { list: true, check: knownId },
+        amended_by: { list: true, check: (item) => knownId(item) ?? ((amenders.get(id) ?? new Set()).has(item) ? null : `${item} does not override this decision (its overrides must name ${id})`) },
         covers: { list: true, pattern: DECISION_ID },
         group: { required: true, values: Object.keys(DECISION_GROUPS) },
         implementation: { required: true, values: DECISION_IMPLEMENTATIONS },
@@ -180,9 +205,11 @@ export function decisionViolations(entries: readonly { readonly name: string; re
 /** One decision's index row: its id and file, its title (with the ids it covers), its author, its state. */
 function indexRow(name: string, fields: FrontMatter, title: string): string {
   const covers = listValue(fields.get("covers") ?? "") ?? [];
-  const state = fields.get("status") === "superseded"
+  const amended = listValue(fields.get("amended_by") ?? "") ?? [];
+  const state = (fields.get("status") === "superseded"
     ? `superseded by ${fields.get("superseded_by") ?? "?"}`
-    : `${fields.get("implementation") ?? "?"}${fields.get("route") === undefined ? "" : ` (${fields.get("route")!})`}`;
+    : `${fields.get("implementation") ?? "?"}${fields.get("route") === undefined ? "" : ` (${fields.get("route")!})`}`)
+    + (amended.length === 0 ? "" : `, amended by ${amended.join(", ")}`);
   return `| [${fields.get("id") ?? "?"}](${name}) | ${title}${covers.length === 0 ? "" : ` (covers ${covers.join(", ")})`} | ${fields.get("by") ?? "?"} | ${state} |`;
 }
 

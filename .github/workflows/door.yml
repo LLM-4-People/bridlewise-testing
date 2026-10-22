@@ -13,7 +13,7 @@ name: Door
       - requested_action
 permissions: {}
 concurrency:
-  group: door-${{ github.event.workflow_run.head_sha || github.event.check_run.head_sha }}-${{ github.event.action }}
+  group: door-${{ github.event.workflow_run.id || github.event.check_run.id }}-${{ github.event.action }}
   queue: max
 jobs:
   stream:

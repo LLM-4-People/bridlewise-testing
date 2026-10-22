@@ -52,6 +52,10 @@ jobs:
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
         run: node scripts/assemble-floor-site.mjs --product product/docs --testing . --out .site --baseurl "$BASE_PATH"
+      - name: Install the engine
+        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
       - name: Generate floor data
         env:
           GH_TOKEN: ${{ github.token }}

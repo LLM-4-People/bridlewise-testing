@@ -39,6 +39,7 @@ The folder lives at `engine/src/workflow/gates/`.
 - `reuse.ts` is consumed by `engine/src/workflow/door/door-cli.ts`, `engine/src/workflow/door/door-git.ts`, `engine/src/workflow/door/judge.ts`, `engine/src/workflow/gates/gates-cli.ts`, `engine/src/workflow/gates/main-integrity.ts`, `engine/src/workflow/gates/workflows.ts`.
 - `seal.ts` is consumed by `engine/src/workflow/door/judge.ts`, `engine/src/workflow/door/verdict.ts`, `engine/src/workflow/gates/gates-cli.ts`.
 - `vitest-report.ts` is consumed by `engine/src/workflow/gates/cell-run.ts`.
+- `workflow-scripts.ts` is consumed by `engine/src/workflow/gates/workflows.ts`.
 - `workflows.ts` is consumed by `engine/src/workflow/door/judge.ts`, `engine/src/workflow/harness-commands.ts`.
 
 <!-- /consumers:generated -->

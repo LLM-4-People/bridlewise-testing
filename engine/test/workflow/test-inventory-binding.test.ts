@@ -19,7 +19,8 @@ import {
 
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const PINNED_SCHEMA = ROOT_POLICY.verification.testInventorySchema;
-const PINNED_HASH = ROOT_POLICY.verification.testInventoryHash;
+/** The repository inventory's own identity (the root policy holds no copy of it, #221). */
+const INVENTORY_HASH = (JSON.parse(readFileSync(join(REPO_ROOT, VERIFICATION_PATHS.testInventory), "utf8")) as { inventoryHash: string }).inventoryHash;
 
 function entry(sourceId: string, sourceHash: string, name: string): TestInventoryBindingEntry {
   return Object.freeze({ id: sha256(`${sourceId}${name}`), sourceId, sourceHash, name });
@@ -30,7 +31,7 @@ function binding(entries: readonly TestInventoryBindingEntry[]): TestInventoryBi
   for (const item of entries) expectedIdsByKey.set(`${item.sourceId}\0${item.name}`, item.id);
   return Object.freeze({
     inventoryPath: VERIFICATION_PATHS.testInventory,
-    inventoryHash: PINNED_HASH,
+    inventoryHash: INVENTORY_HASH,
     entries: Object.freeze([...entries]),
     sourceIds: Object.freeze([...new Set(entries.map((item) => item.sourceId))].sort()),
     expectedIdsByKey,
@@ -45,7 +46,7 @@ function writeInventory(root: string, document: unknown): void {
 function validDocument(tests: readonly Record<string, unknown>[]): Record<string, unknown> {
   return {
     schemaVersion: PINNED_SCHEMA,
-    inventoryHash: PINNED_HASH,
+    inventoryHash: INVENTORY_HASH,
     tests,
   };
 }
@@ -68,12 +69,12 @@ function assertStale(fn: () => unknown, pattern: RegExp): void {
   });
 }
 
-test("inventory-binding: loads the repository pinned inventory", () => {
+test("inventory-binding: loads the repository inventory", () => {
   const bound = loadTestInventoryBinding(REPO_ROOT);
   const raw = JSON.parse(readFileSync(join(REPO_ROOT, VERIFICATION_PATHS.testInventory), "utf8")) as {
     tests: readonly { id: string; sourceId: string; name: string }[];
   };
-  assert.equal(bound.inventoryHash, PINNED_HASH);
+  assert.equal(bound.inventoryHash, INVENTORY_HASH);
   assert.equal(bound.entries.length, raw.tests.length);
   assert.equal(bound.expectedIdsByKey.size, raw.tests.length);
   const expectedSources = [...new Set(raw.tests.map((item) => item.sourceId))].sort();
@@ -110,18 +111,6 @@ test("inventory-binding: schema drift is stale", () => {
     document.schemaVersion = "bridlewise-test-inventory/v0";
     writeInventory(root, document);
     assertStale(() => loadTestInventoryBinding(root), /does not match the pinned schema/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("inventory-binding: hash not matching the root-policy pin is stale", () => {
-  const root = createTempDir("inventory-binding-pin-");
-  try {
-    const document = validDocument([validEntry("test/a.test.ts", "alpha")]);
-    document.inventoryHash = "0".repeat(64);
-    writeInventory(root, document);
-    assertStale(() => loadTestInventoryBinding(root), /does not match the root-policy pin/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

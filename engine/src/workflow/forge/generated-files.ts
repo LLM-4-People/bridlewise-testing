@@ -20,7 +20,7 @@ import { ForgeError } from "./codes.ts";
 import { trunkRepository, type ForgeSettings } from "./forge-config.ts";
 
 /** Where the generated files live, relative to the repository top. */
-export const FORGE_FILES_DIRECTORY = ".github/forge";
+const FORGE_FILES_DIRECTORY = ".github/forge";
 const INDEX_FILE = "manifest.json";
 const INDEX_SCHEMA = schemaId("forge-generated-files", 1);
 
@@ -30,7 +30,7 @@ export function appsPageOrigin(settings: ForgeSettings): string {
 }
 
 /** The trunk's web URL. */
-export function trunkWebUrl(settings: ForgeSettings): string {
+function trunkWebUrl(settings: ForgeSettings): string {
   return `${settings.webUrl.replace(/\/$/u, "")}/${settings.organization}/${trunkRepository(settings).name}`;
 }
 

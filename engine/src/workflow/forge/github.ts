@@ -96,7 +96,7 @@ function numberHeader(headers: Headers, name: string): number | undefined {
 }
 
 /** The rate-limit facts of an answer. */
-export function rateFactsOf(headers: Headers): ForgeRateFacts {
+function rateFactsOf(headers: Headers): ForgeRateFacts {
   const reset = numberHeader(headers, "x-ratelimit-reset");
   const facts: { -readonly [K in keyof ForgeRateFacts]: ForgeRateFacts[K] } = {};
   const limit = numberHeader(headers, "x-ratelimit-limit");
@@ -318,7 +318,7 @@ function splitPath(path: string): readonly [string, Readonly<Record<string, stri
 }
 
 /** A GraphQL `errors` array as one forge refusal: its first error's `type` decides. */
-export function classifyGraphqlErrors(errors: readonly unknown[]): ForgeError {
+function classifyGraphqlErrors(errors: readonly unknown[]): ForgeError {
   const first = (errors[0] ?? {}) as { type?: unknown; message?: unknown };
   const type = typeof first.type === "string" ? first.type : "";
   const message = typeof first.message === "string" ? first.message : "";

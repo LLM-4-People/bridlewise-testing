@@ -40,19 +40,19 @@ function appsManifests(root: string, rest: readonly string[]): CommandAnswer {
 async function appsCreate(root: string, rest: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer> {
   if (rest.length > 0) usage();
   const settings = configuredForge();
-  const cli = maintainerCli(settings.webUrl, settings.request.timeoutMs);
-  const ready = cli.ready();
+  const cli = maintainerCli(settings.webUrl, settings.maintainerCli);
+  const ready = await cli.ready();
   if (!ready.ready) throw new ForgeError("forge_maintainer_cli_failed", `The maintainer's gh is not ready: ${ready.reason}.`, {});
   const trunk = `${settings.organization}/${trunkRepository(settings).name}`;
   for (const role of FORGE_APP_ROLES) {
     const custody = FORGE_APPS[role].custody;
-    if (custody.kind === "environment" && !cli.environmentExists(trunk, custody.environment)) {
+    if (custody.kind === "environment" && !(await cli.environmentExists(trunk, custody.environment))) {
       throw new ForgeError("forge_environment_missing", `The environment '${custody.environment}' of ${trunk} does not exist; the ${role} App's key goes there.`, { environment: custody.environment, repository: trunk });
     }
   }
   const { discussionCategories } = readIntake(trackedTop(root));
   const page = await serveAppsPage({ settings, endpoint: forgeEndpoint(settings), keyHome: admitHarnessKeyHome([]), cli, port: settings.appsPage.port, discussionCategories });
-  onProgress(`Open ${page.url} in your browser (Session 1). The page stays up until you press Done there.`);
+  onProgress(`Open ${page.url} in your browser (Session 1). The address carries a one-time token: it is printed here only, and the page answers nothing without it. The page stays up until you press Done there.`);
   const summary = await page.done;
   return { result: wrapResult("forge", deepFreeze({ verb: "apps create", ...summary }), { status: summary.pending.length === 0 ? "pass" : "fail" }) };
 }
