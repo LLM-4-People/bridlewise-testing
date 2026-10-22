@@ -19,9 +19,10 @@ import { REPOSITORY_RELATIVE_PATH_SCHEMA, WORKSPACE_COMMAND_NAME_SCHEMA } from "
 import { assertNoDuplicateJsonObjectKeys } from "../../kernel/json-integrity.ts";
 import { gitAcceptsRefName } from "../../git/repository-ownership.ts";
 import type { TreeReader } from "../../git/tree-reader.ts";
+import { isWalkableModule } from "../reachability.ts";
 import { PromotionError } from "./codes.ts";
 
-const PROMOTION_PROFILE_SCHEMA_VERSION = schemaId("promotion-profile", 2);
+const PROMOTION_PROFILE_SCHEMA_VERSION = schemaId("promotion-profile", 3);
 
 const refName = z.string().regex(/^refs\/heads\/[A-Za-z0-9._/-]+$/u);
 /**
@@ -62,10 +63,15 @@ const promotionProfileShape = z.strictObject({
     })).max(8),
     /**
      * The target-only files: a folder of the source whose every file ships at
-     * its path with the prefix removed (`product/README.md` → `README.md`);
-     * `null`: none. The folder itself never ships (the boundary excludes it).
+     * its path with the prefix removed (`product-only/README.md` →
+     * `README.md`); `null`: none. The folder itself never ships (the boundary
+     * excludes it). `kinds` is the ALLOWLIST of what it may hold: `*.<ext>`
+     * (an extension) or an exact basename (`Makefile`); never a kind of code.
      */
-    overlay: folderPrefix.nullable(),
+    overlay: z.strictObject({
+      folder: folderPrefix,
+      kinds: z.array(z.string().regex(/^(?:\*\.[A-Za-z0-9]+|[A-Za-z0-9][A-Za-z0-9._-]*)$/u, "must be *.<extension> or an exact basename")).min(1).max(32),
+    }).nullable(),
   }),
   transforms: z.array(z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("package-manifest"), path: REPOSITORY_RELATIVE_PATH_SCHEMA, scripts: z.array(z.string().min(1)).max(128) }),
@@ -127,8 +133,13 @@ function profileViolations(
   }
   const { overlay } = profile.boundary;
   if (overlay !== null) {
-    if (excludedBy(profile, `${overlay}x`) === null) violations.push(["/boundary/overlay", `the overlay folder ${overlay} must be excluded by the profile's own boundary (it ships only through the overlay, at its paths without the prefix)`]);
-    if (overlay.startsWith(directoryPrefix) || directoryPrefix.startsWith(overlay)) violations.push(["/boundary/overlay", `the overlay folder ${overlay} and the profile directory ${directoryPrefix} overlap (a profile never ships)`]);
+    const { folder } = overlay;
+    if (excludedBy(profile, `${folder}x`) === null) violations.push(["/boundary/overlay/folder", `the overlay folder ${folder} must be excluded by the profile's own boundary (it ships only through the overlay, at its paths without the prefix)`]);
+    if (folder.startsWith(directoryPrefix) || directoryPrefix.startsWith(folder)) violations.push(["/boundary/overlay/folder", `the overlay folder ${folder} and the profile directory ${directoryPrefix} overlap (a profile never ships)`]);
+    overlay.kinds.forEach((kind, index) => {
+      if (isWalkableModule(kind.startsWith("*") ? `x${kind.slice(1)}` : kind)) violations.push([`/boundary/overlay/kinds/${String(index)}`, `${kind} is a kind of code: the overlay ships target-only documents and recipes, and code ships from the source tree, where the import walk judges it`]);
+    });
+    for (const duplicate of duplicates(overlay.kinds)) violations.push(["/boundary/overlay/kinds", `${duplicate} is listed twice`]);
   }
   profile.transforms.forEach((transform, index) => {
     const by = excludedBy(profile, transform.path);
@@ -168,7 +179,7 @@ function profileViolations(
  * name that is not the file's basename, the same ref twice, a ref git refuses,
  * a profile directory the boundary does not exclude, a path both excluded and
  * included (or derived), an overlay folder the boundary does not exclude or
- * that overlaps the profile directory, a duplicate, two transforms of one path, a lockfile
+ * that overlaps the profile directory, an overlay kind of code, a duplicate, two transforms of one path, a lockfile
  * whose manifest no transform derives, and a command the registry does not
  * declare.
  */

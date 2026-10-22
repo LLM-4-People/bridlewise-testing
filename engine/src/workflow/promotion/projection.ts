@@ -9,10 +9,11 @@
  * walked; an import into it is a refusal); a path the entry points reach is
  * in; an included path or prefix is in; a companion (e.g. a `README.md`) is
  * in when its folder holds a projected path; everything else is out (deny by
- * default). The profile's overlay folder (`boundary.overlay`) adds the
- * target-only files (documents and recipes, never a module): each ships at
- * its path without the folder prefix, obeys the profile's excludes at that
- * path, and may not name a path the projection already carries. It runs over any {@link TreeReader}: a commit (the plan) or the
+ * default). The profile's overlay (`boundary.overlay`) adds the target-only
+ * files: each file of its folder ships at its path without the folder prefix,
+ * must be one of its declared kinds (an allowlist; no kind of code), obeys the
+ * profile's excludes at that path, and may not name a path the projection
+ * already carries. It runs over any {@link TreeReader}: a commit (the plan) or the
  * source's working tree (the source-side boundary guard).
  *
  * {@link planPromotion} adds the derived files (`transforms.ts`), writes the
@@ -214,12 +215,13 @@ export function classifyTree(reader: TreeReader, profile: PromotionProfile): Cla
   }
   const overlaid = new Map<string, string>();
   const { overlay } = profile.boundary;
-  for (const path of overlay === null ? [] : paths.filter((candidate) => candidate.startsWith(overlay))) {
-    const target = path.slice(overlay!.length);
+  const declaredKind = (basename: string): boolean => overlay!.kinds.some((kind) => (kind.startsWith("*.") ? basename.endsWith(kind.slice(1)) && basename.length > kind.length - 1 : basename === kind));
+  for (const path of overlay === null ? [] : paths.filter((candidate) => candidate.startsWith(overlay.folder))) {
+    const target = path.slice(overlay!.folder.length);
     const mode = reader.entry(path)?.mode;
     const excluded = excludedBy(profile, target);
     if (excluded !== null) refusals.push(refusal("promotion_overlay_invalid", `${path} would ship at ${target}, which the profile excludes (by ${excluded}): the overlay obeys the boundary like every source path`, { overlay: path, target }));
-    else if (isWalkableModule(path)) refusals.push(refusal("promotion_overlay_invalid", `${path} is a module: the overlay ships target-only documents and recipes, never code the import walk would not judge (ship code from the source tree)`, { overlay: path, target }));
+    else if (!declaredKind(path.slice(path.lastIndexOf("/") + 1))) refusals.push(refusal("promotion_overlay_invalid", `${path} is not a kind the overlay declares (${overlay!.kinds.join(", ")}): the overlay ships only its declared kinds of target-only files`, { overlay: path, target }));
     else if (projected.has(target)) refusals.push(refusal("promotion_overlay_invalid", `${path} overlays ${target}, which the projection already carries (${describe(projected.get(target))}): a path ships for one reason`, { overlay: path, target }));
     else if (mode === SYMLINK_MODE || mode === GITLINK_MODE) refusals.push(refusal("promotion_overlay_invalid", `${path} is a ${mode === SYMLINK_MODE ? "symbolic link" : "gitlink"}: the overlay ships files only (a link would change its meaning at ${target})`, { overlay: path, target }));
     else overlaid.set(target, path);

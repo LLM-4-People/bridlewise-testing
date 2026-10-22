@@ -70,7 +70,7 @@ test("§5.1: from a checkout of the TARGET (no profile), the target tip's last p
 });
 
 test("the pending signal counts an overlay file's change as changing what ships, and an excluded file's as not", () => {
-  const fixture = promotionFixture("promotion-overlay-pending", { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: "target-only/" } });
+  const fixture = promotionFixture("promotion-overlay-pending", { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: { folder: "target-only/", kinds: ["NOTICE"] } } });
   const source = fixture.tip(SOURCE);
   const promoted = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nProjected-From: ${source}\nPromotion-Profile: ${PROFILE_NAME}@${fixture.loaded().blob!}`]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, promoted]);

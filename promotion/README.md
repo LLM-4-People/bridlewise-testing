@@ -9,7 +9,7 @@ source, and every promotion commit names the exact profile blob it used.
 
 ## What a profile declares
 
-- `schema` — `bridlewise-promotion-profile/v2` (v2 added `boundary.overlay`: an engine that reads v1 refuses a v2 profile by its version, never by an unknown key).
+- `schema` — `bridlewise-promotion-profile/v3` (v2 added `boundary.overlay`; v3 made it `{ folder, kinds }`: an engine that reads an older version refuses a newer profile by its version, never by an unknown key).
 - `name` — the file's basename.
 - `source.ref`, `target.ref` — full branch refs; `remote` — where both are
   published (`null`: local only); `trigger` — `manual`, or
@@ -30,15 +30,16 @@ source, and every promotion commit names the exact profile blob it used.
   - `spawnCalls`: calls whose string argument names a script the program runs
     as a subprocess (`{callee, argument, base}`; `base` is `""` or a folder
     prefix ending in `/`).
-  - `overlay`: a folder prefix (or `null`) holding the target-only files:
-    each file under it ships at its path without the prefix
-    (`product-only/README.md` is the product's `README.md`). The folder must
-    be excluded. An overlay file is a target-only document or recipe, never a
-    module (the import walk judges code only where it lives); the excludes
-    hold at its shipped path; and it may not name a path the projection
-    already carries (`promotion_overlay_invalid`): a path ships for one
-    reason. Write its links as absolute URLs, since they are read at the
-    target path.
+  - `overlay`: `{ folder, kinds }` (or `null`): the target-only files. Each
+    file of `folder` ships at its path without the prefix
+    (`product-only/README.md` is the product's `README.md`). `kinds` is the
+    ALLOWLIST of what the folder may hold: `*.<extension>` or an exact
+    basename (`Makefile`), never a kind of code (code ships from the source
+    tree, where the import walk judges it). The folder must be excluded; an
+    overlay file of an undeclared kind, a link, a file whose shipped path the
+    profile excludes, or one naming a path the projection already carries is
+    `promotion_overlay_invalid`. Write its links as absolute URLs, since
+    they are read at the target path.
   Everything else does NOT ship (deny by default).
 - `transforms` — files derived for the target (never also excluded): a
   `package-manifest` keeps the listed `scripts` (each must exist on the source;

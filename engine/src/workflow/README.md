@@ -243,7 +243,7 @@ The folder lives at `engine/src/workflow/`.
 - `markdown-links.ts` is consumed by `engine/src/workflow/failure-owners.ts`.
 - `module-contract-blocks.ts` is consumed by `engine/src/workflow/module-registrar.ts`.
 - `module-registrar.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `reachability.ts` is consumed by `engine/src/workflow/promotion/projection.ts`, `engine/src/workflow/promotion/transforms.ts`.
+- `reachability.ts` is consumed by `engine/src/workflow/promotion/profile.ts`, `engine/src/workflow/promotion/projection.ts`, `engine/src/workflow/promotion/transforms.ts`.
 - `record-links.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/verification/ratchet-baselines.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/workspace-manager.ts`.
 - `repository-registry.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/workspace-cli.ts` and 2 more.
 - `resource-lock.ts` is consumed by `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/workspace-manager.ts`.

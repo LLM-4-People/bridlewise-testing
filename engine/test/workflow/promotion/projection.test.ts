@@ -138,7 +138,7 @@ test("T-P12: companions — a README ships iff its folder holds a projected path
 });
 
 test("the overlay: each file of its folder ships at its path without the prefix, says why, and is read by the advisories", async () => {
-  const overlaid = { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: "target-only/" } };
+  const overlaid = { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: { folder: "target-only/", kinds: ["*.md", "NOTICE"] } } };
   const fixture = promotionFixture("promotion-overlay", overlaid);
   fixture.commit(SOURCE, {
     "target-only/NOTICE": "the product's notice\n",
@@ -163,43 +163,48 @@ test("the overlay: each file of its folder ships at its path without the prefix,
 });
 
 test("an overlaid recipe is judged at its shipped path: a file it names that does not ship is advised, one that ships is not", async () => {
-  const fixture = promotionFixture("promotion-overlay-recipe", { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: "target-only/" } });
+  const fixture = promotionFixture("promotion-overlay-recipe", { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: { folder: "target-only/", kinds: ["Makefile"] } } });
   fixture.commit(SOURCE, { "target-only/Makefile": "run:\n\tnode product/main.ts\n\tnode dev/tool.ts\n" });
   const plan = await fixture.plan({ lockfiles: false });
   assert.deepEqual(plan.advisories.filter((advisory) => advisory.kind === "dangling_recipe_path").map((advisory) => [advisory.path, advisory.detail]), [["Makefile", "names dev/tool.ts, which the projection does not carry"]]);
 });
 
-test("the overlay refuses a path the projection already carries, and a link, and passes a near-miss", async () => {
-  const overlaid = { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: "target-only/" } };
+test("the overlay ships only its declared kinds: a collision, a link, an excluded target, an undeclared kind (code among them) are refused; a declared near-miss ships", async () => {
+  const overlaid = { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: { folder: "target-only/", kinds: ["*.md", "Makefile"] } } };
   const fixture = promotionFixture("promotion-overlay-refused", overlaid);
   fixture.commit(SOURCE, {
     "target-only/README.md": "# a second root README\n",
+    "target-only/product/notes.md": "a near-miss: a declared kind no projected path names\n",
     "target-only/product/main.ts": "export {};\n",
-    "target-only/product/main.ts.orig": "a near-miss: no projected path is named so\n",
     "target-only/dev/notes.md": "would ship into an excluded folder\n",
-    "target-only/promotion/rogue.json": "{}\n",
+    "target-only/promotion/rogue.md": "would ship into the profile directory\n",
     "target-only/target-only/inner.md": "would ship at the overlay folder's own path\n",
     "target-only/product/evil.ts": "import \"../dev/secret.ts\";\nimport pad from \"left-pad\";\nexport default pad;\n",
     "target-only/product/evil.mts": "import \"../dev/secret.ts\";\nexport {};\n",
     "target-only/product/evil.cts": "import \"../dev/secret.ts\";\nexport {};\n",
     "target-only/product/evil.jsx": "import \"../dev/secret.ts\";\n",
+    "target-only/run.sh": "#!/bin/sh\n",
+    "target-only/data.json": "{}\n",
+    "target-only/Makefile.orig": "a near-miss of the Makefile kind\n",
   });
   fixture.git(["checkout", "-q", SOURCE]);
-  fixture.git(["update-index", "--add", "--cacheinfo", `120000,${fixture.git(["rev-parse", `${TARGET}:product/link.ts`])},target-only/link.ts`]);
+  fixture.git(["update-index", "--add", "--cacheinfo", `120000,${fixture.git(["rev-parse", `${TARGET}:product/link.ts`])},target-only/link.md`]);
   fixture.git(["commit", "-q", "-m", "a symbolic link in the overlay"]);
   const plan = await fixture.plan({ lockfiles: false });
   const refused = plan.refusals.filter((entry) => entry.code === "promotion_overlay_invalid").map((entry) => entry.facts["overlay"]).sort();
-  assert.deepEqual(refused, ["target-only/README.md", "target-only/dev/notes.md", "target-only/link.ts", "target-only/product/evil.cts", "target-only/product/evil.jsx", "target-only/product/evil.mts", "target-only/product/evil.ts", "target-only/product/main.ts", "target-only/promotion/rogue.json", "target-only/target-only/inner.md"]);
+  assert.deepEqual(refused, ["target-only/Makefile.orig", "target-only/README.md", "target-only/data.json", "target-only/dev/notes.md", "target-only/link.md", "target-only/product/evil.cts", "target-only/product/evil.jsx", "target-only/product/evil.mts", "target-only/product/evil.ts", "target-only/product/main.ts", "target-only/promotion/rogue.md", "target-only/run.sh", "target-only/target-only/inner.md"]);
   const message = (overlay: string): string => plan.refusals.find((entry) => entry.facts["overlay"] === overlay)!.message;
   assert.match(message("target-only/README.md"), /companion/u, "the collision names the reason the path already ships for");
-  for (const [overlay, by] of [["target-only/dev/notes.md", "dev/"], ["target-only/promotion/rogue.json", "promotion/"], ["target-only/target-only/inner.md", "target-only/"]] as const) {
+  for (const [overlay, by] of [["target-only/dev/notes.md", "dev/"], ["target-only/promotion/rogue.md", "promotion/"], ["target-only/target-only/inner.md", "target-only/"]] as const) {
     assert.match(message(overlay), new RegExp(`excludes \\(by ${by}\\)`, "u"), `${overlay}: the excludes hold at the shipped path`);
   }
-  for (const code of ["evil.ts", "evil.mts", "evil.cts", "evil.jsx"]) assert.match(message(`target-only/product/${code}`), /is a module/u, `${code}: every code extension the language owner counts is refused, so the walk's refusals cannot be evaded`);
-  assert.equal(plan.paths.added.concat(plan.paths.modified).some((entry) => /^(?:dev|promotion|target-only)\//u.test(entry.path) || entry.path.startsWith("product/evil.")), false, "no refused overlay file ships");
+  for (const undeclared of ["product/evil.ts", "product/evil.mts", "product/evil.cts", "product/evil.jsx", "product/main.ts", "run.sh", "data.json", "Makefile.orig"]) assert.match(message(`target-only/${undeclared}`), /not a kind the overlay declares/u, `${undeclared}: only a declared kind ships`);
+  assert.match(message("target-only/link.md"), /symbolic link/u);
+  assert.ok(plan.paths.added.some((entry) => entry.path === "product/notes.md"), "the declared near-miss ships");
+  assert.equal(plan.paths.added.concat(plan.paths.modified).some((entry) => /^(?:dev|promotion|target-only)\//u.test(entry.path) || entry.path.startsWith("product/evil.") || ["run.sh", "data.json"].includes(entry.path)), false, "no refused overlay file ships");
   assert.equal(plan.code, "promotion_overlay_invalid");
-  assert.ok(plan.paths.added.some((entry) => entry.path === "product/main.ts.orig"), "the near-miss ships through the overlay");
 });
+
 
 test("T-P13: up to date — the target's last promotion carries this source: no work", async () => {
   const fixture = promotionFixture("promotion-p13");

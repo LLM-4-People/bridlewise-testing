@@ -51,14 +51,18 @@ test("T-P10: every invalid profile is refused with the pointer of its violation"
   assert.deepEqual(pointers(fixtureProfile({ boundary: { spawnCalls: [{ callee: "runScript", argument: 1, base: "" }] } })), []);
 });
 
-test("the overlay: a folder prefix the boundary excludes, apart from the profile directory", () => {
-  const overlay = (value: unknown, exclude: readonly string[] = ["dev/", "promotion/", "target-only/"]): readonly string[] => pointers(fixtureProfile({ boundary: { overlay: value, exclude } }));
+test("the overlay: a folder prefix the boundary excludes, apart from the profile directory, with an allowlist of kinds that holds no kind of code", () => {
+  const overlay = (folder: unknown, kinds: unknown = ["*.md", "Makefile"], exclude: readonly string[] = ["dev/", "promotion/", "target-only/"]): readonly string[] => pointers(fixtureProfile({ boundary: { overlay: { folder, kinds }, exclude } }));
   assert.deepEqual(overlay("target-only/"), [], "an excluded folder prefix");
   assert.deepEqual(overlay("dev/nested/"), [], "a folder inside an excluded one");
-  assert.deepEqual(overlay("target-only/", ["dev/", "promotion/"]), ["/boundary/overlay"], "a folder the boundary does not exclude would also ship at its own path");
-  for (const value of ["target-only", "/target-only/", "../target-only/", "./", "README.md"]) assert.deepEqual(overlay(value), ["/boundary/overlay"], `${value}: not a repository folder prefix`);
-  assert.deepEqual(overlay("promotion/"), ["/boundary/overlay"], "the profile directory never ships, through an overlay either");
-  assert.deepEqual(overlay("promotion/target/", ["dev/", "promotion/"]), ["/boundary/overlay"], "nor a folder inside it");
+  assert.deepEqual(overlay("target-only/", undefined, ["dev/", "promotion/"]), ["/boundary/overlay/folder"], "a folder the boundary does not exclude would also ship at its own path");
+  for (const value of ["target-only", "/target-only/", "../target-only/", "./", "README.md"]) assert.deepEqual(overlay(value), ["/boundary/overlay/folder"], `${value}: not a repository folder prefix`);
+  assert.deepEqual(overlay("promotion/"), ["/boundary/overlay/folder"], "the profile directory never ships, through an overlay either");
+  assert.deepEqual(overlay("promotion/target/", undefined, ["dev/", "promotion/"]), ["/boundary/overlay/folder"], "nor a folder inside it");
+  for (const code of ["*.ts", "*.mts", "*.cts", "*.tsx", "*.js", "*.mjs", "*.cjs", "*.jsx", "*.svelte", "*.css"]) assert.deepEqual(overlay("target-only/", ["*.md", code]), ["/boundary/overlay/kinds/1"], `${code}: a kind of code is never an overlay kind`);
+  for (const bad of [[], ["*"], ["*.md/x"], ["dir/Makefile"], ["*.*"]]) assert.ok(overlay("target-only/", bad).length > 0, `${JSON.stringify(bad)}: not a list of kinds`);
+  assert.deepEqual(overlay("target-only/", ["*.md", "*.md"]), ["/boundary/overlay/kinds"], "a kind listed twice");
+  assert.deepEqual(overlay("target-only/", ["*.txt", "NOTICE", "Makefile"]), [], "near-misses: documents and recipes");
   const withoutOverlay = fixtureProfile();
   delete (withoutOverlay["boundary"] as Record<string, unknown>)["overlay"];
   assert.deepEqual(pointers(withoutOverlay), ["/boundary/overlay"], "the field is stated (null: none), never defaulted");
