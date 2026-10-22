@@ -35,9 +35,6 @@ jobs:
             package-lock.json
             engine/package-lock.json
 
-      - name: Check relative docs links
-        run: node scripts/check-docs-links.mjs
-
       - name: Install web dependencies
         run: npm ci --no-audit --no-fund
 
@@ -49,6 +46,10 @@ jobs:
 
       - name: Enforce the self-protection config mode
         run: chmod 600 engine/bridlewise.config.json
+
+      # After the installs: the link classifier reads the repository identity through the engine's config loader.
+      - name: Check relative docs links
+        run: node scripts/check-docs-links.mjs
 
       - name: Verify the shard manifest accounts for every live test file
         run: |
