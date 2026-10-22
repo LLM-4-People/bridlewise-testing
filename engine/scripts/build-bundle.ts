@@ -185,6 +185,9 @@ export async function bundleFreshness(onDisk: string = bundlePath): Promise<Read
   return { fresh: status === "current", status, path: relative(harnessRoot, onDisk) };
 }
 
+// The process ends by draining its event loop (`process.exitCode`), never `process.exit()`: an exit while V8 still
+// runs a concurrent compile job that waits for a garbage collection deadlocks at shutdown (Node #54918). Measured
+// here (#351): about 1 run in 300 of `--check` hung at zero CPU after printing its verdict, until killed.
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
   const argv = process.argv.slice(2);
@@ -192,9 +195,9 @@ if (isEntryPoint(import.meta.url)) {
   if (argv[0] === "--check") {
     const freshness = await bundleFreshness();
     process.stdout.write(`${JSON.stringify(freshness)}\n`);
-    process.exit(freshness.fresh ? 0 : 1);
+    process.exitCode = freshness.fresh ? 0 : 1;
+  } else {
+    const summary = await buildBundle();
+    process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   }
-  const summary = await buildBundle();
-  process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-  process.exit(0);
 }
