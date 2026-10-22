@@ -220,6 +220,9 @@ export {
   // single public path — every value export of an exposure module is
   // reachable through it (the barrel arm enforces this).
   rememberConfigPathDefault,
+  // One config-document read for a whole projection (the UI schema's values
+  // build reads every knob inside one snapshot).
+  withConfigDocumentSnapshot,
 } from "./config-binding.ts";
 export type { CustomizationConfigStore } from "./config-binding.ts";
 

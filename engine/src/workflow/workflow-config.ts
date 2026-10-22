@@ -74,6 +74,15 @@ export const DEFAULT_SYNC_CHECK_TIMEOUT_MS = 240_000;
 // pin the fresh bundle sha256 in one pass (eliminates the bundle/regenerate
 // chicken-and-egg that required two sync rounds to stabilize manifest drift).
 export const DEFAULT_SYNC_BUNDLE_TIMEOUT_MS = 120_000;
+/**
+ * How long one CPU-calibration child (`src/shared/run-cpu.ts`: the fixed
+ * benchmark a run takes at start and end to turn CPU time into work units)
+ * may take before its reading is absent.
+ */
+export const DEFAULT_CPU_CALIBRATION_TIMEOUT_MS = 120_000;
+
+/** Hex digits of the test-inventory hash `harness check` quotes in its passing message. */
+export const INVENTORY_HASH_PREVIEW_HEX = 12;
 
 // ── resource-lock.ts defaults ─────────────────────────────────────────────
 
