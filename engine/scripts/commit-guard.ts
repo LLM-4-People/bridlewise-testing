@@ -24,7 +24,7 @@
 import { frozenRecordsMessage, syncFrozenRecords } from "../src/workflow/record-links.ts";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { COMMIT_GUARD_PROGRAM, COMMIT_MESSAGE_FLAG, canonicalHookDuty, commitLossVerdict, hookTextIsCanonical, MERGE_COMMIT_FLAG, SHIPPED_HOOKS } from "./verification/staged-move-loss.ts";
@@ -35,14 +35,14 @@ import { createWorkingCopy } from "../src/git/working-copy.ts";
 import { FLAKE_CAUSE_TRAILER, flakeCauseTrailerProblems } from "../src/git/flake-cause-fixes.ts";
 import { configuredGitRepository } from "../src/git/worktree-port.ts";
 import { indexBaselineDrift } from "../src/git/index-baseline.ts";
-import { directoryGitEnvironment, indexFilePath, repositoryToplevel, trackedFiles } from "../src/git/repository-ownership.ts";
+import { directoryGitEnvironment, indexFilePath, repositoryToplevel } from "../src/git/repository-ownership.ts";
 import { ensurePrivateStateDirectory, ownedTemporaryName, PRIVATE_STATE_DIRECTORY_MODE, sweepAbandonedTemporaries } from "../src/filesystem/private-state.ts";
 import { statePath } from "../src/kernel/product-identity.ts";
 import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
 import { bootstrapProcess } from "../src/runtime/cli-debug.ts";
 import { ownedChild, terminate } from "../src/process/process-facts.ts";
 import { loadPinnedConfigSnapshotIfPresent } from "../src/kernel/config.ts";
-import { applyCheckoutFiles, engineRelativePath } from "../src/workflow/checkout-setup.ts";
+import { applyCheckoutFiles, engineRelativePath, installedDependencyLinks } from "../src/workflow/checkout-setup.ts";
 import { buildOutputPaths } from "../src/workflow/hash-binding-registry.ts";
 import { parseHarnessCommandResult } from "../src/workflow/command-result.ts";
 
@@ -344,10 +344,7 @@ function materializeStagedTree(repositoryRoot: string): string {
   // `GIT_INDEX_FILE`): the staged list above is read the same way, so the list
   // and the materialized tree describe one index.
   createWorkingCopy({ sourceRoot: repositoryRoot, targetRoot: target, git: "staged", index: indexFilePath(repositoryRoot, "inherited"), carry: buildOutputPaths() });
-  const dependencyLinks = (trackedFiles(repositoryRoot) ?? [])
-    .filter((path) => basename(path) === "package-lock.json")
-    .map((path) => join(dirname(path), "node_modules").split(sep).join("/"));
-  const links = [...(loadPinnedConfigSnapshotIfPresent()?.document.workspaceIsolation?.links ?? []), ...dependencyLinks];
+  const links = [...(loadPinnedConfigSnapshotIfPresent()?.document.workspaceIsolation?.links ?? []), ...installedDependencyLinks(repositoryRoot)];
   const steps = applyCheckoutFiles(target, repositoryRoot, engineRelative, { links });
   const failed = steps.filter((step) => step.status === "fail");
   if (failed.length > 0) throw new Error(`the staged tree could not be prepared: ${failed.map((step) => step.message).join("; ")}`);
