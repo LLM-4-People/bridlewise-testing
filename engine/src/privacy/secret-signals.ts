@@ -418,7 +418,7 @@ export function createPrivacyMatcher(rows: readonly PrivacyRow[]): (text: string
       if (!kind.lengths.has(candidate.length)) return;
       for (const id of kind.ids.get(sha256(candidate.toLowerCase())) ?? []) found.add(id);
     };
-    if (scratch !== undefined && text.includes("/tmp/")) {
+    if (scratch !== undefined) {
       for (const match of text.matchAll(SCRATCH_DIRECTORY)) consider(scratch, match[0]);
     }
     if (dotted !== undefined && longRuns !== undefined && text.includes(".")) {
