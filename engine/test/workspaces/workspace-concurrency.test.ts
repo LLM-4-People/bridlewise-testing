@@ -103,7 +103,7 @@ test("a read-only workspace overlapping an active lease is admitted, carries no 
   await assert.rejects(() => manager.merge(verifier.workspaceId), throwsCode("workspace_read_only"));
   await assert.rejects(() => manager.extend(verifier.workspaceId, ["src"]), throwsCode("workspace_read_only"));
   await assert.rejects(() => manager.create({ agentName: "verifier", mode: "read-only", writeSet: ["src"] }), throwsCode("workspace_read_only"));
-  manager.abort(verifier.workspaceId);
+  await manager.abort(verifier.workspaceId);
   assert.ok(!existsSync(verifier.lease.worktreePath));
 });
 
