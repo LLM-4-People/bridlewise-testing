@@ -16,6 +16,10 @@
  * - the production build rewrites the BUILT worker's line with the digest of
  *   every file the build emits next to it (the public assets AND the hashed
  *   bundles): `serviceWorkerDigestPlugin()`, in vite.config.ts.
+ *
+ * Both refuse a worker that precaches a URL (other than the navigation root)
+ * with no file among the digest's inputs: that file could change without a
+ * new cache, which is the stale-install bug the digest exists to end.
  */
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -60,6 +64,33 @@ export function cachedFiles(directory: string): ReadonlyMap<string, Uint8Array> 
   return files;
 }
 
+/** Where the worker declares the URLs it precaches at install. */
+const PRECACHE_LIST = Object.freeze({ begin: "const PRECACHE_URLS = [", end: "];" });
+/** The navigation root: precached as the app shell, served from index.html rather than a file of its own name. */
+const NAVIGATION_ROOT = "/";
+
+/** The URLs the worker precaches at install, read from its `PRECACHE_URLS` list; refused when the list is missing or empty. */
+export function precachedUrls(worker: string): readonly string[] {
+  const begin = worker.indexOf(PRECACHE_LIST.begin);
+  const end = begin < 0 ? -1 : worker.indexOf(PRECACHE_LIST.end, begin);
+  if (end < 0) throw new HarnessError(`the service worker carries no "${PRECACHE_LIST.begin}" list`, "service_worker_precache_list_missing");
+  const urls = [...worker.slice(begin + PRECACHE_LIST.begin.length, end).matchAll(/"([^"]*)"/gu)].map((match) => match[1]!);
+  if (urls.length === 0) throw new HarnessError("the service worker's precache list names no URL", "service_worker_precache_list_empty");
+  return urls;
+}
+
+/** Every precached URL (but the navigation root) with no file among `files`, the digest's inputs: each one would ship without a new cache. */
+export function uncoveredPrecache(worker: string, files: ReadonlyMap<string, Uint8Array>): readonly string[] {
+  return precachedUrls(worker).filter((url) => url !== NAVIGATION_ROOT && !files.has(url.replace(/^\//u, "")));
+}
+
+/** The digest of `files` for `worker`, refused when a URL the worker precaches is not one of them. */
+function coveredDigest(worker: string, files: ReadonlyMap<string, Uint8Array>): string {
+  const uncovered = uncoveredPrecache(worker, files);
+  if (uncovered.length > 0) throw new HarnessError(`the service worker precaches ${uncovered.join(", ")}, which the cached-assets digest does not cover`, "service_worker_precache_uncovered");
+  return assetsDigest(files);
+}
+
 /** The worker's text with its digest line set to `digest`; refused when the generated block is missing. */
 export function withAssetsDigest(worker: string, digest: string): string {
   const begin = worker.indexOf(ASSETS_DIGEST_BLOCK.begin);
@@ -70,7 +101,8 @@ export function withAssetsDigest(worker: string, digest: string): string {
 
 /** The committed worker as it should read for the public assets of the repository at `root`. */
 export function committedServiceWorker(root: string = ROOT): string {
-  return withAssetsDigest(readFileSync(join(root, SERVICE_WORKER_PATH), "utf8"), assetsDigest(cachedFiles(join(root, "public"))));
+  const worker = readFileSync(join(root, SERVICE_WORKER_PATH), "utf8");
+  return withAssetsDigest(worker, coveredDigest(worker, cachedFiles(join(root, "public"))));
 }
 
 /** Writes (or with `check`, judges) the committed worker's digest line; one JSON line, the generator protocol. */
@@ -97,7 +129,8 @@ export function serviceWorkerDigestPlugin(): { name: string; apply: "build"; wri
     writeBundle(options) {
       if (options.dir === undefined) throw new HarnessError("the service worker digest needs the build's output directory", "service_worker_build_dir_missing");
       const worker = join(options.dir, "sw.js");
-      const next = withAssetsDigest(readFileSync(worker, "utf8"), assetsDigest(cachedFiles(options.dir)));
+      const text = readFileSync(worker, "utf8");
+      const next = withAssetsDigest(text, coveredDigest(text, cachedFiles(options.dir)));
       const written = atomicWriteFile(worker, next, { exactMode: 0o644 });
       if (!written.success) throw new HarnessError(`could not write ${worker}: ${written.reason ?? "unknown"}`, "service_worker_write_failed");
     },
