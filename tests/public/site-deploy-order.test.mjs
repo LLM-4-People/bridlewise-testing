@@ -51,8 +51,9 @@ test("the decision follows the commit graph, never the order builds finished", (
   assert.equal(deployDecision({ sha: A, published: A, comparison: "identical" }).deploy, true);
   assert.equal(deployDecision({ sha: B, published: A, comparison: "ahead" }).deploy, true);
   assert.equal(deployDecision({ sha: A, published: B, comparison: "behind" }).deploy, false);
-  assert.throws(() => deployDecision({ sha: A, published: B, comparison: "diverged" }), /site_deploy_diverged: .*Remedy: .*supersede_published=b{40}/u);
-  assert.throws(() => deployDecision({ sha: A, published: B, comparison: null }), /site_deploy_history_rewritten: .*runbook P6.*supersede_published=b{40}/u);
+  // Each refusal is its code, and its remedy names the exact override to record.
+  assert.throws(() => deployDecision({ sha: A, published: B, comparison: "diverged" }), (error) => error.code === "site_deploy_diverged" && error.published === B && error.message.includes(`supersede_published=${B}`));
+  assert.throws(() => deployDecision({ sha: A, published: B, comparison: null }), (error) => error.code === "site_deploy_history_rewritten" && error.message.includes("runbook P6") && error.message.includes(`supersede_published=${B}`));
 });
 
 test("B's build finished first and is live: A's later deploy is superseded, not published", async () => {
@@ -96,7 +97,7 @@ test("the recorded override is the remedy: it must name the live commit exactly"
   const live = [{ id: 1, sha: B, statuses: published() }];
   const rewritten = await check(A, { deployments: live }, B);
   assert.equal(rewritten.deploy, true);
-  assert.match(rewritten.reason, /override: .*site_deploy_history_rewritten/u);
+  assert.ok(rewritten.reason.startsWith("override: ") && rewritten.reason.includes("(site_deploy_history_rewritten)"), rewritten.reason);
   assert.equal((await check(A, { deployments: live, compare: { [`${B}...${A}`]: "diverged" } }, B)).deploy, true);
   assert.equal((await check(A, { deployments: [{ id: 1, sha: B, statuses: superseded }] }, "unknown")).deploy, true);
   // A blind replace is refused: the wrong commit, or "unknown" when the live one is known.
