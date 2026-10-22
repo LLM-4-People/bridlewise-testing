@@ -430,9 +430,24 @@ export async function verifyBuiltProjection(context: PromotionContext, run: Appl
   }
 }
 
-/** The product commit `verify` checks and the context of its source (see {@link promotionVerify}): resolved, and refused where it is no promotion of the source branch. */
+/**
+ * The product commit `verify` checks and the context of its source (see
+ * {@link promotionVerify}), refused where it is no promotion of the REAL
+ * source branch. TRUST comes from this checkout, never from the commit under
+ * check or from the source it names: the profile is the one this checkout
+ * declares at HEAD, and the source branch is that profile's, as this
+ * repository holds it. The commit's trailer must name that profile, and its
+ * source must be a commit of that branch. Only then is the source's own
+ * content (its profile, its promoter) read. A branch whose own profile names
+ * itself the source proves nothing.
+ */
 export function verifyTarget(repository: RepositoryContext, request: PromotionRequest): Readonly<{ context: PromotionContext; commit: string; profile: string }> {
-  const named = request.commit ?? contextFor(repository, request.profile, undefined).target;
+  const declared = declaredProfiles(repository);
+  if (declared.length === 0) throw new PromotionError("promotion_profile_missing", `HEAD holds no promotion profile (${repository.profileDirectory}/): verify runs from a checkout of the source branch`, { profileDirectory: repository.profileDirectory });
+  const trusted = selectPromotionProfile(declared, request.profile, `HEAD:${repository.profileDirectory}`).profile;
+  const trustedTip = resolveRevision(repository.repository, trusted.source.ref);
+  if (trustedTip === null) throw new PromotionError("promotion_source_missing", `the source branch ${trusted.source.ref} of profile ${trusted.name} does not exist here`, { source: trusted.source.ref });
+  const named = request.commit ?? targetTip(repository.repository, trusted);
   if (named === null) throw new PromotionError("promotion_target_missing", "the profile's target branch does not exist here: fetch it, or name the product commit with --commit", {});
   const commit = resolveRevision(repository.repository, named);
   if (commit === null) throw new PromotionError("promotion_usage", `--commit ${named} names no commit`, { commit: named });
@@ -441,12 +456,14 @@ export function verifyTarget(repository: RepositoryContext, request: PromotionRe
   if (trailers.projectedFrom === null || profile === null) {
     throw new PromotionError("promotion_source_unproven_commit", `${commit} carries no Projected-From or Promotion-Profile trailer: it is not a promotion commit`, { commit });
   }
-  const context = contextFor(repository, profile.name, trailers.projectedFrom);
-  const sourceTip = resolveRevision(context.repository, context.loaded.profile.source.ref);
-  if (sourceTip === null || !isAncestor(context.repository, context.source, sourceTip)) {
-    throw new PromotionError("promotion_verify_off_source", `${commit} names the source ${context.source}, which is not a commit of ${context.loaded.profile.source.ref}${sourceTip === null ? " (absent here)" : ""}`, { commit, source: context.source, sourceRef: context.loaded.profile.source.ref });
+  if (profile.name !== trusted.name) {
+    throw new PromotionError("promotion_forge_profile_mismatch", `${commit} names the profile ${profile.name}; this checkout's is ${trusted.name}`, { commit, profile: trailers.profile, expectedProfile: trusted.name });
   }
-  return deepFreeze({ context, commit, profile: trailers.profile! });
+  const source = resolveRevision(repository.repository, trailers.projectedFrom);
+  if (source === null || !isAncestor(repository.repository, source, trustedTip)) {
+    throw new PromotionError("promotion_verify_off_source", `${commit} names the source ${trailers.projectedFrom}, which is not a commit of ${trusted.source.ref} as this repository holds it`, { commit, source: trailers.projectedFrom, sourceRef: trusted.source.ref });
+  }
+  return deepFreeze({ context: contextFor(repository, trusted.name, source), commit, profile: trailers.profile! });
 }
 
 /** The recompute of `verify` over `run` (the publisher's check, {@link verifyBuiltProjection}), as its answer. */
