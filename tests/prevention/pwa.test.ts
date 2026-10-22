@@ -13,17 +13,19 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { runInNewContext } from "node:vm";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { read } from "../helpers/source-scan.ts";
 
 import { modulePathMatching } from "../helpers/module-resolver.ts";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program (as in floor-site-links.test.ts).
-import { iconsDigest, markColors, markOutputs } from "../../scripts/generate-pwa-icons.mjs";
+import { markColors, markOutputs } from "../../scripts/generate-pwa-icons.mjs";
+import { assetsDigest, cachedFiles, committedServiceWorker, serviceWorkerDigestPlugin, withAssetsDigest } from "../../scripts/service-worker-cache.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
 const root = resolve(import.meta.dirname, "../..");
 // The worker's own cache names: its generation and the generated icons digest (scripts/generate-pwa-icons.mjs).
 const SW_SOURCE = readFileSync(resolve(root, "public/sw.js"), "utf8");
-const CACHE_VERSION = `${/const CACHE_GENERATION = "([^"]+)";/u.exec(SW_SOURCE)![1]!}-${/const ICONS_DIGEST = "([0-9a-f]{12})";/u.exec(SW_SOURCE)![1]!}`;
+const CACHE_VERSION = `${/const CACHE_GENERATION = "([^"]+)";/u.exec(SW_SOURCE)![1]!}-${/const ASSETS_DIGEST = "([0-9a-f]{12})";/u.exec(SW_SOURCE)![1]!}`;
 const STATIC_CACHE = `harness-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `harness-runtime-${CACHE_VERSION}`;
 function exists(rel: string): boolean {
@@ -112,15 +114,33 @@ describe("PWA — service worker (public/sw.js)", () => {
     expect(sw).toContain("/stream");
   });
 
-  it("versioned cache name (so updates invalidate old caches); a new icon set is a new cache, never a hand bump", () => {
-    expect(sw).toMatch(/const CACHE_VERSION = `\$\{CACHE_GENERATION\}-\$\{ICONS_DIGEST\}`;/);
-    // The digest line is the generator's: equal to the digest of the committed icons (and so to their next render).
-    const icons = new Map(["icon.svg", "icon-192.png", "icon-512.png"].map((name) => [resolve(root, "public/icons", name), readFileSync(resolve(root, "public/icons", name))]));
-    expect(sw).toContain(`const ICONS_DIGEST = "${(iconsDigest as (icons: Map<string, Buffer>) => string)(icons)}";`);
-    // A changed icon is a changed digest.
-    const changed = new Map(icons);
-    changed.set(resolve(root, "public/icons/icon.svg"), Buffer.from("<svg/>"));
-    expect((iconsDigest as (icons: Map<string, Buffer>) => string)(changed)).not.toBe((iconsDigest as (icons: Map<string, Buffer>) => string)(icons));
+  it("versioned cache name: a generation plus the digest of every cached asset, never a hand bump", () => {
+    expect(sw).toMatch(/const CACHE_VERSION = `\$\{CACHE_GENERATION\}-\$\{ASSETS_DIGEST\}`;/);
+    // The committed line is the one owner's output for today's public assets (icons, fonts, manifest).
+    expect(sw, "public/sw.js's digest is stale: run node scripts/service-worker-cache.ts --write").toBe(committedServiceWorker(root));
+    const assets = cachedFiles(resolve(root, "public"));
+    expect([...assets.keys()]).toContain("icons/icon.svg");
+    expect([...assets.keys()]).toContain("manifest.json");
+    expect([...assets.keys()].some((name) => name === "sw.js" || name.endsWith("README.md")), "the worker and the READMEs are not cached assets").toBe(false);
+    // Any changed asset is a new digest.
+    const changed = new Map(assets);
+    changed.set("icons/icon.svg", Buffer.from("<svg/>"));
+    expect(assetsDigest(changed)).not.toBe(assetsDigest(assets));
+    expect(() => withAssetsDigest("const x = 1;", "abc")).toThrow(/carries no/);
+  });
+
+  it("the build sets the BUILT worker's digest from every emitted file, bundles included", () => {
+    const dist = createTempDir("sw-digest-");
+    mkdirSync(resolve(dist, "assets"), { recursive: true });
+    writeFileSync(resolve(dist, "sw.js"), sw);
+    writeFileSync(resolve(dist, "assets/index-abc12345.js"), "console.log(1)");
+    const plugin = serviceWorkerDigestPlugin();
+    plugin.writeBundle({ dir: dist });
+    const first = readFileSync(resolve(dist, "sw.js"), "utf8");
+    expect(first).toContain(`const ASSETS_DIGEST = "${assetsDigest(cachedFiles(dist))}";`);
+    writeFileSync(resolve(dist, "assets/index-abc12345.js"), "console.log(2)");
+    plugin.writeBundle({ dir: dist });
+    expect(readFileSync(resolve(dist, "sw.js"), "utf8"), "a changed bundle is a new cache").not.toBe(first);
   });
 });
 
@@ -299,7 +319,6 @@ describe("PWA — icon generator (no-dep build tool)", () => {
       "public/icons/icon-192.png",
       "public/icons/icon-512.png",
       "public/icons/icon.svg",
-      "public/sw.js",
     ]);
     for (const [path, bytes] of outputs) {
       expect(readFileSync(path).equals(bytes), `${path} drifted: run node scripts/generate-pwa-icons.mjs`).toBe(true);

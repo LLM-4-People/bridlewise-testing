@@ -14,8 +14,9 @@
  *   public/icons/icon.svg      the vector mark on its rounded Carbon tile
  *   public/icons/icon-192.png  raster, full-bleed tile (maskable-safe)
  *   public/icons/icon-512.png  raster, full-bleed tile (maskable-safe)
- *   public/sw.js               its icons-digest line only: a new icon set is a
- *                              new cache, so installed apps refresh (never a hand bump)
+ *
+ * Writing the icons refreshes the service worker's cached-assets digest
+ * through its one owner (scripts/service-worker-cache.ts).
  *
  * PNGs are hand-encoded (signature, IHDR, zlib IDAT, IEND, CRC-32) from
  * Node built-ins only, with 4×4 supersampled coverage per pixel, so the
@@ -29,10 +30,10 @@
 // generator run under a test runner cannot rewrite the runner's checkout.
 import { atomicWriteFile } from "../engine/src/filesystem/atomic-write.ts";
 import { BRAND_MARK, strokePath } from "../src/cockpit/shell/brand-mark.ts";
+import { syncServiceWorker } from "./service-worker-cache.ts";
 import { deflateSync, crc32 } from "node:zlib";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { basename, resolve, dirname } from "node:path";
+import { resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -137,39 +138,13 @@ export function markPng(size, colors = markColors()) {
   return Buffer.concat([sig, chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0))]);
 }
 
-const SERVICE_WORKER = resolve(ROOT, "public", "sw.js");
-export const ICONS_DIGEST_BLOCK = Object.freeze({
-  begin: "// BEGIN GENERATED: the icons' digest (scripts/generate-pwa-icons.mjs)",
-  end: "// END GENERATED: the icons' digest",
-});
-
-/** The icons' content digest (sha256 over each icon's name and bytes, in name order), 12 hex characters. */
-export function iconsDigest(icons) {
-  const hash = createHash("sha256");
-  for (const [path, bytes] of [...icons.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    hash.update(basename(path));
-    hash.update("\0");
-    hash.update(bytes);
-  }
-  return hash.digest("hex").slice(0, 12);
-}
-
-/** The service worker's text with its icons-digest block set to `digest`; refused when the block is missing. */
-export function withIconsDigest(sw, digest) {
-  const begin = sw.indexOf(ICONS_DIGEST_BLOCK.begin);
-  const end = sw.indexOf(ICONS_DIGEST_BLOCK.end);
-  if (begin < 0 || end < begin) throw new Error(`[brand-mark] ${SERVICE_WORKER} carries no icons-digest block`);
-  return `${sw.slice(0, begin + ICONS_DIGEST_BLOCK.begin.length)}\nconst ICONS_DIGEST = "${digest}";\n${sw.slice(end)}`;
-}
-
-/** Every file the generator owns, as path → bytes: the icons, and the service worker with their digest. */
-export function markOutputs(colors = markColors(), sw = readFileSync(SERVICE_WORKER, "utf8")) {
-  const icons = new Map([
+/** Every icon file the generator owns, as path → bytes. */
+export function markOutputs(colors = markColors()) {
+  return new Map([
     [resolve(OUT_DIR, "icon.svg"), Buffer.from(markSvg(colors), "utf8")],
     [resolve(OUT_DIR, "icon-192.png"), markPng(192, colors)],
     [resolve(OUT_DIR, "icon-512.png"), markPng(512, colors)],
   ]);
-  return new Map([...icons, [SERVICE_WORKER, Buffer.from(withIconsDigest(sw, iconsDigest(icons)), "utf8")]]);
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -189,6 +164,9 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
     const result = atomicWriteFile(out, bytes, { exactMode: 0o644 });
     if (!result.success) throw new Error(`[brand-mark] could not write ${out}: ${result.reason ?? "unknown"}`);
   }
-  console.log(JSON.stringify({ allCurrent: drifted.length === 0, status: check ? "checked" : "written", changed: drifted.map((p) => p.slice(ROOT.length + 1)) }));
-  if (check && drifted.length > 0) process.exitCode = 1;
+  // The worker caches the icons: its digest follows them (its one owner writes it).
+  const worker = syncServiceWorker(ROOT, check);
+  const changed = [...drifted.map((p) => p.slice(ROOT.length + 1)), ...worker.changed];
+  console.log(JSON.stringify({ allCurrent: changed.length === 0, status: check ? "checked" : "written", changed }));
+  if (check && changed.length > 0) process.exitCode = 1;
 }

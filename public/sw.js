@@ -5,11 +5,11 @@
  * existing user-controlled reload notification in shell/sw-update.ts. */
 // The cache generation: raise it when this worker's caching logic changes.
 const CACHE_GENERATION = "v5";
-// BEGIN GENERATED: the icons' digest (scripts/generate-pwa-icons.mjs)
-const ICONS_DIGEST = "dc25189b85dd";
-// END GENERATED: the icons' digest
-// A new icon set is a new cache, so an installed app refreshes its icons.
-const CACHE_VERSION = `${CACHE_GENERATION}-${ICONS_DIGEST}`;
+// BEGIN GENERATED: the cached assets' digest (scripts/service-worker-cache.ts)
+const ASSETS_DIGEST = "02a8f79b2521";
+// END GENERATED: the cached assets' digest
+// A changed icon, font or bundle is a new cache, so an installed app refreshes.
+const CACHE_VERSION = `${CACHE_GENERATION}-${ASSETS_DIGEST}`;
 const STATIC_CACHE = `harness-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `harness-runtime-${CACHE_VERSION}`;
 const PRECACHE_URLS = [

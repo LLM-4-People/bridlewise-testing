@@ -48,7 +48,8 @@ ships into the client bundle or the server runtime.
   dev-server boot against a served transform artifact.
 - `svelte-css-scope-probe.ts` — refuses a dev server that serves a
   component's CSS unscoped.
-- `generate-pwa-icons.mjs` — emits the PWA icons using only Node built-ins.
+- `generate-pwa-icons.mjs` — draws the brand mark's icons from its one geometry (`src/cockpit/shell/brand-mark.ts`) in the token owner's colours, using only Node built-ins.
+- `service-worker-cache.ts` — the service worker's cache version, derived once: the digest of every asset it caches, written into `public/sw.js` (`--write|--check`) and into the built worker by the build (`serviceWorkerDigestPlugin`, vite.config.ts).
 - `db-archive.ts` — the conversation-archive shell (the development root package's `db-archive` script, with
   `--db <database> --chats-file <file>`; not installed in the product projection): a thin shell over the `database.conversations.archive` action (`server/db/conversation-archive.ts`); stop the server first.
 
