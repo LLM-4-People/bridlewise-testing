@@ -322,7 +322,8 @@ export function testResultLedgerRows(receipt: TestResultReceipt, root: string): 
 /**
  * WHAT EACH FAILURE SAID, readable: the failure's error and every cause under
  * it (`name: message`, outermost first; the runner's own envelope is one of
- * them), as the receipt recorded them (already redacted at extraction). The
+ * them, and a cause that only repeats the message above it is said once), as
+ * the receipt recorded them (already redacted at extraction). The
  * run summary carries it, so a red run off this machine (CI) names its cause,
  * not only its test. A failure without a recorded error says so.
  */
@@ -332,7 +333,9 @@ export function testResultFailureStatements(receipt: TestResultReceipt): Readonl
     detail.identity,
     detail.error === null
       ? "no error was recorded"
-      : [detail.error, ...detail.error.causes].map((link) => `${link.name ?? "Error"}: ${link.message}`).join("\n  caused by "),
+      : [detail.error, ...detail.error.causes]
+        .filter((link, index, chain) => index === 0 || link.message !== chain[index - 1]!.message)
+        .map((link) => `${link.name ?? "Error"}: ${link.message}`).join("\n  caused by "),
   ] as const));
 }
 

@@ -203,6 +203,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       "scripts/tooling/run-tests.ts",
       "scripts/tooling/s1-verification.ts",
       "scripts/tooling/test-guards.ts",
+      "scripts/tooling/test-run-report.ts",
       "scripts/tooling/test-worker.ts",
       "scripts/tooling/verification/content-addressed-evidence.ts",
       "scripts/verification/consumer-plants.ts",
@@ -5706,6 +5707,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "scripts-tooling-test-cpu-class", path: "scripts/tooling/test-cpu-class.ts", realm: "builder", layer: "verification",
       owner: "verification", publicApi: { exportCount: 7, namesSha256: "7a3b9fec2768fec7581f8ca4a890b9f67c7cf947787ee68b74ee9b3640368714" },
       dependencies: ["node:fs","node:path","src/shared/run-cpu.ts"],
+    }),
+    moduleContract({
+      id: "scripts-tooling-test-run-report", path: "scripts/tooling/test-run-report.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 3, namesSha256: "bd7248676cf0a53b531d7758cbe43c3fd25d1a255b8303ee5bcdca3e5414b2ef" },
+      dependencies: ["node:crypto","node:fs","node:path","src/runtime/cli-debug.ts","src/workflow/test-result-collector.ts"],
+      executionBoundary: "composition-root", compositionRoot: true,
     }),
   ],
 });

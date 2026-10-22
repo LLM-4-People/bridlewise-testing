@@ -632,6 +632,11 @@ mechanismTest("a run's failure statements say what each failure said: its error 
     { identity: first.name, file: first.sourceId, line: null, column: null, error: extractTestResultError(envelope) },
     { identity: second.name, file: second.sourceId, line: null, column: null, error: null },
   ]));
+  const repeated = parseTestResultReceiptValue(createTestResultReceipt(receipt, failedRunnerSummary(receipt), fixture.candidate, [first.name, second.name], [], [
+    { identity: first.name, file: first.sourceId, line: null, column: null, error: extractTestResultError(new Error("the same words", { cause: new TypeError("the same words") })) },
+    { identity: second.name, file: second.sourceId, line: null, column: null, error: null },
+  ]));
+  assert.equal(testResultFailureStatements(repeated)[first.name], "Error: the same words", "a cause that only repeats its message is said once");
   assert.deepEqual(testResultFailureStatements(result), {
     [first.name]: 'ERR_TEST_FAILURE: test failed\n  caused by TypeError: the worker answered violations: ["recorded-execution-stderr-nonempty"]',
     [second.name]: "no error was recorded",
