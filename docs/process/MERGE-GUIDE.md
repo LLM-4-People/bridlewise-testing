@@ -74,11 +74,27 @@ A failure before the land leaves every checkout untouched and the workspace
 `active` (or `validating` when git refused the land itself). An integrator
 that dies leaves it `merging`: `ws recover <id>` finishes or rolls back.
 
+A feature workspace's target must track an upstream branch on a remote
+(`branch.<target>.remote`/`.merge`): `create` refuses one that does not
+(`workspace_target_untracked`). `publish` re-makes the branch's new commits
+on the forge as signed twins through the Git Data API (moving the forge
+branch only from where the workspace left it: another writer's commits are
+refused, `branch_moved_by_another_writer`) and opens or regenerates the DRAFT
+pull request; `ready` takes it out of draft once its published tree passed
+`validate`, and any later round that publishes a new head returns it to
+draft. Records are stored per version: the store before the forge (v2),
+which older code still uses, is read and migrated in memory and never
+written. A v2-only workspace is read-only to this version until the
+recorded P7 cutover: every verb that would change it refuses
+(`workspace_owned_by_v2_checkout`, naming its record and worktree) — act on
+it from the checkout of the version that made it.
+
 ## 2. The commands
 
 ```bash
 node src/cli.ts harness workspace create --agent <name> --write-set <path…> [--target <branch>] [--base <ref>]
 node src/cli.ts harness workspace validate <id> [--full]
+node src/cli.ts harness workspace publish <id> | ready <id>
 node src/cli.ts harness workspace merge <id>
 node src/cli.ts harness workspace recover <id> | abort <id> [--quarantine]
 ```
