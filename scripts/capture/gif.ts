@@ -97,7 +97,7 @@ function bucket(r: number, g: number, b: number): number {
  * Answers at most `size` RGB entries (flat array) and a 32768-entry lookup
  * from bucket to palette index (nearest entry).
  */
-export function buildPalette(frames: readonly RgbFrame[], size = 255): { palette: Uint8Array; lookup: Uint8Array } {
+function buildPalette(frames: readonly RgbFrame[], size = 255): { palette: Uint8Array; lookup: Uint8Array } {
   const histogram = new Uint32Array(32768);
   // Per-bucket colour sums: a palette entry is the true mean of its pixels, so a flat UI colour survives exactly.
   const sums = new Float64Array(32768 * 3);
