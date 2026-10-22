@@ -1,0 +1,84 @@
+{
+  "schema": "bridlewise-community-intake/v1",
+  "warning": "Bridlewise is an experimental developer preview. Do not paste credentials, private source, personal data, absolute home paths or database contents. Paste logs as text (file uploads are not accepted); a secret found in an intake is redacted by the publisher.",
+  "issueForms": [
+    {
+      "file": "bug.yml",
+      "name": "Bug report",
+      "description": "Report a reproducible problem in the developer preview.",
+      "type": "Bug",
+      "fields": [
+        { "kind": "textarea", "id": "summary", "label": "Summary", "description": "One paragraph describing the failure.", "required": true },
+        { "kind": "textarea", "id": "reproduction", "label": "Reproduction", "description": "Exact steps and commands, and a minimal disposable project if one is needed.", "placeholder": "1. npm ci\n2. node scripts/sd.mjs start\n3. ...", "required": true },
+        { "kind": "textarea", "id": "expected", "label": "Expected behavior", "required": true },
+        { "kind": "textarea", "id": "actual", "label": "Actual behavior", "description": "Include the typed error or refusal text, not a screenshot of a stack trace.", "required": true },
+        { "kind": "input", "id": "revision", "label": "Revision", "description": "Commit SHA or tag.", "required": true },
+        { "kind": "input", "id": "environment", "label": "Environment", "description": "OS, kernel, Node version, npm version, browser.", "placeholder": "Ubuntu 24.04, kernel 6.8, Node 24.20.0, npm 11.19.0, Chromium 140", "required": true },
+        { "kind": "textarea", "id": "logs", "label": "Redacted logs", "description": "Remove secrets, tokens, private paths and personal data first.", "render": "shell", "required": false }
+      ]
+    },
+    {
+      "file": "flake.yml",
+      "name": "Flake report",
+      "description": "A test that passed and failed on the same tree. Name the test, so a triager can run /reproduce.",
+      "type": "Flake",
+      "fields": [
+        { "kind": "input", "id": "test-path", "label": "Test file", "description": "The repository-relative path of the test file. /reproduce runs this path only; free-text steps are never executed.", "placeholder": "engine/test/workflow/record-links.test.ts", "required": true },
+        { "kind": "input", "id": "test-name", "label": "Test name", "description": "The test's name as the runner printed it.", "required": true },
+        { "kind": "input", "id": "revision", "label": "Revision", "description": "The commit SHA both runs used.", "required": true },
+        { "kind": "textarea", "id": "observed", "label": "What you saw", "description": "The failing assertion or refusal text, and how often it failed.", "required": true },
+        { "kind": "input", "id": "run", "label": "Run link", "description": "A link to the failing CI run, if there is one.", "required": false }
+      ]
+    },
+    {
+      "file": "docs.yml",
+      "name": "Docs fix",
+      "description": "A page that is wrong, stale, unclear or missing.",
+      "type": "Task",
+      "fields": [
+        { "kind": "input", "id": "page", "label": "Page", "description": "The repository path or site URL of the page.", "required": true },
+        { "kind": "textarea", "id": "problem", "label": "What is wrong", "required": true },
+        { "kind": "textarea", "id": "proposal", "label": "What it should say", "required": false }
+      ]
+    }
+  ],
+  "confirmations": [
+    "I searched existing issues and discussions.",
+    "This report contains no credentials, private source or personal data.",
+    "I understand this is a developer preview with no support SLA."
+  ],
+  "contactLinks": [
+    { "name": "Feature idea", "category": "ideas", "about": "Propose a capability in Ideas; a triager can /track it into a record." },
+    { "name": "Question", "category": "q-a", "about": "Ask in Q&A; answers are marked by maintainers and reviewers." },
+    { "name": "Security report", "advisory": true, "about": "Report a vulnerability privately. Never open a public issue with exploit details." }
+  ],
+  "discussionCategories": [
+    { "slug": "announcements", "name": "Announcements", "format": "announcement", "postedBy": "the publisher", "use": "milestone closes, major changes and the pinned \"Follow along\" thread" },
+    { "slug": "floor-log", "name": "Floor log", "format": "announcement", "postedBy": "the publisher", "use": "one thread per milestone and one comment per land" },
+    { "slug": "releases", "name": "Releases", "format": "announcement", "postedBy": "the publisher", "use": "one thread per release" },
+    { "slug": "decisions", "name": "Decisions", "format": "announcement", "postedBy": "the publisher", "use": "one thread per decision record; everyone can comment, and a triager can /track an objection into a record" },
+    { "slug": "rfcs", "name": "RFCs", "format": "open-ended", "postedBy": "anyone", "use": "a proposal for a new decision; an accepted RFC becomes a decision-record pull request",
+      "form": {
+        "title": "rfc: ",
+        "fields": [
+          { "kind": "textarea", "id": "problem", "label": "Problem", "required": true },
+          { "kind": "textarea", "id": "proposal", "label": "Proposal", "description": "The behavior and its invariants, not only the implementation.", "required": true },
+          { "kind": "textarea", "id": "alternatives", "label": "Alternatives considered", "required": true },
+          { "kind": "textarea", "id": "rules", "label": "Which rules it touches", "description": "The decision records (docs/decisions/) this would add, change or supersede.", "required": true }
+        ]
+      }
+    },
+    { "slug": "ideas", "name": "Ideas", "format": "open-ended", "postedBy": "anyone", "use": "a capability you would like; a triager can /track it into a record",
+      "form": {
+        "title": "idea: ",
+        "fields": [
+          { "kind": "textarea", "id": "problem", "label": "Problem", "description": "What can a user not do or not understand today?", "required": true },
+          { "kind": "textarea", "id": "proposal", "label": "Proposal", "required": true }
+        ]
+      }
+    },
+    { "slug": "q-a", "name": "Q&A", "format": "question-answer", "postedBy": "anyone", "use": "questions; answers are marked by maintainers and reviewers" },
+    { "slug": "show-and-tell", "name": "Show and tell", "format": "open-ended", "postedBy": "anyone", "use": "your own uses of the harness" },
+    { "slug": "polls", "name": "Polls", "format": "poll", "postedBy": "maintainers", "use": "sentiment checks; results are signals, never decisions" }
+  ]
+}
