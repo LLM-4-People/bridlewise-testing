@@ -888,7 +888,7 @@ export function writeTestResultCollection(
  * canonical collection produced by `collectTestResults`/`harness test`) so
  * consumers can distinguish the two formats by schema version.
  */
-export const TEST_RUN_SUMMARY_SCHEMA_VERSION = schemaId("test-run-summary", 1);
+export const TEST_RUN_SUMMARY_SCHEMA_VERSION = schemaId("test-run-summary", 2);
 export const TEST_RUN_SUMMARY_PATH = statePath("state", "test-results", "latest-summary.json");
 
 export type TestRunSummary = Readonly<{
@@ -898,6 +898,8 @@ export type TestRunSummary = Readonly<{
   status: "passed" | "failed";
   exitCode: 0 | 1;
   failures: readonly string[];
+  /** What each failure said (`testResultFailureStatements`): a red run read off this machine names its cause. */
+  failureStatements: Readonly<Record<string, string>>;
   reasons: readonly string[];
   timestamp: string;
   testCount: number;
@@ -931,6 +933,7 @@ export type TestRunSummaryInput = Readonly<{
   status: "passed" | "failed";
   exitCode: 0 | 1;
   failures: readonly string[];
+  failureStatements: Readonly<Record<string, string>>;
   reasons: readonly string[];
   testCount: number;
   passCount: number;
@@ -961,6 +964,7 @@ export function writeTestRunSummary(
     status: input.status,
     exitCode: input.exitCode,
     failures: input.failures,
+    failureStatements: input.failureStatements,
     reasons: input.reasons,
     timestamp: new Date().toISOString(),
     testCount: input.testCount,
