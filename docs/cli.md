@@ -87,6 +87,7 @@ Use it to confirm the config is pinned and hashed, not to claim that a run is sa
 | `harness benchmark` | Run performance benchmarks | Writes benchmark results |
 | `harness eval` | Run evaluation scenarios | Writes results |
 | `harness flake` | Inspect or reproduce flaky-test evidence | Varies |
+| `harness community` | The community actions on `main`'s code: `comment --event` (IssueOps), `issue --event` and `welcome-pulls` (the newcomer's welcome), `thank --pull` (the first-landing thank-you), `credit --range` (contributors of a range), `spam-signal`, and the maintainer's `limit`. Token in `GH_TOKEN` | Comments on GitHub (`limit`: the repository's interaction limit); `credit` and `spam-signal` write nothing |
 | `harness extension list` | List registered extensions | No |
 
 Examples:

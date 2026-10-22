@@ -35,6 +35,9 @@ import { dirname, join } from "node:path";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../kernel/errors.ts";
 import { emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
+import { commandRegistryViolations } from "./commands.ts";
+import { readModeration } from "./moderation.ts";
+import { readReplyTemplates, replyTemplateViolations } from "./replies.ts";
 import { escapeMarkdownTableCell } from "../../../../shared/markup.ts";
 import {
   COMMUNITY_DIRECTORY,
@@ -109,7 +112,14 @@ export function readCommunityFacts(repositoryRoot: string): CommunityFacts {
   const makefile = "engine/guardian/Makefile";
   const compiler = /^CC\s*:=\s*(\S+)$/mu.exec(readFileSync(join(repositoryRoot, makefile), "utf8"))?.[1];
   if (compiler === undefined) templateInvalid(makefile, "declares no CC := … line");
-  return Object.freeze({ roles: readRoles(repositoryRoot), intake: readIntake(repositoryRoot), features: readFeatures(repositoryRoot), repository, nodeRange, compiler });
+  const roles = readRoles(repositoryRoot);
+  // The commands, the bot replies and the moderation modes are judged here too, so `harness check` refuses a
+  // command naming an undeclared role, a reply template out of step with its key's slots, or modes that cannot
+  // mean anything, before any live comment does.
+  const disagreements = [...commandRegistryViolations(roles), ...replyTemplateViolations(readReplyTemplates(repositoryRoot))];
+  if (disagreements.length > 0) templateInvalid(COMMUNITY_DIRECTORY, disagreements.join("; "));
+  readModeration(repositoryRoot);
+  return Object.freeze({ roles, intake: readIntake(repositoryRoot), features: readFeatures(repositoryRoot), repository, nodeRange, compiler });
 }
 
 const repositoryUrl = (facts: CommunityFacts): string => `https://github.com/${facts.repository}`;
