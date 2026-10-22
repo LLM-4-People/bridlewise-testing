@@ -180,6 +180,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
   compositionRoots: {
     builder: [
       "scripts/bootstrap-hooks.ts",
+      "scripts/brand/cli.ts",
       "scripts/build-bundle.ts",
       "scripts/commit-guard.ts",
       "scripts/concurrent/worker-entry.mjs",
@@ -5661,6 +5662,27 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-workflow-promotion-release-train", path: "src/workflow/promotion/release-train.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "3b52f7acddb70486d0b61809ea140df94baef344d493c1e3000b1d0d67d6e1fd" },
       dependencies: ["src/extensions/semver.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/trailers.ts"],
+    }),
+    moduleContract({
+      id: "scripts-brand-claims", path: "scripts/brand/claims.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 7, namesSha256: "dcf9b110c6b7bb642b8849a75b7dade53dc3256cd7c11289d97346ec7aa78c69" },
+      dependencies: ["node:fs","node:path","scripts/verification/tracker-entries.ts","src/kernel/errors.ts","src/workflow/failure-owners.ts"],
+    }),
+    moduleContract({
+      id: "scripts-brand-cli", path: "scripts/brand/cli.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 2, namesSha256: "8adfe9a16bd524a0a5b9ce5ebced0f50ac47d8a85ba048d9788f4f919fb0265a" },
+      dependencies: ["node:fs","node:path","node:url","node:util","scripts/brand/claims.ts","scripts/brand/messaging.ts","scripts/brand/render.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/runtime/cli-debug.ts"],
+      executionBoundary: "composition-root", compositionRoot: true,
+    }),
+    moduleContract({
+      id: "scripts-brand-messaging", path: "scripts/brand/messaging.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 5, namesSha256: "32b7bd7e8765493e90694a228297d8b8c8e368f73062f64480868f50091db67f" },
+      dependencies: ["node:fs","node:path","src/kernel/errors.ts"],
+    }),
+    moduleContract({
+      id: "scripts-brand-render", path: "scripts/brand/render.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 9, namesSha256: "efc075d122d150c14783cf90298895cba3f615aa542cfe159c2a7cc2212037c2" },
+      dependencies: ["../shared/markup.ts"],
     }),
   ],
 });
