@@ -15,7 +15,22 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 
 import { isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
+import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
 import { judgePage, serveSite, watchRequests } from "./judge.ts";
+
+/** The mark as Brand.svelte draws it, from the one geometry and its tokens (never a copy of its coordinates). */
+function markSvg(): string {
+  const g = BRAND_MARK.grid;
+  const stroke = (s: typeof BRAND_MARK.rein): string => `<path d="${strokePath(s)}" stroke-width="${BRAND_MARK.stroke}" style="stroke: var(${s.ink})"></path>`;
+  return [
+    `<svg viewBox="0 0 ${g} ${g}" role="img" aria-label="Bridlewise">`,
+    `<rect width="${g}" height="${g}" rx="${BRAND_MARK.tileRadius}" style="fill: var(${BRAND_MARK.tile})"></rect>`,
+    stroke(BRAND_MARK.rein),
+    ...BRAND_MARK.lines.map(stroke),
+    `<circle cx="${BRAND_MARK.beam.at[0]}" cy="${BRAND_MARK.beam.at[1]}" r="${BRAND_MARK.beam.r}" style="fill: var(${BRAND_MARK.beam.ink})"></circle>`,
+    `</svg>`,
+  ].join("\n");
+}
 
 /** The clean page: the token stacks, a brand mark painted from its tokens, text in the stacks. */
 const CLEAN = `<!doctype html><html><head><meta charset="utf-8"><title>clean</title>
@@ -26,14 +41,7 @@ body { font-family: var(--face-sans); }
 .brand svg { width: 32px; height: 32px; display: block; }
 .brand path { fill: none; }
 </style><!--PLANT-HEAD--></head>
-<body><header><span class="brand"><svg viewBox="0 0 32 32" role="img" aria-label="Bridlewise">
-<rect width="32" height="32" rx="6" style="fill: var(--ground-0)"></rect>
-<path d="M8 7L8 25" stroke-width="1.6" style="stroke: var(--ink-1)"></path>
-<path d="M14 10L25 10" stroke-width="1.6" style="stroke: var(--ink-2)"></path>
-<path d="M14 16L21 16" stroke-width="1.6" style="stroke: var(--ink-2)"></path>
-<path d="M14 22L25 22" stroke-width="1.6" style="stroke: var(--ink-2)"></path>
-<circle cx="8" cy="16" r="2.5" style="fill: var(--beam)"></circle>
-</svg></span></header>
+<body><header><span class="brand">${markSvg()}</span></header>
 <main><p id="prose">A sentence in the sans stack.</p><p>Inline <code>code</code> in the mono stack.</p></main><!--PLANT-BODY--></body></html>`;
 
 type Plant = Readonly<{ name: string; head?: string; body?: string; rule: string }>;
@@ -59,7 +67,7 @@ const PLANTS: readonly Plant[] = [
 ];
 
 /** Builds the fixture site, judges every page as the cockpit is judged (every rule), and returns what failed. */
-export async function prove(): Promise<readonly string[]> {
+async function prove(): Promise<readonly string[]> {
   const dir = mkdtempSync(join(tmpdir(), "rendered-proof-"));
   const failures: string[] = [];
   try {

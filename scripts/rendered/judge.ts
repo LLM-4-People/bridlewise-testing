@@ -22,7 +22,7 @@ import { chromium, type BrowserContext, type Page } from "playwright-core";
 import { isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { RENDERED_RULES, type PageRule, type RequestRule, type Surface } from "./rules.ts";
 
-export class RenderedRefusal extends Error {
+class RenderedRefusal extends Error {
   readonly code: string;
   constructor(code: string, message: string) {
     super(`${code}: ${message}`);
@@ -80,7 +80,7 @@ export async function serveSite(siteRoot: string, baseurl: string): Promise<{ se
 }
 
 /** Every HTML page a built site holds, as URL paths under `baseurl`. */
-export function sitePages(siteRoot: string, baseurl: string): readonly string[] {
+function sitePages(siteRoot: string, baseurl: string): readonly string[] {
   const base = baseurl.replace(/\/+$/u, "");
   const pages: string[] = [];
   const walk = (dir: string): void => {
@@ -95,7 +95,7 @@ export function sitePages(siteRoot: string, baseurl: string): readonly string[] 
 }
 
 /** Judges every page of a built site in both colour schemes; returns the findings, each with its page. */
-export async function judgeSite(siteRoot: string, baseurl: string): Promise<readonly string[]> {
+async function judgeSite(siteRoot: string, baseurl: string): Promise<readonly string[]> {
   if (!existsSync(siteRoot)) throw new RenderedRefusal("rendered_site_missing", `${siteRoot} is not a built site`);
   const pages = sitePages(siteRoot, baseurl);
   if (pages.length === 0) throw new RenderedRefusal("rendered_site_empty", `${siteRoot} holds no HTML page`);

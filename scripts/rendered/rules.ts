@@ -48,7 +48,7 @@ export type RenderedRule = PageRule | RequestRule;
 export type MarkPart = Readonly<{ tag: string; paint: "fill" | "stroke"; token: string }>;
 
 /** The declared parts, from the one geometry: the tile, the rein, each record line, the beam. */
-export function markParts(): readonly MarkPart[] {
+function markParts(): readonly MarkPart[] {
   return [
     { tag: "rect", paint: "fill", token: BRAND_MARK.tile },
     { tag: "path", paint: "stroke", token: BRAND_MARK.rein.ink },
@@ -58,10 +58,10 @@ export function markParts(): readonly MarkPart[] {
 }
 
 /** The tokens that name a family stack (the token owner's `--face-*`). */
-export const FACE_TOKENS: readonly string[] = ["--face-sans", "--face-mono"];
+const FACE_TOKENS: readonly string[] = ["--face-sans", "--face-mono"];
 
 /** Where the brand mark renders: the cockpit's `Brand.svelte` and any page that includes the generated mark. */
-export const MARK_SELECTOR = ".brand > svg, svg[data-brand-mark]";
+const MARK_SELECTOR = ".brand > svg, svg[data-brand-mark]";
 
 /** The brand mark as rendered: the declared parts, each in its token's value, nothing hiding or recolouring it. */
 function judgeMark(args: { input: { parts: readonly MarkPart[]; selector: string }; surface: Surface }): string[] {
