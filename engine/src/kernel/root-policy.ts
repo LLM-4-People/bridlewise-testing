@@ -1979,6 +1979,8 @@ const ROOT_POLICY_VALUE = {
     privateState: {
       directoryMode: 0o700,
       fileMode: 0o600,
+      /** A private EXECUTABLE (a pinned tool installed into a private home): its owner alone reads and runs it. */
+      executableMode: 0o700,
       maximumFileBytes: 16_777_216,
       maximumDirectoryEntries: 100_000,
       temporaryRandomBytes: 16,
@@ -2409,8 +2411,13 @@ const ROOT_POLICY_VALUE = {
           // floor. They were pruned deliberately with `harness sync --prune`;
           // the remaining non-canonical set is the public tree's actual set.
           // This pin is deliberately not auto-repaired.
-          count: 8,
-          sha256: "8dcad5535d0b50a0f849d5dcc0e472afc8d8cb2f9d297e4cc749f28fa17f51d0",
+          // RESTATED BY HAND FOR THE HISTORY IMPORTER (2026-10-21, GH-6, runbook
+          // P6.1), 8 -> 9: `live/history-import.test.ts` joined the live suite —
+          // the whole import pipeline runs the pinned gitleaks and
+          // git-filter-repo, which live outside the checkout; every step that
+          // needs only git stays hermetic in `test/forge/history-import.test.ts`.
+          count: 9,
+          sha256: "74795154cb36964aef06039377d5f3e20854af97e817beba48a9e7f05f910fcb",
         },
       },
       // END AUTHORED PINS
@@ -2749,6 +2756,63 @@ const ROOT_POLICY_VALUE = {
         end: "# END GENERATED: the evidence folders",
       },
       linkScheme: "evidence:",
+    },
+    /**
+     * THE HISTORY IMPORTER (src/workflow/forge/history-import.ts,
+     * `harness forge import-history`): every history that enters the forge is
+     * scanned by the secret catalogue and the independent oracle, purged and
+     * re-scanned to zero before its first push (github-only §8.3).
+     *
+     * Its private home (the private-home owner, src/filesystem/private-home.ts)
+     * holds what must never reach a record: the mirror being rewritten, the
+     * purge expressions (the secret VALUES, 0600) and the oracle's reports, one
+     * folder per run, plus the pinned tools. It sits outside the keep-out
+     * floor's `~/.local/state/<product>-*` wildcard and is kept out of every
+     * confined process wherever it is (keep-out.ts).
+     */
+    historyImport: {
+      environmentVariable: "HARNESS_IMPORT_HOME",
+      baseVariable: "XDG_STATE_HOME",
+      defaultBase: "~/.local/state",
+      relative: `${PRODUCT_NAME}/history-import`,
+      runsFolder: "runs",
+      toolsFolder: "tools",
+      /** What a purged value becomes: the marker every catalogue row refuses to read as a value (`[` opens it, like the redaction marker). */
+      removedMarker: { open: "[REMOVED:", close: "]" },
+      /**
+       * A value shorter than the shortest distinctive secret
+       * (`MIN_KNOWN_SECRET_LENGTH`, src/privacy/secret-intelligence.ts) is
+       * never replaced alone (`password=1` would rewrite every `1` in the
+       * history): it is replaced inside its line, with up to this many of
+       * that line's characters on each side.
+       */
+      anchorContextCharacters: 64,
+      /** filter-repo rewrites no blob with a NUL in its first bytes, so such a blob with a hit is stripped whole. */
+      binaryProbeBytes: 8192,
+      /** The oracle reads the history's objects through stdin in chunks of at most this many bytes (an object is never split). */
+      oracleChunkBytes: 67_108_864,
+      /** Where the receipt is recorded in the imported history: one file per import on its own branch. */
+      receipt: { ref: "refs/heads/ledger", folder: "imports" },
+      /** Refs outside these namespaces keep their path under `importedRefPrefix` (GitHub refuses `refs/pull/*`). */
+      keptRefNamespaces: ["refs/heads/", "refs/tags/", "refs/notes/"],
+      importedRefPrefix: "refs/heads/imported/",
+      /** The identity of the receipt commit (an archive commit, never a person's). */
+      identity: { name: `${PRODUCT_NAME} history importer`, email: "history-import@example.invalid" },
+      /**
+       * HOW A PINNED TOOL (gitleaks, filter-repo, the python3 it runs on) IS
+       * BOUNDED: never by its wall time (a loaded host slows a process down;
+       * it does not make it wrong). Its process group's CPU time
+       * (`toolCpuBudgetMs`) is the budget, and a run is a STALL only when it
+       * produced no output AND no CPU time for `toolStallMs`; both are read
+       * every `toolPollMs`, and a stopped group gets `toolKillGraceMs`
+       * between SIGTERM and SIGKILL.
+       */
+      toolCpuBudgetMs: 14_400_000,
+      toolStallMs: 900_000,
+      toolPollMs: 2_000,
+      toolKillGraceMs: 3_000,
+      /** The git door's per-call ceiling for the importer's git calls (src/git/tree-reader.ts `gitOutput`; that door bounds by wall time, an issue of its own owner). */
+      gitCallCeilingMs: 3_600_000,
     },
   },
   paths: {

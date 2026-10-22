@@ -71,7 +71,7 @@ The shared domain: the agnostic helpers every engine domain consumes, owned once
 
 The folder lives at `engine/src/shared/`.
 
-- `abort-signals.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/evaluation/scenario-runner.ts`, `engine/src/mcp/retry.ts`, `engine/src/mcp/transport/streamable-http.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/runtime/provider-adapter.ts` and 6 more.
+- `abort-signals.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/evaluation/scenario-runner.ts`, `engine/src/mcp/retry.ts`, `engine/src/mcp/transport/streamable-http.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/runtime/provider-adapter.ts` and 7 more.
 - `ambient-load.ts` is consumed by `engine/scripts/tooling/run-tests.ts`, `engine/src/performance/diagnostic-modes.ts`, `engine/src/workflow/checkout-setup.ts`, `engine/src/workflow/flake-cli.ts`, `server/observability/metrics-bridge.ts`.
 - `backoff.ts` is consumed by `engine/src/mcp/retry.ts`, `engine/src/shared/llm/client.ts`.
 - `best-effort.ts` is consumed by `engine/scripts/tooling/compile-cache.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/filesystem-cache.ts`, `engine/src/agents/agent-runtime.ts`, `engine/src/agents/agent-state.ts` and 39 more.
@@ -88,7 +88,7 @@ The folder lives at `engine/src/shared/`.
 - `measurement-registry.ts` is consumed by `engine/scripts/verification/measurement-contract.ts`.
 - `module-location.ts` is consumed by `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/tooling/verification/slice-traces.ts`.
 - `numeric-helpers.ts` is consumed by `engine/src/awareness/delta.ts`, `engine/src/awareness/fisher-ranking.ts`, `engine/src/awareness/signals/architecture.ts`, `engine/src/awareness/signals/banach-contraction.ts`, `engine/src/awareness/signals/bell-clones.ts`, `engine/src/awareness/signals/benford.ts` and 42 more.
-- `outbound-http.ts` is consumed by `engine/src/evaluation/scenario-runner.ts`, `engine/src/mcp/transport/streamable-http.ts`, `engine/src/mcp/transport/websocket.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/provider-http.ts` and 3 more.
+- `outbound-http.ts` is consumed by `engine/src/evaluation/scenario-runner.ts`, `engine/src/mcp/transport/streamable-http.ts`, `engine/src/mcp/transport/websocket.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/provider-http.ts` and 4 more.
 - `outbound-policy.ts` is consumed by `engine/src/evaluation/scenario-runner.ts`, `engine/src/kernel/config-contracts.ts`, `engine/src/mcp/transport/streamable-http.ts`, `engine/src/mcp/transport/websocket.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/runtime/provider-adapter.ts` and 3 more.
 - `path-utils.ts` is consumed by `engine/src/editor/syntax-validator.ts`, `engine/src/intelligence/language-registry.ts`, `engine/src/quality-packs/cli.ts`, `engine/src/quality-packs/typescript-pack.ts`, `engine/src/workflow/module-registrar.ts`.
 - `run-cpu.ts` is consumed by `engine/scripts/tooling/run-tests.ts`.

@@ -25,6 +25,7 @@ import { auditEvent } from "../shared/debug/debug-system.ts";
  */
 export const PRIVATE_STATE_DIRECTORY_MODE = ROOT_POLICY.filesystemInfrastructure.privateState.directoryMode;
 export const PRIVATE_STATE_FILE_MODE = ROOT_POLICY.filesystemInfrastructure.privateState.fileMode;
+export const PRIVATE_STATE_EXECUTABLE_MODE = ROOT_POLICY.filesystemInfrastructure.privateState.executableMode;
 
 /**
  * Creates `path` and every missing ancestor at the private-state mode, and

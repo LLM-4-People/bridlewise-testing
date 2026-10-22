@@ -22,7 +22,7 @@ import { serverConfig } from "../../server/kernel/config.ts";
 import { serverKeyHome } from "../../server/db/bootstrap-key.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
 import { registerHarnessStore } from "../../engine/src/filesystem/self-protection/key-home.ts";
-import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
+import { KEPT_OUT_STORE_HOMES } from "../../engine/src/filesystem/private-home.ts";
 
 const landlockProjectRefusal = (path: string): string | null => projectRootRefusals()(path);
 
@@ -125,11 +125,13 @@ describe("the ONE keep-out list at the project door and the file choke point (CR
     writeFileSync(join(home, ".ssh", "id_ed25519"), "private");
     writeFileSync(join(home, "notes.md"), "mine");
     const previous = process.env.HOME;
-    // The evidence store's DEFAULT place follows HOME (it is kept out wherever it
-    // is): this test is about a home's credential stores, so the store is pinned
-    // outside the fake home, the way an operator's HARNESS_EVIDENCE_HOME would.
-    const previousEvidence = process.env[ROOT_POLICY.workflow.evidenceStore.environmentVariable];
-    process.env[ROOT_POLICY.workflow.evidenceStore.environmentVariable] = join(createTempDir("evidence-home-"), "store");
+    // Each kept-out store home's DEFAULT place follows HOME (each is kept out
+    // wherever it is: the evidence store, the history import home): this test is
+    // about a home's credential stores, so every one is pinned outside the fake
+    // home, the way an operator's own variable (HARNESS_EVIDENCE_HOME, …) would.
+    const storeVariables = KEPT_OUT_STORE_HOMES.map((store) => store.policy.environmentVariable);
+    const previousStores = new Map(storeVariables.map((variable) => [variable, process.env[variable]]));
+    for (const variable of storeVariables) process.env[variable] = join(createTempDir("store-home-"), "store");
     process.env.HOME = home;
     try {
       expect(landlockProjectRefusal(home)).toMatch(/credentials or keys/i);
@@ -148,8 +150,10 @@ describe("the ONE keep-out list at the project door and the file choke point (CR
       expect(() => resolveWithinProject("backup/home/other-user/.config/gh/hosts.yml", home)).toThrow(expect.objectContaining({ code: "path_credential_store" }));
     } finally {
       process.env.HOME = previous;
-      if (previousEvidence === undefined) delete process.env[ROOT_POLICY.workflow.evidenceStore.environmentVariable];
-      else process.env[ROOT_POLICY.workflow.evidenceStore.environmentVariable] = previousEvidence;
+      for (const [variable, value] of previousStores) {
+        if (value === undefined) delete process.env[variable];
+        else process.env[variable] = value;
+      }
     }
   });
 

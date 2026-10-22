@@ -52,7 +52,7 @@ import { ROOT_POLICY } from "../../kernel/root-policy.ts";
 import { databaseFamily, legacyInstallIn, UNLISTABLE_DIRECTORY_CODES } from "../database-files.ts";
 import { windowsDriveMountPoints } from "../linux-path.ts";
 import { createPathLocator, namedBelow, resolvedParent, resolveLocation, type LocatedPath, type PathLocator, type ResolvedAbsolutePath } from "../path-identity.ts";
-import { EVIDENCE_HOME, privateHomeSetting } from "../private-home.ts";
+import { KEPT_OUT_STORE_HOMES, privateHomeSetting } from "../private-home.ts";
 import { HOME_PREFIX, underUserHome } from "../user-folders.ts";
 import { auditEvent } from "../../shared/debug/debug-system.ts";
 import { hasErrorCode, SecurityError } from "../../kernel/errors.ts";
@@ -273,10 +273,11 @@ function collectKeepOut(harnessRoot: string, harnessPaths: readonly string[], ho
       put({ path: namedBelow(drive, names), source: "home", base: drive, names, windowsDrive: true });
     }
   }
-  // The evidence store protects ITS OWN place, wherever the operator put it
-  // (its default sits outside the `~/.local/state/<product>-*` wildcard): the
-  // one private-home owner says where, the same answer the store itself uses.
-  addPlace(privateHomeSetting(EVIDENCE_HOME).location, "store", "the evidence store");
+  // The evidence store and the history import home protect THEIR OWN place,
+  // wherever the operator put it (each default sits outside the
+  // `~/.local/state/<product>-*` wildcard): the one private-home owner says
+  // where, the same answer the home itself uses.
+  for (const home of KEPT_OUT_STORE_HOMES) addPlace(privateHomeSetting(home).location, "store", `the ${home.what}`);
   if (host !== undefined) {
     const { config, facts } = host;
     addPlace(facts.registry.keyHome, "key-home", "the key home");
@@ -704,7 +705,7 @@ function generationOf(config: SelfProtectionConfig, facts: KeepOutFacts): string
   return sha256(JSON.stringify([
     config.additionalProtectedSubtrees ?? [],
     facts.harnessRoot, facts.harnessPaths ?? [], facts.hostStores ?? [], facts.hostPaths,
-    facts.registry.keyHome, facts.registry.generation(), privateHomeSetting(EVIDENCE_HOME).location,
+    facts.registry.keyHome, facts.registry.generation(), KEPT_OUT_STORE_HOMES.map((home) => privateHomeSetting(home).location),
     home, wildcardFolders.map(folderState),
   ]));
 }

@@ -15,18 +15,17 @@
  *
  * Every call is one `gh` run with an argument list (never a shell) and a
  * projected environment (no `GH_TOKEN`/`GITHUB_TOKEN` passes: `gh` uses its
- * own store). NO WALL-CLOCK KILL (the user's no-load-block rule): a run is
- * ended only when it STALLS — no output and no CPU progress for
- * `stallMs` — or when its own CPU time passes `cpuLimitMs`. A host under
+ * own store). NO WALL-CLOCK KILL (the user's no-load-block rule): every run
+ * goes through the one supervisor's work-bounded mode, ended only when its
+ * process group STALLS — no output and no CPU progress for `stallMs` — or
+ * passes `cpuLimitMs` of CPU or its output bound. A host under
  * load slows a run; it never fails it. A failure is the typed
  * `forge_maintainer_cli_failed` (or `_stalled`) with `gh`'s own words (its
  * stderr, which never holds the value).
  */
-import { spawn } from "node:child_process";
-
-import { guarded } from "../../process/fault-policy.ts";
 import { COMMAND_ENVIRONMENT, projectEnvironment } from "../../process/environment-projection.ts";
-import { CLOCK_TICK_MS, ownedChild, statFactsOf, terminate } from "../../process/process-facts.ts";
+import { CLOCK_TICK_MS } from "../../process/process-facts.ts";
+import { runCpuBounded } from "../../process/supervised-run.ts";
 import { ForgeError } from "./codes.ts";
 
 /** What `gh` needs besides the command set: its own configuration home. */
@@ -37,57 +36,34 @@ const OUTPUT_BOUND = 1_048_576;
 /** How a run is bounded: by progress and by its own CPU work, never by the wall clock. */
 export type MaintainerCliLimits = Readonly<{ stallMs: number; cpuLimitMs: number; killGraceMs: number }>;
 
-export type MaintainerCliAnswer = Readonly<{ status: number | null; stdout: string; stderr: string; missing: boolean; ending: "exited" | "stalled" | "cpu-limit" }>;
+export type MaintainerCliAnswer = Readonly<{ status: number | null; stdout: string; stderr: string; missing: boolean; ending: "exited" | "stalled" | "cpu-limit" | "output-exceeded" | "unmeasurable" }>;
 
 /** One `gh` invocation as the forge reads it. */
 export type MaintainerCliRun = (args: readonly string[], input: string | undefined, limits: MaintainerCliLimits) => Promise<MaintainerCliAnswer>;
 
-/** The CPU time a process has used, in milliseconds (undefined once it is gone). */
-function cpuMsOf(pid: number): number | undefined {
-  const facts = statFactsOf(pid);
-  return facts === undefined ? undefined : (facts.utimeTicks + facts.stimeTicks) * CLOCK_TICK_MS;
-}
-
 /**
  * ONE BOUNDED RUN of `command`: an argument list, a projected environment,
- * the input on stdin; ended only when it stalls (no output and no CPU work
- * for `stallMs`) or passes `cpuLimitMs` of its own CPU time — never by the
- * wall clock. The one terminator ends it (it is this run's own child).
+ * the input on stdin, through the ONE process supervisor's work-bounded mode
+ * (`runCpuBounded`, src/process/supervised-run.ts): its process GROUP is
+ * ended when it stalls (no output and no CPU work for `stallMs`), passes
+ * `cpuLimitMs` of CPU (members and reaped children included), or passes the
+ * output bound — never by the wall clock, and only through the one
+ * terminator.
  */
-export function runBoundedCommand(command: string, args: readonly string[], input: string | undefined, limits: MaintainerCliLimits): Promise<MaintainerCliAnswer> {
-  return new Promise((resolve) => {
-  const child = spawn(command, [...args], { env: projectEnvironment(process.env, GH_ENVIRONMENT), stdio: ["pipe", "pipe", "pipe"] });
-  let stdout = "";
-  let stderr = "";
-  let ending: MaintainerCliAnswer["ending"] = "exited";
-  let lastProgress = Date.now();
-  let lastCpu = 0;
-  const owned = child.pid === undefined ? undefined : ownedChild(child);
-  const end = (why: "stalled" | "cpu-limit"): void => {
-    if (ending !== "exited" || owned === undefined) return;
-    ending = why;
-    void terminate(owned, { graceMs: limits.killGraceMs });
-  };
-  const watch = setInterval(guarded("forge.maintainer-cli.watch", () => {
-    if (child.pid === undefined) return;
-    const cpu = cpuMsOf(child.pid);
-    if (cpu === undefined) return;
-    if (cpu > limits.cpuLimitMs) { end("cpu-limit"); return; }
-    if (cpu > lastCpu) { lastCpu = cpu; lastProgress = Date.now(); }
-    if (Date.now() - lastProgress > limits.stallMs) end("stalled");
-  }), Math.max(CLOCK_TICK_MS, Math.min(1_000, Math.floor(limits.stallMs / 4))));
-  child.stdout.on("data", guarded("forge.maintainer-cli.stdout", (chunk: Buffer) => { lastProgress = Date.now(); if (stdout.length < OUTPUT_BOUND) stdout += chunk.toString("utf8"); }));
-  child.stderr.on("data", guarded("forge.maintainer-cli.stderr", (chunk: Buffer) => { lastProgress = Date.now(); if (stderr.length < OUTPUT_BOUND) stderr += chunk.toString("utf8"); }));
-  child.stdin.on("error", guarded("forge.maintainer-cli.stdin", () => undefined));
-  child.on("error", guarded("forge.maintainer-cli.spawn", (error: NodeJS.ErrnoException) => {
-    clearInterval(watch);
-    resolve(Object.freeze({ status: null, stdout, stderr: error.message, missing: error.code === "ENOENT", ending }));
-  }));
-  child.on("close", guarded("forge.maintainer-cli.close", (status: number | null) => {
-    clearInterval(watch);
-    resolve(Object.freeze({ status, stdout, stderr, missing: false, ending }));
-  }));
-  child.stdin.end(input ?? "");
+export async function runBoundedCommand(command: string, args: readonly string[], input: string | undefined, limits: MaintainerCliLimits): Promise<MaintainerCliAnswer> {
+  const run = await runCpuBounded(command, args, {
+    cwd: process.cwd(),
+    env: projectEnvironment(process.env, GH_ENVIRONMENT),
+    input: Buffer.from(input ?? "", "utf8"),
+    bounds: { cpuBudgetMs: limits.cpuLimitMs, stallMs: limits.stallMs, pollMs: Math.max(CLOCK_TICK_MS, Math.min(1_000, Math.floor(limits.stallMs / 4))), killGraceMs: limits.killGraceMs, outputBytes: OUTPUT_BOUND },
+  });
+  const ending = run.ending === "cpu-exhausted" ? "cpu-limit" : run.ending === "unstarted" ? "exited" : run.ending;
+  return Object.freeze({
+    status: run.status,
+    stdout: run.stdout.toString("utf8"),
+    stderr: run.ending === "unstarted" ? (run.startError ?? "") : run.stderr.toString("utf8"),
+    missing: run.ending === "unstarted" && run.startError === "ENOENT",
+    ending,
   });
 }
 
@@ -106,7 +82,7 @@ export type MaintainerCli = Readonly<{
 
 function failed(what: string, run: MaintainerCliAnswer): ForgeError {
   if (run.ending !== "exited") {
-    return new ForgeError("forge_maintainer_cli_stalled", `${what}: gh ${run.ending === "stalled" ? "made no progress (no output, no CPU work) within its stall window" : "used more CPU than its limit"}, so it was ended.`, { what, ending: run.ending });
+    return new ForgeError("forge_maintainer_cli_stalled", `${what}: gh ${run.ending === "stalled" ? "made no progress (no output, no CPU work) within its stall window" : run.ending === "cpu-limit" ? "used more CPU than its limit" : run.ending === "output-exceeded" ? "printed more than its output bound" : "could not be measured (procfs answers nothing for it)"}, so it was ended.`, { what, ending: run.ending });
   }
   const words = run.missing ? "the gh command is not installed" : run.stderr.trim().split("\n").slice(-3).join(" ").slice(0, 400);
   return new ForgeError("forge_maintainer_cli_failed", `${what}: ${words || `gh exited ${String(run.status)}`}`, { what, ...(run.status === null ? {} : { exitCode: run.status }) });

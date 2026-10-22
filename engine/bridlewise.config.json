@@ -1053,6 +1053,15 @@
       "etagCacheEntries": 1024,
       "maxPages": 50
     },
+    "downloads": {
+      "hosts": [
+        "release-assets.githubusercontent.com",
+        "objects.githubusercontent.com"
+      ],
+      "maxRedirects": 3,
+      "maxBytes": 67108864,
+      "timeoutMs": 600000
+    },
     "tokenRenewBeforeMs": 300000,
     "repositories": [
       {

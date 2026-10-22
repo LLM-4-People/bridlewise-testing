@@ -4,6 +4,18 @@
   "policyHash": "5745d10c91083861fafb1330ed68318b364d1038ade69284359577784cfd2622",
   "entries": [
     {
+      "path": "live/history-import.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "qualified-external-oracle",
+      "rationale": "The ONE live suite (LIVE-SUITE): the whole history-import pipeline (harness forge import-history) with the PINNED gitleaks and git-filter-repo, which live outside the checkout in the import home HARNESS_IMPORT_HOME names; no network (every repository is local). Run by `npm run test:live` only, which refuses at load without that home and names a missing tool's provisioning command; its hermetic half (every step that needs only git) stays in test/forge/history-import.test.ts.",
+      "evidenceLinks": [
+        "package.json",
+        "test/prevention/hermetic-suites-have-no-skips.test.ts",
+        "test/forge/history-import.test.ts"
+      ],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "live/mcp-servers.test.ts",
       "language": "javascript-typescript",
       "disposition": "qualified-external-oracle",
@@ -942,6 +954,14 @@
     },
     {
       "path": "test/forge/github-client.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/history-import.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -2382,6 +2402,14 @@
     },
     {
       "path": "test/privacy/secret-parts.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/privacy/sensitive-header-names.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -4269,5 +4297,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "d0a7acfa8e274db2feeb048a0ec870a9acefd6f475df024529bdc126e9b864b6"
+  "integrityHash": "88020607bbbcf7cee2dae0c6fa47de5c24fc081ea9afea4c838780571b69732c"
 }
