@@ -387,7 +387,7 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_unresolved_import` | precondition | 3 | Fix on the source: the importer names a module the tree does not hold (a dangling import ships broken code). |
 | `promotion_import_into_excluded` | precondition | 3 | Fix on the source: product code must not import a path the profile excludes (move the module into the product, or the import out of it). |
 | `promotion_dependency_undeclared` | precondition | 3 | Fix on the source: declare the package in the owning package.json (`dependencies` for a runtime import). |
-| `promotion_overlay_invalid` | precondition | 3 | Fix the overlay folder on the source: each of its files ships at its path without the folder prefix, so it must be a regular file that is not a module, at a path the profile does not exclude and the projection does not already carry. |
+| `promotion_overlay_invalid` | precondition | 3 | Fix the overlay folder on the source: each of its files ships at its path without the folder prefix, so it must be a regular file of a kind the overlay declares, at a path the profile does not exclude and the projection does not already carry. |
 | `promotion_gitlink_unsupported` | precondition | 3 | Exclude the submodule path in the profile: a gitlink cannot be projected. |
 | `promotion_manifest_script_missing` | precondition | 3 | The profile keeps a script the source manifest does not declare (a typo or a rename): correct the transform's `scripts` list, or restore the script. |
 | `promotion_manifest_script_emptied` | precondition | 3 | Every segment of a kept script was pruned: add the script's file to `boundary.entryPoints`, or drop the script from the transform's `scripts` list. |
