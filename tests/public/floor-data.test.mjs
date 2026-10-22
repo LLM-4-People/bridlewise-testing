@@ -11,6 +11,7 @@ import { buildStatus } from "../../scripts/floor/status.mjs";
 import { buildPromotionReceipt, verdictOutput } from "../../scripts/promotion-gate.mjs";
 import { memoryCredential } from "../../engine/src/workflow/forge/credentials.ts";
 import { githubClient } from "../../engine/src/workflow/forge/github.ts";
+import { configuredRepositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
 import { fakeGithub } from "../../engine/test/forge/fake-github.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -40,7 +41,7 @@ test("the floor atlas reconciles its generated counts with tracked sources", () 
   assert.ok(atlas.decisions.length > 0);
 
   for (const entry of atlas.tests) {
-    assert.match(entry.url, /^https:\/\/github\.com\/LLM-4-People\/bridlewise-testing\/blob\/main\//);
+    assert.ok(entry.url.startsWith(`${configuredRepositoryIdentity().webUrl}/blob/main/`), entry.url);
     assert.ok(entry.category);
     assert.ok(entry.disposition);
   }

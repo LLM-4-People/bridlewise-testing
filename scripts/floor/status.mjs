@@ -5,10 +5,12 @@ import {
   readFailureCode,
   workflowRuns,
 } from "../../engine/src/workflow/forge/repository-reads.ts";
+import { configuredRepositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
 import { repoInfo } from "./files.mjs";
 
 export const STATUS_SCHEMA = "bridlewise-floor-status/v1";
-export const TESTING_REPOSITORY = "LLM-4-People/bridlewise-testing";
+/** This repository (`owner/name`), from the one repository identity (the forge configuration). */
+const TESTING_REPOSITORY = configuredRepositoryIdentity().fullName;
 export const PRODUCT_REPOSITORY = "LLM-4-People/bridlewise";
 
 const REQUIRED = [

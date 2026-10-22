@@ -18,7 +18,9 @@
  * written as one of those URLs is refused.
  */
 
-/** The path a GitHub blob/tree/raw URL into `LLM-4-People/bridlewise{,-testing}` names, or undefined. */
+import { configuredRepositoryIdentity } from "../engine/src/workflow/forge/repository-identity.ts";
+
+/** The path a GitHub blob/tree/raw URL into one of the organisation's Bridlewise repositories (the repository identity) names, or undefined. */
 export function repositoryPathFromGithubUrl(target: string): string | undefined {
   let url: URL;
   try {
@@ -28,9 +30,11 @@ export function repositoryPathFromGithubUrl(target: string): string | undefined 
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
   if (url.hostname.toLowerCase() !== "github.com") return undefined;
-  const match = /^\/LLM-4-People\/(?:bridlewise|bridlewise-testing)\/(?:blob|tree|raw)\/[^/]+\/(.+)$/u.exec(url.pathname);
-  const named = match?.[1];
-  if (named === undefined) return undefined;
+  const identity = configuredRepositoryIdentity();
+  const [, owner, repository, kind, , ...rest] = url.pathname.split("/");
+  const named = rest.join("/");
+  if (owner !== identity.owner || repository === undefined || !identity.organisationRepositories.includes(repository)) return undefined;
+  if ((kind !== "blob" && kind !== "tree" && kind !== "raw") || named === "") return undefined;
   let path = named;
   try {
     path = decodeURIComponent(path);

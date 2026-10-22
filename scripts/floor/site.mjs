@@ -1,6 +1,7 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { configuredRepositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
 import { isFile } from "./files.mjs";
 import {
   FLOOR_COPY_ROOTS,
@@ -54,7 +55,7 @@ function setYaml(text, key, value) {
   return `${text.replace(/\s*$/, "")}\n${line}\n`;
 }
 
-export function assembleFloorSite({ product, testing, out, baseurl = "/bridlewise-testing" }) {
+export function assembleFloorSite({ product, testing, out, baseurl = configuredRepositoryIdentity().pagesBasePath }) {
   const productRoot = resolve(product);
   const testingRoot = resolve(testing);
   const outRoot = resolve(out);
@@ -162,7 +163,7 @@ export function assembleFloorSite({ product, testing, out, baseurl = "/bridlewis
 
   const robotsPath = join(outRoot, "robots.txt");
   if (existsSync(robotsPath)) {
-    const base = `https://llm-4-people.github.io${baseurl.replace(/\/$/, "")}/`;
+    const base = `${new URL(configuredRepositoryIdentity().pagesUrl).origin}${baseurl.replace(/\/$/, "")}/`;
     const robots = readFileSync(robotsPath, "utf8").replace(
       "https://llm-4-people.github.io/bridlewise/",
       base,

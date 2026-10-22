@@ -12,12 +12,13 @@ import {
   sha256File,
   walkFiles,
 } from "./files.mjs";
+import { configuredRepositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
 
-export const TESTING_REPOSITORY = "LLM-4-People/bridlewise-testing";
-export const PRODUCT_REPOSITORY = "LLM-4-People/bridlewise";
+/** This repository (`owner/name`), from the one repository identity (the forge configuration). */
+const TESTING_REPOSITORY = configuredRepositoryIdentity().fullName;
 export const ATLAS_SCHEMA = "bridlewise-floor-atlas/v1";
 
-const BLOB = `https://github.com/${TESTING_REPOSITORY}/blob/main/`;
+const BLOB = `${configuredRepositoryIdentity().webUrl}/blob/main/`;
 
 function engineCategory(path) {
   if (path.startsWith("test/prevention/")) return "prevention";

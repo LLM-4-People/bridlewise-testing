@@ -28,6 +28,7 @@ import { createTempDir } from "../helpers/temp-dir.ts";
 import { candidateSiteFiles, crawlSiteLinks, pageUrlForSitePath, resolveSiteHref } from "../../scripts/floor/site-links.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { floorPageLinkViolations, materializeFloorFallbacks, materializeLegacyRedirects, materializePageFrontMatter, publishedDocsPage, rewriteCopiedDocsPages, rewritePageLinks } from "../../scripts/floor/site-pages.mjs";
+import { configuredRepositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
 
 function write(root: string, path: string, text: string): void {
   const file = join(root, ...path.split("/"));
@@ -48,6 +49,8 @@ function testingTree(files: Readonly<Record<string, string>>): string {
 }
 
 const BASE = "/bridlewise-testing";
+/** The repository a non-published target links to: the one repository identity (the forge configuration). */
+const REPOSITORY = configuredRepositoryIdentity().webUrl;
 
 describe("A. the crawler resolves built pages, assets and external URLs", () => {
   test("a clean Jekyll-shaped fixture passes — pretty URLs, assets, relatives and externals", () => {
@@ -55,7 +58,7 @@ describe("A. the crawler resolves built pages, assets and external URLs", () => 
       "index.html": [
         '<a href="/bridlewise-testing/floor/roadmap/">Roadmap</a>',
         '<a href="/bridlewise-testing/assets/floor/floor.css">CSS</a>',
-        '<a href="https://github.com/LLM-4-People/bridlewise-testing">GitHub</a>',
+        `<a href="${REPOSITORY}">GitHub</a>`,
         '<a href="#top">Top</a>',
         '<a href="mailto:hello@example.test">Mail</a>',
         '<p>An essay that quotes <code>href="/src/styles/tokens.css"</code> is not a link.</p>',
@@ -158,7 +161,7 @@ describe("B. the assembly rewrite maps source-relative links to published site U
     expect(result.text).toContain("(/bridlewise-testing/cli/#db-backupts)");
     expect(result.text).toContain("(/bridlewise-testing/floor/evidence/)");
     expect(result.text).toContain(
-      "(https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/guard.test.ts)",
+      `(${REPOSITORY}/blob/main/tests/prevention/guard.test.ts)`,
     );
     // The committed file is not touched: GitHub keeps rendering its relative
     // links against the source tree.
@@ -267,7 +270,7 @@ describe("D. a product page the mirror lacks falls back to the testing page", ()
       unpublishedDocs: "github",
     });
     expect(result.text).toContain(
-      "(https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/process/PROCESS.md#evidence)",
+      `(${REPOSITORY}/blob/main/docs/process/PROCESS.md#evidence)`,
     );
   });
 });

@@ -24,8 +24,10 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve, sep } from "node:path";
 
-/** The testing repository a non-published relative target is linked to. */
-export const TESTING_REPO_URL = "https://github.com/LLM-4-People/bridlewise-testing";
+import { configuredRepositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
+
+/** The testing repository a non-published relative target is linked to (the one repository identity). */
+export const TESTING_REPO_URL = configuredRepositoryIdentity().webUrl;
 export const TESTING_REPO_BRANCH = "main";
 
 /**

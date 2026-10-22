@@ -36,6 +36,7 @@ import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../kernel/errors.ts";
 import { emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
 import { escapeMarkdownTableCell } from "../../../../shared/markup.ts";
+import { configuredRepositoryIdentity } from "../forge/repository-identity.ts";
 import {
   COMMUNITY_DIRECTORY,
   CONFIRMATIONS_FIELD_ID,
@@ -75,7 +76,7 @@ export type CommunityFacts = Readonly<{
   roles: CommunityRoles;
   intake: CommunityIntake;
   features: readonly CommunityFeature[];
-  /** `owner/name` of the GitHub repository (`package.json` `repository.url`). */
+  /** `owner/name` of the GitHub repository (the one repository identity, `forge/repository-identity.ts`). */
   repository: string;
   nodeRange: string;
   compiler: string;
@@ -95,15 +96,13 @@ function templateInvalid(path: string, why: string): never {
 
 /** The facts the generated files carry, each read from its one owner. */
 export function readCommunityFacts(repositoryRoot: string): CommunityFacts {
-  let manifest: { repository?: { url?: unknown }; engines?: { node?: unknown } };
+  let manifest: { engines?: { node?: unknown } };
   try {
     manifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as typeof manifest;
   } catch (error) {
     templateInvalid("package.json", `unreadable as JSON (${(error as Error).message})`);
   }
-  const url = typeof manifest.repository?.url === "string" ? manifest.repository.url : "";
-  const repository = /^https:\/\/github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?$/u.exec(url)?.[1];
-  if (repository === undefined) templateInvalid("package.json", "repository.url names no GitHub repository");
+  const repository = configuredRepositoryIdentity().fullName;
   const nodeRange = manifest.engines?.node;
   if (typeof nodeRange !== "string") templateInvalid("package.json", "engines.node is not declared");
   const makefile = "engine/guardian/Makefile";

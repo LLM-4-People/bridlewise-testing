@@ -1,9 +1,10 @@
 import { resolve } from "node:path";
 
+import { configuredRepositoryIdentity } from "../engine/src/workflow/forge/repository-identity.ts";
 import { assembleFloorSite } from "./floor/site.mjs";
 
 function parseArgs(argv) {
-  const out = { product: null, testing: process.cwd(), out: ".site", baseurl: "/bridlewise-testing" };
+  const out = { product: null, testing: process.cwd(), out: ".site", baseurl: configuredRepositoryIdentity().pagesBasePath };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--product") out.product = argv[++index];
