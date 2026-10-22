@@ -10,6 +10,12 @@ import {
   harnessRollback,
   harnessExtensionList,
   harnessSync,
+  autoAddDispositionEntries,
+  generatorReport,
+  regeneratePinAuthorities,
+  regenerateRatchetBaselines,
+  regenerateTestInventory,
+  runInventoryCheck,
   HARNESS_ROOT,
   HARNESS_SUBCOMMANDS,
   promotionsStep,
@@ -523,7 +529,9 @@ test("BOUND 1, the CPU-time limit: a step past it is ended by SIGXCPU and says s
 test("BOUND 1 is BINDING: the hard limit is set too, so no child can raise its CPU limit", () => {
   const { dir, script } = boundedFixture("limits", 'import { execFileSync } from "node:child_process";\nconst read = (flag: string) => execFileSync("/bin/sh", ["-c", `ulimit ${flag} -t`], { encoding: "utf8" }).trim();\nlet raised = "refused";\ntry { execFileSync("/bin/sh", ["-c", "ulimit -H -t unlimited"], { stdio: "ignore" }); raised = "raised"; } catch {}\nprocess.stdout.write(JSON.stringify({ soft: read("-S"), hard: read("-H"), raised }));\n');
   try {
-    const answer = JSON.parse(runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 7, cpuKillGraceSeconds: 3, hangBackstopMs: 120_000 } }).payload) as { soft: string; hard: string; raised: string };
+    const ran = runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 7, cpuKillGraceSeconds: 3, hangBackstopMs: 120_000 } });
+    assert.ok(ran.ok, "the limits probe exits clean");
+    const answer = JSON.parse(ran.payload) as { soft: string; hard: string; raised: string };
     assert.deepEqual(answer, { soft: "7", hard: "10", raised: "refused" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -591,9 +599,10 @@ test("FAIL-CLOSED: a step that printed a PASS and then exited non-zero, or crash
   const crashed = boundedFixture("pass-then-crash", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nthrow new Error("the step crashed after printing");\n');
   const clean = boundedFixture("pass-clean", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\n');
   try {
-    assert.deepEqual(runScriptSubprocess(exited.dir, exited.script, []), { payload: '{"fresh":true,"status":"pass"}', exitedClean: false });
-    assert.deepEqual(runScriptSubprocess(crashed.dir, crashed.script, []), { payload: '{"fresh":true,"status":"pass"}', exitedClean: false });
-    assert.deepEqual(runScriptSubprocess(clean.dir, clean.script, []), { payload: '{"fresh":true,"status":"pass"}', exitedClean: true });
+    // Only the clean branch carries a payload; a failed one carries what it printed, under another name.
+    assert.deepEqual(runScriptSubprocess(exited.dir, exited.script, []), { ok: false, ending: "it exited with status 1", printed: '{"fresh":true,"status":"pass"}' });
+    assert.deepEqual(runScriptSubprocess(crashed.dir, crashed.script, []), { ok: false, ending: "it exited with status 1", printed: '{"fresh":true,"status":"pass"}' });
+    assert.deepEqual(runScriptSubprocess(clean.dir, clean.script, []), { ok: true, payload: '{"fresh":true,"status":"pass"}' });
   } finally {
     for (const one of [exited, crashed, clean]) rmSync(one.dir, { recursive: true, force: true });
   }
@@ -628,8 +637,8 @@ async function syncOverStandIn(checkEnding: string, bundleExit = 0): Promise<Awa
 test("FAIL-CLOSED, end to end: a `harness sync` whose check step prints a pass and is then KILLED, exits non-zero or crashes fails the whole sync, naming the step", async () => {
   for (const [ending, said] of [
     ['process.kill(process.pid, "SIGTERM"); setTimeout(() => {}, 10_000);', /it was ended by signal SIGTERM/u],
-    ["process.exitCode = 1;", /exited non-zero after printing a pass/u],
-    ['throw new Error("the check crashed after printing");', /exited non-zero after printing a pass/u],
+    ["process.exitCode = 1;", /failed: it exited with status 1, after printing a pass/u],
+    ['throw new Error("the check crashed after printing");', /failed: it exited with status 1, after printing a pass/u],
   ] as const) {
     const result = await syncOverStandIn(ending);
     assert.equal(result.status, "fail", `a check that ends with ${ending} can never leave the sync passing`);
@@ -646,4 +655,74 @@ test("FAIL-CLOSED, end to end: a `harness sync` whose check step prints a pass a
   assert.notEqual(unclean.result.bundleBuild, undefined, "an unclean freshness answer never skips the rebuild");
   assert.equal(unclean.result.bundleBuild?.status, "fail", "and a build that exited non-zero failed, whatever it printed");
   assert.equal(unclean.status, "fail");
+});
+
+/**
+ * EVERY ARM THAT READS A SCRIPT'S ANSWER, one row each: the arm's own
+ * "current"/"pass" payload, printed by a stand-in for its script. Exiting 0,
+ * the arm judges it current (the control); exiting 1 after printing the very
+ * same payload, it never does.
+ */
+const CLEAN_EXIT_ARMS: readonly Readonly<{ arm: string; script: string; payload: unknown; current: (root: string) => boolean }>[] = [
+  {
+    arm: "the disposition auto-add",
+    script: "scripts/tooling/run-tests.ts",
+    payload: { status: "current", addedCount: 0, addedPaths: [], prunedCount: 0, prunedPaths: [] },
+    current: (root) => {
+      try {
+        return autoAddDispositionEntries(root, true, []).status === "current";
+      } catch (error) {
+        assert.equal((error as { code?: unknown }).code, "disposition_auto_add_failed");
+        return false;
+      }
+    },
+  },
+  {
+    arm: "the test-inventory regenerate arm",
+    script: "scripts/test-inventory.ts",
+    payload: { status: "current", testCount: 3, inventoryHash: "0123456789abcdef" },
+    current: (root) => regenerateTestInventory(root, false).status === "current",
+  },
+  {
+    arm: "the pin-authority arm",
+    script: "scripts/pin-authority-regeneration.ts",
+    payload: { allCurrent: true, results: [{ status: "current" }] },
+    current: (root) => regeneratePinAuthorities(root, false).converged,
+  },
+  {
+    arm: "the ratchet-baseline arm",
+    script: "scripts/verification/ratchet-baselines.ts",
+    payload: { allCurrent: true, results: [] },
+    current: (root) => regenerateRatchetBaselines(root, false).converged,
+  },
+  {
+    arm: "the generator arm (decision index, shipped hooks, README consumers)",
+    script: "scripts/generator.ts",
+    payload: { allCurrent: true, status: "current", changed: [] },
+    current: (root) => generatorReport(root, "scripts/generator.ts", ["--check"], "a generator", "generator_no_result").allCurrent,
+  },
+  {
+    arm: "the check's inventory step",
+    script: "scripts/test-inventory.ts",
+    payload: { status: "current", testCount: 3, inventoryHash: "0123456789abcdef", transactionPresent: false },
+    current: (root) => runInventoryCheck(root).status === "pass",
+  },
+];
+
+test("FAIL-CLOSED, every arm: a script that prints its arm's current/pass answer and then exits 1 is never judged current; exiting 0 it is", () => {
+  for (const row of CLEAN_EXIT_ARMS) {
+    for (const exit of [0, 1] as const) {
+      const dir = createTempDir("harness-arm-exit-");
+      try {
+        // The test surface the inventory and disposition arms look for, as stand-ins answering this row's payload.
+        for (const script of ["scripts/tooling/run-tests.ts", "scripts/test-inventory.ts", row.script]) {
+          mkdirSync(join(dir, script, ".."), { recursive: true });
+          writeFileSync(join(dir, script), `process.stdout.write(${JSON.stringify(JSON.stringify(row.payload))} + "\\n");\nprocess.exitCode = ${String(exit)};\n`);
+        }
+        assert.equal(row.current(dir), exit === 0, `${row.arm}, exiting ${String(exit)} after printing its current answer`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }
 });

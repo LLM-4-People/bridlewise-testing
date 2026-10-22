@@ -1028,7 +1028,7 @@ export function pruneArguments(prune: readonly string[]): readonly string[] {
   return prune.flatMap((path) => ["--prune", path]);
 }
 
-function autoAddDispositionEntries(root: string, write: boolean, prune: readonly string[]): DispositionAutoAddResult {
+export function autoAddDispositionEntries(root: string, write: boolean, prune: readonly string[]): DispositionAutoAddResult {
   if (!write) {
     return deepFreeze({ status: "skipped", addedCount: 0, addedPaths: deepFreeze([]), prunedCount: 0, prunedPaths: deepFreeze([]) });
   }
@@ -1036,7 +1036,7 @@ function autoAddDispositionEntries(root: string, write: boolean, prune: readonly
     return deepFreeze({ status: "skipped", addedCount: 0, addedPaths: deepFreeze([]), prunedCount: 0, prunedPaths: deepFreeze([]) });
   }
   const answer = runScriptSubprocess(root, "scripts/tooling/run-tests.ts", ["--auto-add-dispositions", ...pruneArguments(prune)]);
-  if (!answer.exitedClean) throw new HarnessError(`the disposition auto-add (scripts/tooling/run-tests.ts --auto-add-dispositions) exited non-zero: ${answer.payload}`, "disposition_auto_add_failed");
+  if (!answer.ok) throw new HarnessError(`the disposition auto-add (scripts/tooling/run-tests.ts --auto-add-dispositions) failed: ${answer.ending}; it printed: ${answer.printed}`, "disposition_auto_add_failed");
   const parsed = JSON.parse(answer.payload) as { status: string; addedCount: number; addedPaths: string[]; prunedCount: number; prunedPaths: string[] };
   return deepFreeze({
     status: parsed.status === "added" || (parsed.prunedCount ?? 0) > 0 ? "added" : "current",
@@ -1097,7 +1097,7 @@ function recomputeDispositionManifestIntegrityHash(
   return deepFreeze({ status: "regenerated", integrityHash: resigned.integrityHash });
 }
 
-function regenerateTestInventory(root: string, write: boolean): Readonly<{
+export function regenerateTestInventory(root: string, write: boolean): Readonly<{
   status: "current" | "regenerated" | "skipped";
   testCount: number;
   inventoryHash: string | null;
@@ -1111,14 +1111,17 @@ function regenerateTestInventory(root: string, write: boolean): Readonly<{
     return { status: "skipped", testCount: 0, inventoryHash: null };
   }
   const answer = runScriptSubprocess(root, "scripts/test-inventory.ts", [write ? "--write" : "--check"]);
-  if (write && !answer.exitedClean) throw new HarnessError(`the test inventory's --write exited non-zero: ${answer.payload}`, "test_inventory_write_failed");
+  if (!answer.ok) {
+    if (write) throw new HarnessError(`the test inventory's --write failed: ${answer.ending}; it printed: ${answer.printed}`, "test_inventory_write_failed");
+    // A --check that exited non-zero is never "current", whatever it printed.
+    const printed = printedRecord(answer);
+    return { status: "skipped", testCount: typeof printed?.["testCount"] === "number" ? printed["testCount"] : 0, inventoryHash: typeof printed?.["inventoryHash"] === "string" ? printed["inventoryHash"] : null };
+  }
   const parsed = JSON.parse(answer.payload) as {
     inventoryHash: string;
     testCount: number;
     status: string;
   };
-  // A --check that exited non-zero is never "current", whatever its payload says.
-  if (!answer.exitedClean && parsed.status === "current") parsed.status = "unclean-exit";
   if (write) {
     return {
       status: parsed.status === "written" ? "regenerated" : "current",
@@ -1219,7 +1222,7 @@ function regenerateArtifactManifest(root: string, write: boolean): HarnessRegene
   });
 }
 
-function regeneratePinAuthorities(root: string, write: boolean): Readonly<{
+export function regeneratePinAuthorities(root: string, write: boolean): Readonly<{
   status: "current" | "regenerated";
   converged: boolean;
 }> {
@@ -1228,11 +1231,12 @@ function regeneratePinAuthorities(root: string, write: boolean): Readonly<{
     "scripts/pin-authority-regeneration.ts",
     [write ? "--write" : "--check"],
   );
+  // Converged only from a clean exit: a non-zero exit is drift or a failure, whatever it printed.
+  if (!answer.ok) return deepFreeze({ status: "current", converged: false });
   const parsed = JSON.parse(answer.payload) as { allCurrent: boolean; results: ReadonlyArray<{ status: string }> };
   return deepFreeze({
     status: parsed.results.some((r) => r.status === "regenerated") ? "regenerated" : "current",
-    // Converged only from a clean exit: a non-zero exit is drift or a failure, whatever its payload says.
-    converged: parsed.allCurrent && answer.exitedClean,
+    converged: parsed.allCurrent,
   });
 }
 
@@ -1243,12 +1247,13 @@ function regeneratePinAuthorities(root: string, write: boolean): Readonly<{
  * A key is never added (a new site fails its guard; growth fails the commit
  * guard against HEAD).
  */
-function regenerateRatchetBaselines(root: string, write: boolean): RatchetBaselinesArm {
+export function regenerateRatchetBaselines(root: string, write: boolean): RatchetBaselinesArm {
   const answer = runScriptSubprocess(root, "scripts/verification/ratchet-baselines.ts", [write ? "--write" : "--check"]);
-  const parsed = JSON.parse(answer.payload) as { allCurrent: boolean; results: RatchetBaselinesArm["results"] };
+  // Converged only from a clean exit; a failed --check's printed results still name the stale entries.
+  const parsed = (answer.ok ? JSON.parse(answer.payload) : printedRecord(answer) ?? { allCurrent: false, results: [] }) as { allCurrent: boolean; results: RatchetBaselinesArm["results"] };
   return deepFreeze({
     status: parsed.results.some((result) => result.status === "pruned") ? "regenerated" : "current",
-    converged: parsed.allCurrent && answer.exitedClean,
+    converged: answer.ok && parsed.allCurrent,
     results: parsed.results.map(({ id, path, status, stale, unbaselined }) => ({ id, path, status, stale, unbaselined })),
   });
 }
@@ -1359,11 +1364,12 @@ function regenerateShippedHooks(root: string, write: boolean): DecisionIndexArm 
  * another shape, judged nothing: typed `code`, never a silent "current" and
  * never an untyped SyntaxError (wf-del2-correctness NEW-11).
  */
-function generatorReport<Status extends string>(root: string, generator: string, args: readonly string[], label: string, code: string): Readonly<{ allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>> {
+export function generatorReport<Status extends string>(root: string, generator: string, args: readonly string[], label: string, code: string): Readonly<{ allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>> {
   const answer = runScriptSubprocess(root, generator, args);
   let parsed: { allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>;
   try {
-    parsed = JSON.parse(answer.payload) as typeof parsed;
+    // A failed run's printed result still names what is stale; it is never all-current (below).
+    parsed = JSON.parse(answer.ok ? answer.payload : answer.printed) as typeof parsed;
   } catch {
     throw new HarnessError(`${label} ${generator} printed no result line (its last line is not the JSON result)`, code);
   }
@@ -1371,7 +1377,7 @@ function generatorReport<Status extends string>(root: string, generator: string,
     throw new HarnessError(`${label} ${generator} printed a result of another shape (no allCurrent flag or changed list)`, code);
   }
   // Current only from a clean exit: a generator that exited non-zero is never all-current, whatever it printed.
-  return answer.exitedClean ? parsed : { ...parsed, allCurrent: false };
+  return answer.ok ? parsed : { ...parsed, allCurrent: false };
 }
 
 /**
@@ -1567,9 +1573,9 @@ export async function harnessSync(
 /** The bundle's freshness verdict (`scripts/build-bundle.ts --check`, the builder layer, as a subprocess): an in-memory rebuild compared with `dist/bundle.js`. */
 function readBundleFreshness(root: string): Readonly<{ fresh?: unknown; status?: unknown; path?: unknown }> {
   const answer = runScriptSubprocess(root, "scripts/build-bundle.ts", ["--check"]);
-  const parsed = JSON.parse(answer.payload) as { fresh?: unknown; status?: unknown; path?: unknown };
   // Fresh only from a clean exit: a check that exited non-zero is never a pass, whatever it printed.
-  return answer.exitedClean ? parsed : { ...parsed, fresh: false, status: `exited non-zero (${String(parsed.status)})` };
+  if (!answer.ok) return { ...printedRecord(answer), fresh: false, status: `failed: ${answer.ending}` };
+  return JSON.parse(answer.payload) as { fresh?: unknown; status?: unknown; path?: unknown };
 }
 
 /**
@@ -1715,9 +1721,9 @@ export function runBundleBuildStep(root: string): HarnessCommandResult {
     // The bundle build emits pretty-printed multi-line JSON, so capture the
     // full stdout (not just the final line) and parse the whole document.
     const answer = runScriptSubprocess(root, "scripts/build-bundle.ts", [], { fullOutput: true });
-    const summary = JSON.parse(answer.payload) as unknown;
     // A pass only from a clean exit: a build that exited non-zero failed, whatever summary it printed.
-    return wrapResult("bundle-build", summary, { status: answer.exitedClean ? "pass" : "fail" });
+    if (!answer.ok) return wrapResult("bundle-build", deepFreeze({ error: `the bundle build failed: ${answer.ending}`, printed: printedRecord(answer) ?? answer.printed }), { status: "fail" });
+    return wrapResult("bundle-build", JSON.parse(answer.payload) as unknown, { status: "pass" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "bundle build failed";
     return wrapResult("bundle-build", deepFreeze({ error: message }), { status: "fail" });
@@ -1736,10 +1742,13 @@ function runSyncStep(
   args: readonly string[],
 ): HarnessCommandResult {
   let parsed: HarnessCommandResult;
-  let exitedClean: boolean;
   try {
     const answer = runScriptSubprocess(root, "src/cli.ts", ["harness", step, ...args]);
-    exitedClean = answer.exitedClean;
+    if (!answer.ok) {
+      // A step that exited non-zero FAILED, whatever it printed (a pass included); its printed result is kept for the message.
+      const printed = printedRecord(answer);
+      return wrapResult(step, deepFreeze({ error: `harness sync step '${step}' failed: ${answer.ending}${printed?.["status"] === "pass" ? ", after printing a pass: a non-zero exit is a failure, whatever was printed" : ""}`, printed: printed ?? answer.printed }), { status: "fail" });
+    }
     parsed = parseHarnessCommandResult(JSON.parse(answer.payload));
   } catch (error) {
     // A step that ended without answering — a signal, a bound, a refusal with
@@ -1751,10 +1760,6 @@ function runSyncStep(
   if (parsed.command !== step) {
     throw new InputError(`sync step '${step}' returned a result for command '${parsed.command}'`, "input_error");
   }
-  // A verdict counts only from a clean exit: a step that exited non-zero FAILED, whatever its payload claims.
-  if (!exitedClean && parsed.status === "pass") {
-    return wrapResult(step, deepFreeze({ error: `harness sync step '${step}' exited non-zero after printing a pass: a non-zero exit is a failure, whatever was printed`, printed: parsed.result }), { status: "fail" });
-  }
   return parsed;
 }
 
@@ -1764,9 +1769,29 @@ function runSyncStep(
  * (status 0). A verdict counts only from a clean exit: a non-zero exit is a
  * failure whatever it printed — `--check`-style commands exit 1 on drift
  * with a payload that says why, which a caller may read for its message,
- * never as a pass. Every caller has to name what an unclean exit means.
+ * never as a pass. A DISCRIMINATED UNION, so the type checker refuses any
+ * read of a payload outside the clean branch: only `ok: true` has one.
  */
-export type ScriptAnswer = Readonly<{ payload: string; exitedClean: boolean }>;
+export type ScriptAnswer =
+  | Readonly<{ ok: true; payload: string }>
+  | Readonly<{
+    ok: false;
+    /** How it ended, in words (`boundedEnding`): its exit status. */
+    ending: string;
+    /** What it printed: a failure payload to read for the message, never a verdict (so it is not called `payload`). */
+    printed: string;
+  }>;
+
+/** A failed answer's printed payload as JSON, for its message; `undefined` when it is not JSON. */
+function printedRecord(answer: Extract<ScriptAnswer, { ok: false }>): Record<string, unknown> | undefined {
+  try {
+    const record = JSON.parse(answer.printed) as unknown;
+    return typeof record === "object" && record !== null ? record as Record<string, unknown> : undefined;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return undefined;
+  }
+}
 
 /**
  * Invoke a repository script (`src/cli.ts`, `scripts/test-inventory.ts`,
@@ -1895,7 +1920,8 @@ export function runScriptSubprocess(
   }
   stdout = stdout.trim();
   const payload = options.fullOutput ? stdout : stdout.split("\n").filter((line) => line.trim().length > 0).at(-1) ?? "";
-  return deepFreeze({ payload, exitedClean: succeeded });
+  if (succeeded) return deepFreeze({ ok: true, payload });
+  return deepFreeze({ ok: false, ending: boundedEnding({ status: result.status, signal: result.signal }, bounds), printed: payload });
 }
 
 /** The last stderr line that is a typed failure record (`{"error": <code>, "message": <text>}`), if any. */
@@ -2092,14 +2118,14 @@ export function runInventoryCheck(root: string): CheckStepResult {
   if (!testSurfacePresent(root)) return skipStep("inventory");
   try {
     const answer = runScriptSubprocess(root, "scripts/test-inventory.ts", ["--check"]);
-    const parsed = JSON.parse(answer.payload) as {
+    // Current only from a clean exit: a --check that exited non-zero is never a pass, whatever it printed.
+    const parsed = (answer.ok ? JSON.parse(answer.payload) : { ...printedRecord(answer), status: `failed: ${answer.ending}` }) as {
       inventoryHash: string;
       status: string;
       testCount: number;
       transactionPresent: boolean;
     };
-    // Current only from a clean exit: a --check that exited non-zero is never a pass, whatever it printed.
-    const current = answer.exitedClean && parsed.status === "current" && parsed.transactionPresent === false;
+    const current = answer.ok && parsed.status === "current" && parsed.transactionPresent === false;
     return deepFreeze({
       step: "inventory",
       status: current ? "pass" : "fail",
