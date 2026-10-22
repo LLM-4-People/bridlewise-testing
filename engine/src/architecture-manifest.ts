@@ -4206,7 +4206,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-git-git-config", path: "src/git/git-config.ts", realm: "shared", layer: "ports",
-      owner: "workspace-git", publicApi: { exportCount: 5, namesSha256: "9bf41dab7c5d86d026685d0800c3773cf24ef4dd7c088f9047029b00abb4e09b" },
+      owner: "workspace-git", publicApi: { exportCount: 7, namesSha256: "c543433c3b83bcd1e3c3a04b16e098038b0ba60f1e5b7765ee92e1ffb00d155c" },
       dependencies: [],
     }),
     moduleContract({
@@ -4251,7 +4251,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workflow-config", path: "src/workflow/workflow-config.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 42, namesSha256: "84d20922332dc866f539041af75216ff1c7b775cbdde4887d9e919ede2913275" },
+      owner: "verification-workflow", publicApi: { exportCount: 45, namesSha256: "4470ee961a9a87c06cf18e63aa64c0e9c6c997d7a49696cba0b362784267c00e" },
       dependencies: ["src/kernel/errors.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
@@ -5286,7 +5286,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-git-tree-reader", path: "src/git/tree-reader.ts", realm: "shared", layer: "ports",
       owner: "workspace-git", publicApi: { exportCount: 14, namesSha256: "d191bda7208c1b334d67bf4caf09c4e943a81594674fd42fb436203e81ff38ec" },
-      dependencies: ["node:child_process","node:fs","node:path","src/filesystem/private-state.ts","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts"],
+      dependencies: ["node:child_process","node:fs","node:path","src/filesystem/private-state.ts","src/git/git-config.ts","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts"],
     }),
     moduleContract({
       id: "src-workflow-promotion-codes", path: "src/workflow/promotion/codes.ts", realm: "runtime", layer: "infrastructure",
