@@ -44,7 +44,7 @@ const CLEAN_ENV: NodeJS.ProcessEnv = (() => {
 const KEPT = ['import test from "node:test";', 'test("kept one", () => undefined);', 'test("kept two", () => undefined);', ""].join("\n");
 const OTHER = ['import test from "node:test";', 'test("other one", () => undefined);', 'test("other two", () => undefined);', 'test("other three", () => undefined);', ""].join("\n");
 
-type CellRun = Readonly<{ refused?: string; status?: string; cellPassing?: boolean; counts?: Readonly<Record<string, number>>; expected?: number; withheld?: number }>;
+type CellRun = Readonly<{ refused?: string; status?: string; cellPassing?: boolean; messages?: Readonly<Record<string, string>>; counts?: Readonly<Record<string, number>>; expected?: number; withheld?: number }>;
 
 /** Writes `files`, runs the executor on `cell` in a process of its own, and answers its accounting and both rules' verdicts. */
 function runCell(files: Readonly<Record<string, string>>, cell: readonly string[]): CellRun {
@@ -58,7 +58,7 @@ function runCell(files: Readonly<Record<string, string>>, cell: readonly string[
     `import { executeInventoryTestRun } from ${JSON.stringify(MODULES.executor)};`,
     `import { buildTestInventory } from ${JSON.stringify(MODULES.inventory)};`,
     `import { createTestSurfaceDispositionManifest } from ${JSON.stringify(MODULES.dispositions)};`,
-    `import { cellReceiptPassing, createTestReceipt, createTestResultReceipt } from ${JSON.stringify(MODULES.receipt)};`,
+    `import { cellReceiptPassing, createTestReceipt, createTestResultReceipt, testFailureMessages } from ${JSON.stringify(MODULES.receipt)};`,
     `import { CANDIDATE_MANIFEST_SCHEMA_VERSION } from ${JSON.stringify(MODULES.candidate)};`,
     `const root = ${JSON.stringify(root)};`,
     `const files = ${JSON.stringify(Object.keys(files))};`,
@@ -70,7 +70,7 @@ function runCell(files: Readonly<Record<string, string>>, cell: readonly string[
     `const candidate = { manifestSchemaVersion: CANDIDATE_MANIFEST_SCHEMA_VERSION, formatPolicyRevision: "candidate-format/v1", semanticTreeHash: "0".repeat(64), formatVerificationHash: "1".repeat(64) };`,
     `const receipt = createTestReceipt(candidate, inventory, accounting.discoveredIds, accounting.passedIds, accounting.counts, accounting.gatedTestIds, accounting.loadCrashCount, accounting.abortedFileCount);`,
     `const result = createTestResultReceipt(receipt, accounting.runnerSummary, candidate, accounting.failures, accounting.unknownTests, accounting.failureDetails, accounting.skips);`,
-    `process.stdout.write(JSON.stringify({ status: result.result.status, cellPassing: cellReceiptPassing(result), counts: accounting.counts, expected: accounting.expectedIds.length, withheld: result.testReceipt.gatedTestIds.length }));`,
+    `process.stdout.write(JSON.stringify({ status: result.result.status, cellPassing: cellReceiptPassing(result), messages: testFailureMessages(result), counts: accounting.counts, expected: accounting.expectedIds.length, withheld: result.testReceipt.gatedTestIds.length }));`,
   ].join("\n");
   const helperPath = join(root, "helper.mts");
   writeFileSync(helperPath, helper, "utf8");
@@ -92,6 +92,7 @@ test("a cell dispatches its sources, withholds the rest (expected, skipped), and
 test("a failing or skipping dispatched test fails the cell; a receipt with nothing withheld is not a cell", () => {
   const failing = runCell({ "test/kept.test.ts": KEPT.replace('test("kept two", () => undefined);', 'test("kept two", () => { throw new Error("planted"); });'), "test/other.test.ts": OTHER }, ["test/kept.test.ts"]);
   assert.equal(failing.cellPassing, false);
+  assert.deepEqual(Object.values(failing.messages!), ["Error: planted"], "the receipt keeps what the failure said, for the summary (#149)");
   const skipping = runCell({ "test/kept.test.ts": KEPT.replace('test("kept two", () => undefined);', 'test("kept two", { skip: "planted" }, () => undefined);'), "test/other.test.ts": OTHER }, ["test/kept.test.ts"]);
   assert.equal(skipping.cellPassing, false, "a skip in the cell is not a withheld entry");
   const whole = runCell({ "test/kept.test.ts": KEPT, "test/other.test.ts": OTHER }, ["test/kept.test.ts", "test/other.test.ts"]);

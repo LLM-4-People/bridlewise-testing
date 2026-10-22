@@ -291,6 +291,19 @@ export function deriveTestRunReasons(facts: TestRunReasonFacts): readonly TestRu
 }
 
 /**
+ * WHAT EACH FAILURE SAID: the failing test's identity and its first error
+ * (`<name>: <message>`), as the receipt recorded it. The ledger keeps only a
+ * failure's digest; the run's summary keeps this text (redacted where it is
+ * written) so a red run on a host nobody can reach is diagnosable from its
+ * summary alone (#149). A failure whose error the receipt did not record has
+ * no entry.
+ */
+export function testFailureMessages(receipt: TestResultReceipt): Readonly<Record<string, string>> {
+  return Object.fromEntries((receipt.result.diagnostic?.failureDetails ?? []).flatMap((detail) =>
+    detail.error === null ? [] : [[detail.identity, `${detail.error.name ?? "Error"}: ${detail.error.message}`] as const]));
+}
+
+/**
  * THE LEDGER ROWS OF A RUN: its failures, and its NAMED SKIPS as rows of their
  * own (`<file>::<name> (skipped)`) — a test that did not pass, judged like for
  * like with the target's run beside the failures (a new skip is refused, a
