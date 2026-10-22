@@ -136,32 +136,111 @@ describe("the web door installs it", () => {
 
 const ts = createRequire(import.meta.url)("typescript5") as typeof import("typescript5");
 
-/** The runner calls a per-test timeout can ride on. */
-const TIMED_CALLS = new Set(["test", "it", "describe", "beforeAll", "afterAll", "beforeEach", "afterEach"]);
+/** The runner's test and hook functions a per-test timeout can ride on (an alias of any of them too). */
+const TIMED_CALLS = new Set(["test", "it", "describe", "suite", "bench", "beforeAll", "afterAll", "beforeEach", "afterEach"]);
+/** Hooks take (fn, timeout); tests and suites take (name, [options,] fn, timeout). */
+const HOOKS = new Set(["beforeAll", "afterAll", "beforeEach", "afterEach"]);
+/** The option names that set a per-test or per-hook WALL bound, in a test's options or the runner's config. */
+const TIMEOUT_KEYS = new Set(["timeout", "testTimeout", "hookTimeout"]);
+
+type TsNode = import("typescript5").Node;
+type TsExpression = import("typescript5").Expression;
 
 /**
- * Every per-test WALL timeout a source declares: a trailing argument after
- * the test or hook function (`test(name, fn, 30_000)`), or a `timeout` in its
- * options (`test(name, { timeout: 30_000 }, fn)`). Read from the TypeScript
- * AST, so a timeout spelled across lines or through a constant is found.
+ * Every per-test WALL timeout a source declares, read from the TypeScript
+ * AST (spelling-proof: a regular expression cannot win this):
+ *
+ * - a trailing timeout ARGUMENT to a test, suite or hook, or to an ALIAS of
+ *   one (`const slow = test.extend(…)`, `const t = it`): the last argument
+ *   after the name (tests) or the function (hooks), unless it is a function —
+ *   a literal, an arrow, a function expression, or a name declared as a
+ *   function in the file;
+ * - a `timeout`/`testTimeout`/`hookTimeout` PROPERTY — bare, quoted or
+ *   computed — in an options object passed to such a call, directly or
+ *   through a variable declared in the file;
+ * - any `setConfig(…)` call (`vi.setConfig`) that sets one of them.
  */
 function declaredWallTimeouts(file: string, text: string): readonly string[] {
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const found: string[] = [];
-  const root = (expression: import("typescript5").Expression): string | undefined => {
-    if (ts.isIdentifier(expression)) return expression.text;
-    if (ts.isPropertyAccessExpression(expression)) return root(expression.expression);
-    if (ts.isCallExpression(expression)) return root(expression.expression);
+  const at = (node: TsNode): string => `${file}:${String(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1)}`;
+  // Declarations by name, file-wide (the scope a test file's helpers live in).
+  const initializers = new Map<string, TsExpression>();
+  const functions = new Set<string>();
+  const declare = (node: TsNode): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
+      initializers.set(node.name.text, node.initializer);
+      if (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) functions.add(node.name.text);
+    }
+    if (ts.isFunctionDeclaration(node) && node.name !== undefined) functions.add(node.name.text);
+    ts.forEachChild(node, declare);
+  };
+  declare(source);
+  // The callee's base name (`test.skip.each(…)(…)` → test), through aliases declared in the file.
+  const base = (expression: TsExpression, seen = new Set<string>()): string | undefined => {
+    if (ts.isIdentifier(expression)) {
+      if (TIMED_CALLS.has(expression.text)) return expression.text;
+      const aliased = initializers.get(expression.text);
+      if (aliased === undefined || seen.has(expression.text)) return undefined;
+      seen.add(expression.text);
+      return base(aliased, seen);
+    }
+    if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) return base(expression.expression, seen);
+    if (ts.isCallExpression(expression)) return base(expression.expression, seen);
+    if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isNonNullExpression(expression)) return base(expression.expression, seen);
     return undefined;
   };
-  const visit = (node: import("typescript5").Node): void => {
-    if (ts.isCallExpression(node) && TIMED_CALLS.has(root(node.expression) ?? "")) {
-      const at = `${file}:${String(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1)}`;
-      const body = node.arguments.findIndex((argument) => ts.isArrowFunction(argument) || ts.isFunctionExpression(argument));
-      if (body >= 0 && node.arguments.length > body + 1) found.push(`${at} ${node.arguments[body + 1]!.getText(source)}`);
-      for (const argument of node.arguments) {
-        if (ts.isObjectLiteralExpression(argument) && argument.properties.some((property) => property.name?.getText(source) === "timeout")) {
-          found.push(`${at} ${argument.getText(source)}`);
+  const isFunctionLike = (expression: TsExpression): boolean =>
+    ts.isArrowFunction(expression) || ts.isFunctionExpression(expression) || (ts.isIdentifier(expression) && functions.has(expression.text));
+  const keyOf = (property: import("typescript5").ObjectLiteralElementLike): string | undefined => {
+    const name = property.name;
+    if (name === undefined) return undefined;
+    if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+    if (ts.isComputedPropertyName(name)) {
+      const inner = name.expression;
+      if (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) return inner.text;
+      if (ts.isIdentifier(inner)) {
+        const value = initializers.get(inner.text);
+        if (value !== undefined && (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value))) return value.text;
+      }
+    }
+    return undefined;
+  };
+  // An options object, given directly or through a variable declared in the file.
+  const optionsObject = (expression: TsExpression): import("typescript5").ObjectLiteralExpression | undefined => {
+    if (ts.isObjectLiteralExpression(expression)) return expression;
+    if (ts.isIdentifier(expression)) {
+      const value = initializers.get(expression.text);
+      return value !== undefined && ts.isObjectLiteralExpression(value) ? value : undefined;
+    }
+    if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression)) return optionsObject(expression.expression);
+    return undefined;
+  };
+  const timeoutKeys = (object: import("typescript5").ObjectLiteralExpression): readonly string[] =>
+    object.properties.map(keyOf).filter((key): key is string => key !== undefined && TIMEOUT_KEYS.has(key));
+  const visit = (node: TsNode): void => {
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      // `vi.setConfig({ testTimeout })` (or any setConfig): the runner-wide bound, set from a test.
+      if ((ts.isPropertyAccessExpression(callee) && callee.name.text === "setConfig") || (ts.isIdentifier(callee) && callee.text === "setConfig")) {
+        for (const argument of node.arguments) {
+          const object = optionsObject(argument);
+          if (object !== undefined && timeoutKeys(object).length > 0) found.push(`${at(node)} setConfig ${timeoutKeys(object).join(",")}`);
+        }
+      }
+      const name = base(callee);
+      // Only the CALL that runs a test or hook: `test.extend(…)` / `test.each(rows)` build one and are not it.
+      const builds = ts.isPropertyAccessExpression(callee) && ["extend", "each", "for", "skipIf", "runIf"].includes(callee.name.text);
+      if (name !== undefined && !builds) {
+        const args = node.arguments;
+        const firstAfter = HOOKS.has(name) ? 1 : 2;
+        if (args.length > firstAfter) {
+          const last = args[args.length - 1]!;
+          if (!isFunctionLike(last) && optionsObject(last) === undefined) found.push(`${at(node)} trailing ${last.getText(source)}`);
+        }
+        for (const argument of args) {
+          const object = optionsObject(argument);
+          if (object !== undefined && timeoutKeys(object).length > 0) found.push(`${at(node)} option ${timeoutKeys(object).join(",")}`);
         }
       }
     }
@@ -184,17 +263,38 @@ describe("no web test declares its own wall timeout", () => {
     ).toEqual([]);
   });
 
-  test("PLANT: each spelling of a per-test timeout is found", () => {
+  test("PLANT: every spelling of a per-test wall bound is found, and nothing that is not one", () => {
     const planted = [
-      'test("a", () => {}, 30_000);',
-      'it("b", async () => {}, LIMIT);',
-      'test("c", { timeout: 5000 }, () => {});',
-      'beforeAll(() => {}, 60_000);',
-      'describe.each([1])("d", () => {}, 1000);',
-      'test("e", () => {});',
+      /* 1 */ 'test("a", () => {}, 30_000);',
+      /* 2 */ 'it("b", async () => {}, LIMIT);',
+      /* 3 */ 'test("c", { timeout: 5000 }, () => {});',
+      /* 4 */ 'beforeAll(() => {}, 60_000);',
+      /* 5 */ 'describe.each([1])("d", () => {}, 1000);',
+      /* 6 */ 'function body() {}',
+      /* 7 */ 'test("named body", body, 2 * 1000);',
+      /* 8 */ 'const slow = test.extend({});',
+      /* 9 */ 'slow("an alias", () => {}, 9_000);',
+      /* 10 */ 'test("quoted", { "timeout": 1 }, () => {});',
+      /* 11 */ 'test("computed", { ["timeout"]: 1 }, () => {});',
+      /* 12 */ 'const KEY = "timeout";',
+      /* 13 */ 'test("computed by name", { [KEY]: 1 }, () => {});',
+      /* 14 */ 'const options = { timeout: 1 };',
+      /* 15 */ 'test("an options variable", options, () => {});',
+      /* 16 */ 'vi.setConfig({ testTimeout: 1 });',
+      /* 17 */ 'vi.setConfig({ "hookTimeout": 1 });',
+      /* 18 */ 'it.skip("e", () => {}, BACKSTOP);',
+      /* 19 */ 'afterEach(async function () {}, 1);',
+      /* 20 */ 'test("clean", () => {});',
+      /* 21 */ 'test("clean named body", body);',
+      /* 22 */ 'test("clean options", { retry: 0 }, () => {});',
+      /* 23 */ 'beforeEach(() => {});',
+      /* 24 */ 'const t = it;',
+      /* 25 */ 't("alias of it", () => {}, 5);',
+      /* 26 */ 'spawnSync("node", [], { timeout: 1 });',
     ].join("\n");
-    expect(declaredWallTimeouts("planted.test.ts", planted).map((line) => line.split(" ")[0])).toEqual([
-      "planted.test.ts:1", "planted.test.ts:2", "planted.test.ts:3", "planted.test.ts:4", "planted.test.ts:5",
+    expect(declaredWallTimeouts("planted.test.ts", planted).map((line) => Number(line.split(" ")[0]!.split(":")[1]))).toEqual([
+      1, 2, 3, 4, 5, 7, 9, 10, 11, 13, 15, 16, 17, 18, 19, 25,
     ]);
   });
 });
+
