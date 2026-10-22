@@ -146,13 +146,17 @@ export function readTokenOwner(css: string): TokenOwner {
     }
   }
   if (base.size === 0) throw new TokenOwnerError("token_owner_unreadable", "the owner declares no :root token");
-  if (logbook.size === 0) throw new TokenOwnerError("token_owner_unreadable", `the owner declares no ${LOGBOOK_SELECTOR} theme`);
   return { base, logbook, media, fontFaces };
 }
 
-/** One theme's complete declaration map: the base, with Logbook's re-derivations on top. */
+/**
+ * One theme's complete declaration map: the base, with Logbook's
+ * re-derivations on top. Asking for Logbook of an owner that declares no
+ * Logbook block is refused, never answered with Carbon.
+ */
 export function themeTokens(owner: TokenOwner, theme: ThemeName): ReadonlyMap<string, string> {
   if (theme === "carbon") return owner.base;
+  if (owner.logbook.size === 0) throw new TokenOwnerError("token_owner_unreadable", `the owner declares no ${LOGBOOK_SELECTOR} theme`);
   return new Map([...owner.base, ...owner.logbook]);
 }
 

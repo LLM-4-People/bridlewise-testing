@@ -113,8 +113,10 @@ test("the sheet holds only what is read, the lead theme on :root and the other's
   assert.throws(() => tokenSheet(owner, ["--typo"], options), (error) => error.code === "token_undeclared" && /--typo/u.test(error.message));
 });
 
-test("an owner with no :root or no Logbook theme refuses", () => {
+test("an owner with no :root refuses; Logbook from an owner without it refuses, Carbon still reads", () => {
   assert.throws(() => readTokenOwner(".a { color: red; }"), (error) => error.code === "token_owner_unreadable");
-  assert.throws(() => readTokenOwner(":root { --a: #000000; }"), (error) => error.code === "token_owner_unreadable" && /light/u.test(error.message));
+  const carbonOnly = readTokenOwner(":root { --a: #000000; }");
+  assert.equal(themeColor(carbonOnly, "carbon", "--a"), "#000000");
+  assert.throws(() => themeColor(carbonOnly, "logbook", "--a"), (error) => error.code === "token_owner_unreadable" && /light/u.test(error.message));
   assert.throws(() => readTokenOwner(":root { --a: #000000; "), (error) => error.code === "token_owner_unreadable");
 });
