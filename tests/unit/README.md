@@ -19,6 +19,7 @@ The `tests/unit/` folder of the development surface.
 - `broker-path.test.ts` — @vitest-environment node.
 - `broker-refusal-hold.test.ts` — @vitest-environment node.
 - `broker-write-priority.test.ts` — the write-priority rule at the fetch choke point (UIE-044): every POST asks the browser for high priority, GETs keep the default, and the door owns the field so no call site can contradict the rule.
+- `capture-cockpit-plan.test.ts` — @vitest-environment node. The cockpit capture plan (`scripts/capture/cockpit-plan.ts`): the fixed sequence, the masks, the recipe hash and the manifest, and the PNG-to-GIF encoder, checked without a browser.
 - `change-password-route.test.ts` — @vitest-environment node.
 - `chat-message-store-integrity.test.ts` — @vitest-environment node.
 - `chat-messages.test.ts` — @vitest-environment node.

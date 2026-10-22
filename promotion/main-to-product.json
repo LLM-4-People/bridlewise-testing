@@ -1,5 +1,5 @@
 {
-  "schema": "bridlewise-promotion-profile/v2",
+  "schema": "bridlewise-promotion-profile/v3",
   "name": "main-to-product",
   "source": {
     "ref": "refs/heads/main"
@@ -53,7 +53,6 @@
       "engine/traceability/artifacts/",
       "engine/traceability/requirements.json",
       "engine/traceability/config-document-schema.json",
-      "engine/traceability/s1-test-inventory.json",
       "engine/traceability/test-surface-dispositions.json",
       "engine/traceability/s1.json",
       "engine/traceability/s2.json",
@@ -77,8 +76,6 @@
       "engine/.gitignore",
       ".githooks/",
       "engine/README.md",
-      "engine/docs/architecture/",
-      "engine/docs/registration-procedure.md",
       "scripts/trace.ts"
     ],
     "exclude": [
@@ -122,7 +119,13 @@
         "base": "engine/"
       }
     ],
-    "overlay": "product-only/"
+    "overlay": {
+      "folder": "product-only/",
+      "kinds": [
+        "*.md",
+        "Makefile"
+      ]
+    }
   },
   "transforms": [
     {
