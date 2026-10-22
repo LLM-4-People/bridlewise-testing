@@ -168,9 +168,11 @@ test("a remote names the forge's repository in its https or ssh form on the forg
 });
 
 test("the CLI's factory refuses a remote that is not the forge's trunk repository, and makes the forge of the trunk without reading a key", () => {
-  const factory = githubWorkspaceForgeFactory();
+  const factory = githubWorkspaceForgeFactory(["main"]);
   for (const remoteUrl of ["https://github.com/LLM-4-People/elsewhere.git", "https://github.com/someone/bridlewise-testing.git", "https://gitea.example/LLM-4-People/bridlewise-testing.git", "/srv/git/bridlewise.git"]) {
-    assert.throws(() => factory({ remote: "origin", remoteUrl, trunk: "main" }), (error: unknown) => error instanceof Error && (error as { code?: unknown }).code === "workspace_forge_remote_unknown", remoteUrl);
+    assert.throws(() => factory({ remote: "origin", remoteUrl, trunk: "testing" }), (error: unknown) =>
+      error instanceof Error && (error as { code?: unknown }).code === "workspace_forge_remote_unknown"
+      && error.message.includes("https://github.com/LLM-4-People/bridlewise-testing main"), `${remoteUrl}: refused, naming the GitHub trunk as the remedy`);
   }
   const previous = process.env["HARNESS_KEY_HOME"];
   delete process.env["HARNESS_KEY_HOME"];

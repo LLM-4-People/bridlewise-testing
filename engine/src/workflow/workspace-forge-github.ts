@@ -204,24 +204,26 @@ export function forgeRepositoryOfRemote(remoteUrl: string, webUrl: string): Gith
 /**
  * THE WORKSPACE CLI'S FORGE: for a target whose upstream remote names the
  * configured trunk repository (`forge` section: the organisation and the
- * repository of kind `trunk`) — any other remote is refused
- * (`workspace_forge_remote_unknown`: a land target must be a trunk the forge
- * knows) — the GitHub implementation on the forge client, as the `agent` App
+ * repository of kind `trunk`) — any other remote (another host's, such as the
+ * retired Gitea `testing`) is refused (`workspace_forge_remote_unknown`,
+ * naming the GitHub trunk and its `landTargets` branch as the remedy) — the
+ * GitHub implementation on the forge client, as the `agent` App
  * (an installation token for that one repository, minted from the host's key
  * custody on first use and renewed in memory; nothing is read or minted
  * until a forge call is made).
  */
-export function githubWorkspaceForgeFactory(): WorkspaceForgeFactory {
+export function githubWorkspaceForgeFactory(landTargets: readonly string[]): WorkspaceForgeFactory {
   return (target) => {
     const settings = configuredForge();
     const trunk = trunkRepository(settings);
     const named = forgeRepositoryOfRemote(target.remoteUrl, settings.webUrl);
     if (named === null || named.owner.toLowerCase() !== settings.organization.toLowerCase() || named.name.toLowerCase() !== trunk.name.toLowerCase()) {
+      const trunkUrl = `${settings.webUrl.replace(/\/+$/u, "")}/${settings.organization}/${trunk.name}`;
       throw new HarnessError(
-        `the remote ${target.remote} (${target.remoteUrl}) is not the forge's trunk repository ${settings.organization}/${trunk.name}: a workspace lands only on a trunk the forge knows`,
+        `the target's upstream remote ${target.remote} (${target.remoteUrl}) is not the forge's trunk repository ${trunkUrl}: a workspace lands only on the GitHub trunk (${landTargets.map((branch) => `${trunkUrl} ${branch}`).join(", ")}) — target a branch whose upstream is it (git branch --set-upstream-to <remote of ${trunkUrl}>/${landTargets[0] ?? "main"} <target>)`,
         "workspace_forge_remote_unknown",
         false,
-        { remote: target.remote },
+        { remote: target.remote, trunkRepository: trunkUrl, landTargets: landTargets.join(",") },
       );
     }
     // The key home is admitted on the first signature, not here: a workspace that never reaches the forge needs no App key.

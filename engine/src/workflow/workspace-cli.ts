@@ -112,7 +112,7 @@ export async function runWorkspaceCli(
     config: isolation,
     git,
     repository: (checkout: string) => configuredGitRepository(snapshot.document, checkout),
-    forge: githubWorkspaceForgeFactory(),
+    forge: githubWorkspaceForgeFactory(isolation.landTargets),
     ...(identity === null ? {} : { identity }),
     commands: { run: (checkout, name, command) => runCheckoutCommand(checkout, name, command, commandRunner()) },
     timeouts,

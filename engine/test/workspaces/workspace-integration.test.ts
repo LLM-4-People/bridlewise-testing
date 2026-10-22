@@ -444,7 +444,8 @@ test("land targets name the forge's trunk, never a local branch: any local branc
   rawGit(root, ["remote", "add", "elsewhere", mkWorkspaceTempDir("ws-landtarget-elsewhere")]);
   rawGit(root, ["branch", "foreign"]);
   rawGit(root, ["config", "branch.foreign.remote", "elsewhere"]);
-  rawGit(root, ["config", "branch.foreign.merge", "refs/heads/main"]);
+  // Another host's branch (the retired Gitea `testing`): the remote is refused before its trunk is judged.
+  rawGit(root, ["config", "branch.foreign.merge", "refs/heads/testing-on-another-host"]);
   const knowsOrigin = makeManager(root, { config: makeTestConfig(workspaceRoot), forge: (target) => {
     if (target.remote !== "origin") throw new HarnessError(`the remote ${target.remote} is not the forge's trunk repository`, "workspace_forge_remote_unknown");
     return fakeForgeFactory(target);

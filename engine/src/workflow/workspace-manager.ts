@@ -937,7 +937,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   function assertLandable(trunk: string): void {
     if (!config.landTargets.includes(trunk)) {
       throw new InputError(
-        `${trunk} is not a land target: a workspace lands only on the forge trunk ${config.landTargets.join(", ")} (workspaceIsolation.landTargets, its target's upstream); a product branch changes only through its promotion door`,
+        `${trunk} is not a land target: a workspace lands only on the forge trunk ${config.landTargets.join(", ")} (workspaceIsolation.landTargets, its target's upstream) — target a branch whose upstream is it (git branch --set-upstream-to <remote>/${config.landTargets[0]!} <target>); a product branch changes only through its promotion door`,
         "workspace_target_not_landable",
       );
     }
@@ -1015,9 +1015,10 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       // Where it will land: the target's upstream on the forge (refused when it has none: it could never
       // land), whose trunk must be a declared land target — the forge's view, never the local branch's name.
       const upstream = resolveForgeTarget(options.repository(checkoutRoot), targetBranch);
-      assertLandable(upstream.trunk);
-      // The forge for that upstream is made now (no forge call): a remote that is not the trunk the forge knows is refused at create, not at the first publish.
+      // The forge for that upstream is made now (no forge call): a remote that is not the trunk the forge knows (another
+      // host's) is refused first, at create, naming the forge's trunk — not at the first publish.
       options.forge?.(upstream);
+      assertLandable(upstream.trunk);
       forgeState = deepFreeze({ remote: upstream.remote, trunk: upstream.trunk, pullRequest: null, publishedHead: null, ready: false, land: null });
       const tip = git.revParse(checkoutRoot, `refs/heads/${targetBranch}`, timeouts.inspectMs);
       if (request.mode === "overlay") {
