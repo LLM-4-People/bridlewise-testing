@@ -427,6 +427,8 @@ export function suiteRegeneratedPaths(): ReadonlySet<string> {
 
 /** The test inventory, repository-relative: regenerated wholesale from the test files (and pin-bearing). */
 const GENERATED_TEST_INVENTORY = `engine/${VERIFICATION_PATHS.testInventory}`;
+/** The verb registry, repository-relative: generated from the verb files of its folder (`commands/command-registry.ts`). */
+const GENERATED_COMMAND_REGISTRY = "engine/src/workflow/commands/registry.ts";
 /** The architecture manifest, repository-relative: the registrar rewrites it wholesale; it carries no pin. */
 const GENERATED_ARCHITECTURE_MANIFEST = `engine/${ROOT_POLICY.universalPolicyArchitecture.moduleArchitecture.manifest}`;
 /** The config-contract schema artifact, repository-relative: one canonical-JSON blob of the contract. */
@@ -452,6 +454,7 @@ const GENERATED_ARTIFACT_MANIFEST = `engine/${ROOT_POLICY.artifactGovernance.can
 export function wholesaleGeneratedPaths(): ReadonlySet<string> {
   return new Set([
     GENERATED_TEST_INVENTORY,
+    GENERATED_COMMAND_REGISTRY,
     GENERATED_ARCHITECTURE_MANIFEST,
     GENERATED_CONFIG_SCHEMA_ARTIFACT,
     GENERATED_SPEC_SCHEMA_ARTIFACT,

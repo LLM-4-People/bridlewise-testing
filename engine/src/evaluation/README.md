@@ -23,7 +23,7 @@ The evaluation domain: the audit matrix, requirement registry, and scenario scor
 The folder lives at `engine/src/evaluation/`.
 
 - `budget-calculator.ts` is consumed by `engine/src/evaluation/cli.ts`, `engine/src/evaluation/index.ts`.
-- `cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
+- `cli.ts` is consumed by `engine/src/workflow/commands/eval.ts`.
 - `evaluation-config.ts` is consumed by `engine/src/evaluation/budget-calculator.ts`, `engine/src/evaluation/matrix-executor.ts`, `engine/src/evaluation/scenario-runner.ts`, `engine/src/shared/exposure/registrations/harness-commands.ts`.
 - `index.ts` is consumed by nothing yet.
 - `matrix-executor.ts` is consumed by `engine/src/evaluation/cli.ts`.
