@@ -47,6 +47,10 @@ import ts from "typescript5";
  * - `cell-escape`: a `replace`/`replaceAll` whose replacement inserts a
  *   backslash before a pipe (a Markdown table-cell escape).
  *
+ * NOT covered (needs data flow, Issue #180): a pattern held in a variable,
+ * `new RegExp(variable)`, a computed member (`s["replace"]`), an imported
+ * table. A CodeQL custom query is the owned follow-up.
+ *
  * A legitimate non-markup use is declared in `DECLARED` with its reason.
  * A stale declaration (one that no longer trips the rule) fails.
  */
@@ -57,9 +61,15 @@ const OWNER_FILES = new Set(["shared/markup.ts", "tests/public/markup-owner.test
 const SOURCE = /\.(?:[cm]?[jt]s|svelte)$/u;
 
 const HOLE = "\u0000";
-const ENTITY = /&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]+|#[xX][0-9A-Fa-f]+|\u0000);|&#\u0000/u;
+// A character reference, or one built around a hole: `&amp;`, `&#60;`,
+// `&#x3c;`, `&${name};`, `&#${code};`, `&#x${hex};`.
+const ENTITY = /&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]+|#[xX][0-9A-Fa-f]+|\u0000);|&#[xX]?[0-9A-Fa-f]*\u0000/u;
 const SPECIAL_ELEMENTS = "script|style|iframe|object|embed|svg|math|template|title|textarea|noscript|xmp|plaintext|pre|code|!--";
 const TAG_FILTER = new RegExp(String.raw`<(?:\\?\/)?(?:${SPECIAL_ELEMENTS})|<!--|<(?:\\?\/)?\??\[|<(?:\\?\/)?\(\?:`, "iu");
+// A GENERIC tag stripper by pattern semantics: `<`, an optional `/`, then a
+// lazy or negated-class run, then `>` (`<.*?>`, `<.+>`, `<[^>]*>`,
+// `<\/?[^>]+>`, `<[\s\S]*?>`, `<[^]*?>`).
+const GENERIC_TAG = /<(?:\\?\/)?\??(?:\.|\[\^[^\]]*\]|\[\\s\\S\]|\[\^\]|\[\\S\\s\])[*+]\??>/u;
 const REGEX_SYNTAX_ANGLES = /\(\?<[=!]|\(\?<[A-Za-z_$][\w$]*>|\\k<[A-Za-z_$][\w$]*>/gu;
 // A pattern that is only markup characters: `&`, `<`, `[<>&"']`, `\&`.
 // Quotes count inside a class only beside at least one of `<`, `>`, `&`.
@@ -142,6 +152,11 @@ function isReplacer(argument, file) {
  * a same-file table it indexes or names, carries `<`, `>`, `&` or an entity.
  */
 function callbackYieldsMarkup(argument, file) {
+  return callbackTexts(argument, file).some((text) => MARKUP_CHAR.test(text) || ENTITY.test(text));
+}
+
+/** Every literal text a replacement function holds or reads from a same-file table. */
+function callbackTexts(argument, file) {
   const seen = new Set();
   const texts = [];
   const collect = (node) => {
@@ -156,7 +171,7 @@ function callbackYieldsMarkup(argument, file) {
     ts.forEachChild(node, collect);
   };
   collect(argument);
-  return texts.some((text) => MARKUP_CHAR.test(text) || ENTITY.test(text));
+  return texts;
 }
 
 /** The violations of one parsed program, each `path:line rule`. */
@@ -177,13 +192,21 @@ function programViolations(path, code, lineOffsetOf) {
       let pattern = null;
       if (name !== null && (TRANSFORMS.has(name) || READS.has(name) || name === "RegExp")) pattern = args[0] === undefined ? null : literalText(args[0]);
       if ((name === "test" || name === "exec") && ts.isPropertyAccessExpression(node.expression)) pattern = literalText(node.expression.expression);
-      if (pattern !== null && TAG_FILTER.test(pattern.replace(REGEX_SYNTAX_ANGLES, ""))) report(node, "tag-filter (use htmlWithout / stripTags)");
+      if (pattern !== null && (TAG_FILTER.test(pattern.replace(REGEX_SYNTAX_ANGLES, "")) || GENERIC_TAG.test(pattern.replace(REGEX_SYNTAX_ANGLES, "")))) {
+        report(node, "tag-filter (use htmlWithout / stripTags)");
+      }
       if ((name === "replace" || name === "replaceAll") && pattern !== null && MARKUP_CHARS_ONLY.test(pattern)) report(node, "markup-char (use escapeHtml)");
       if (name !== null && (TRANSFORMS.has(name) || READS.has(name) || name === "RegExp" || name === "test" || name === "exec") && pattern !== null && ENTITY_PATTERN.test(pattern)) {
         report(node, "entity-pattern (use decodeHtmlEntities)");
       }
       const replacement = (name === "replace" || name === "replaceAll") && args[1] !== undefined ? literalText(args[1]) : null;
       if (replacement !== null && /\\\|/u.test(replacement)) report(node, "cell-escape (use escapeMarkdownTableCell)");
+      // The callback form: a pattern that matches a pipe, replaced by a
+      // function (or a `+` chain) that yields a backslash.
+      if ((name === "replace" || name === "replaceAll") && pattern !== null && /\\\||\[[^\]]*\|[^\]]*\]|^\|$/u.test(pattern) && args[1] !== undefined && replacement === null
+        && isReplacer(args[1], file) && callbackTexts(args[1], file).some((text) => text.includes("\\"))) {
+        report(node, "cell-escape (use escapeMarkdownTableCell)");
+      }
       if ((name === "replace" || name === "replaceAll") && args[1] !== undefined && replacement === null && isReplacer(args[1], file) && callbackYieldsMarkup(args[1], file)) {
         report(node, "markup-callback (use escapeHtml / decodeHtmlEntities)");
       }
@@ -277,6 +300,8 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
     "tests/g.test.ts": "const dangerous = /<iframe/i.test(html);\n",
     // the callback forms: a lookup table, an inline callback, a named encoder, a decoder
     "server/i.ts": 'const MAP = Object.freeze({ "<": "&" + "lt;", ">": "&" + "gt;" });\nconst a = s.replace(/[<>"]/g, (c) => MAP[c]);\nconst b = s.replace(/[^\\w ]/g, (c) => "&#" + c.charCodeAt(0) + ";");\nfunction enc(c: string) { return "&" + "amp;"; }\nconst d = s.replace(/x/g, enc);\nconst DECODE = { amp: "&", lt: "<" };\nconst e = s.replace(/&(\\w+);/g, (_m, n) => DECODE[n]);\n',
+    // the three cheap gaps: a callback cell escape, generic strippers, a hex encoder
+    "scripts/j.mjs": 'const cell = value.replace(/\\|/g, (pipe) => "\\\\" + pipe);\nconst a = html.replace(/<.*?>/g, "");\nconst b = html.replaceAll(/<[\\s\\S]+?>/g, " ");\nconst hex = (c) => "&#x" + c.codePointAt(0).toString(16) + ";";\nconst hex2 = (c) => `&#x${c.toString(16)};`;\n',
     "src/h.svelte": "<script>\n  const plain = html.replace(/<[^>]+>/g, \"\");\n</script>\n<p>{text.replaceAll(\"&\", \"&\" + \"amp;\")}</p>\n<p>a&nbsp;b</p>\n",
   };
   const found = Object.fromEntries(Object.entries(planted).map(([path, text]) => [path, violations(path, text)]));
@@ -290,6 +315,7 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
     "shared/f.ts": ["markup-char", "tag-filter"],
     "tests/g.test.ts": ["tag-filter"],
     "server/i.ts": ["entity", "entity", "markup-char", "markup-callback", "markup-callback", "entity", "entity", "markup-callback", "entity-pattern", "markup-callback"],
+    "scripts/j.mjs": ["cell-escape", "tag-filter", "tag-filter", "entity", "entity"],
     "src/h.svelte": ["tag-filter", "markup-char", "markup-callback", "entity"],
   }, JSON.stringify(found));
   assert.match(found["scripts/c.mjs"][0], /^scripts\/c\.mjs:1 /u, "a wrapped call is reported at its start");
@@ -316,6 +342,9 @@ test("near misses are not flagged", () => {
       'const MARKER = "<redacted>";',
       'const masked = text.replace(/[^\\r\\n]+/gu, MARKER);',
       'const segments = command.split(/&&|\\|\\||[;\\n]/u);',
+      'const arrow = code.replace(/=>/g, "->");',
+      'const generics = type.match(/Array<\\w+>/);',
+      'const pipes = table.split(/\\|/).map((cell) => cell.trim());',
       '// html.replace(/<script[\\s\\S]*?<\\/script>/g, "") is what the owner replaced',
     ].join("\n"),
     "b.svelte": "<script>\n  const x = 1;\n</script>\n<p>a&nbsp;b &lt;tag&gt; {x}</p>\n<!-- a <script> in a comment -->\n",
