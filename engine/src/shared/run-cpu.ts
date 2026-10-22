@@ -243,7 +243,7 @@ export interface CalibrationReading {
  * A reading with fewer than three chunks, any non-finite/non-positive chunk,
  * or a non-positive median is ABSENT — never a zero.
  */
-export function parseCalibrationOutput(stdout: string): CalibrationReading | null {
+function parseCalibrationOutput(stdout: string): CalibrationReading | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stdout);
