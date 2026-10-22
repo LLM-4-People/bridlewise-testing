@@ -1982,6 +1982,10 @@ const ROOT_POLICY_VALUE = {
       maximumFileBytes: 16_777_216,
       maximumDirectoryEntries: 100_000,
       temporaryRandomBytes: 16,
+      // Hex digits of a path's SHA-256 in a journaled commit's backup name
+      // (`<transaction>.<digest>.previous`, beside the journal): enough to keep
+      // a transaction's few files apart, short enough for a file name.
+      journalBackupPathDigestHex: 16,
       procFileDescriptorRoot: "/proc/self/fd",
       segmentContract: {
         maximumUtf8Bytes: 255,

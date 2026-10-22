@@ -35,7 +35,15 @@ import {
   verifyCorpus,
   type CorpusMember,
   type CorpusManifest,
+  PATH_POLICY_MANIFEST_PATH,
+  gitCorpusMember,
+  pathPolicyMember,
+  readCorpus,
+  REFERENCE_ONLY_LICENSES,
+  REPOSITORY_ROOT,
 } from "../../scripts/verification/corpus.ts";
+import { parsePathPolicySourceManifest, readPathPolicySource } from "../../scripts/generation/repository-path-unicode.ts";
+import { InputError } from "../../src/kernel/errors.ts";
 
 function git(args: readonly string[], cwd: string): string {
   return execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" } }).trim();
@@ -328,5 +336,113 @@ test("corpus: a refused connection is a typed fetch failure naming the host", ()
     );
   } finally {
     rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("corpus: the git member is derived from the path-policy pins — three files, one copy of each pin, reference-only", () => {
+  const git = parsePathPolicySourceManifest(readFileSync(join(REPOSITORY_ROOT, PATH_POLICY_MANIFEST_PATH), "utf8")).sourceSets.git;
+  const member = pathPolicyMember();
+  assert.equal(member.commit, git.upstream.commit);
+  assert.equal(member.upstream, `${git.upstream.repository}.git`);
+  assert.ok(REFERENCE_ONLY_LICENSES.includes(member.license) && !PERMITTED_LICENSES.includes(member.license), "GPL is fetched for reference, never a permissive member");
+  assert.deepEqual(member.files.map((file) => file.path), ["COPYING", "path.c", "t/t0060-path-utils.sh"]);
+  for (const binding of [git.license, ...git.sources]) {
+    const file = member.files.find((entry) => binding.path.endsWith(`/git/${entry.path}`));
+    assert.deepEqual(file && { sizeBytes: file.sizeBytes, sha256: file.sha256 }, { sizeBytes: binding.byteLength, sha256: binding.sha256 }, binding.path);
+  }
+  // ONE copy of the pins: the committed corpus manifest carries no git member,
+  // and the corpus the fetch materialises does (its digest covers it).
+  assert.equal(readManifest().members.some((entry) => entry.name === "git"), false);
+  const corpus = readCorpus();
+  assert.deepEqual(corpus.members.map((entry) => entry.name).sort(), ["babel", "express", "git", "lodash"]);
+  assert.notEqual(corpus.manifestSha256, readManifest().manifestSha256, "the cache key covers the git pins too");
+});
+
+test("corpus: a fetched path-policy source that is absent or off its pin refuses by name, naming the fetch", () => {
+  const root = createTempDir("corpus-git-source-");
+  try {
+    const bytes = Buffer.from("int main(void) { return 0; }\n");
+    const binding = { path: "large-codebases/git/path.c", byteLength: bytes.byteLength, sha256: sha256Hex(bytes) };
+    assert.throws(() => readPathPolicySource(root, binding), (error: unknown) =>
+      error instanceof InputError && error.code === "repository_path_corpus_source_absent" && /npm run corpus:fetch/u.test(error.message));
+    mkdirSync(join(root, "large-codebases", "git"), { recursive: true });
+    writeFileSync(join(root, "large-codebases", "git", "path.c"), "drifted\n");
+    assert.throws(() => readPathPolicySource(root, binding), (error: unknown) =>
+      error instanceof InputError && error.code === "repository_path_source_identity_invalid" && /npm run corpus:fetch/u.test(error.message));
+    writeFileSync(join(root, "large-codebases", "git", "path.c"), bytes);
+    assert.deepEqual(readPathPolicySource(root, binding), bytes);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ── THE LICENCE BOUNDARY, each check driven (review of #295) ──────────────
+// GPL bytes stay out of the tree because (1) the path-policy manifest's git
+// bindings may only point into the corpus root (the schema's path rule and
+// the member's own prefix check, each refusing alone), (2) only a
+// reference-only licence is admitted, and (3) the committed corpus manifest
+// may not carry a git member of its own. Each is planted and must refuse.
+
+function livePathPolicyText(): string {
+  return readFileSync(join(REPOSITORY_ROOT, PATH_POLICY_MANIFEST_PATH), "utf8");
+}
+
+test("corpus: a path-policy manifest pointing the GPL sources back into the tracked tree is refused by the schema", () => {
+  const live = JSON.parse(livePathPolicyText()) as { sourceSets: { git: { license: { path: string }; sources: { path: string }[] } } };
+  const intoTree = (path: string): string => path.replace(/^large-codebases\/git\//u, "traceability/sources/path-policy/git-2.55.0/");
+  for (const plant of ["license", "source"] as const) {
+    const manifest = structuredClone(live);
+    if (plant === "license") manifest.sourceSets.git.license.path = intoTree(manifest.sourceSets.git.license.path);
+    else manifest.sourceSets.git.sources[0]!.path = intoTree(manifest.sourceSets.git.sources[0]!.path);
+    assert.notEqual(JSON.stringify(manifest), JSON.stringify(live), "the plant changed nothing");
+    assert.throws(() => parsePathPolicySourceManifest(JSON.stringify(manifest)), plant);
+  }
+  assert.doesNotThrow(() => parsePathPolicySourceManifest(livePathPolicyText()), "control: the live manifest parses");
+});
+
+test("corpus: the git member refuses a binding outside the corpus root on its own, and admits the live one", () => {
+  const git = parsePathPolicySourceManifest(livePathPolicyText()).sourceSets.git;
+  assert.equal(gitCorpusMember(git).files.length, 3, "control: the live source set is admitted");
+  for (const plant of ["license", "source"] as const) {
+    const intoTree = { ...git.license, path: "traceability/sources/path-policy/git-2.55.0/COPYING" };
+    const planted = plant === "license"
+      ? { ...git, license: intoTree }
+      : { ...git, sources: [{ ...git.sources[0]!, path: "traceability/sources/path-policy/git-2.55.0/path.c" }, ...git.sources.slice(1)] };
+    assert.throws(() => gitCorpusMember(planted), (error: unknown) => error instanceof CorpusError && error.code === "corpus_path_invalid", plant);
+  }
+});
+
+test("corpus: the git member is admitted only under a reference-only licence", () => {
+  const git = parsePathPolicySourceManifest(livePathPolicyText()).sourceSets.git;
+  for (const spdx of ["GPL-3.0-only", "MIT", "AGPL-3.0-only"]) {
+    assert.throws(() => gitCorpusMember({ ...git, license: { ...git.license, spdx } }),
+      (error: unknown) => error instanceof CorpusError && error.code === "corpus_license_unreviewed", spdx);
+  }
+});
+
+test("corpus: a committed corpus manifest that carries its own git member is refused", () => {
+  const root = createTempDir("corpus-git-entry-");
+  try {
+    const committed = readManifest();
+    const git = pathPolicyMember();
+    const payload = {
+      schemaVersion: committed.schemaVersion,
+      generatorRevision: committed.generatorRevision,
+      root: committed.root,
+      members: [...committed.members, { ...git, license: "MIT" }],
+      derived: committed.derived,
+      notIncluded: committed.notIncluded,
+    };
+    mkdirSync(join(root, MANIFEST_PATH, ".."), { recursive: true });
+    writeFileSync(join(root, MANIFEST_PATH), `${JSON.stringify({ ...payload, manifestSha256: manifestDigest(payload) }, null, 2)}\n`);
+    mkdirSync(join(root, PATH_POLICY_MANIFEST_PATH, ".."), { recursive: true });
+    writeFileSync(join(root, PATH_POLICY_MANIFEST_PATH), livePathPolicyText());
+    assert.throws(() => readCorpus(root), (error: unknown) => error instanceof CorpusError && error.code === "corpus_manifest_invalid");
+    // Control: the same root without the extra member composes.
+    const clean = { ...payload, members: committed.members };
+    writeFileSync(join(root, MANIFEST_PATH), `${JSON.stringify({ ...clean, manifestSha256: manifestDigest(clean) }, null, 2)}\n`);
+    assert.equal(readCorpus(root).members.some((member) => member.name === "git"), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
