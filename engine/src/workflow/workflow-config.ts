@@ -70,9 +70,8 @@ export const DEFAULT_SYNC_CHECK_TIMEOUT_MS = 240_000;
 // Subprocess timeout for `harness sync --with-bundle`'s bundle-build step.
 // The esbuild bundle (scripts/build-bundle.ts) is a fast deterministic build
 // (~3-5s warm); the bound is generous to absorb a cold node module resolve.
-// The bundle must rebuild BEFORE `regenerate` so the regenerated hash bindings
-// pin the fresh bundle sha256 in one pass (eliminates the bundle/regenerate
-// chicken-and-egg that required two sync rounds to stabilize manifest drift).
+// The bundle rebuilds after the first `regenerate`, so it compiles the
+// stabilized pins; no digest of it is committed (#221).
 export const DEFAULT_SYNC_BUNDLE_TIMEOUT_MS = 120_000;
 
 // ── resource-lock.ts defaults ─────────────────────────────────────────────
