@@ -20,7 +20,8 @@
 import { describe, expect, test } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { LESSONS_DIRECTORY, lessonViolations, readEntries } from "../../engine/scripts/verification/tracker-entries.ts";
+import { readEntries } from "../../engine/src/workflow/failure-owners.ts";
+import { LESSONS_DIRECTORY, lessonViolations } from "../../engine/scripts/verification/tracker-entries.ts";
 import { lessonsReport } from "../../engine/scripts/tooling/lessons.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
 

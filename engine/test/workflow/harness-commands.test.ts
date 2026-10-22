@@ -11,6 +11,7 @@ import {
   harnessRegister,
   harnessSync,
   runBundleBuildStep,
+  syncPassVerdict,
   regenerateReadmeConsumers,
   harnessNewModule,
   runArchitectureCheck,
@@ -23,6 +24,7 @@ import {
   type HarnessRegisterOutput,
   type HarnessSyncOutput,
   evidenceIgnoreStep,
+  trackerBoardStep,
   frozenRecordsStep,
 } from "../../src/workflow/harness-commands.ts";
 import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
@@ -1152,6 +1154,25 @@ test("HarnessCommands: harnessSync withBundle option type includes the bundle-bu
   );
 });
 
+test("HarnessCommands: syncPassVerdict judges every step except the stabilizing regenerate of a --with-bundle pass", () => {
+  const pass = (step: HarnessSyncOutput["steps"][number]["step"], status: "pass" | "fail" = "pass") => ({ step, status });
+  const withBundle = (initial: "pass" | "fail", final: "pass" | "fail", check: "pass" | "fail") => [
+    pass("register"), pass("regenerate", initial), pass("bundle-build"), pass("regenerate", final), pass("check", check),
+  ];
+  // A fresh checkout: the first regenerate has no bundle to pin yet.
+  assert.equal(syncPassVerdict(withBundle("fail", "pass", "pass"), true), true);
+  assert.equal(syncPassVerdict(withBundle("pass", "pass", "pass"), true), true);
+  // Every other step is still judged.
+  assert.equal(syncPassVerdict(withBundle("fail", "fail", "pass"), true), false);
+  assert.equal(syncPassVerdict(withBundle("pass", "pass", "fail"), true), false);
+  assert.equal(syncPassVerdict([pass("register"), pass("regenerate"), pass("bundle-build", "fail"), pass("regenerate"), pass("check")], true), false);
+  // Without the bundle there is no stabilizing step: the first regenerate is judged.
+  assert.equal(syncPassVerdict([pass("register"), pass("regenerate", "fail"), pass("check")], false), false);
+  assert.equal(syncPassVerdict([pass("register"), pass("regenerate"), pass("check")], false), true);
+  assert.equal(syncPassVerdict([], false), false, "an empty pass is not a pass");
+  assert.throws(() => syncPassVerdict([pass("register"), pass("bundle-build"), pass("regenerate"), pass("check")], true), /out of order/u);
+});
+
 test("HarnessCommands: harnessSync without withBundle omits the bundle-build step", async () => {
   // The default sync (no --with-bundle) must NOT run the bundle-build step —
   // deny-by-default: the bundle rebuild is opt-in, not opt-out.
@@ -1262,7 +1283,7 @@ test("HarnessCommands: one regenerate converges after a contract source edit, an
   }
 });
 
-test("HarnessCommands: the check's generated-block steps FAIL on drift and name it — the evidence ignore rule (correctness E5) and the frozen roots' pinned content — and both are wired into harnessCheck (design N3')", async () => {
+test("HarnessCommands: the check's generated-block steps FAIL on drift and name it — the evidence ignore rule (correctness E5), the frozen roots' pinned content and the task board — and all are wired into harnessCheck (design N3')", async () => {
   const stale = evidenceIgnoreStep({ status: "stale", converged: false, changed: [".gitignore"] });
   assert.equal(stale.status, "fail");
   assert.match(stale.message, /stale against the tracked evidence manifests \(run harness sync\): \.gitignore/u);
@@ -1272,8 +1293,18 @@ test("HarnessCommands: the check's generated-block steps FAIL on drift and name 
   assert.match(moved.message, /history changed: docs\/history\/x\.md\. harness sync never re-pins one; a change that is meant is accepted explicitly, with its reason: harness frozen accept --reason/u);
   const added = frozenRecordsStep({ status: "stale", converged: false, changed: ["docs/history/new.md"], altered: [] });
   assert.match(added.message, /new frozen records are not yet pinned: docs\/history\/new\.md\. Run harness sync/u);
+  // The task board (src/workflow/failure-owners.ts syncTrackerBoard): stale and unjudgeable boards fail, named; a tree without one passes.
+  const staleBoard = trackerBoardStep({ status: "stale", converged: false, changed: ["docs/trackers/TASKS.md"], problems: [] });
+  assert.equal(staleBoard.step, "tracker-board");
+  assert.equal(staleBoard.status, "fail");
+  assert.match(staleBoard.message, /the task board is stale against the tracker items \(run harness sync\): docs\/trackers\/TASKS\.md/u);
+  const handRow = trackerBoardStep({ status: "invalid", converged: false, changed: [], problems: ["docs/trackers/TASKS.md: the row HAND-ROW is typed outside the generated board block"] });
+  assert.equal(handRow.status, "fail");
+  assert.match(handRow.message, /cannot be judged: docs\/trackers\/TASKS\.md: the row HAND-ROW is typed outside/u);
+  assert.equal(trackerBoardStep({ status: "absent", converged: true, changed: [], problems: [] }).status, "pass");
   const result = await checkSkipAll();
-  for (const step of [result.result.evidenceIgnore, result.result.frozenRecords]) {
+  assert.equal(result.result.trackerBoard.step, "tracker-board", "the task-board step is wired into harnessCheck");
+  for (const step of [result.result.evidenceIgnore, result.result.frozenRecords, result.result.trackerBoard]) {
     assert.equal(step.status, "pass", `${step.step} passes on this synced tree: ${step.message}`);
   }
   assert.equal(result.result.allPassed, Object.values(result.result).every((step) => typeof step !== "object" || step === null || !("status" in step) || step.status !== "fail"), "allPassed is every step");
