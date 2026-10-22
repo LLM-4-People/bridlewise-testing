@@ -14,8 +14,11 @@
  *     until per-module versioning generates it, decision Q6: issue #101) has
  *     no tag yet;
  *   - `release.minIntervalHours` have passed since the newest release
- *     RECORD's own `published_at` (the forge's answer, whatever the tag type;
- *     records not read: the `releases_unread` reason, never "due");
+ *     RECORD's own `published_at` (the forge's answer, whatever the tag type).
+ *     The previous release must have its own published record in the list
+ *     (records not read, or none for that tag — an empty list, another
+ *     tag's, a draft —: the `releases_unread` reason, never "due"); a
+ *     pre-projection preview's record stays in the archived repository;
  *   - the mode allows it: `auto` departs, `manual` departs only when asked
  *     (`--manual`, a person's dispatch), `approval` departs and says the run
  *     needs an approving reviewer (the release environment's).
@@ -158,12 +161,18 @@ export function planRelease(input: ReleasePlanInput): ReleasePlan {
   const tag = `${settings.tagPrefix}${version}`;
   const tree = resolveRevision(repository, commit, "tree")!;
   const productChanged = previous === null || resolveRevision(repository, previous.commit, "tree") !== tree;
-  const publishedAt = input.releases === null ? null : lastPublishedAt(input.releases);
+  // The interval needs the previous release's own published record: a list
+  // with no published record for that tag (empty, another tag's, a draft)
+  // cannot measure it, so the train waits. A preview from before the
+  // projection (no Projected-From: the product branch was seeded with it)
+  // has its record in the archived repository, so no interval runs from it.
+  const recordsRead = input.releases !== null && (previous === null || previous.source === null || input.releases.some((record) => record.tag === previous.tag && !record.draft && record.publishedAt !== null));
+  const publishedAt = input.releases === null || !recordsRead ? null : lastPublishedAt(input.releases);
   const hoursSincePrevious = publishedAt === null ? null : Math.floor((input.now.getTime() - Date.parse(publishedAt)) / 36_000) / 100;
   const reasons: ReleaseWaitReason[] = [];
   if (resolveRevision(repository, `refs/tags/${tag}`, "object") !== null) reasons.push("version_released");
   if (!productChanged) reasons.push("product_unchanged");
-  if (input.releases === null) reasons.push("releases_unread");
+  if (!recordsRead) reasons.push("releases_unread");
   if (hoursSincePrevious !== null && hoursSincePrevious < settings.minIntervalHours) reasons.push("interval");
   if (settings.train === "manual" && !input.manual) reasons.push("manual_mode");
   return deepFreeze({
@@ -187,7 +196,7 @@ export function planRelease(input: ReleasePlanInput): ReleasePlan {
 export const RELEASE_WAIT_REMEDIES: Readonly<Record<ReleaseWaitReason, string>> = deepFreeze({
   version_released: "the product's declared version is already released: declare the next version in package.json on main",
   product_unchanged: "the product has not changed since the last release",
-  releases_unread: "the release records were not read, so the interval since the last release is unmeasured (the release job reads them from the forge)",
+  releases_unread: "the previous release's published record was not read (no records, or none published for its tag), so the interval since it is unmeasured (the release job reads the records from the forge)",
   interval: "the minimum interval since the last release was published (release.minIntervalHours) has not passed",
   manual_mode: "the train is manual (release.train): a person dispatches the release",
 });

@@ -82,6 +82,15 @@ test("the train: a product with no Projected-From is never released; a projectio
   assert.deepEqual([released.lastPublishedAt, released.hoursSincePrevious], ["2026-10-20T12:00:00.000Z", 5], "the interval runs from the release record's own published_at; a draft is no publication");
   assert.deepEqual(released.reasons, ["version_released", "product_unchanged", "interval"], "5 hours after a release, a 24-hour interval waits");
   assert.deepEqual(plan(fixture, { now: new Date(at + 5 * HOUR), releases: null }).reasons, ["version_released", "product_unchanged", "releases_unread"], "records not read: the interval is unmeasured, never \"due\"");
+  const later = new Date(at + 48 * HOUR);
+  for (const [records, why] of [
+    [[], "an empty list"],
+    [[published("v0.9.0", at)], "a published record for another tag"],
+    [[{ tag: "v1.0.0", draft: true, publishedAt: null }, { tag: "v1.0.0", draft: false, publishedAt: null }], "a draft, and a record with no publication time"],
+  ] as const) {
+    const waiting = plan(fixture, { now: later, releases: records });
+    assert.ok(waiting.reasons.includes("releases_unread") && waiting.hoursSincePrevious === null, `${why}: no published record of v1.0.0, so the interval is unmeasured and nothing departs`);
+  }
   assert.deepEqual(plan(fixture, { now: new Date(at + HOUR), releases: records }).reasons, ["version_released", "product_unchanged", "interval"]);
 
   project(fixture, { "assets/notes.txt": "a product change\n" });
