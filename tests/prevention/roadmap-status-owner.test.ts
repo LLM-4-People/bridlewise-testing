@@ -46,6 +46,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { readDecisionRecords, readTrackerItems, type TrackerItem } from "../../engine/src/workflow/failure-owners.ts";
+import { itemStatuses } from "../../engine/src/workflow/tracker-status.ts";
 import {
   EVIDENCE_PATH,
   ROADMAP_BLOCKS,
@@ -61,7 +62,7 @@ const page = readFileSync(join(ROOT, ROADMAP_PATH), "utf8");
 const items = readTrackerItems(ROOT);
 const decisions = readDecisionRecords(ROOT);
 const evidenceText = readFileSync(join(ROOT, EVIDENCE_PATH), "utf8");
-const sources = { items, decisions, evidenceText };
+const sources = { items, decisions, recordedEvidence: new Set<string>(), evidenceText };
 
 /** A synthetic item: an open roadmap task by default. */
 const planted = (id: string, fields: Partial<TrackerItem> = {}): TrackerItem => ({
@@ -105,12 +106,54 @@ describe("docs/floor/roadmap.md status is generated from its owners", () => {
     const parent = planted("PLANTED-WORK", { type: "Workstream", title: "Planted workstream" });
     const planned = renderRoadmapPage(page, { ...sources, items: [...items, parent] });
     expect(planned).toMatch(/Planted workstream\]\([^)]*\)\*\*<br>Exit: [^|]*\| planned \|/u);
-    const child = planted("PLANTED-CHILD", { lane: "floor", milestone: null, parent: "PLANTED-WORK", state: "closed", resolution: "completed", closed: "2026-10-21" });
+    const child = planted("PLANTED-CHILD", { lane: "floor", milestone: null, parent: "PLANTED-WORK", state: "closed", resolution: "completed", closed: "2026-10-21", tests: ["tests/prevention/roadmap-status-owner.test.ts"] });
     const progressing = renderRoadmapPage(page, { ...sources, items: [...items, parent, child] });
     expect(progressing).toContain("in progress (PLANTED-CHILD shipped)");
     const blocker = planted("PLANTED-BLOCKER", { lane: "floor", milestone: null });
     const blocked = renderRoadmapPage(page, { ...sources, items: [...items, { ...parent, blockedBy: ["PLANTED-BLOCKER"] }, child, blocker] });
     expect(blocked).toContain("blocked (blocked by PLANTED-BLOCKER)");
+  });
+
+  test("a close is a claim until linked evidence proves it: shipped only by a built decision, existing tests, a recorded evidence record or this repository's own PR, run or release (planted)", () => {
+    const facts = { decisions: [{ id: "D-BUILT", status: "in-force", implementation: "done" }, { id: "D-DESIGNED", status: "in-force", implementation: "pending" }], recordedEvidence: new Set(["runs/receipt.json"]), repositoryUrl: "https://github.com/LLM-4-People/bridlewise-testing" };
+    const closed = (id: string, fields: Partial<TrackerItem> = {}): TrackerItem => planted(id, { state: "closed", resolution: "completed", closed: "2026-10-21", ...fields });
+    const states = itemStatuses([
+      closed("BARE"),
+      closed("UNRECORDED", { evidence: "evidence:nope/never.json" }),
+      closed("FOREIGN-URL", { evidence: "https://example.invalid/x" }),
+      closed("DOC-ANCHOR", { evidence: "docs/floor/evidence.md#guardian" }),
+      closed("OTHER-REPO-PR", { evidence: "https://github.com/someone/else/pull/1" }),
+      closed("DESIGNED", { decisions: ["D-DESIGNED"] }),
+      closed("BY-DECISION", { decisions: ["D-BUILT"] }),
+      closed("BY-TESTS", { tests: ["tests/prevention/roadmap-status-owner.test.ts"] }),
+      closed("BY-RECORD", { evidence: "evidence:runs/receipt.json" }),
+      closed("BY-PR", { evidence: "https://github.com/LLM-4-People/bridlewise-testing/pull/130" }),
+      closed("BY-RUN", { evidence: "https://github.com/LLM-4-People/bridlewise-testing/actions/runs/39690870022" }),
+      closed("BY-RELEASE", { evidence: "https://github.com/LLM-4-People/bridlewise-testing/releases/tag/v0.0.3-preview" }),
+    ], facts);
+    for (const id of ["BARE", "UNRECORDED", "FOREIGN-URL", "DOC-ANCHOR", "OTHER-REPO-PR", "DESIGNED"]) expect(states.get(id), id).toEqual({ state: "claimed", because: "closed as completed; no linked evidence proves it" });
+    for (const id of ["BY-DECISION", "BY-TESTS", "BY-RECORD", "BY-PR", "BY-RUN", "BY-RELEASE"]) expect(states.get(id)?.state, id).toBe("shipped");
+    expect(states.get("BY-PR")?.because).toBe("proven by this repository's pull request https://github.com/LLM-4-People/bridlewise-testing/pull/130");
+    // A hand-closed sub-item proves no progress; hand-closing every member of a milestone makes it claimed, never shipped.
+    const parent = planted("PARENT", { type: "Workstream" });
+    const progress = itemStatuses([parent, closed("CHILD", { parent: "PARENT", lane: "floor", milestone: null })], facts);
+    expect(progress.get("PARENT")?.state).toBe("planned");
+    const milestone = planted("MS", { type: "Milestone", state: null, lane: null, milestone: null });
+    const handClosed = itemStatuses([milestone, closed("A", { milestone: "MS" }), closed("B", { milestone: "MS" })], facts);
+    expect(handClosed.get("MS")?.state).toBe("claimed");
+    expect(itemStatuses([milestone, closed("A", { milestone: "MS", tests: ["x"] }), closed("B", { milestone: "MS", decisions: ["D-BUILT"] })], facts).get("MS")?.state).toBe("shipped");
+  });
+
+  test("item text never publishes markup: a planted script, an img onerror title and a javascript: link are refused, never rendered (planted)", () => {
+    for (const plantedItem of [
+      planted("PLANTED-SCRIPT", { body: "<script>alert(1)</script> the outcome." }),
+      planted("PLANTED-IMG", { title: "x <img src=x onerror=alert(1)> y" }),
+      planted("PLANTED-LINK", { body: "see [this](javascript:alert(1))." }),
+    ]) {
+      const report = roadmapDrift(page, { ...sources, items: [...items, plantedItem] }, ROOT);
+      expect(report.violations.join("\n"), plantedItem.id).toMatch(new RegExp(`item text would publish markup[\\s\\S]*${plantedItem.id}`, "u"));
+      expect(() => renderRoadmapPage(page, { ...sources, items: [...items, plantedItem] }), plantedItem.id).toThrow(/would publish markup/u);
+    }
   });
 
   test("an open roadmap item without a milestone, and evidence that names no anchor, are refused (planted)", () => {

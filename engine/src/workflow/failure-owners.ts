@@ -46,6 +46,7 @@ import { HarnessError, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { schemaId } from "../kernel/product-identity.ts";
 import { relativePath, rewriteRelativeLinks } from "./markdown-links.ts";
+import { extractMarkdown, isSafeLinkTarget, parseProse, type InlineNode, type MdBlock } from "../../../shared/markdown.ts";
 import { DECISION_INDEX, spliceGeneratedBlock, splitGeneratedBlock, TRACKER_BOARD } from "../kernel/verification-paths.ts";
 
 // ── Task rows ───────────────────────────────────────────────────────────────
@@ -307,9 +308,47 @@ function yamlPlain(item: string): string | null {
   if (/^(?:y|yes|n|no|true|false|on|off|null|~)$/iu.test(item) || /^[-+]?(?:\.?\d)[\d._:eE+-]*$/u.test(item)) return `${JSON.stringify(item)} reads as a YAML boolean, null or number, not text`;
   return null;
 }
-/** A title is a row's head on the board: one line, no `*` (it would end the row's bold id). */
+/** A title is a row's head on the board: one line, no `*` (it would end the row's bold id), no markup. */
 function titleCheck(item: string): string | null {
-  return item.includes("*") ? `${JSON.stringify(item)} carries "*", which would end the board row's bold id` : yamlPlain(item);
+  if (item.includes("*")) return `${JSON.stringify(item)} carries "*", which would end the board row's bold id`;
+  if (/<[A-Za-z/!?]/u.test(item)) return `${JSON.stringify(item)} opens markup: a title is text, never markup`;
+  return yamlPlain(item);
+}
+
+/**
+ * THE ITEM TEXT'S MARKUP JUDGEMENT — the one choke point every item-derived
+ * page goes through (the board, the roadmap, the item's own page, the feed):
+ * item text is Markdown and NEVER raw HTML, because every renderer that
+ * publishes it (kramdown on Pages) passes inline HTML through, and items are
+ * written from intake (a stored-XSS path). Read by the one Markdown parser
+ * (`shared/markdown.ts`): markup opened in prose — `<` and a letter, `/`,
+ * `!` or `?`, outside a code span or a fenced block, where every renderer
+ * shows it as text — is refused, and so is a link
+ * target that is neither relative nor a safe scheme (`isSafeLinkTarget`:
+ * http, https, mailto). Answers the problem, or `null`.
+ */
+export function itemMarkupViolation(markdown: string): string | null {
+  const prose: string[] = [];
+  const inline = (nodes: readonly InlineNode[]): void => {
+    for (const node of nodes) {
+      if (node.type === "text") prose.push(node.text);
+      else if (node.type !== "code") inline(node.children);
+    }
+  };
+  const blocks = (list: readonly MdBlock[]): void => {
+    for (const block of list) {
+      if (block.type === "paragraph" || block.type === "heading") inline(block.children);
+      else if (block.type === "blockquote") blocks(block.children);
+      else if (block.type === "list") for (const item of block.items) { inline(item.children); blocks(item.subBlocks); }
+      else if (block.type === "table") for (const row of [block.header, ...block.rows]) for (const cell of row) inline(cell);
+    }
+  };
+  blocks(parseProse(markdown));
+  // A tag, comment or processing instruction opens with `<` and a letter, `/`, `!` or `?` (the HTML tokenizer's rule); `<=` is text.
+  const raw = prose.find((text) => /<[A-Za-z/!?]/u.test(text));
+  if (raw !== undefined) return `the text ${JSON.stringify(raw.trim())} opens markup outside code: item text is Markdown, never raw HTML (put a literal in backticks)`;
+  const unsafe = extractMarkdown(markdown).links.find(({ target }) => /^[a-z][a-z0-9+.-]*:|^\/\//iu.test(target) && !isSafeLinkTarget(target));
+  return unsafe === undefined ? null : `the link target ${JSON.stringify(unsafe.target)} is neither relative nor http, https or mailto`;
 }
 
 /** What a whole-set judgement may also check: the decision ids that exist, and whether a repository path exists. */
@@ -382,6 +421,8 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
     const closedOn = parsed.fields.get("closed") ?? "";
     if (DATE.test(opened) && DATE.test(closedOn) && closedOn < opened) problems.push(`${name}: closed ${closedOn} is before opened ${opened}`);
     if (parsed.body.trim().length === 0) problems.push(`${name}: the body is empty`);
+    const markup = itemMarkupViolation(parsed.body);
+    if (markup !== null) problems.push(`${name}: ${markup}`);
     // A body line shaped like a task row would be a second row on the board, owning failures no item declares.
     for (const line of parsed.body.split("\n")) if (ROW.test(line)) problems.push(`${name}: the body line ${JSON.stringify(line.trim())} is a task row; a row is an item of its own`);
     const parent = parsed.fields.get("parent");

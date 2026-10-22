@@ -54,6 +54,11 @@ test("every way an item breaks the format is refused, and the whole set is refus
     [[item("A-ONE", { parent: "B-TWO" }), item("B-TWO", { parent: "A-ONE" })], /parent chain returns to/u],
     [[item("A-ONE", { title: "Colon: then a space" })], /not a plain YAML scalar/u],
     [[item("A-ONE", { gh: "31" })], /gh 31 does not match/u],
+    // Item text reaches Pages: it is Markdown, never raw HTML (a stored-XSS path from intake).
+    [[item("A-ONE", {}, "<script>alert(1)</script> the outcome.")], /opens markup outside code/u],
+    [[item("A-ONE", {}, "an <img src=x onerror=alert(1)> image")], /opens markup outside code/u],
+    [[item("A-ONE", {}, "see [this](javascript:alert(1)).")], /neither relative nor http, https or mailto/u],
+    [[item("A-ONE", { title: "x <img src=x onerror=alert(1)> y" })], /opens markup: a title is text/u],
     // YAML reads ` #31` as a comment: the item would lose its GitHub link on the site.
     [[item("A-ONE", { gh: "#31" })], /gh #31 does not match/u],
     [[item("A-ONE", { title: "No" })], /reads as a YAML boolean, null or number/u],
@@ -129,6 +134,10 @@ test("the board renders open rows per lane (oldest first) and every closed row u
   const rows = taskRows(renderTrackerBoard(items));
   assert.deepEqual(rows.map((row) => [row.id, row.done]), [["FLAKY-B", false], ["FLAKY-A", false], ["Retire the thing", true], ["OLD-DONE", true]]);
   assert.equal(rows[2]!.text, itemRow(items.find((entry) => entry.id === "NEW-DONE")!));
+});
+
+test("markup inside code, a comparison and a safe link are text, not markup", () => {
+  assert.deepEqual(trackerItemViolations([item("A-ONE", {}, "keep a `<db>.pre-restore` copy; a <= b; see [the run](https://github.com/owner/repo/actions/runs/1) and [a page](../floor/a.md).\n\n```\n<div>in a fence</div>\n```")]), []);
 });
 
 test("a phantom row in a body never reaches the board's owners: the item is refused before it renders", () => {

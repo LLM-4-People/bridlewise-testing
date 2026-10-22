@@ -218,16 +218,23 @@ test("a public record must have closed since the last release: open, reopened an
   assert.ok(notes.includes("## Closed\n\n- Flake: The a\\-flake record (`A-FLAKE`)\n- Task: The still\\-open record (`STILL-OPEN`)\n"), notes);
 });
 
-test("every text a record carries reaches the notes through the markup owner: a planted title, pull request title and name cannot inject Markdown or HTML", () => {
+test("every text a record carries reaches the notes through the markup owner: a planted pull request title and name cannot inject Markdown or HTML, and a markup title never reaches the train", () => {
   const fixture = promotionFixture("release-markup");
   const first = project(fixture, { "package.json": manifest(fixture, "1.0.0") });
   releaseTag(fixture, "v1.0.0", first);
   const evil = "<script>alert(1)</script> [x](javascript:alert(1)) _b_";
-  fixture.commit(SOURCE, { "docs/trackers/items/EVIL.md": `---\nschema: bridlewise-tracker-item/v1\nid: EVIL\ntype: Task\ntitle: ${evil}\nstate: closed\nresolution: completed\nlane: floor\nopened: 2026-10-20\nclosed: 2026-10-21\n---\n\nA planted title.\n` }, `${evil} **bold** (#7)\n\nSigned-off-by: <img src=x onerror=alert(1)> Name`);
+  const item = (title: string): string => `---\nschema: bridlewise-tracker-item/v1\nid: EVIL\ntype: Task\ntitle: ${title}\nstate: closed\nresolution: completed\nlane: floor\nopened: 2026-10-20\nclosed: 2026-10-21\n---\n\nA planted title.\n`;
+  // The record's title is text by the tracker's own rule: a title that opens markup is refused where it is read, before any note.
+  fixture.commit(SOURCE, { "docs/trackers/items/EVIL.md": item(evil) }, "a record with a markup title");
   project(fixture, { "package.json": manifest(fixture, "1.1.0") });
+  assert.throws(() => plan(fixture, { releases: [published("v1.0.0", Date.now() - 48 * HOUR)] }), (error: Error & { code?: string }) => error.code === "tracker_item_invalid" && /EVIL\.md: title "[^"]*" opens markup/u.test(error.message));
+  // A text title with Markdown's own characters, a pull request title and a name: each through the owner.
+  const plain = "The a-b record, 1 + 1 = 2, C# and [brackets]";
+  fixture.commit(SOURCE, { "docs/trackers/items/EVIL.md": item(plain) }, `${evil} **bold** (#7)\n\nSigned-off-by: <img src=x onerror=alert(1)> Name`);
+  project(fixture, { "package.json": manifest(fixture, "1.2.0") });
   const notes = renderReleaseNotes(fixture.repository, plan(fixture, { releases: [published("v1.0.0", Date.now() - 48 * HOUR)] }), SETTINGS, "https://forge.example/owner/name");
   for (const raw of ["<script>", "](javascript", "_b_", "**bold**", "<img"]) assert.ok(!notes.includes(raw), `${raw} reached the notes raw:\n${notes}`);
-  assert.ok(notes.includes(`- Task: ${escapeMarkdownText(evil)} (\`EVIL\`)`), `the closed record's title went through the owner:\n${notes}`);
+  assert.ok(notes.includes(`- Task: ${escapeMarkdownText(plain)} (\`EVIL\`)`), `the closed record's title went through the owner:\n${notes}`);
   assert.ok(notes.includes(`- ${escapeMarkdownText(`${evil} **bold**`)} (#7)`), `the pull request title went through the owner:\n${notes}`);
 });
 
