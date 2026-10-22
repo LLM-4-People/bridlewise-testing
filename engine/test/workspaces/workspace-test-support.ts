@@ -190,6 +190,8 @@ export function makeTestConfig(workspaceRoot: string, overrides: Partial<Workspa
     // land-target refusal's tests use it).
     landTargets: deepFreeze(["main", "side", "testing", "other"]),
     killGraceMs: 1_000,
+    // The land's wait: a test's queue moves when the manager sleeps (its `sleep` option), so a poll is immediate.
+    landing: deepFreeze({ pollIntervalMs: 1, timeoutMs: 60_000 }),
     links: [],
     commands: deepFreeze({ unit: FAKE_COMMAND, regen: FAKE_COMMAND, suite: FAKE_COMMAND }),
     phases: deepFreeze({ setup: [], validate: ["unit"], regenerate: ["regen"], merge: ["suite"] }),
@@ -277,6 +279,8 @@ export function makeManager(
     engineRelative?: string;
     /** The forge factory (default: the fake forges); `null`: none configured. */
     forge?: WorkspaceForgeFactory | null;
+    /** The land's wait between two reads (a test moves its fake queue here). */
+    sleep?: (ms: number) => Promise<void>;
   }>,
 ): ManagerFixture {
   const git = options.git ?? makeGitPort(options.config.branchNamespace);
@@ -293,6 +297,7 @@ export function makeManager(
     timeline: options.timeline ?? null,
     ...(options.records !== undefined ? { records: options.records } : {}),
     ...(options.now !== undefined ? { now: options.now } : {}),
+    ...(options.sleep !== undefined ? { sleep: options.sleep } : {}),
   });
   return deepFreeze({ manager, git });
 }
