@@ -137,12 +137,76 @@ test("T-P12: companions — a README ships iff its folder holds a projected path
   assert.equal(classification.notProjected.get("orphan/README.md")?.rule, "unreachable");
 });
 
+test("the overlay: each file of its folder ships at its path without the prefix, says why, and is read by the advisories", async () => {
+  const overlaid = { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: "target-only/" } };
+  const fixture = promotionFixture("promotion-overlay", overlaid);
+  fixture.commit(SOURCE, {
+    "target-only/NOTICE": "the product's notice\n",
+    "target-only/docs/start.md": "Run `npm run build`, then `npm run not-shipped`.\n",
+    "NOTICE": "the source's own notice never ships\n",
+  });
+  const plan = await fixture.plan();
+  assert.deepEqual(codes(plan), []);
+  assert.deepEqual(plan.paths.added.filter((entry) => !entry.path.startsWith("product/")).map((entry) => [entry.path, entry.reason]).sort(), [
+    ["NOTICE", "overlaid from target-only/NOTICE"],
+    ["docs/start.md", "overlaid from target-only/docs/start.md"],
+  ]);
+  assert.equal(fixture.git(["cat-file", "-p", `${plan.projection.tree}:NOTICE`]), "the product's notice", "the overlay's bytes, not the source's file at that path");
+  assert.equal(plan.paths.added.concat(plan.paths.modified).some((entry) => entry.path.startsWith("target-only/")), false, "the folder never ships at its own path");
+  assert.deepEqual(plan.advisories.filter((advisory) => advisory.kind === "dangling_script_reference").map((advisory) => [advisory.path, advisory.detail.includes("not-shipped")]), [["docs/start.md", true]], "an overlaid document is judged at its shipped path; `build` is carried, `not-shipped` is not");
+  const classification = classifyTree(commitTreeReader(fixture.repository, fixture.tip(SOURCE)), fixture.loaded().profile);
+  assert.deepEqual(explainPaths(classification, ["NOTICE", "target-only/NOTICE"]).map((entry) => [entry.path, entry.projected, entry.reason]), [
+    ["NOTICE", true, "overlaid from target-only/NOTICE"],
+    ["target-only/NOTICE", false, "excluded (target-only/)"],
+  ]);
+  assert.equal((await fixture.plan()).projection.tree, plan.projection.tree, "the same source projects the same tree");
+});
+
+test("an overlaid recipe is judged at its shipped path: a file it names that does not ship is advised, one that ships is not", async () => {
+  const fixture = promotionFixture("promotion-overlay-recipe", { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: "target-only/" } });
+  fixture.commit(SOURCE, { "target-only/Makefile": "run:\n\tnode product/main.ts\n\tnode dev/tool.ts\n" });
+  const plan = await fixture.plan({ lockfiles: false });
+  assert.deepEqual(plan.advisories.filter((advisory) => advisory.kind === "dangling_recipe_path").map((advisory) => [advisory.path, advisory.detail]), [["Makefile", "names dev/tool.ts, which the projection does not carry"]]);
+});
+
+test("the overlay refuses a path the projection already carries, and a link, and passes a near-miss", async () => {
+  const overlaid = { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: "target-only/" } };
+  const fixture = promotionFixture("promotion-overlay-refused", overlaid);
+  fixture.commit(SOURCE, {
+    "target-only/README.md": "# a second root README\n",
+    "target-only/product/main.ts": "export {};\n",
+    "target-only/product/main.ts.orig": "a near-miss: no projected path is named so\n",
+    "target-only/dev/notes.md": "would ship into an excluded folder\n",
+    "target-only/promotion/rogue.json": "{}\n",
+    "target-only/target-only/inner.md": "would ship at the overlay folder's own path\n",
+    "target-only/product/evil.ts": "import \"../dev/secret.ts\";\nimport pad from \"left-pad\";\nexport default pad;\n",
+    "target-only/product/evil.mts": "import \"../dev/secret.ts\";\nexport {};\n",
+    "target-only/product/evil.cts": "import \"../dev/secret.ts\";\nexport {};\n",
+    "target-only/product/evil.jsx": "import \"../dev/secret.ts\";\n",
+  });
+  fixture.git(["checkout", "-q", SOURCE]);
+  fixture.git(["update-index", "--add", "--cacheinfo", `120000,${fixture.git(["rev-parse", `${TARGET}:product/link.ts`])},target-only/link.ts`]);
+  fixture.git(["commit", "-q", "-m", "a symbolic link in the overlay"]);
+  const plan = await fixture.plan({ lockfiles: false });
+  const refused = plan.refusals.filter((entry) => entry.code === "promotion_overlay_invalid").map((entry) => entry.facts["overlay"]).sort();
+  assert.deepEqual(refused, ["target-only/README.md", "target-only/dev/notes.md", "target-only/link.ts", "target-only/product/evil.cts", "target-only/product/evil.jsx", "target-only/product/evil.mts", "target-only/product/evil.ts", "target-only/product/main.ts", "target-only/promotion/rogue.json", "target-only/target-only/inner.md"]);
+  const message = (overlay: string): string => plan.refusals.find((entry) => entry.facts["overlay"] === overlay)!.message;
+  assert.match(message("target-only/README.md"), /companion/u, "the collision names the reason the path already ships for");
+  for (const [overlay, by] of [["target-only/dev/notes.md", "dev/"], ["target-only/promotion/rogue.json", "promotion/"], ["target-only/target-only/inner.md", "target-only/"]] as const) {
+    assert.match(message(overlay), new RegExp(`excludes \\(by ${by}\\)`, "u"), `${overlay}: the excludes hold at the shipped path`);
+  }
+  for (const code of ["evil.ts", "evil.mts", "evil.cts", "evil.jsx"]) assert.match(message(`target-only/product/${code}`), /is a module/u, `${code}: every code extension the language owner counts is refused, so the walk's refusals cannot be evaded`);
+  assert.equal(plan.paths.added.concat(plan.paths.modified).some((entry) => /^(?:dev|promotion|target-only)\//u.test(entry.path) || entry.path.startsWith("product/evil.")), false, "no refused overlay file ships");
+  assert.equal(plan.code, "promotion_overlay_invalid");
+  assert.ok(plan.paths.added.some((entry) => entry.path === "product/main.ts.orig"), "the near-miss ships through the overlay");
+});
+
 test("T-P13: up to date — the target's last promotion carries this source: no work", async () => {
   const fixture = promotionFixture("promotion-p13");
   const source = fixture.tip(SOURCE);
   const blob = fixture.loaded().blob!;
   const tree = fixture.git(["rev-parse", `${TARGET}^{tree}`]);
-  const promoted = fixture.git(["commit-tree", tree, "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nPromoted-From: ${source}\nPromotion-Profile: dev-to-prod@${blob}`]);
+  const promoted = fixture.git(["commit-tree", tree, "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nProjected-From: ${source}\nPromotion-Profile: dev-to-prod@${blob}`]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, promoted]);
   const started = Date.now();
   const plan = await fixture.plan();
@@ -175,7 +239,7 @@ test("T-D1 (bootstrap form): a direct edit of the target since the base is liste
 test("T-D3: the source merged with the target after a promotion is refused (the never-rule)", async () => {
   const fixture = promotionFixture("promotion-d3");
   const source = fixture.tip(SOURCE);
-  const promoted = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nPromoted-From: ${source}\nPromotion-Profile: dev-to-prod@${fixture.loaded().blob!}`]);
+  const promoted = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nProjected-From: ${source}\nPromotion-Profile: dev-to-prod@${fixture.loaded().blob!}`]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, promoted]);
   fixture.commit(SOURCE, { "product/lib/helper.ts": "export const helper = 4;\n" });
   // The forbidden shape: the target merged into the source (its tree kept, its history taken).
@@ -258,7 +322,7 @@ test("V1/V29: a generated output differing only in its generated part is no chan
   // The last promotion carries a README whose consumer block the source generated.
   const promotedSource = fixture.commit(SOURCE, { "product/lib/README.md": block("- generated on the source") });
   fixture.commit(TARGET, { "product/lib/README.md": block("- generated on the source") }, "the promoted state");
-  const promotion = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", promotedSource, "-m", `promote\n\nPromoted-From: ${promotedSource}\nPromotion-Profile: dev-to-prod@${fixture.loaded().blob!}`]);
+  const promotion = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", promotedSource, "-m", `promote\n\nProjected-From: ${promotedSource}\nPromotion-Profile: dev-to-prod@${fixture.loaded().blob!}`]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, promotion]);
   // The target regenerates the block; the source moves on elsewhere.
   fixture.commit(TARGET, { "product/lib/README.md": block("- regenerated on the target") }, "the target regenerated a block");
@@ -279,14 +343,14 @@ test("V7/V8: only THIS profile's promotions on the target's FIRST-PARENT line co
   const source = fixture.tip(SOURCE);
   const tree = fixture.git(["rev-parse", `${TARGET}^{tree}`]);
   // Another pair's promotion of the same source on the target's own line.
-  const other = fixture.git(["commit-tree", tree, "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nPromoted-From: ${source}\nPromotion-Profile: other-pair@${fixture.loaded().blob!}`]);
+  const other = fixture.git(["commit-tree", tree, "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nProjected-From: ${source}\nPromotion-Profile: other-pair@${fixture.loaded().blob!}`]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, other]);
   const notOurs = await fixture.plan({ lockfiles: false });
   assert.equal(notOurs.lastPromoted.bootstrap, true, "another profile's trailer is not this pair's promotion");
   assert.notEqual(notOurs.code, "promotion_up_to_date");
   // This profile's promotion reached only through a merged side line (second parent).
   fixture.git(["branch", "side", fixture.tip(TARGET)]);
-  const side = fixture.git(["commit-tree", tree, "-p", fixture.tip("side"), "-m", `promote\n\nPromoted-From: ${source}\nPromotion-Profile: dev-to-prod@${fixture.loaded().blob!}`]);
+  const side = fixture.git(["commit-tree", tree, "-p", fixture.tip("side"), "-m", `promote\n\nProjected-From: ${source}\nPromotion-Profile: dev-to-prod@${fixture.loaded().blob!}`]);
   const merged = fixture.git(["commit-tree", tree, "-p", fixture.tip(TARGET), "-p", side, "-m", "merge a side line"]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, merged]);
   const sideLine = await fixture.plan({ lockfiles: false });
@@ -312,7 +376,7 @@ test("V5: the deletion budget refuses only MORE than its fraction", async () => 
 test("V2: only a path ADDED since the last promotion is advised as new; a modified unprojected one is not", async () => {
   const fixture = promotionFixture("promotion-added");
   const first = fixture.commit(SOURCE, { "product/zz-notes.ts": "export const notes = 1;\n" });
-  const promoted = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", first, "-m", `promote\n\nPromoted-From: ${first}\nPromotion-Profile: dev-to-prod@${fixture.loaded().blob!}`]);
+  const promoted = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", first, "-m", `promote\n\nProjected-From: ${first}\nPromotion-Profile: dev-to-prod@${fixture.loaded().blob!}`]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, promoted]);
   fixture.commit(SOURCE, { "product/zz-notes.ts": "export const notes = 2;\n" });
   const plan = await fixture.plan({ lockfiles: false });

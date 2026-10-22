@@ -1,3 +1,9 @@
+---
+title: "Documentation map"
+description: "Every documentation collection in the repository, with what each one covers."
+permalink: /contents/
+---
+
 # Documentation
 
 This is the curated documentation set of the Bridlewise development floor. It is published as a record, not as a stable specification.
@@ -22,7 +28,7 @@ This is the curated documentation set of the Bridlewise development floor. It is
 | [decisions/](decisions/) | 134 decision records, one file per rule, with status and implementation state |
 | [floor/](floor/) | The generated development-floor site: atlas, status, promotion contract, and evidence |
 | [design/](design/) | Selected cockpit, performance, structure, and guard-universe essays |
-| [Product architecture](https://llm-4-people.github.io/bridlewise/architecture/) | The public architecture page |
+| [Product architecture](architecture.md) | The public architecture page |
 
 Some records are historical. They may name the private development branches (`testing`, `master`), files that are not in the public snapshot, or measurements taken on a different machine. They are published as evidence of the reasoning, not as a description of the public release topology.
 

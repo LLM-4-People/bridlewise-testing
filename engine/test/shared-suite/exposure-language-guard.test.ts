@@ -543,6 +543,26 @@ const VERIFIED_NON_IMMEDIATE: ReadonlyMap<string, string> = new Map([
     "engine/src/workflow/workflow-config.ts commandRetryPolicy resolves harness.commandRetryBackoffMs from the pinned config document once per command invocation, and configuredCheckoutCommandRunner hands it to the ONE runner (runCheckoutCommand, src/workflow/checkout-setup.ts) as the first wait, doubled per retry, for every consumer (workspace, candidate checkout, promotion), so the honest timing is next-run; engine/test/workflow/working-copy.test.ts and engine/test/workflow/promotion/transforms.test.ts prove the doubling waits",
   ],
   [
+    "release.train",
+    "engine/src/workflow/promotion/release-cli.ts resolves the promotion.release section from the pinned config document once per command invocation (releaseVerb: resolveRepositoryContext reads the pinned snapshot; `harness release` is a fresh process on every land) and hands it to planRelease (release-train.ts), which reads the train mode (manual waits for --manual, approval sets the approval flag), so the honest timing is next-run; engine/test/workflow/promotion/release.test.ts drives the real release door with the section and proves the plan consumes it",
+  ],
+  [
+    "release.minIntervalHours",
+    "engine/src/workflow/promotion/release-cli.ts resolves the promotion.release section from the pinned config document once per command invocation (releaseVerb: resolveRepositoryContext reads the pinned snapshot; `harness release` is a fresh process on every land) and hands it to planRelease (release-train.ts), which reads minIntervalHours (the interval reason), so the honest timing is next-run; engine/test/workflow/promotion/release.test.ts drives the real release door with the section and proves the plan consumes it",
+  ],
+  [
+    "release.profile",
+    "engine/src/workflow/promotion/release-cli.ts resolves the promotion.release section from the pinned config document once per command invocation (releaseVerb: resolveRepositoryContext reads the pinned snapshot; `harness release` is a fresh process on every land) and hands it to planRelease (release-train.ts), which reads profile (the product ref is that profile's target), so the honest timing is next-run; engine/test/workflow/promotion/release.test.ts drives the real release door with the section and proves the plan consumes it",
+  ],
+  [
+    "release.tagPrefix",
+    "engine/src/workflow/promotion/release-cli.ts resolves the promotion.release section from the pinned config document once per command invocation (releaseVerb: resolveRepositoryContext reads the pinned snapshot; `harness release` is a fresh process on every land) and hands it to planRelease (release-train.ts), which reads tagPrefix (the release tag and the previous release's tags), so the honest timing is next-run; engine/test/workflow/promotion/release.test.ts drives the real release door with the section and proves the plan consumes it",
+  ],
+  [
+    "release.discussionCategory",
+    "engine/src/workflow/promotion/release-cli.ts resolves the promotion.release section from the pinned config document once per command invocation (releaseVerb: resolveRepositoryContext reads the pinned snapshot; `harness release` is a fresh process on every land) and hands it to planRelease (release-train.ts), which reads discussionCategory (the plan names the announcement's category), so the honest timing is next-run; engine/test/workflow/promotion/release.test.ts drives the real release door with the section and proves the plan consumes it",
+  ],
+  [
     "harnessCommands.identityAttestationTimeoutMs",
     "engine/src/evaluation/cli.ts resolves the evaluation section from the pinned config document once per command invocation (:235, a fresh process per run) and hands identityAttestationTimeoutMs to createScenarioRunner, whose runner bounds the identity probe with it (scenario-runner.ts:91, consumed by attestIdentity at :230), so the honest timing is next-run; engine/test/evaluation/identity-attestation.test.ts proves the attestation probe consumes its timeout bound, and engine/test/config/config-sections.test.ts pins the section's schema bounds",
   ],

@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // Mechanical design-system guard for the assembled docs site.
 //
-// One shell (scripts/floor/site.mjs) loads style.css and floor.css on every
-// Jekyll page. This check reads the built HTML and refuses a content class
+// One shell (docs/_layouts/default.html, built by scripts/floor/site.mjs)
+// loads style.css and floor.css on every Jekyll page. This check reads the built HTML and refuses a content class
 // with no CSS rule, or a floor.css class that no page uses. The allowlists
 // name the only intentional exceptions, each with a reason.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { htmlWithout } from "../../shared/markup.ts";
 
 const SHARED_CSS = ["assets/css/style.css", "assets/floor/floor.css"];
 const FLOOR_CSS = "assets/floor/floor.css";
@@ -91,13 +92,10 @@ function insideMain(html) {
   if (start === -1) return "";
   const end = html.indexOf("</main>", start);
   if (end === -1) return "";
-  return html
-    .slice(start, end)
-    .replace(/<nav class="breadcrumb"[\s\S]*?<\/nav>/u, "")
-    .replace(/<script\b[\s\S]*?<\/script>/gu, "")
-    .replace(/<style\b[\s\S]*?<\/style>/gu, "")
-    .replace(/<pre\b[\s\S]*?<\/pre>/gu, "")
-    .replace(/<code\b[\s\S]*?<\/code>/gu, "");
+  return htmlWithout(
+    html.slice(start, end).replace(/<nav class="breadcrumb"[\s\S]*?<\/nav>/u, ""),
+    { elements: ["script", "style", "pre", "code"] },
+  );
 }
 
 function tagsIn(markup) {
@@ -124,8 +122,13 @@ function cssClasses(css) {
   return classes;
 }
 
-export function inventory(siteRoot) {
-  const files = walk(siteRoot, ".html");
+/**
+ * `exclude`: site-path prefixes judged elsewhere — a released docs snapshot
+ * (`/v/<version>/`) was judged by its own build and never changes, so today's
+ * stylesheets are not its yardstick.
+ */
+export function inventory(siteRoot, { exclude = [] } = {}) {
+  const files = walk(siteRoot, ".html").filter((file) => !exclude.some((prefix) => pagePath(siteRoot, file).startsWith(prefix)));
   const pages = [];
   const tags = new Map();
   const classes = new Map();
@@ -145,8 +148,8 @@ export function inventory(siteRoot) {
   return { files, pages, tags, classes };
 }
 
-export function coverage(siteRoot) {
-  const inventoryResult = inventory(siteRoot);
+export function coverage(siteRoot, options = {}) {
+  const inventoryResult = inventory(siteRoot, options);
   const sharedCss = SHARED_CSS.map((path) => readFileSync(join(siteRoot, path), "utf8")).join("\n");
   const floorCss = readFileSync(join(siteRoot, FLOOR_CSS), "utf8");
   const rules = cssClasses(sharedCss);

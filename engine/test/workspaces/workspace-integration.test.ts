@@ -11,7 +11,7 @@ import { landCommit } from "../../src/workflow/tree-landing.ts";
 import { WEB_RUN_HISTORY_PATH, suiteLedgerPaths, type SuiteLedgerName } from "../../src/shared/run-history.ts";
 import { README_CONSUMER_BLOCK } from "../../src/kernel/verification-paths.ts";
 import { acquireLock } from "../../src/workflow/resource-lock.ts";
-import { createWorkspaceRecordStore } from "../../src/workflow/workspace-registry.ts";
+import { createWorkspaceRecordStore, workspaceRecordStores } from "../../src/workflow/workspace-registry.ts";
 import { createTimelineStore } from "../../src/timeline/timeline-store.ts";
 import type { EventLedgerStoragePort } from "../../src/timeline/timeline-types.ts";
 import {
@@ -27,6 +27,7 @@ import type { WorkspaceRecord } from "../../src/workflow/workspace-contracts.ts"
 import {
   commitFailureOwners,
   commitFile,
+  commitTrackerBoard,
   failGate,
   initTempRepo,
   makeFakeCommands,
@@ -41,6 +42,8 @@ import {
   registryRoot,
   TEST_INTEGRATOR_IDENTITY,
   TEST_TIMEOUTS,
+  testRepository,
+  trackBranch,
   writeFile,
 } from "./workspace-test-support.ts";
 import { repositoryRegistry } from "../../src/workflow/repository-registry.ts";
@@ -67,6 +70,13 @@ const PIN_C = "c".repeat(64);
 /** A pin-bearing generated output (a hash-binding target) and a wholly generated one, repository-relative. */
 const PIN_BEARING = "engine/src/kernel/root-policy.ts";
 const WHOLESALE = "engine/src/architecture-manifest.ts";
+/**
+ * The pin-bearing file's text: a REAL binding's pin (the config contract's
+ * `sourceSha256`, located by its registry `findRegex`) and an authored body.
+ */
+function pinned(pin: string, body: string): string {
+  return `export const POLICY = {\n  configuration: { contract: {\n    sourcePath: "${ROOT_POLICY.configuration.contract.sourcePath}",\n    sourceSha256: "${pin}",\n  } },\n  body: "${body}",\n};\n`;
+}
 
 test("happy path: create -> commit -> validate -> merge lands by fast-forward in the checkout holding the target, then tears down", async () => {
   const { root } = initTempRepo("ws-happy");
@@ -83,7 +93,7 @@ test("happy path: create -> commit -> validate -> merge lands by fast-forward in
   assert.ok(record.lease.branch?.startsWith("agent/worker/"));
   assert.ok(existsSync(record.lease.worktreePath));
   assert.equal(record.lease.writeSetIdentity?.length, 64);
-  assert.ok(existsSync(join(registryRoot(root), "workspaces", `${record.workspaceId}.json`)), "the record lives in the git common dir's registry");
+  assert.ok(existsSync(join(workspaceRecordStores(registryOf(root)).current, `${record.workspaceId}.json`)), "the record lives in the git common dir's registry");
 
   commitFile(record.lease.worktreePath, "src/feature/new.ts", "export const x = 1;\n");
   const report = await manager.validate(record.workspaceId);
@@ -197,6 +207,7 @@ test("target not checked out anywhere: the land is a compare-and-swap of the ref
   const { root } = initTempRepo("ws-cas");
   const workspaceRoot = mkWorkspaceTempDir("ws-cas-wt");
   rawGit(root, ["branch", "side"]);
+  trackBranch(root, "side");
   const sideTip = rawGit(root, ["rev-parse", "side"]);
   const headBefore = rawGit(root, ["rev-parse", "HEAD"]);
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
@@ -301,7 +312,6 @@ test("not converged: a merge gate that rewrites a tracked file refuses the land 
 test("generated-output conflicts: a pin-only change and a wholly generated file resolve to the target; an authored change is reported", async () => {
   const { root } = initTempRepo("ws-pins");
   const workspaceRoot = mkWorkspaceTempDir("ws-pins-wt");
-  const pinned = (pin: string, body: string): string => `export const POLICY = {\n  pin: "${pin}",\n  body: "${body}",\n};\n`;
   commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
   commitFile(root, WHOLESALE, "export const MANIFEST = [\"base\"];\n");
   const base = rawGit(root, ["rev-parse", "HEAD"]);
@@ -342,7 +352,6 @@ test("generated-output conflicts: a pin-only change and a wholly generated file 
 test("the lease exempts a regeneration, never a path: an authored edit of a pin-bearing file or a README's prose needs a lease, a pin or consumer-block change does not, and another workspace's lease on it holds", async () => {
   const { root } = initTempRepo("ws-genonly");
   const workspaceRoot = mkWorkspaceTempDir("ws-genonly-wt");
-  const pinned = (pin: string, body: string): string => `export const POLICY = {\n  pin: "${pin}",\n  body: "${body}",\n};\n`;
   const readme = (prose: string, block: string): string => `# Module\n\n${prose}\n\n${README_CONSUMER_BLOCK.begin}\n${block}\n${README_CONSUMER_BLOCK.end}\n`;
   commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
   commitFile(root, "src/mod/README.md", readme("Hand-written prose.", "- consumer a"));
@@ -438,7 +447,7 @@ test("an integrator that died mid-merge is recovered: before the land the worktr
   const { root } = initTempRepo("ws-recover");
   const workspaceRoot = mkWorkspaceTempDir("ws-recover-wt");
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
-  const store = createWorkspaceRecordStore(join(registryRoot(root), "workspaces"));
+  const store = createWorkspaceRecordStore(workspaceRecordStores(registryOf(root)));
   const dieMidMerge = async (name: string, landed: boolean): Promise<WorkspaceRecord> => {
     const record = await manager.create({ agentName: name, mode: "feature", writeSet: [`src/${name}`] });
     commitFile(record.lease.worktreePath, `src/${name}/f.ts`, "export const f = 1;\n");
@@ -464,7 +473,7 @@ test("an integrator that died mid-merge is recovered: before the land the worktr
   const lockDirectory = join(registryRoot(root), "locks");
   const held = await acquireLock(registryRoot(root), "workspace-merge", { lockDirectory, owner: "a live integrator" });
   await assert.rejects(() => manager.recover(before.workspaceId), throwsCode("workspace_recover_denied"));
-  assert.deepEqual(await manager.sweep(), [], "the sweep leaves a running integrator's workspace to it");
+  assert.deepEqual((await manager.sweep()).swept, [], "the sweep leaves a running integrator's workspace to it");
   held.release();
   const recovered = await manager.recover(before.workspaceId);
   assert.equal(recovered.state, "active");
@@ -473,7 +482,7 @@ test("an integrator that died mid-merge is recovered: before the land the worktr
   assert.equal(existsSync(join(root, "src/before/f.ts")), false, "nothing landed");
 
   const after = await dieMidMerge("after", true);
-  assert.deepEqual(await manager.sweep(), [after.workspaceId], "the sweep recovers a dead integrator's workspace");
+  assert.deepEqual((await manager.sweep()).swept, [after.workspaceId], "the sweep recovers a dead integrator's workspace");
   const merged = manager.status(after.workspaceId);
   assert.equal(merged.state, "merged");
   assert.equal(existsSync(after.lease.worktreePath), false);
@@ -483,7 +492,7 @@ test("an integrator that died mid-merge is recovered: before the land the worktr
 
 test("record writes are a compare-and-swap: a validate that read the record before an extend refuses to overwrite it", async () => {
   const { root } = initTempRepo("ws-cas-record");
-  const store = createWorkspaceRecordStore(join(registryRoot(root), "workspaces"));
+  const store = createWorkspaceRecordStore(workspaceRecordStores(registryOf(root)));
   let extendDuringGates: (() => void) | null = null;
   const commands = makeFakeCommands({ unit: (cwd) => { extendDuringGates?.(); return passGate("unit", cwd); } });
   const { manager } = makeManager(root, { config: makeTestConfig(mkWorkspaceTempDir("ws-cas-record-wt")), commands });
@@ -520,7 +529,7 @@ test("the merge's own checks: a pending lease on a changed path (a record admitt
   const { root } = initTempRepo("ws-merge-checks");
   const workspaceRoot = mkWorkspaceTempDir("ws-merge-checks-wt");
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot, { baseStalenessCommits: 1 }) });
-  const store = createWorkspaceRecordStore(join(registryRoot(root), "workspaces"));
+  const store = createWorkspaceRecordStore(workspaceRecordStores(registryOf(root)));
   const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
   commitFile(record.lease.worktreePath, "src/f.ts", "export const f = 1;\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
@@ -639,7 +648,7 @@ test("a MERGING workspace keeps its paths past its lease's expiry: its integrato
   const workspaceRoot = mkWorkspaceTempDir("ws-merging-expired-wt");
   const config = makeTestConfig(workspaceRoot);
   const { manager } = makeManager(root, { config });
-  const store = createWorkspaceRecordStore(join(registryRoot(root), "workspaces"));
+  const store = createWorkspaceRecordStore(workspaceRecordStores(registryOf(root)));
   const merging = await manager.create({ agentName: "agentA", mode: "feature", writeSet: ["src/shared"] });
   commitFile(merging.lease.worktreePath, "src/shared/x.ts", "export const x = 1;\n");
   assert.equal((await manager.validate(merging.workspaceId)).status, "pass");
@@ -961,12 +970,12 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
     let persisted: WorkspaceRecord = manager.status(record.workspaceId);
     const injected = new Error(`injected ${failure}`);
     let inject = true;
-    const records = { load: () => persisted, list: () => [persisted], save(next: WorkspaceRecord): WorkspaceRecord {
+    const records = { load: () => persisted, list: () => [persisted], legacyRecordPath: () => null, save(next: WorkspaceRecord): WorkspaceRecord {
       if (inject && failure === "receipt-save" && next.state === "merged") throw injected;
       persisted = { ...next, revision: next.revision + 1 };
       return persisted;
     } };
-    const failing = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(),
+    const failing = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), repository: testRepository,
       records,
       git: { ...git,
         worktreeRemove(options) { if (failure === "worktree-remove") throw injected; return git.worktreeRemove(options); },
@@ -988,7 +997,7 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
     } finally { source.close(); canonical.close(); }
     // The integrator is gone: recover finishes whatever teardown remained.
     inject = false;
-    const recovering = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), records, git });
+    const recovering = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), repository: testRepository, records, git });
     assert.equal((await recovering.recover(record.workspaceId)).state, "merged");
     assert.equal(existsSync(record.lease.worktreePath), false);
     assert.equal(rawGit(root, ["branch", "--list", record.lease.branch!]), "");
@@ -1177,8 +1186,7 @@ for (const ledgerName of ["engine", "web"] as const satisfies readonly SuiteLedg
     const owned = `${file("owned.test.ts")}::a base failure a task owns`;
     const unowned = `${file("unowned.test.ts")}::a base failure no task owns`;
     const planted = `${file("owned.test.ts")}::a planted new failure`;
-    commitFile(root, ROOT_POLICY.workflow.failureOwners.tracker, [
-      "# Tasks", "",
+    commitTrackerBoard(root, [
       `- [ ] **OWNER-1** fixes the inherited red`,
       `  in ${repositoryPath("owned.test.ts")}:12 (continuation line of the open row; a line suffix is still the path).`,
       `- [x] **DONE-1** once named ${repositoryPath("unowned.test.ts")}; closed rows own nothing.`,
@@ -1186,8 +1194,7 @@ for (const ledgerName of ["engine", "web"] as const satisfies readonly SuiteLedg
       `- [ ] **NEAR-MISS** names ${repositoryPath("unowned.test.ts")}x and \`${repositoryPath("unowned.test.ts")}.bak\`.`,
       // The runner-relative spelling of an engine file is not its repository path.
       ...(ledgerName === "engine" ? [`- [ ] **WRONG-PATH** names ${file("unowned.test.ts")} without the engine prefix.`] : []),
-      "",
-    ].join("\n"));
+    ]);
     const target = rawGit(root, ["rev-parse", "HEAD"]);
     const digests = { [owned]: "aaaaaaaaaaaaaaaa", [unowned]: "bbbbbbbbbbbbbbbb", [planted]: "cccccccccccccccc" };
     const row = (failures: readonly string[], treeId: string) => ({ timestamp: new Date().toISOString(), headSha: target, treeId,
@@ -1239,7 +1246,7 @@ for (const ledgerName of ["engine", "web"] as const satisfies readonly SuiteLedg
 test("a budget breach joins the ONE judgement (UR-24): only SLOTTED target rows recorded before the run count; not worse and owned passes; worse, unowned, unslotted or a fragment-named owner fails", async () => {
   const { root } = initTempRepo("ws-budget");
   const ledger = WEB_RUN_HISTORY_PATH;
-  commitFile(root, ROOT_POLICY.workflow.failureOwners.tracker, "# Tasks\n\n- [ ] **BUDGET-OWNER** re-derives `testExecution.webUiSuiteCpuBudget`.\n");
+  commitTrackerBoard(root, ["- [ ] **BUDGET-OWNER** re-derives `testExecution.webUiSuiteCpuBudget`."]);
   const target = rawGit(root, ["rev-parse", "HEAD"]);
   const targetTree = rawGit(root, ["rev-parse", "HEAD^{tree}"]);
   // The target's runs of its tree: two UNSLOTTED (2204, 2137: they judge nothing), one slotted (2150), and a slotted
@@ -1288,7 +1295,7 @@ test("a budget breach joins the ONE judgement (UR-24): only SLOTTED target rows 
   assert.match(unslotted.details.join("\n"), /did not hold the instrument lock: refused, not judged/u);
 
   slot = "held";
-  commitFile(workspace.lease.worktreePath, ROOT_POLICY.workflow.failureOwners.tracker, "# Tasks\n\n- [ ] **NEAR-MISS** re-derives testExecution.webUiSuiteCpuBudgetHistory.\n- [x] **BUDGET-OWNER** re-derived testExecution.webUiSuiteCpuBudget.\n");
+  commitTrackerBoard(workspace.lease.worktreePath, ["- [ ] **NEAR-MISS** re-derives testExecution.webUiSuiteCpuBudgetHistory.", "- [x] **BUDGET-OWNER** re-derived testExecution.webUiSuiteCpuBudget."]);
   const unowned = await judge();
   assert.equal(unowned.status, "fail", "a closed row owns nothing, and a longer name is not the budget's");
   assert.match(unowned.details.join("\n"), /no open task row of docs\/trackers\/TASKS\.md declares testExecution\.webUiSuiteCpuBudget/u);
@@ -1298,7 +1305,7 @@ test("a PERFORMANCE budget's breach is judged in the same ONE judgement: owned a
   const { root } = initTempRepo("ws-perf-budget");
   const ledger = WEB_RUN_HISTORY_PATH;
   const gate = `${ROOT_POLICY.workflow.webPerformanceBudgets.gatePrefix}apiResponseMaxMs`;
-  commitFile(root, ROOT_POLICY.workflow.failureOwners.tracker, "# Tasks\n\n- [ ] **PERF-OWNER** makes the routes fast: `webUi.performance.apiResponseMaxMs`.\n");
+  commitTrackerBoard(root, ["- [ ] **PERF-OWNER** makes the routes fast: `webUi.performance.apiResponseMaxMs`."]);
   const target = rawGit(root, ["rev-parse", "HEAD"]);
   const targetTree = rawGit(root, ["rev-parse", "HEAD^{tree}"]);
   // The target's one slotted run carries no performance value: it is measured in the lock (750).
@@ -1349,7 +1356,7 @@ test("a PERFORMANCE budget's breach is judged in the same ONE judgement: owned a
 test("a target with NO slotted run is measured in the lock first, then judged strictly: its slotted value is the bar", async () => {
   const { root } = initTempRepo("ws-budget-measure");
   const ledger = WEB_RUN_HISTORY_PATH;
-  commitFile(root, ROOT_POLICY.workflow.failureOwners.tracker, "# Tasks\n\n- [ ] **BUDGET-OWNER** `testExecution.webUiSuiteCpuBudget`\n");
+  commitTrackerBoard(root, ["- [ ] **BUDGET-OWNER** `testExecution.webUiSuiteCpuBudget`"]);
   const target = rawGit(root, ["rev-parse", "HEAD"]);
   const targetTree = rawGit(root, ["rev-parse", "HEAD^{tree}"]);
   writeFile(root, ledger, `${JSON.stringify({ runs: [{ timestamp: "2026-10-02T04:49:08.852Z", headSha: target, treeId: targetTree, wallClockMs: 0, cpuMsPerTestFile: 3000, testModuleCount: 1, failures: [], heavySlot: "unslotted" }] })}\n`);
@@ -1456,7 +1463,7 @@ test("a workspace's snapshot refs go with it at abort (A5-design L4), and stay w
   assert.equal(refsOf(kept.workspaceId).length, 2, "a quarantined workspace keeps its recovery points");
   // Its quarantine expired: the sweep removes the worktree, the branch and the recovery points (A5-correctness L2).
   const later = makeManager(root, { config, now: () => new Date(Date.now() + 2 * config.quarantineTtlMs) }).manager;
-  assert.deepEqual(await later.sweep(), [kept.workspaceId]);
+  assert.deepEqual((await later.sweep()).swept, [kept.workspaceId]);
   assert.equal(existsSync(kept.lease.worktreePath), false);
   assert.equal(rawGit(root, ["branch", "--list", kept.lease.branch!]), "", "the expired quarantine's branch is gone");
   assert.deepEqual(refsOf(kept.workspaceId), []);

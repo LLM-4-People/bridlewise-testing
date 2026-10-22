@@ -445,10 +445,9 @@ export type LegitimateRawReader =
   | "web:tests/setup/source-tree-immutable.ts"
   | "web:scripts/check-docs-links.mjs"
   | "web:scripts/check-secrets.mjs"
-  | "web:scripts/floor/site.mjs"
   | "web:scripts/floor/site-pages.mjs"
-  | "web:scripts/floor/site-links.mjs"
-  | "web:tests/prevention/agent-docs-liveness.test.ts";
+  | "web:tests/prevention/agent-docs-liveness.test.ts"
+  | "web:tests/prevention/declared-pattern-liveness.test.ts";
 
 /**
  * The readers that must have bytes, each with the reason WRITTEN DOWN.
@@ -468,18 +467,18 @@ export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
   },
   "web:scripts/floor/site-pages.mjs": {
     why:
-      "The subject is the assembled Markdown and its front matter, which is prose "
+      "The subject is the docs Markdown and its front matter, which is prose "
       + "rather than program text: the link targets being rewritten live inside "
       + "document prose, and the page is written back with every other byte kept. A "
       + "code view would blank exactly the spans the rewrite must see and would "
       + "change the document it is meant to preserve.",
   },
-  "web:scripts/floor/site-links.mjs": {
+  "web:tests/prevention/declared-pattern-liveness.test.ts": {
     why:
-      "The subject is the BUILT HTML the browser receives, not repository source. "
-      + "An href or src is an attribute in emitted markup, and the crawler must see "
-      + "each attribute exactly as emitted, including ones a template produced. A "
-      + "source view models program text, not rendered HTML attributes.",
+      "The subjects are the CI workflow (YAML) and the package.json script that declare the "
+      + "node:test runner, not program source: the guard asks whether the gate runs "
+      + "`npm run test:public` and which globs that script hands to `node --test`. A source "
+      + "view models JavaScript text and would blank the very script string being read.",
   },
   "web:scripts/floor/design-coverage.mjs": {
     why:
@@ -509,13 +508,6 @@ export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
       "synthetic-fixture allowlist. A source view would blank or rewrite the " +
       "credential-shaped strings it must detect, so the raw bytes are the " +
       "correct input and the report names paths rather than code semantics.",
-  },
-  "web:scripts/floor/site.mjs": {
-    why:
-      "The site assembler copies product documentation, Markdown, CSS, and " +
-      "configuration byte for byte into the Pages source tree. A view would " +
-      "change the artifact it assembles, so it must read and write the same " +
-      "bytes the product repository ships.",
   },
   "web:tests/helpers/vm-isolation-witness.ts": {
     why:
