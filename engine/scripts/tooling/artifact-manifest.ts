@@ -24,10 +24,9 @@
  * same bytes (`origin.license: "unknown"`), because the two readers answered
  * different questions.
  *
- * Now: the document's `generatedAt` is DERIVED from its entries (the latest
- * `capturedAt`); a prior origin is reused only when it matches a pinned origin
- * shape in `artifact-admission.ts`; anything else is replaced by a fresh
- * mechanical capture. The build's own provenance policy is checked before a
+ * Now: the record carries no clock at all (#221); a prior origin is reused
+ * only when it matches a pinned origin shape in `artifact-admission.ts`;
+ * anything else is replaced by the mechanical origin. The build's own provenance policy is checked before a
  * write, so this producer can never emit a document the admission policy
  * refuses.
  *
@@ -41,19 +40,21 @@
  * authority. A canonical artifact's retention is append-only governed
  * supersession, so `--prune` does not apply to it at all: it must be restored.
  *
- * DETERMINISM. `generatedAt` = the latest entry capture, so two runs over one
- * tree produce identical bytes and `harness sync` converges. A capture stamp
- * moves only when an artifact's bytes (or its admitted origin) move.
+ * DETERMINISM. The document is a function of the tree: no wall-clock time is
+ * read or written, so two runs over one tree at any two times produce
+ * identical bytes, and `harness sync` converges (#221). It is written one
+ * entry per line (`canonicalJsonLines`), so branches that change different
+ * artifacts merge.
  *
  * Usage: `node scripts/tooling/artifact-manifest.ts --check|--write [--prune <path>]…`
- * Prints ONE JSON line: `{ allCurrent, status, changed, entries, generatedAt, policyHash }`.
+ * Prints ONE JSON line: `{ allCurrent, status, changed, entries, policyHash }`.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
-import { canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
+import { canonicalJson, canonicalJsonLines, sha256 } from "../../src/kernel/integrity.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import {
   ARTIFACT_MANIFEST_PATH,
@@ -71,7 +72,6 @@ type ArtifactManifestReport = Readonly<{
   status: "current" | "stale" | "missing" | "written";
   changed: readonly string[];
   entries: number;
-  generatedAt: string;
   policyHash: string;
   /** sha256 of the canonical bytes this run judged (or wrote). */
   integrityHash: string;
@@ -88,10 +88,6 @@ class ArtifactManifestRefusal extends Error {
     this.name = "ArtifactManifestRefusal";
     this.code = code;
   }
-}
-
-function nowIso(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/u, "Z");
 }
 
 /** The previous document's entries — path + retention only, the facts a prune decides on. */
@@ -174,12 +170,9 @@ export function syncArtifactManifest(
       previousManifest = undefined;
     }
   }
-  // The stale first pass uses a fresh stamp; a second pass is not needed: the
-  // document's stamp is derived from the captures, so the bytes are stable
-  // when no artifact moved.
+  // A function of the tree (#221): no clock is read, so one tree gives the same bytes at any time.
   const manifest = buildArtifactAdmissionManifest({
     root: access,
-    generatedAt: nowIso(),
     ...(previousManifest !== undefined ? { previousManifest } : {}),
   });
   const violations = artifactProvenanceViolations(manifest);
@@ -193,7 +186,8 @@ export function syncArtifactManifest(
   const dropped = previous.filter((entry) => !currentPaths.has(entry.path)).toSorted((left, right) =>
     left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
   refuseDroppedArtifacts(dropped, currentPaths, prune);
-  const bytes = `${canonicalJson(manifest)}\n`;
+  // One entry per line (the one canonical form, `canonicalJsonLines`): two branches that change different artifacts merge.
+  const bytes = canonicalJsonLines(manifest);
   const current = previousText !== undefined && bytes === previousText;
   let status: ArtifactManifestReport["status"];
   if (current) {
@@ -215,7 +209,6 @@ export function syncArtifactManifest(
     status,
     changed: current ? [] : [ARTIFACT_MANIFEST_PATH],
     entries: manifest.entries.length,
-    generatedAt: manifest.generatedAt,
     policyHash: manifest.policyHash,
     integrityHash: sha256(bytes),
     dropped: dropped.map((entry) => entry.path),

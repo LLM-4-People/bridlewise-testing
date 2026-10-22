@@ -119,11 +119,20 @@ test("detectSensitiveSpans: does not detect function-call assignments", () => {
   const safe = [
     "authorization = load_bound_json_object(root, snapshot)",
     "secret = get_secret_key()",
-    "password = request.headers['apikey']",
   ];
   for (const text of safe) {
     const spans = detectSensitiveSpans(text, policy);
     assert.equal(spans.length, 0, `should not detect secrets in: ${text}`);
+  }
+});
+
+// THE DECLARED, REVIEWED OVER-MATCH (#70, 2026-10-22): `password = <expr>`
+// is a dsn-credential hit. The same bytes are a real INI / my.cnf value, the
+// catalogue never sees a file type, and a missed credential is never
+// acceptable — so the over-match is kept and stated here, not vetoed.
+test("detectSensitiveSpans: a code expression after `password =` is the reviewed dsn-credential over-match", () => {
+  for (const text of ["password = request.headers['apikey']", "const password = readPassword(promptForTheUser);"]) {
+    assert.deepEqual(detectSensitiveSpans(text, policy).map((span) => span.signalId), ["dsn-credential"], text);
   }
 });
 

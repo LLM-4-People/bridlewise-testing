@@ -2,7 +2,9 @@ import { InputError } from "../kernel/errors.ts";
 
 /**
  * Minimal semantic-version utilities — the one canonical owner for version
- * parsing, comparison, and range satisfaction in the extension system.
+ * parsing, comparison, and range satisfaction: the extension system's
+ * manifests and the product's release train (its declared version and the
+ * release tags' precedence) both read versions here.
  *
  * Supports MAJOR.MINOR.PATCH with optional numeric prerelease tags
  * (-<prerelease>) and the standard range operators: exact (`1.2.3`), caret

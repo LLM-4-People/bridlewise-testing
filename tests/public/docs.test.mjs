@@ -85,8 +85,9 @@ test("the refusal list has one owner and both contributor pages point to it", ()
 
 test("test placement has one owner and the contributor pages point to it", () => {
   assert.match(read("docs/testing.md"), /Put the test beside its subject's domain/u);
-  for (const page of ["CONTRIBUTING.md", "docs/floor/help.md"]) {
-    assert.ok(read(page).includes("docs/testing.md#adding-a-test"), `${page} must point at the placement owner`);
+  // Each page links the owner relative to itself (the docs links check proves the anchor).
+  for (const [page, link] of [["CONTRIBUTING.md", "docs/testing.md#adding-a-test"], ["docs/floor/help.md", "../testing.md#adding-a-test"]]) {
+    assert.ok(read(page).includes(`](${link})`), `${page} must point at the placement owner`);
   }
   assert.doesNotMatch(read("CONTRIBUTING.md"), /Put the test beside its subject's domain/u);
   assert.doesNotMatch(read("docs/floor/help.md"), /CONTRIBUTING\.md#test-conventions/u);

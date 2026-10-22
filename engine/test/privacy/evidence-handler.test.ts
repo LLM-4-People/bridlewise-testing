@@ -4,7 +4,9 @@ import test from "node:test";
 import { createPrivacyPolicy } from "../../src/privacy/privacy-policy.ts";
 import {
   createEvidenceReceipt,
+  homePathsAsTilde,
   markUnparseable,
+  persistableText,
   redactEvidence,
   redactForDisplay,
   redactForLog,
@@ -28,6 +30,16 @@ function admitted(result: EvidenceRedactionResult): EvidenceRedactionAdmitted {
   );
   return result as EvidenceRedactionAdmitted;
 }
+
+
+test("persistableText: a home directory is spelled ~ — this process's home and any /home/<name>, a whole segment only (#238)", () => {
+  assert.equal(homePathsAsTilde("log at /srv/me/a, /srv/me and /srv/me2/b", "/srv/me"), "log at ~/a, ~ and /srv/me2/b");
+  assert.equal(homePathsAsTilde("from /home/jdoe/.cache/x and /home/alice", "/srv/me"), "from ~/.cache/x and ~");
+  assert.equal(homePathsAsTilde("nothing here: /homes/x /var/tmp", "/srv/me"), "nothing here: /homes/x /var/tmp");
+  assert.equal(homePathsAsTilde("/", "/"), "/", "a root home names nobody and is left alone");
+  const kept = persistableText("full output (9 bytes): /home/jdoe/.cache/run.log");
+  assert.equal(kept, "full output (9 bytes): ~/.cache/run.log");
+});
 
 // ---------------------------------------------------------------------------
 // Section 1: redactForPersistence — basic behavior

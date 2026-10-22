@@ -1,6 +1,5 @@
 ---
 layout: default
-floor_assets: true
 page_class: floor
 title: "Floor status"
 description: "The last generated snapshot of the Bridlewise development floor, its promotion state, and its public CI runs. Missing data is unknown, not green."
@@ -118,12 +117,12 @@ The snapshot is a versioned JSON document. The page accepts `bridlewise-floor-st
 | `schemaVersion` | string | The document schema. The page accepts `bridlewise-floor-status/v1` only. | An unknown schema is an error state. |
 | `generatedAt` | ISO 8601 string | When the snapshot was produced, not when you loaded the page. | Missing means the age is unknown; the page does not apply the stale check. |
 | `source.repository` | string | The repository the snapshot read. | Missing means unknown. |
-| `source.ref` | string | The source ref, for example `refs/heads/testing`. | Missing means unknown. |
+| `source.ref` | string | The source ref, `refs/heads/main`. | Missing means unknown. |
 | `source.commit` | string or null | The source commit in the snapshot. | `null` means unknown, not current. |
 | `source.committedAt` | ISO 8601 string or null | The source commit time. | `null` means unknown. |
-| `product.repository` | string | The product repository the snapshot read. | Missing means unknown. |
-| `product.ref` | string | The product ref, for example `refs/heads/master`. | Missing means unknown. |
-| `product.commit` | string or null | The product commit in the snapshot. | `null` means unknown, not current. |
+| `product.repository` | string | The repository whose product branch the snapshot read (the same repository). | Missing means unknown. |
+| `product.ref` | string | The product branch, `refs/heads/product`. | Missing means unknown. |
+| `product.commit` | string or null | The product branch's tip in the snapshot. | `null` means unknown or no promotion yet, not current. |
 | `product.committedAt` | ISO 8601 string or null | The product commit time. | `null` means unknown. |
 | `promotion.profile` | string | The profile name that produced the state. | Missing means unknown. |
 | `promotion.state` | enum | `ready`, `blocked`, or `unknown`. | An unrecognized value renders `unknown`. |
@@ -155,7 +154,7 @@ Nested fields the table groups for space:
 | `blocked` | At least one required run failed. Read the gate table and the public run. |
 | `unknown` | A required run is missing, pending, or for a different commit, or the API could not be read. This is not a pass. |
 
-The public snapshot does not authorize a release. The product release workflow runs the promotion gate with a product-scoped token and its own receipt. This page reports public evidence and gaps.
+The public snapshot does not authorize a release: a release is judged from its own attested evidence when it is cut. This page reports public evidence and gaps.
 
 ## The GitHub fallback
 

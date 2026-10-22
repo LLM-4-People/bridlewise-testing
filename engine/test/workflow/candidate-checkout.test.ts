@@ -42,7 +42,7 @@ import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { ownedFiles } from "../../src/git/repository-ownership.ts";
 import { stageInCopy } from "../../src/git/working-copy.ts";
 import { indexBaselinePath } from "../../src/git/index-baseline.ts";
-import { pinnedBuildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
+import { buildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
 import { createRepositoryLocalTemporaryDirectory, createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory, TEST_REPOSITORY_ROOT } from "../support/repository-local-temporary.ts";
 import { journalPathFor } from "../../src/filesystem/journaled-commit.ts";
 
@@ -151,8 +151,8 @@ test("candidate CLI: create makes missing parents; refresh keeps regenerated out
     assert.equal(incomplete.json["error"], "candidate_output_missing");
     assert.equal(ownedFingerprint(source.root), before, "a refused copy-back wrote the source");
 
-    // The pinned build outputs, as a setup would have built them.
-    for (const path of pinnedBuildOutputPaths()) {
+    // The build outputs, as a setup would have built them.
+    for (const path of buildOutputPaths()) {
       if (!existsSync(join(source.root, path))) continue;
       mkdirSync(dirname(join(target, path)), { recursive: true });
       copyFileSync(join(source.root, path), join(target, path));
@@ -166,6 +166,10 @@ test("candidate CLI: create makes missing parents; refresh keeps regenerated out
     const unverified = cli(source.engineRoot, ["copy-back", "--target", target]);
     assert.equal(unverified.status, 1);
     assert.equal(unverified.json["error"], "candidate_copy_back_unverified", JSON.stringify(unverified.json));
+    // The refusal names the failing check step and its reason, not the
+    // progress lines that only say which step was running (#148).
+    assert.match(String(unverified.json["message"]), /harness check fails in the source: [a-z][a-z-]*: \S/u, String(unverified.json["message"]));
+    assert.doesNotMatch(String(unverified.json["message"]), /Checking the /u);
     assert.equal(ownedFingerprint(source.root), before, "a copy-back that failed its check left its writes in the source");
     assert.equal(existsSync(journal), false);
     writeFileSync(inCandidate, original);
@@ -232,6 +236,9 @@ test("candidate CLI: create makes missing parents; refresh keeps regenerated out
     // package file), so it is linked into an ignored node_modules directory.
     mkdirSync(join(target, "engine", "node_modules"), { recursive: true });
     symlinkSync(join(TEST_REPOSITORY_ROOT, "node_modules", "esbuild"), join(target, "engine", "node_modules", "esbuild"));
+    // The candidate's schema is stale again (the B arm's edit), so the sync has an output to rewrite: no other
+    // generated value moves here (the bundle's digest is never committed, #221).
+    writeFileSync(inCandidate, `${original.trimEnd()}\n\n`);
     const beforeSync = Date.now();
     const synced = cli(source.engineRoot, ["sync", "--target", target]);
     assert.equal(synced.status, 0, JSON.stringify(synced.json));

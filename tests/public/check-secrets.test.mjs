@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -12,7 +13,8 @@ const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
 // scan of THIS tree (which exempts no path) stays clean.
 const HOME = "/ho" + "me/";
 const LEAK = `${HOME}leakuser`;
-const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
+const { readRunCpu } = await import("../../engine/src/shared/run-cpu.ts");
+const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, createPrivacyMatcher, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
   const dir = mkdtempSync(join(tmpdir(), "bridlewise-secret-scan-"));
@@ -376,15 +378,17 @@ test("a 520-character installation token with dots is found by its row id, in do
 });
 
 test("each publication-privacy row is reported by its id; database state by file name", () => {
-  const planted = {
-    "home-path": `see ${HOME}private-user/work\n`,
-    "internal-git-host": "remote: https://git.local" + "server.ca/x.git\n",
-    "internal-provider-host": "base: https://api.neural" + "watt.com/v1\n",
-    "internal-scratch-path": "scratch: /tmp/open" + "code/run\n",
-    "local-evidence-state": "state: ~/.local/state/code-harness" + ".fresh-evidence/x\n",
-  };
-  const textRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => signal.appliesTo === "text").map((signal) => signal.id);
-  assert.deepEqual(Object.keys(planted).sort(), [...textRows].sort(), "every text privacy row has a planted case");
+  // A NAME row never spells its name (this repository is public), so it
+  // cannot be planted here; the one matcher it runs through is driven with a
+  // synthetic row below. The SHAPE rows are planted end to end.
+  const shapeRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => "pattern" in signal).map((signal) => signal.id);
+  assert.deepEqual([...shapeRows].sort(), ["database-state", "home-path"],
+    "a new pattern row must not spell a protected name: give it `names` and `digests` instead");
+  for (const signal of PUBLICATION_PRIVACY_SIGNALS.filter((row) => !("pattern" in row))) {
+    assert.ok(signal.digests.length > 0 && signal.digests.every((pin) => /^[0-9a-f]{64}$/u.test(pin.sha256) && Number.isSafeInteger(pin.length) && pin.length > 0),
+      `${signal.id} carries no SHA-256 digest with its name's length`);
+  }
+  const planted = { "home-path": `see ${HOME}private-user/work\n` };
   for (const [id, line] of Object.entries(planted)) {
     const dir = repoWith({ "src/notes.md": line });
     try {
@@ -457,6 +461,96 @@ test("a credential literal is a finding in every test tree; runtime-assembled on
   }
 });
 
+test("a name row matches by digest: whole labels, any case, as a subdomain or a prefix; never inside a label", () => {
+  // Synthetic protected names (RFC 2606 `.invalid`), through the same matcher
+  // every privacy row runs through.
+  const pin = (name) => ({ length: name.length, sha256: createHash("sha256").update(name).digest("hex") });
+  const match = createPrivacyMatcher([
+    { id: "host", names: "dotted", digests: [pin("probe.internal.invalid")] },
+    { id: "other", names: "dotted", digests: [pin("other.example.invalid")] },
+    { id: "scratch", names: "scratch-path", digests: [pin("/tmp/probescratch")] },
+  ]);
+  for (const text of [
+    "remote: https://probe.internal.invalid/x.git",
+    "base: https://api.probe.internal.invalid/v1",
+    "PROBE.Internal.INVALID",
+    "probe.internal.invalid.example:443",
+    // A long dotted run stays linear (the scanner reads multi-megabyte lines).
+    `${"a.".repeat(200_000)}probe.internal.invalid`,
+  ]) assert.deepEqual(match(text), ["host"], text.slice(0, 60));
+  for (const text of ["xprobe.internal.invalid", "x-probe.internal.invalid", "probe.internal.invalidx", "probe-internal-invalid", "probe.internal", "probe..internal.invalid"]) {
+    assert.deepEqual(match(text), [], text);
+  }
+  // Several name rows in one text, judged in one cut, reported in row order.
+  assert.deepEqual(match("other.example.invalid then probe.internal.invalid in /tmp/probescratch/x"), ["host", "other", "scratch"]);
+  assert.deepEqual(match("scratch: /tmp/probescratch-2/run"), ["scratch"], "a word boundary ends the directory, as before");
+  assert.deepEqual(match("scratch: /tmp/probescratchx"), []);
+  assert.deepEqual(match("scratch: /var/tmp/other"), []);
+  // The scanner applies every privacy row through this matcher (one door).
+  assert.match(readFileSync(SCANNER, "utf8"), /publicationPrivacyFindings\(normalizedLine, "text"\)/u);
+});
+
+test("the privacy matcher's CPU work is bounded: one cut per text, only length-matching windows hashed", () => {
+  // CPU WORK, never wall time (process.cpuUsage, best of three): the matcher
+  // over lines dense with dotted names, against the irreducible cost of cutting
+  // the same lines into name runs once. The previous design (each name row
+  // re-cut the text and hashed every window) is planted and must break the
+  // same budget, so the bound is shown to see the regression it guards.
+  const pin = (name) => ({ length: name.length, sha256: createHash("sha256").update(name).digest("hex") });
+  const rows = [
+    { id: "a", names: "dotted", digests: [pin("probe.internal.invalid")] },
+    { id: "b", names: "dotted", digests: [pin("other.host.invalid")] },
+    { id: "c", names: "dotted", digests: [pin("state-dir.local-evidence.ex")] },
+    { id: "d", names: "scratch-path", digests: [pin("/tmp/probescrat")] },
+  ];
+  const match = createPrivacyMatcher(rows);
+  const lines = Array.from({ length: 20_000 }, (_, index) =>
+    `import { x${index} } from "./src/module-${index}.helpers.ts"; // https://docs.example.org/api/v1.2.${index}/index.html a.b.c.d.e.f.g.h /tmp/build${index}`);
+  const cpu = (work) => {
+    let best = Number.POSITIVE_INFINITY;
+    for (let round = 0; round < 3; round += 1) {
+      const start = process.cpuUsage();
+      work();
+      const used = process.cpuUsage(start);
+      best = Math.min(best, used.user + used.system);
+    }
+    return best;
+  };
+  const cut = cpu(() => {
+    for (const line of lines) for (const run of line.matchAll(/[A-Za-z0-9_.-]+/gu)) void run;
+  });
+  const BUDGET = 10;
+  const matcher = cpu(() => {
+    for (const line of lines) match(line);
+  });
+  assert.ok(matcher <= BUDGET * cut, `the privacy matcher used ${String(matcher)} µs CPU, over ${String(BUDGET)}× the ${String(cut)} µs cut`);
+  const perRow = (text) => {
+    const found = [];
+    for (const row of rows) {
+      const candidates = [];
+      if (row.names === "scratch-path") {
+        for (const hit of text.matchAll(/\/tmp\/\w+/gu)) candidates.push(hit[0]);
+      } else {
+        for (const hit of text.matchAll(/[A-Za-z0-9_.-]+/gu)) {
+          const labels = hit[0].split(".");
+          for (let first = 0; first < labels.length - 1; first += 1) {
+            for (let last = first + 2; last <= Math.min(labels.length, first + 6); last += 1) candidates.push(labels.slice(first, last).join("."));
+          }
+        }
+      }
+      for (const candidate of candidates) {
+        const digest = createHash("sha256").update(candidate.toLowerCase()).digest("hex");
+        if (row.digests.some((entry) => entry.sha256 === digest)) found.push(row.id);
+      }
+    }
+    return found;
+  };
+  const planted = cpu(() => {
+    for (const line of lines) perRow(line);
+  });
+  assert.ok(planted > BUDGET * cut, `the planted per-row design (${String(planted)} µs) did not break the budget: the bound sees nothing`);
+});
+
 /**
  * THE ROWS THIS CATALOGUE MUST HOLD, pinned by id (github-only §8.2): each is
  * present, applied by the repository scan, and projected to GitHub as the
@@ -497,4 +591,35 @@ test("every required row is present, scanned over the tree, and projected to Git
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("a large JSON document costs the scanner about what its raw lines do: no per-value search of the whole text (#301)", () => {
+  // CPU WORK of the scanner child (procfs, the engine's one CPU reader), never
+  // wall time. The same document is scanned as valid JSON (raw lines plus the
+  // decoded-string pass, which any file that parses as JSON gets) and with one
+  // leading byte that stops it parsing (raw lines only); the decoded pass used
+  // to search the whole document once per string value (`lineOf`, which also
+  // split the prefix into lines), which made the JSON scan quadratic.
+  const values = Array.from({ length: 8_000 }, (_, index) => ({ id: `entry-${index}`, path: `docs/section-${index}/page.md`, note: `plain value ${index}` }));
+  const text = `${JSON.stringify(values, null, 1)}\n`;
+  const childCpu = (files) => {
+    const dir = repoWith(files);
+    try {
+      let best = Number.POSITIVE_INFINITY;
+      for (let round = 0; round < 2; round += 1) {
+        const before = readRunCpu();
+        const result = scan(dir);
+        const after = readRunCpu();
+        assert.equal(result.status, 0, result.stderr);
+        assert.ok(before !== null && after !== null, "this host cannot measure child CPU (no procfs)");
+        best = Math.min(best, after.childCpuMs - before.childCpuMs);
+      }
+      return best;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const asText = childCpu({ "data/values.txt": `#${text}` });
+  const asJson = childCpu({ "data/values.json": text });
+  assert.ok(asJson <= 2.5 * asText, `the JSON scan used ${String(asJson)} ms CPU against ${String(asText)} ms for the same bytes as text`);
 });

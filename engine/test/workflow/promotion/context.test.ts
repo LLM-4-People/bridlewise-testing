@@ -70,14 +70,14 @@ test("§5.1: from a checkout of the TARGET (no profile), the target tip's last p
 });
 
 test("the pending signal counts an overlay file's change as changing what ships, and an excluded file's as not", () => {
-  const fixture = promotionFixture("promotion-overlay-pending", { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: "target-only/" } });
+  const fixture = promotionFixture("promotion-overlay-pending", { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: { folder: "target-only/", kinds: ["*.txt"] } } });
   const source = fixture.tip(SOURCE);
   const promoted = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nProjected-From: ${source}\nPromotion-Profile: ${PROFILE_NAME}@${fixture.loaded().blob!}`]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, promoted]);
   fixture.commit(SOURCE, { "dev/tool.ts": "export const tool = 3;\n" }, "a development change");
   fixture.git(["checkout", "-q", SOURCE]);
   assert.match(enginePromotionSource(fixture.root, fixture.document).pending(), /^dev-to-prod: 1 source commit\(s\) not yet promoted, the oldest [0-9.]+ h old, none changing what ships$/u);
-  fixture.commit(SOURCE, { "target-only/NOTICE": "the product's notice\n" }, "a target-only file");
+  fixture.commit(SOURCE, { "target-only/NOTICE.txt": "the product's notice\n" }, "a target-only file");
   fixture.git(["checkout", "-q", SOURCE]);
   assert.match(enginePromotionSource(fixture.root, fixture.document).pending(), /^dev-to-prod: 2 source commit\(s\) not yet promoted, the oldest [0-9.]+ h old, changing what ships$/u);
 });
@@ -162,7 +162,7 @@ test("L13: --text renders the answer as a report (code, class, message, remedy, 
   assert.equal(outcome.exitCode, 2);
   const text = renderCommandAnswer(outcome, "text");
   assert.match(text, /^promotion_usage \(input\): an override \(--accept-target-edits, --allow-deletions, --release-hold\) needs --reason <text>/u);
-  assert.match(text, /\nremedy: Run `harness promote <status\|plan\|explain\|apply\|rollback\|hold\|release-hold\|auto>/u);
+  assert.match(text, /\nremedy: Run `harness promote <status\|plan\|explain\|apply\|forge-publish\|rollback\|hold\|release-hold\|auto>/u);
   assert.deepEqual(JSON.parse(renderCommandAnswer(outcome, "json")), JSON.parse(JSON.stringify(outcome.result)), "the default: the envelope");
   // The format is the harness dispatch's one option, never a verb's argument.
   assert.equal((await runPromoteCli(process.cwd(), ["status", "--text"])).result.result.code, "promotion_usage");
