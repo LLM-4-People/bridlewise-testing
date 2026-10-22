@@ -159,8 +159,8 @@ jobs:
 
   # What the browser actually renders, judged by the one rule table
   # (scripts/rendered/rules.ts): the brand mark's computed paint and
-  # visibility, the families text renders in, and no request leaving the
-  # origin. The rules first prove themselves on planted breaks; then every
+  # visibility, the families text renders in, the Content-Security-Policy
+  # meta tag and no violation of it, and no request leaving the origin. The rules first prove themselves on planted breaks; then every
   # cockpit view the capture walk reaches and every page of the built site
   # are judged. A static guard reads spellings; this reads the result.
   rendered:

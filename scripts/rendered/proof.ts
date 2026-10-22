@@ -16,7 +16,8 @@ import { chromium } from "playwright-core";
 
 import { isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
-import { judgePage, serveSite, watchRequests } from "./judge.ts";
+import { instrumentContext, judgePage, serveSite } from "./judge.ts";
+import { CONTENT_SECURITY_POLICY, RENDERED_RULES, type PageRule } from "./rules.ts";
 
 /** The mark as Brand.svelte draws it, from the one geometry and its tokens (never a copy of its coordinates). */
 function markSvg(): string {
@@ -44,7 +45,10 @@ body { font-family: var(--face-sans); }
 <body><header><span class="brand">${markSvg()}</span></header>
 <main><p id="prose">A sentence in the sans stack.</p><p>Inline <code>code</code> in the mono stack.</p></main><!--PLANT-BODY--></body></html>`;
 
-type Plant = Readonly<{ name: string; head?: string; body?: string; rule: string }>;
+/** A page: what it adds to the clean one, and the rule that must name it. `only` judges it with exactly those rows (a row pending on every surface is proved this way). */
+type Plant = Readonly<{ name: string; head?: string; body?: string; rule: string; only?: readonly string[] }>;
+
+const cspMeta = (policy: string): string => `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
 
 /** Each break, and the rule that must name it. */
 const PLANTS: readonly Plant[] = [
@@ -64,6 +68,15 @@ const PLANTS: readonly Plant[] = [
   { name: "a remote font through @import", head: '<style>@import url("https://fonts.example.invalid/face");</style>', rule: "same-origin" },
   { name: "a remote font face", head: '<style>@font-face { font-family: "Proof Sans"; src: url("https://fonts.example.invalid/proof.woff2") } </style>', rule: "same-origin" },
   { name: "a remote script", head: '<script src="https://cdn.example.invalid/loader.js"></script>', rule: "same-origin" },
+  { name: "the Content-Security-Policy meta tag missing", rule: "csp-meta", only: ["csp-meta"] },
+  { name: "a loosened Content-Security-Policy", head: cspMeta(`${CONTENT_SECURITY_POLICY.replace("'self'", "'self' 'unsafe-inline'")}`), rule: "csp-meta", only: ["csp-meta"] },
+  { name: "a second Content-Security-Policy meta tag", head: `${cspMeta(CONTENT_SECURITY_POLICY)}${cspMeta("default-src *")}`, rule: "csp-meta", only: ["csp-meta"] },
+  { name: "a resource the policy blocks", head: cspMeta("default-src 'self' 'unsafe-inline'"), body: '<img alt="" src="https://cdn.example.invalid/pixel.png">', rule: "csp-violations", only: ["csp-violations"] },
+];
+
+/** Near-misses each row must pass: the exact policy, in another spacing. */
+const CLEAN_TOO: readonly Plant[] = [
+  { name: "the exact policy, spaced differently", head: cspMeta(CONTENT_SECURITY_POLICY.replace("; ", " ;  ")), rule: "csp-meta", only: ["csp-meta"] },
 ];
 
 /** Builds the fixture site, judges every page as the cockpit is judged (every rule), and returns what failed. */
@@ -72,26 +85,35 @@ async function prove(): Promise<readonly string[]> {
   const failures: string[] = [];
   try {
     writeFileSync(join(dir, "clean.html"), CLEAN);
-    PLANTS.forEach((plant, i) => writeFileSync(join(dir, `plant-${i}.html`), CLEAN.replace("<!--PLANT-HEAD-->", plant.head ?? "").replace("<!--PLANT-BODY-->", plant.body ?? "")));
+    const page = (plant: Plant): string => CLEAN.replace("<!--PLANT-HEAD-->", plant.head ?? "").replace("<!--PLANT-BODY-->", plant.body ?? "");
+    PLANTS.forEach((plant, i) => writeFileSync(join(dir, `plant-${i}.html`), page(plant)));
+    CLEAN_TOO.forEach((plant, i) => writeFileSync(join(dir, `clean-${i}.html`), page(plant)));
+    const rows = (only: readonly string[] | undefined): readonly PageRule[] | undefined =>
+      only === undefined ? undefined : RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && only.includes(r.id));
     const { server, origin } = await serveSite(dir, "/proof");
     const browser = await chromium.launch({ headless: true });
     try {
-      const judge = async (file: string): Promise<readonly string[]> => {
+      const judge = async (file: string, only?: readonly string[]): Promise<readonly string[]> => {
         const context = await browser.newContext({ serviceWorkers: "block" });
         const requests: string[] = [];
-        watchRequests(context, "cockpit", origin, (finding) => requests.push(finding));
-        const page = await context.newPage();
-        await page.goto(`${origin}/proof/${file}`, { waitUntil: "load" });
-        await page.waitForTimeout(300);
-        const findings = [...(await judgePage(page, "cockpit")), ...requests];
+        await instrumentContext(context, "cockpit", origin, (finding) => requests.push(finding));
+        const view = await context.newPage();
+        await view.goto(`${origin}/proof/${file}`, { waitUntil: "load" });
+        await view.waitForTimeout(300);
+        const selected = rows(only);
+        const findings = selected === undefined ? [...(await judgePage(view, "cockpit")), ...requests] : await judgePage(view, "cockpit", selected);
         await context.close();
         return findings;
       };
       const clean = await judge("clean.html");
       if (clean.length > 0) failures.push(`the clean page is not clean:\n    ${clean.join("\n    ")}`);
       for (const [i, plant] of PLANTS.entries()) {
-        const findings = await judge(`plant-${i}.html`);
+        const findings = await judge(`plant-${i}.html`, plant.only);
         if (!findings.some((f) => f.startsWith(`[${plant.rule}]`))) failures.push(`${plant.name}: not caught by ${plant.rule} (found: ${findings.join("; ") || "nothing"})`);
+      }
+      for (const [i, plant] of CLEAN_TOO.entries()) {
+        const findings = await judge(`clean-${i}.html`, plant.only);
+        if (findings.length > 0) failures.push(`the clean page is not clean (${plant.name}): ${findings.join("; ")}`);
       }
     } finally {
       await browser.close();
