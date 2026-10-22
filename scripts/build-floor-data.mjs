@@ -1,8 +1,7 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import { buildAtlas } from "./floor/atlas.mjs";
-import { stableJson } from "./floor/files.mjs";
+import { writeFloorData } from "./floor/site.mjs";
 import { buildStatus } from "./floor/status.mjs";
 import { configuredForgeClient } from "../engine/src/workflow/forge/configured-forge.ts";
 import { environmentCredential } from "../engine/src/workflow/forge/credentials.ts";
@@ -10,27 +9,26 @@ import { environmentCredential } from "../engine/src/workflow/forge/credentials.
 function parseArgs(argv) {
   const out = {
     root: process.cwd(),
-    out: null,
+    site: null,
     offline: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--root") out.root = argv[++index];
-    else if (arg === "--out") out.out = argv[++index];
+    else if (arg === "--site") out.site = argv[++index];
     else if (arg === "--offline") out.offline = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
-  if (!out.out) throw new Error("--out is required");
+  if (!out.site) throw new Error("--site is required (the assembled site source: its floor/data and the claims judged against it are written there)");
   return {
     root: resolve(out.root),
-    out: resolve(out.out),
+    site: resolve(out.site),
     offline: out.offline,
   };
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  if (!existsSync(args.out)) mkdirSync(args.out, { recursive: true });
   const atlas = buildAtlas({ root: args.root });
   const status = await buildStatus({
     root: args.root,
@@ -39,8 +37,7 @@ async function main() {
     offline: args.offline,
     counts: atlas.counts,
   });
-  writeFileSync(join(args.out, "atlas.json"), stableJson(atlas));
-  writeFileSync(join(args.out, "status.json"), stableJson(status));
+  writeFloorData({ root: args.root, site: args.site, atlas, status });
   process.stdout.write(
     `floor data: ${atlas.counts.testSources} surfaces, ${atlas.counts.guards} guards, ` +
       `${atlas.counts.decisions} decisions, promotion ${status.promotion.state}\n`,

@@ -1,0 +1,29 @@
+{%- comment -%}
+  The claims ledger: every claim in the register (site.data.brand, judged at
+  the commit the site is built from), with the proof a stranger can rerun and
+  its honest state. One component for the landing and /floor/claims/.
+{%- endcomment -%}
+<table class="ledger">
+  <thead>
+    <tr><th scope="col">Claim</th><th scope="col">Proof you can rerun</th><th scope="col">State</th></tr>
+  </thead>
+  <tbody>
+    {%- for claim in include.claims %}
+    <tr>
+      <td class="ledger-claim{% if claim.verdict == 'retracted' %} retracted{% endif %}">{{ claim.text | escape }}</td>
+      <td class="ledger-proof">
+        {%- for check in claim.checks %}
+        <span class="ledger-check">{% if check.runUrl %}<a href="{{ check.runUrl | escape }}">{{ check.id | escape }}</a>{% else %}{{ check.id | escape }}{% endif %} <span class="state" data-state="{{ check.status | escape }}">{{ check.status | replace: "-", " " | escape }}</span></span>
+        {%- endfor %}
+        {%- if claim.proof %}
+        <a class="ledger-source" href="{{ claim.proof.href | escape }}">{{ claim.proof.label | escape }}</a>{% if claim.proof.implementation %} <span class="ledger-note">{{ claim.proof.implementation | escape }}</span>{% endif %}
+        {%- endif %}
+        {%- if claim.reason %}
+        <span class="ledger-note">{{ claim.reason | escape }}</span>
+        {%- endif %}
+      </td>
+      <td><span class="state" data-state="{{ claim.verdict | escape }}">{{ claim.verdictWords | escape }}</span></td>
+    </tr>
+    {%- endfor %}
+  </tbody>
+</table>

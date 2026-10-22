@@ -1366,6 +1366,7 @@ const ROOT_POLICY_VALUE = {
      */
     binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
     bundleRelativePath: "dist/bundle.js",
+    bundleSha256: "a84979c916091f01fac7dc8a2f1abaed49c60fd6774a36dd28306bf4e6c13f35",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
@@ -1412,14 +1413,13 @@ const ROOT_POLICY_VALUE = {
      * the repository root, say — this name would silently land on the web's
      * `src/` and stop protecting the harness's, because both exist and the
      * subtree set is a `Set` that would simply de-duplicate. It cannot ship
-     * that way: `binaryRelativePath` is resolved against that root and the
-     * guardian's build stamp is recomputed from that root's sealed sources,
-     * so a root that is not the harness produces `binary_missing` /
+     * that way: `binaryRelativePath` and `bundleRelativePath` are resolved
+     * against the SAME root, the guardian's build stamp is recomputed from
+     * that root's sealed sources and the bundle is pinned by sha256 here, so
+     * a root that is not the harness produces `binary_missing` /
      * `binary_hash_mismatch` and self-protection refuses to run rather than
-     * running over the wrong tree. That binding is what makes the root
-     * unambiguous (the bundle is a build output nothing pins: a committed
-     * digest of it was never checked at runtime and conflicted on every
-     * merge, #221); this comment says so, and
+     * running over the wrong tree. Those bindings are what make the root
+     * unambiguous; this comment says so, and
      * `tests/prevention/subprocess-confinement-owner.test.ts` drives it.
      */
     minimumProtectedSubtrees: ["src"],
@@ -2254,6 +2254,11 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
+    testInventoryHash: "5172e60e60159ac614c47089a78c9136fcdd8f02327643fc96b17e3b9438ce48",
+    testSurfaceDispositionBinding: {
+      fileSha256: "ed4ef3bb014fde9fbb3a39f753fd71cfb85ccbfc2f8d5d0498c529a6dc3c923b",
+      identityHash: "e582f1bf42a98cbd728eed776574a840f5f181bc2701d24fe8e0f47c168e7c0a",
+    },
     testDiscovery: {
       inventoryScope: {
         recognizableSurfaceDispositionCoverageComplete: true,

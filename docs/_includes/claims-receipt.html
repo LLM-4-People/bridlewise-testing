@@ -1,0 +1,22 @@
+{%- comment -%}
+  The register's receipt: how many claims hold, how many are retracted, what
+  is designed but not built and what is not claimed, their total, and the
+  stamp of the commit and time they were judged at.
+{%- endcomment -%}
+{%- assign brand = site.data.brand -%}
+{%- assign total = brand.counts.holds | plus: brand.counts.retracted | plus: brand.counts.unchecked | plus: brand.counts.designed | plus: brand.counts["not-claimed"] -%}
+<aside class="receipt" aria-labelledby="{{ include.id }}">
+  <p class="receipt-title"><span id="{{ include.id }}">The receipt</span> <span class="receipt-serial" data-commit>No. {{ brand.commit | slice: 0, 8 }}</span></p>
+  <dl>
+    <div class="receipt-line"><dt>Claims that hold</dt><dd>{{ brand.counts.holds }}</dd></div>
+    <div class="receipt-line"><dt>Retracted until their check passes</dt><dd>{{ brand.counts.retracted }}</dd></div>
+    {%- if brand.counts.unchecked > 0 %}
+    <div class="receipt-line"><dt>Not checked in this build</dt><dd>{{ brand.counts.unchecked }}</dd></div>
+    {%- endif %}
+    <div class="receipt-line"><dt>Designed, not built</dt><dd>{{ brand.counts.designed }}</dd></div>
+    <div class="receipt-line"><dt>Not claimed, on purpose</dt><dd>{{ brand.counts["not-claimed"] }}</dd></div>
+    <div class="receipt-line receipt-total"><dt>In the register</dt><dd>{{ total }}</dd></div>
+  </dl>
+  <p class="stamp">Judged <time datetime="{{ brand.judgedAt | escape }}">{{ brand.judgedAt | date: "%Y-%m-%d" }}</time> · <a href="{{ brand.commitUrl | escape }}" data-commit>commit {{ brand.commit | slice: 0, 8 }}</a></p>
+  <p class="receipt-foot">Each claim is judged against the checks that ran on that commit. Nobody types these numbers.</p>
+</aside>
