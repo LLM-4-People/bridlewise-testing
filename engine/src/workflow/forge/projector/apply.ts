@@ -23,21 +23,28 @@
  * ORPHAN: reported, never written here. A person's own label or issue is
  * GitHub's, never an orphan.
  *
- * FOREIGN EDITS (V-27). The receipt records each object's observed digest.
- * A later run finds an object FOREIGN-EDITED when its live git-owned fields
- * differ from D AND from what the previous receipt observed: someone changed
- * GitHub, not the record (a changed record moves D, never the receipt's
- * digest). It is reported (`forge.projection.drift`, the receipt's
- * `foreignEdits`) and handled by the mode `forge.projection.foreignEdit`:
- *   - `approval` (the default): nothing is written to it; the receipt carries
- *     a PROPOSAL — the live values, for the publisher to open as a record
- *     change through the door. The edit becomes truth only by landing;
- *   - `auto`: the projected values are restored, and an issue gets a NOTICE
- *     (a comment naming its record and how to change it);
- *   - `manual`: nothing is written; the drift is reported only.
- * A held object (approval, manual) keeps its last projected digest in the
- * receipt, so it stays foreign until the record or GitHub moves to meet the
- * other, and the receipt is not verified while one is held.
+ * FOREIGN EDITS (V-27), JUDGED PER FIELD. The receipt records, for every
+ * object, the digest of each git-owned field as projected and observed. A
+ * later run finds a FIELD foreign-edited when its live value differs from D
+ * AND from what the previous receipt recorded for THAT field: someone changed
+ * GitHub, not the record (a changed record moves D, never the baseline). A
+ * field the previous receipt holds no value for — a field newly owned by git,
+ * or a first run — is simply written: there is nothing for an edit to differ
+ * from. A projected object the previous receipt recorded that is now GONE
+ * from GitHub was deleted there: that deletion is itself a foreign change.
+ * Each is reported (`forge.projection.drift`, the receipt's `foreignEdits`)
+ * and handled by the mode `forge.projection.foreignEdit`:
+ *   - `approval` (the default): the edited FIELD (or the deleted object) is
+ *     not written; the receipt carries a PROPOSAL holding only the edited
+ *     fields' live values (or the deletion), for the publisher to open as a
+ *     record change through the door — never reverting anything else;
+ *   - `auto`: the projected value is restored (the deleted object recreated),
+ *     and an issue gets a NOTICE naming its record;
+ *   - `manual`: the drift is reported only.
+ * One held field never blocks another field of the same object, or any other
+ * object: every unrelated change is written. A held field (or object) keeps
+ * its baseline in the receipt, so it stays foreign until one side meets the
+ * other, and the receipt is not verified while anything is held.
  */
 import { HarnessError } from "../../../kernel/errors.ts";
 import { canonicalHash, canonicalJson, deepFreeze } from "../../../kernel/integrity.ts";
@@ -55,11 +62,11 @@ export type UnverifiedField = Readonly<{ class: ProjectionClass; key: string; fi
 const FOREIGN_EDIT_MODES = Object.freeze(["approval", "auto", "manual"] as const);
 export type ForeignEditMode = typeof FOREIGN_EDIT_MODES[number];
 
-/** One object someone edited on GitHub: the git-owned fields that differ from D, and what the run did. */
-export type ForeignEdit = Readonly<{ class: ProjectionClass; key: string; fields: readonly string[]; mode: ForeignEditMode; action: "proposed" | "restored" | "reported" }>;
+/** One foreign change on GitHub: the fields someone edited (or the object they deleted), and what the run did. */
+export type ForeignEdit = Readonly<{ class: ProjectionClass; key: string; change: "edited" | "deleted"; fields: readonly string[]; mode: ForeignEditMode; action: "proposed" | "restored" | "reported" }>;
 
-/** A record change the publisher opens for approval: the live values of a foreign-edited object's fields. */
-export type RecordProposal = Readonly<{ class: ProjectionClass; key: string; fields: Fields }>;
+/** A record change the publisher opens for approval: ONLY the edited fields' live values, or the object's deletion. */
+export type RecordProposal = Readonly<{ class: ProjectionClass; key: string } & ({ change: "edited"; fields: Fields } | { change: "deleted" })>;
 
 /** A refusal the run met: typed, with the object it was writing when there was one. */
 export type ProjectionRefusal = Readonly<{ code: string; message: string; class?: ProjectionClass; key?: string; retryable: boolean }>;
@@ -83,8 +90,8 @@ export type ProjectionReceipt = Readonly<{
   foreignEdits: readonly ForeignEdit[];
   /** The record changes the publisher opens for approval (mode `approval`). */
   proposals: readonly RecordProposal[];
-  /** `<class>/<key>` → the digest of the object's git-owned fields as projected and observed: the next run's foreign-edit baseline. */
-  objects: Readonly<Record<string, string>>;
+  /** `<class>/<key>` → each git-owned field → the digest of its value as projected and observed: the next run's foreign-edit baseline, field by field. */
+  objects: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** Every write made, nothing pending, refused or held, every git-owned field equal to D. */
   verified: boolean;
 }>;
@@ -103,9 +110,9 @@ export type ApplyOptions = Readonly<{
 const id = (object: Readonly<{ class: ProjectionClass; key: string }>): string => `${object.class}/${object.key}`;
 const same = (left: Json | undefined, right: Json | undefined): boolean => left !== undefined && right !== undefined && canonicalJson(left) === canonicalJson(right);
 
-/** The digest of `fields` restricted to the git-owned fields `names` (an absent field reads as null). */
-function fieldsDigest(names: readonly string[], fields: Fields | undefined): string {
-  return canonicalHash(Object.fromEntries([...names].sort().map((name) => [name, fields?.[name] ?? null])));
+/** The digest of one field's value (an absent field reads as null). */
+function valueDigest(value: Json | undefined): string {
+  return canonicalHash(value ?? null);
 }
 
 /** The git-owned fields of `object` that belong to `phase`. */
@@ -181,30 +188,53 @@ export async function applyProjection(projection: Projection, store: ProjectionS
   const classes = PROJECTION_CLASSES.filter((name) => projection.objects.some((object) => object.class === name));
   const live = await store.read(classes);
   const liveById = new Map(live.map((object) => [id(object), object]));
-  // Foreign edits: live differs from D and from what the previous run observed.
+  // Foreign changes, field by field: live differs from D and from what the previous run recorded for that field.
   const foreignEdits: ForeignEdit[] = [];
   const proposals: RecordProposal[] = [];
-  const held = new Set<string>();
+  const heldFields = new Map<string, Set<string>>();
+  const heldObjects = new Set<string>();
+  const action: ForeignEdit["action"] = options.foreignEdit === "auto" ? "restored" : options.foreignEdit === "approval" ? "proposed" : "reported";
   for (const object of projection.objects) {
     const current = liveById.get(id(object));
     const baseline = options.previous?.objects[id(object)];
-    if (current === undefined || baseline === undefined) continue;
-    const names = Object.keys(object.fields);
-    const differing = names.filter((field) => !same(current.fields[field], object.fields[field])).sort();
-    if (differing.length === 0 || fieldsDigest(names, current.fields) === baseline) continue;
-    const action = options.foreignEdit === "auto" ? "restored" : options.foreignEdit === "approval" ? "proposed" : "reported";
-    foreignEdits.push({ class: object.class, key: object.key, fields: differing, mode: options.foreignEdit, action });
-    if (options.foreignEdit === "approval") proposals.push({ class: object.class, key: object.key, fields: Object.fromEntries(differing.map((field) => [field, current.fields[field] ?? null])) });
-    if (options.foreignEdit !== "auto") held.add(id(object));
-    auditEvent("forge.projection.drift", { class: object.class, key: object.key, fields: differing, mode: options.foreignEdit, action });
+    if (current === undefined) {
+      // Projected before, gone now: deleted on GitHub. A never-projected object is simply created.
+      if (baseline === undefined) continue;
+      foreignEdits.push({ class: object.class, key: object.key, change: "deleted", fields: [], mode: options.foreignEdit, action });
+      if (options.foreignEdit === "approval") proposals.push({ class: object.class, key: object.key, change: "deleted" });
+      if (options.foreignEdit !== "auto") heldObjects.add(id(object));
+      auditEvent("forge.projection.drift", { class: object.class, key: object.key, change: "deleted", mode: options.foreignEdit, action });
+      continue;
+    }
+    const edited = Object.keys(object.fields).filter((field) => {
+      if (same(current.fields[field], object.fields[field])) return false;
+      const recorded = baseline?.[field];
+      // No recorded value (a field newly owned by git, a first run): nothing for an edit to differ from — written.
+      return recorded !== undefined && valueDigest(current.fields[field]) !== recorded;
+    }).sort();
+    if (edited.length === 0) continue;
+    foreignEdits.push({ class: object.class, key: object.key, change: "edited", fields: edited, mode: options.foreignEdit, action });
+    if (options.foreignEdit === "approval") proposals.push({ class: object.class, key: object.key, change: "edited", fields: Object.fromEntries(edited.map((field) => [field, current.fields[field] ?? null])) });
+    if (options.foreignEdit !== "auto") heldFields.set(id(object), new Set(edited));
+    auditEvent("forge.projection.drift", { class: object.class, key: object.key, change: "edited", fields: edited, mode: options.foreignEdit, action });
   }
   const planned = planProjection(projection, live);
+  // A held field is dropped from its write, a held object's writes all; everything else is written.
+  const kept = planned.writes.flatMap((write): ProjectionWrite[] => {
+    if (heldObjects.has(id(write))) return [];
+    const held = heldFields.get(id(write));
+    if (held === undefined) return [write];
+    const fields = Object.fromEntries(Object.entries(write.fields).filter(([field]) => !held.has(field)));
+    return Object.keys(fields).length === 0 ? [] : [{ ...write, fields }];
+  });
   // An auto-restored issue gets a notice: its record, and how to change it.
   const notices: ProjectionWrite[] = foreignEdits.filter((edit) => edit.action === "restored" && edit.class === "issue").map((edit) => ({
     phase: "state", kind: "notice", class: edit.class, key: edit.key,
-    fields: { text: `The ${edit.fields.join(", ")} of this issue ${edit.fields.length === 1 ? "is" : "are"} projected from its record and ${edit.fields.length === 1 ? "was" : "were"} restored. To change ${edit.fields.length === 1 ? "it" : "them"}, change the record (\`${edit.key}\`) in a pull request.` },
+    fields: { text: edit.change === "deleted"
+      ? `This issue was deleted on GitHub and is recreated from its record (\`${edit.key}\`): to remove it, change the record in a pull request.`
+      : `The ${edit.fields.join(", ")} of this issue ${edit.fields.length === 1 ? "is" : "are"} projected from its record and ${edit.fields.length === 1 ? "was" : "were"} restored. To change ${edit.fields.length === 1 ? "it" : "them"}, change the record (\`${edit.key}\`) in a pull request.` },
   }));
-  const plan = { writes: [...planned.writes.filter((write) => !held.has(id(write))), ...notices], orphans: planned.orphans };
+  const plan = { writes: [...kept, ...notices], orphans: planned.orphans };
   const done: ProjectionWrite[] = [];
   const refusals: ProjectionRefusal[] = [];
   for (const write of plan.writes) {
@@ -225,12 +255,16 @@ export async function applyProjection(projection: Projection, store: ProjectionS
   const pending = [...new Set(plan.writes.slice(done.length).map(id))].sort();
   const observed = await store.read(classes);
   const observedById = new Map(observed.map((object) => [id(object), object]));
-  const unverified = verifyProjection(projection, observed, new Set([...pending, ...held]));
-  // The next run's baseline: what was observed, except a held object, which keeps its last projected digest (still foreign until met).
+  const unverified = verifyProjection(projection, observed, new Set([...pending, ...heldObjects])).filter((field) => heldFields.get(`${field.class}/${field.key}`)?.has(field.field) !== true);
+  // The next run's baseline, field by field: what was observed, except a held field (or object), which keeps its recorded digest — still foreign until met.
   const objects = Object.fromEntries(projection.objects.map((object) => {
-    const names = Object.keys(object.fields);
-    const kept = held.has(id(object)) ? options.previous?.objects[id(object)] : undefined;
-    return [id(object), kept ?? fieldsDigest(names, observedById.get(id(object))?.fields)];
+    const recorded = options.previous?.objects[id(object)];
+    const seen = observedById.get(id(object));
+    if (heldObjects.has(id(object))) return [id(object), recorded ?? {}];
+    return [id(object), Object.fromEntries(Object.keys(object.fields).map((field) => {
+      const keep = heldFields.get(id(object))?.has(field) === true ? recorded?.[field] : undefined;
+      return [field, keep ?? valueDigest(seen?.fields[field])];
+    }))];
   }));
   const receipt: ProjectionReceipt = deepFreeze({
     schema: PROJECTION_RECEIPT_SCHEMA,
@@ -246,7 +280,7 @@ export async function applyProjection(projection: Projection, store: ProjectionS
     foreignEdits,
     proposals,
     objects,
-    verified: refusals.length === 0 && pending.length === 0 && unverified.length === 0 && held.size === 0,
+    verified: refusals.length === 0 && pending.length === 0 && unverified.length === 0 && heldObjects.size === 0 && heldFields.size === 0,
   });
   const level = receipt.verified ? "info" : "warn";
   debugLog("forge", level, `projection of ${projection.source}: ${String(done.length)} writes, ${String(pending.length)} pending, ${String(unverified.length)} unverified, ${String(plan.orphans.length)} orphans, ${String(foreignEdits.length)} foreign edits (${options.foreignEdit})${receipt.verified ? ", verified" : ""}`, () => ({ digest: receipt.digest, refusals: refusals.map((refusal) => refusal.code) }));
@@ -263,7 +297,7 @@ export async function applyProjection(projection: Projection, store: ProjectionS
 export function projectionFailure(receipt: ProjectionReceipt): HarnessError | null {
   const held = receipt.foreignEdits.filter((edit) => edit.action !== "restored");
   if (held.length > 0) {
-    const objects = held.map((edit) => `${edit.class}/${edit.key} (${edit.fields.join(", ")}: ${edit.action})`);
+    const objects = held.map((edit) => `${edit.class}/${edit.key} (${edit.change === "deleted" ? "deleted" : edit.fields.join(", ")}: ${edit.action})`);
     return new HarnessError(`projection_drift: GitHub differs from the projection of ${receipt.source} by foreign edit: ${objects.join("; ")}`, "projection_drift", false, { objects: held.map((edit) => `${edit.class}/${edit.key}`).join(",") });
   }
   if (receipt.unverified.length > 0) {

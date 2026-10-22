@@ -28,6 +28,8 @@ export type MemoryStore = Readonly<{
   edit: (klass: ProjectionClass, key: string, fields: Fields) => void;
   /** An object someone else created (`owned`: whether it carries the projector's marker or namespace). */
   put: (object: LiveObject) => void;
+  /** An object someone deleted on GitHub. */
+  remove: (klass: ProjectionClass, key: string) => void;
 }>;
 
 export function memoryStore(options: MemoryStoreOptions = {}): MemoryStore {
@@ -70,5 +72,6 @@ export function memoryStore(options: MemoryStoreOptions = {}): MemoryStore {
       objects.set(`${klass}/${key}`, { ...current, fields: { ...current.fields, ...fields } });
     },
     put: (object) => { objects.set(`${object.class}/${object.key}`, object); },
+    remove: (klass, key) => { objects.delete(`${klass}/${key}`); },
   };
 }

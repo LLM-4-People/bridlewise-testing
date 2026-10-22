@@ -31,12 +31,17 @@ What is projected today:
 
 Every other field of a GitHub object is GitHub-owned and never written.
 
-**Foreign edits (V-27).** Each receipt records every object's observed digest. A later run finds an object foreign-edited when its live git-owned fields differ both from D and from that baseline: someone changed GitHub, not the record, because a changed record moves D and never the baseline. The audit event `forge.projection.drift` reports it, and the mode `forge.projection.foreignEdit` handles it:
-- `approval` (the default): nothing is written, and the receipt carries a proposal with the live values. The publisher opens it as a record change through the door.
-- `auto`: the projected values are restored, and an issue gets a notice naming its record.
-- `manual`: the drift is reported only.
+**Foreign edits (V-27), judged per field.** Each receipt records, for every object, the digest of each git-owned field as projected and observed.
+- A field is foreign-edited when its live value differs both from D and from the value the previous receipt recorded for that field.
+- A field with no recorded value is simply written. That covers a field newly owned by git and a first run.
+- A projected object the previous receipt recorded that is gone from GitHub was deleted there, and that deletion is itself a foreign change.
 
-A held object keeps its baseline, so it stays foreign until one side meets the other. While anything is held, the receipt is unverified (`projection_drift`).
+The audit event `forge.projection.drift` reports each one, and the mode `forge.projection.foreignEdit` handles it:
+- `approval` (the default): the edited field (or the deleted object) is not written. A proposal holds only the edited fields' live values, or the deletion.
+- `auto`: the value is restored (the object recreated), and an issue gets a notice.
+- `manual`: the change is reported only.
+
+One held field never blocks another field or object. A held field keeps its baseline, so it stays foreign until one side meets the other, and the receipt is unverified (`projection_drift`) while anything is held.
 
 ## What each file does
 
@@ -66,8 +71,9 @@ Every state is computed (`src/workflow/tracker-status.ts`); nothing in the feed 
 
 `engine/test/forge/projector.test.ts` proves V-25 (a second run makes zero
 writes; a changed record is never taken for a foreign edit), V-27 (a foreign
-edit in each class — label, milestone, issue — is detected and handled per
-mode), V-26 (by the kernel: a dynamic-import write, a harness or /proc read,
+edit in each class — label, milestone, issue — handled per mode, judged per
+field: a newly owned field written, one held field blocking nothing else, a
+deletion proposed, recreated or reported), V-26 (by the kernel: a dynamic-import write, a harness or /proc read,
 a connect and a fetch to a live server are refused, the server sees no
 connection; the clock and randomness are refused by computing twice; the
 link refuses undeclared modules; a CPU spin meets its ceiling; a NODE_OPTIONS
