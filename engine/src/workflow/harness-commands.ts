@@ -158,6 +158,8 @@ export type HarnessCheckOutput = Readonly<{
   artifactManifest: CheckStepResult;
   /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
   communityFiles: CheckStepResult;
+  /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
+  bundle: CheckStepResult;
   allPassed: boolean;
 }>;
 
@@ -181,12 +183,14 @@ export type HarnessRegenerateOutput = Readonly<{
   testInventory: Readonly<{
     status: "current" | "regenerated" | "skipped";
     testCount: number;
-    inventoryHash: string;
+    /** The inventory's own identity; null on a product-only tree, which carries no test surface. */
+    inventoryHash: string | null;
   }>;
   dispositionAutoAdd: DispositionAutoAddResult;
   dispositionManifest: Readonly<{
-    status: "current" | "regenerated";
-    integrityHash: string;
+    status: "current" | "regenerated" | "absent";
+    /** The manifest's own identity; null when the tree carries no test surface (`absent`). */
+    integrityHash: string | null;
   }>;
   /**
    * Config-document schema artifact regeneration (EXP468 finding fix).
@@ -554,6 +558,9 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the community health files and forms...");
   steps.push(communityFilesStep(regenerateCommunityFiles(root, false)));
 
+  emitProgress(onProgress, "Checking the bundle against a rebuild of the source...");
+  steps.push(bundleFreshnessStep(root));
+
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
     typecheck: steps[0]!,
@@ -579,6 +586,7 @@ export async function harnessCheck(
     trackerBoard: steps[20]!,
     artifactManifest: steps[21]!,
     communityFiles: steps[22]!,
+    bundle: steps[23]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -924,7 +932,7 @@ export function harnessRegenerate(
   // above are visible to it even though ROOT_POLICY was imported at process
   // start.
   const moduleRegistrar = generateModuleRegistrarReport(root, { write });
-  const autoGenerator = generateAutoGeneratorReport(root, { write: false });
+  const autoGenerator = generateAutoGeneratorReport(root);
   // Regenerate the config-document schema artifact (`traceability/config-
   // document-schema.json`). When `src/kernel/config-contracts.ts` changes, the
   // artifact drifts from the on-disk JSON file; it is rebuilt from the on-disk
@@ -1069,15 +1077,14 @@ function recomputeDispositionManifestIntegrityHash(
   root: string,
   write: boolean,
 ): Readonly<{
-  status: "current" | "regenerated";
-  integrityHash: string;
+  status: "current" | "regenerated" | "absent";
+  integrityHash: string | null;
 }> {
   const manifestPath = resolve(root, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath);
   if (!existsSync(manifestPath)) {
     if (!testSurfacePresent(root)) {
-      // A product-only tree carries no test surface to recompute against;
-      // report current rather than refuse — the manifest's subject is absent.
-      return deepFreeze({ status: "current", integrityHash: ROOT_POLICY.verification.testSurfaceDispositionBinding.identityHash });
+      // A product-only tree carries no test surface to recompute against: the manifest's subject is absent.
+      return deepFreeze({ status: "absent", integrityHash: null });
     }
     throw new InputError("test-surface disposition manifest file not found", "input_error");
   }
@@ -1096,7 +1103,7 @@ function recomputeDispositionManifestIntegrityHash(
 function regenerateTestInventory(root: string, write: boolean): Readonly<{
   status: "current" | "regenerated" | "skipped";
   testCount: number;
-  inventoryHash: string;
+  inventoryHash: string | null;
 }> {
   // Invoke scripts/test-inventory.ts as a subprocess to keep the builder-layer
   // test-inventory generator (and its @babel/parser dependency) out of the
@@ -1104,7 +1111,7 @@ function regenerateTestInventory(root: string, write: boolean): Readonly<{
   // On a product-only tree the test surface is absent: report the guided skip
   // rather than spawn a runner that is not there.
   if (!testSurfacePresent(root)) {
-    return { status: "skipped", testCount: 0, inventoryHash: ROOT_POLICY.verification.testInventoryHash };
+    return { status: "skipped", testCount: 0, inventoryHash: null };
   }
   const stdout = runScriptSubprocess(root, "scripts/test-inventory.ts", [write ? "--write" : "--check"], 180_000);
   const parsed = JSON.parse(stdout) as {
@@ -1491,22 +1498,19 @@ export function harnessRegister(
  *
  * With `--with-bundle`, runs:
  * 1. `harness register --write` (fix module drift)
- * 2. `harness regenerate` (stabilize the non-bundle hash bindings — manifest
- *    hash, config-contracts sha256, disposition identity, etc.)
+ * 2. `harness regenerate` (stabilize the hash bindings — config-contracts
+ *    sha256, the spec-schema pins, etc.)
  * 3. `node scripts/build-bundle.ts` (rebuild the production bundle from the
- *    STABILIZED root-policy so the bundle embeds the correct non-bundle pins)
- * 4. `harness regenerate` (re-pin the fresh bundle sha256 into root-policy)
- * 5. `harness check --skip-typecheck` (verify every gate passes)
+ *    STABILIZED root-policy, which the bundle compiles in, and write the
+ *    guardian spec-schema artifact the build owns)
+ * 4. `harness regenerate` (re-derive what the build wrote: the spec-schema
+ *    artifact's pin)
+ * 5. `harness check --skip-typecheck` (verify every gate passes, the bundle
+ *    against an in-memory rebuild included)
  *
- * The bundle includes root-policy.ts, which pins the bundle sha256 AND the
- * non-bundle hash bindings. Building the bundle before the non-bundle pins
- * are stabilized leaves the bundle stale (the staleness test rebuilds from
- * the updated root-policy and detects the non-self-referential pin drift).
- * Building the bundle after the initial regenerate, then re-pinning with a
- * final regenerate, makes the bundle + the pin converge in a single
- * invocation — eliminating the two-round manual chore (build-bundle ->
- * regenerate -> build-bundle -> regenerate) that was the #1 agent time-waste
- * when touching config/root-policy/workflow-config files.
+ * No digest of the bundle is committed (#221): its freshness is the check's
+ * rebuild comparison. Building after the first regenerate means the bundle
+ * compiles the stabilized policy, so one invocation converges.
  *
  * Each step runs as its OWN CLI subprocess. This is the correctness crux:
  * every step reads file truth through fresh module imports. Running the steps
@@ -1559,6 +1563,33 @@ export async function harnessSync(
   return wrapResult("sync", deepFreeze({ ...output, convergence }), { status: output.allPassed ? "pass" : "fail" });
 }
 
+/**
+ * `harness check`'s bundle step: a rebuild in memory from the current source
+ * (`scripts/build-bundle.ts --check`, the builder layer, as a subprocess like
+ * every builder arm), compared byte for byte with `dist/bundle.js`. The tree
+ * commits no digest of its build output (#221), so this comparison is what
+ * refuses a stale or hand-edited bundle; an absent one is unbuilt and named
+ * with the command that builds it.
+ */
+function bundleFreshnessStep(root: string): CheckStepResult {
+  try {
+    const answer = JSON.parse(runScriptSubprocess(root, "scripts/build-bundle.ts", ["--check"], DEFAULT_SYNC_CHECK_TIMEOUT_MS)) as { fresh?: unknown; status?: unknown; path?: unknown };
+    const fresh = answer.fresh === true;
+    return deepFreeze({
+      step: "bundle",
+      status: fresh ? "pass" : "fail",
+      message: fresh
+        ? `${String(answer.path)} is exactly a rebuild of the current source`
+        : answer.status === "absent"
+          ? `${String(answer.path)} has not been built: run \`node src/cli.ts harness sync --with-bundle\``
+          : `${String(answer.path)} is not a rebuild of the current source (stale or edited by hand): run \`node src/cli.ts harness sync --with-bundle\``,
+      details: answer,
+    });
+  } catch (error) {
+    return deepFreeze({ step: "bundle", status: "fail", message: error instanceof Error ? error.message : "the bundle check failed", details: null });
+  }
+}
+
 /** One pass of `harness sync` (see {@link harnessSync}): the steps, each a CLI subprocess. */
 async function syncPass(
   root: string,
@@ -1566,17 +1597,12 @@ async function syncPass(
 ): Promise<Omit<HarnessSyncOutput, "convergence">> {
   const prune = pruneArguments(options.prune ?? []);
   // Without --with-bundle: register -> regenerate -> check (3 steps).
-  // With --with-bundle: register -> regenerate (stabilize non-bundle pins) ->
-  //   build-bundle (build from the stabilized root-policy) -> regenerate (pin
-  //   the fresh bundle sha256) -> check (5 steps).
-  // The bundle includes root-policy.ts, which pins the bundle sha256 AND the
-  // non-bundle hash bindings (manifest hash, config-contracts sha256, etc.).
-  // Building the bundle BEFORE the non-bundle pins are stabilized leaves the
-  // bundle stale (the staleness test rebuilds from the updated root-policy
-  // and detects the non-self-referential pin drift). Building the bundle
-  // AFTER the initial regenerate, then re-pinning with a final regenerate,
-  // makes the bundle + the pin converge in a single `harness sync
-  // --with-bundle` invocation — eliminating the two-round manual chore.
+  // With --with-bundle: register -> regenerate (stabilize the pins) ->
+  //   build-bundle (build from the stabilized root-policy; writes the spec-schema
+  //   artifact) -> regenerate (re-derive what the build wrote) -> check (5 steps).
+  // The bundle compiles root-policy.ts in, so it is built after the pins
+  // settle; no digest of it is committed (#221), and the check compares it
+  // with an in-memory rebuild.
   const totalSteps = options.withBundle ? 5 : 3;
   let stepIndex = 0;
   let bundleBuild: HarnessCommandResult | undefined;
@@ -1593,7 +1619,7 @@ async function syncPass(
     emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: build production bundle (scripts/build-bundle.ts)...`);
     bundleBuild = runBundleBuildStep(root);
     stepIndex += 1;
-    emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness regenerate (pin fresh bundle sha256)...`);
+    emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness regenerate (re-derive what the build wrote)...`);
     regenerate = runSyncStep(root, "regenerate", prune, DEFAULT_SYNC_REGENERATE_TIMEOUT_MS);
   }
   stepIndex += 1;
@@ -1641,8 +1667,8 @@ export function syncPassVerdict(steps: readonly HarnessSyncStepSummary[], withBu
  * Run the production bundle build (`scripts/build-bundle.ts`) as a subprocess
  * and wrap its BuildSummary into a HarnessCommandResult. In `harness sync
  * --with-bundle`, this runs AFTER the initial regenerate (which stabilizes
- * the non-bundle hash bindings) so the bundle embeds the correct pins, then
- * a final regenerate pins the fresh bundle sha256. A build failure (esbuild
+ * the hash bindings) so the bundle compiles the settled pins, then a final
+ * regenerate re-derives what the build wrote. A build failure (esbuild
  * error, missing entry) surfaces as status "fail" with the stderr diagnostic;
  * it does NOT abort the remaining sync steps (the full picture is more useful
  * than a hard abort).
@@ -1962,9 +1988,9 @@ export function runArchitectureCheck(root: string): CheckStepResult {
  * ── IT ASKS THE OWNER, NOT THE INVENTORY ABOUT ITSELF ─────────────────────
  *
  * This step used to parse only the inventory's top-level `inventoryHash` and
- * compare it with `ROOT_POLICY.verification.testInventoryHash`. Both sides are
- * the same value by construction (the inventory generator writes the policy
- * pin), so the step compared a value to itself: an inventory emptied to zero
+ * compare it with the root policy's copy of it (a copy since removed, #221).
+ * Both sides were the same value by construction (the inventory generator
+ * wrote the policy pin), so the step compared a value to itself: an inventory emptied to zero
  * tests with its hash preserved passed the commit gate, while the owner
  * (`node scripts/test-inventory.ts --check`) refused it. The same shape hid a
  * stale source hash in the checked-in inventory.
