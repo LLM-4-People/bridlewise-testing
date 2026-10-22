@@ -17,7 +17,7 @@ from the import graph.
 - `bundle-entry.ts` — the bundle entry point for the Landlock
   self-protection production payload (`dist/bundle.js`).
 - `architecture-manifest.ts` — the generated dependency-edge manifest: the
-  module graph the bundle pin, the regenerator, and the architecture
+  module graph the regenerator and the architecture
   verifiers reference by path.
 
 ## The domains

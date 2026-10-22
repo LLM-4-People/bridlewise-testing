@@ -249,6 +249,7 @@ check` reports it stale): change a decision's file, never its row.
 | [GH-A](GH-A-public-by-default.md) | Public by default | user | standing |
 | [GH-B](GH-B-agents-act-through-least-privilege-apps.md) | Agents act only through least-privilege GitHub Apps | user | pending (P3.9) |
 | [GH-C](GH-C-all-labs-merge-into-the-one-repository.md) | All labs merge into the one repository | user | pending (P9.1) |
+| [GH-KEYS](GH-KEYS-github-app-keys-have-one-custody.md) | GitHub App private keys have one custody: the key home, or a protected environment | coordinator | partial (P1.2) |
 | [GH-PROJECTION](GH-PROJECTION-github-always-reflects-the-harness.md) | GitHub always reflects the harness | user | partial (P5.2) |
 | [GH-U](GH-U-the-accepted-github-recommendations.md) | The accepted GitHub recommendations (covers GH-U1, GH-U3, GH-U4, GH-U5, GH-U6, GH-U7) | user | pending (P3.2) |
 | [GITHUB-200](GITHUB-200-exploit-github-fully.md) | Use GitHub fully, and make progress public automatically | user | partial (P5.3) |
