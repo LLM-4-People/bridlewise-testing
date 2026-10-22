@@ -294,7 +294,7 @@ function strictDecode(bytes: Buffer, encoding: "utf-8" | "utf-16le" | "utf-16be"
   }
 }
 
-/** Whether the NULs of `probe` sit at alternate positions, as in UTF-16 text without a BOM (`le`: the high byte, odd positions, is the zero one). */
+/** Whether the NULs of `bytes` (the WHOLE content) sit at alternate positions, as in UTF-16 text without a BOM (`le`: the high byte, odd positions, is the zero one). */
 function looksUtf16(probe: Buffer, order: "le" | "be"): boolean {
   let zeroHigh = 0;
   let zeroLow = 0;
@@ -308,13 +308,17 @@ function looksUtf16(probe: Buffer, order: "le" | "be"): boolean {
 }
 
 /**
- * EVERY TEXT `bytes` HOLD, before any matching: the encoding a BOM names
- * (UTF-8, UTF-16LE/BE, UTF-32LE/BE), else UTF-8 when the bytes are valid
- * UTF-8, plus UTF-16LE/BE when the NULs sit at alternate positions and the
- * bytes decode. Each decode is strict; nothing is guessed lossily. Bytes no
- * candidate decodes are UNDECODABLE: they are still matched byte for byte
- * (`latin1`, so an ASCII credential inside a binary is seen), and the import
- * refuses them unless a reviewed exemption names the object.
+ * EVERY TEXT `bytes` HOLD, before any matching, judged over the WHOLE
+ * content (never a leading probe): the encoding a BOM names (UTF-8,
+ * UTF-16LE/BE, UTF-32LE/BE), else UTF-8 when the bytes are valid UTF-8, plus
+ * UTF-16LE/BE when the NULs sit at alternate positions and the bytes decode;
+ * and, in every case, the printable runs written as UTF-16 ANYWHERE in the
+ * bytes, both byte orders, both alignments (`utf16Runs`: a UTF-16 section
+ * after 8 KiB of ASCII, or at an odd offset). Each full decode is strict;
+ * nothing is guessed lossily. Bytes no full decode reads are UNDECODABLE:
+ * they are still matched byte for byte (`latin1`, so an ASCII credential
+ * inside a binary is seen), and the import refuses them unless a reviewed
+ * exemption names the object.
  */
 export function decodedTexts(bytes: Buffer): Readonly<{ texts: readonly DecodedText[]; undecodable: boolean }> {
   const bom = BOMS.find((candidate) => candidate.bytes.every((byte, index) => bytes[index] === byte));
@@ -325,15 +329,50 @@ export function decodedTexts(bytes: Buffer): Readonly<{ texts: readonly DecodedT
   } else {
     const utf8 = strictDecode(bytes, "utf-8");
     if (utf8 !== undefined) texts.push({ encoding: "utf-8", text: utf8, rewritable: true });
-    const probe = bytes.subarray(0, POLICY.binaryProbeBytes);
     for (const order of ["le", "be"] as const) {
-      if (!probe.includes(0) || !looksUtf16(probe, order)) continue;
+      if (!bytes.includes(0) || !looksUtf16(bytes, order)) continue;
       const text = strictDecode(bytes, order === "le" ? "utf-16le" : "utf-16be");
       if (text !== undefined) texts.push({ encoding: `utf-16${order}`, text, rewritable: false });
     }
   }
-  if (texts.length > 0) return deepFreeze({ texts, undecodable: false });
-  return deepFreeze({ texts: [{ encoding: "latin1", text: bytes.toString("latin1"), rewritable: false }], undecodable: true });
+  const decoded = texts.length > 0;
+  if (!decoded) texts.push({ encoding: "latin1", text: bytes.toString("latin1"), rewritable: false });
+  // UTF-16 text ANYWHERE in the bytes, whatever came before it and at either byte alignment
+  // (a UTF-16 section after 8 KiB of ASCII, an odd offset): its ASCII runs, read in both orders.
+  // (Not when a full UTF-16/UTF-32 decode already read every character: each value would count twice.)
+  const runs = texts.some((text) => text.encoding.startsWith("utf-16") || text.encoding.startsWith("utf-32")) ? [] : utf16Runs(bytes);
+  if (runs.length > 0) texts.push({ encoding: "utf-16-runs", text: runs.join("\n"), rewritable: false });
+  return deepFreeze({ texts, undecodable: !decoded });
+}
+
+/** The shortest UTF-16 run of printable ASCII worth reading (a credential is far longer; a stray `a\0` pair is not text). */
+const UTF16_RUN_MINIMUM = 4;
+
+/**
+ * Every run of printable ASCII (tab, newline, carriage return, space to `~`)
+ * written as UTF-16 anywhere in `bytes`, read as character-then-zero pairs at
+ * BOTH byte alignments — which covers both byte orders, because big-endian
+ * text at one alignment is little-endian text at the other (a zero, then the
+ * character, is the previous pair's tail). Nothing is found in bytes with no
+ * NUL.
+ */
+function utf16Runs(bytes: Buffer): readonly string[] {
+  if (!bytes.includes(0)) return [];
+  const printable = (byte: number): boolean => byte === 0x09 || byte === 0x0a || byte === 0x0d || (byte >= 0x20 && byte <= 0x7e);
+  const runs: string[] = [];
+  for (const alignment of [0, 1]) {
+    let run = "";
+    for (let index = alignment; index + 1 < bytes.length; index += 2) {
+      if (bytes[index + 1] === 0 && printable(bytes[index]!)) {
+        run += String.fromCharCode(bytes[index]!);
+        continue;
+      }
+      if (run.length >= UTF16_RUN_MINIMUM) runs.push(run);
+      run = "";
+    }
+    if (run.length >= UTF16_RUN_MINIMUM) runs.push(run);
+  }
+  return runs;
 }
 
 /**

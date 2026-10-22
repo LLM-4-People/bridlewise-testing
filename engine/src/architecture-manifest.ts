@@ -5062,7 +5062,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-process-process-facts", path: "src/process/process-facts.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 43, namesSha256: "7e9caf3d2158be1bd4bfaed1e527b826b9119a192592ecc854ba8d590ed4144f" },
+      owner: "process-infrastructure", publicApi: { exportCount: 44, namesSha256: "d9aae8457a5f93edeb28798ae7a10bcb174ac4a834e8e4d5f30624cecf529455" },
       dependencies: ["node:fs","node:path","src/kernel/errors.ts","src/kernel/root-policy.ts","src/shared/debug/debug-system.ts"],
     }),
     moduleContract({

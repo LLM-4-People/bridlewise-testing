@@ -50,8 +50,10 @@ mirrors the source into a run folder of the private import home
 (`HARNESS_IMPORT_HOME`, default `~/.local/state/bridlewise/history-import`,
 0700, kept out of every confined process) and enumerates every object of every
 ref. It reads each object ONCE and decodes every text it holds before any
-matching (a BOM's encoding — UTF-8, UTF-16LE/BE, UTF-32LE/BE — else strict
-UTF-8, plus UTF-16 when the NULs sit at alternate positions); an object nothing
+matching, judged over the WHOLE content (a BOM's encoding — UTF-8,
+UTF-16LE/BE, UTF-32LE/BE — else strict UTF-8, plus UTF-16 when the NULs sit
+at alternate positions, plus the printable UTF-16 runs anywhere in the bytes
+at both alignments); an object nothing
 decodes is matched byte for byte and refused unless the review exempts it by
 id. Both scanners read those texts: the secret CATALOGUE (the redaction
 engine's format layer, the same rows every scanner uses), which decides what
@@ -69,9 +71,10 @@ receipt itself (no absolute or home path: a local repository is recorded as
 pushes every ref with an explicit refspec, atomically and never forced, into
 an EMPTY target, then reads the target back. A secret in a path or a ref name,
 or a credential in a URL, is refused. The two tools are pinned by sha256 and
-checked before every run, and every tool process is bounded by its process
-group's CPU time and a stall check (no output and no CPU progress), never by
-wall time; the harness does not download them (the outbound door never
+checked before every run, and every tool process runs as a PROCESS GROUP
+under the one supervisor's work-bounded mode: the group's CPU time (members
+that vanished included) and a stall check (no output and no CPU progress),
+until its pipes close, never by wall time; the harness does not download them (the outbound door never
 follows a release asset's redirect), so a missing one's refusal prints its
 provisioning command.
 

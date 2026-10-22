@@ -20,7 +20,9 @@
  *     narrower than the secret), until a reviewed disposition names the
  *     oracle-only value — which then stays, counted in the receipt;
  *   - an object nothing decodes is refused until the review exempts it by
- *     id, and its byte-level credential is still found and stripped.
+ *     id, and its byte-level credential is still found and stripped;
+ *   - nothing is pushed when the purge leaves residue (a token in an author
+ *     name) or when the receipt would carry a home path (a ref named after one).
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -180,4 +182,27 @@ test("an oracle-only secret and a key wider than its catalogue row are refused u
   }
   if (refusal === undefined) assert.ok(!holds(everything(keyTarget), body.split("\n")[3]!), "a key's body reached the target");
   else assert.equal(refusal, "history_import_catalogue_gap");
+});
+
+test("end to end, nothing is pushed when the purge leaves residue (a token in an author name, which a message rewrite never reaches) or when the receipt would carry a home path (a ref named after one)", async () => {
+  const home = testImportHome();
+  // Residue: filter-repo's --replace-message rewrites messages, never an author; the re-scan finds the token still there.
+  const authored = createTempDir("history-import-residue-");
+  git(authored, "init", "-q", "-b", "main");
+  write(authored, "README.md", "plain\n");
+  git(authored, "add", ".");
+  execFileSync(GIT, ["-c", `user.name=ci ${GITHUB_TOKEN}`, "-c", "user.email=ci@example.invalid", "commit", "-q", "-m", "authored by a token"], { cwd: authored });
+  const residueTarget = bareTarget();
+  await assert.rejects(importHistory({ source: authored, target: residueTarget }, { home, git: GIT }), refusedWith("history_import_residue"));
+  assert.equal(git(residueTarget, "for-each-ref").trim(), "", "nothing was pushed");
+  // The receipt: a ref git accepts whose name carries a home path would put it in the pushed receipt.
+  const named = createTempDir("history-import-receipt-");
+  git(named, "init", "-q", "-b", "main");
+  write(named, "README.md", "plain\n");
+  git(named, "add", ".");
+  git(named, "commit", "-q", "-m", "plain");
+  git(named, "branch", "notes=/home/someone/drafts");
+  const receiptTarget = bareTarget();
+  await assert.rejects(importHistory({ source: named, target: receiptTarget }, { home, git: GIT }), (error: Error & { code?: string }) => error.code === "history_import_receipt_unsafe" && error.message.includes("is an absolute or home path"));
+  assert.equal(git(receiptTarget, "for-each-ref").trim(), "", "nothing was pushed");
 });

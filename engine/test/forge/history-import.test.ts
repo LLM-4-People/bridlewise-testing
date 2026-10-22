@@ -240,6 +240,27 @@ test("encodings: a token is found in UTF-16LE (with and without a BOM), UTF-16BE
   assert.equal(planPurge(scan.catalogue.hits).strippedBlobs.length, 5);
 });
 
+test("encodings: a UTF-16 token anywhere in the blob is found — after 8 KiB of ASCII, at an even and an odd offset, little- and big-endian — and its blob is stripped", async () => {
+  const root = createTempDir("history-import-utf16-anywhere-");
+  git(root, "init", "-q", "-b", "main");
+  const ascii = "x".repeat(8192);
+  const planted: Readonly<Record<string, Buffer>> = {
+    "after-8k-even.txt": Buffer.concat([Buffer.from(ascii), Buffer.from(`token = ${GITHUB_TOKEN}\n`, "utf16le")]),
+    "after-8k-odd.txt": Buffer.concat([Buffer.from(`${ascii}y`), Buffer.from(`token = ${GITHUB_TOKEN}\n`, "utf16le")]),
+    "after-8k-be.txt": Buffer.concat([Buffer.from(`${ascii}y`), Buffer.from(`token = ${GITHUB_TOKEN}\n`, "utf16le").swap16()]),
+  };
+  for (const [path, bytes] of Object.entries(planted)) write(root, path, bytes);
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "UTF-16 sections past the first 8 KiB");
+  const inventory = enumerateHistory(repository(root));
+  const scan = (await scanHistory(repository(root), inventory, NO_ORACLE)).catalogue;
+  for (const path of Object.keys(planted)) {
+    const oid = inventory.paths.find((entry) => entry.path === path)!.oid;
+    const hits = scan.hits.filter((hit) => hit.oid === oid);
+    assert.deepEqual(hits.map((hit) => [hit.entry, hit.value, hit.binary]), [["token-prefix", GITHUB_TOKEN, true]], path);
+  }
+});
+
 test("encodings: an object nothing decodes is undecodable (listed for review), yet still matched byte for byte", async () => {
   const root = createTempDir("history-import-binary-");
   git(root, "init", "-q", "-b", "main");
@@ -378,4 +399,40 @@ test("the work-bounded run: a command that exits at once is never mistaken for a
     endings.set(run.ending, (endings.get(run.ending) ?? 0) + 1);
   }
   assert.deepEqual([...endings], [["exited", 200]]);
+});
+
+/**
+ * A leader that starts a grandchild INHERITING its pipes (same process group), records the
+ * grandchild's pid in `pidFile`, optionally burns `leaderBurnMs` of CPU, and exits. The
+ * grandchild runs `grandchild` (a node one-liner) while holding the pipes open.
+ */
+function leaderWithGrandchild(pidFile: string, grandchild: string, leaderBurnMs = 0): string {
+  return [
+    `const { spawn } = require("node:child_process");`,
+    `const g = spawn(process.execPath, ["-e", ${JSON.stringify(grandchild)}], { stdio: "inherit" });`,
+    `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(g.pid));`,
+    `const until = process.cpuUsage().user / 1000 + ${String(leaderBurnMs)}; while (process.cpuUsage().user / 1000 < until) {}`,
+    `process.exit(0);`,
+  ].join(" ");
+}
+
+test("the work-bounded run bounds the whole GROUP: a grandchild holding the pipe asleep is a stall, one burning CPU is over budget, and the leader's CPU never leaves the total when it exits", async () => {
+  const dir = createTempDir("bounded-group-");
+  // 1. The leader exits at once; the grandchild sleeps holding the pipe: the run lasts, then stalls, and the group dies.
+  const sleeper = join(dir, "sleeper");
+  const asleep = await runCpuBounded(NODE, ["-e", leaderWithGrandchild(sleeper, "setTimeout(() => {}, 120000)")], { cwd: dir, env: ENV, bounds: TIGHT });
+  assert.equal(asleep.ending, "stalled");
+  assert.equal(isProcessAlive(Number(readFileSync(sleeper, "utf8"))), false, "the grandchild was stopped with its group");
+  // 2. The grandchild burns CPU after the leader exits: over budget, the group dies.
+  const burner = join(dir, "burner");
+  const burning = await runCpuBounded(NODE, ["-e", leaderWithGrandchild(burner, "for(;;){}")], { cwd: dir, env: ENV, bounds: TIGHT });
+  assert.equal(burning.ending, "cpu-exhausted");
+  assert.equal(isProcessAlive(Number(readFileSync(burner, "utf8"))), false, "the burning grandchild was stopped with its group");
+  // 3. The leader burns past the budget, then exits (reaped by this process) while an idle grandchild holds the pipe:
+  //    its CPU stays in the total, so the run is over budget, never merely stalled.
+  const spent = join(dir, "spent");
+  const leaderSpent = await runCpuBounded(NODE, ["-e", leaderWithGrandchild(spent, "setTimeout(() => {}, 120000)", 700)], { cwd: dir, env: ENV, bounds: { ...TIGHT, stallMs: 5_000 } });
+  assert.equal(leaderSpent.ending, "cpu-exhausted");
+  assert.ok((leaderSpent.cpuMs ?? 0) > TIGHT.cpuBudgetMs, `the total kept the exited leader's work (${String(leaderSpent.cpuMs)} ms)`);
+  assert.equal(isProcessAlive(Number(readFileSync(spent, "utf8"))), false);
 });

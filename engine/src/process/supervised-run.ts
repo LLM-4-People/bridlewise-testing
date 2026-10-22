@@ -19,10 +19,13 @@
  *   of a nested runner, with the same receipt.
  * - {@link readSupervisorReceipt}: the fd-3 receipt, read and CHECKED one way.
  * - {@link runCpuBounded}: a TOOL run bounded by its WORK, never its wall
- *   time (the importer's pinned tools): its process group's CPU time
- *   against a budget, a stall only when it produced no output AND no CPU
- *   time for a window, its stdin and its output held in memory; stopped only
- *   through the owned-process `terminate`.
+ *   time (the importer's pinned tools), as a PROCESS GROUP: the group's CPU
+ *   time (vanished members included) against a budget, a stall only when it
+ *   produced no output AND no CPU time for a window, the run lasting until
+ *   its pipes close (a grandchild holding them stays bounded), its stdin and
+ *   its output held in memory; stopped only through the owned-process
+ *   `terminate`, as a group. A `setsid` escapee is the confinement owner's
+ *   (NB-1: a cgroup or the native subreaper), never this mode's.
  * - {@link startDetached}: the ONE launch that is deliberately NOT supervised —
  *   a background run that must outlive the process starting it (the promotion
  *   trigger's unattended run), in a session of its own with none of this
@@ -38,7 +41,7 @@ import type { Readable } from "node:stream";
 
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
-import { isProcessAlive, isProcessGroupAlive, isProcessIdentityLive, ownedAnnouncement, ownedChild, processGroupCpuMs, terminate, type OwnedProcess, type ProcessIdentity } from "./process-facts.ts";
+import { isProcessAlive, isProcessGroupAlive, isProcessIdentityLive, ownedAnnouncement, ownedChild, processGroupMembers, terminate, type OwnedProcess, type ProcessIdentity } from "./process-facts.ts";
 import { adoptIntoOwnedInstrumentLock } from "./instrument-lock-adoption.ts";
 import { guarded } from "./fault-policy.ts";
 
@@ -316,15 +319,57 @@ export type CpuBoundedRun = Readonly<{
 }>;
 
 /**
- * Runs `command` bounded by its WORK (see {@link CpuBounds}): in a process
- * group of its own (stopped as a group, its descendants with it), `input` on
- * its stdin, its output held in memory. Every `pollMs` its group's CPU time
- * is read (`processGroupCpuMs`); it is stopped — only through the
- * owned-process `terminate` — when the group spent `cpuBudgetMs`, when its
- * output passed `outputBytes`, when it produced no output and no CPU time for
- * `stallMs`, or when procfs cannot measure a group still running (a budget
- * nobody can read is no budget). It never answers a refusal: the caller maps
- * the ending to its own.
+ * The CPU a process group has used since it started, accounted from
+ * {@link processGroupMembers} samples taken every poll: each member's latest
+ * sample counts; a member that has VANISHED keeps its last sample unless its
+ * parent is a live member (whose reaped-child time now holds it), so the
+ * leader reaped by this process, or an orphan reaped by init, never takes
+ * its work out of the total. Monotonic by construction (a total never drops).
+ */
+function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ cpuMs: number; members: number }> }> {
+  const last = new Map<string, Readonly<{ ppid: number; cpuMs: number }>>();
+  const gone = new Map<string, number>();
+  let total = 0;
+  return {
+    sample: () => {
+      const members = processGroupMembers(pgid);
+      const live = new Map(members.map((member) => [`${String(member.pid)}:${String(member.startTime)}`, member]));
+      const livePids = new Set(members.map((member) => member.pid));
+      for (const [key, seen] of last) {
+        if (live.has(key)) continue;
+        // Vanished: its time is in a live parent's reaped-child time, or it is kept here.
+        if (!livePids.has(seen.ppid)) gone.set(key, seen.cpuMs);
+        last.delete(key);
+      }
+      for (const [key, member] of live) last.set(key, { ppid: member.ppid, cpuMs: member.cpuMs });
+      const now = [...last.values()].reduce((sum, member) => sum + member.cpuMs, 0) + [...gone.values()].reduce((sum, cpuMs) => sum + cpuMs, 0);
+      total = Math.max(total, now);
+      return { cpuMs: total, members: members.length };
+    },
+  };
+}
+
+/**
+ * Runs `command` bounded by its WORK (see {@link CpuBounds}), as a PROCESS
+ * GROUP: the command leads a group of its own (`detached`), `input` goes to
+ * its stdin, and its output is held in memory. The run lasts until its output
+ * pipes CLOSE — a descendant that inherited them keeps the run going after
+ * the leader exits, and stays under the same bounds. Every `pollMs` the
+ * group's CPU (its members' and the work of every member that vanished:
+ * {@link groupCpuAccountant}) and its output are read; the GROUP is stopped —
+ * only through the owned-process `terminate`, by its process group — when
+ * it spent `cpuBudgetMs`, when its output passed `outputBytes`, when it
+ * produced no output and no CPU time for `stallMs` (a grandchild holding the
+ * pipe asleep is a stall), or when procfs cannot measure a group whose
+ * leader still runs. After a stop, a pipe still open past `killGraceMs` is
+ * let go: only a process OUTSIDE the group can hold it.
+ *
+ * NB-1, STATED: a group is the bound of a COOPERATIVE command (the pinned
+ * tools). A descendant that calls `setsid` leaves the group and escapes it;
+ * containing an UNTRUSTED command is the confinement owner's (a cgroup or the
+ * native subreaper of the test-run mode), never this mode's.
+ *
+ * It never answers a refusal: the caller maps the ending to its own.
  */
 export async function runCpuBounded(
   command: string,
@@ -338,9 +383,18 @@ export async function runCpuBounded(
   let outputBytes = 0;
   let stopping: CpuBoundedEnding | undefined;
   let cpuMs: number | null = null;
-  const exited = new Promise<Readonly<{ status: number | null; signal: NodeJS.Signals | null; error?: Error }>>((resolveExit) => {
-    child.once("error", guarded("process.cpu-bounded.error", (error: Error) => resolveExit({ status: null, signal: null, error })));
-    child.once("close", guarded("process.cpu-bounded.close", (status: number | null, signal: NodeJS.Signals | null) => resolveExit({ status, signal })));
+  let closed = false;
+  let exitStatus: Readonly<{ status: number | null; signal: NodeJS.Signals | null }> | undefined;
+  let release: (() => void) | undefined;
+  const ended = new Promise<Readonly<{ error?: Error }>>((resolveEnd) => {
+    release = () => resolveEnd({});
+    child.once("error", guarded("process.cpu-bounded.error", (error: Error) => resolveEnd({ error })));
+    child.once("exit", guarded("process.cpu-bounded.exit", (status: number | null, signal: NodeJS.Signals | null) => { exitStatus = { status, signal }; }));
+    child.once("close", guarded("process.cpu-bounded.close", (status: number | null, signal: NodeJS.Signals | null) => {
+      closed = true;
+      exitStatus ??= { status, signal };
+      resolveEnd({});
+    }));
   });
   const collect = (into: Buffer[]) => (chunk: Buffer): void => {
     into.push(chunk);
@@ -352,7 +406,7 @@ export async function runCpuBounded(
   child.stdin.on("error", guarded("process.cpu-bounded.stdin", (error: Error) => void stderr.push(Buffer.from(`(stdin: ${error.message})\n`))));
   child.stdin.end(options.input ?? Buffer.alloc(0));
   // Taken at once, while the child is ours and alive; a child that already ended needs no watch.
-  const running = (): boolean => child.exitCode === null && child.signalCode === null;
+  const leaderRunning = (): boolean => child.exitCode === null && child.signalCode === null;
   let owned: OwnedProcess | undefined;
   if (child.pid !== undefined) {
     try {
@@ -363,20 +417,29 @@ export async function runCpuBounded(
       if (isProcessAlive(child.pid)) throw error;
     }
   }
+  const accountant = owned === undefined ? undefined : groupCpuAccountant(owned.pid);
   const stop = (ending: CpuBoundedEnding): void => {
     if (stopping !== undefined || owned === undefined) return;
     stopping = ending;
-    void terminate({ group: owned }, { graceMs: bounds.killGraceMs });
+    void terminate({ group: owned }, { graceMs: bounds.killGraceMs }).then(guarded("process.cpu-bounded.stopped", () => {
+      // The group is gone; a pipe still open now is held outside it (NB-1): let it go after the grace.
+      setTimeout(guarded("process.cpu-bounded.release", () => {
+        if (closed) return;
+        child.stdout.destroy();
+        child.stderr.destroy();
+        release?.();
+      }), bounds.killGraceMs).unref();
+    }));
   };
   let lastCpuMs = 0;
   let lastOutputBytes = 0;
   let lastProgressAt = Date.now();
   const watch = setInterval(guarded("process.cpu-bounded.watch", () => {
-    if (stopping !== undefined || owned === undefined || !running()) return;
-    const read = processGroupCpuMs(owned.pid);
-    if (read === undefined) {
-      // A group with no member left has ended (its exit event is on its way); only a LIVE command procfs cannot measure is unmeasurable.
-      if (isProcessIdentityLive(owned)) stop("unmeasurable");
+    if (stopping !== undefined || closed || owned === undefined || accountant === undefined) return;
+    const { cpuMs: read, members } = accountant.sample();
+    // A leader procfs cannot see while Node still holds it running: no budget can be judged.
+    if (members === 0 && leaderRunning() && isProcessIdentityLive(owned)) {
+      stop("unmeasurable");
       return;
     }
     cpuMs = read;
@@ -388,15 +451,15 @@ export async function runCpuBounded(
     lastOutputBytes = outputBytes;
   }), bounds.pollMs);
   try {
-    const ended = await exited;
+    const end = await ended;
     return Object.freeze({
-      ending: ended.error !== undefined ? "unstarted" : stopping ?? "exited",
-      status: ended.status,
-      signal: ended.signal,
+      ending: end.error !== undefined ? "unstarted" : stopping ?? "exited",
+      status: exitStatus?.status ?? null,
+      signal: exitStatus?.signal ?? null,
       stdout: Buffer.concat(stdout),
       stderr: Buffer.concat(stderr),
       cpuMs,
-      startError: ended.error === undefined ? null : (ended.error as NodeJS.ErrnoException).code ?? ended.error.message,
+      startError: end.error === undefined ? null : (end.error as NodeJS.ErrnoException).code ?? end.error.message,
     });
   } finally {
     clearInterval(watch);
