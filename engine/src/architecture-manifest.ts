@@ -5721,7 +5721,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-forge-projector-project", path: "src/workflow/forge/projector/project.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "5d7fc1307c4e148d15173534d166fd08c1665b817d7fe617a6f2977003bf21b9" },
-      dependencies: ["src/kernel/ordered.ts","src/workflow/forge/projector/model.ts","src/workflow/markdown-links.ts","src/workflow/tracker-status.ts"],
+      dependencies: ["../shared/markup.ts","src/kernel/ordered.ts","src/workflow/forge/projector/model.ts","src/workflow/markdown-links.ts","src/workflow/tracker-status.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-projector-projection", path: "src/workflow/forge/projector/projection.ts", realm: "runtime", layer: "infrastructure",
