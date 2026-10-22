@@ -38,10 +38,17 @@
 import { builtinModules } from "node:module";
 
 import { deepFreeze } from "../kernel/integrity.ts";
+import { JS_EXTENSIONS, TS_EXTENSIONS } from "../kernel/language-extensions.ts";
 import { tokenizeWithPositions, type Token } from "../intelligence/js-tokenizer.ts";
 
-/** The source extensions a module the walk follows is written in, tried in order for an extension-less specifier. */
-const REACHABLE_SOURCE_EXTENSIONS: readonly string[] = deepFreeze([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".svelte"]);
+/**
+ * The source extensions a module the walk follows is written in, tried in
+ * order for an extension-less specifier: every TypeScript and JavaScript
+ * extension the language owner (`kernel/language-extensions.ts`) counts as
+ * code, then a Svelte component. One list, so no code file (`.mts`, `.cts`
+ * included) escapes the walk or the projection's "is a module" judgement.
+ */
+const REACHABLE_SOURCE_EXTENSIONS: readonly string[] = deepFreeze([...TS_EXTENSIONS, ...JS_EXTENSIONS, ".svelte"]);
 
 /** A declared spawn call: the string literal at `argument` (0-based) of a call to `callee` names a script under `base`. */
 export type SpawnCall = Readonly<{ callee: string; argument: number; base: string }>;
