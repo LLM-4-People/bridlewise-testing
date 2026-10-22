@@ -4181,6 +4181,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workspaces/workspace-forge-github.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workspaces/workspace-forge.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4190,6 +4198,14 @@
     },
     {
       "path": "test/workspaces/workspace-integration.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/workspaces/workspace-land.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -4261,5 +4277,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "b2b0b7162248f6c8427afea8250ec35f9af279eff91c21ce4bc4efc1591e2185"
+  "integrityHash": "4831687479833ee78bd7a5c534ba3d7f78092811dd44d564a8a9a585728517b9"
 }

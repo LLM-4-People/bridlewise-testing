@@ -70,14 +70,14 @@ test("§5.1: from a checkout of the TARGET (no profile), the target tip's last p
 });
 
 test("the pending signal counts an overlay file's change as changing what ships, and an excluded file's as not", () => {
-  const fixture = promotionFixture("promotion-overlay-pending", { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: "target-only/" } });
+  const fixture = promotionFixture("promotion-overlay-pending", { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: { folder: "target-only/", kinds: ["*.txt"] } } });
   const source = fixture.tip(SOURCE);
   const promoted = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nProjected-From: ${source}\nPromotion-Profile: ${PROFILE_NAME}@${fixture.loaded().blob!}`]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, promoted]);
   fixture.commit(SOURCE, { "dev/tool.ts": "export const tool = 3;\n" }, "a development change");
   fixture.git(["checkout", "-q", SOURCE]);
   assert.match(enginePromotionSource(fixture.root, fixture.document).pending(), /^dev-to-prod: 1 source commit\(s\) not yet promoted, the oldest [0-9.]+ h old, none changing what ships$/u);
-  fixture.commit(SOURCE, { "target-only/NOTICE": "the product's notice\n" }, "a target-only file");
+  fixture.commit(SOURCE, { "target-only/NOTICE.txt": "the product's notice\n" }, "a target-only file");
   fixture.git(["checkout", "-q", SOURCE]);
   assert.match(enginePromotionSource(fixture.root, fixture.document).pending(), /^dev-to-prod: 2 source commit\(s\) not yet promoted, the oldest [0-9.]+ h old, changing what ships$/u);
 });
