@@ -14,7 +14,9 @@ upstream, so every test drives the real outbound door and transport.
 
 - `declarations.test.ts` — the declarations (every object once, in apply order, the plan's unavailable fields, the registry's references, the stage's flip, a form type outside the registry refused), the allowed actions, Dependabot's breadth over the tracked lockfiles, CODEOWNERS routing, and the comparison.
 - `forge-settings.ts` — the forge section and the generated files' sources the forge tests use (a fixture, not a test file), independent of the repository's own configuration.
-- `plan.test.ts` — plan, apply and audit against the fake GitHub: every action (create, update, unchanged, refused, unmanaged, retire), a partial plan never applied, one object's refusal kept to it, a budget refusal stopping the run, unavailable fields never written, and the whole declaration set applied and converged to zero drift, idempotently.
+- `plan.test.ts` — plan, apply and audit against the fake GitHub: every action (create, update, unchanged, refused, unmanaged, retire), the tighten-first barriers (the baseline written and read back before rules move out; a read-back that fails stops the apply; a weakening only with its acknowledgement), a partial plan never applied, one object's refusal kept to it, a budget refusal stopping the run, unavailable fields never written, and the whole declaration set applied and converged to zero drift, idempotently.
+- `forge-key-home.ts` — the forge tests' key homes (a helper, not a test file): `temporaryKeyHome` creates a new, empty key home under the test process's own temporary root for every test that stores a key; `requireTestKeyHome` refuses to run unless the process is under the runners' private test key home.
+- `flake-shim-token-ends-zero.ts` — a deterministic reproduction shim (registered in `testExecution.flakeReproduction.deterministicShims`): every `randomBytes` answer ends in a byte with a zero low half, recreating the one draw in sixteen that made the token test's near miss equal the real token.
 
 ## Where it lives and what consumes it
 

@@ -7,6 +7,7 @@ status: in-force
 implementation: partial
 route: FLAKE-REPRO-REDECLARE
 acted_in: [engine/src/shared/run-history.ts, engine/src/git/flake-cause-fixes.ts, engine/src/shared/flake-reproduction.ts, engine/src/workflow/flake-cli.ts, engine/src/workflow/flaky-burn-down.ts, engine/scripts/commit-guard.ts, engine/src/quality/languages/semantic-form.ts]
+amended_by: [NO-LOAD-BLOCK]
 ---
 # A flake cause needs a recorded reproduction
 
@@ -160,3 +161,15 @@ out.
 - **Status.** The status is `partial` until every suspect is re-declared under
   these rules with a record the log shows, or owned by a burn-down entry
   (FLAKE-REPRO-REDECLARE).
+
+## Amended by NO-LOAD-BLOCK (2026-10-15)
+
+[NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md) changes how a
+failure that appears only under host load is treated. The amended rule: a
+"flake under load" needs no quiet host to be reproduced, and it is never
+excused as a flake. A test that fails under load is itself a load-dependence
+defect, fixed at its cause (judge CPU work or wait on events instead of wall
+time), and its reproduction is recorded under the same conditions as any
+other, with the load named among them. The rest of this decision stands. The
+amendment is decided, not yet built: NO-LOAD-BLOCK is `pending` (route
+TEST-10X).
