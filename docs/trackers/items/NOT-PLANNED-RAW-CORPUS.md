@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: NOT-PLANNED-RAW-CORPUS
 type: Task
 title: Publishing the raw 4.1 GB corpus as a repository

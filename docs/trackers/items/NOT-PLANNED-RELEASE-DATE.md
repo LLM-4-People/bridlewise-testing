@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: NOT-PLANNED-RELEASE-DATE
 type: Task
 title: A release date

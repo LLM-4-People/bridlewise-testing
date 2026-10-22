@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M2-CONTROLS
 type: Workstream
 title: Publish the method and limits of the safety and privacy controls

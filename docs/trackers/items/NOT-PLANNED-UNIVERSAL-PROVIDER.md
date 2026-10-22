@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: NOT-PLANNED-UNIVERSAL-PROVIDER
 type: Task
 title: A universal provider compatibility claim

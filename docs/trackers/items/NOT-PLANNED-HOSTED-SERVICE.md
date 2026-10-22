@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: NOT-PLANNED-HOSTED-SERVICE
 type: Task
 title: A hosted multi-tenant service in the preview

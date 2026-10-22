@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: PROVIDER-CONFORMANCE-SECOND-FIXTURE
 type: Task
 title: Add a second provider conformance fixture

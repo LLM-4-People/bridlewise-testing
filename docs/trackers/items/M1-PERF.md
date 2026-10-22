@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M1-PERF
 type: Workstream
 title: Reproducible performance report

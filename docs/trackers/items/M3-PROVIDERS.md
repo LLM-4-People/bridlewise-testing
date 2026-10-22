@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M3-PROVIDERS
 type: Workstream
 title: Provider conformance fixtures and clearer setup failures

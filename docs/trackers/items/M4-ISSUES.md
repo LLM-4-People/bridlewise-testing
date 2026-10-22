@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M4-ISSUES
 type: Workstream
 title: Issue lanes with evidence requirements and a named next action

@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M4-ROADMAP
 type: Workstream
 title: A roadmap that records state and exit criteria instead of a wish list

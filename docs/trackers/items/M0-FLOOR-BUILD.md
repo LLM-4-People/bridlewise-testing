@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M0-FLOOR-BUILD
 type: Workstream
 title: Build the floor from a clean machine

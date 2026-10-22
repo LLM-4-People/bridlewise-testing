@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-FRESH-MACHINE
 type: Task
 title: Verify the public floor on a fresh machine

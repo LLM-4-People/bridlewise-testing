@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-SHARD-RECEIPT
 type: Task
 title: Publish the full supported-set shard receipt

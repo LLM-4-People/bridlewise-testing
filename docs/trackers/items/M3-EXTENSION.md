@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M3-EXTENSION
 type: Workstream
 title: A stable extension surface with compatibility notes

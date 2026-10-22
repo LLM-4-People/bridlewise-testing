@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M3-MCP
 type: Workstream
 title: MCP coverage

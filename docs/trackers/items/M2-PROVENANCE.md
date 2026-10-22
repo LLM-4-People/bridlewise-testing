@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M2-PROVENANCE
 type: Workstream
 title: Release provenance and verification

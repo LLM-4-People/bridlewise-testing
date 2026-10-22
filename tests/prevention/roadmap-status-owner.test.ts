@@ -56,6 +56,7 @@ import {
   renderRoadmapPage,
   roadmapDrift,
 } from "../../scripts/floor/roadmap-status.ts";
+import { escapeSiteText } from "../../shared/markup.ts";
 
 const ROOT = process.cwd();
 const page = readFileSync(join(ROOT, ROADMAP_PATH), "utf8");
@@ -85,7 +86,7 @@ describe("docs/floor/roadmap.md status is generated from its owners", () => {
     expect(report.staleBlocks, `docs/floor/roadmap.md's generated blocks are stale: run npm run docs:roadmap (stale: ${report.staleBlocks.join(", ")})`).toEqual([]);
 
     for (const item of [...open, ...roadmap]) expect(page, `item ${item.id} is missing from the roadmap`).toContain(`items/${item.id}.md`);
-    for (const nonProof of nonProofs) expect(page, `the evidence non-proof "${nonProof.text}" is missing from the roadmap`).toContain(nonProof.text);
+    for (const nonProof of nonProofs) expect(page, `the evidence non-proof "${nonProof.text}" is missing from the roadmap`).toContain(escapeSiteText(nonProof.text));
   });
 
   test("the #snapshot anchor and the milestone headings survive the generated tables", () => {
@@ -108,10 +109,10 @@ describe("docs/floor/roadmap.md status is generated from its owners", () => {
     expect(planned).toMatch(/Planted workstream\]\([^)]*\)\*\*<br>Exit: [^|]*\| planned \|/u);
     const child = planted("PLANTED-CHILD", { lane: "floor", milestone: null, parent: "PLANTED-WORK", state: "closed", resolution: "completed", closed: "2026-10-21", tests: ["tests/prevention/roadmap-status-owner.test.ts"] });
     const progressing = renderRoadmapPage(page, { ...sources, items: [...items, parent, child] });
-    expect(progressing).toContain("in progress (PLANTED-CHILD shipped)");
+    expect(progressing).toContain(escapeSiteText("in progress (PLANTED-CHILD shipped)"));
     const blocker = planted("PLANTED-BLOCKER", { lane: "floor", milestone: null });
     const blocked = renderRoadmapPage(page, { ...sources, items: [...items, { ...parent, blockedBy: ["PLANTED-BLOCKER"] }, child, blocker] });
-    expect(blocked).toContain("blocked (blocked by PLANTED-BLOCKER)");
+    expect(blocked).toContain(escapeSiteText("blocked (blocked by PLANTED-BLOCKER)"));
   });
 
   test("a close is a claim until linked evidence proves it: shipped only by a built decision, existing tests, a recorded evidence record or this repository's own PR, run or release (planted)", () => {
@@ -144,16 +145,20 @@ describe("docs/floor/roadmap.md status is generated from its owners", () => {
     expect(itemStatuses([milestone, closed("A", { milestone: "MS", tests: ["x"] }), closed("B", { milestone: "MS", decisions: ["D-BUILT"] })], facts).get("MS")?.state).toBe("shipped");
   });
 
-  test("item text never publishes markup: a planted script, an img onerror title and a javascript: link are refused, never rendered (planted)", () => {
-    for (const plantedItem of [
-      planted("PLANTED-SCRIPT", { body: "<script>alert(1)</script> the outcome." }),
-      planted("PLANTED-IMG", { title: "x <img src=x onerror=alert(1)> y" }),
-      planted("PLANTED-LINK", { body: "see [this](javascript:alert(1))." }),
-    ]) {
-      const report = roadmapDrift(page, { ...sources, items: [...items, plantedItem] }, ROOT);
-      expect(report.violations.join("\n"), plantedItem.id).toMatch(new RegExp(`item text would publish markup[\\s\\S]*${plantedItem.id}`, "u"));
-      expect(() => renderRoadmapPage(page, { ...sources, items: [...items, plantedItem] }), plantedItem.id).toThrow(/would publish markup/u);
+  test("no spelling of an item publishes markup: raw HTML, an unclosed fence, a kramdown attribute list and Liquid in a title or a body render as text (planted)", () => {
+    const plantedItems = [
+      planted("PLANTED-SCRIPT", { title: "x <img src=x onerror=alert(1)> {{ site.github }} y", body: "<script>alert(2)</script> the outcome {% include evil.html %}." }),
+      planted("PLANTED-FENCE", { body: "```\n<script>alert(3)</script> a fence never closed" }),
+      planted("PLANTED-IAL", { body: "the outcome.\n{: onclick=\"alert(4)\" .x}\n\n[a link](javascript:alert(5)) <!-- a comment -->" }),
+      planted("M9", { type: "Milestone", title: "Planted {% raw %}{{ site.x }}{% endraw %} milestone", state: null, lane: null, milestone: null, order: 9, body: "Prose with <iframe src=x></iframe> and {{ site.github.token }}.\n\n```\nunclosed <b>" }),
+    ];
+    const rendered = renderRoadmapPage(page, { ...sources, items: [...items, ...plantedItems] });
+    const generated = rendered.slice(rendered.indexOf("<!-- BEGIN GENERATED"));
+    for (const raw of ["<script", "<img", "<iframe", "<b>", "<!-- a comment", "{% include", "{% raw", "{{ site.github", "{{ site.x", "{:", "javascript:"]) {
+      expect(generated, `${raw} reached the page raw`).not.toContain(raw);
     }
+    // The planted text is still on the page, as text.
+    expect(generated).toContain(escapeSiteText("Planted {% raw %}"));
   });
 
   test("an open roadmap item without a milestone, and evidence that names no anchor, are refused (planted)", () => {

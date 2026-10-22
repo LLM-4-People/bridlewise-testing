@@ -38,11 +38,11 @@ import { fileURLToPath } from "node:url";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { TRACKER_BOARD } from "../../engine/src/kernel/verification-paths.ts";
-import { readDecisionRecords, readTrackerItems, rebaseRelativeLinks, TRACKER_LANES, type DecisionRecord, type TrackerItem } from "../../engine/src/workflow/failure-owners.ts";
+import { readDecisionRecords, readTrackerItems, TRACKER_LANES, type DecisionRecord, type TrackerItem } from "../../engine/src/workflow/failure-owners.ts";
 import { relativePath } from "../../engine/src/workflow/markdown-links.ts";
 import { itemStatuses, ROADMAP_STATES, type ItemStatus, type RoadmapState } from "../../engine/src/workflow/tracker-status.ts";
-import { escapeHtml, escapeMarkdownTableCell, stripTags } from "../../shared/markup.ts";
-import { itemMarkupViolation } from "../../engine/src/workflow/failure-owners.ts";
+import { siteDestination, siteProse, siteProseLine, type ProseTarget } from "../../engine/src/workflow/site-prose.ts";
+import { escapeSiteText, stripTags } from "../../shared/markup.ts";
 import { recordedEvidence } from "../../engine/src/workflow/evidence-store.ts";
 // The site tooling is plain Node ESM with no declaration file (the same import the floor-site tests make).
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
@@ -135,15 +135,6 @@ function readRoadmap(sources: RoadmapSources): Roadmap {
     board: sources.items.filter((item) => item.state === "open" && item.milestone === null).sort(byOrder),
     notPlanned: sources.items.filter((item) => item.lane === "roadmap" && item.milestone === null && status(item).state === "not planned").sort(byOrder),
     status,
-  });
-}
-
-/** Every way an item's text would publish markup (the item format's judgement, applied again to whatever items the renderer is handed). */
-function markupViolations(items: readonly TrackerItem[]): readonly string[] {
-  return items.flatMap((item) => {
-    const title = item.title !== null && /<[A-Za-z/!?]/u.test(item.title) ? [`${item.id}: its title opens markup: a title is text, never markup`] : [];
-    const body = itemMarkupViolation(item.body);
-    return [...title, ...(body === null ? [] : [`${item.id}: ${body}`])];
   });
 }
 
@@ -255,10 +246,13 @@ export function extractEvidenceNonProofs(markdown: string): readonly EvidenceNon
 }
 
 
-/** Renders the generated blocks from the items. Item text that would publish markup is refused, never rendered. */
+/**
+ * Renders the generated blocks from the items. Every text an item carries is
+ * written through the site escape (`escapeSiteText`, and `site-prose.ts` for
+ * prose), so no spelling of an item publishes markup, Liquid or a kramdown
+ * attribute list.
+ */
 export function renderRoadmapPage(pageText: string, sources: RoadmapSources): string {
-  const markup = markupViolations(sources.items);
-  if (markup.length > 0) fail(`item text would publish markup:\n${markup.join("\n")}`);
   const roadmap = readRoadmap(sources);
   const nonProofs = extractEvidenceNonProofs(sources.evidenceText);
   const bodies: Record<RoadmapBlock, string> = {
@@ -313,8 +307,15 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
+/** Any text on the page (a cell, a heading, a state's reason): one line, through the site escape. */
 function cell(value: string): string {
-  return escapeMarkdownTableCell(normalizeProse(value));
+  return escapeSiteText(normalizeProse(value));
+}
+
+/** Where this page publishes a link an item's prose wrote: a repository path page-relative (this page's own anchors as fragments), this repository's GitHub objects through `site.repository_url`. */
+function pageHref(target: ProseTarget): string {
+  if (target.kind === "absolute") return siteSpelled(target.url);
+  return target.path === ROADMAP_PATH ? (target.fragment || "#") : `${relativePath(PAGE_DIRECTORY, target.path)}${target.fragment}`;
 }
 
 function table(headers: readonly string[], rows: readonly (readonly string[])[]): string {
@@ -328,23 +329,23 @@ function table(headers: readonly string[], rows: readonly (readonly string[])[])
 
 /** A link from the roadmap page to an item's own record. */
 function itemLink(item: TrackerItem): string {
-  return `[${cell(escapeHtml(item.title ?? item.id))}](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${item.id}.md`)})`;
+  return `[${cell(item.title ?? item.id)}](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${item.id}.md`)})`;
 }
 
 /** The first paragraph of an item's body: its outcome, in one cell. */
 function outcome(item: TrackerItem): string {
-  return cell(item.body.split(/\n\s*\n/u)[0] ?? "");
+  return siteProseLine(item.body, TRACKER_BOARD.items, pageHref);
 }
 
 function link(evidence: string | null): string {
   if (evidence === null) return "—";
-  if (ONLINE_EVIDENCE.test(evidence)) return `[GitHub](${siteSpelled(evidence)})`;
+  if (ONLINE_EVIDENCE.test(evidence)) return `[GitHub](${siteDestination(siteSpelled(evidence))})`;
   const hash = evidence.indexOf("#");
   const pathPart = hash === -1 ? evidence : evidence.slice(0, hash);
   const anchor = hash === -1 ? "" : evidence.slice(hash + 1);
   const target = pathPart === ROADMAP_PATH ? "" : relativePath(PAGE_DIRECTORY, pathPart);
   const label = pathPart === ROADMAP_PATH ? "this page" : basename(pathPart).replace(/\.md$/u, "");
-  return anchor.length === 0 ? `[${label}](${target})` : `[${label}: ${anchor}](${target}#${anchor})`;
+  return anchor.length === 0 ? `[${cell(label)}](${target})` : `[${cell(`${label}: ${anchor}`)}](${target}#${anchor})`;
 }
 
 function milestoneAnchor(milestone: TrackerItem): string {
@@ -356,14 +357,17 @@ function milestoneLink(roadmap: Roadmap, id: string | null): string {
   return milestone === undefined ? "—" : `[${milestone.id}](#${milestoneAnchor(milestone)})`;
 }
 
+/** The shallowest heading a milestone's prose takes, under its `##` section. */
+const MILESTONE_HEADING_FLOOR = 3;
+
 /** Each milestone's section, from its Milestone item alone (the one place its title and prose are written): `## <id> · <title>` (the anchor every link targets) and its body, links rebased to this page. */
 function renderMilestones(roadmap: Roadmap): string {
   return roadmap.milestones.map((milestone) => [
-    `## ${milestone.id} · ${escapeHtml(milestone.title ?? milestone.id)}`,
+    `## ${milestone.id} · ${cell(milestone.title ?? milestone.id)}`,
     "",
-    `**State:** ${roadmap.status(milestone).state} — ${roadmap.status(milestone).because}. [The record](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${milestone.id}.md`)}).`,
+    `**State:** ${cell(`${roadmap.status(milestone).state} — ${roadmap.status(milestone).because}`)}\. [The record](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${milestone.id}.md`)}).`,
     "",
-    siteSpelled(rebaseRelativeLinks(milestone.body, TRACKER_BOARD.items, PAGE_DIRECTORY)),
+    siteProse(milestone.body, TRACKER_BOARD.items, pageHref, MILESTONE_HEADING_FLOOR),
   ].join("\n")).join("\n\n---\n\n");
 }
 
@@ -436,7 +440,7 @@ function renderPlan(roadmap: Roadmap): string {
   for (const milestone of roadmap.milestones) {
     const items = [...roadmap.workstreams, ...roadmap.exitCriteria].filter((item) => item.milestone === milestone.id);
     lines.push("");
-    lines.push(`#### ${milestone.id} · ${escapeHtml(milestone.title ?? milestone.id)} — ${cell(roadmap.status(milestone).state)} (${count(roadmap, items, "shipped")} shipped · ${items.filter((item) => isOpen(roadmap.status(item).state)).length} open)`);
+    lines.push(`#### ${milestone.id} · ${cell(milestone.title ?? milestone.id)} — ${cell(roadmap.status(milestone).state)} (${count(roadmap, items, "shipped")} shipped · ${items.filter((item) => isOpen(roadmap.status(item).state)).length} open)`);
     lines.push("");
     lines.push("**Workstreams**");
     lines.push("");
