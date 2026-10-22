@@ -401,6 +401,34 @@ function gitText(args: readonly string[], cwd: string): string {
   return git(args, cwd).toString("utf8").trim();
 }
 
+/**
+ * THE ONE PINNED-BLOB FETCH: the files `files` of `upstream` at `commit`, read
+ * from a blobless partial clone in `checkout` (a fresh directory) and each
+ * verified against its pinned size and sha256 before it is answered. A
+ * mismatch is a refusal naming the file, never drifted bytes. The corpus
+ * subset and the path-policy sources are both fetched through it.
+ */
+export function fetchPinnedBlobs(
+  upstream: string,
+  commit: string,
+  files: readonly Readonly<{ path: string; sizeBytes: number; sha256: string }>[],
+  checkout: string,
+): ReadonlyMap<string, Buffer> {
+  mkdirSync(checkout, { recursive: true });
+  git(["init", "-q"], checkout);
+  git(["remote", "add", "origin", upstream], checkout);
+  git(["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", commit], checkout);
+  const blobs = new Map<string, Buffer>();
+  for (const file of files) {
+    const bytes = git(["cat-file", "blob", `${commit}:${file.path}`], checkout);
+    if (bytes.byteLength !== file.sizeBytes || sha256Hex(bytes) !== file.sha256) {
+      refuse("corpus_blob_mismatch", `${upstream}@${commit}:${file.path}: fetched blob does not match the manifest`);
+    }
+    blobs.set(file.path, bytes);
+  }
+  return blobs;
+}
+
 /** Write one file, creating its parents. The caller has already validated the path. */
 function writeCacheFile(root: string, relativePath: string, bytes: Buffer): void {
   const target = join(root, relativePath);
@@ -437,18 +465,9 @@ export function fetchCorpus(manifest: CorpusManifest, options: { cacheDir?: stri
   mkdirSync(staging, { recursive: true });
   try {
     for (const member of manifest.members) {
-      const checkout = join(staging, member.name);
-      mkdirSync(checkout, { recursive: true });
       log(`fetching ${member.name} @ ${member.commit}`);
-      git(["init", "-q"], checkout);
-      git(["remote", "add", "origin", member.upstream], checkout);
-      git(["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", member.commit], checkout);
-      for (const file of member.files) {
-        const bytes = git(["cat-file", "blob", `${member.commit}:${file.path}`], checkout);
-        if (bytes.byteLength !== file.sizeBytes || sha256Hex(bytes) !== file.sha256) {
-          refuse("corpus_blob_mismatch", `${member.name}/${file.path}: fetched blob does not match the manifest`);
-        }
-        writeCacheFile(join(staging, member.name), file.path, bytes);
+      for (const [path, bytes] of fetchPinnedBlobs(member.upstream, member.commit, member.files, join(staging, member.name))) {
+        writeCacheFile(join(staging, member.name), path, bytes);
       }
     }
     for (const entry of manifest.derived) {

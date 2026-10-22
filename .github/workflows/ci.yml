@@ -216,6 +216,7 @@ jobs:
         run: |
           npm run corpus:fetch
           npm run corpus:verify
+          npm run sources:fetch
 
       # The image sets kernel.apparmor_restrict_unprivileged_userns=1. The
       # namespace proofs (keep-out aliases, the procfs-less door, S1-B04/B13)

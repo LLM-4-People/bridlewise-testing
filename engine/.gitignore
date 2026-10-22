@@ -122,3 +122,9 @@ verification/benchmarks/evaluation/runs/
 # ends. A whole-tree census that runs mid-probe would otherwise call the file
 # undeclared residue. Anchored: the file always lands at exactly this root.
 /.confinement-test-*.json
+
+# Git 2.55.0's path sources (GPL-2.0-only), FETCHED beside their manifest by
+# `npm run sources:fetch` (engine/scripts/verification/path-policy-sources.ts)
+# and never published in this AGPL-3.0 tree. The admission excludes the same
+# folder (`UNCOMMITTED_GOVERNED_PATHS`, src/kernel/verification-paths.ts).
+/traceability/sources/path-policy/git-2.55.0/

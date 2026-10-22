@@ -81,7 +81,7 @@ The folder lives at `engine/scripts/verification/`.
 - `candidate-format.ts` is consumed by `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/repository-git.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-execution.ts`, `engine/scripts/tooling/verification/artifact-admission.ts`, `engine/scripts/tooling/verification/rejected-binary-fixture.ts` and 1 more.
 - `catch-blocks.ts` is consumed by `engine/scripts/verification/ratchet-baselines.ts`.
 - `consumer-plants.ts` is consumed by nothing yet.
-- `corpus.ts` is consumed by nothing yet.
+- `corpus.ts` is consumed by `engine/scripts/verification/path-policy-sources.ts`.
 - `decision-index.ts` is consumed by nothing yet.
 - `declared-universe.ts` is consumed by nothing yet.
 - `effect-surface.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`.
@@ -93,6 +93,7 @@ The folder lives at `engine/scripts/verification/`.
 - `lesson-trailers.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/post-commit.ts`.
 - `measurement-contract.ts` is consumed by nothing yet.
 - `official-fragment-manifest.ts` is consumed by `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/verification/slice-traces.ts`, `engine/scripts/verification/slice-projection-inputs.ts`.
+- `path-policy-sources.ts` is consumed by nothing yet.
 - `pattern-liveness.ts` is consumed by `engine/scripts/verification/test-surface.ts`, `engine/scripts/verification/tsconfig-include-liveness.ts`.
 - `ratchet-baselines.ts` is consumed by nothing yet.
 - `ratchet.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/verification/ratchet-baselines.ts`.

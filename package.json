@@ -35,6 +35,7 @@
     "corpus:manifest": "node --experimental-strip-types engine/scripts/verification/corpus.ts manifest",
     "corpus:fetch": "node --experimental-strip-types engine/scripts/verification/corpus.ts fetch",
     "corpus:verify": "node --experimental-strip-types engine/scripts/verification/corpus.ts verify",
+    "sources:fetch": "node --experimental-strip-types engine/scripts/verification/path-policy-sources.ts fetch",
     "cache:evidence:sweep": "node --experimental-strip-types scripts/testing/sweep-cache-evidence.ts",
     "test:watch": "vitest",
     "test:e2e": "node --experimental-strip-types engine/src/cli.ts harness slot run -- npx playwright test",

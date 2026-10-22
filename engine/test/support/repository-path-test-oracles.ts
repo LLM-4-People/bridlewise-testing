@@ -46,6 +46,7 @@ import {
   REPOSITORY_PATH_OFFICIAL_CORPUS_EXPECTATIONS,
   type RepositoryPathTestId,
 } from "./repository-path-test-catalog.ts";
+import { requirePathPolicySources } from "../../scripts/verification/path-policy-sources.ts";
 
 const CONFIG_DOCUMENT_SCHEMA = getConfigDocumentSchema();
 
@@ -69,6 +70,8 @@ const GIT_PATH_SOURCE = GIT_SOURCE_AUTHORITY.sources.find((source) => source.ups
 const GIT_TEST_SOURCE = GIT_SOURCE_AUTHORITY.sources.find((source) =>
   source.upstreamPath === "t/t0060-path-utils.sh"
 )!;
+// The Git sources are not published here: a checkout without them refuses by name, with the fetch that provides them.
+requirePathPolicySources(ROOT);
 const GIT_PATH_TEXT = readFileSync(`${ROOT}${GIT_PATH_SOURCE.path}`, "utf8");
 const GIT_TEST_TEXT = readFileSync(`${ROOT}${GIT_TEST_SOURCE.path}`, "utf8");
 const CONFIG = CONFIG_DOCUMENT_SCHEMA.parse(JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as unknown);

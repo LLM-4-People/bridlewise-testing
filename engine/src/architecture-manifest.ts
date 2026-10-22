@@ -209,6 +209,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       "scripts/verification/corpus.ts",
       "scripts/verification/decision-index.ts",
       "scripts/verification/guardian-spec-artifact.ts",
+      "scripts/verification/path-policy-sources.ts",
       "scripts/verification/ratchet-baselines.ts",
       "scripts/verification/shipped-hooks.ts",
       "scripts/verification/tsconfig-include-liveness.ts",
@@ -4699,7 +4700,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-kernel-verification-paths", path: "src/kernel/verification-paths.ts", realm: "shared", layer: "trusted-kernel",
-      owner: "architecture", publicApi: { exportCount: 13, namesSha256: "d5e4781aaba8bc881bf658368276e95ea6cf1dfe0c013464d79b445fdf6f292a" },
+      owner: "architecture", publicApi: { exportCount: 15, namesSha256: "5f7231cb6ecff24d3b380f7248d35518e5da7cbcad4f71dbaa3ce7c114937767" },
       dependencies: ["src/kernel/integrity.ts","src/kernel/root-policy.ts"],
     }),
     moduleContract({
@@ -5516,7 +5517,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-verification-corpus", path: "scripts/verification/corpus.ts", realm: "builder", layer: "verification",
-      owner: "verification-foundation", publicApi: { exportCount: 27, namesSha256: "021f0f367f3ccd2487064673c4e34477714a0eb0e86236d14140c3cec840773f" },
+      owner: "verification-foundation", publicApi: { exportCount: 28, namesSha256: "3719d747a0c01af462a593527fbf68e210b1d3fd15029e31d8d3bad4f94c42ec" },
       dependencies: ["node:child_process","node:crypto","node:fs","node:os","node:path","src/filesystem/private-state.ts","src/runtime/cli-debug.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
     }),
@@ -5706,6 +5707,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "scripts-tooling-test-cpu-class", path: "scripts/tooling/test-cpu-class.ts", realm: "builder", layer: "verification",
       owner: "verification", publicApi: { exportCount: 7, namesSha256: "7a3b9fec2768fec7581f8ca4a890b9f67c7cf947787ee68b74ee9b3640368714" },
       dependencies: ["node:fs","node:path","src/shared/run-cpu.ts"],
+    }),
+    moduleContract({
+      id: "scripts-verification-path-policy-sources", path: "scripts/verification/path-policy-sources.ts", realm: "builder", layer: "verification",
+      owner: "verification-foundation", publicApi: { exportCount: 5, namesSha256: "a208d000c8b6fbb0a7f3512e2b027244de849309632ed3f02fa4c66a85c05c3f" },
+      dependencies: ["node:fs","node:os","node:path","scripts/generation/repository-path-unicode.ts","scripts/verification/corpus.ts","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/kernel/verification-paths.ts","src/runtime/cli-debug.ts"],
+      executionBoundary: "composition-root", compositionRoot: true,
     }),
   ],
 });
