@@ -58,7 +58,7 @@ import { currentQualificationOutcome, finalizeQualifiedRun, runForInvocation } f
 import type { RunQualificationTerminal } from "../../engine/src/shared/budget-verdict.ts";
 import { readTrackedTreeDirty } from "../../engine/src/shared/tree-identity.ts";
 import { readRunCpu, type CalibrationReading } from "../../engine/src/shared/run-cpu.ts";
-import { accumulationPopulation, measureWebBudget } from "../../scripts/testing/measure-web-budget.ts";
+import { accumulationPopulation, measureWebBudget, syncWebBudgetPopulation } from "../../scripts/testing/measure-web-budget.ts";
 import { engineConfigDocumentPath } from "../../engine/src/kernel/config.ts";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { resetServerConfig } from "../../server/kernel/config.ts";
@@ -905,6 +905,12 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
     // The LIVE population, not a frozen literal: re-basing the declaration
     // must not make this assertion pin the old tree.
     expect(report.declared.derivedAtTestFileCount).toBe(fullRunModuleCount());
+  });
+
+  test("HARNESS SYNC generates the population: this tree's accumulation population is the live supported count, judged current", () => {
+    // The arm harness sync and harness check run (scripts/testing/measure-web-budget.ts --population):
+    // no pull request types the number; a new test file moves it through here.
+    expect(syncWebBudgetPopulation(false)).toEqual({ allCurrent: true, status: "current", changed: [], population: fullRunModuleCount(), phase: "accumulation" });
   });
 
   test("the TOOL generates the accumulation population: current when it equals the live count, drifted on check, written on write", () => {
