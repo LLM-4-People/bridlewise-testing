@@ -96,6 +96,7 @@ test("plan, apply, verify: create and update what differs, leave the rest, repor
   const created = (fake.objects.get(rulesets) as { name: string; bypass_actors?: { actor_id: number }[] }[]).find((ruleset) => ruleset.name === "product");
   assert.equal(created?.bypass_actors?.[0]?.actor_id, 1234, "the reference was resolved to the App's id");
   assert.deepEqual(outcome.verification.drift.map((drift) => `${drift.action} ${drift.key}`), ["unmanaged hand-made"]);
+  assert.equal(outcome.verified, false, "the undeclared ruleset is still drift after the apply: the apply did not converge");
   assert.ok(outcome.verification.entries.filter((verified) => verified.action !== "unmanaged").every((verified) => verified.action === "unchanged"));
 });
 
@@ -134,6 +135,7 @@ test("fields the plan does not allow are recorded and never written", async () =
   assert.deepEqual(entry(plan, "security-configuration", "baseline").unavailableOnPlan, ["secret_scanning_validity_checks"]);
   const outcome = await forgeApply(context, [security], []);
   assert.equal(outcome.verification.drift.length, 0);
+  assert.equal(outcome.verified, true);
   const sent = fake.requests.find((request) => request.method === "POST" && request.path.endsWith("/code-security/configurations"));
   assert.deepEqual(sent?.body, { name: "baseline", secret_scanning: "enabled" });
   assert.ok(fake.requests.some((request) => request.path.endsWith("/attach") && JSON.stringify(request.body) === JSON.stringify({ scope: "all" })));
@@ -220,6 +222,7 @@ test("the whole declaration set plans, applies in order and converges: zero drif
   assert.ok(plan.counts.create > 30, `a fresh organisation is mostly creates (${String(plan.counts.create)})`);
   const outcome = await forgeApply(context, objects, SOURCES.settings.retired);
   assert.deepEqual(outcome.verification.drift, [], JSON.stringify(outcome.verification.drift));
+  assert.equal(outcome.verified, true);
   assert.equal(outcome.verification.counts.unchanged, objects.length);
   // The baseline was created as an organisation ruleset, the agent ruleset with the agent App's id.
   const agentRuleset = (fake.objects.get(`/repos/${ORG}/${REPO}/rulesets`) as { name: string; bypass_actors: { actor_id: number }[] }[]).find((ruleset) => ruleset.name === "agent-branches");
@@ -436,6 +439,15 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     const accepted = await run("apply", "--accept-loosening", "ruleset:bridlewise-testing:protect-release-tags", "--token-env", variable);
     assert.equal(accepted.result.status, "pass");
     assert.deepEqual((accepted.result.result as { acceptedLoosening: { id: string }[] }).acceptedLoosening.map((entry) => entry.id), ["ruleset:bridlewise-testing:protect-release-tags"]);
+    // A planted drift the apply cannot remove (a write GitHub answers but ignores): the apply's verdict is its post-apply audit, so it FAILS.
+    fake.route("PATCH", /^\/repos\/[^/]+\/[^/]+\/labels\/[^/]+$/u, () => ({ status: 200, body: {} }));
+    const label = (fake.objects.get(`/repos/${ORG}/${REPO}/labels`) as Record<string, unknown>[]).find((candidate) => candidate.name === "area:engine")!;
+    label.color = "000000";
+    const unconverged = await run("apply", "--token-env", variable);
+    assert.equal(unconverged.result.status, "fail");
+    const verdict = unconverged.result.result as { verified: boolean; verification: { drift: { action: string; key: string }[] } };
+    assert.equal(verdict.verified, false);
+    assert.deepEqual(verdict.verification.drift.map((drift) => `${drift.action} ${drift.key}`), ["update area:engine"]);
     // A hand edit of a generated file: refused before the credential is read or GitHub is asked.
     writeFileSync(join(top, ".github/forge/label/bridlewise-testing.area_ci.json"), "{}\n");
     const asked = fake.requests.length;

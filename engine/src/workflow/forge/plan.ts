@@ -232,7 +232,10 @@ export type ForgeApplyResult = Readonly<{
   acceptedLoosening: readonly Readonly<{ id: string; loosening: readonly string[] }>[];
   /** The loosenings that only moved rules into the org baseline, applied after the baseline was read back and verified. */
   movedLoosening: readonly string[];
+  /** The post-apply audit: a fresh plan of everything declared. */
   verification: ForgePlan;
+  /** THE VERDICT: the post-apply audit found no drift. An apply that left any drift (a write GitHub ignored, an exclusive object nobody declared) has failed. */
+  verified: boolean;
 }>;
 
 /**
@@ -307,5 +310,6 @@ export async function forgeApply(context: LiveContext, objects: readonly ForgeOb
     acceptedLoosening: loosenings.filter((entry) => entry.moved !== true).map((entry) => ({ id: looseningId(entry), loosening: entry.loosening! })),
     movedLoosening: loosenings.filter((entry) => entry.moved === true).map(looseningId),
     verification,
+    verified: verification.drift.length === 0,
   });
 }

@@ -142,8 +142,7 @@ async function settingsVerb(root: string, verb: "plan" | "apply" | "audit", rest
   const objects = forgeDeclarations(sources);
   if (verb === "apply") {
     const outcome = await forgeApply(context, objects, settings.retired, accepted);
-    const verified = outcome.verification.drift.length === 0;
-    return { result: wrapResult("forge", deepFreeze({ verb, applied: outcome.applied, acceptedLoosening: outcome.acceptedLoosening, movedLoosening: outcome.movedLoosening, verification: outcome.verification }), { status: verified ? "pass" : "fail" }) };
+    return { result: wrapResult("forge", deepFreeze({ verb, verified: outcome.verified, applied: outcome.applied, acceptedLoosening: outcome.acceptedLoosening, movedLoosening: outcome.movedLoosening, verification: outcome.verification }), { status: outcome.verified ? "pass" : "fail" }) };
   }
   const plan = await forgePlan(context, objects, settings.retired);
   const status = verb === "audit" ? (plan.drift.length === 0 ? "pass" : "fail") : (plan.complete ? "pass" : "fail");

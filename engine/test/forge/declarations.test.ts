@@ -64,20 +64,47 @@ test("the declarations: every object once, in apply order, with the plan's unava
   ]);
 });
 
-test("the stage decides the flip: p0 keeps the P0 contexts on the trunk only, door requires the door App's check everywhere with signatures and one approval", () => {
-  const baseline = (stage: "p0" | "door"): Record<string, unknown> => find(forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, stage } }), "org-ruleset", "baseline").desired as Record<string, unknown>;
-  const rules = (ruleset: Record<string, unknown>): Record<string, Record<string, unknown>> => Object.fromEntries((ruleset.rules as { type: string }[]).map((rule) => [rule.type, rule as Record<string, unknown>]));
-  const p0 = baseline("p0");
-  const door = baseline("door");
-  assert.deepEqual((p0.conditions as { repository_property: { include: { property_values: string[] }[] } }).repository_property.include[0]!.property_values, ["trunk"]);
-  assert.deepEqual((door.conditions as { repository_property: { include: { property_values: string[] }[] } }).repository_property.include[0]!.property_values, ["trunk", "notes", "evidence", "meta"]);
-  assert.equal(rules(p0).required_signatures, undefined);
-  assert.ok(rules(door).required_signatures !== undefined);
-  const checks = (ruleset: Record<string, unknown>): unknown => (rules(ruleset).required_status_checks!.parameters as { required_status_checks: unknown }).required_status_checks;
-  assert.deepEqual(checks(p0), SETTINGS.p0RequiredChecks.map((check) => ({ context: check.context, integration_id: check.integrationId })));
-  assert.deepEqual(checks(door), [{ context: "bridlewise/door", integration_id: { $ref: "app", name: "door" } }]);
-  assert.equal((rules(p0).pull_request!.parameters as { required_approving_review_count: number }).required_approving_review_count, 0);
-  assert.equal((rules(door).pull_request!.parameters as { required_approving_review_count: number }).required_approving_review_count, 1);
+/**
+ * THE ORG BASELINE AS github-only §3.2 SPECIFIES IT ("The org baseline ruleset (Team, decision A)"), written out
+ * whole, so ANY rule the generator drops, adds or changes is a red here:
+ * - target `branch`, empty bypass list, conditions: the `kind` property plus `~DEFAULT_BRANCH`;
+ * - rules `deletion`, `non_fast_forward`, `required_signatures`, `pull_request` (R1's review parameters) and
+ *   `required_status_checks` (`bridlewise/door`, the door App).
+ * Before the flip (stage `p0`, runbook P0.2) the same baseline governs the trunk only, without
+ * `required_signatures`, with no approval and no last-push approval (no App can approve yet), and requires the P0
+ * contexts instead of the door's check.
+ */
+function specifiedBaseline(stage: "p0" | "door"): unknown {
+  const door = stage === "door";
+  return {
+    name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
+    conditions: {
+      repository_property: { include: [{ name: "kind", property_values: door ? ["trunk", "notes", "evidence", "meta"] : ["trunk"] }], exclude: [] },
+      ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] },
+    },
+    rules: [
+      { type: "deletion" },
+      { type: "non_fast_forward" },
+      ...(door ? [{ type: "required_signatures" }] : []),
+      { type: "pull_request", parameters: {
+        required_approving_review_count: door ? 1 : 0, dismiss_stale_reviews_on_push: true, require_code_owner_review: false,
+        require_last_push_approval: door, required_review_thread_resolution: true, allowed_merge_methods: ["merge"],
+      } },
+      { type: "required_status_checks", parameters: {
+        strict_required_status_checks_policy: false, do_not_enforce_on_create: false,
+        required_status_checks: door
+          ? [{ context: "bridlewise/door", integration_id: { $ref: "app", name: "door" } }]
+          : SETTINGS.p0RequiredChecks.map((check) => ({ context: check.context, integration_id: check.integrationId })),
+      } },
+    ],
+  };
+}
+
+test("the org baseline is exactly §3.2's, at both stages: a rule removed, added or changed by the generator is red", () => {
+  for (const stage of ["p0", "door"] as const) {
+    const generated = find(forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, stage } }), "org-ruleset", "baseline");
+    assert.deepEqual(generated.desired, specifiedBaseline(stage), stage);
+  }
   // The trunk's own ruleset keeps only what an org ruleset cannot carry.
   assert.deepEqual((find(forgeDeclarations(SOURCES), "ruleset", "trunk").desired as { rules: { type: string }[] }).rules.map((rule) => rule.type), ["merge_queue", "code_scanning"]);
 });
