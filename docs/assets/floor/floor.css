@@ -323,6 +323,11 @@ h2 + .floor-milestone {
   margin: var(--sp-4) 0;
 }
 
+/* Time travel reads top to bottom: what changed since a visit can run long. */
+[data-timeline-src] .floor-ms-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .floor-ms-grid h3,
 .floor-ms-grid h4 {
   margin: 0 0 var(--sp-1);
@@ -367,9 +372,22 @@ h2 + .floor-milestone {
   font-size: var(--f-micro-size);
 }
 
-.floor-item > summary code {
+/* An id is a value: mono, stamped like a milestone tag, never a heading. */
+.floor-item > summary > code {
+  padding: 0 var(--sp-1);
+  border: var(--hairline-w) solid var(--line-2);
+  border-radius: var(--sp-0);
+  background: none;
   color: var(--ink-2);
   font-size: var(--f-nano-size);
+}
+
+.floor-lane-card-title code,
+.floor-item-title code {
+  padding: 0;
+  background: none;
+  font-size: var(--f-data-size);
+  font-weight: 400;
 }
 
 .floor-item[data-status="not-planned"] .floor-item-title {

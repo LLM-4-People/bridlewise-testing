@@ -175,7 +175,7 @@ function itemDetail(feed: RoadmapFeed, item: FeedItem, reason: string, repositor
   if (item.gh !== null && /^#\d+$/u.test(item.gh)) talk.push(link(`${repositoryUrl}/issues/${item.gh.slice(1)}`, "Watch the issue"));
   if (talk.length > 0) rows.push(`<dt>Take part</dt><dd>${talk.join(" · ")}</dd>`);
   return `<details class="floor-item" id="item-${h(item.id)}" data-status="${slug(item.state)}"${item.milestone === null ? "" : ` data-milestone="${h(item.milestone)}"`}>`
-    + `<summary>${chip(item)}<span class="floor-item-title">${h(item.title)}</span><code>${h(item.id)}</code></summary><dl>${rows.join("")}</dl></details>`;
+    + `<summary>${chip(item)}<span class="floor-item-title">${item.title === item.id ? `<code>${h(item.id)}</code>` : h(item.title)}</span><code>${h(item.id)}</code></summary><dl>${rows.join("")}</dl></details>`;
 }
 
 function milestoneSection(feed: RoadmapFeed, placed: ReturnType<typeof placeItems>, m: FeedMilestone, repositoryUrl: string): string {
@@ -209,7 +209,7 @@ export function renderPage(feed: RoadmapFeed, ctx: RenderContext): string {
     const title = { now: "Now", next: "Next", later: "Later" }[key];
     const empty = { now: "Nothing is in progress.", next: "Nothing can start right now: every open item waits on another.", later: "Nothing is queued behind the current work." }[key];
     return `<section class="floor-lane" aria-labelledby="lane-${key}"><h3 id="lane-${key}">${title} <span class="floor-count">${rows.length}</span></h3>`
-      + (rows.length === 0 ? `<p class="floor-quiet">${empty}</p>` : `<ol class="floor-lane-cards">${rows.slice(0, 12).map((i) => `<li class="floor-lane-card" data-status="${slug(i.state)}"><a class="floor-lane-card-title" href="#item-${h(i.id)}">${h(i.title)}</a><div class="floor-lane-card-meta">${chip(i)}${i.milestone === null ? "" : `<span class="floor-ms">${h(i.milestone)}</span>`}</div><p>${h(placed.get(i.id)!.reason)}</p></li>`).join("")}</ol>${rows.length > 12 ? `<p class="floor-quiet">${rows.length - 12} more below, in their milestones.</p>` : ""}`)
+      + (rows.length === 0 ? `<p class="floor-quiet">${empty}</p>` : `<ol class="floor-lane-cards">${rows.slice(0, 12).map((i) => `<li class="floor-lane-card" data-status="${slug(i.state)}"><a class="floor-lane-card-title" href="#item-${h(i.id)}">${i.title === i.id ? `<code>${h(i.id)}</code>` : h(i.title)}</a><div class="floor-lane-card-meta">${chip(i)}${i.milestone === null ? "" : `<span class="floor-ms">${h(i.milestone)}</span>`}</div><p>${h(placed.get(i.id)!.reason)}</p></li>`).join("")}</ol>${rows.length > 12 ? `<p class="floor-quiet">${rows.length - 12} more below, in their milestones.</p>` : ""}`)
       + `</section>`;
   }).join("");
   const sinceDate = new Date(Date.parse(feed.sourceDate) - 7 * 24 * 3600 * 1000).toISOString();
