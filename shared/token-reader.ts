@@ -104,8 +104,9 @@ function declarationsOf(body: string): Map<string, string> {
   let start = 0;
   const take = (end: number): void => {
     const text = body.slice(start, end).trim();
-    const match = /^(--[\w-]+)\s*:\s*([\s\S]+)$/u.exec(text);
-    if (match !== null) values.set(match[1]!, match[2]!.replace(/\s+/gu, " ").trim());
+    const colon = text.indexOf(":");
+    const name = text.slice(0, colon).trim();
+    if (colon > 0 && /^--[\w-]+$/u.test(name)) values.set(name, text.slice(colon + 1).replace(/\s+/gu, " ").trim());
   };
   for (let index = 0; index < body.length; index += 1) {
     const char = body[index];
@@ -225,10 +226,11 @@ function parseColor(value: string): Rgba {
     const channel = (index: number): number => Number.parseInt(full.slice(index * 2, index * 2 + 2), 16) / 255;
     return [channel(0), channel(1), channel(2), full.length === 8 ? channel(3) : 1];
   }
-  const call = /^([a-z-]+)\(([\s\S]*)\)$/u.exec(text);
-  if (call !== null) {
-    const [, fn, body] = call;
-    const args = argumentsOf(body!);
+  const open = text.indexOf("(");
+  const fn = open > 0 && text.endsWith(")") ? text.slice(0, open) : "";
+  if (/^[a-z-]+$/u.test(fn)) {
+    const body = text.slice(open + 1, -1);
+    const args = argumentsOf(body);
     const alphaAt = args.indexOf("/");
     const alpha = alphaAt === -1 ? undefined : percentOrNumber(args[alphaAt + 1]!, 1);
     const channels = alphaAt === -1 ? args : args.slice(0, alphaAt);
@@ -244,7 +246,7 @@ function parseColor(value: string): Rgba {
     if (fn === "color-mix" && channels[0] === "in" && channels[1] === "srgb") {
       // color-mix(in srgb, A p%, B [q%]) — the CSS Color 5 mix with
       // premultiplied alpha; a missing percentage is the complement.
-      const operands = body!.slice(body!.indexOf(",") + 1).split(/,(?![^(]*\))/u).map((part) => part.trim());
+      const operands = body.slice(body.indexOf(",") + 1).split(/,(?![^(]*\))/u).map((part) => part.trim());
       const parsed = operands.map((operand) => {
         const pct = /\s(\d+(?:\.\d+)?)%$/u.exec(operand);
         return { color: parseColor(pct === null ? operand : operand.slice(0, pct.index)), weight: pct === null ? undefined : Number(pct[1]) / 100 };
