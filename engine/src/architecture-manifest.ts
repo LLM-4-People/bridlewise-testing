@@ -5673,7 +5673,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-forge-github", path: "src/workflow/forge/github.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "9afe99fc3709707a92ff8eae5f7f2d729063af013aed7372ccdba49ab4c19037" },
-      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/shared/debug/debug-system.ts","src/shared/outbound-http.ts","src/workflow/forge/codes.ts","src/workflow/forge/port.ts"],
+      dependencies: ["src/kernel/contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/privacy/data-policy.ts","src/shared/debug/debug-system.ts","src/shared/outbound-http.ts","src/workflow/forge/codes.ts","src/workflow/forge/port.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-maintainer-cli", path: "src/workflow/forge/maintainer-cli.ts", realm: "runtime", layer: "infrastructure",
