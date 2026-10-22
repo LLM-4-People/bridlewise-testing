@@ -41,7 +41,10 @@ export function brandFindings(source: string): string[] {
   for (const m of markup.matchAll(/\binkOf\(([^)]*)\)/gu)) {
     if (!/^(?:BRAND_MARK\.(?:tile|rein\.ink|beam\.ink)|line\.ink)$/u.test(m[1]!.trim())) findings.push(`inkOf(${m[1]}) does not read a part's ink from the declaration`);
   }
-  if (/--(?:ground|ink|beam|line|ok|warn|alarm)[\w-]*/u.test(markup.replace(/<script[\s\S]*?<\/script>/u, ""))) findings.push("its markup names a token itself");
+  // The markup after the component's script (a Svelte component's one <script> comes first).
+  const scriptEnd = markup.toLowerCase().lastIndexOf("</script>");
+  const tags = scriptEnd < 0 ? markup : markup.slice(scriptEnd);
+  if (/--(?:ground|ink|beam|line|ok|warn|alarm)[\w-]*/u.test(tags)) findings.push("its markup names a token itself");
   if (/#[0-9a-fA-F]{3,8}\b|rgba?\(|oklch\(/u.test(source)) findings.push("it carries a colour literal");
   if (/\b(?:d|cx|cy|r|rx|width|height)="[\d.\s A-Za-z-]+"/u.test(markup)) findings.push("its markup restates a coordinate");
   return findings;

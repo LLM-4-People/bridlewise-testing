@@ -32,6 +32,8 @@ export const ASSETS_DIGEST_BLOCK = Object.freeze({
   end: "// END GENERATED: the cached assets' digest",
 });
 const NOT_CACHED = new Set(["sw.js", "README.md"]);
+/** How many hex characters of the sha256 name a cache: enough to tell asset sets apart, short enough to read. */
+const DIGEST_HEX_LENGTH = 12;
 
 /** The digest (sha256, 12 hex) of `files` (name → bytes): each name and its bytes, in name order. */
 export function assetsDigest(files: ReadonlyMap<string, Uint8Array>): string {
@@ -41,7 +43,7 @@ export function assetsDigest(files: ReadonlyMap<string, Uint8Array>): string {
     hash.update("\0");
     hash.update(files.get(name)!);
   }
-  return hash.digest("hex").slice(0, 12);
+  return hash.digest("hex").slice(0, DIGEST_HEX_LENGTH);
 }
 
 /** Every file under `directory` the worker caches (relative POSIX names → bytes): all but the worker itself and READMEs. */
