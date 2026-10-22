@@ -35,6 +35,7 @@ import {
 import { executeToolCall, type ToolExecutionContext } from "../../server/tools/tool-executor.ts";
 import { getToolManifest } from "../../server/tools/tools-bridge.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
+import { htmlWithout } from "../../shared/markup.ts";
 
 let ctx: ToolExecutionContext;
 beforeEach(() => {
@@ -296,7 +297,7 @@ describe("mutation self-checks — each guard fails when its subject is broken",
     // disappear.
     const broken = doc("const a = {b: 1 c: 2};");
     expect(checkArtifactHtml(broken).faults.length).toBe(1);
-    const withoutScripts = broken.replace(/<script>[\s\S]*?<\/script>/, "");
+    const withoutScripts = htmlWithout(broken, { elements: ["script"] });
     expect(
       checkArtifactHtml(withoutScripts).faults.length,
       "if the checker stopped reading scripts, this is what it would see — and the guard above would go green wrongly",
