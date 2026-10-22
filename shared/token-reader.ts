@@ -28,10 +28,9 @@
  * is a typed refusal (`TokenOwnerError`), never a quiet substitute.
  */
 
-export type ThemeName = "carbon" | "logbook";
-
-/** The theme attribute value each theme wears on a static surface's `<html>`. */
-export const THEMES: readonly ThemeName[] = Object.freeze(["logbook", "carbon"]);
+/** The owner's two themes: Logbook (paper) and Carbon. The list owns the type. */
+export const THEMES = Object.freeze(["logbook", "carbon"] as const);
+export type ThemeName = typeof THEMES[number];
 
 /** The owner's own selector for its light re-derivation. */
 const LOGBOOK_SELECTOR = ':root[data-cockpit-theme="light"]';
