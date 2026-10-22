@@ -25,9 +25,11 @@ test("the matrix covers every key page in both themes at desktop, tablet and pho
 
 test("the theme the shots choose is the one the site's own script reads", () => {
   const script = readFileSync(join(ROOT, "docs/assets/js/site.js"), "utf8");
-  const layout = readFileSync(join(ROOT, "docs/_layouts/default.html"), "utf8");
-  assert.ok(script.includes(`"${THEME_STORAGE.key}"`) && layout.includes(`"${THEME_STORAGE.key}"`));
-  assert.ok(layout.includes(`=== "${THEME_STORAGE.carbon}"`));
+  // The pre-paint theme is a file the layout loads in its head (the page's policy runs no inline script).
+  const prePaint = readFileSync(join(ROOT, "docs/assets/js/theme.js"), "utf8");
+  assert.ok(script.includes(`"${THEME_STORAGE.key}"`) && prePaint.includes(`"${THEME_STORAGE.key}"`));
+  assert.ok(prePaint.includes(`=== "${THEME_STORAGE.carbon}"`));
+  assert.match(readFileSync(join(ROOT, "docs/_layouts/default.html"), "utf8"), /<script src="\{\{ '\/assets\/js\/theme\.js' \| relative_url \}\}"><\/script>/u);
 });
 
 const sound = { scrollWidth: 390, viewportWidth: 390, layoutShift: 0, fontsLoaded: ["IBM Plex Sans Variable", "IBM Plex Mono Variable"], imagesWithoutAlt: 0, mains: 1, h1s: 1 };
