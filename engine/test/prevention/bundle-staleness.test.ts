@@ -11,9 +11,9 @@
  * passed the hash check while silently breaking the fast-path.
  *
  * This test catches staleness directly: it rebuilds the bundle in-memory
- * (write:false, no disk side effects) using the SAME esbuild options as
- * `scripts/build-bundle.ts` (imported via `getBundleBuildOptions` — DRY,
- * single source of truth for the build config), and requires the on-disk
+ * (write:false, no disk side effects) through the SAME build as
+ * `scripts/build-bundle.ts` (its `buildBundleInMemory` — DRY, one build), and
+ * requires the on-disk
  * bundle to be those bytes. If source changed but the bundle was not rebuilt,
  * the bytes differ → the test fails (deny-by-default: the bundle MUST be
  * rebuildable from the current source).
@@ -33,15 +33,13 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import test from "node:test";
-
-import { build } from "esbuild";
 
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
-import { bundleFreshness, getBundleBuildOptions, publishBundle } from "../../scripts/build-bundle.ts";
+import { buildBundleInMemory, bundleFreshness, publishBundle } from "../../scripts/build-bundle.ts";
 
 import { createTempDir } from "../support/temp-dir.ts";
 import { requireHost } from "../support/host-requirement.ts";
@@ -73,12 +71,8 @@ test("BundleStaleness: every bundle remedy names the canonical one-shot", () => 
 });
 
 async function rebuiltBundleText(): Promise<string> {
-  const result = await build(getBundleBuildOptions());
-  const rebuiltText = result.outputFiles?.[0]?.text;
-  assert.ok(
-    typeof rebuiltText === "string" && rebuiltText.length > 0,
-    "esbuild produced no output files — the bundle entry is missing or the build config is broken",
-  );
+  const rebuiltText = (await buildBundleInMemory()).text;
+  assert.ok(rebuiltText.length > 0, "the build produced an empty bundle — the bundle entry is missing or the build config is broken");
   return rebuiltText;
 }
 
@@ -133,4 +127,42 @@ test("BundleStaleness: harness check's freshness verdict refuses an edited bundl
   writeFileSync(copy, `${rebuilt}// edited by hand\n`, "utf8");
   assert.deepEqual([(await bundleFreshness(copy)).fresh, (await bundleFreshness(copy)).status], [false, "stale"]);
   assert.equal((await bundleFreshness(join(dir, "missing.js"))).status, "absent");
+});
+
+// #318: esbuild names each module by its path from the build's directory, so a checkout whose dependencies resolve
+// upward (a candidate reaching its source's node_modules) once built `// ../../…/node_modules/zod/…` where the
+// source built `// node_modules/zod/…`, and the byte comparison called a fresh bundle stale.
+test("BundleStaleness: two checkouts of one tree build the same bytes, wherever node_modules sits", async () => {
+  // The bundle's own sources, as esbuild read them (paths relative to the engine root).
+  const here = await buildBundleInMemory();
+  const inputs = here.inputs.filter((path) => !path.includes("node_modules/"));
+  assert.ok(inputs.length > 100, `the bundle's sources were found (liveness): ${String(inputs.length)}`);
+
+  // Every package.json and tsconfig.json esbuild consults for them, from each source's folder up to the repository's.
+  const repository = dirname(ROOT);
+  const configs = new Set<string>();
+  for (const input of inputs) {
+    for (let folder = dirname(join(ROOT, input)); folder.startsWith(repository); folder = dirname(folder)) {
+      for (const name of ["package.json", "tsconfig.json"]) {
+        if (existsSync(join(folder, name))) configs.add(relative(ROOT, join(folder, name)));
+      }
+    }
+  }
+
+  // The second checkout sits three folders below the node_modules it resolves upward, as a candidate checkout does.
+  const base = createTempDir("bundle-location-");
+  symlinkSync(join(ROOT, "node_modules"), join(base, "node_modules"));
+  const copy = join(base, "a", "b", "engine");
+  for (const path of [...inputs, ...configs]) {
+    mkdirSync(dirname(join(copy, path)), { recursive: true });
+    copyFileSync(join(ROOT, path), join(copy, path));
+  }
+  const [hereLines, thereLines] = [here.text.split("\n"), (await buildBundleInMemory(copy)).text.split("\n")];
+  assert.ok(here.text.includes("// node_modules/zod/"), "the bundle names its dependencies (liveness)");
+  const differs = hereLines.findIndex((line, index) => thereLines[index] !== line);
+  assert.deepEqual(
+    differs === -1 && hereLines.length === thereLines.length ? [] : [`line ${String(differs + 1)}`, hereLines[differs], thereLines[differs]],
+    [],
+    "the bundle is a function of the sources, never of the checkout's location",
+  );
 });
