@@ -542,6 +542,7 @@ test("writeTestRunSummary: default path writes to.bridlewise/state/test-results/
       status: "passed",
       exitCode: 0,
       failures: [],
+      failureStatements: {},
       reasons: [],
       testCount: 3,
       passCount: 3,

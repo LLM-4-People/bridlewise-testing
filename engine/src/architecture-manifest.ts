@@ -1095,7 +1095,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "test-receipt", path: "scripts/tooling/test-receipt.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 21, namesSha256: "c55507a2c9da2bfc19a906228c0a86bf7c016bb8c98b77d2f2c7f40774e35d29" },
+      owner: "verification", publicApi: { exportCount: 22, namesSha256: "a61e7c9fe6b25721fd193f0ccf4a070f44fbd2056526900f3a6adc424f45ac58" },
       dependencies: ["scripts/test-inventory.ts","scripts/tooling/candidate-manifest.ts","scripts/verification/test-surface.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/kernel/ordered.ts","src/kernel/root-policy.ts","src/kernel/safe-structural.ts","src/shared/run-history.ts","src/workflow/test-result-collector.ts","zod"],
       executionBoundary: "verification",
     }),

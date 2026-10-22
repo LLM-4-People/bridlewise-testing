@@ -319,6 +319,23 @@ export function testResultLedgerRows(receipt: TestResultReceipt, root: string): 
   };
 }
 
+/**
+ * WHAT EACH FAILURE SAID, readable: the failure's error and every cause under
+ * it (`name: message`, outermost first; the runner's own envelope is one of
+ * them), as the receipt recorded them (already redacted at extraction). The
+ * run summary carries it, so a red run off this machine (CI) names its cause,
+ * not only its test. A failure without a recorded error says so.
+ */
+export function testResultFailureStatements(receipt: TestResultReceipt): Readonly<Record<string, string>> {
+  const details = receipt.result.diagnostic?.failureDetails ?? [];
+  return Object.fromEntries(details.map((detail) => [
+    detail.identity,
+    detail.error === null
+      ? "no error was recorded"
+      : [detail.error, ...detail.error.causes].map((link) => `${link.name ?? "Error"}: ${link.message}`).join("\n  caused by "),
+  ] as const));
+}
+
 /** Current qualification classifies the validated receipt at its semantic owner.
  * Only complete ordinary case failures and NAMED skips can be explained by a
  * target baseline (the workspace's ledger judge compares their identities like

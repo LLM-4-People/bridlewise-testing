@@ -243,7 +243,12 @@ jobs:
             if (!fs.existsSync(path)) { console.log("no summary: the runner recorded no result"); process.exit(0); }
             const s = JSON.parse(fs.readFileSync(path, "utf8"));
             const lines = [`## Engine suite: ${s.status}`, "", `${s.passCount} passed, ${s.failCount} failed of ${s.testCount}`, ""];
-            for (const failure of s.failures) lines.push(`- ${failure}`);
+            // What each failure said (failureStatements in the summary): a red run names its cause, not only its test.
+            for (const failure of s.failures) {
+              lines.push(`- ${failure}`);
+              const said = s.failureStatements[failure];
+              if (said !== undefined) lines.push("", "  ```text", ...said.split("\n").map((line) => `  ${line}`), "  ```", "");
+            }
             if (s.reasons.length > 0) lines.push("", "### Reasons", "", ...s.reasons.map((reason) => `- ${reason}`));
             const text = lines.join("\n") + "\n";
             process.stdout.write(text);
