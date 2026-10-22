@@ -41,7 +41,8 @@ import { basename } from "node:path";
 
 import { pendingCommitParents } from "../../src/git/repository-ownership.ts";
 
-import { DECISIONS_DIRECTORY, decisionViolations, lessonId, lessonViolations, LESSONS_DIRECTORY, parseFrontMatter } from "./tracker-entries.ts";
+import { parseFrontMatter } from "../../src/workflow/failure-owners.ts";
+import { DECISIONS_DIRECTORY, decisionViolations, lessonId, lessonViolations, LESSONS_DIRECTORY } from "./tracker-entries.ts";
 
 /** The trailer key a commit acting on a lesson carries (exact case: `git log --grep` finds it). */
 export const LESSON_TRAILER = "Lesson";
