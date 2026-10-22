@@ -4,7 +4,7 @@ import { RESPONSES_TRANSPORT_SCHEMA } from "../shared/llm/config.ts";
 import { isProviderBaseUrl, isResponsesPath } from "../shared/llm/provider-endpoint.ts";
 
 import { CONFIGURABLE_DEFAULT_CLASSIFICATIONS } from "../privacy/classification-catalog.ts";
-import { canonicalHash, deepFreeze, type DeepReadonly, sha256HexSchema } from "./integrity.ts";
+import { canonicalHash, canonicalJsonIndented, deepFreeze, type DeepReadonly, sha256HexSchema } from "./integrity.ts";
 import { statePath } from "./product-identity.ts";
 import {
   REPOSITORY_PATH_PROFILE,
@@ -2070,4 +2070,14 @@ let hostArtifact: ReturnType<typeof compileConfigContractArtifact> | undefined;
 /** One immutable artifact for the frozen host policy, independent of config file state. */
 export function getConfigContractArtifact() {
   return hostArtifact ??= compileConfigContractArtifact(getConfigDocumentSchema(), ROOT_POLICY);
+}
+
+/**
+ * THE BYTES of `traceability/config-document-schema.json` for `artifact`: the
+ * indented canonical form, one entry per line at every depth (#221; a one-line
+ * schema conflicted on every parallel change to the config contract). The one
+ * spelling the regenerate arm writes and every check compares.
+ */
+export function configContractArtifactText(artifact: unknown): string {
+  return `${canonicalJsonIndented(artifact)}\n`;
 }

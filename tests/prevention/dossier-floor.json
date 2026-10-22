@@ -33,6 +33,16 @@
       ]
     },
     {
+      "path": "engine/test/prevention/generated-files-clock-free.test.ts",
+      "lines": [
+        "GUARD SUBJECT: no wholly generated committed file records a wall-clock time",
+        "GUARD OWNS: every path of `wholesaleGeneratedPaths()`, read as committed",
+        "GUARD PLANT: a `\"generatedAt\": \"2026-10-22T12:00:00Z\"` field, a bare ISO date-time and a `capturedAt` field are each found; a date alone and a digest are not",
+        "GUARD DRIVEN: read each wholly generated file of the live tree and match the clock patterns over its text",
+        "GUARD LIVENESS: the population is asserted to hold the artifact manifest and the config schema, each read non-empty"
+      ]
+    },
+    {
       "path": "engine/test/prevention/guard-dossier.test.ts",
       "lines": [
         "GUARD SUBJECT: engine prevention guards carry a structured `GUARD …:` dossier in the leading doc comment",

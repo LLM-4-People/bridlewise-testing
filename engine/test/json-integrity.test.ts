@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { InputError } from "../src/kernel/errors.ts";
 import { assertNoDuplicateJsonObjectKeys, jsonNumberRanges, parseJsonExact } from "../src/kernel/json-integrity.ts";
-import { canonicalHash, canonicalJson } from "../src/kernel/integrity.ts";
+import { canonicalHash, canonicalJson, canonicalJsonIndented } from "../src/kernel/integrity.ts";
 
 const MESSAGE = "duplicate key";
 const CODE = "test_key_duplicate";
@@ -132,4 +132,15 @@ test("jsonNumberRanges finds exactly the number tokens with their labels, never 
   assert.deepEqual(spans('{"a":"\\"","b":7}'), [["7", "b"]]);
   assert.equal(jsonNumberRanges("rss 245748169 bytes"), undefined);
   assert.equal(jsonNumberRanges(""), undefined);
+});
+
+// #221: a nested generated document (the config schema) is committed one entry per line at every depth, so two
+// branches changing different entries touch different lines; the value is exactly the canonical one.
+test("canonicalJsonIndented: the canonical value laid out one entry per line at every depth", () => {
+  const value = { b: [1, { z: 2, a: [] }], a: {}, c: "x" };
+  const text = canonicalJsonIndented(value);
+  assert.equal(text, '{\n  "a": {},\n  "b": [\n    1,\n    {\n      "a": [],\n      "z": 2\n    }\n  ],\n  "c": "x"\n}');
+  assert.equal(canonicalJson(JSON.parse(text)), canonicalJson(value), "the same value as the canonical form");
+  assert.equal(canonicalJsonIndented({ y: 1, x: 2 }), canonicalJsonIndented({ x: 2, y: 1 }), "key order is canonical");
+  assert.throws(() => canonicalJsonIndented({ n: Number.NaN }), InputError, "the canonical refusals hold");
 });
