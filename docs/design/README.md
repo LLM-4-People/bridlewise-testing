@@ -1,3 +1,9 @@
+---
+title: "Design records"
+description: "The cockpit, performance, structure, and guard-universe essays behind Bridlewise."
+permalink: /design/records/
+---
+
 # Design records
 
 These essays are the working record behind the cockpit and the harness. They are not a polished specification and they describe a pre-1.0 system. Read them for the reasoning, not as a promise of current behavior.
@@ -20,4 +26,4 @@ These essays are the working record behind the cockpit and the harness. They are
 | [LANGUAGE-SYSTEMS-ANALYSIS](LANGUAGE-SYSTEMS-ANALYSIS.md) | The language and parser surface |
 | [WORKFLOW-MULTIUSER-NOTES](WORKFLOW-MULTIUSER-NOTES.md) | Multi-user workflow lessons |
 
-The full private design record, including recovery and cutover material, is not published. The product repository carries a shorter public subset at [`bridlewise/docs/design/`](https://github.com/LLM-4-People/bridlewise/tree/main/docs/design).
+The full private design record, including recovery and cutover material, is not published; this folder is its public subset.

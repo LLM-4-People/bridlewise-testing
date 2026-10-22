@@ -1,6 +1,5 @@
 ---
 layout: default
-floor_assets: true
 page_class: floor
 title: "Test atlas"
 description: "A generated map of Bridlewise test surface files, dispositions, prevention guards, and decision records. Existence is not a passing result."
