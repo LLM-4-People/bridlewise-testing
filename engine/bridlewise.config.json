@@ -757,7 +757,8 @@
       "significance": 0.01,
       "deterministicShims": [
         "engine/test/support/flake-shim-hold-requests.ts",
-        "engine/test/support/flake-shim-routing-rss.ts"
+        "engine/test/support/flake-shim-routing-rss.ts",
+        "engine/test/forge/flake-shim-token-ends-zero.ts"
       ]
     },
     "webSuiteWatchdog": {

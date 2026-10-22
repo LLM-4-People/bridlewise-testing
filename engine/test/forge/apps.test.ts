@@ -7,13 +7,14 @@
  * or the environment secret → install links → Done.
  */
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { admitHarnessKeyHome } from "../../src/filesystem/self-protection/key-home.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
+import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { FORGE_APP_ROLES, FORGE_APPS } from "../../src/workflow/forge/app-registry.ts";
 import { appKeyState, keyHomeCustody } from "../../src/workflow/forge/app-keys.ts";
 import { serveAppsPage } from "../../src/workflow/forge/apps-page.ts";
@@ -24,6 +25,7 @@ import { FORGE_CONFIG_SCHEMA, forgeEndpoint, repositoriesOfKinds, type ForgeSett
 import { appManifest, forgeGeneratedFiles, syncForgeFiles } from "../../src/workflow/forge/generated-files.ts";
 import { maintainerCli, runBoundedCommand, type MaintainerCliRun } from "../../src/workflow/forge/maintainer-cli.ts";
 import { fakeGithub } from "./fake-github.ts";
+import { requireTestKeyHome, temporaryKeyHome } from "./forge-key-home.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 /** The repository's own community intake: the one table of the Discussion categories. */
@@ -213,17 +215,10 @@ function pageData(html: string): PageData {
   return JSON.parse(match[1]!) as PageData;
 }
 
-/** A fresh key home for one page test (each test's Apps start absent). */
-function freshKeyHome(): ReturnType<typeof admitHarnessKeyHome> {
-  const keyHome = admitHarnessKeyHome([]);
-  for (const role of FORGE_APP_ROLES) rmSync(join(keyHome, "forge-apps", `${role}.json`), { force: true });
-  return keyHome;
-}
-
-async function withPage<T>(options: Readonly<{ gh?: ReturnType<typeof githubGh> }>, body: (context: Readonly<{ fake: ReturnType<typeof fakeGithub>; url: string; origin: string; keyHome: ReturnType<typeof admitHarnessKeyHome>; gh: ReturnType<typeof githubGh>; page: Awaited<ReturnType<typeof serveAppsPage>> }>) => Promise<T>): Promise<T> {
+async function withPage<T>(options: Readonly<{ gh?: ReturnType<typeof githubGh> }>, body: (context: Readonly<{ fake: ReturnType<typeof fakeGithub>; url: string; origin: string; keyHome: ReturnType<typeof temporaryKeyHome>; gh: ReturnType<typeof githubGh>; page: Awaited<ReturnType<typeof serveAppsPage>> }>) => Promise<T>): Promise<T> {
   const fake = fakeGithub();
   const gh = options.gh ?? githubGh();
-  const keyHome = freshKeyHome();
+  const keyHome = temporaryKeyHome();
   const page = await serveAppsPage({ settings: SETTINGS, endpoint: fake.endpoint(), keyHome, cli: maintainerCli("https://github.com", LIMITS, gh.run), port: 0, discussionCategories: CATEGORIES });
   try {
     return await body({ fake, url: page.url, origin: new URL(page.url).origin, keyHome, gh, page });
@@ -360,7 +355,70 @@ test("the Apps page end to end: host custody, install links, Done guarded by ses
 test("the Apps page refuses a port it cannot bind, typed", async () => {
   await withPage({}, async ({ fake, url }) => {
     const port = Number(new URL(url).port);
-    await assert.rejects(serveAppsPage({ settings: SETTINGS, endpoint: fake.endpoint(), keyHome: admitHarnessKeyHome([]), cli: maintainerCli("https://github.com", LIMITS, githubGh().run), port, discussionCategories: CATEGORIES }),
+    await assert.rejects(serveAppsPage({ settings: SETTINGS, endpoint: fake.endpoint(), keyHome: temporaryKeyHome(), cli: maintainerCli("https://github.com", LIMITS, githubGh().run), port, discussionCategories: CATEGORIES }),
       (error: unknown) => isForgeError(error, "forge_apps_page_unavailable"));
+  });
+});
+
+test("the tests' key homes: each page test stores into a key home it created itself; the runner's key home is never touched, and a real one refuses the tests", async () => {
+  const armed = process.env[ROOT_POLICY.selfProtection.keyHome.environmentVariable]!;
+  const recordsOf = (home: string): readonly string[] => (existsSync(join(home, "forge-apps")) ? readdirSync(join(home, "forge-apps")).sort() : []);
+  const before = recordsOf(armed);
+  let used = "";
+  await withPage({}, async ({ fake, url, origin, keyHome }) => {
+    used = keyHome;
+    fake.pendingConversion("code-isolated", { slug: "bridlewise-agent", permissions: FORGE_APPS.agent.permissions, repositories: ["LLM-4-People/bridlewise-testing"] });
+    await call(`${origin}/callback?code=code-isolated&state=${stateOf(pageData((await call(url)).body), "agent")}`);
+    assert.equal(appKeyState(keyHome, "agent").state, "done");
+  });
+  assert.notEqual(used, armed);
+  assert.ok(!used.startsWith(`${armed}/`), "a key home of the test's own, not one inside the runner's");
+  assert.deepEqual(recordsOf(used), ["agent.json"]);
+  assert.deepEqual(recordsOf(armed), before, "the runner's key home holds exactly what it held before");
+  // Pointed at a real key home, the helper refuses before it creates or touches anything.
+  const variable = ROOT_POLICY.selfProtection.keyHome.environmentVariable;
+  for (const real of [join(homedir(), ".config", "bridlewise", "keys"), "/somewhere/keys", ""]) {
+    process.env[variable] = real;
+    try {
+      assert.throws(() => temporaryKeyHome(), /refused: the forge tests run only under the runners' private test key home/u, real);
+      assert.throws(() => requireTestKeyHome(), /refused/u);
+    } finally {
+      process.env[variable] = armed;
+    }
+  }
+});
+
+test("the barriers' edges: a code that is not a code, an owner of the right name but the wrong type, an oversized form, a short token", async () => {
+  await withPage({}, async ({ fake, url, origin, keyHome, page }) => {
+    // A valid state with an invalid code is refused before any conversion is asked for.
+    const data = pageData((await call(url)).body);
+    await call(`${origin}/callback?code=${encodeURIComponent("not a code!")}&state=${stateOf(data, "agent")}`);
+    assert.equal(pageData((await call(url)).body).error?.code, "forge_apps_page_refused");
+    assert.ok(!fake.requests.some((request) => request.path.startsWith("/app-manifests/")), "no conversion was asked for");
+    // The owner's login matches, its type does not: refused, nothing stored.
+    const app = fake.pendingConversion("code-user-owned", { slug: "bridlewise-agent", permissions: FORGE_APPS.agent.permissions, repositories: ["LLM-4-People/bridlewise-testing"] });
+    fake.route("POST", /^\/app-manifests\/code-user-owned\/conversions$/u, () => ({ status: 201, body: {
+      id: app.appId, slug: app.slug, name: app.slug, owner: { login: "LLM-4-People", type: "User" }, permissions: app.permissions, events: [], client_id: app.clientId, pem: app.pem,
+    } }));
+    await call(`${origin}/callback?code=code-user-owned&state=${stateOf(pageData((await call(url)).body), "agent")}`);
+    assert.equal(pageData((await call(url)).body).error?.code, "forge_app_conversion_mismatch");
+    assert.equal(appKeyState(keyHome, "agent").state, "absent");
+    // Near miss: the organisation's login in another case is the organisation.
+    const cased = fake.pendingConversion("code-cased", { slug: "bridlewise-agent", permissions: FORGE_APPS.agent.permissions, repositories: ["LLM-4-People/bridlewise-testing"] });
+    fake.route("POST", /^\/app-manifests\/code-cased\/conversions$/u, () => ({ status: 201, body: {
+      id: cased.appId, slug: cased.slug, name: cased.slug, owner: { login: "llm-4-people", type: "Organization" }, permissions: cased.permissions, events: [], client_id: cased.clientId, pem: cased.pem,
+    } }));
+    await call(`${origin}/callback?code=code-cased&state=${stateOf(pageData((await call(url)).body), "agent")}`);
+    assert.equal(appKeyState(keyHome, "agent").state, "done");
+    // A token one character short is not the token.
+    assert.equal((await call(url.slice(0, -1))).status, 404);
+    // A Done form larger than the page ever sends is refused even with the right session (it is never read whole).
+    const session = pageData((await call(url)).body).session;
+    const oversized = await call(`${origin}/done`, { method: "POST", origin, form: { session, pad: "x".repeat(5_000) } }).catch(() => ({ status: 0, headers: {}, body: "" }));
+    assert.notEqual(oversized.status, 200);
+    let finished = false;
+    void page.done.then(() => { finished = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(finished, false, "an oversized form never finishes the page");
   });
 });
