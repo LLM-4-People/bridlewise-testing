@@ -6,7 +6,7 @@ The text-processing layer: the canonical authority for translating between UTF-1
 
 - `json-repair.ts` — the json-repair module.
 - `utf8-offsets.ts` — Canonical shared UTF-16-code-unit ↔ UTF-8-byte offset authority.
-- `yaml-emit.ts` — THE ONE YAML EMITTER: a JSON-shaped value as deterministic block YAML for every generated file GitHub reads (the workflows, the community forms): key order kept, plain identifier keys, plain scalars only where unambiguous and double-quoted otherwise, literal blocks for multi-line text, `Commented` pin comments, leading `#` comment lines; what it cannot hold is `yaml_value_unrepresentable`.
+- `yaml-emit.ts` — THE ONE YAML EMITTER (GH-9's, #56; decided in #103): a JSON value as deterministic block-style YAML for every generated file GitHub reads (the workflows, the community forms), proven to read back as its value under YAML 1.1 and 1.2 (`tests/public/yaml-emit-round-trip.test.mjs`); what it cannot hold is a typed refusal.
 
 ## Where it lives and what consumes it
 

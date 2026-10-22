@@ -8,6 +8,7 @@ These tests cover the surfaces that a public clone can actually verify without t
 - the required safety warning and documentation set;
 - the licence and community files;
 - (the workflow policy — no workflow can cancel a `main` run, every gating workflow runs unfiltered on every pull request and merge group — is the workflow generator's own lint: `engine/src/workflow/gates/workflows.ts`, tested in `engine/test/workflow/gates/workflows.test.ts`).
+- the one YAML emitter (`engine/src/text/yaml-emit.ts`): 3,000 seeded random documents read back as their value under YAML 1.1 and 1.2.
 
 Run them with:
 
@@ -15,4 +16,4 @@ Run them with:
 npm run test:public
 ```
 
-They use Node's built-in test runner. Their one third-party dependency is the `yaml` package, the repository's YAML reader, which the workflow policy parses each workflow with. The larger prevention, cockpit, and engine suites live in the separate `bridlewise-testing` repository and have additional prerequisites.
+They use Node's built-in test runner. Their one third-party dependency is the `yaml` package, the repository's YAML reader, which the emitter's round trip reads back with. The larger prevention, cockpit, and engine suites live in the separate `bridlewise-testing` repository and have additional prerequisites.
