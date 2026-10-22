@@ -433,6 +433,7 @@ export type LegitimateRawReader =
   | "web:scripts/floor/design-coverage.mjs"
   | "integration:scripts/verification/consumer-plants.ts"
   | "integration:src/git/working-copy.ts"
+  | "integration:src/workflow/community/health-files.ts"
   | "integration:test/git/flake-reproduction.test.ts"
   | "integration:test/timeline/timeline-recorder.test.ts"
   | "integration:test/prevention/no-unconfined-recursive-removal.test.ts"
@@ -446,8 +447,8 @@ export type LegitimateRawReader =
   | "web:scripts/check-secrets.mjs"
   | "web:scripts/floor/site.mjs"
   | "web:scripts/floor/site-pages.mjs"
-  | "web:scripts/floor/site-links.mjs"
-  | "web:tests/prevention/agent-docs-liveness.test.ts";
+  | "web:tests/prevention/agent-docs-liveness.test.ts"
+  | "web:tests/prevention/declared-pattern-liveness.test.ts";
 
 /**
  * The readers that must have bytes, each with the reason WRITTEN DOWN.
@@ -457,6 +458,14 @@ export type LegitimateRawReader =
  * a reader who disagrees has something specific to disagree with.
  */
 export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
+  "integration:src/workflow/community/health-files.ts": {
+    why:
+      "The subject is a generated community file (Markdown or YAML that GitHub shows "
+      + "a contributor), never program text: the generator compares each file's bytes "
+      + "with the bytes it renders, and reads a file in a health-file location for its "
+      + "own generated notice to tell its stale output (deleted) from a person's file "
+      + "(refused). A code view would blank the very notice and prose it must compare.",
+  },
   "web:scripts/floor/site-pages.mjs": {
     why:
       "The subject is the assembled Markdown and its front matter, which is prose "
@@ -465,12 +474,12 @@ export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
       + "code view would blank exactly the spans the rewrite must see and would "
       + "change the document it is meant to preserve.",
   },
-  "web:scripts/floor/site-links.mjs": {
+  "web:tests/prevention/declared-pattern-liveness.test.ts": {
     why:
-      "The subject is the BUILT HTML the browser receives, not repository source. "
-      + "An href or src is an attribute in emitted markup, and the crawler must see "
-      + "each attribute exactly as emitted, including ones a template produced. A "
-      + "source view models program text, not rendered HTML attributes.",
+      "The subjects are the CI workflow (YAML) and the package.json script that declare the "
+      + "node:test runner, not program source: the guard asks whether the gate runs "
+      + "`npm run test:public` and which globs that script hands to `node --test`. A source "
+      + "view models JavaScript text and would blank the very script string being read.",
   },
   "web:scripts/floor/design-coverage.mjs": {
     why:

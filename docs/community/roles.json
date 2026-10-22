@@ -1,0 +1,47 @@
+{
+  "schema": "bridlewise-community-roles/v1",
+  "roles": [
+    {
+      "id": "contributor",
+      "title": "Contributor",
+      "team": null,
+      "permission": "read",
+      "access": "none (a fork)",
+      "earnedBy": "a landed pull request, an accepted intake issue or an answered question",
+      "verifies": false
+    },
+    {
+      "id": "triager",
+      "title": "Triager",
+      "team": "triagers",
+      "permission": "triage",
+      "access": "the Triage role",
+      "earnedBy": "sustained help with intake issues and questions",
+      "verifies": false
+    },
+    {
+      "id": "reviewer",
+      "title": "Reviewer",
+      "team": "reviewers",
+      "permission": "write",
+      "access": "the Write role",
+      "earnedBy": "landed pull requests plus reviews that held up",
+      "verifies": true
+    },
+    {
+      "id": "maintainer",
+      "title": "Maintainer",
+      "team": null,
+      "permission": "admin",
+      "access": "Admin; the only role that changes repository settings",
+      "earnedBy": "the project owner's appointment",
+      "verifies": true
+    }
+  ],
+  "members": [
+    { "login": "amberflag48", "role": "maintainer" }
+  ],
+  "conduct": {
+    "contact": "the repository's private reporting form, {{advisoryUrl}}, which reaches only the maintainers listed in GOVERNANCE.md (say that the report is about conduct)"
+  }
+}

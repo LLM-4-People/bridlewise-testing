@@ -100,7 +100,7 @@ it (the profile's `setup`, `converge` to a fixed point, the declared-writes
 check, `verify`) and makes ONE commit there — the repository's hooks run on
 the exact tree — with parents `[T, S]`, S's committer identity and date (the
 same inputs give the same commit, with no git identity configured) and the
-trailers `Promoted-From`, `Promotion-Profile` (and
+trailers `Projected-From`, `Promotion-Profile` (and
 `Promotion-Accepted-Target-Edits`). It is pinned by
 `<namespace>/<profile>/pending` and described by a receipt blob
 (`promotion-receipt/v1`, each command's evidence, no timing) at
@@ -174,6 +174,12 @@ start and end, with its duration and code); a refusal is a `LandingError` of a
 included (`landingGitFailure`, over both git doors: the machine's — a ceiling,
 a signal, an environmental error in git's words, by the command runner's own
 rule — is `git_errored`, git's refusal `git_failed`).
+
+The community surface — the files GitHub shows a contributor and the bots that
+answer them — lives in `community/` (its README): the role table and the intake
+registry under `docs/community/` are its single sources, and `harness sync`
+writes CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, SUPPORT, GOVERNANCE, the
+pull-request template and the issue and Discussion forms from them.
 
 ## What each file does
 
