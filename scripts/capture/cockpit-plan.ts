@@ -19,7 +19,7 @@
  */
 import { createHash } from "node:crypto";
 
-export const CAPTURE_MANIFEST_SCHEMA = "bridlewise.cockpit-capture/1";
+const CAPTURE_MANIFEST_SCHEMA = "bridlewise.cockpit-capture/1";
 
 /** The app's ports. The web port is Vite's strictPort (fixed); the API port is the server default. */
 export const WEB_PORT = 5173;
@@ -314,7 +314,7 @@ export const REGION_MASKS: readonly RegionMask[] = [
 ];
 
 export const FIXTURE_REPLAY_LABEL = "fixture replay — no model was called";
-export const MASK_LEGEND = "[bracketed] = volatile value masked";
+const MASK_LEGEND = "[bracketed] = volatile value masked";
 
 /**
  * The badge a capture wears: the fixture label on every run capture, the

@@ -64,7 +64,7 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createTempDir } from "../helpers/temp-dir.ts";
 import { webSuiteKillGraceMs } from "../helpers/budget-config.ts";
-import { NESTED_RUNNER_LAUNCH_MS, NESTED_RUNNER_TEST_MARGIN_MS, TEST_TIMEOUT_MS } from "../test-budget.ts";
+import { TEST_HANG_BACKSTOP_MS } from "../test-budget.ts";
 import { resetServerConfig, serverConfig } from "../../server/kernel/config.ts";
 import { read } from "../helpers/source-scan.ts";
 import { ISOLATION_SCENARIOS, isolationWitness, type IsolationRun, type IsolationWitness } from "../helpers/vm-isolation-witness.ts";
@@ -132,7 +132,7 @@ describe("isolation contract — the env-restore setup file (the env isolation g
     expect(resetServerConfig().port, "the live config uses the isolated worker port").toBe(0);
     const program = `import {serverConfig} from ${JSON.stringify(pathToFileURL(resolve(CONFIG_REL)).href)};
 console.log(JSON.stringify({inherited:process.env.HARNESS_WEB_PORT,resolved:serverConfig.port}));`;
-    const child = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, ["--input-type=module", "--eval", program], { timeoutMs: TEST_TIMEOUT_MS, killGraceMs: webSuiteKillGraceMs() });
+    const child = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, ["--input-type=module", "--eval", program], { timeoutMs: TEST_HANG_BACKSTOP_MS, killGraceMs: webSuiteKillGraceMs() });
     expect(child.error, "the real child must resolve supported configuration without HTTP").toBeUndefined();
     expect(child.status, child.stderr).toBe(0);
     expect(JSON.parse(child.stdout)).toEqual({ inherited: "0", resolved: 0 });
@@ -229,7 +229,7 @@ describe("isolation contract — the vitest config wires isolation, the pool, an
       const env = { ...process.env, NODE_DEBUG_NATIVE: "COMPILE_CACHE" };
       if (disabled) Object.assign(env, { NODE_DISABLE_COMPILE_CACHE: "1" });
       const child = spawnSync(process.execPath, [target], {
-        env, encoding: "utf8", timeout: TEST_TIMEOUT_MS, killSignal: "SIGKILL",
+        env, encoding: "utf8", timeout: TEST_HANG_BACKSTOP_MS, killSignal: "SIGKILL",
       });
       expect(child.error, "native cache probe must complete without a launch/timeout error").toBeUndefined();
       expect(child.status, child.stderr).toBe(0);
@@ -298,7 +298,7 @@ describe("isolation contract — the vitest config wires isolation, the pool, an
       if (scenario.inherited !== undefined) env.NODE_COMPILE_CACHE = scenario.inherited;
       if (scenario.disabled) Object.assign(env, { NODE_DISABLE_COMPILE_CACHE: "1" });
       const child = spawnSync(process.execPath, ["--input-type=module", "-e", program], {
-        env, encoding: "utf8", timeout: TEST_TIMEOUT_MS, killSignal: "SIGKILL",
+        env, encoding: "utf8", timeout: TEST_HANG_BACKSTOP_MS, killSignal: "SIGKILL",
       });
       expect(child.error, `initialization must return for ${scenario.cacheHome}`).toBeUndefined();
       expect(child.status, child.stderr).toBe(0);
@@ -359,22 +359,22 @@ describe("isolation contract — the vitest config wires isolation, the pool, an
     isolation().discover();
   });
 
-  // Each holds ONE nested runner launch: its own budget, above the launch's bound (tests/test-budget.ts).
-  const LAUNCH_TEST_TIMEOUT_MS = NESTED_RUNNER_LAUNCH_MS + NESTED_RUNNER_TEST_MARGIN_MS;
+  // Each holds ONE nested runner launch, whose hang bound sits below the
+  // test's own (tests/test-budget.ts), so no test here declares a timeout.
 
   test("first bytes, two slots: each DOM file gets fresh globals, modules, mocks, env and current source", () => {
     expectIsolatedRun(isolation().launch(ISOLATION_SCENARIOS.firstBytes), ISOLATION_SCENARIOS.firstBytes.expectedDomProcesses);
-  }, LAUNCH_TEST_TIMEOUT_MS);
+  });
 
   test("a same-path, same-length, same-mtime rewrite on one slot: every file still reads the current source", () => {
     const run = isolation().launch(ISOLATION_SCENARIOS.rewrittenBytes);
     expect(run.rewrittenFiles, "both fixture files held other bytes and were rewritten in place — whatever ran before").toBe(2);
     expectIsolatedRun(run, ISOLATION_SCENARIOS.rewrittenBytes.expectedDomProcesses);
-  }, LAUNCH_TEST_TIMEOUT_MS);
+  });
 
   test("a forced memory limit retires the worker process after each DOM file", () => {
     expectIsolatedRun(isolation().launch(ISOLATION_SCENARIOS.memoryLimit), ISOLATION_SCENARIOS.memoryLimit.expectedDomProcesses);
-  }, LAUNCH_TEST_TIMEOUT_MS);
+  });
 
   test("a keyboard cancel discards the remaining one-slot batch before another file executes", () => {
     const run = isolation().launch(ISOLATION_SCENARIOS.cancelled);
@@ -383,14 +383,14 @@ describe("isolation contract — the vitest config wires isolation, the pool, an
       "cancellation must discard the remaining one-slot batch before another file executes").toHaveLength(1);
     expect(run.events.filter((event) => event.kind === "context"),
       "cancelled files must not even receive another VM context").toHaveLength(1);
-  }, LAUNCH_TEST_TIMEOUT_MS);
+  });
 
   test("vitest.config.ts sets a per-test timeout from the single budget owner", () => {
     const src = read(RUNNER_CONFIG_REL);
     // Covers the ASYNC hang. Deliberately NOT the layer relied on for a
     // synchronous spin — see tests/test-budget.ts.
-    expect(src).toMatch(/testTimeout:\s*TEST_TIMEOUT_MS/);
-    expect(src).toMatch(/hookTimeout:\s*TEST_TIMEOUT_MS/);
+    expect(src).toMatch(/testTimeout:\s*TEST_HANG_BACKSTOP_MS/);
+    expect(src).toMatch(/hookTimeout:\s*TEST_HANG_BACKSTOP_MS/);
     expect(src, "the budget must come from the one owner, not a re-typed literal").toMatch(
       /from\s+["']\.\/tests\/test-budget\.ts["']/,
     );
@@ -529,7 +529,7 @@ describe("isolation contract — bounded context adapter work", () => {
     writeFileSync(script, `import {contextPool} from ${JSON.stringify(pathToFileURL(resolve("tests/helpers/vm-context-pool.ts")).href)};
 let error;try{contextPool.createPoolWorker({project:{vitest:{config:{watch:false,maxWorkers:1,vmMemoryLimit:'1'.repeat(1_000_000)+'-'}}}});}catch(caught){error=caught;}
 console.log(JSON.stringify({name:error?.name,code:error?.code}));`);
-    const child = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, [script], { timeoutMs: TEST_TIMEOUT_MS, killGraceMs: webSuiteKillGraceMs() });
+    const child = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, [script], { timeoutMs: TEST_HANG_BACKSTOP_MS, killGraceMs: webSuiteKillGraceMs() });
     expect(child.error, "repeated prefix retries must not consume the execution bound").toBeUndefined();
     expect(child.status, child.stderr).toBe(0);
     expect(JSON.parse(child.stdout)).toEqual({ name: "InputError", code: "context_worker_memory_invalid" });
@@ -545,7 +545,7 @@ console.log(JSON.stringify({name:error?.name,code:error?.code}));`);
     const descendantPath = join(directory, "descendant-pid");
     const child = runBoundedTestProcess(testProcessSupervisorBinary(), "sh", ["-c",
       'exec 3>"$1"; exec "$2" 1000 100 sh -c \'sleep 60 & echo $! > "$1"; prlimit --pid "$PPID" --nofile=4:4\' resource-child "$3"',
-      "supervisor-resource-control", join(directory, "failed-receipt.json"), native, descendantPath], { timeoutMs: TEST_TIMEOUT_MS, killGraceMs: webSuiteKillGraceMs() });
+      "supervisor-resource-control", join(directory, "failed-receipt.json"), native, descendantPath], { timeoutMs: TEST_HANG_BACKSTOP_MS, killGraceMs: webSuiteKillGraceMs() });
     expect(child.error).toBeUndefined();
     expect(child.status).toBe(1);
     // After the fork the supervisor makes two allocations before the cleanup
