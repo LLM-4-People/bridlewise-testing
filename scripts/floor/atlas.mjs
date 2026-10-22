@@ -12,12 +12,13 @@ import {
   sha256File,
   walkFiles,
 } from "./files.mjs";
+import { REPOSITORY, repositoryFileUrl } from "./repository.mjs";
 
-export const TESTING_REPOSITORY = "LLM-4-People/bridlewise-testing";
-export const PRODUCT_REPOSITORY = "LLM-4-People/bridlewise";
 export const ATLAS_SCHEMA = "bridlewise-floor-atlas/v1";
 
-const BLOB = `https://github.com/${TESTING_REPOSITORY}/blob/main/`;
+const BLOB = repositoryFileUrl("");
+// Engine inventory and disposition paths are relative to engine/; every other
+// path here is repository-relative.
 
 function engineCategory(path) {
   if (path.startsWith("test/prevention/")) return "prevention";
@@ -173,14 +174,14 @@ function readFlakes(root) {
   return { count: records.length, recent: records.slice(0, 12) };
 }
 
-export function buildAtlas({ testingRoot, productRoot = null, now = new Date() }) {
-  if (!testingRoot) throw new Error("testingRoot is required");
+export function buildAtlas({ root, now = new Date() }) {
+  if (!root) throw new Error("root is required");
 
-  const inventory = readInventory(testingRoot);
-  const dispositions = readDispositions(testingRoot);
-  const requirements = readRequirements(testingRoot);
-  const bench = readBench(testingRoot);
-  const flakes = readFlakes(testingRoot);
+  const inventory = readInventory(root);
+  const dispositions = readDispositions(root);
+  const requirements = readRequirements(root);
+  const bench = readBench(root);
+  const flakes = readFlakes(root);
 
   const dispositionByPath = new Map(
     dispositions.entries.map((entry) => [String(entry.path), entry]),
@@ -209,7 +210,7 @@ export function buildAtlas({ testingRoot, productRoot = null, now = new Date() }
       testCount: aggregate?.count ?? 0,
       countKnown: aggregate !== undefined,
       sourceHash: aggregate?.sourceHash ?? disposition?.sourceHash ?? null,
-      url: BLOB + path,
+      url: repositoryFileUrl(`engine/${path}`),
     });
   }
 
@@ -224,16 +225,16 @@ export function buildAtlas({ testingRoot, productRoot = null, now = new Date() }
       testCount: testsBySource.get(path)?.count ?? null,
       countKnown: testsBySource.has(path),
       sourceHash: testsBySource.get(path)?.sourceHash ?? null,
-      url: BLOB + path,
+      url: repositoryFileUrl(`engine/${path}`),
     });
   }
 
   const rootTestFiles = walkFiles(
-    join(testingRoot, "tests"),
+    join(root, "tests"),
     (file) => isTestFile(file) && !file.includes(`${join("tests", "helpers")}`),
   );
   for (const file of rootTestFiles) {
-    const path = relativePosix(testingRoot, file);
+    const path = relativePosix(root, file);
     tests.push({
       kind: "test",
       path,
@@ -249,17 +250,17 @@ export function buildAtlas({ testingRoot, productRoot = null, now = new Date() }
   tests.sort((left, right) => left.path.localeCompare(right.path));
 
   const guardFiles = [
-    ...walkFiles(join(testingRoot, "tests/prevention"), (file) => file.endsWith(".test.ts")),
-    ...walkFiles(join(testingRoot, "engine/test/prevention"), (file) => file.endsWith(".test.ts")),
+    ...walkFiles(join(root, "tests/prevention"), (file) => file.endsWith(".test.ts")),
+    ...walkFiles(join(root, "engine/test/prevention"), (file) => file.endsWith(".test.ts")),
   ];
-  const guards = guardFiles.map((file) => readGuard(testingRoot, file));
+  const guards = guardFiles.map((file) => readGuard(root, file));
   guards.sort((left, right) => left.path.localeCompare(right.path));
 
   const decisions = walkFiles(
-    join(testingRoot, "docs/decisions"),
+    join(root, "docs/decisions"),
     (file) => file.endsWith(".md") && basename(file) !== "README.md",
   )
-    .map((file) => readDecision(testingRoot, file))
+    .map((file) => readDecision(root, file))
     .filter(Boolean);
   decisions.sort((left, right) => left.id.localeCompare(right.id));
 
@@ -283,18 +284,16 @@ export function buildAtlas({ testingRoot, productRoot = null, now = new Date() }
     unclassified: tests.filter((test) => test.disposition === "unknown").length,
   };
 
-  const product = repoInfo(productRoot);
   return {
     schemaVersion: ATLAS_SCHEMA,
     generatedAt: now.toISOString(),
     source: {
-      repository: TESTING_REPOSITORY,
-      commit: repoInfo(testingRoot).commit,
+      repository: REPOSITORY,
+      commit: repoInfo(root).commit,
       inventoryHash: inventory.data.inventoryHash ?? null,
       inventorySchema: inventory.data.schemaVersion ?? null,
       dispositionHash: sha256File(dispositions.file),
       requirementsHash: sha256File(requirements.file),
-      productCommit: product.commit,
     },
     counts,
     tests,
