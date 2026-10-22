@@ -316,7 +316,7 @@ describe("the tree-identity owner — one module, no second porcelain parser", (
 
   test("a pin restatement on a suite-regenerated measured-surface file does not move the surface hash; a non-pin byte in the same file does", () => {
     // THE MEASURED INSTABILITY this arm closes: the close-out convergence
-    // re-pins a measured-surface file (the bundle pin in root-policy.ts)
+    // re-pins a measured-surface file (a pin in root-policy.ts)
     // AFTER the round's last mint, and the restatement moved the surface
     // hash with it — staling the standing profile report, so every round
     // after a close-out inherited the freshness arm RED on arrival for a

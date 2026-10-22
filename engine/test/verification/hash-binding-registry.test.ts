@@ -42,9 +42,6 @@ const ROOT = process.cwd();
 const EXPECTED_BINDING_IDS = new Set([
   "root-policy-config-contracts-source-sha256",
   "root-policy-directory-worker-source-sha256",
-  "root-policy-test-inventory-hash",
-  "root-policy-disposition-file-sha256",
-  "root-policy-disposition-identity-hash",
   "requirements-registry-file-sha256",
   "requirements-registry-source-sha256",
   "s1-trace-requirements-registry-file-sha256",
@@ -269,12 +266,6 @@ test("HashBindingRegistry: repairAllBindings repairs all stale bindings and veri
         `      sourcePath: "${CONTRACT_REL}",`,
         `      sourceSha256: "${"0".repeat(64)}",`,
         "    },",
-        "    testInventorySchema: \"bridlewise-test-inventory/v4\",",
-        `    testInventoryHash: "${"0".repeat(64)}",`,
-        "    testSurfaceDispositionBinding: {",
-        `      fileSha256: "${"0".repeat(64)}",`,
-        `      identityHash: "${"0".repeat(64)}",`,
-        "    },",
         "    directoryWorker: {",
         '      sourcePath: "src/filesystem/private-directory-create-worker.mjs",',
         `      sourceSha256: "${"0".repeat(64)}",`,
@@ -284,7 +275,6 @@ test("HashBindingRegistry: repairAllBindings repairs all stale bindings and veri
         '      buildStampSpecPath: "guardian/build-stamp.spec",',
         `      binaryStamp: "${"0".repeat(64)}",`,
         '      bundleRelativePath: "dist/bundle.js",',
-        `      bundleSha256: "${"0".repeat(64)}",`,
         '      specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",',
         `      specSchemaArtifactSha256: "${"0".repeat(64)}",`,
         `      specSchemaSourcePath: "${ROOT_POLICY.selfProtection.specSchemaSourcePath}",`,
@@ -306,9 +296,6 @@ test("HashBindingRegistry: repairAllBindings repairs all stale bindings and veri
     );
     writeRelative(tmpRoot, "guardian/landlock-guardian.c", "int main(void) { return 0; }\n");
     writeRelative(tmpRoot, "guardian/landlock-guardian.h", "#ifndef STUB_H\n#define STUB_H\n#endif\n");
-    // The bundle embeds its own pin (a self-pinned binding): the stub carries
-    // one, so the digest is taken with it normalised out.
-    writeRelative(tmpRoot, "dist/bundle.js", `const policy = { bundleSha256: "${"9".repeat(64)}" };\n`);
     writeRelative(tmpRoot, "traceability/self-protection/guardian-spec-schema.json", '{"schema":"guardian-spec"}\n');
     // The spec-schema SOURCE pin (the module that decides guardian admission).
     writeRelative(tmpRoot, ROOT_POLICY.selfProtection.specSchemaSourcePath, "export const SCHEMA = 1;\n");
@@ -413,21 +400,15 @@ test("HashBindingRegistry: repairAllBindings followed by verifyAllBindings yield
 });
 
 /**
- * ── EVERY PINNED SOURCE DECLARES WHETHER THE REPOSITORY HOLDS IT ──────────
+ * ── EVERY PINNED SOURCE IS COMMITTED ──────────────────────────────────────
  *
- * A binding pins BYTES and compares them only when the file is present. That
- * is correct for what it does, and it is silent about whether the file is
- * supposed to be there at all. Two bindings name paths `.gitignore` excludes
- * (`guardian/build/harness-landlock-guardian` at `.gitignore:8`,
- * `dist/bundle.js` at `.gitignore:5`) and both sit under
- * `selfProtection.mayNotBeDisabled`. Nothing distinguished "deliberately a
- * build artifact" from "swallowed by an ignore rule", which is exactly how a
- * live component went missing from the web tree.
- *
- * The rule is checked in BOTH directions, so neither classification can be
- * used to dodge it, and the classification is a REQUIRED field rather than a
- * list of the two known paths — a list has to be remembered, a required field
- * cannot be forgotten.
+ * A binding pins BYTES and compares them only when the file is present, so
+ * the rule that the file is supposed to be there is checked separately: every
+ * binding's source is in git's index. A build output (the bundle, the guardian
+ * binary) is never pinned by a committed digest: the guardian is bound by a
+ * stamp over its committed sources, and the bundle's digest rewrote a line of
+ * root-policy.ts on every engine change and conflicted on nearly every merge
+ * while nothing compared it at runtime (#221).
  */
 
 /** Repository-relative paths in git's index, read once from the built-in answer. */
@@ -441,157 +422,62 @@ function gitTrackedPaths(root: string): ReadonlySet<string> {
 }
 
 /**
- * Bindings whose declared origin disagrees with the git index, in both
- * directions. Pure over its two inputs so a plant costs a synthetic binding
- * and no mutation of the tree.
+ * Bindings whose source git does not track. Every binding pins a COMMITTED
+ * source: a build output is never pinned by a committed digest (#221), and an
+ * untracked source is a clone that cannot verify itself. Pure over its two
+ * inputs so a plant costs a synthetic binding and no mutation of the tree.
  */
 function originViolations(
   bindings: readonly HashBinding[],
   isTracked: (path: string) => boolean,
 ): readonly string[] {
-  const violations: string[] = [];
-  for (const binding of bindings) {
-    const tracked = isTracked(binding.sourcePath);
-    if (binding.sourceOrigin.kind === "repository-source" && !tracked) {
-      violations.push(
-        `${binding.id}: declares repository-source but git does not track ${binding.sourcePath}; ` +
-        `a clone cannot verify this pin. Check \`git check-ignore -v ${binding.sourcePath}\`.`,
-      );
-    }
-    if (binding.sourceOrigin.kind === "build-output" && tracked) {
-      violations.push(
-        `${binding.id}: declares build-output but git tracks ${binding.sourcePath}; ` +
-        `the committed copy is a second answer to a question the source already answers ` +
-        `and goes stale on the first branch that edits it.`,
-      );
-    }
-  }
-  return violations;
+  return bindings
+    .filter((binding) => !isTracked(binding.sourcePath))
+    .map((binding) =>
+      `${binding.id}: git does not track ${binding.sourcePath}; a clone cannot verify this pin, and a build ` +
+      `output is never pinned in the tree (#221). Check \`git check-ignore -v ${binding.sourcePath}\`.`);
 }
 
-test("HashBindingRegistry: every binding source agrees with the git index in both directions", () => {
+test("HashBindingRegistry: every binding pins a source git tracks (no build output is pinned in the tree)", () => {
   const tracked = gitTrackedPaths(ROOT);
   const bindings = listAllBindings();
-
-  // LIVENESS — the covered population as runtime numbers, and a live subject
-  // for EACH of the two rules. A conjunction of two detectors needs two
-  // liveness checks; one satisfied rule would let the other pass vacuously.
-  const repositorySources = bindings.filter((b) => b.sourceOrigin.kind === "repository-source");
-  const buildOutputs = bindings.filter((b) => b.sourceOrigin.kind === "build-output");
-  assert.equal(repositorySources.length + buildOutputs.length, bindings.length);
-  assert.ok(bindings.length >= 18, `binding population collapsed to ${bindings.length}`);
-  assert.ok(repositorySources.length > 0, "no repository-source binding: rule 1 has no subject");
-  assert.ok(buildOutputs.length > 0, "no build-output binding: rule 2 has no subject");
+  // LIVENESS — the covered population as runtime numbers.
+  assert.ok(bindings.length >= 17, `binding population collapsed to ${bindings.length}`);
   assert.ok(tracked.size > 0, "git index read returned nothing");
-
   assert.deepEqual(originViolations(bindings, (p) => tracked.has(p)), []);
+  assert.equal(bindings.some((binding) => binding.sourcePath === ROOT_POLICY.selfProtection.bundleRelativePath), false, "the bundle is a build output: no binding pins it");
 });
 
-test("HashBindingRegistry: the origin check reports a swallowed source and a committed build output", () => {
-  // PLANTED FROM OUTSIDE, against the REAL git index — the two synthetic
-  // bindings borrow real paths whose tracked-ness is a measured fact, so the
-  // plant drives the same function with the same instrument the assertion
-  // above uses and only the declaration varies.
+test("HashBindingRegistry: the origin check reports a swallowed source", () => {
+  // PLANTED FROM OUTSIDE, against the REAL git index: the synthetic binding
+  // borrows a real path whose tracked-ness is a measured fact.
   const tracked = gitTrackedPaths(ROOT);
   const swallowed = "dist/bundle.js";
   const committed = engineModuleSourceRelative("root-policy.ts");
   assert.equal(tracked.has(swallowed), false, "fixture assumption: dist/bundle.js is not tracked");
   assert.equal(tracked.has(committed), true, `fixture assumption: ${committed} is tracked`);
-
   const template = listAllBindings()[0]!;
-  const planted: readonly HashBinding[] = [
-    { ...template, id: "planted-swallowed", sourcePath: swallowed, sourceOrigin: { kind: "repository-source" } },
-    {
-      ...template,
-      id: "planted-committed",
-      sourcePath: committed,
-      sourceOrigin: { kind: "build-output", producedBy: "node scripts/build-bundle.ts" },
-    },
-  ];
-  const found = originViolations(planted, (p) => tracked.has(p));
-  assert.equal(found.length, 2, `expected both directions to fire, got: ${found.join(" | ")}`);
+  const found = originViolations([{ ...template, id: "planted-swallowed", sourcePath: swallowed }], (p) => tracked.has(p));
+  assert.equal(found.length, 1, found.join(" | "));
   assert.ok(found[0]!.includes("planted-swallowed"));
-  assert.ok(found[1]!.includes("planted-committed"));
-
-  // And the same two bindings with their declarations swapped are silent, so
-  // the finding is about the declaration and not about the paths.
-  const corrected: readonly HashBinding[] = [
-    { ...planted[0]!, sourceOrigin: { kind: "build-output", producedBy: "node scripts/build-bundle.ts" } },
-    { ...planted[1]!, sourceOrigin: { kind: "repository-source" } },
-  ];
-  assert.deepEqual(originViolations(corrected, (p) => tracked.has(p)), []);
+  assert.deepEqual(originViolations([{ ...template, id: "planted-committed", sourcePath: committed }], (p) => tracked.has(p)), [], "a committed source is silent");
 });
 
-test("HashBindingRegistry: every build output names a producer that exists", () => {
-  // Absence of a build output is a GUIDED STATE, not a bare error: the
-  // consumer can name the command. That is only true if the command is real,
-  // so the way out is checked rather than merely written down.
-  const buildOutputs = listAllBindings().filter((b) => b.sourceOrigin.kind === "build-output");
-  assert.ok(buildOutputs.length > 0);
-  for (const binding of buildOutputs) {
-    const origin = binding.sourceOrigin;
-    assert.equal(origin.kind, "build-output");
-    if (origin.kind !== "build-output") continue;
-    assert.ok(origin.producedBy.length > 0, `${binding.id} has an empty producedBy`);
-    const script = origin.producedBy.split(/\s+/u).at(-1)!;
-    assert.ok(
-      existsSync(join(ROOT, script)),
-      `${binding.id} says it is produced by \`${origin.producedBy}\` but ${script} does not exist`,
-    );
-  }
-});
-
-test("HashBindingRegistry: a missing source NAMES the way out, and the two origins say different things", () => {
-  // ── THE THIRD STATE, CLOSED ──────────────────────────────────────────────
-  //
-  // `sourceOrigin` was required at compile time, carried by every binding, and
-  // read by nothing in production: every reference outside the registry lived
-  // in this file. The doc promised that `producedBy` makes absence "a state
-  // with a way out rather than a bare error", and the consumer said
-  // `hash binding source file not found: dist/bundle.js`. Wired or removed —
-  // the third state is what this sequence exists to eliminate, and it is
-  // wired.
-  //
+test("HashBindingRegistry: a missing source names the way out (restore it from version control)", () => {
   // Driven at the real door: `computeBindingHash` over an empty root, where
-  // every source is legitimately absent, which is exactly the fresh-clone
-  // situation that produced the bare errors.
+  // every source is absent, the fresh-clone situation.
   const emptyRoot = createTempDir("hash-binding-absent-");
   try {
-    const bindings = listAllBindings();
-    const buildOutput = bindings.find((binding) => binding.sourceOrigin.kind === "build-output");
-    const repositorySource = bindings.find((binding) => binding.sourceOrigin.kind === "repository-source");
-    assert.ok(buildOutput !== undefined, "no build-output binding: this rule has no subject");
-    assert.ok(repositorySource !== undefined, "no repository-source binding: this rule has no subject");
-    assert.equal(buildOutput.sourceOrigin.kind, "build-output");
-    const producedBy = buildOutput.sourceOrigin.kind === "build-output"
-      ? buildOutput.sourceOrigin.producedBy
-      : "";
-    assert.ok(producedBy.length > 0);
-
+    const source = listAllBindings().find((binding) => binding.hashMode.kind !== "module-constant");
+    assert.ok(source !== undefined, "no file-backed binding: this rule has no subject");
     assert.throws(
-      () => computeBindingHash(emptyRoot, buildOutput),
+      () => computeBindingHash(emptyRoot, source),
       (error: unknown) =>
         error instanceof Error &&
         "code" in error && error.code === "input_error" &&
-        // THE ACTION, NAMED — not the lookup that failed.
-        error.message.includes(producedBy) &&
-        error.message.includes(buildOutput.sourcePath),
-      `a missing build output must name \`${producedBy}\``,
-    );
-
-    // The other origin must NOT name a build command, because no build makes
-    // it and offering one would send the reader somewhere that cannot help.
-    // One message for two situations is the fallback shape this codebase
-    // refuses: it reports a way out that does not exist.
-    assert.throws(
-      () => computeBindingHash(emptyRoot, repositorySource),
-      (error: unknown) =>
-        error instanceof Error &&
-        "code" in error && error.code === "input_error" &&
-        error.message.includes(repositorySource.sourcePath) &&
-        error.message.includes("version control") &&
-        !error.message.includes(producedBy),
-      "a missing repository source must not be reported as an unbuilt artifact",
+        error.message.includes(source.sourcePath) &&
+        error.message.includes("version control"),
+      "a missing committed source says to restore it",
     );
   } finally {
     rmSync(emptyRoot, { recursive: true, force: true });
@@ -718,7 +604,6 @@ test("the guardian anchor is a reproducible stamp over sealed sources with one c
   assert.equal(binding.sourcePath, ROOT_POLICY.selfProtection.buildStampSpecPath, "the source is the one sealed-inputs declaration");
   assert.equal(binding.targetPath, ROOT_POLICY.sourcePath, "the target is the root policy that carries the pin");
   assert.equal(binding.hashMode.kind, "module-constant", "the owning module computes the multi-file digest");
-  assert.equal(binding.sourceOrigin.kind, "repository-source");
   assert.equal(
     "binarySha256" in ROOT_POLICY.selfProtection,
     false,
@@ -819,7 +704,8 @@ test("HashBindingRegistry: pin normalisation is owner-derived — a regenerated 
   const policyPath = "engine/src/kernel/root-policy.ts";
   const policyText = readFileSync(join(ROOT, "src/kernel/root-policy.ts"), "utf8");
   const bound = bindingPinRanges("src/kernel/root-policy.ts", policyText);
-  assert.ok(bound.length >= 8, `root-policy must carry its registered binding pins, located ${bound.length}`);
+  // Five since #221 took the bundle digest and the inventory and disposition copies out of the tree.
+  assert.ok(bound.length >= 5, `root-policy must carry its registered binding pins, located ${bound.length}`);
   const replaceAt = (text: string, start: number, end: number, literal: string): string =>
     `${text.slice(0, start)}${literal}${text.slice(end)}`;
   const boundChange = replaceAt(policyText, bound[0]!.start, bound[0]!.end, "0".repeat(64));

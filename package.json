@@ -1,6 +1,6 @@
 {
   "name": "bridlewise-web",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Bridlewise development floor: tests, benchmarks, curated design records, and verification (developer preview; not a product)",

@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+
 import { canonicalHash, deepFreeze } from "../kernel/integrity.ts";
 import {
   redactText,
@@ -107,11 +109,31 @@ export function redactForPersistence(
 /**
  * THE TEXT A RECORD OR LOG MAY HOLD: the one persistence redaction, never a
  * block (UR-21, D-09) — a span the redaction cannot verify is withheld in place
- * with its content-free reason, and the rest is kept.
+ * with its content-free reason, and the rest is kept. An absolute home
+ * directory names a person, so it is spelled `~` (`homePathsAsTilde`).
  */
 export function persistableText(text: string): string {
   const redacted = redactForPersistence(text);
-  return redacted.status === "blocked" ? `[withheld: ${redacted.blockReason}]` : redacted.redactedContent;
+  return homePathsAsTilde(redacted.status === "blocked" ? `[withheld: ${redacted.blockReason}]` : redacted.redactedContent);
+}
+
+/** A character that continues a path segment: a home directory followed by one is a different directory. */
+const SEGMENT_CHARACTER = /[A-Za-z0-9._-]/u;
+
+/**
+ * Every absolute home directory in `text` as `~`: this process's own home
+ * (`home`, whatever its spelling on this host) and any `/home/<name>`. Only a
+ * whole segment matches: `/home/user` is not the home `/home/u`.
+ */
+export function homePathsAsTilde(text: string, home: string = homedir()): string {
+  let out = "";
+  let from = 0;
+  for (let at = home.length > 1 ? text.indexOf(home) : -1; at !== -1; at = text.indexOf(home, at + 1)) {
+    if (at < from || SEGMENT_CHARACTER.test(text.charAt(at + home.length))) continue;
+    out += `${text.slice(from, at)}~`;
+    from = at + home.length;
+  }
+  return `${out}${text.slice(from)}`.replace(/\/home\/[A-Za-z0-9._-]+/gu, "~");
 }
 
 /**

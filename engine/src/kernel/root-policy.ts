@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "26d1424fb438ed70a6adb8615c6d8ffc8bac07a19ab91985dc0d19cbd1b9cdac",
+      sourceSha256: "6916bb1dd42ac85cb38a441362a0601220ccbf257e18276cc85930077fb016dd",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -1366,7 +1366,6 @@ const ROOT_POLICY_VALUE = {
      */
     binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "a7a5d7fff6dfa2329d96f6ad655020e613a791fd746337669528beb7b60526cd",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
@@ -1413,13 +1412,14 @@ const ROOT_POLICY_VALUE = {
      * the repository root, say — this name would silently land on the web's
      * `src/` and stop protecting the harness's, because both exist and the
      * subtree set is a `Set` that would simply de-duplicate. It cannot ship
-     * that way: `binaryRelativePath` and `bundleRelativePath` are resolved
-     * against the SAME root, the guardian's build stamp is recomputed from
-     * that root's sealed sources and the bundle is pinned by sha256 here, so
-     * a root that is not the harness produces `binary_missing` /
+     * that way: `binaryRelativePath` is resolved against that root and the
+     * guardian's build stamp is recomputed from that root's sealed sources,
+     * so a root that is not the harness produces `binary_missing` /
      * `binary_hash_mismatch` and self-protection refuses to run rather than
-     * running over the wrong tree. Those bindings are what make the root
-     * unambiguous; this comment says so, and
+     * running over the wrong tree. That binding is what makes the root
+     * unambiguous (the bundle is a build output nothing pins: a committed
+     * digest of it was never checked at runtime and conflicted on every
+     * merge, #221); this comment says so, and
      * `tests/prevention/subprocess-confinement-owner.test.ts` drives it.
      */
     minimumProtectedSubtrees: ["src"],
@@ -2254,11 +2254,6 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "1f3db9cf7a584b7aaf83d1fb4c74d3a17c6bd5ad31e5a0ef94a96a3d05adb1b9",
-    testSurfaceDispositionBinding: {
-      fileSha256: "a0aac95827b5393751611148f572987d0765476ffe19bc6365e6ca38cd5f65c1",
-      identityHash: "30ce5e5375646487e25404f59118e0e896c2c0330a3ca04ed7fdd0325c134d00",
-    },
     testDiscovery: {
       inventoryScope: {
         recognizableSurfaceDispositionCoverageComplete: true,
@@ -2709,7 +2704,7 @@ const ROOT_POLICY_VALUE = {
     promotion: {
       refNamespace: `refs/${PRODUCT_NAME}/promotion`,
       trailers: {
-        promotedFrom: "Promoted-From",
+        projectedFrom: "Projected-From",
         profile: "Promotion-Profile",
         acceptedTargetEdits: "Promotion-Accepted-Target-Edits",
         restores: "Promotion-Restores",
