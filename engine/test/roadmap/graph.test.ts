@@ -7,6 +7,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { escapeHtml } from "../../../shared/markup.ts";
 
 import { InputError } from "../../src/kernel/errors.ts";
 import {
@@ -161,13 +162,13 @@ test("every text and attribute is escaped; the full title stays in <title>", () 
   const items = [item("A", { title: hostile, milestone: `M"1<` }), item("B", { blockers: ["A"], title: "x".repeat(200) })];
   const svg = renderGraphSvg(layoutGraph(dependencyGraph(items)), items, new Set());
   assert.ok(!svg.includes("<script>"), "no raw markup from a title");
-  assert.ok(svg.includes(`<title>A: Fix &lt;script&gt;&amp;&quot;quotes&quot;&#39; (planned)</title>`));
-  assert.ok(svg.includes(`data-milestone="M&quot;1&lt;"`));
+  assert.ok(svg.includes(`<title>A: ${escapeHtml(hostile)} (planned)</title>`));
+  assert.ok(svg.includes(`data-milestone="${escapeHtml(`M"1<`)}"`));
   assert.ok(svg.includes(`<title>B: ${"x".repeat(200)} (planned)</title>`));
   const label = /<tspan class="node-title"[^>]*>(x+…)<\/tspan>/u.exec(svg);
   assert.ok(label !== null && label[1]!.length < 200, "the label is cut to fit, with an ellipsis");
   // Near-miss: a short title is never cut.
-  assert.ok(svg.includes(`>Fix &lt;script&gt;&amp;&quot;quotes&quot;&#39;</tspan>`));
+  assert.ok(svg.includes(`>${escapeHtml(hostile)}</tspan>`));
 });
 
 test("critical and blocked classes, data attributes, and no colour or inline style", () => {

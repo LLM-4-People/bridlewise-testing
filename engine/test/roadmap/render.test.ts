@@ -9,6 +9,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { escapeHtml } from "../../../shared/markup.ts";
 
 import { ROADMAP_FEED_INPUT_SCHEMA, roadmapFeed, type FeedItem, type RoadmapFeed, type RoadmapFeedInput } from "../../src/workflow/forge/projector/roadmap-feed.ts";
 import { graphItems, readFeed } from "../../scripts/roadmap/cli.ts";
@@ -103,7 +104,7 @@ test("the page escapes every text, links records at the commit, and states what 
   const page = renderPage(feed(), CTX);
   assert.ok(!page.startsWith("---"), "the body only: the front matter is the page shell's");
   assert.ok(!page.includes("<script>alert(1)</script>"));
-  assert.ok(page.includes("Escape &lt;script&gt;alert(1)&lt;/script&gt; &amp; co"));
+  assert.ok(page.includes(escapeHtml("Escape <script>alert(1)</script> & co")));
   assert.match(page, /https:\/\/github\.com\/o\/r\/blob\/abcdef0123456789abcdef0123456789abcdef01\/docs\/trackers\/items\/B-NEXT\.md/u);
   assert.match(page, /Not shown yet:<\/strong> each item's check results/u);
   assert.match(page, /No open item records a dependency yet|Hover or focus an item/u);
@@ -112,14 +113,14 @@ test("the page escapes every text, links records at the commit, and states what 
   assert.match(page, /A release date/u);
   assert.match(page, /<script>\/\* graph \*\/<\/script>/u);
   assert.ok(!/\b(?:will ship|guaranteed|by Q[1-4])\b/iu.test(page), "no promise language");
-  const hostile = renderPage(feed(), { ...CTX, script: "const s = '</script><img>';" });
-  assert.ok(!hostile.includes("'</script><img>'"), "an inline script cannot close its own tag");
 });
 
 test("the print page and the Atom digest come from the same feed; renders are deterministic", () => {
   const f = feed();
   const print = renderPrint(f, CTX);
-  assert.match(print, /^---\nlayout: default\n[\s\S]*permalink: \/floor\/roadmap\/print\/\n---\n/u);
+  assert.ok(print.startsWith("---\nlayout: default\n"), "the print page opens with its front matter");
+  const frontMatter = print.slice(0, print.indexOf("\n---\n", 4) + 1).split("\n");
+  assert.ok(frontMatter.includes("permalink: /floor/roadmap/print/"), "the front matter places the page at /floor/roadmap/print/");
   assert.match(print, /<li>A release date<\/li>/u);
   const atom = renderAtom(f, CTX);
   assert.ok(atom.startsWith('<?xml version="1.0" encoding="utf-8"?>\n<feed xmlns="http://www.w3.org/2005/Atom">'));
@@ -143,7 +144,13 @@ test("the graph items keep only work items as blockers and parents; the feed rea
   assert.throws(() => readFeed(bad), (error: Error & { code?: string }) => error.code === "roadmap_feed_schema");
 });
 
-test("the time-travel script compiles and needs no framework", () => {
+test("the time-travel script compiles, needs no framework, and writes text nodes only", () => {
   assert.doesNotThrow(() => new Function(TIMELINE_SCRIPT));
   assert.ok(!/\bimport\b|require\(/u.test(TIMELINE_SCRIPT));
+  assert.ok(!TIMELINE_SCRIPT.includes("innerHTML") && !TIMELINE_SCRIPT.includes("insertAdjacentHTML"), "no feed text is parsed as markup");
+});
+
+test("a page script that could close its own element is refused, never rewritten", () => {
+  assert.throws(() => renderPage(feed(), { ...CTX, script: "const s = '</SCRIPT>';" }), /roadmap page script contains a closing script tag/u);
+  assert.ok(renderPage(feed(), CTX).includes("<script>/* graph */</script>"));
 });

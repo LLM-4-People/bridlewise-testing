@@ -15,6 +15,7 @@
  * The copy is plain and exact, and it never promises a date.
  */
 import { escapeHtml } from "../../../shared/markup.ts";
+import { HarnessError } from "../../src/kernel/errors.ts";
 import type { RoadmapFeed } from "../../src/workflow/forge/projector/roadmap-feed.ts";
 import { ROADMAP_STATES, type RoadmapState } from "../../src/workflow/tracker-status.ts";
 
@@ -193,6 +194,12 @@ function milestoneSection(feed: RoadmapFeed, placed: ReturnType<typeof placeItem
     + `<div class="floor-items">${own.map((item) => itemDetail(feed, item, placed.get(item.id)!.reason, repositoryUrl)).join("")}</div></section>`;
 }
 
+/** The page's script, inlined as written; a script that could close its own element is refused, never rewritten. */
+function inlineScript(script: string): string {
+  if (script.toLowerCase().includes("</script")) throw new HarnessError("the roadmap page script contains a closing script tag, so it cannot be inlined", "roadmap_script_not_inlinable");
+  return script;
+}
+
 /** The roadmap page body (HTML), written between {@link ROADMAP_PAGE_BLOCK}'s markers by the site build. */
 export function renderPage(feed: RoadmapFeed, ctx: RenderContext): string {
   const placed = placeItems(feed);
@@ -226,9 +233,9 @@ export function renderPage(feed: RoadmapFeed, ctx: RenderContext): string {
     `<p class="floor-links"><a href="{{ '/floor/roadmap/print/' | relative_url }}">One-page print</a> · <a href="{{ '/floor/roadmap/feed.xml' | relative_url }}">Weekly digest (Atom)</a> · <a href="{{ '/floor/roadmap/data/roadmap.json' | relative_url }}">The data (roadmap.json)</a> · <a href="#method">How it is computed</a></p>`,
     `</header>`,
     `<section aria-labelledby="summary"><h2 id="summary">Now, next, later</h2><div class="floor-lanes">${lanes}</div></section>`,
-    `<section aria-labelledby="claims"><h2 id="claims">Closed, not proven</h2>${claims.length === 0 ? `<p class="floor-quiet">Every closed item links its proof.</p>` : `<p>Closed as done, but no linked evidence proves it, so none of these counts as shipped. Linking a test, a recorded evidence file, a built decision, or a pull request, run or release of this repository turns one into shipped.</p><ul class="floor-gaps">${claims.map((c) => `<li><a href="#item-${h(c.id)}">${h(c.title)}</a> <code>${h(c.id)}</code></li>`).join("")}</ul>`}</section>`,
+    `<section aria-labelledby="claims"><h2 id="claims">Closed, not proven</h2>${claims.length === 0 ? `<p class="floor-quiet">Every closed item links its proof.</p>` : `<p>Closed as done, but no linked evidence proves it, so none of these counts as shipped. Linking a test, a recorded evidence file, a built decision, or a pull request, run or release of this repository turns one into shipped.</p><details><summary>The ${claims.length} unproven closes</summary><ul class="floor-gaps">${claims.map((c) => `<li><a href="#item-${h(c.id)}">${h(c.title)}</a> <code>${h(c.id)}</code></li>`).join("")}</ul></details>`}</section>`,
     `<section aria-labelledby="week"><h2 id="week">What changed this week</h2>${weekList}</section>`,
-    `<section aria-labelledby="travel" data-timeline-src="{{ '/floor/roadmap/data/roadmap.json' | relative_url }}"><h2 id="travel">Time travel</h2><div class="floor-ms-grid"><div><h3>Since your last visit</h3><div data-timeline-since><p class="floor-quiet">Needs JavaScript.</p></div></div><div><h3>Any version</h3><label class="floor-filter">Version <input type="range" min="0" max="0" value="0" disabled></label><div data-timeline-out><p class="floor-quiet">Needs JavaScript. The roadmap at any commit is <code>node engine/scripts/tooling/roadmap-feed.ts --at &lt;commit&gt;</code>.</p></div></div></div></section>`,
+    `<section aria-labelledby="travel" data-timeline-src="{{ '/floor/roadmap/data/roadmap.json' | relative_url }}"><h2 id="travel">Time travel</h2><div class="floor-ms-grid"><div><h3>Since your last visit</h3><div data-timeline-since><p class="floor-quiet">Needs JavaScript.</p></div></div><div><h3>Any version</h3><label class="floor-filter">Version <input type="range" min="0" max="0" value="0" disabled></label><div data-timeline-out><p class="floor-quiet">Needs JavaScript. The roadmap at any commit is <code>${h("node engine/scripts/tooling/roadmap-feed.ts --at <commit>")}</code>.</p></div></div></div></section>`,
     `<section aria-labelledby="milestones"><h2 id="milestones">Milestones</h2>${[...feed.milestones].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((m) => milestoneSection(feed, placed, m, ctx.repositoryUrl)).join("")}`,
     unassigned.length === 0 ? "" : `<section class="floor-milestone" id="milestone-none"><header><h3>Not in a milestone yet</h3><p class="floor-ms-state">${unassigned.length} items. Placing them is work too.</p></header><div class="floor-items">${unassigned.map((item) => itemDetail(feed, item, placed.get(item.id)!.reason, ctx.repositoryUrl)).join("")}</div></section>`,
     `</section>`,
@@ -245,7 +252,7 @@ export function renderPage(feed: RoadmapFeed, ctx: RenderContext): string {
     `<li><strong>Not shown yet:</strong> each item's check results (and a retraction when a closed item's check turns red), work in flight and its pull request checks, and votes. They join when the feed carries them.</li>`,
     `</ul></section>`,
     `</div>`,
-    ctx.script === null ? "" : `<script>${ctx.script.replace(/<\/script/giu, "<\\/script")}</script>`,
+    ctx.script === null ? "" : `<script>${inlineScript(ctx.script)}</script>`,
   ].join("\n");
   return body;
 }
@@ -300,8 +307,21 @@ export const TIMELINE_SCRIPT = `(() => {
   const out = root.querySelector("[data-timeline-out]");
   const since = root.querySelector("[data-timeline-since]");
   const range = root.querySelector("input[type=range]");
-  const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const list = (rows) => rows.length === 0 ? "<p class='floor-quiet'>No item changed state.</p>" : "<ol class='floor-feed'>" + rows.map((r) => "<li><a href='#item-" + esc(r.id) + "'>" + esc(r.id) + "</a> " + esc(r.from || "new") + " to " + esc(r.to || "removed") + "</li>").join("") + "</ol>";
+  // Every text reaches the page as a text node: nothing here is parsed as markup.
+  const el = (tag, text, cls) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (cls) node.className = cls; return node; };
+  const quiet = (text) => el("p", text, "floor-quiet");
+  const list = (rows) => {
+    if (rows.length === 0) return quiet("No item changed state.");
+    const ol = el("ol", undefined, "floor-feed");
+    for (const r of rows) {
+      const link = el("a", r.id);
+      link.href = "#item-" + r.id;
+      const li = el("li");
+      li.append(link, " " + (r.from || "new") + " to " + (r.to || "removed"));
+      ol.append(li);
+    }
+    return ol;
+  };
   fetch(root.getAttribute("data-timeline-src")).then((r) => r.json()).then((feed) => {
     const history = feed.history;
     const last = history.length - 1;
@@ -311,17 +331,23 @@ export const TIMELINE_SCRIPT = `(() => {
       const k = Number(range.value);
       const states = new Map();
       for (let i = 0; i <= k; i += 1) for (const c of history[i].changes) states.set(c.id, c.to);
-      const rows = feed.milestones.map((m) => { const live = m.members.map((id) => states.get(id)).filter((s) => s && s !== "not planned"); return "<li>" + esc(m.id) + " " + esc(m.title) + ": " + live.filter((s) => s === "shipped").length + " of " + live.length + " shipped</li>"; }).join("");
-      out.innerHTML = "<p>The roadmap at <code>" + esc(history[k].commit.slice(0, 8)) + "</code>, " + esc(history[k].date.slice(0, 10)) + " (landing " + (k + 1) + " of " + (last + 1) + ")</p><ul>" + rows + "</ul><h4>Changes in that landing</h4>" + list(history[k].changes);
+      const milestones = el("ul");
+      for (const m of feed.milestones) {
+        const live = m.members.map((id) => states.get(id)).filter((s) => s && s !== "not planned");
+        milestones.append(el("li", m.id + " " + m.title + ": " + live.filter((s) => s === "shipped").length + " of " + live.length + " shipped"));
+      }
+      const head = el("p", "The roadmap at ");
+      head.append(el("code", history[k].commit.slice(0, 8)), ", " + history[k].date.slice(0, 10) + " (landing " + (k + 1) + " of " + (last + 1) + ")");
+      out.replaceChildren(head, milestones, el("h4", "Changes in that landing"), list(history[k].changes));
     };
     range.addEventListener("input", show);
     show();
     let seen = null;
     try { seen = window.localStorage.getItem("bridlewise.roadmap.seen"); } catch (e) { seen = null; }
     const at = seen === null ? -1 : history.findIndex((l) => l.commit === seen);
-    if (seen === null) since.innerHTML = "<p class='floor-quiet'>First visit from this browser: from now on this lists what changed since you last looked.</p>";
-    else if (at < 0) since.innerHTML = "<p class='floor-quiet'>Your last visit is older than this history.</p>";
-    else since.innerHTML = list(history.slice(at + 1).flatMap((l) => l.changes));
-    try { window.localStorage.setItem("bridlewise.roadmap.seen", history[last].commit); } catch (e) { since.insertAdjacentHTML("beforeend", "<p class='floor-quiet'>This browser keeps no storage, so the next visit cannot compare.</p>"); }
+    if (seen === null) since.replaceChildren(quiet("First visit from this browser: from now on this lists what changed since you last looked."));
+    else if (at < 0) since.replaceChildren(quiet("Your last visit is older than this history."));
+    else since.replaceChildren(list(history.slice(at + 1).flatMap((l) => l.changes)));
+    try { window.localStorage.setItem("bridlewise.roadmap.seen", history[last].commit); } catch (e) { since.append(quiet("This browser keeps no storage, so the next visit cannot compare.")); }
   }).catch(() => { out.textContent = "The roadmap data could not be loaded."; });
 })();`;

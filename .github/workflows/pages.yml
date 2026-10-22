@@ -81,6 +81,14 @@ jobs:
             --product product \
             --out .site/floor/data
 
+      # The roadmap feed computes its projection in the sealed realm, which the
+      # guardian confines: it is built here exactly as the CI engine job builds it.
+      - name: Build the guardian
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14
+          make -C engine/guardian all
+
       - name: Compute and render the roadmap
         run: |
           node engine/scripts/tooling/roadmap-feed.ts \

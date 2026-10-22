@@ -5709,7 +5709,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "scripts-roadmap-render", path: "scripts/roadmap/render.ts", realm: "builder", layer: "verification",
       owner: "verification", publicApi: { exportCount: 10, namesSha256: "359d7f10330d46c258cf2f96131f366572eb3030428fbe09727c1b3be5fdd65a" },
-      dependencies: ["../shared/markup.ts","src/workflow/tracker-status.ts"],
+      dependencies: ["../shared/markup.ts","src/kernel/errors.ts","src/workflow/tracker-status.ts"],
     }),
   ],
 });
