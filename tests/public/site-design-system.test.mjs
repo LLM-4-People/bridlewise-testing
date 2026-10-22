@@ -16,7 +16,7 @@ import { SHARED_CSS } from "../../scripts/floor/design-coverage.mjs";
 import { buildSiteSource } from "../../scripts/floor/site.mjs";
 import { markInclude } from "../../scripts/floor/site-design.mjs";
 import { sitePlan } from "../../scripts/floor/site-pages.mjs";
-import { declaredTokens, judgeSiteStyles, siteStyleViolations, STYLE_BURN_DOWN } from "../../scripts/floor/site-style.mjs";
+import { declaredTokens, judgeSiteStyles, siteMarkupViolations, siteStyleViolations, STYLE_BURN_DOWN } from "../../scripts/floor/site-style.mjs";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
 import { readNames, readTokenOwner, themeColor, THEMES, tokenSheet } from "../../shared/token-reader.ts";
 
@@ -43,10 +43,11 @@ test("the site build judges every stylesheet it hands Jekyll, and they read only
     const out = join(directory, "site");
     // The floor data is not a stylesheet: an empty snapshot keeps the build offline and fast.
     await buildSiteSource({ root: ROOT, out, baseurl: "/site", floorData: async () => ({ atlas: {}, status: {} }) });
-    const { sheets, findings } = judgeSiteStyles({ root: ROOT, sourceRoot: out });
+    const { sheets, markup, findings } = judgeSiteStyles({ root: ROOT, sourceRoot: out });
     assert.deepEqual(findings, []);
     for (const path of ["assets/css/style.css", "assets/floor/floor.css", ...STYLE_BURN_DOWN.keys()]) assert.ok(sheets.includes(path), `the build input lists ${path}`);
     assert.ok(!sheets.includes("assets/css/tokens.css"), "the generated token sheet is the owner's projection, judged by its generator");
+    for (const path of ["_layouts/default.html", "_includes/design-head.html", "_includes/brand-mark.svg", "run/index.html", "policy-lab/index.html"]) assert.ok(markup.includes(path), `the build input lists ${path}`);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -107,6 +108,34 @@ test("the guard parses: each violation is found in any case, in a rule and in a 
     ".j::before { content: \"https://example.org\"; }",
   ];
   for (const css of nearMisses) assert.deepEqual(judge(css), [], `near-miss: ${css}`);
+});
+
+test("the layouts, includes and HTML pages hold no style of their own and load nothing from elsewhere", () => {
+  const planted = [
+    ['<html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter"></head><body></body></html>', /<link rel="stylesheet"> fetches from elsewhere/u],
+    ['<link rel="preconnect" href="//fonts.gstatic.com">', /<link rel="preconnect"> fetches from elsewhere/u],
+    ['<LINK REL="Stylesheet" HREF="HTTPS://cdn.example/x.css">', /fetches from elsewhere/u],
+    ["<head><style>@import url(https://cdn.example/x.css); body { color: red; }</style></head>", /<style>: the styles live/u],
+    ['<html><body style="font-family: Georgia">{{ content }}</body></html>', /<body style=…>/u],
+    ['<p><span STYLE="color: {{ page.ink }}">x</span></p>', /<span style=…>/u],
+    ['<svg><style>.a { fill: red; }</style></svg>', /<style>: the styles live/u],
+    ['<template><div style="color: red"></div></template>', /<div style=…>/u],
+    ['<script src="https://cdn.example/x.js"></script>', /<script src> loads from elsewhere/u],
+    ['<img alt="" srcset="a.png 1x, https://cdn.example/b.png 2x">', /<img srcset> loads from elsewhere/u],
+    ['<link rel="icon" href="data:image/svg+xml,%3Csvg%3E">', /inlines a data: resource/u],
+  ];
+  for (const [html, expected] of planted) {
+    const findings = siteMarkupViolations(html);
+    assert.ok(findings.some((finding) => expected.test(finding)), `planted: ${html} gave ${JSON.stringify(findings)}`);
+  }
+  const nearMisses = [
+    `<link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}"><link rel="icon" href="../assets/mark.svg">`,
+    '<link rel="canonical" href="https://example.org/page/"><link rel="alternate" href="https://example.org/feed.xml">',
+    '<a href="https://github.com/example">source</a><script src="run-demo.js" type="module"></script>',
+    '<img alt="a figure" src="assets/x.png" srcset="assets/x.png 1x, assets/x@2.png 2x"><img alt="" src="data:image/png;base64,AA==">',
+    "<p>The word style, a style sheet and a <code>style</code> attribute named in prose.</p>",
+  ];
+  for (const html of nearMisses) assert.deepEqual(siteMarkupViolations(html), [], `near-miss: ${html}`);
 });
 
 test("the file set is the build input: a Sass source anywhere is refused; the token sheet is the generator's", () => {

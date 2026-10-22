@@ -41,6 +41,18 @@
  *   of them (Sass variables and functions can produce any literal, which a
  *   parse of the source cannot see).
  *
+ * `siteMarkupViolations` parses each HTML file the build consumes (every
+ * layout, every include and every `.html` page) with a real HTML parser
+ * (parse5) and refuses:
+ * - any `<style>` element and any `style=` attribute: the styles live in the
+ *   token-reading stylesheets only;
+ * - a `<link>` that fetches (stylesheet, icon, preload, preconnect, …), a
+ *   `<script src>` or an element that loads media from another origin (a
+ *   scheme or `//`): no font, sheet or script comes from elsewhere; and a
+ *   fetching `<link>` to a `data:` resource (a second, hand-drawn mark).
+ * Markdown pages are judged where they render, by the rendered-site checker
+ * (#409): a parse of their source would read the prose's code spans as tags.
+ *
  * The burn-down list names the sheets that still carry a palette of their
  * own; the build skips them. It only shrinks: each entry names the issue
  * that removes it, and the design test fails an entry that is clean or gone
@@ -50,6 +62,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 
 import * as csstree from "css-tree";
+import { parse as parseHtml } from "parse5";
 
 import { readTokenOwner } from "../../shared/token-reader.ts";
 import { SITE_TOKEN_SHEET } from "./site-design.mjs";
@@ -231,6 +244,55 @@ export function siteStyleViolations(css, { tokens }) {
   return findings;
 }
 
+/** The `<link>` relations that make the browser fetch the target. */
+const FETCHING_RELS = new Set(["stylesheet", "icon", "shortcut", "apple-touch-icon", "mask-icon", "manifest", "preload", "modulepreload", "prefetch", "preconnect", "dns-prefetch", "prerender"]);
+/** Elements and the attributes through which they load a resource. */
+const LOADING_ATTRIBUTES = new Map([
+  ["script", ["src"]], ["img", ["src", "srcset"]], ["source", ["src", "srcset"]], ["iframe", ["src"]], ["embed", ["src"]],
+  ["object", ["data"]], ["video", ["src", "poster"]], ["audio", ["src"]], ["track", ["src"]], ["image", ["href", "xlink:href"]], ["use", ["href", "xlink:href"]],
+]);
+
+/** What a site layout, include or HTML page may not hold (see the header), each finding with its line. */
+export function siteMarkupViolations(html) {
+  const findings = [];
+  const walk = (node) => {
+    if (node.tagName !== undefined) {
+      const line = node.sourceCodeLocation?.startLine;
+      const at = line === undefined ? "" : `${String(line)} `;
+      const tag = node.tagName.toLowerCase();
+      const attributes = new Map(node.attrs.map((attribute) => [attribute.name.toLowerCase(), attribute.value]));
+      if (tag === "style") findings.push(`${at}<style>: the styles live in the token-reading stylesheets`);
+      if (attributes.has("style")) findings.push(`${at}<${tag} style=…>: the styles live in the token-reading stylesheets`);
+      if (tag === "link") {
+        const rels = (attributes.get("rel") ?? "").toLowerCase().split(/\s+/u).filter(Boolean);
+        const href = attributes.get("href") ?? "";
+        if (rels.some((rel) => FETCHING_RELS.has(rel))) {
+          if (/^\s*data:/iu.test(href)) findings.push(`${at}<link rel="${rels.join(" ")}"> inlines a data: resource: the site's mark and sheets are its generated files`);
+          else if (REMOTE.test(href)) findings.push(`${at}<link rel="${rels.join(" ")}"> fetches from elsewhere: ${href}`);
+        }
+      }
+      for (const name of LOADING_ATTRIBUTES.get(tag) ?? []) {
+        const value = attributes.get(name);
+        if (value === undefined) continue;
+        const remote = name === "srcset" ? value.split(",").some((candidate) => REMOTE.test(candidate.trim())) : REMOTE.test(value) && !/^\s*data:/iu.test(value);
+        if (remote) findings.push(`${at}<${tag} ${name}> loads from elsewhere: ${value}`);
+      }
+    }
+    for (const child of node.childNodes ?? []) walk(child);
+    if (node.content !== undefined) walk(node.content);
+  };
+  walk(parseHtml(html, { sourceCodeLocationInfo: true }));
+  return findings;
+}
+
+/** Every HTML file of the assembled source the build consumes: layouts, includes and `.html` pages. */
+export function siteMarkupFiles(sourceRoot) {
+  return readdirSync(sourceRoot, { recursive: true })
+    .map((path) => String(path).split(sep).join("/"))
+    .filter((path) => (/\.html?$/iu.test(path) || /^_includes\//u.test(path)) && statSync(join(sourceRoot, path)).isFile())
+    .sort();
+}
+
 /** Every stylesheet in the assembled site source the build consumes, source-relative. */
 export function siteStylesheets(sourceRoot) {
   return readdirSync(sourceRoot, { recursive: true })
@@ -242,9 +304,10 @@ export function siteStylesheets(sourceRoot) {
 
 /**
  * Judges every stylesheet of the assembled source at `sourceRoot` against
- * the owner at `root`. Answers `{ sheets, findings }`: every sheet the build
- * consumes, and the findings of each one outside the burn-down list (whose
- * own upkeep, present and still failing, the design test holds).
+ * the owner at `root`, and every HTML file it consumes. Answers
+ * `{ sheets, markup, findings }`: the sheets and HTML files, and the findings
+ * of each (a sheet on the burn-down list is skipped; its upkeep, present and
+ * still failing, is the design test's).
  */
 export function judgeSiteStyles({ root, sourceRoot }) {
   const tokens = declaredTokens(readTokenOwner(readFileSync(join(root, "src/cockpit/tokens.css"), "utf8")));
@@ -259,5 +322,9 @@ export function judgeSiteStyles({ root, sourceRoot }) {
     const found = siteStyleViolations(readFileSync(join(sourceRoot, ...path.split("/")), "utf8"), { tokens });
     findings.push(...found.map((finding) => `${path}:${finding}`));
   }
-  return { sheets, findings };
+  const markup = siteMarkupFiles(sourceRoot);
+  for (const path of markup) {
+    findings.push(...siteMarkupViolations(readFileSync(join(sourceRoot, ...path.split("/")), "utf8")).map((finding) => `${path}:${finding}`));
+  }
+  return { sheets, markup, findings };
 }

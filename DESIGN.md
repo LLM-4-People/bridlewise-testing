@@ -117,6 +117,8 @@ ink-4 fail AA on paper). The site build parses every stylesheet it hands
 Jekyll and refuses one that is not this system (`scripts/floor/site-style.mjs`):
 every colour, duration and face is a token `var()` with no fallback, the
 themes and tokens are declared only in the owner, nothing is imported or
-fetched from elsewhere, and the sheets are plain CSS.
+fetched from elsewhere, and the sheets are plain CSS. No layout, include or
+HTML page carries a style of its own (`<style>`, `style=`) or loads a sheet,
+font or script from another origin.
 `tests/public/site-design-system.test.mjs` proves each refusal and holds the
 text to 4.5:1 in both themes.
