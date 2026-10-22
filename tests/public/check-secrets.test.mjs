@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
-const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, privacySignalMatches, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
+const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, createPrivacyMatcher, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
   const dir = mkdtempSync(join(tmpdir(), "bridlewise-secret-scan-"));
@@ -380,7 +380,8 @@ test("each publication-privacy row is reported by its id; database state by file
   assert.deepEqual([...shapeRows].sort(), ["database-state", "home-path"],
     "a new pattern row must not spell a protected name: give it `names` and `digests` instead");
   for (const signal of PUBLICATION_PRIVACY_SIGNALS.filter((row) => !("pattern" in row))) {
-    assert.ok(signal.digests.length > 0 && signal.digests.every((digest) => /^[0-9a-f]{64}$/u.test(digest)), `${signal.id} carries no SHA-256 digest`);
+    assert.ok(signal.digests.length > 0 && signal.digests.every((pin) => /^[0-9a-f]{64}$/u.test(pin.sha256) && Number.isSafeInteger(pin.length) && pin.length > 0),
+      `${signal.id} carries no SHA-256 digest with its name's length`);
   }
   const planted = { "home-path": "see /home/private-user/work\n" };
   for (const [id, line] of Object.entries(planted)) {
@@ -412,28 +413,93 @@ test("each publication-privacy row is reported by its id; database state by file
 });
 
 test("a name row matches by digest: whole labels, any case, as a subdomain or a prefix; never inside a label", () => {
-  // A synthetic protected name (RFC 2606 `.invalid`), through the same
-  // matcher every privacy row runs through.
-  const digest = (name) => createHash("sha256").update(name).digest("hex");
-  const host = { names: "dotted", digests: [digest("probe.internal.invalid")] };
+  // Synthetic protected names (RFC 2606 `.invalid`), through the same matcher
+  // every privacy row runs through.
+  const pin = (name) => ({ length: name.length, sha256: createHash("sha256").update(name).digest("hex") });
+  const match = createPrivacyMatcher([
+    { id: "host", names: "dotted", digests: [pin("probe.internal.invalid")] },
+    { id: "other", names: "dotted", digests: [pin("other.example.invalid")] },
+    { id: "scratch", names: "scratch-path", digests: [pin("/tmp/probescratch")] },
+  ]);
   for (const text of [
     "remote: https://probe.internal.invalid/x.git",
     "base: https://api.probe.internal.invalid/v1",
     "PROBE.Internal.INVALID",
     "probe.internal.invalid.example:443",
-  ]) assert.equal(privacySignalMatches(host, text), true, text);
-  // A long dotted run stays linear (the scanner reads multi-megabyte lines).
-  assert.equal(privacySignalMatches(host, `${"a.".repeat(200_000)}probe.internal.invalid`), true);
+    // A long dotted run stays linear (the scanner reads multi-megabyte lines).
+    `${"a.".repeat(200_000)}probe.internal.invalid`,
+  ]) assert.deepEqual(match(text), ["host"], text.slice(0, 60));
   for (const text of ["xprobe.internal.invalid", "x-probe.internal.invalid", "probe.internal.invalidx", "probe-internal-invalid", "probe.internal", "probe..internal.invalid"]) {
-    assert.equal(privacySignalMatches(host, text), false, text);
+    assert.deepEqual(match(text), [], text);
   }
-  const scratch = { names: "scratch-path", digests: [digest("/tmp/probescratch")] };
-  assert.equal(privacySignalMatches(scratch, "scratch: /tmp/probescratch/run"), true);
-  assert.equal(privacySignalMatches(scratch, "scratch: /tmp/probescratch-2/run"), true, "a word boundary ends the directory, as before");
-  assert.equal(privacySignalMatches(scratch, "scratch: /tmp/probescratchx"), false);
-  assert.equal(privacySignalMatches(scratch, "scratch: /var/tmp/other"), false);
+  // Several name rows in one text, judged in one cut, reported in row order.
+  assert.deepEqual(match("other.example.invalid then probe.internal.invalid in /tmp/probescratch/x"), ["host", "other", "scratch"]);
+  assert.deepEqual(match("scratch: /tmp/probescratch-2/run"), ["scratch"], "a word boundary ends the directory, as before");
+  assert.deepEqual(match("scratch: /tmp/probescratchx"), []);
+  assert.deepEqual(match("scratch: /var/tmp/other"), []);
   // The scanner applies every privacy row through this matcher (one door).
-  assert.match(readFileSync(SCANNER, "utf8"), /privacySignalMatches\(signal, normalizedLine\)/u);
+  assert.match(readFileSync(SCANNER, "utf8"), /publicationPrivacyFindings\(normalizedLine, "text"\)/u);
+});
+
+test("the privacy matcher's CPU work is bounded: one cut per text, only length-matching windows hashed", () => {
+  // CPU WORK, never wall time (process.cpuUsage, best of three): the matcher
+  // over lines dense with dotted names, against the irreducible cost of cutting
+  // the same lines into name runs once. The previous design (each name row
+  // re-cut the text and hashed every window) is planted and must break the
+  // same budget, so the bound is shown to see the regression it guards.
+  const pin = (name) => ({ length: name.length, sha256: createHash("sha256").update(name).digest("hex") });
+  const rows = [
+    { id: "a", names: "dotted", digests: [pin("probe.internal.invalid")] },
+    { id: "b", names: "dotted", digests: [pin("other.host.invalid")] },
+    { id: "c", names: "dotted", digests: [pin("state-dir.local-evidence.ex")] },
+    { id: "d", names: "scratch-path", digests: [pin("/tmp/probescrat")] },
+  ];
+  const match = createPrivacyMatcher(rows);
+  const lines = Array.from({ length: 20_000 }, (_, index) =>
+    `import { x${index} } from "./src/module-${index}.helpers.ts"; // https://docs.example.org/api/v1.2.${index}/index.html a.b.c.d.e.f.g.h /tmp/build${index}`);
+  const cpu = (work) => {
+    let best = Number.POSITIVE_INFINITY;
+    for (let round = 0; round < 3; round += 1) {
+      const start = process.cpuUsage();
+      work();
+      const used = process.cpuUsage(start);
+      best = Math.min(best, used.user + used.system);
+    }
+    return best;
+  };
+  const cut = cpu(() => {
+    for (const line of lines) for (const run of line.matchAll(/[A-Za-z0-9_.-]+/gu)) void run;
+  });
+  const BUDGET = 10;
+  const matcher = cpu(() => {
+    for (const line of lines) match(line);
+  });
+  assert.ok(matcher <= BUDGET * cut, `the privacy matcher used ${String(matcher)} µs CPU, over ${String(BUDGET)}× the ${String(cut)} µs cut`);
+  const perRow = (text) => {
+    const found = [];
+    for (const row of rows) {
+      const candidates = [];
+      if (row.names === "scratch-path") {
+        for (const hit of text.matchAll(/\/tmp\/\w+/gu)) candidates.push(hit[0]);
+      } else {
+        for (const hit of text.matchAll(/[A-Za-z0-9_.-]+/gu)) {
+          const labels = hit[0].split(".");
+          for (let first = 0; first < labels.length - 1; first += 1) {
+            for (let last = first + 2; last <= Math.min(labels.length, first + 6); last += 1) candidates.push(labels.slice(first, last).join("."));
+          }
+        }
+      }
+      for (const candidate of candidates) {
+        const digest = createHash("sha256").update(candidate.toLowerCase()).digest("hex");
+        if (row.digests.some((entry) => entry.sha256 === digest)) found.push(row.id);
+      }
+    }
+    return found;
+  };
+  const planted = cpu(() => {
+    for (const line of lines) perRow(line);
+  });
+  assert.ok(planted > BUDGET * cut, `the planted per-row design (${String(planted)} µs) did not break the budget: the bound sees nothing`);
 });
 
 /**
