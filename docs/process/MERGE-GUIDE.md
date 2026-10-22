@@ -87,13 +87,11 @@ branch only from where the workspace left it: another writer's commits are
 refused, `branch_moved_by_another_writer`) and opens or regenerates the DRAFT
 pull request; `ready` takes it out of draft once its published tree passed
 `validate`, and any later round that publishes a new head returns it to
-draft. Records are stored per version: each older store (v4, before the
-stacks; v3, before the land; v2, before the forge), which older code still
-uses, is read and migrated in memory through one chain (v2 → v3 → v4 → v5)
-and never written. A workspace only an older store knows is read-only to
-this version until the recorded P7 cutover: every verb that would change it
-refuses (`workspace_owned_by_v<N>_checkout`, naming its record and worktree)
-— act on it from the checkout of the version that made it.
+draft. Records are stored per version, and older records are read-only to
+newer code. They are upcast in memory and never written, as the decision
+[WS-RECORDS](../decisions/WS-RECORDS-older-workspace-records-are-read-only.md)
+states. Act on an older workspace from the checkout of the version that made
+it.
 
 ## 1c. Feature → `main` on the forge: `ws land`
 
