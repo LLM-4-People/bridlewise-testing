@@ -211,6 +211,9 @@ export function superviseCommand(options: SupervisedCommandOptions): Promise<Sup
   // reached the supervisor, the forwarded stop would be its second, which
   // kills at once and skips the grace (wf-1b3a-correctness L3). If this
   // process dies instead, the supervisor's parent-death signal stops it.
+  // Inside an admitted heavy run, the supervisor is born under the run's caps
+  // (this process is in the run's scope and CPU-time limit:
+  // src/process/instrument-lock.ts).
   const child: ChildProcess = spawn(options.supervisor, args, {
     detached: true,
     stdio: ["ignore", "pipe", "pipe", "pipe", ...(passFd ? ["pipe" as const] : [])],

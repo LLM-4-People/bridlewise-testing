@@ -40,7 +40,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { fileURLToPath } from "node:url";
 
-import { asLockDoor, enforceTestRunLock, wholeInstrumentRun } from "../../engine/scripts/tooling/test-run-lock.ts";
+import { enforceTestRunLock, wholeInstrumentRun } from "../../engine/scripts/tooling/test-run-lock.ts";
 import { testProcessSupervisorBinary } from "../../engine/guardian/build.ts";
 import { superviseCommand } from "../../engine/src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../engine/src/workflow/test-result-collector.ts";
@@ -110,7 +110,7 @@ async function runToExit(command: string, args: readonly string[], env: NodeJS.P
 /** The step (see the header); resolves to the exit code. */
 export async function runPerfProfile(): Promise<number> {
   // Inside the hold the supervising door took (see the entry point): borrowed, never taken in this process.
-  const lock = await enforceTestRunLock("perf profile", { testFileCount: wholeInstrumentRun("profile"), inProcess: true });
+  const lock = enforceTestRunLock("perf profile", { testFileCount: wholeInstrumentRun("profile"), inProcess: true });
   const scratch = createOwnedTemporaryDirectory(ensurePrivateStateDirectory(join(userCacheFolder(), PRODUCT_NAME, "perf-profile")), "run-");
   const started: OwnedProcess[] = [];
   let client: Awaited<ReturnType<typeof serveClient>> | undefined;
@@ -166,10 +166,8 @@ if (isEntryPoint(import.meta.url)) {
   const door = async (): Promise<number> => {
     if (process.env[INSIDE_INSTRUMENT_LOCK_VARIABLE] === "1") return runPerfProfile();
     let code = 1;
-    await asLockDoor(async () => {
-      code = (await runInsideInstrumentLock("perf profile", wholeInstrumentRun("profile"),
-        [process.execPath, ...process.execArgv, fileURLToPath(import.meta.url)])).exitCode;
-    });
+    code = (await runInsideInstrumentLock("perf profile", wholeInstrumentRun("profile"),
+      [process.execPath, ...process.execArgv, fileURLToPath(import.meta.url)])).exitCode;
     return code;
   };
   door().then(

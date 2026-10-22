@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { InputError, interruptedWaitExitCode, safeError } from "./kernel/errors.ts";
+import { InputError, safeError } from "./kernel/errors.ts";
 import { canonicalJson } from "./kernel/integrity.ts";
 import { createPreflightContext } from "./kernel/preflight.ts";
 import { ROOT_POLICY } from "./kernel/root-policy.ts";
@@ -82,9 +82,6 @@ export async function runCli(argv: readonly string[] = process.argv.slice(2)): P
     if (verboseEnabled && error instanceof Error && error.stack) {
       process.stderr.write(`${error.stack}\n`);
     }
-    // A door whose wait for the instrument lock a signal ended exits as the signal would have (by type).
-    const interrupted = interruptedWaitExitCode(error);
-    if (interrupted !== undefined) return interrupted;
     return 1;
   }
 }
