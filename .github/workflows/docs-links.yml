@@ -26,6 +26,9 @@ jobs:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: End this job's own processes when it ends
+        uses: ./.github/actions/end-job-processes
+
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -33,7 +36,3 @@ jobs:
 
       - name: Check relative links
         run: node scripts/check-docs-links.mjs
-
-      - name: End this job's own processes
-        if: always()
-        run: node scripts/end-job-processes.mjs

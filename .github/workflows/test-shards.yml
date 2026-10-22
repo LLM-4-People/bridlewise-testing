@@ -55,6 +55,9 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
+      - name: End this job's own processes when it ends
+        uses: ./.github/actions/end-job-processes
+
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -104,10 +107,6 @@ jobs:
           path: ${{ runner.temp }}/shard-plan
           if-no-files-found: error
 
-      - name: End this job's own processes
-        if: always()
-        run: node scripts/end-job-processes.mjs
-
   shard:
     name: Shard ${{ matrix.shard }}
     needs: prepare
@@ -123,6 +122,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
+
+      - name: End this job's own processes when it ends
+        uses: ./.github/actions/end-job-processes
 
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -217,10 +219,6 @@ jobs:
           path: ${{ runner.temp }}/shard-reports/shard-${{ matrix.shard }}.json
           if-no-files-found: error
 
-      - name: End this job's own processes
-        if: always()
-        run: node scripts/end-job-processes.mjs
-
   merge:
     name: Merge one qualification receipt
     needs: [prepare, shard]
@@ -244,6 +242,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
+
+      - name: End this job's own processes when it ends
+        uses: ./.github/actions/end-job-processes
 
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -327,7 +328,3 @@ jobs:
           name: test-shard-receipt
           path: ${{ runner.temp }}/test-shard-receipt.json
           if-no-files-found: error
-
-      - name: End this job's own processes
-        if: always()
-        run: node scripts/end-job-processes.mjs

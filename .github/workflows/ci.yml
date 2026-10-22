@@ -26,6 +26,9 @@ jobs:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: End this job's own processes when it ends
+        uses: ./.github/actions/end-job-processes
+
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -104,10 +107,6 @@ jobs:
         working-directory: engine
         run: node --experimental-strip-types --test test/prevention/no-unhandled-errors.test.ts
 
-      - name: End this job's own processes
-        if: always()
-        run: node scripts/end-job-processes.mjs
-
   # Generated values are never edited by hand: hashes, pins, inventories,
   # manifests and README consumer blocks come from `harness sync`. This job
   # runs the generators (with the bundle, so the self-protection pin
@@ -126,6 +125,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
+
+      - name: End this job's own processes when it ends
+        uses: ./.github/actions/end-job-processes
 
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -161,10 +163,6 @@ jobs:
             exit 1
           fi
 
-      - name: End this job's own processes
-        if: always()
-        run: node scripts/end-job-processes.mjs
-
   shards:
     name: Full suite shards
     uses: ./.github/workflows/test-shards.yml
@@ -188,6 +186,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
+
+      - name: End this job's own processes when it ends
+        uses: ./.github/actions/end-job-processes
 
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -248,7 +249,3 @@ jobs:
             process.stdout.write(text);
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
           '
-
-      - name: End this job's own processes
-        if: always()
-        run: node scripts/end-job-processes.mjs

@@ -9,7 +9,9 @@
  *
  * The runner marks every process it starts for a job with that job's
  * `RUNNER_TRACKING_ID` (in its environment) and, after the last step, ends
- * whatever still carries it. This step, the last of every job (`if: always()`),
+ * whatever still carries it. This post step of a local action used right
+ * after the checkout runs after every other step and every other action's post
+ * step (post steps run in reverse order, and a post step always runs), so it
  * does that itself first, and says what it found:
  *
  *   - it lists every process still carrying this job's id (outside this step's
@@ -21,10 +23,9 @@
  *   - a job that left any process FAILS here, naming each one, so the cause is
  *     fixed at its owner instead of being swept up silently.
  *
- * Plain JavaScript on purpose: it runs on every job, including those that use
- * the runner image's own Node (no type stripping there).
+ * Plain JavaScript: an action's step runs on the runner's own Node.
  *
- * Usage (as a job's last step): `node scripts/end-job-processes.mjs`
+ * Usage: `uses: ./.github/actions/end-job-processes` right after the checkout; this file is its post step.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";

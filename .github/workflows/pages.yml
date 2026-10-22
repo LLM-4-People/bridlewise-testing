@@ -39,6 +39,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: End this job's own processes when it ends
+        uses: ./.github/actions/end-job-processes
+
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -94,10 +97,6 @@ jobs:
           path: ./_site
           include-hidden-files: true
 
-      - name: End this job's own processes
-        if: always()
-        run: node scripts/end-job-processes.mjs
-
   # A recorded override of a refused deploy order (scripts/floor/deploy-order.mjs)
   # waits for the pages-override environment's reviewer.
   approve-override:
@@ -149,6 +148,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: End this job's own processes when it ends
+        uses: ./.github/actions/end-job-processes
+
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -173,7 +175,3 @@ jobs:
         id: deployment
         if: steps.order.outputs.deploy == 'true'
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
-
-      - name: End this job's own processes
-        if: always()
-        run: node scripts/end-job-processes.mjs

@@ -26,11 +26,6 @@ ships into the client bundle or the server runtime.
   first signal: 0 an answer (including an honest empty scope), 1 an absent
   id or invalid arguments.
   `docs/debugging/README.md` is the guide.
-- `end-job-processes.mjs` — the last step of every CI job (`if: always()`,
-  #421): lists every process still carrying the job's `RUNNER_TRACKING_ID`
-  outside its own step, ends them (TERM, then KILL), names any survivor, and
-  fails the job naming each orphan, so the runner's own orphan cleanup finds
-  nothing to stall on and the leak is fixed at its owner.
 - `dev-all.ts` — the dev orchestrator: starts the API server and the Vite
   dev server together, tracks PIDs under `.dev/`, guarantees clean shutdown.
 - `dev-stop.ts` — the companion stopper: stops exactly those process groups,
