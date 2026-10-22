@@ -259,9 +259,10 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
   // and figures, from their one owners (`site-design.mjs`).
   writeSiteDesign({ root: repositoryRoot, outRoot });
   // Every stylesheet this source hands Jekyll reads the owner's tokens and
-  // declares none of its own (`site-style.mjs`).
+  // declares none of its own, and no layout, include or HTML page carries a
+  // style or loads from elsewhere (`site-style.mjs`).
   const style = judgeSiteStyles({ root: repositoryRoot, sourceRoot: outRoot });
-  if (style.findings.length > 0) fail(`${String(style.findings.length)} stylesheet finding(s): the site's sheets read the one design system (scripts/floor/site-style.mjs):\n  ${style.findings.join("\n  ")}`);
+  if (style.findings.length > 0) fail(`${String(style.findings.length)} style finding(s): the site's sheets and markup read the one design system (scripts/floor/site-style.mjs):\n  ${style.findings.join("\n  ")}`);
 
   // Every site path a page or layout names must be one this source builds:
   // a page, a redirect, the versions page, a served file, or one Jekyll

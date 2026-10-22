@@ -74,7 +74,9 @@ ships into the client bundle or the server runtime.
   mark from its one geometry. `site-style.mjs` then parses every stylesheet
   the assembled source hands Jekyll (css-tree) and refuses the build on a
   colour, duration or face that is not a token, a theme block, a fallback,
-  an `@import`, a remote `url()` or a Sass source.
+  an `@import`, a remote `url()` or a Sass source, and parses every layout,
+  include and HTML page (parse5) to refuse a `<style>`, a `style=` or a
+  resource loaded from elsewhere.
   `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
   blocks: it renders them from the page's `ROADMAP-PLAN` block, the open rows
   of `docs/trackers/TASKS.md`, and the non-proofs in

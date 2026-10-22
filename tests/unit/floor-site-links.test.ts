@@ -295,11 +295,24 @@ describe("D. the source step", () => {
     const refusal = await source({ root, out: join(root, ".site"), baseurl: "/b" }).then(() => null, (error: unknown) => error);
     expect(refusal).toBeInstanceOf(Error);
     const lines = (refusal as Error).message.split("\n").map((line) => line.trim());
-    expect(lines[0]).toContain("3 stylesheet finding(s): ");
+    expect(lines[0]).toContain("3 style finding(s): ");
     expect(lines).toContain("assets/css/extra.scss: a Sass source: the site's stylesheets are plain CSS, judged by one parser");
     expect(lines.filter((line) => line.startsWith("assets/css/style.css:1:")).map((line) => line.replace(/^assets\/css\/style\.css:1:\d+ /u, ""))).toEqual([
       "color: colour literal: red",
       "font-family: not one --face-* token: Georgia",
+    ]);
+  });
+
+  test("a layout with a style of its own or a remote sheet refuses the build", async () => {
+    const root = repository({ "docs/_layouts/default.html": '<html><head><link rel="stylesheet" href="https://cdn.example/x.css"><style>p { color: var(--ink-1); }</style></head><body style="margin: 0">{{ content }}</body></html>\n' });
+    const refusal = await source({ root, out: join(root, ".site"), baseurl: "/b" }).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeInstanceOf(Error);
+    const lines = (refusal as Error).message.split("\n").map((line) => line.trim());
+    expect(lines[0]).toContain("3 style finding(s): ");
+    expect(lines.filter((line) => line.startsWith("_layouts/default.html:1 ")).map((line) => line.replace(/^_layouts\/default\.html:1 /u, ""))).toEqual([
+      '<link rel="stylesheet"> fetches from elsewhere: https://cdn.example/x.css',
+      "<style>: the styles live in the token-reading stylesheets",
+      "<body style=…>: the styles live in the token-reading stylesheets",
     ]);
   });
 
