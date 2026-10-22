@@ -10,12 +10,14 @@ The `tests/cockpit/` folder of the development surface.
 - `artifact-containment.test.ts` — @vitest-environment jsdom.
 - `artifact-runtime-errors.test.ts` — @vitest-environment jsdom.
 - `boot-waves-owner.test.ts` — @vitest-environment node.
+- `brand-mark-owner.test.ts` — @vitest-environment node. One geometry, one palette: `Brand.svelte` draws exactly the parts of `brand-mark.ts`, each with its own ink, and takes no styling but its declared rules (judged on Svelte's own parse; no other cockpit stylesheet may style it). The icon generator paints every part with its own token's value, driven with a planted palette through `markOutputs` (the SVG, and a pixel of each part in every PNG), and restates no colour in any spelling. No other file copies the mark's geometry. Each rule has planted violations and near-misses.
 - `canvas-release-on-hide.test.ts` — @vitest-environment jsdom.
 - `cockpit-boot-owner.test.ts` — @vitest-environment jsdom.
 - `cockpit-chart-owner.test.ts` — @vitest-environment jsdom.
 - `cockpit-chord-owner.test.ts` — @vitest-environment node.
 - `cockpit-derivation-owner.test.ts` — @vitest-environment node.
 - `cockpit-flow-verb-owner.test.ts` — @vitest-environment node.
+- `cockpit-fonts-owner.test.ts` — @vitest-environment node. The self-hosted fonts, over everything the build consumes (walked from `vite.config.ts`'s own entries and public directory; an unparseable kind or an unresolved reference is refused). No remote font source on any host. Each family is declared once: `@font-face` and the `--face-*` stacks only in the token owner, one block per family and style, and every other `font-family` or `font` reads a token. Every declared file is vendored and pinned to IBM's npm release, and the OFL licence is present. Planted violations and near-misses cover each rule.
 - `cockpit-keyboard-grammar.test.ts` — @vitest-environment node.
 - `cockpit-latency-budget.test.ts` — @vitest-environment node.
 - `cockpit-mouse-path-owner.test.ts` — @vitest-environment node.
