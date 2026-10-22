@@ -10,8 +10,9 @@
  * folder (`createTempDir`), removed when it exits.
  */
 import { createTempDir } from "../../support/temp-dir.ts";
-import { provingGround, requireConfigured, seedMain } from "./proving-ground.ts";
-import { v14, v15, v6, type Verdict } from "./workspace-scenarios.ts";
+import { requireConfigured, seedMain, type Verdict } from "../proving-ground-api.ts";
+import { provingGround } from "./proving-ground.ts";
+import { v14, v15, v6 } from "./workspace-scenarios.ts";
 
 const steps = process.argv.slice(2);
 const known = new Set(["seed", "check", "V-6", "V-14", "V-15"]);

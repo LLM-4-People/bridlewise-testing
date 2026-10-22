@@ -28,9 +28,9 @@ import { loadPinnedConfigSnapshot } from "../../../src/kernel/config.ts";
 import { generateId } from "../../../src/kernel/integrity.ts";
 import type { WorkspaceForgeState } from "../../../src/workflow/workspace-contracts.ts";
 import type { WorkspaceManager } from "../../../src/workflow/workspace-manager.ts";
-import { commitVerification, requireConfigured, provingWorkspace, type ProvingGround } from "./proving-ground.ts";
-
-export type Verdict = Readonly<{ v: string; status: "pass" | "fail"; detail: string; evidence: readonly string[] }>;
+import { HarnessError } from "../../../src/kernel/errors.ts";
+import { branchGone, commitVerification, requireConfigured, v14Verdict, v15Verdict, v6Verdict, type ProvingGround, type Verdict } from "../proving-ground-api.ts";
+import { provingWorkspace } from "./proving-ground.ts";
 
 type Context = Readonly<{ ground: ProvingGround; manager: WorkspaceManager; clone: string; runId: string; progress: string[] }>;
 
@@ -65,7 +65,7 @@ async function readyWorkspace(context: Context, agent: string, file: string, sta
   writeAndCommit(record.lease.worktreePath, file, `proving ground ${context.runId}: ${agent}\n`, `${agent}: ${file}`);
   const { round } = await manager.publish(record.workspaceId);
   const report = await manager.validate(record.workspaceId);
-  if (report.status !== "pass") throw new Error(`the validation of ${record.workspaceId} did not pass`);
+  if (report.status !== "pass") throw new HarnessError(`the validation of ${record.workspaceId} did not pass: ${report.gates.filter((gate) => gate.status !== "pass").map((gate) => gate.gate).join(", ")}`, "proving_ground_validation_failed");
   await manager.ready(record.workspaceId);
   return { workspaceId: record.workspaceId, head: round.head, commits: round.commits.map((entry) => entry.twin) };
 }
@@ -74,18 +74,10 @@ export async function v6(ground: ProvingGround, scratch: string): Promise<Verdic
   return withWorkspace(ground, scratch, async (context) => {
     const { manager, runId } = context;
     const made = await readyWorkspace(context, "provingv6", `proving/v6/${runId}.md`);
-    const verifications = await Promise.all(made.commits.map(async (sha) => ({ sha, ...(await commitVerification(ground, sha)) })));
-    const unsigned = verifications.filter((entry) => !entry.verified);
+    const commits = await Promise.all(made.commits.map(async (sha) => ({ sha, ...(await commitVerification(ground, sha)) })));
     const receipt = await manager.land(made.workspaceId);
     const merge = await commitVerification(ground, receipt.mergeCommitSha);
-    const evidence = [receipt.pullRequest.url, ...made.commits.map((sha) => web(ground, `commit/${sha}`)), web(ground, `commit/${receipt.mergeCommitSha}`)];
-    if (unsigned.length > 0) {
-      return { v: "V-6", status: "fail", detail: `not Verified: ${unsigned.map((entry) => `${entry.sha} (${entry.reason})`).join(", ")}`, evidence };
-    }
-    return {
-      v: "V-6", status: "pass", evidence,
-      detail: `${String(made.commits.length)} API commit(s) by the agent App are Verified (${verifications.map((entry) => entry.reason).join(", ")}); the queue merged them under required_signatures (merge commit verified: ${String(merge.verified)}, ${merge.reason})`,
-    };
+    return v6Verdict({ commits, merge }, [receipt.pullRequest.url, ...made.commits.map((sha) => web(ground, `commit/${sha}`)), web(ground, `commit/${receipt.mergeCommitSha}`)]);
   });
 }
 
@@ -94,45 +86,34 @@ export async function v15(ground: ProvingGround, scratch: string): Promise<Verdi
     const { manager, runId, progress } = context;
     const made = await readyWorkspace(context, "provingv15", `proving/v15/${runId}.md`);
     const receipt = await manager.land(made.workspaceId);
-    const queued = progress.some((line) => line.includes("is in the merge queue"));
-    const evidence = [receipt.pullRequest.url, web(ground, `commit/${receipt.mergeCommitSha}`)];
-    const exact = receipt.landedHead === made.head;
-    return {
-      v: "V-15", status: queued && exact ? "pass" : "fail", evidence,
-      detail: `enqueued by ws land (GraphQL enqueuePullRequest, expectedHeadOid ${made.head.slice(0, 12)}) under the required merge queue; seen queued: ${String(queued)}; outcome reported: merged as ${receipt.mergeCommitSha.slice(0, 12)} at ${receipt.landedHead.slice(0, 12)} (the published head: ${String(exact)})`,
-    };
+    return v15Verdict({ seenQueued: progress.some((line) => line.includes("is in the merge queue")), publishedHead: made.head, landedHead: receipt.landedHead },
+      [receipt.pullRequest.url, web(ground, `commit/${receipt.mergeCommitSha}`)]);
   });
 }
 
 export async function v14(ground: ProvingGround, scratch: string): Promise<Verdict> {
   return withWorkspace(ground, scratch, async (context) => {
     const { manager, runId } = context;
+    const childPath = `proving/v14/${runId}/child.md`;
     const parent = await readyWorkspace(context, "provingbase", `proving/v14/${runId}/parent.md`);
-    const child = await readyWorkspace(context, "provingnext", `proving/v14/${runId}/child.md`, parent.workspaceId);
+    const child = await readyWorkspace(context, "provingnext", childPath, parent.workspaceId);
     const childState = manager.status(child.workspaceId).forge as WorkspaceForgeState;
     const parentState = manager.status(parent.workspaceId).forge as WorkspaceForgeState;
-    const childPull = await ground.client.rest<{ base?: { ref?: unknown } }>({ method: "GET", path: `/repos/${ground.owner}/${ground.name}/pulls/${String(childState.pullRequest!.number)}` });
-    let refusedFirst = false;
+    const childPull = (): Promise<{ base?: { ref?: unknown }; state?: unknown } | undefined> =>
+      ground.client.rest<{ base?: { ref?: unknown }; state?: unknown }>({ method: "GET", path: `/repos/${ground.owner}/${ground.name}/pulls/${String(childState.pullRequest!.number)}` }).then((answer) => answer.data);
+    const childBase = (await childPull())?.base?.ref;
+    let refusedBeforeParent = false;
     try {
       await manager.land(child.workspaceId);
     } catch (error) {
-      refusedFirst = (error as { code?: unknown }).code === "workspace_stack_parent_unlanded";
+      if ((error as { code?: unknown }).code !== "workspace_stack_parent_unlanded") throw error;
+      refusedBeforeParent = true;
     }
     const parentReceipt = await manager.land(parent.workspaceId);
-    const branchGone = await ground.client.rest({ method: "GET", path: `/repos/${ground.owner}/${ground.name}/git/ref/heads/${manager.status(parent.workspaceId).lease.branch!}` })
-      .then(() => false, () => true);
-    const childAfter = await ground.client.rest<{ state?: unknown }>({ method: "GET", path: `/repos/${ground.owner}/${ground.name}/pulls/${String(childState.pullRequest!.number)}` });
+    const parentBranchGone = await branchGone(ground, manager.status(parent.workspaceId).lease.branch!);
+    const childStateAfterParent = (await childPull())?.state;
     const childReceipt = await manager.land(child.workspaceId);
-    const evidence = [parentState.pullRequest!.url, childState.pullRequest!.url, web(ground, `commit/${parentReceipt.mergeCommitSha}`), web(ground, `commit/${childReceipt.mergeCommitSha}`)];
-    const checks = {
-      "child against main": childPull.data?.base?.ref === "main",
-      "child refused before its parent": refusedFirst,
-      "parent's branch deleted on merge": branchGone,
-      "child open after its parent landed": childAfter.data?.state === "open",
-      "child landed at its own head": childReceipt.landedHead === child.head,
-      "child landed only its own change": childReceipt.changedPaths.length === 1 && childReceipt.changedPaths[0] === `proving/v14/${runId}/child.md`,
-    };
-    const failed = Object.entries(checks).filter(([, held]) => !held).map(([name]) => name);
-    return { v: "V-14", status: failed.length === 0 ? "pass" : "fail", evidence, detail: failed.length === 0 ? `a two-part stack landed through the real queue: ${Object.keys(checks).join("; ")}` : `failed: ${failed.join("; ")}` };
+    return v14Verdict({ childBase, refusedBeforeParent, parentBranchGone, childStateAfterParent, childHead: child.head, childLandedHead: childReceipt.landedHead, childChangedPaths: childReceipt.changedPaths, childPath },
+      [parentState.pullRequest!.url, childState.pullRequest!.url, web(ground, `commit/${parentReceipt.mergeCommitSha}`), web(ground, `commit/${childReceipt.mergeCommitSha}`)]);
   });
 }

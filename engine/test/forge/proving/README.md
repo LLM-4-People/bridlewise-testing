@@ -9,9 +9,10 @@ so the offline suites never load them. Run them from the engine folder:
 ## What each file does
 
 - `proving-ground.ts` — the proving ground as the `agent` App, through the one credential module (no credential is printed). It provides:
-  - the seed: the empty repository's first commit on `main`, through the contents API;
-  - the read-only configuration check, which refuses (`proving_ground_unconfigured`) without a `merge_queue` and `required_signatures` ruleset on `main` and without `delete_branch_on_merge`. That configuration comes only from the forge's settings-as-code and `harness forge apply`;
+  - the repository's identity: the forge section's one `provingGround` repository, never the trunk;
   - `provingWorkspace`: a scratch clone and the real workspace manager over it, whose forge is the real GitHub implementation.
+
+  The seed, the read-only configuration check and the verdict rules are in `../proving-ground-api.ts`, tested offline. The configuration itself comes only from the forge's settings-as-code and `harness forge apply`.
 - `workspace-scenarios.ts` — the workspace's scenarios, run by the real `ws` code:
   - V-6: the agent's API commits are Verified, and a queue merge lands them under `required_signatures`;
   - V-15: `ws land` enters the required merge queue, and the outcome is reported at exactly the published head;
@@ -20,4 +21,4 @@ so the offline suites never load them. Run them from the engine folder:
 
 ## Where it lives and what consumes it
 
-The folder lives at `engine/test/forge/proving/`. The coordinator runs it, and its results go to the GH-3 lane log.
+The folder lives at `engine/test/forge/proving/`. The coordinator runs it, and its results go to the GH-3 lane log. No offline test may load it; `../proving-isolation.test.ts` walks the import graph from every test file to prove that.
