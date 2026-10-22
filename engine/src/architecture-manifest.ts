@@ -5694,8 +5694,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-commands-command-registry", path: "src/workflow/commands/command-registry.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "cd442e5859d9a9997cfc974a28363bbc9bc636b95467e5d287785ddb249c28dd" },
-      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "c977cd5cbd00424eabb0e02643071238fee605a4cd9a30c0561ff6fced652224" },
+      dependencies: ["node:fs","node:path","scripts/verification/source-view.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts"],
     }),
     moduleContract({
       id: "src-workflow-commands-command", path: "src/workflow/commands/command.ts", realm: "runtime", layer: "infrastructure",

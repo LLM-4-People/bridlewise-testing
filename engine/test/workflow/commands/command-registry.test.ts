@@ -6,12 +6,12 @@
  * list or dispatch chain.
  */
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
 import { HARNESS_COMMANDS } from "../../../src/workflow/commands/registry.ts";
-import { COMMAND_REGISTRY_FILE, COMMANDS_FOLDER, commandRegistryText, syncCommandRegistry } from "../../../src/workflow/commands/command-registry.ts";
+import { COMMAND_REGISTRY_FILE, COMMANDS_FOLDER, commandRegistryText, declaredVerbs, syncCommandRegistry } from "../../../src/workflow/commands/command-registry.ts";
 import { HARNESS_SUBCOMMANDS } from "../../../src/workflow/harness-commands.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
 
@@ -23,7 +23,7 @@ function verbFile(verb: string): string {
 }
 
 test("the registry lists exactly the verb files, in verb order, and the verbs are its names", () => {
-  const declared = readdirSync(FOLDER).filter((name) => /^export const COMMAND: HarnessCommand = \{/mu.test(readFileSync(join(FOLDER, name), "utf8"))).map((name) => name.replace(/\.ts$/u, "")).toSorted();
+  const declared = declaredVerbs(FOLDER);
   assert.ok(declared.length >= 20, `the verb population collapsed to ${String(declared.length)}`);
   assert.deepEqual(HARNESS_COMMANDS.map((command) => command.verb), declared);
   assert.deepEqual([...HARNESS_SUBCOMMANDS], declared, "the CLI's verbs are the registry's");

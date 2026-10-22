@@ -12,4 +12,3 @@ export function parsePruneOptions(subcommand: string, argv: readonly string[], b
   }
   return { prune, withBundle };
 }
-
