@@ -37,12 +37,18 @@ export type ForgeTreeFacts = Readonly<{
   hasWorkflows: boolean;
 }>;
 
-/** A mapping key line (after any `- ` list markers): its key and the rest of the line. */
-const KEY_LINE = /^((?:-[ \t]+)*)([A-Za-z_][\w-]*)[ \t]*:(?:[ \t]+(.*))?$/u;
-/** A block scalar header (`|`, `>-`, `|2+`, with an optional comment). */
-const BLOCK_HEADER = /^[|>][0-9+-]{0,3}[ \t]*(?:#.*)?$/u;
+/** A mapping key (after any `- ` list markers); the value is the rest of the line. */
+const KEY_LINE = /^((?:-[ \t]+)*)([A-Za-z_][\w-]*)[ \t]*:(?=[ \t]|$)/u;
+/** A block scalar header (`|`, `>-`, `|2+`), its comment already removed. */
+const BLOCK_HEADER = /^[|>][0-9+-]{0,3}$/u;
 /** A plain action reference: `owner/repo[/path]@ref`, `./local`, or `docker://image`. */
 const ACTION_REFERENCE = /^(?:\.\/[\w./-]+|docker:\/\/[\w./:@-]+|[\w.-]+\/[\w./-]+@[\w./-]+)$/u;
+
+/** A scalar without its trailing ` # comment`. */
+function withoutComment(value: string): string {
+  const comment = /[ \t]#/u.exec(value);
+  return (comment === null ? value : value.slice(0, comment.index)).trim();
+}
 
 /**
  * THE `uses:` KEYS of a workflow, read structurally: only a mapping key named
@@ -78,12 +84,13 @@ export function workflowUsesOf(text: string, path: string): readonly string[] {
       if (/(?:^|[\s{,])uses[ \t]*:/u.test(content)) refuse(index + 1, "a `uses` this reader does not decide (a flow mapping)");
       continue;
     }
-    const value = (key[3] ?? "").trim();
-    if (BLOCK_HEADER.test(value)) { blockIndent = indent + key[1]!.length; continue; }
+    const value = content.slice(key[0].length).trim();
+    if (BLOCK_HEADER.test(withoutComment(value))) { blockIndent = indent + key[1]!.length; continue; }
     const quote = value[0];
     if ((quote === "\"" || quote === "'") && value.slice(1).indexOf(quote) === -1) { openQuote = quote; continue; }
     if (key[2] !== "uses") continue;
-    const reference = value.replace(/[ \t]+#.*$/u, "").replace(/^(["'])(.*)\1$/u, "$2");
+    const plain = withoutComment(value);
+    const reference = plain.length >= 2 && (plain[0] === "\"" || plain[0] === "'") && plain.endsWith(plain[0]) ? plain.slice(1, -1) : plain;
     if (!ACTION_REFERENCE.test(reference)) refuse(index + 1, `\`uses: ${reference}\` is not a plain action reference`);
     uses.push(reference);
   }

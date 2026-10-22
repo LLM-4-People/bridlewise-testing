@@ -98,7 +98,7 @@ test("the custody stores a key at 0600 in the key home, answers the identity wit
   await pushHeldKey(keyHome, "door", async (pem) => { pushed = pem; });
   assert.equal(pushed, app.pem);
   assert.equal(appKeyState(keyHome, "door").state, "done");
-  assert.equal(readFileSync(join(keyHome, "forge-apps", "door.json"), "utf8").includes(app.pem.split("\n")[1]!), false, "the pushed key is gone from the host");
+  assert.equal((JSON.parse(readFileSync(join(keyHome, "forge-apps", "door.json"), "utf8")) as { pem: unknown }).pem, null, "the pushed key is gone from the host");
   await refusedWith("forge_app_key_unavailable", () => pushHeldKey(keyHome, "door", async () => undefined));
   await refusedWith("forge_request_invalid", () => pushHeldKey(keyHome, "agent", async () => undefined));
   // A malformed key, identity or record is refused before or at use.
