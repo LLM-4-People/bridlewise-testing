@@ -4715,7 +4715,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-privacy-secret-signals", path: "src/privacy/secret-signals.ts", realm: "shared", layer: "domain",
-      owner: "privacy-and-redaction", publicApi: { exportCount: 14, namesSha256: "898be30af8fcd937944f98b2127331eb530f431b92ec9233dc4250fc73ea13ad" },
+      owner: "privacy-and-redaction", publicApi: { exportCount: 17, namesSha256: "05f3ed6536ba054c1915f4ddb19354f350761676ed11a8cfa4da5e5894fee3df" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts"],
     }),
     moduleContract({
@@ -5629,7 +5629,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-forge-repository-reads", path: "src/workflow/forge/repository-reads.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 9, namesSha256: "131bdb606b33f923f12f70a592288b219fe599edb736273eb416c01ca813119a" },
+      owner: "verification-workflow", publicApi: { exportCount: 17, namesSha256: "afb6a69c3cc134830a68fecc9be35273d7edebe9e983462e691c517b7e930f32" },
       dependencies: ["src/workflow/forge/codes.ts"],
     }),
     moduleContract({
