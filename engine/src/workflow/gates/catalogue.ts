@@ -47,9 +47,12 @@ export type RunnerClass = "ubuntu-24.04" | "ubuntu-slim";
 /**
  * What a gate needs on the runner that no registry command provides, in the
  * order the generator installs it. Every job that runs a command also gets
- * `gcc-14`: the one runner's native supervisor is built with it.
+ * `gcc-14`: the one runner's native supervisor is built with it. `userns` is a
+ * host capability, not a package: the hosted image's AppArmor refuses an
+ * unprivileged process its user and mount namespaces (`unshare -rm`), which
+ * the keep-out and hostile-runtime proofs require of their host (#149).
  */
-export const TOOLCHAINS = deepFreeze(["gcc-14", "hooks", "corpus"] as const);
+export const TOOLCHAINS = deepFreeze(["gcc-14", "userns", "hooks", "corpus"] as const);
 export type Toolchain = (typeof TOOLCHAINS)[number];
 
 /** One command of a gate: a registry name, and optionally the earlier command whose full log it takes as its last argument. */
@@ -203,7 +206,7 @@ const GATES: readonly Gate[] = [
     role: "signal",
     commands: [],
     setup: ["bundle", "guardian"],
-    toolchain: ["hooks", "corpus"],
+    toolchain: ["userns", "hooks", "corpus"],
     reuse: "eligible",
     population: "engine-tests",
     split: "files",
