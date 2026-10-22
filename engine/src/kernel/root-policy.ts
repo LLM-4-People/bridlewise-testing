@@ -1979,6 +1979,8 @@ const ROOT_POLICY_VALUE = {
     privateState: {
       directoryMode: 0o700,
       fileMode: 0o600,
+      /** A private EXECUTABLE (a pinned tool installed into a private home): its owner alone reads and runs it. */
+      executableMode: 0o700,
       maximumFileBytes: 16_777_216,
       maximumDirectoryEntries: 100_000,
       temporaryRandomBytes: 16,

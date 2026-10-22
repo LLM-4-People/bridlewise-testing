@@ -384,6 +384,8 @@ export async function runCpuBounded(
     return typeof value !== "number" || !Number.isFinite(value) || value <= 0;
   });
   if (invalid.length > 0) throw new InputError(`a work-bounded run needs every bound as a positive finite number; missing or invalid: ${invalid.join(", ")}`, "cpu_bounds_invalid");
+  // A watch no more frequent than the stall window cannot see a stall end before it is judged one.
+  if (bounds.pollMs >= bounds.stallMs) throw new InputError(`a work-bounded run must read its group more often than its stall window: pollMs ${String(bounds.pollMs)} is not below stallMs ${String(bounds.stallMs)}`, "cpu_bounds_invalid");
   const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];

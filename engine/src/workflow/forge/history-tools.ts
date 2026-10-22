@@ -29,7 +29,7 @@
  * Moving a pin is a deliberate, reviewed provenance change: read the
  * upstream checksum file, verify the archive, record both digests here.
  */
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
@@ -38,7 +38,7 @@ import { runCpuBounded, type CpuBounds, type CpuBoundedEnding } from "../../proc
 import { ForgeError, type ForgeCode } from "./codes.ts";
 import type { ForgeSettings } from "./forge-config.ts";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
-import { PRIVATE_STATE_DIRECTORY_MODE } from "../../filesystem/private-state.ts";
+import { ensurePrivateStateDirectory, PRIVATE_STATE_EXECUTABLE_MODE } from "../../filesystem/private-state.ts";
 import { COMMAND_ENVIRONMENT, projectEnvironment } from "../../process/environment-projection.ts";
 import { deadline } from "../../shared/abort-signals.ts";
 import { downloadPinned } from "../../shared/outbound-http.ts";
@@ -271,8 +271,8 @@ export async function installHistoryTools(
     if (sha256(member) !== pin.sha256) {
       throw new ForgeError("history_tool_digest_mismatch", `${pin.member} in ${pin.release.asset} is not the pinned ${pin.name} ${pin.version} (sha256 ${sha256(member)}, pinned ${pin.sha256}); nothing was written`, { tool: pin.name, version: pin.version, path });
     }
-    mkdirSync(dirname(path), { recursive: true, mode: PRIVATE_STATE_DIRECTORY_MODE });
-    const written = atomicWriteFile(path, member, { exactMode: 0o700 });
+    ensurePrivateStateDirectory(dirname(path));
+    const written = atomicWriteFile(path, member, { exactMode: PRIVATE_STATE_EXECUTABLE_MODE });
     if (!written.success) throw new ForgeError("history_import_write_failed", `${path} could not be written: ${written.reason ?? "unknown"}`, { path });
     installed.push({ tool: pin.name, version: pin.version, path, status: "installed" });
   }
