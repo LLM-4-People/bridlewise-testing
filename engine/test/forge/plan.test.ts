@@ -6,9 +6,14 @@
  * and the whole declaration set plans, applies and converges to zero drift.
  */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
+import { runForgeCli } from "../../src/workflow/forge/cli.ts";
 import { forgeDeclarations } from "../../src/workflow/forge/declarations.ts";
+import { forgeFileSources, syncForgeFiles } from "../../src/workflow/forge/generated-files.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import type { ForgeObject } from "../../src/workflow/forge/forge-state.ts";
@@ -16,7 +21,8 @@ import { githubClient } from "../../src/workflow/forge/github.ts";
 import { forgeApply, forgePlan } from "../../src/workflow/forge/plan.ts";
 import { looseningOf, movedPremisesUnmet } from "../../src/workflow/forge/strictness.ts";
 import { fakeGithub, type FakeGithub } from "./fake-github.ts";
-import { SOURCES } from "./forge-settings.ts";
+import { SETTINGS, SOURCES } from "./forge-settings.ts";
+import { createTempDir } from "../support/temp-dir.ts";
 
 const ORG = "LLM-4-People";
 const REPO = "bridlewise-testing";
@@ -377,12 +383,65 @@ test("a move's premises, one by one: each unmet one is named, and only a baselin
   named(unmet({ conditions: { ...baseline.conditions, repository_property: { include: [{ name: "kind", property_values: ["trunk"] }], exclude: [{ name: "kind", property_values: ["x"] }] } } }), /excludes repositories/u);
   named(unmet({ conditions: { ...baseline.conditions, ref_name: { include: ["~DEFAULT_BRANCH"], exclude: ["refs/heads/x"] } } }), /excludes refs/u);
   named(unmet({ conditions: { ...baseline.conditions, ref_name: { include: ["refs/heads/other"], exclude: [] } } }), /does not cover the refs/u);
-  named(unmet({ bypass_actors: [{ actor_id: 8, actor_type: "Integration", bypass_mode: "always" }] }), /lets .* bypass/u);
+  named(unmet({ bypass_actors: [{ actor_id: 8, actor_type: "Integration", bypass_mode: "always" }] }), /lets \{"actor_id":8,"actor_type":"Integration","bypass_mode":"always"\} bypass/u);
   named(unmet({}, "trunk", ["adds bypass {}"]), /is not a rule a baseline carries/u);
   named(unmet({ rules: [{ type: "deletion" }] }), /has no pull_request rule/u);
-  named(unmet({ rules: [{ type: "deletion" }, { type: "pull_request", parameters: { required_approving_review_count: 0, dismiss_stale_reviews_on_push: true } }] }), /pull_request rule is weaker: .*required_approving_review_count/u);
+  named(unmet({ rules: [{ type: "deletion" }, { type: "pull_request", parameters: { required_approving_review_count: 0, dismiss_stale_reviews_on_push: true } }] }), /pull_request rule is weaker: weakens rule pull_request: required_approving_review_count 1 -> 0/u);
   named(movedPremisesUnmet(reasons, { ...repo, rules: [{ type: "deletion" }] }, baseline, "trunk"), /has no pull_request rule to move/u);
   named(movedPremisesUnmet(reasons, { ...repo, conditions: {} }, baseline, "trunk"), /names no refs/u);
   // Near misses that hold: `~ALL` covers any ref, and the baseline's bypass actor is one the ruleset already has.
   assert.deepEqual(unmet({ conditions: { ...baseline.conditions, ref_name: { include: ["~ALL"], exclude: [] } }, bypass_actors: [repo.bypass_actors[0]] }), []);
+});
+
+test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and a malformed request refused before GitHub is asked, a loosening accepted by its flag", async () => {
+  // A checkout of its own: the community sources the generated files read, and those files generated for the test section.
+  const top = createTempDir("forge-cli-");
+  execFileSync("git", ["init", "-q"], { cwd: top });
+  mkdirSync(join(top, "docs/community"), { recursive: true });
+  for (const file of ["intake.json", "roles.json"]) copyFileSync(join(import.meta.dirname, "../../../docs/community", file), join(top, "docs/community", file));
+  // The lockfiles the section's Dependabot entries name (`/` and `/engine`), tracked.
+  mkdirSync(join(top, "engine"));
+  for (const lockfile of ["package-lock.json", "engine/package-lock.json"]) writeFileSync(join(top, lockfile), "{}\n");
+  // One workflow (the section declares the github-actions ecosystem), pinning one third-party action.
+  mkdirSync(join(top, ".github/workflows"), { recursive: true });
+  writeFileSync(join(top, ".github/workflows/ci.yml"), "on: push\njobs:\n  scan:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ossf/scorecard-action@0123456789abcdef0123456789abcdef01234567\n");
+  execFileSync("git", ["add", "package-lock.json", "engine/package-lock.json", ".github/workflows/ci.yml"], { cwd: top });
+  syncForgeFiles(top, forgeFileSources(top, SETTINGS), true);
+  const fake = wholeGithub();
+  const wiring = { settings: () => SETTINGS, endpoint: () => fake.endpoint() };
+  const progress: string[] = [];
+  const run = (...argv: string[]) => runForgeCli(top, argv, (line) => progress.push(line), wiring);
+  const variable = "FORGE_CLI_TEST_TOKEN";
+  process.env[variable] = fake.userToken("maintainer");
+  try {
+    const writes = () => fake.requests.filter((request) => request.method !== "GET" && request.path !== "/graphql").length;
+    // Malformed: no credential, two, a bad variable name, an acknowledgement outside apply. Refused typed, nothing asked.
+    for (const argv of [["plan"], ["plan", "--token-env", variable, "--token-stdin"], ["plan", "--token-env", "lower-case"], ["audit", "--accept-loosening", "ruleset:x:y", "--token-env", variable], ["settle"]]) {
+      await assert.rejects(run(...argv), (error: unknown) => isForgeError(error, "forge_usage"), argv.join(" "));
+    }
+    assert.equal(fake.requests.length, 0, "a malformed request never reaches GitHub");
+    const planned = await run("plan", "--token-env", variable);
+    assert.equal(planned.result.status, "pass");
+    assert.ok((planned.result.result as { counts: { create: number } }).counts.create > 30);
+    assert.equal((await run("audit", "--token-env", variable)).result.status, "fail", "a fresh organisation is drift");
+    assert.equal(writes(), 0, "plan and audit write nothing");
+    const applied = await run("apply", "--token-env", variable);
+    assert.equal(applied.result.status, "pass");
+    assert.deepEqual((applied.result.result as { verification: { drift: unknown[] } }).verification.drift, []);
+    assert.equal((await run("audit", "--token-env", variable)).result.status, "pass");
+    // A retired ruleset reappears: the apply refuses until its id is accepted by the flag, and the receipt names it.
+    (fake.objects.get(`/repos/${ORG}/${REPO}/rulesets`) as Record<string, unknown>[]).push({ id: 4242, name: "protect-release-tags", source_type: "Repository", target: "tag", enforcement: "active", rules: [] });
+    fake.objects.set(`/repos/${ORG}/${REPO}/rulesets/4242`, (fake.objects.get(`/repos/${ORG}/${REPO}/rulesets`) as Record<string, unknown>[]).at(-1));
+    await assert.rejects(run("apply", "--token-env", variable), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged"));
+    const accepted = await run("apply", "--accept-loosening", "ruleset:bridlewise-testing:protect-release-tags", "--token-env", variable);
+    assert.equal(accepted.result.status, "pass");
+    assert.deepEqual((accepted.result.result as { acceptedLoosening: { id: string }[] }).acceptedLoosening.map((entry) => entry.id), ["ruleset:bridlewise-testing:protect-release-tags"]);
+    // A hand edit of a generated file: refused before the credential is read or GitHub is asked.
+    writeFileSync(join(top, ".github/forge/label/bridlewise-testing.area_ci.json"), "{}\n");
+    const asked = fake.requests.length;
+    await assert.rejects(run("plan", "--token-env", variable), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && /label\/bridlewise-testing\.area_ci\.json/u.test(error.message));
+    assert.equal(fake.requests.length, asked);
+  } finally {
+    delete process.env[variable];
+  }
 });

@@ -33,12 +33,22 @@ import { ForgeError } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
 import { environmentCredential, memoryCredential } from "./credentials.ts";
 import { forgeDeclarations } from "./declarations.ts";
-import { forgeEndpoint, trunkRepository } from "./forge-config.ts";
+import { forgeEndpoint, trunkRepository, type ForgeSettings } from "./forge-config.ts";
 import { forgeFileSources, syncForgeFiles } from "./generated-files.ts";
 import { githubClient } from "./github.ts";
 import { forgeApply, forgePlan } from "./plan.ts";
 import { maintainerCli } from "./maintainer-cli.ts";
-import type { ForgeCredential } from "./port.ts";
+import type { ForgeCredential, ForgeEndpoint } from "./port.ts";
+
+/**
+ * What the settings verbs reach: the forge section and the endpoint it
+ * names. In production that is this checkout's configured section; the
+ * CLI-level test passes its own section and a fake GitHub's endpoint, and
+ * drives the very same verbs.
+ */
+export type ForgeCliWiring = Readonly<{ settings: () => ForgeSettings; endpoint: (settings: ForgeSettings) => ForgeEndpoint }>;
+
+const CONFIGURED: ForgeCliWiring = Object.freeze({ settings: configuredForge, endpoint: forgeEndpoint });
 
 const USAGE = "harness forge takes: apps manifests [--check] | apps create | plan|audit (--token-env <VAR> | --token-stdin) | apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]...";
 
@@ -113,8 +123,8 @@ async function settingsCredential(rest: readonly string[], onProgress: (line: st
 }
 
 /** `harness forge plan|apply|audit`. */
-async function settingsVerb(root: string, verb: "plan" | "apply" | "audit", rest: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer> {
-  const settings = configuredForge();
+async function settingsVerb(root: string, verb: "plan" | "apply" | "audit", rest: readonly string[], onProgress: (line: string) => void, wiring: ForgeCliWiring): Promise<CommandAnswer> {
+  const settings = wiring.settings();
   const top = trackedTop(root);
   const sources = forgeFileSources(top, settings);
   const files = syncForgeFiles(top, sources, false);
@@ -128,7 +138,7 @@ async function settingsVerb(root: string, verb: "plan" | "apply" | "audit", rest
     if (rest[index] === "--accept-loosening" && verb === "apply" && rest[index + 1] !== undefined) { accepted.add(rest[index + 1]!); index += 1; } else remaining.push(rest[index]!);
   }
   const credential = await settingsCredential(remaining, onProgress);
-  const context = { client: githubClient(forgeEndpoint(settings), credential), organization: settings.organization, maxPages: settings.request.maxPages };
+  const context = { client: githubClient(wiring.endpoint(settings), credential), organization: settings.organization, maxPages: settings.request.maxPages };
   const objects = forgeDeclarations(sources);
   if (verb === "apply") {
     const outcome = await forgeApply(context, objects, settings.retired, accepted);
@@ -141,10 +151,10 @@ async function settingsVerb(root: string, verb: "plan" | "apply" | "audit", rest
 }
 
 /** The `harness forge` dispatch. */
-export async function runForgeCli(root: string, argv: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer> {
+export async function runForgeCli(root: string, argv: readonly string[], onProgress: (line: string) => void, wiring: ForgeCliWiring = CONFIGURED): Promise<CommandAnswer> {
   const [group, verb, ...rest] = argv;
   if (group === "apps" && verb === "manifests") return appsManifests(root, rest);
   if (group === "apps" && verb === "create") return appsCreate(root, rest, onProgress);
-  if (group === "plan" || group === "apply" || group === "audit") return settingsVerb(root, group, argv.slice(1), onProgress);
+  if (group === "plan" || group === "apply" || group === "audit") return settingsVerb(root, group, argv.slice(1), onProgress, wiring);
   return usage();
 }
