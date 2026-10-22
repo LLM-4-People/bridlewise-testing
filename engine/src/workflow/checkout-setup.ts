@@ -53,7 +53,7 @@ import { QUALIFICATION_INVOCATION_ENV } from "../shared/run-history.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import type { WorkspaceIsolationConfig } from "../kernel/config-contracts.ts";
-import { directoryGitEnvironment } from "../git/repository-ownership.ts";
+import { directoryGitEnvironment, trackedFiles } from "../git/repository-ownership.ts";
 import { superviseCommand, type SupervisedCommand } from "../process/supervised-run.ts";
 import { debugLog } from "../shared/debug/debug-system.ts";
 import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, commandRetryPolicy } from "./workflow-config.ts";
@@ -656,6 +656,19 @@ export function assertSameFilesystem(source: string, target: string, code: strin
  * configuration document's required mode. Synchronous and command-free — the
  * commit guard's materialized index needs exactly this.
  */
+/**
+ * THE INSTALLED DEPENDENCIES A COPY OF `repositoryRoot` LINKS (each tracked
+ * lockfile's `node_modules`, repository-relative): a copy never carries them,
+ * and linking them at the same relative place makes every command in it, the
+ * bundle build included, resolve exactly what the checkout resolves. The
+ * commit guard's staged tree and the test working copies both take these.
+ */
+export function installedDependencyLinks(repositoryRoot: string): readonly string[] {
+  return (trackedFiles(repositoryRoot) ?? [])
+    .filter((path) => basename(path) === "package-lock.json")
+    .map((path) => join(dirname(path), "node_modules").split(sep).join("/"));
+}
+
 export function applyCheckoutFiles(
   checkoutRoot: string,
   sourceRoot: string,

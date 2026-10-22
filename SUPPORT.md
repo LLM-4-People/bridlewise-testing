@@ -12,30 +12,37 @@ open and every question helps.
 
 | Category | Who posts | Use |
 |---|---|---|
-| [Announcements](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/announcements) | the publisher | milestone closes, major changes and the pinned "Follow along" thread |
-| [Floor log](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/floor-log) | the publisher | one thread per milestone and one comment per land |
-| [Releases](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/releases) | the publisher | one thread per release |
-| [Decisions](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/decisions) | the publisher | one thread per decision record; everyone can comment, and a triager can /track an objection into a record |
-| [RFCs](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/rfcs) | anyone | a proposal for a new decision; an accepted RFC becomes a decision-record pull request |
-| [Ideas](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/ideas) | anyone | a capability you would like; a triager can /track it into a record |
-| [Q&A](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/q-a) | anyone | questions; answers are marked by maintainers and reviewers |
+| [Announcements](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/announcements) | maintainers | milestones, major changes and how to follow along |
+| [General](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/general) | anyone | anything that fits no other category |
+| [Ideas](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/ideas) | anyone | a capability you would like |
+| [Q&A](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/q-a) | anyone | questions; maintainers mark the answer |
 | [Show and tell](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/show-and-tell) | anyone | your own uses of the harness |
 | [Polls](https://github.com/LLM-4-People/bridlewise-testing/discussions/categories/polls) | maintainers | sentiment checks; results are signals, never decisions |
 
 - **Reproducible problems:** an issue, through one of the forms:
 
 - [Bug report](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=bug.yml): Report a reproducible problem in the developer preview.
-- [Flake report](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=flake.yml): A test that passed and failed on the same tree. Name the test, so a triager can run /reproduce.
+- [Flake report](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=flake.yml): A test that passed and failed on the same tree. Name the test file and the test.
 - [Docs fix](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=docs.yml): A page that is wrong, stale, unclear or missing.
 
 - **Security reports:** follow [SECURITY.md](SECURITY.md). Never open a public
   issue with exploit details.
 
-## Follow along
+## Planned
 
-Issues, milestones and the project board are generated from the harness's own
-records, so they show the real state of the work. The Floor log category in
-Discussions carries one comment per land.
+These are designed and tracked, not built yet. Each line links its tracking
+issue; a line moves out of this list when its feature is live.
+
+- Bot commands in issues and pull requests (`/status`, `/accept`, `/decline`, `/duplicate`, `/reproduce`, `/explain`): a triage command opens a pull request adding a record, and the issue follows the record once it lands. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/105.
+- `/track` turns an Ideas discussion or an objection to a decision into a tracker record. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/107.
+- A secret pasted into an issue is redacted by the publisher, with a comment saying why. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/109.
+- Issues, milestones and the project board generated from the harness's own records, with one Floor log comment per land. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/111.
+- The GitHub teams `triagers` and `reviewers`, applied from the role table. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/112.
+- The Floor log Discussion category: one thread per milestone and one comment per land. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/113.
+- The Releases Discussion category: one thread per release. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/113.
+- The Decisions Discussion category: one thread per decision record; everyone can comment. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/113.
+- The RFCs Discussion category: a proposal for a new decision; an accepted RFC becomes a decision-record pull request. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/113.
+- The Flake issue type, set by the Flake report form. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/57.
 
 ## Before opening an issue
 

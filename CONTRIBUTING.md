@@ -18,16 +18,42 @@ and the same independent review.
   a triager needs.
 - **Ask, propose or show** in [Discussions](https://github.com/LLM-4-People/bridlewise-testing/discussions) (see
   [SUPPORT.md](SUPPORT.md) for the categories).
-- **Pick up work** labelled `good first issue` or `help wanted`. Each names its
-  files, the test that should pass and the commands to run.
-- **Review** an open pull request. A reviewer's approval counts as independent
-  verification (see [GOVERNANCE.md](GOVERNANCE.md)).
+- **Pick up work** labelled [`good first issue`](https://github.com/LLM-4-People/bridlewise-testing/labels/good%20first%20issue)
+  or [`help wanted`](https://github.com/LLM-4-People/bridlewise-testing/labels/help%20wanted).
+- **Review** an open pull request: say what you checked and what you could not.
+- **See what is coming:** the [planned community features](SUPPORT.md#planned),
+  each linked to its tracking issue.
 
 The issue forms:
 
 - [Bug report](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=bug.yml): Report a reproducible problem in the developer preview.
-- [Flake report](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=flake.yml): A test that passed and failed on the same tree. Name the test, so a triager can run /reproduce.
+- [Flake report](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=flake.yml): A test that passed and failed on the same tree. Name the test file and the test.
 - [Docs fix](https://github.com/LLM-4-People/bridlewise-testing/issues/new?template=docs.yml): A page that is wrong, stale, unclear or missing.
+
+## Your first contribution
+
+The whole path, end to end; each step links the section that has the detail.
+
+1. **Pick something small.** An issue labelled
+   [`good first issue`](https://github.com/LLM-4-People/bridlewise-testing/labels/good%20first%20issue), or a
+   docs page you found wrong. Say in the issue that you are taking it, so two
+   people do not do the same work.
+2. **Fork and clone** the repository, then follow [Setup](#setup).
+3. **Make one change on a branch,** with a test when it changes behavior
+   ([Test conventions](#test-conventions)), and run the local gate:
+   `cd engine && node src/cli.ts harness check`.
+4. **Commit with a sign-off:** `git commit -s` (the
+   [commit style](#commit-and-pull-request-style) has the details).
+5. **Open a pull request against `main`** and fill in its template.
+6. **Wait for the first CI run.** A first-time contributor's first run waits
+   for a maintainer's one-time approval; after that, CI runs on every push.
+7. **Answer the review.** Someone other than you verifies the change and says
+   what they checked; push fixes to the same branch.
+8. **It lands** once the required checks and the review are green
+   ([How your pull request lands](#how-your-pull-request-lands)).
+
+Stuck at any step? Ask in [Discussions](https://github.com/LLM-4-People/bridlewise-testing/discussions) or on
+the issue.
 
 ## Setup
 
@@ -55,6 +81,10 @@ cd engine && node src/cli.ts harness check
 
 [docs/testing.md](docs/testing.md) owns the suites, their prerequisites and what
 CI runs.
+
+CI is generated from the gate catalogue (`engine/src/workflow/gates/`): never edit a
+file under `.github/workflows/`; edit the catalogue and run `harness sync`. The same
+`harness gates` verbs CI runs work locally (`plan`, `run <gate>`, `shard <cell>`, `seal`).
 
 ## What makes a good change
 
@@ -111,8 +141,7 @@ bar](docs/process/AGENTS.md#evidence).
 AI-assisted work is welcome. You remain responsible for the result. Disclose
 material assistance, verify every claim, and do not paste unreviewed generated
 code into safety, privacy, auth or persistence paths. The project's own agents
-work the same way: their pull requests explain themselves, and they answer
-review comments in the thread.
+land their work through the same pull requests, checks and review.
 
 ## Review
 

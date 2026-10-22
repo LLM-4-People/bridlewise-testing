@@ -1,45 +1,54 @@
 /**
  * THE APPS PAGE — `harness forge apps create` (runbook P1.2, GH-1a; the
- * user's Session 1, items 3 to 6). A local page on 127.0.0.1 only, which:
+ * user's Session 1, items 3 to 6). A local page on 127.0.0.1 only:
  *
- * 1. offers one **Create** button per App. Each posts the App's generated
- *    manifest (`generated-files.ts` `appManifest`, the same bytes as
- *    `.github/forge/apps/<role>.json`) to GitHub's organisation App-creation
- *    form, with a one-use random `state`;
- * 2. on GitHub's redirect (`/callback?code&state`), converts the code
- *    (`POST /app-manifests/{code}/conversions`, unauthenticated: the one-hour
- *    code is the secret) and puts the key where the registry says, never in
- *    a file of its own:
- *    - `host` custody (agent, verifier): the host key custody
- *      (`app-keys.ts`, the key home);
- *    - `environment` custody (door, publisher): the GitHub environment secret
- *      through the maintainer's `gh` (`maintainer-cli.ts`), with the client
- *      id as an environment variable.
- *    The client secret and webhook secret GitHub also returns are dropped
- *    (no OAuth, no webhook);
- * 3. lists what Session 1 still asks of the maintainer: each App's install
- *    link and the exact repositories to select (from the registry's kinds
- *    and the topology), the legacy Apps to narrow, and the Discussion
- *    categories to create.
+ * 1. THE PAGE IS BOUND TO A ONE-TIME TOKEN printed in the terminal only
+ *    (`http://127.0.0.1:47811/?t=…`): without it the page answers 404, so no
+ *    state value is ever served to a request that did not come from the
+ *    terminal's reader. Every request must name the page's own Host (no DNS
+ *    rebinding), and a request carrying another Origin is refused.
+ * 2. One **Create** button per App posts its generated manifest
+ *    (`generated-files.ts` `appManifest`, the bytes of
+ *    `.github/forge/apps/<role>.json`) to GitHub's organisation form, with a
+ *    one-use random `state`.
+ * 3. On GitHub's redirect (`/callback?code&state`) the code is converted
+ *    (unauthenticated: the one-hour code is the secret) and THE CONVERSION IS
+ *    VERIFIED ({@link verifyConversion}): the App's owner is the
+ *    organisation, its name the registry's, its permissions and events
+ *    exactly the manifest's — otherwise nothing is stored.
+ * 4. CUSTODY RIGHT AFTER CONVERSION: the key is written to the key custody
+ *    (`app-keys.ts`, the key home) BEFORE any later step. An environment key
+ *    (door, publisher) is then pushed through the maintainer's `gh`
+ *    (`maintainer-cli.ts`) and dropped from the host; a push that fails
+ *    leaves it held, and every page load RESUMES it. The client and webhook
+ *    secrets GitHub also returns are dropped (no OAuth, no webhook).
+ * 5. A name a half-finished attempt already took (the App exists on GitHub,
+ *    no key is stored here) is detected and shown with what to do; it is
+ *    never offered for creation again.
+ * 6. The page lists what Session 1 still asks: each App's install link and
+ *    the exact repositories, the legacy Apps to narrow, and the Discussion
+ *    categories (from the community intake).
  *
- * The page is rendered from ONE JSON document embedded in it (no value is
- * ever spliced into HTML: the page's own script builds the DOM with
- * `textContent` and form values), served with a content security policy
- * that admits only that script. Every request must name this page's own
- * host (no DNS rebinding); `/done` must carry the page's session token and
- * come from its own origin. Nothing here waits on a timer: the page lives
- * until the maintainer presses **Done** (or the process is stopped).
+ * The page is rendered from ONE JSON document embedded in it as one quoted
+ * attribute, escaped by the markup owner (`shared/markup.ts`); no other value
+ * is spliced into HTML: the page's own script builds the DOM with
+ * `textContent` and form values, under a nonce content security policy.
+ * `/done` must carry the page's session token and come from its own origin.
+ * Nothing here waits on a timer: the page lives until the maintainer presses
+ * **Done** (or the process is stopped).
  */
+import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { escapeHtml } from "../../../../shared/markup.ts";
 import { HarnessError } from "../../kernel/errors.ts";
 import { guarded } from "../../process/fault-policy.ts";
 import { randomBytes } from "../../kernel/integrity.ts";
 import { debugLog } from "../../shared/debug/debug-system.ts";
 import type { AdmittedKeyHome } from "../../filesystem/self-protection/key-home.ts";
 import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
-import { storeAppKey } from "./app-keys.ts";
+import { appKeyState, pushHeldKey, storeAppKey, type StoredAppIdentity } from "./app-keys.ts";
 import { ForgeError, isForgeError } from "./codes.ts";
 import { anonymousCredential } from "./credentials.ts";
 import type { DiscussionCategory } from "../community/sources.ts";
@@ -66,7 +75,7 @@ export type AppsPageOptions = Readonly<{
 }>;
 
 export type AppsPage = Readonly<{
-  /** `http://127.0.0.1:<port>/`. */
+  /** `http://127.0.0.1:<port>/?t=<one-time token>`: printed in the terminal only; the page answers nothing without it. */
   url: string;
   /** Resolves when the maintainer presses Done; the server is closed by then. */
   done: Promise<AppsPageSummary>;
@@ -82,15 +91,17 @@ function token(): string {
 
 /** The page's script: renders the embedded document with DOM APIs only. */
 const PAGE_SCRIPT = `
-const data = JSON.parse(document.getElementById("data").textContent);
-const el = (tag, text, attributes) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; for (const [k, v] of Object.entries(attributes ?? {})) node.setAttribute(k, v); return node; };
 const main = document.querySelector("main");
+const data = JSON.parse(main.dataset.page);
+const el = (tag, text, attributes) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; for (const [k, v] of Object.entries(attributes ?? {})) node.setAttribute(k, v); return node; };
 if (data.error) { const box = el("section", undefined, { role: "alert" }); box.append(el("h2", "Refused: " + data.error.code), el("p", data.error.message), el("p", data.error.remedy)); main.append(box); }
 const apps = el("section"); apps.append(el("h2", "1. Create the four Apps"), el("p", "Each button opens GitHub with the generated manifest; there, click \\u201cCreate GitHub App\\u201d. The key is stored for you: you never see or copy it."));
 for (const app of data.apps) {
   const item = el("article"); item.append(el("h3", app.name));
   if (app.created) {
     item.append(el("p", "Created: App id " + app.created.appId + ", slug " + app.created.slug + ". Key stored in " + app.created.keyStoredIn + "."));
+  } else if (app.note) {
+    item.append(el("p", app.note, { role: "status" }));
   } else {
     const form = el("form", undefined, { method: "post", action: app.createUrl });
     const field = el("input", undefined, { type: "hidden", name: "manifest" }); field.value = app.manifest;
@@ -123,8 +134,8 @@ done.append(session, el("button", "Done: close this page", { type: "submit" }));
 `;
 
 function page(document: unknown, nonce: string): string {
-  // The one embedding: JSON inside a non-executed script element, with `<` escaped so no `</script>` can end it.
-  const data = JSON.stringify(document).replace(/</gu, "\\u003c");
+  // The one embedding: the JSON document in a quoted attribute, escaped by the markup owner, so no value can leave it.
+  const data = escapeHtml(JSON.stringify(document));
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -135,8 +146,7 @@ function page(document: unknown, nonce: string): string {
 </head>
 <body>
 <h1>Bridlewise forge: Session 1</h1>
-<main></main>
-<script id="data" type="application/json">${data}</script>
+<main data-page="${data}"></main>
 <script nonce="${nonce}">${PAGE_SCRIPT}</script>
 </body>
 </html>
@@ -157,23 +167,114 @@ function readForm(request: IncomingMessage): Promise<URLSearchParams> {
   });
 }
 
+/** Two strings equal in constant time (a token comparison). */
+function sameToken(given: string | null, expected: string): boolean {
+  if (given === null) return false;
+  const left = Buffer.from(given, "utf8");
+  const right = Buffer.from(expected, "utf8");
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+/**
+ * THE CONVERSION BARRIER: the App GitHub created is exactly the declared one —
+ * owned by the organisation, named as the registry names it, and holding
+ * exactly the manifest's permissions and events — or the typed
+ * `forge_app_conversion_mismatch`, and nothing is stored.
+ */
+function verifyConversion(role: ForgeAppRole, settings: ForgeSettings, answer: Readonly<Record<string, unknown>>): Readonly<{ appId: number; slug: string; clientId: string; pem: string }> {
+  const { id, slug, client_id: clientId, pem, name, owner, permissions, events } = answer;
+  if (typeof id !== "number" || typeof slug !== "string" || typeof clientId !== "string" || typeof pem !== "string") {
+    throw new ForgeError("github_response_invalid", "GitHub's manifest conversion carries no App id, slug, client id or key.", { role });
+  }
+  const manifest = appManifest(role, settings) as Readonly<{ name: string; default_permissions: Readonly<Record<string, string>>; default_events: readonly string[] }>;
+  const ownerRecord = (typeof owner === "object" && owner !== null ? owner : {}) as { login?: unknown; type?: unknown };
+  const sameSet = (left: Readonly<Record<string, unknown>>, right: Readonly<Record<string, unknown>>): boolean => {
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    return [...keys].every((key) => left[key] === right[key]);
+  };
+  const mismatches: string[] = [];
+  if (typeof ownerRecord.login !== "string" || ownerRecord.login.toLowerCase() !== settings.organization.toLowerCase() || ownerRecord.type !== "Organization") mismatches.push("owner");
+  if (name !== manifest.name) mismatches.push("name");
+  if (typeof permissions !== "object" || permissions === null || Array.isArray(permissions) || !sameSet(permissions as Record<string, unknown>, manifest.default_permissions)) mismatches.push("permissions");
+  if (!Array.isArray(events) || events.length !== manifest.default_events.length || !manifest.default_events.every((event) => events.includes(event))) mismatches.push("events");
+  if (mismatches.length > 0) {
+    throw new ForgeError("forge_app_conversion_mismatch", `GitHub created an App (${String(slug)}) whose ${mismatches.join(", ")} differ from the declared ${role} App; nothing was stored.`, { role, slug: String(slug), mismatches });
+  }
+  return Object.freeze({ appId: id, slug, clientId, pem });
+}
+
 /** Serve the Apps page (see the module header). */
 export async function serveAppsPage(options: AppsPageOptions): Promise<AppsPage> {
   const { settings, keyHome, cli } = options;
   const trunk = `${settings.organization}/${trunkRepository(settings).name}`;
   const web = settings.webUrl.replace(/\/$/u, "");
   const conversion = githubClient(options.endpoint, anonymousCredential("anonymous:app-manifest-conversion"));
+  const pageToken = token();
   const session = token();
   const states = new Map<string, ForgeAppRole>();
-  const created = new Map<ForgeAppRole, CreatedApp>();
   let lastError: Readonly<{ code: string; message: string; remedy: string }> | undefined;
   let finish: (summary: AppsPageSummary) => void = () => undefined;
   const done = new Promise<AppsPageSummary>((resolve) => { finish = resolve; });
 
-  const summary = (): AppsPageSummary => Object.freeze({
-    created: FORGE_APP_ROLES.flatMap((role) => created.get(role) ?? []),
-    pending: FORGE_APP_ROLES.filter((role) => !created.has(role)),
-  });
+  const keyStoredIn = (role: ForgeAppRole): string => {
+    const custody = FORGE_APPS[role].custody;
+    return custody.kind === "host" ? "the host key home" : `the ${custody.environment} environment of ${trunk} (secret ${custody.keySecret})`;
+  };
+  const createdApp = (role: ForgeAppRole, identity: StoredAppIdentity): CreatedApp => Object.freeze({ role, appId: identity.appId, slug: identity.slug, clientId: identity.clientId, keyStoredIn: keyStoredIn(role) });
+
+  const showRefusal = (error: unknown, role: string): void => {
+    // Every typed refusal is shown on the page (a forge code with its remedy; another harness refusal with its code); anything else is a defect (500).
+    if (!(error instanceof HarnessError)) throw error;
+    lastError = isForgeError(error)
+      ? { code: error.forgeCode, message: error.message, remedy: error.remedy }
+      : { code: error.code, message: error.message, remedy: "See the harness log for this refusal; a stored key is kept and resumed." };
+    debugLog(FORGE_LOG_CATEGORY, "warn", lastError.code, () => ({ role }));
+  };
+
+  /** Push a held environment key into its environment (the resume path as well as the first push). */
+  async function pushHeld(role: ForgeAppRole): Promise<StoredAppIdentity> {
+    const custody = FORGE_APPS[role].custody;
+    if (custody.kind !== "environment") throw new ForgeError("forge_request_invalid", `The ${role} App's key is not pushed anywhere.`, { role });
+    return pushHeldKey(keyHome, role, async (pem, identity) => {
+      await cli.setEnvironmentSecret(trunk, custody.environment, custody.keySecret, pem);
+      await cli.setEnvironmentVariable(trunk, custody.environment, custody.clientIdVariable, identity.clientId);
+    });
+  }
+
+  type Status = Readonly<{ created: CreatedApp | null; note: string | null }>;
+
+  /** Where each App stands, resuming a held key and detecting a name a half-finished attempt took. */
+  async function statuses(): Promise<ReadonlyMap<ForgeAppRole, Status>> {
+    const answer = new Map<ForgeAppRole, Status>();
+    for (const role of FORGE_APP_ROLES) {
+      const state = appKeyState(keyHome, role);
+      if (state.state === "done") { answer.set(role, { created: createdApp(role, state.identity), note: null }); continue; }
+      if (state.state === "held") {
+        try {
+          answer.set(role, { created: createdApp(role, await pushHeld(role)), note: null });
+        } catch (error) {
+          showRefusal(error, role);
+          answer.set(role, { created: null, note: `The ${role} App exists and its key is stored on this host; pushing it into its environment failed. Reload this page to retry.` });
+        }
+        continue;
+      }
+      if (await cli.appExists(FORGE_APPS[role].name)) {
+        const taken = new ForgeError("forge_app_name_taken", `An App named ${FORGE_APPS[role].name} exists, but no key for it is stored here.`, { role });
+        answer.set(role, { created: null, note: `${taken.message} ${taken.remedy}` });
+        continue;
+      }
+      answer.set(role, { created: null, note: null });
+    }
+    return answer;
+  }
+
+  const summary = async (): Promise<AppsPageSummary> => {
+    const now = await statuses();
+    return Object.freeze({
+      created: FORGE_APP_ROLES.flatMap((role) => now.get(role)?.created ?? []),
+      pending: FORGE_APP_ROLES.filter((role) => now.get(role)?.created === null),
+    });
+  };
 
   function stateFor(role: ForgeAppRole): string {
     for (const [state, owner] of states) if (owner === role) return state;
@@ -182,7 +283,8 @@ export async function serveAppsPage(options: AppsPageOptions): Promise<AppsPage>
     return state;
   }
 
-  function document(): unknown {
+  async function document(): Promise<unknown> {
+    const now = await statuses();
     return {
       session,
       error: lastError,
@@ -192,35 +294,30 @@ export async function serveAppsPage(options: AppsPageOptions): Promise<AppsPage>
       legacyApps: settings.appsPage.legacyApps,
       apps: FORGE_APP_ROLES.map((role) => {
         const app = FORGE_APPS[role];
-        const made = created.get(role);
+        const status = now.get(role)!;
+        const creatable = status.created === null && status.note === null;
         return {
           role,
           name: app.name,
           permissions: Object.entries(app.permissions).map(([name, access]) => `${name}: ${access}`).join(", "),
           repositories: repositoriesOfKinds(settings, app.installedOn).map((repository) => repository.name),
-          created: made ?? null,
-          manifest: made === undefined ? JSON.stringify(appManifest(role, settings)) : null,
-          createUrl: made === undefined ? `${web}/organizations/${settings.organization}/settings/apps/new?state=${stateFor(role)}` : null,
-          installUrl: made === undefined ? null : `${web}/apps/${made.slug}/installations/new`,
+          created: status.created,
+          note: status.note,
+          manifest: creatable ? JSON.stringify(appManifest(role, settings)) : null,
+          createUrl: creatable ? `${web}/organizations/${settings.organization}/settings/apps/new?state=${stateFor(role)}` : null,
+          installUrl: status.created === null ? null : `${web}/apps/${status.created.slug}/installations/new`,
         };
       }),
     };
   }
 
-  async function convert(role: ForgeAppRole, code: string): Promise<CreatedApp> {
+  /** Convert, verify, store FIRST (custody right after conversion), then push an environment key. */
+  async function convert(role: ForgeAppRole, code: string): Promise<void> {
     const answer = await conversion.rest<Record<string, unknown>>({ method: "POST", path: `/app-manifests/${code}/conversions` });
-    const { id, slug, client_id: clientId, pem } = answer.data ?? {};
-    if (typeof id !== "number" || typeof slug !== "string" || typeof clientId !== "string" || typeof pem !== "string") {
-      throw new ForgeError("github_response_invalid", "GitHub's manifest conversion carries no App id, slug, client id or key.", { role });
-    }
-    const custody = FORGE_APPS[role].custody;
-    if (custody.kind === "host") {
-      storeAppKey(keyHome, role, { appId: id, slug, clientId, pem });
-      return Object.freeze({ role, appId: id, slug, clientId, keyStoredIn: "the host key home" });
-    }
-    cli.setEnvironmentSecret(trunk, custody.environment, custody.keySecret, pem);
-    cli.setEnvironmentVariable(trunk, custody.environment, custody.clientIdVariable, clientId);
-    return Object.freeze({ role, appId: id, slug, clientId, keyStoredIn: `the ${custody.environment} environment of ${trunk} (secret ${custody.keySecret})` });
+    const material = verifyConversion(role, settings, answer.data ?? {});
+    const identity = storeAppKey(keyHome, role, material);
+    debugLog(FORGE_LOG_CATEGORY, "info", "forge_app_created", () => ({ role, appId: identity.appId, slug: identity.slug }));
+    if (FORGE_APPS[role].custody.kind === "environment") await pushHeld(role);
   }
 
   let origin = "";
@@ -228,13 +325,18 @@ export async function serveAppsPage(options: AppsPageOptions): Promise<AppsPage>
     response.writeHead(status, { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", ...headers });
     response.end(body);
   };
+  const home = (): string => `/?t=${pageToken}`;
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    // Host: only this page's own address (no DNS rebinding). Origin: when a browser sends one, only this page's own.
     if (request.headers.host !== new URL(origin).host) { send(response, 421, "This page answers only on its own address.\n"); return; }
+    if (request.headers.origin !== undefined && request.headers.origin !== origin) { send(response, 403, "Refused: a request from another origin.\n"); return; }
     const url = new URL(request.url ?? "/", origin);
     if (request.method === "GET" && url.pathname === "/") {
+      // The page, and every state it holds, only to the holder of the one-time token printed in the terminal.
+      if (!sameToken(url.searchParams.get("t"), pageToken)) { send(response, 404, "Not found.\n"); return; }
       const nonce = token();
-      send(response, 200, page(document(), nonce), {
+      send(response, 200, page(await document(), nonce), {
         "content-type": "text/html; charset=utf-8",
         "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; form-action ${web} 'self'; base-uri 'none'; frame-ancestors 'none'`,
       });
@@ -247,26 +349,19 @@ export async function serveAppsPage(options: AppsPageOptions): Promise<AppsPage>
       try {
         if (role === undefined || !CODE.test(code)) throw new ForgeError("forge_apps_page_refused", "The callback carries an unknown or used state, or no valid code.", {});
         states.delete(state);
-        const app = await convert(role, code);
-        created.set(role, app);
+        await convert(role, code);
         lastError = undefined;
-        debugLog(FORGE_LOG_CATEGORY, "info", "forge_app_created", () => ({ role, appId: app.appId, slug: app.slug }));
       } catch (error) {
-        // Every typed refusal is shown on the page (a forge code with its remedy; another harness refusal with its code); anything else is a defect (500).
-        if (!(error instanceof HarnessError)) throw error;
-        lastError = isForgeError(error)
-          ? { code: error.forgeCode, message: error.message, remedy: error.remedy }
-          : { code: error.code, message: error.message, remedy: "See the harness log for this refusal; nothing was stored for this App." };
-        debugLog(FORGE_LOG_CATEGORY, "warn", lastError.code, () => ({ role: role ?? "unknown" }));
+        showRefusal(error, role ?? "unknown");
       }
-      send(response, 303, "", { location: "/" });
+      send(response, 303, "", { location: home() });
       return;
     }
     if (request.method === "POST" && url.pathname === "/done") {
       const form = await readForm(request);
       if (request.headers.origin !== origin || form.get("session") !== session) { send(response, 403, "Refused: not this page's own form.\n"); return; }
       send(response, 200, "Done. You can close this tab.\n", { "content-type": "text/plain; charset=utf-8" });
-      finish(summary());
+      finish(await summary());
       return;
     }
     send(response, 404, "Not found.\n");
@@ -289,5 +384,5 @@ export async function serveAppsPage(options: AppsPageOptions): Promise<AppsPage>
   }
   const close = (): Promise<void> => new Promise((resolve) => { server.close(() => resolve()); server.closeAllConnections(); });
   void done.then(close);
-  return Object.freeze({ url: `${origin}/`, done, close });
+  return Object.freeze({ url: `${origin}${home()}`, done, close });
 }

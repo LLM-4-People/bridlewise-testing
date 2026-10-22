@@ -169,7 +169,7 @@ export const POPULATION_EXCLUSIONS = deepFreeze({
 const GATES: readonly Gate[] = [
   { id: "typecheck-web", title: "Typecheck web, server, templates and tests", class: "light", role: "required", commands: [{ command: "web-typecheck" }], setup: [], toolchain: [], reuse: "eligible" },
   { id: "typecheck-engine", title: "Typecheck engine and engine tests", class: "light", role: "required", commands: [{ command: "engine-typecheck" }], setup: [], toolchain: [], reuse: "eligible" },
-  { id: "harness-check", title: "Harness check (generated values, bindings, guards)", class: "light", role: "required", commands: [{ command: "engine-check" }], setup: ["bundle"], toolchain: [], reuse: "eligible" },
+  { id: "harness-check", title: "Generated values and harness check", class: "light", role: "required", commands: [{ command: "harness-sync" }, { command: "tree-unchanged" }, { command: "engine-format" }], setup: [], toolchain: [], reuse: "eligible" },
   { id: "secret-tree-scan", title: "Secret and privacy scan", class: "light", role: "required", commands: [{ command: "secret-scan" }], setup: [], toolchain: [], reuse: "eligible" },
   { id: "docs-links", title: "Relative Markdown links", class: "light", role: "required", commands: [{ command: "docs-links" }], setup: [], toolchain: [], reuse: "eligible" },
   { id: "public-tests", title: "Public smoke tests", class: "light", role: "required", commands: [{ command: "public-tests" }], setup: [], toolchain: [], reuse: "eligible" },

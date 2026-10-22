@@ -17,7 +17,7 @@ import type { ForgeRepositoryKind } from "./app-registry.ts";
 import type { ForgeEndpoint } from "./port.ts";
 
 /** The `kind` custom property's allowed values (runbook P1.8); `none` is a repository the topology does not govern. */
-export const FORGE_REPOSITORY_KINDS = deepFreeze(["trunk", "meta", "evidence", "notes", "archive", "none"] as const);
+const FORGE_REPOSITORY_KINDS = deepFreeze(["trunk", "meta", "evidence", "notes", "archive", "none"] as const);
 
 const NAME = /^[A-Za-z0-9._-]{1,100}$/u;
 const ORGANIZATION = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/u;
@@ -58,6 +58,16 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     const names = repositories.map((repository) => repository.name.toLowerCase());
     if (new Set(names).size !== names.length) context.addIssue({ code: "custom", message: "repository names must be unique" });
     if (repositories.filter((repository) => repository.kind === "trunk").length !== 1) context.addIssue({ code: "custom", message: "exactly one repository is the trunk" });
+  }),
+  /**
+   * How a run of the maintainer's `gh` is bounded: never by the wall clock
+   * (the no-load-block rule), only when it stalls (no output and no CPU work
+   * for `stallMs`) or passes `cpuLimitMs` of its own CPU time.
+   */
+  maintainerCli: z.strictObject({
+    stallMs: z.number().int().min(1_000).max(3_600_000),
+    cpuLimitMs: z.number().int().min(100).max(3_600_000),
+    killGraceMs: z.number().int().min(10).max(60_000),
   }),
   /** The local page `harness forge apps create` serves (on 127.0.0.1 only). */
   appsPage: z.strictObject({

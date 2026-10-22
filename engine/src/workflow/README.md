@@ -100,7 +100,7 @@ it (the profile's `setup`, `converge` to a fixed point, the declared-writes
 check, `verify`) and makes ONE commit there — the repository's hooks run on
 the exact tree — with parents `[T, S]`, S's committer identity and date (the
 same inputs give the same commit, with no git identity configured) and the
-trailers `Promoted-From`, `Promotion-Profile` (and
+trailers `Projected-From`, `Promotion-Profile` (and
 `Promotion-Accepted-Target-Edits`). It is pinned by
 `<namespace>/<profile>/pending` and described by a receipt blob
 (`promotion-receipt/v1`, each command's evidence, no timing) at
@@ -175,6 +175,12 @@ included (`landingGitFailure`, over both git doors: the machine's — a ceiling,
 a signal, an environmental error in git's words, by the command runner's own
 rule — is `git_errored`, git's refusal `git_failed`).
 
+The community surface — the files GitHub shows a contributor and the bots that
+answer them — lives in `community/` (its README): the role table and the intake
+registry under `docs/community/` are its single sources, and `harness sync`
+writes CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, SUPPORT, GOVERNANCE, the
+pull-request template and the issue and Discussion forms from them.
+
 ## What each file does
 
 - `auto-generator.ts` — the auto-generator module; `currentConfigContractArtifact`
@@ -226,14 +232,14 @@ The folder lives at `engine/src/workflow/`.
 - `auto-generator.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
 - `byte-pin-objects.ts` is consumed by `engine/scripts/pin-authority-regeneration.ts`, `engine/src/workflow/hash-binding-registry.ts`.
 - `checkout-setup.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/gates/cell-run.ts`, `engine/src/workflow/gates/gates-cli.ts`, `engine/src/workflow/harness-commands.ts` and 10 more.
-- `command-result.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/evaluation/cli.ts`, `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/door/door-cli.ts` and 8 more.
+- `command-result.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/evaluation/cli.ts`, `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/door/door-cli.ts` and 9 more.
 - `evidence-store.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/forge/cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/record-links.ts`.
 - `failure-owners.ts` is consumed by `engine/scripts/tooling/lessons.ts`, `engine/scripts/verification/decision-index.ts`, `engine/scripts/verification/lesson-trailers.ts`, `engine/scripts/verification/tracker-entries.ts`, `engine/src/workflow/flaky-burn-down.ts`, `engine/src/workflow/harness-commands.ts` and 1 more.
 - `flake-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
 - `flaky-burn-down.ts` is consumed by nothing yet.
 - `format-command.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
 - `harness-commands.ts` is consumed by `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/cli.ts`.
-- `hash-binding-registry.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/shared/tree-identity.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/harness-commands.ts` and 5 more.
+- `hash-binding-registry.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/shared/tree-identity.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/context.ts` and 4 more.
 - `markdown-links.ts` is consumed by `engine/src/workflow/failure-owners.ts`.
 - `module-contract-blocks.ts` is consumed by `engine/src/workflow/module-registrar.ts`.
 - `module-registrar.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
@@ -246,7 +252,7 @@ The folder lives at `engine/src/workflow/`.
 - `test-result-collector.ts` is consumed by `engine/scripts/tooling/flake-reproduction-reporter.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-guards.ts`, `engine/scripts/tooling/test-receipt.ts`, `engine/scripts/tooling/test-run-lock.ts` and 7 more.
 - `timeline-shard.ts` is consumed by `engine/src/workflow/workspace-manager.ts`.
 - `tree-landing.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/workspace-manager.ts`.
-- `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/git/worktree-port.ts` and 18 more.
+- `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/git/worktree-port.ts` and 19 more.
 - `workspace-cli.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
 - `workspace-contracts.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`, `engine/src/workflow/workspace-registry.ts`.
 - `workspace-manager.ts` is consumed by `engine/src/workflow/workspace-cli.ts`.
