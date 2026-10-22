@@ -292,7 +292,15 @@ describe("D. the source step", () => {
       "docs/assets/css/style.css": "body { color: red; font-family: Georgia; }\n",
       "docs/assets/css/extra.scss": "---\n---\n.a { color: #fff; }\n",
     });
-    await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/3 stylesheet finding\(s\)[\s\S]*assets\/css\/extra\.scss: a Sass source[\s\S]*assets\/css\/style\.css:1:\d+ color: colour literal: red[\s\S]*font-family: not one --face-\* token: Georgia/u);
+    const refusal = await source({ root, out: join(root, ".site"), baseurl: "/b" }).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeInstanceOf(Error);
+    const lines = (refusal as Error).message.split("\n").map((line) => line.trim());
+    expect(lines[0]).toContain("3 stylesheet finding(s): ");
+    expect(lines).toContain("assets/css/extra.scss: a Sass source: the site's stylesheets are plain CSS, judged by one parser");
+    expect(lines.filter((line) => line.startsWith("assets/css/style.css:1:")).map((line) => line.replace(/^assets\/css\/style\.css:1:\d+ /u, ""))).toEqual([
+      "color: colour literal: red",
+      "font-family: not one --face-* token: Georgia",
+    ]);
   });
 
   test("a plain page holding {% endraw %} is refused (it would end the raw block early)", async () => {
