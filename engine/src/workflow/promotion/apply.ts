@@ -137,7 +137,7 @@ function promotionMessage(context: PromotionContext, plan: PromotionPlan, regene
     ...listed,
     ...(more > 0 ? [`… and ${String(more)} more`] : []),
     "",
-    `${trailers.promotedFrom}: ${context.source}`,
+    `${trailers.projectedFrom}: ${context.source}`,
     `${trailers.profile}: ${profile.name}@${context.loaded.blob ?? "working-tree"}`,
     ...(accepted === null || accepted.length === 0 ? [] : [`${trailers.acceptedTargetEdits}: ${accepted.join(", ")}`]),
   ].join("\n");
@@ -168,7 +168,7 @@ type Pending = Readonly<{ commit: string; published: boolean }>;
 
 /**
  * RECONCILES the pending ref (see the header): the commit when it was built
- * for this S on this T (its first parent is T, its `Promoted-From` is S) or is
+ * for this S on this T (its first parent is T, its `Projected-From` is S) or is
  * already T (published), else `null` after dropping it and its receipt with a
  * compare-and-swap (logged once). A rollback's pending commit is reconciled by
  * `rollback.ts`.
@@ -404,11 +404,11 @@ export async function applyPromotion(context: PromotionContext, request: ApplyRe
   }, !request.auto);
 }
 
-/** Whether `commit` is a promotion of S by this profile (its `Promoted-From` is S and it restores nothing). */
+/** Whether `commit` is a promotion of S by this profile (its `Projected-From` is S and it restores nothing). */
 function isPromotionOfSource(context: PromotionContext): (commit: string) => boolean {
   return (commit) => {
     const trailers = promotionTrailersOf(context.repository, commit);
-    return trailers.promotedFrom === context.source && trailers.restores === null;
+    return trailers.projectedFrom === context.source && trailers.restores === null;
   };
 }
 
