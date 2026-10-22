@@ -26,7 +26,13 @@
       "checks": [
         "testing.ci"
       ],
-      "evidence": "tests/unit/tool-executor-unified.test.ts"
+      "evidence": "tests/unit/tool-executor-unified.test.ts",
+      "example": {
+        "call": "git_commit { \"message\": \"fix the login redirect\" }",
+        "code": "governance_required",
+        "message": "git_commit is not executable from a chat tool call — committing requires write-set governance and explicit user approval. Stage changes with the editor/git tools and let the user commit via the Git panel.",
+        "source": "server/tools/tool-executor.ts"
+      }
     },
     {
       "id": "run-once",

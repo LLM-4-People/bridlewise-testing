@@ -764,7 +764,10 @@ main blockquote > :last-child {
 
 .state[data-state="designed"],
 .state[data-state="refused"],
-.state[data-state="partial"] {
+.state[data-state="partial"],
+.state[data-state="unchecked"],
+.state[data-state="not-run"],
+.state[data-state="unknown"] {
   color: var(--warn);
 }
 
@@ -856,6 +859,12 @@ main blockquote > :last-child {
 }
 
 .refusal-call,
+.refusal-call code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+
 .refusal-answer {
   margin: 0;
   padding: var(--sp-4) var(--sp-5);
@@ -1084,6 +1093,142 @@ figcaption {
 
 .floor-banner .wrap {
   padding-block: var(--sp-2);
+}
+
+/* ── The landing: the promise and its receipt, then the ledger ─────────── */
+
+.landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-7);
+  align-items: end;
+  padding-block: var(--sp-7) var(--sp-6);
+}
+
+@media (min-width: 960px) {
+  .landing-hero {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    padding-block-start: calc(var(--sp-7) * 2);
+  }
+}
+
+.landing-promise h1 {
+  max-width: 12ch;
+  margin: 0;
+  font-size: var(--f-hero-size);
+  line-height: var(--f-hero-lh);
+  letter-spacing: var(--f-hero-track);
+}
+
+.landing-hero .receipt {
+  max-width: none;
+  margin: 0;
+}
+
+/* A section that pairs its words with one specimen. */
+@media (min-width: 960px) {
+  .landing-split {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: var(--sp-7);
+    align-items: start;
+  }
+
+  .landing-split .section-head {
+    margin-bottom: 0;
+  }
+}
+
+.landing-split .refusal,
+.landing-split .definition {
+  margin: 0;
+}
+
+.landing-doors ul {
+  margin: var(--sp-5) 0 0;
+  padding: 0;
+  border-top: var(--rule-w) solid var(--ink-1);
+  list-style: none;
+}
+
+.landing-doors li {
+  display: grid;
+  grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
+  gap: var(--sp-1) var(--sp-5);
+  margin: 0;
+  padding: var(--sp-3) 0;
+  border-bottom: var(--hairline-w) dashed var(--line-2);
+}
+
+.landing-doors li a {
+  font-weight: 600;
+}
+
+.landing-doors li span {
+  color: var(--ink-2);
+}
+
+@media (max-width: 640px) {
+  .landing-doors li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The claims ledger (_includes/claims-ledger.html). */
+.ledger {
+  display: table;
+  font-size: var(--f-ui-size);
+}
+
+.ledger-claim {
+  width: 40%;
+  font-weight: 560;
+}
+
+.ledger-proof {
+  color: var(--ink-2);
+}
+
+.ledger-check,
+.ledger-source,
+.ledger-note {
+  display: block;
+  font-size: var(--f-micro-size);
+}
+
+.ledger-check,
+.ledger-source {
+  font-family: var(--face-mono);
+  overflow-wrap: anywhere;
+}
+
+.ledger-check .state {
+  font-family: var(--face-sans);
+  font-weight: 400;
+}
+
+@media (max-width: 640px) {
+  .ledger,
+  .ledger tbody,
+  .ledger tr,
+  .ledger td {
+    display: block;
+    width: auto;
+  }
+
+  .ledger thead {
+    display: none;
+  }
+
+  .ledger tr {
+    padding-block: var(--sp-3);
+    border-bottom: var(--hairline-w) dashed var(--line-2);
+  }
+
+  .ledger td {
+    padding: var(--sp-1) 0;
+    border: 0;
+  }
 }
 
 /* ── Footer: the index, then the colophon ───────────────────────────────── */

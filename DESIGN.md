@@ -115,3 +115,11 @@ never the fill). A claim's state is a word in its state ink. Kickers are
 sentence case, never tracked capitals. Text is ink-1 or ink-2 only (ink-3 and
 ink-4 fail AA on paper), and `tests/public/site-design-system.test.mjs` holds
 every stylesheet under `docs/` to these rules and to 4.5:1 in both themes.
+
+The landing is the claims register, shown at the commit the site was built
+from. It opens with the promise set at display size, and beside it the receipt:
+how many claims hold, how many are retracted, how many are designed but not
+built, and how many are not claimed. Below come the ledger, one real refusal
+quoted from the code, and the name's dictionary entry. The claims page uses the
+same ledger and receipt. Every word comes from the messaging source and the
+claims register, and every value printed is escaped.

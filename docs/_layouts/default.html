@@ -1,10 +1,13 @@
+{%- comment -%} The public words: the one messaging source, read by the site build (_data/brand.json). {%- endcomment -%}
+{%- assign words = site.data.brand.messaging -%}
+{%- assign page_description = page.description | default: words.description -%}
 <!doctype html>
 <html lang="{{ site.lang | default: 'en' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% if page.url == "/" %}{{ page.title | default: site.title }}{% else %}{{ page.title | default: "Bridlewise" }} · {{ site.title }}{% endif %}</title>
-  <meta name="description" content="{{ page.description | default: site.description | escape }}">
+  <title>{% if page.url == "/" %}{{ page.title | default: words.name | default: site.title | escape }}: {{ words.promise | escape }}{% else %}{{ page.title | default: "Bridlewise" }} · {{ site.title }}{% endif %}</title>
+  <meta name="description" content="{{ page_description | escape }}">
   <link rel="canonical" href="{{ page.url | absolute_url }}">
   <link rel="alternate" type="text/plain" href="{{ '/llms.txt' | relative_url }}" title="llms.txt">
   <meta name="color-scheme" content="light dark">
@@ -13,14 +16,14 @@
 
   <meta property="og:type" content="{% if page.url == '/' %}website{% else %}article{% endif %}">
   <meta property="og:site_name" content="{{ site.title }}">
-  <meta property="og:title" content="{% if page.url == '/' %}{{ page.title | default: site.title }}{% else %}{{ page.title | default: 'Bridlewise' }}{% endif %}">
-  <meta property="og:description" content="{{ page.description | default: site.description | escape }}">
+  <meta property="og:title" content="{% if page.url == '/' %}{{ page.title | default: words.name | default: site.title | escape }}: {{ words.promise | escape }}{% else %}{{ page.title | default: 'Bridlewise' }}{% endif %}">
+  <meta property="og:description" content="{{ page_description | escape }}">
   <meta property="og:url" content="{{ page.url | absolute_url }}">
   <meta property="og:image" content="{{ page.image | default: '/assets/hero.png' | absolute_url }}">
   <meta property="og:image:alt" content="The Bridlewise cockpit: a run rendered as a causal stream.">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="{% if page.url == '/' %}{{ page.title | default: site.title }}{% else %}{{ page.title | default: 'Bridlewise' }}{% endif %}">
-  <meta name="twitter:description" content="{{ page.description | default: site.description | escape }}">
+  <meta name="twitter:title" content="{% if page.url == '/' %}{{ page.title | default: words.name | default: site.title | escape }}: {{ words.promise | escape }}{% else %}{{ page.title | default: 'Bridlewise' }}{% endif %}">
+  <meta name="twitter:description" content="{{ page_description | escape }}">
   <meta name="twitter:image" content="{{ page.image | default: '/assets/hero.png' | absolute_url }}">
 
   <link rel="icon" href="{{ '/assets/icon.svg' | relative_url }}" type="image/svg+xml">
@@ -43,7 +46,7 @@
     "@context": "https://schema.org",
     "@type": "WebPage",
     "name": {{ page.title | default: site.title | jsonify }},
-    "description": {{ page.description | default: site.description | jsonify }},
+    "description": {{ page_description | jsonify }},
     "url": {{ page.url | absolute_url | jsonify }},
     "isPartOf": {
       "@type": "WebSite",
@@ -143,7 +146,7 @@
           {% include brand-mark.svg %}
           <span class="brand-word">Bridlewise</span>
         </a>
-        <p>{{ site.tagline }}</p>
+        <p>{{ words.promise | escape }}</p>
         <p class="colophon-fine">Free and open source under AGPL-3.0. No hosted account, no tracking, no support contract. Not audited. <a href="{{ '/security/' | relative_url }}">Report a vulnerability privately</a>.</p>
       </div>
     </div>

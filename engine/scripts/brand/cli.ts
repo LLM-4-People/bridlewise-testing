@@ -6,12 +6,15 @@
  *       One surface's text (repo-metadata is JSON). GH-7's projector writes
  *       the README block, the org profile and the repository metadata from
  *       these; the release train prepends the release header.
- *   node scripts/brand/cli.ts build --site <assembled site> --checks <status.json>
- *       The claims page (`<site>/floor/claims/index.md`), every claim judged
- *       at the snapshot's commit; run by the Pages build after the floor data.
+ *
+ * `siteData(root, statusPath)` is the site's half: every claim judged at the
+ * floor status snapshot's commit, as plain data. The one site builder writes
+ * it to `_data/brand.json` right after the floor data
+ * (`scripts/floor/site-design.mjs`), and the landing and `/floor/claims/`
+ * templates render it.
  */
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -20,7 +23,7 @@ import { HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { decisionStates, readClaims } from "./claims.ts";
 import { readMessaging } from "./messaging.ts";
-import { claimsSitePage, judgeClaims, orgProfile, readmeHero, releaseHeader, repositoryMetadata, type CheckResult } from "./render.ts";
+import { brandSite, judgeClaims, orgProfile, readmeHero, releaseHeader, repositoryMetadata, type CheckResult } from "./render.ts";
 
 const REPOSITORY_ROOT = dirname(fileURLToPath(new URL("../../", import.meta.url)));
 const SURFACES = ["readme-hero", "org-profile", "repo-metadata", "release-header"] as const;
@@ -38,6 +41,12 @@ export function readStatus(path: string): Readonly<{ commit: string; checks: rea
     return { id: c.id, status: c.status, headSha: typeof c.headSha === "string" ? c.headSha : null, runUrl: typeof c.runUrl === "string" ? c.runUrl : null };
   });
   return { commit, checks };
+}
+
+/** The site's data: every claim of the repository at `root` judged at the commit of the floor status snapshot at `statusPath`. */
+export function siteData(root: string, statusPath: string): Readonly<Record<string, unknown>> {
+  const status = readStatus(statusPath);
+  return brandSite(readMessaging(root), judgeClaims(readClaims(root), status.checks, status.commit), status.commit, decisionStates(root));
 }
 
 /** One surface's text, rendered from this repository's sources. */
@@ -69,16 +78,7 @@ function run(argv: readonly string[]): number {
     else write(values.out, text);
     return 0;
   }
-  if (command === "build") {
-    const { values } = parseArgs({ args: rest, options: { site: { type: "string" }, checks: { type: "string" } } });
-    if (values.site === undefined || values.checks === undefined) throw new InputError("brand build needs --site and --checks", "input_error");
-    const status = readStatus(values.checks);
-    const judged = judgeClaims(readClaims(REPOSITORY_ROOT), status.checks, status.commit);
-    write(join(values.site, "floor", "claims", "index.md"), claimsSitePage(readMessaging(REPOSITORY_ROOT), judged, status.commit, decisionStates(REPOSITORY_ROOT)));
-    process.stdout.write(`${JSON.stringify({ commit: status.commit, claims: judged.length, retracted: judged.filter((j) => j.verdict === "retracted").map((j) => j.claim.id) })}\n`);
-    return 0;
-  }
-  throw new InputError(`Usage: brand render ${SURFACES.join("|")} [--out <file>] | build --site <dir> --checks <status.json>`, "input_error");
+  throw new InputError(`Usage: brand render ${SURFACES.join("|")} [--out <file>]`, "input_error");
 }
 
 if (isEntryPoint(import.meta.url)) {

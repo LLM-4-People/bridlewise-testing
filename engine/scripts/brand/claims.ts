@@ -8,7 +8,11 @@
  * - `holds-when-green`: true while its bound checks pass at the rendered
  *   commit. A renderer that finds a bound check red (or not run on that
  *   commit) renders the claim RETRACTED, publicly and at once (user decision,
- *   2026-10-21): struck through, with the failing run linked.
+ *   2026-10-21): struck through, with the failing run linked. It may carry an
+ *   `example`: one real exchange that shows it (a call and the harness's typed
+ *   answer). The answer's code and sentence are QUOTED, never retyped: the
+ *   register refuses an example whose code or sentence does not occur
+ *   verbatim in its source file.
  * - `designed`: a decision exists and the code does not yet; the claim names
  *   the decision record, whose implementation state is read, never restated.
  * - `not-claimed`: something the project deliberately does not say, with the
@@ -34,8 +38,11 @@ const DECISION_ID = /^[A-Z][A-Z0-9]*[a-z]?(?:-[A-Z0-9]+[a-z]?)*$/u;
 /** A repository path (optionally `#anchor`) or an https URL. */
 const EVIDENCE = /^(?:https:\/\/\S+|(?!\/)(?!.*\.\.)[^\s#]+(?:#[\w-]+)?)$/u;
 
+/** One real exchange a claim shows: the model's call, and the harness's answer quoted from `source`. */
+export type ClaimExample = Readonly<{ call: string; code: string; message: string; source: string }>;
+
 export type Claim =
-  | Readonly<{ id: string; kind: "holds-when-green"; text: string; checks: readonly string[]; evidence: string | null }>
+  | Readonly<{ id: string; kind: "holds-when-green"; text: string; checks: readonly string[]; evidence: string | null; example?: ClaimExample }>
   | Readonly<{ id: string; kind: "designed"; text: string; decision: string }>
   | Readonly<{ id: string; kind: "not-claimed"; text: string; reason: string; evidence: string | null }>;
 
@@ -43,8 +50,12 @@ function refuse(message: string): never {
   throw new InputError(`${CLAIMS_PATH}: ${message}`, "claims_register_invalid");
 }
 
-/** Every way `document` breaks the register format; `exists` answers whether a repository path exists. */
-export function claimViolations(document: unknown, exists: (path: string) => boolean, decisionState: (id: string) => string | undefined): readonly string[] {
+/**
+ * Every way `document` breaks the register format; `exists` answers whether a
+ * repository path exists, and `read` gives a repository file's text (for the
+ * quotes an example makes).
+ */
+export function claimViolations(document: unknown, exists: (path: string) => boolean, decisionState: (id: string) => string | undefined, read: (path: string) => string): readonly string[] {
   const problems: string[] = [];
   if (typeof document !== "object" || document === null || Array.isArray(document)) return ["the register is not a JSON object"];
   const record = document as Record<string, unknown>;
@@ -62,7 +73,7 @@ export function claimViolations(document: unknown, exists: (path: string) => boo
     seen.add(id);
     if (typeof claim.text !== "string" || claim.text.trim().length === 0) problems.push(`${id || at}: text is required`);
     const allowed: Record<string, readonly string[]> = {
-      "holds-when-green": ["id", "kind", "text", "checks", "evidence"],
+      "holds-when-green": ["id", "kind", "text", "checks", "evidence", "example"],
       designed: ["id", "kind", "text", "decision"],
       "not-claimed": ["id", "kind", "text", "reason", "evidence"],
     };
@@ -73,6 +84,19 @@ export function claimViolations(document: unknown, exists: (path: string) => boo
     if (kind === "holds-when-green") {
       if (!Array.isArray(claim.checks) || claim.checks.length === 0) problems.push(`${id}: a holds-when-green claim binds at least one check`);
       else for (const check of claim.checks) if (typeof check !== "string" || !CHECK_ID.test(check)) problems.push(`${id}: ${String(check)} is not a check id`);
+    }
+    if (claim.example !== undefined) {
+      const example = claim.example as Record<string, unknown> | null;
+      const fields = ["call", "code", "message", "source"];
+      if (typeof example !== "object" || example === null || Object.keys(example).some((key) => !fields.includes(key)) || fields.some((key) => typeof example[key] !== "string" || (example[key] as string).trim() === "")) {
+        problems.push(`${id}: example has exactly call, code, message and source, each text`);
+      } else if (!exists(example.source as string)) problems.push(`${id}: example source ${String(example.source)} does not exist`);
+      else {
+        const text = read(example.source as string);
+        for (const key of ["code", "message"] as const) {
+          if (!text.includes(example[key] as string)) problems.push(`${id}: example ${key} is not quoted from ${String(example.source)} (it must occur there verbatim)`);
+        }
+      }
     }
     if (kind === "designed" && (typeof claim.decision !== "string" || !DECISION_ID.test(claim.decision))) problems.push(`${id}: decision must be a decision id`);
     if (kind === "designed" && typeof claim.decision === "string" && DECISION_ID.test(claim.decision)) {
@@ -111,7 +135,7 @@ export function readClaims(root: string): readonly Claim[] {
     refuse(`cannot be read as JSON (${error instanceof Error ? error.message : String(error)})`);
   }
   const states = decisionStates(root);
-  const problems = claimViolations(document, (path) => existsSync(join(root, path)), (id) => states.get(id)?.implementation);
+  const problems = claimViolations(document, (path) => existsSync(join(root, path)), (id) => states.get(id)?.implementation, (path) => readFileSync(join(root, path), "utf8"));
   if (problems.length > 0) refuse(`breaks ${CLAIMS_SCHEMA}:\n${problems.join("\n")}`);
   return Object.freeze(((document as { claims: Record<string, unknown>[] }).claims).map((claim) => Object.freeze({
     ...claim,

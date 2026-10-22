@@ -1,0 +1,18 @@
+{%- comment -%}
+  The register's receipt: how many claims hold, how many are retracted, what
+  is designed but not built and what is not claimed, judged at one commit.
+{%- endcomment -%}
+{%- assign brand = site.data.brand -%}
+<aside class="receipt" aria-labelledby="{{ include.id }}">
+  <p class="receipt-title" id="{{ include.id }}">The receipt</p>
+  <dl>
+    <div class="receipt-line"><dt>Claims that hold</dt><dd>{{ brand.counts.holds }}</dd></div>
+    <div class="receipt-line"><dt>Retracted until their check passes</dt><dd>{{ brand.counts.retracted }}</dd></div>
+    {%- if brand.counts.unchecked > 0 %}
+    <div class="receipt-line"><dt>Not checked in this build</dt><dd>{{ brand.counts.unchecked }}</dd></div>
+    {%- endif %}
+    <div class="receipt-line"><dt>Designed, not built</dt><dd>{{ brand.counts.designed }}</dd></div>
+    <div class="receipt-line"><dt>Not claimed, on purpose</dt><dd>{{ brand.counts["not-claimed"] }}</dd></div>
+  </dl>
+  <p class="stamp">Judged at commit <a href="{{ brand.commitUrl | escape }}" data-commit>{{ brand.commit | slice: 0, 8 }}</a> against the checks that ran on that commit. Nobody types these numbers.</p>
+</aside>

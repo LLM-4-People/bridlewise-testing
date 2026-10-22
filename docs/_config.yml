@@ -1,6 +1,4 @@
 title: Bridlewise
-tagline: "Every run, recorded. Every tool, governed."
-description: "An experimental, local-first coding cockpit. Runs are recorded as causal streams; tools are governed, checked, and confined on Linux. Developer preview — not for sensitive code."
 lang: en
 license: "AGPL-3.0"
 

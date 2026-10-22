@@ -6,11 +6,14 @@
  * generated surface reads it: the README's front block, the org profile, the
  * repository metadata, the release-note header, the claims page, the roadmap
  * and (through DESIGN's renderers) the social images. None restates a word of
- * it. Renaming the repository or moving the site is a one-line change here.
+ * it. Where the repository and its site live is not a word: it comes from
+ * the repository's one declaration (`package.json` `repository.url`, through
+ * `shared/repository-coordinates.ts`), so no file spells the repository's URL.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { repositoryCoordinates } from "../../../shared/repository-coordinates.ts";
 import { InputError } from "../../src/kernel/errors.ts";
 
 export const MESSAGING_PATH = "docs/brand/messaging.json";
@@ -22,9 +25,9 @@ const TOPIC = /^[a-z0-9][a-z0-9-]{0,49}$/u;
 
 export type Messaging = Readonly<{
   name: string;
-  /** `https://github.com/<owner>/<repository>`, no trailing slash. */
+  /** `https://github.com/<owner>/<repository>`, no trailing slash (from `package.json`, never the source). */
   repositoryUrl: string;
-  /** The site's root, with a trailing slash. */
+  /** The site's root, with a trailing slash (from `package.json`, never the source). */
   siteUrl: string;
   /** The one-line promise (concept A): what every surface leads with. */
   promise: string;
@@ -49,12 +52,10 @@ export function messagingViolations(document: unknown): readonly string[] {
   if (typeof document !== "object" || document === null || Array.isArray(document)) return ["the source is not a JSON object"];
   const record = document as Record<string, unknown>;
   const problems: string[] = [];
-  const known = ["schema", "repositoryUrl", "siteUrl", "topics", "about", ...TEXT_FIELDS];
+  const known = ["schema", "topics", "about", ...TEXT_FIELDS];
   for (const key of Object.keys(record)) if (!known.includes(key)) problems.push(`${key} is not a field of the messaging source`);
   if (record.schema !== MESSAGING_SCHEMA) problems.push(`schema must be ${MESSAGING_SCHEMA}`);
   for (const field of TEXT_FIELDS) if (typeof record[field] !== "string" || (record[field] as string).trim().length === 0) problems.push(`${field} is required`);
-  if (typeof record.repositoryUrl !== "string" || !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/u.test(record.repositoryUrl)) problems.push("repositoryUrl must be https://github.com/<owner>/<repository> with no trailing slash");
-  if (typeof record.siteUrl !== "string" || !/^https:\/\/\S+\/$/u.test(record.siteUrl)) problems.push("siteUrl must be an https URL ending in /");
   if (typeof record.description === "string" && record.description.length > DESCRIPTION_MAX) problems.push(`description is ${record.description.length} characters; GitHub allows ${DESCRIPTION_MAX}`);
   if (typeof record.status === "string" && !/developer preview/iu.test(record.status)) problems.push("status must say it is a developer preview");
   if (typeof record.description === "string" && !/developer preview/iu.test(record.description)) problems.push("description must say it is a developer preview");
@@ -88,5 +89,8 @@ export function readMessaging(root: string): Messaging {
   }
   const problems = messagingViolations(document);
   if (problems.length > 0) throw new InputError(`${MESSAGING_PATH} breaks ${MESSAGING_SCHEMA}:\n${problems.join("\n")}`, "messaging_source_invalid");
-  return Object.freeze(document as Messaging);
+  const coordinates = repositoryCoordinates(readFileSync(join(root, "package.json"), "utf8"));
+  if (coordinates === null) throw new InputError("package.json repository.url names no GitHub repository: the public words have no address", "messaging_source_invalid");
+  const { schema: _schema, ...words } = document as Record<string, unknown>;
+  return Object.freeze({ ...words, repositoryUrl: coordinates.repositoryUrl, siteUrl: coordinates.siteUrl } as Messaging);
 }

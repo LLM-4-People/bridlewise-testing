@@ -5685,24 +5685,24 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-brand-claims", path: "scripts/brand/claims.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 7, namesSha256: "dcf9b110c6b7bb642b8849a75b7dade53dc3256cd7c11289d97346ec7aa78c69" },
+      owner: "verification", publicApi: { exportCount: 8, namesSha256: "78119d898e24957790e1003c5d96a1d12ddd6c31657d10736bc15734a353bdbb" },
       dependencies: ["node:fs","node:path","scripts/verification/tracker-entries.ts","src/kernel/errors.ts","src/workflow/failure-owners.ts"],
     }),
     moduleContract({
       id: "scripts-brand-cli", path: "scripts/brand/cli.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 2, namesSha256: "8adfe9a16bd524a0a5b9ce5ebced0f50ac47d8a85ba048d9788f4f919fb0265a" },
+      owner: "verification", publicApi: { exportCount: 3, namesSha256: "75924e1873094098ec83dd957cd4ab3360321b2a5030f69df4a9b9638bdb035d" },
       dependencies: ["node:fs","node:path","node:url","node:util","scripts/brand/claims.ts","scripts/brand/messaging.ts","scripts/brand/render.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/runtime/cli-debug.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
     }),
     moduleContract({
       id: "scripts-brand-messaging", path: "scripts/brand/messaging.ts", realm: "builder", layer: "verification",
       owner: "verification", publicApi: { exportCount: 5, namesSha256: "32b7bd7e8765493e90694a228297d8b8c8e368f73062f64480868f50091db67f" },
-      dependencies: ["node:fs","node:path","src/kernel/errors.ts"],
+      dependencies: ["../shared/repository-coordinates.ts","node:fs","node:path","src/kernel/errors.ts"],
     }),
     moduleContract({
       id: "scripts-brand-render", path: "scripts/brand/render.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 9, namesSha256: "efc075d122d150c14783cf90298895cba3f615aa542cfe159c2a7cc2212037c2" },
-      dependencies: ["../shared/markup.ts"],
+      owner: "verification", publicApi: { exportCount: 9, namesSha256: "485088dad9151874671e0fd47dc1ba3e4ae82d16fdb7227baca2f76d1cc25869" },
+      dependencies: [],
     }),
   ],
 });

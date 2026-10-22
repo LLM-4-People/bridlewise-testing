@@ -72,7 +72,7 @@ test("the one site's source is this tree's docs/, with no second repository", as
     assert.doesNotMatch(layout, /page\.floor_assets|floor_notice|testing_url|testing_hub_url/u, "one shell, one design layer, no mirror banner");
     // The front door leads with the product; the contributor hub and the floor are pages of the same site.
     assert.match(readFileSync(join(out, "index.md"), "utf8"), /permalink: \/\n/u);
-    assert.match(readFileSync(join(out, "index.md"), "utf8"), /Every run, recorded/u);
+    assert.match(readFileSync(join(out, "index.md"), "utf8"), /\{% include claims-ledger\.html claims=brand\.claims %\}/u, "the front door is the claims ledger");
     assert.match(readFileSync(join(out, "contribute.md"), "utf8"), /permalink: \/contribute\//u);
     assert.ok(readFileSync(join(out, "floor/index.md"), "utf8").includes("The development floor"));
     assert.ok(readFileSync(join(out, "assets/floor/floor.css"), "utf8").includes("floor-table-wrap"));

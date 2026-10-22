@@ -12,31 +12,18 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { repositoryCoordinates as coordinatesFromManifest } from "../../shared/repository-coordinates.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const GITHUB_REPOSITORY_URL = /^https:\/\/github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?$/u;
-
 /**
- * The coordinates a `package.json` text declares, or a refusal naming the
- * field: a manifest with no GitHub `repository.url` has no site.
+ * The coordinates a `package.json` text declares (the one derivation,
+ * `shared/repository-coordinates.ts`), or a refusal naming the field: a
+ * manifest with no GitHub `repository.url` has no site.
  */
 export function repositoryCoordinates(manifestText) {
-  const url = JSON.parse(manifestText)?.repository?.url;
-  const match = typeof url === "string" ? GITHUB_REPOSITORY_URL.exec(url) : null;
-  if (match === null) throw new Error(`package.json repository.url must be https://github.com/<owner>/<name>[.git], found ${JSON.stringify(url ?? null)}`);
-  const [, owner, name] = match;
-  const repositoryUrl = `https://github.com/${owner}/${name}`;
-  const siteOrigin = `https://${owner.toLowerCase()}.github.io`;
-  return Object.freeze({
-    owner,
-    name,
-    repository: `${owner}/${name}`,
-    repositoryUrl,
-    defaultBranch: "main",
-    siteOrigin,
-    siteBaseurl: `/${name}`,
-    siteUrl: `${siteOrigin}/${name}/`,
-  });
+  const coordinates = coordinatesFromManifest(manifestText);
+  if (coordinates === null) throw new Error(`package.json repository.url must be https://github.com/<owner>/<name>[.git], found ${JSON.stringify(JSON.parse(manifestText)?.repository?.url ?? null)}`);
+  return coordinates;
 }
 
 /** The coordinates of the repository checked out at `root` (its `package.json`). */

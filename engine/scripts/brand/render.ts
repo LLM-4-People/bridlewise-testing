@@ -9,15 +9,15 @@
  * - the org profile (Markdown; GH-7 writes `profile/README.md` in `.github`);
  * - the repository metadata (description, homepage, topics; GH-7 applies it);
  * - the release-note header (Markdown; the release train prepends it);
- * - the claims page (`/floor/claims/`, built at publish with the checks
- *   snapshot): every claim with its proof, and a claim whose check is red, or
- *   did not run on the published commit, RETRACTED, publicly and at once
- *   (user decision, 2026-10-21).
+ * - the site's data (`_data/brand.json`, written by the site build with the
+ *   checks snapshot): every claim with its proof and its verdict, a claim
+ *   whose check is red, or did not run on the published commit, RETRACTED,
+ *   publicly and at once (user decision, 2026-10-21). The landing and the
+ *   claims page are DESIGN's templates over it.
  *
  * The visual treatment of the site and the images is DESIGN's; this module
  * writes words and the semantic markup they sit in.
  */
-import { escapeHtml } from "../../../shared/markup.ts";
 import type { Claim, DecisionState } from "./claims.ts";
 import type { Messaging } from "./messaging.ts";
 
@@ -115,36 +115,34 @@ export function releaseHeader(m: Messaging): string {
   ].join("\n");
 }
 
-const h = escapeHtml;
+/** The verdict words a reader sees (one vocabulary for every surface that shows a verdict). */
+export const VERDICT_WORDS: Readonly<Record<JudgedClaim["verdict"], string>> = Object.freeze({ holds: "holds", retracted: "retracted", unchecked: "not checked in this build", designed: "designed, not built", "not-claimed": "not claimed" });
 
-/** The claims page body (HTML for the one site layout): every claim judged at the published commit. */
-export function claimsPage(m: Messaging, judged: readonly JudgedClaim[], commit: string, decisions: ReadonlyMap<string, DecisionState>): string {
-  const words: Readonly<Record<JudgedClaim["verdict"], string>> = { holds: "holds", retracted: "retracted", unchecked: "not checked in this build", designed: "designed, not built", "not-claimed": "not claimed" };
-  const row = (j: JudgedClaim): string => {
-    const c = j.claim;
-    const proof = c.kind === "holds-when-green"
-      ? `${j.checks.map((k) => `${k.runUrl === null ? h(k.id) : `<a href="${h(k.runUrl)}">${h(k.id)}</a>`} <span class="floor-state" data-status="${h(k.status)}">${h(k.status)}</span>`).join(" · ")}${c.evidence === null ? "" : ` · <a href="${h(blob(m, c.evidence))}">${h(c.evidence)}</a>`}`
-      : c.kind === "designed"
-        ? `decision <a href="${h(blob(m, decisions.get(c.decision)?.path ?? "docs/decisions/README.md"))}">${h(c.decision)}</a>: ${h(decisions.get(c.decision)?.implementation ?? "unknown")}`
-        : `${h(c.reason)}${c.evidence === null ? "" : ` <a href="${h(blob(m, c.evidence))}">Evidence</a>`}`;
-    return `<tr data-verdict="${j.verdict}"><td class="floor-claim">${h(c.text)}</td><td>${proof}</td><td><span class="floor-state" data-status="${j.verdict}">${h(words[j.verdict])}</span></td></tr>`;
+/**
+ * The judged register as the site's data (`_data/brand.json`): plain values,
+ * no markup. DESIGN's templates (the landing, `/floor/claims/`) render it, so
+ * the claims have one markup, in the one design system.
+ */
+export function brandSite(m: Messaging, judged: readonly JudgedClaim[], commit: string, decisions: ReadonlyMap<string, DecisionState>): Readonly<Record<string, unknown>> {
+  const counts = Object.fromEntries((Object.keys(VERDICT_WORDS) as JudgedClaim["verdict"][]).map((verdict) => [verdict, judged.filter((j) => j.verdict === verdict).length]));
+  return {
+    schema: "bridlewise-brand-site/v1",
+    commit,
+    commitUrl: `${m.repositoryUrl}/commit/${commit}`,
+    messaging: m,
+    counts,
+    claims: judged.map(({ claim, verdict, checks }) => ({
+      id: claim.id,
+      kind: claim.kind,
+      text: claim.text,
+      verdict,
+      verdictWords: VERDICT_WORDS[verdict],
+      checks: checks.map((check) => ({ id: check.id, status: check.status, runUrl: check.runUrl })),
+      proof: claim.kind === "designed"
+        ? { label: claim.decision, href: blob(m, decisions.get(claim.decision)?.path ?? "docs/decisions/README.md"), implementation: decisions.get(claim.decision)?.implementation ?? "unknown" }
+        : claim.evidence === null ? null : { label: claim.evidence, href: blob(m, claim.evidence) },
+      reason: claim.kind === "not-claimed" ? claim.reason : null,
+      example: claim.kind === "holds-when-green" && claim.example !== undefined ? { ...claim.example, sourceUrl: blob(m, claim.example.source) } : null,
+    })),
   };
-  const count = (v: JudgedClaim["verdict"]): number => judged.filter((j) => j.verdict === v).length;
-  return [
-    `<div class="floor-claims" data-commit="${h(commit)}">`,
-    `<p class="floor-lede">${h(m.promise)} Each claim below is judged at <a href="${h(`${m.repositoryUrl}/commit/${commit}`)}">main@${h(commit.slice(0, 8))}</a> from the checks that ran on that commit. A claim whose check is red, or did not run there, is struck out until it passes again. Claims we do not make are listed too.</p>`,
-    `<p class="floor-facts">${count("holds")} hold · ${count("retracted")} retracted · ${count("unchecked")} not checked · ${count("designed")} designed, not built · ${count("not-claimed")} not claimed</p>`,
-    `<p class="floor-gap">${h(m.status)}</p>`,
-    `<table class="floor-table floor-claims-table"><thead><tr><th scope="col">Claim</th><th scope="col">Proof you can rerun</th><th scope="col">Verdict</th></tr></thead><tbody>${judged.map(row).join("")}</tbody></table>`,
-    `</div>`,
-  ].join("\n");
-}
-
-/** The claims page as a site page: front matter for the one layout, then the body. */
-export function claimsSitePage(m: Messaging, judged: readonly JudgedClaim[], commit: string, decisions: ReadonlyMap<string, DecisionState>): string {
-  return [
-    "---", "layout: default", "floor_assets: true", "page_class: claims", 'title: "Claims"',
-    `description: ${JSON.stringify(`${m.promise} Every claim Bridlewise makes, judged against the checks that ran on the published commit.`)}`,
-    "permalink: /floor/claims/", "---", "", "# Claims", "", claimsPage(m, judged, commit, decisions), "",
-  ].join("\n");
 }
