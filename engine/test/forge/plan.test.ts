@@ -11,7 +11,6 @@ import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { keyHomeCustody } from "../../src/workflow/forge/app-keys.ts";
 import { runForgeCli } from "../../src/workflow/forge/cli.ts";
 import { forgeDeclarations } from "../../src/workflow/forge/declarations.ts";
 import { forgeFileSources, syncForgeFiles } from "../../src/workflow/forge/generated-files.ts";
@@ -19,6 +18,7 @@ import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import type { ForgeObject } from "../../src/workflow/forge/forge-state.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
+import { maintainerCli } from "../../src/workflow/forge/maintainer-cli.ts";
 import { forgeApply, forgePlan } from "../../src/workflow/forge/plan.ts";
 import { looseningOf, movedPremisesUnmet } from "../../src/workflow/forge/strictness.ts";
 import { fakeGithub, type FakeGithub } from "./fake-github.ts";
@@ -413,7 +413,7 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
   execFileSync("git", ["add", "package-lock.json", "engine/package-lock.json", ".github/workflows/ci.yml"], { cwd: top });
   syncForgeFiles(top, forgeFileSources(top, SETTINGS), true);
   const fake = wholeGithub();
-  const wiring = { settings: () => SETTINGS, endpoint: () => fake.endpoint(), hostCustody: () => keyHomeCustody(temporaryKeyHome()) };
+  const wiring = { settings: () => SETTINGS, endpoint: () => fake.endpoint(), keyHome: () => temporaryKeyHome(), maintainerCli: () => assert.fail("plan, apply and audit never run gh") };
   const progress: string[] = [];
   const run = (...argv: string[]) => runForgeCli(top, argv, (line) => progress.push(line), wiring);
   const variable = "FORGE_CLI_TEST_TOKEN";
@@ -450,6 +450,20 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     const verdict = unconverged.result.result as { verified: boolean; verification: { drift: { action: string; key: string }[] } };
     assert.equal(verdict.verified, false);
     assert.deepEqual(verdict.verification.drift.map((drift) => `${drift.action} ${drift.key}`), ["update area:engine"]);
+    // The Apps verbs go through the same wiring: the manifests check reads the wired section, and apps create asks the
+    // WIRED gh (here a recording one): not logged in is refused typed; logged in but without the door's environment too.
+    assert.equal((await run("apps", "manifests", "--check")).result.status, "pass");
+    const ghCalls: string[][] = [];
+    const recordingGh = (answer: (args: readonly string[]) => Readonly<{ status: number; stdout?: string; stderr?: string }>) => (settings: typeof SETTINGS) => maintainerCli(settings.webUrl, settings.maintainerCli, async (args) => {
+      ghCalls.push([...args]);
+      const reply = answer(args);
+      return { status: reply.status, stdout: reply.stdout ?? "", stderr: reply.stderr ?? "", missing: false, ending: "exited" as const };
+    });
+    const notLoggedIn = { ...wiring, maintainerCli: recordingGh(() => ({ status: 1, stderr: "not logged in" })) };
+    await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, notLoggedIn), (error: unknown) => isForgeError(error, "forge_maintainer_cli_failed"));
+    assert.deepEqual(ghCalls.map((args) => args.slice(0, 2).join(" ")), ["auth status"], "the wired gh, and nothing else, was asked");
+    const noDoor = { ...wiring, maintainerCli: recordingGh((args) => args[0] === "auth" ? { status: 0 } : { status: 1, stderr: "gh: Not Found (HTTP 404)" }) };
+    await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, noDoor), (error: unknown) => isForgeError(error, "forge_environment_missing") && /bridlewise-testing/u.test(error.message));
     // A hand edit of a generated file: refused before the credential is read or GitHub is asked.
     writeFileSync(join(top, ".github/forge/label/bridlewise-testing.area_ci.json"), "{}\n");
     const asked = fake.requests.length;
