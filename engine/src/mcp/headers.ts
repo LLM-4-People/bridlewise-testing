@@ -6,8 +6,9 @@
  * Header names are canonicalized to `Content-Type` casing for deterministic
  * exposure (signals report headers by canonical name). Values are never
  * logged in full when they look like secrets — the exposure layer redacts
- * every credential-bearing header the one owner names (`isSensitiveHeaderName`,
- * src/privacy/secret-signals.ts), never a list of its own.
+ * every header the one owner does not know to be credential-free
+ * (`isSensitiveHeaderName`, src/privacy/secret-signals.ts: an allowlist of
+ * safe names, everything else redacted), never a list of its own.
  */
 
 import { isSensitiveHeaderName } from "../privacy/secret-signals.ts";

@@ -18,7 +18,7 @@ The `engine/test/privacy/` folder of the development surface.
 - `redaction-exhaustiveness.test.ts` — the `redaction-exhaustiveness.test` module.
 - `secret-parts.test.ts` — the one write-only secret primitive: every common credential shape in a URL or an argument list concealed (plain parts shown); a keep mark kept only in its own place and for the same destination; the scalar rule.
 - `secret-files.test.ts` — the secret-file owner: named secret files recognised (templates not); every value redacted and every key visible (env, JSON, YAML, INI, PEM, netrc); the file viewer applies it in every mode.
-- `sensitive-header-names.test.ts` — the one header denylist (`isSensitiveHeaderName`): every credential-bearing header shape flagged in any case (`Authentication`, `*-Key`, `*-Token`, `Cookie`), plain headers not; `redactHeaders` masks exactly what it names.
+- `sensitive-header-names.test.ts` — the one header rule (`isSensitiveHeaderName`), an allowlist: every credential-bearing header in any case, and a random unknown header, are sensitive; each allowlisted name passes; `redactHeaders` masks exactly what it names.
 
 ## Where it lives and what consumes it
 
