@@ -366,7 +366,7 @@ async function promotionBuild(context: PromotionContext, request: PromotionReque
  * PROMO-GH), run by S's own promoter in a checkout clean at S (the publish
  * job's): {@link forgePublishWith} over this engine's build.
  */
-export async function promotionForgePublish(repository: RepositoryContext, request: PromotionRequest, forge: ProductForge): Promise<PromotionAnswer> {
+async function promotionForgePublish(repository: RepositoryContext, request: PromotionRequest, forge: ProductForge): Promise<PromotionAnswer> {
   const context = contextFor(repository, request.profile, request.source);
   const git = configuredWorktreeGitPort(context.document);
   const placement = promoterPlacement(context, git);

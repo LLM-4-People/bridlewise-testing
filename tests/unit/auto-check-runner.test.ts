@@ -35,7 +35,7 @@ describe("auto-check runner", () => {
     expect(outcome.status).toBe("passed");
     expect(outcome.output.exitCode).toBe(0);
     expect(outcome.output.errorCount).toBe(0);
-  }, 60_000);
+  });
 
   test("typecheck FAILS on a project with a type error", async () => {
     writeFileSync(join(projectRoot, "tsconfig.json"), JSON.stringify({
@@ -48,7 +48,7 @@ describe("auto-check runner", () => {
     expect(outcome.status).toBe("failed");
     expect(outcome.output.exitCode).not.toBe(0);
     expect(outcome.output.errorCount).toBeGreaterThanOrEqual(1);
-  }, 60_000);
+  });
 
   test("an UNEXPECTED error is thrown, never returned as a lint verdict", async () => {
     // A CRASH IS NOT A DOMAIN ANSWER. The lint path catches to retry a
@@ -64,7 +64,7 @@ describe("auto-check runner", () => {
     // inside the bridge — an error of a type this loop has no meaning for.
     const brokenGate = { decisions: null } as unknown as Parameters<typeof runAutoCheck>[2];
     await expect(runAutoCheck("lint", projectRoot, brokenGate)).rejects.toThrowError(TypeError);
-  }, 60_000);
+  });
 
   test("lint returns a quality score and a status", async () => {
     writeFileSync(join(projectRoot, "a.ts"), "export function add(a: number, b: number) { return a + b; }\n");
@@ -73,7 +73,7 @@ describe("auto-check runner", () => {
     expect(typeof outcome.output.score).toBe("number");
     expect(outcome.output).toHaveProperty("grade");
     expect(outcome.output).toHaveProperty("recommendations");
-  }, 60_000);
+  });
 
   test("unknown check name returns a typed not-runnable outcome", async () => {
     const outcome = await runAutoCheck("nonexistent", projectRoot);

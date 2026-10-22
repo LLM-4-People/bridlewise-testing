@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { defineConfig, mergeConfig } from "vitest/config";
 
 import { BUILD_CONFIG } from "./vite.config.ts";
-import { TEST_TIMEOUT_MS } from "./tests/test-budget.ts";
+import { TEST_HANG_BACKSTOP_MS } from "./tests/test-budget.ts";
 import { TEST_INCLUDE } from "./tests/test-include.ts";
 import { enableSharedCompileCache } from "./engine/scripts/tooling/compile-cache.ts";
 import { armCheckoutUnderTest } from "./engine/src/filesystem/checkout-write-door.ts";
@@ -139,7 +139,7 @@ export default mergeConfig(BUILD_CONFIG, defineConfig({
     // The existing isolation guard now drives both real process populations.
     pool: "forks",
     isolate: true,
-    setupFiles: ["./tests/setup/test-setup.ts"],
+    setupFiles: ["./tests/setup/test-setup.ts", "./tests/setup/test-cpu-class.ts"],
     // RUNS ONCE, AROUND THE WHOLE RUN, and that is the point: it fingerprints
     // first-party source before any worker starts and again after the last
     // one exits, so a test that mutates a real source file cannot hide behind
@@ -188,9 +188,11 @@ export default mergeConfig(BUILD_CONFIG, defineConfig({
     // async hang (an unresolved promise, a pending timer) — and deliberately
     // NOT the layer relied on against a synchronous spin, which no in-runtime
     // timeout can interrupt. That one needs the wall-clock watchdog outside
-    // the runtime (`scripts/run-tests.ts`).
-    testTimeout: TEST_TIMEOUT_MS,
-    hookTimeout: TEST_TIMEOUT_MS,
+    // the runtime (`scripts/run-tests.ts`). It is a HANG BACKSTOP only: how
+    // much a test costs is judged in CPU work by its file's class
+    // (`tests/setup/test-cpu-class.ts`, NO-LOAD-BLOCK), never by this clock.
+    testTimeout: TEST_HANG_BACKSTOP_MS,
+    hookTimeout: TEST_HANG_BACKSTOP_MS,
     reporters: ["default", "./tests/reporters/budget-reporter.ts"],
     // THE ONE DECLARATION, checked for per-glob liveness above before the
     // runner ever sees it. Spread rather than restated: a second list here

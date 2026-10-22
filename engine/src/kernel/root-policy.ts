@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "48b7b5ac11f412cbf6b912d4342ed95b91bcb6add81306b02b6823dbed76e3be",
+      sourceSha256: "daa6749de76294f8dca5c81bb764a5bbf104773cbef8d94cdc163a0c97a12287",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -1982,6 +1982,10 @@ const ROOT_POLICY_VALUE = {
       maximumFileBytes: 16_777_216,
       maximumDirectoryEntries: 100_000,
       temporaryRandomBytes: 16,
+      // Hex digits of a path's SHA-256 in a journaled commit's backup name
+      // (`<transaction>.<digest>.previous`, beside the journal): enough to keep
+      // a transaction's few files apart, short enough for a file name.
+      journalBackupPathDigestHex: 16,
       procFileDescriptorRoot: "/proc/self/fd",
       segmentContract: {
         maximumUtf8Bytes: 255,

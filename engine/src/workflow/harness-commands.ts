@@ -47,7 +47,7 @@ import { commandExitCode, parseHarnessCommandResult, renderCommandAnswer, takeOu
 // numeric defaults live in `./workflow-config.ts` (the canonical owner for
 // workflow operational defaults — no configurables outside
 // the config owner).
-import { SCRIPT_SUBPROCESS_OUTPUT_BYTES, SUBPROCESS_BOUNDS, DEFAULT_TIMELINE_COMMAND_LIMIT, worktreeOperationTimeouts } from "./workflow-config.ts";
+import { SCRIPT_SUBPROCESS_OUTPUT_BYTES, SUBPROCESS_BOUNDS, DEFAULT_TIMELINE_COMMAND_LIMIT, INVENTORY_HASH_PREVIEW_HEX, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline } from "../git/index-baseline.ts";
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
 import { syncCommunityFiles } from "./community/health-files.ts";
@@ -2031,7 +2031,7 @@ function registrarDriftMessage(report: ModuleRegistrarReport): string {
  * unexpectedly-published `not-published` source, an unreadable source, or the
  * published POPULATION moving off its authored pin — refuses.
  */
-export function externalCommandCheckViolations(root: string): readonly string[] {
+function externalCommandCheckViolations(root: string): readonly string[] {
   const violations: string[] = [];
   const sources: ArchitectureSource[] = [];
   const maximumSourceBytes = ARCHITECTURE_MANIFEST.analysisLimits.maximumSourceBytes;
@@ -2130,7 +2130,7 @@ export function runInventoryCheck(root: string): CheckStepResult {
       step: "inventory",
       status: current ? "pass" : "fail",
       message: current
-        ? `the test inventory matches the test-source projection (${String(parsed.testCount)} tests, ${parsed.inventoryHash.slice(0, 12)}…)`
+        ? `the test inventory matches the test-source projection (${String(parsed.testCount)} tests, ${parsed.inventoryHash.slice(0, INVENTORY_HASH_PREVIEW_HEX)}…)`
         : parsed.transactionPresent
           ? "a test-inventory transaction is left for recovery (run the inventory owner's --recover)"
           : "the test inventory is stale against the test sources or the root-policy pin (run harness sync)",
