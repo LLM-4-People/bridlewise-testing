@@ -73,6 +73,7 @@ import {
   WEB_PORT,
   type CapturedImage,
   type CaptureManifest,
+  type ShotStage,
   type StateAction,
   type Theme,
   type ViewAction,
@@ -85,6 +86,10 @@ const REPO_ROOT = resolve(HERE, "..", "..");
 const SCRATCH_MARKER = ".bridlewise-capture-scratch";
 /** How long after a capture the same view is shot again for the stillness proof. */
 const STILLNESS_RECHECK_MS = 1000;
+/** How many trailing lines of a failed command's stderr its refusal quotes. */
+const REFUSAL_STDERR_LINES = 15;
+/** How many lines of new text an unstill view's violation quotes. */
+const UNSTILL_TEXT_LINES = 5;
 const DEMO_MARKER = ".bridlewise-capture-demo";
 
 /** A typed refusal: the run stops and says why, by code. */
@@ -103,7 +108,7 @@ function log(message: string): void {
 function run(command: string, args: readonly string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; input?: Buffer }): string {
   const result = spawnSync(command, args, { cwd: options.cwd, env: options.env ?? process.env, timeout: options.timeoutMs, input: options.input, maxBuffer: 256 * 1024 * 1024 });
   if (result.error !== undefined || result.status !== 0) {
-    const stderr = result.stderr?.toString().trim().split("\n").slice(-15).join("\n") ?? "";
+    const stderr = result.stderr?.toString().trim().split("\n").slice(-REFUSAL_STDERR_LINES).join("\n") ?? "";
     throw new CaptureRefusal("command_failed", `${command} ${args.join(" ")} (exit ${String(result.status)}${result.error ? `, ${result.error.message}` : ""})\n${stderr}`);
   }
   return result.stdout.toString();
@@ -573,8 +578,9 @@ interface Run {
 /** Views whose subject is what the pointer is over: the capture leaves the pointer where the view put it. */
 const POINTER_HELD: ReadonlySet<ViewAction> = new Set(["openLensCallout"]);
 
-async function capture(state: Run, surface: Surface, file: string, fixtureRun: boolean, parkPointer: boolean): Promise<void> {
+async function capture(state: Run, surface: Surface, stage: ShotStage, parkPointer: boolean): Promise<void> {
   const { page } = surface;
+  const file = captureFileName(stage, surface.theme, surface.viewport);
   const spec = VIEWPORTS[surface.viewport];
   if (parkPointer) await page.mouse.move(1, spec.height - 1);
   await settle(page, 400, 4000);
@@ -582,7 +588,7 @@ async function capture(state: Run, surface: Surface, file: string, fixtureRun: b
   const regionsMasked = await page.locator("[data-capture-mask]:visible").count();
   const masked = maskedLabels(await readText());
   if (regionsMasked > 0) masked["live reading"] = Math.max(masked["live reading"] ?? 0, regionsMasked);
-  await page.evaluate((badge) => (window as unknown as { __capture: { setBadge: (t: string | null) => void } }).__capture.setBadge(badge), badgeText(fixtureRun, Object.keys(masked).length > 0));
+  await page.evaluate((badge) => (window as unknown as { __capture: { setBadge: (t: string | null) => void } }).__capture.setBadge(badge), badgeText(stage.fixtureRun, Object.keys(masked).length > 0));
   await settle(page, 300, 2000);
   const text = await readText();
   const shoot = (): Promise<Buffer> => page.screenshot({ animations: "disabled", caret: "hide", scale: "css" });
@@ -594,7 +600,7 @@ async function capture(state: Run, surface: Surface, file: string, fixtureRun: b
   if (!again.equals(png)) {
     const later = await readText();
     const before = new Set(text.split("\n"));
-    const changed = later.split("\n").filter((line) => !before.has(line)).slice(0, 5);
+    const changed = later.split("\n").filter((line) => !before.has(line)).slice(0, UNSTILL_TEXT_LINES);
     mkdirSync(join(state.out, "unstill"), { recursive: true });
     writeFileSync(join(state.out, "unstill", file), again);
     state.violations.push(`${file}: the view changed within ${STILLNESS_RECHECK_MS} ms (the later shot: unstill/${file})${changed.length > 0 ? ` (new text: ${changed.join(" | ")})` : " (pixels only)"}`);
@@ -612,8 +618,8 @@ async function capture(state: Run, surface: Surface, file: string, fixtureRun: b
     bytes: png.length,
     theme: surface.theme,
     viewport: surface.viewport,
-    stage: file.slice(0, 2),
-    fixtureReplay: fixtureRun,
+    stage: stage.id,
+    fixtureReplay: stage.fixtureRun,
     masked,
     textSha256: sha256(text),
   });
@@ -720,7 +726,7 @@ async function drive(state: Run, browser: Browser): Promise<void> {
         const file = captureFileName(stage, surface.theme, surface.viewport);
         try {
           const leave = await VIEW[stage.action](surface);
-          await capture(state, surface, file, stage.fixtureRun, !POINTER_HELD.has(stage.action));
+          await capture(state, surface, stage, !POINTER_HELD.has(stage.action));
           if (leave) await leave();
         } catch (error) {
           throw new CaptureRefusal("view_failed", `${file}: ${error instanceof Error ? error.message : String(error)}`);

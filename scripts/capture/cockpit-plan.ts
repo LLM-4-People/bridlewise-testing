@@ -205,7 +205,10 @@ export type Stage =
       readonly fixtureRun: boolean;
     };
 
-const BOTH: readonly ViewportId[] = ["desktop", "mobile"];
+const BOTH = VIEWPORT_IDS;
+// DELIBERATE SUBSET: 1 of 2 — the Lens callout answers a hovered pointer, which the touch
+// viewport does not have, and the walkthrough shows the wide context-and-tools sheet at the
+// desktop width only.
 const DESKTOP: readonly ViewportId[] = ["desktop"];
 
 export const SEQUENCE: readonly Stage[] = [
