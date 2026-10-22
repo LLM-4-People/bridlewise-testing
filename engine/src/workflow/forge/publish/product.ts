@@ -32,10 +32,7 @@ import { promotionTrailersOf } from "../../promotion/trailers.ts";
 import { PromotionError } from "../../promotion/codes.ts";
 import { advanceBranch, branchHead, remakeCommit } from "./git-data.ts";
 import { atomicWriteFile } from "../../../filesystem/atomic-write.ts";
-import { resolveRevision } from "../../../git/tree-reader.ts";
 import { answer, type PromotionAnswer } from "../../promotion/codes.ts";
-import { branchOf, type LoadedPromotionProfile } from "../../promotion/profile.ts";
-import { promotionRefs } from "../../promotion/promotion-run.ts";
 import { configuredForge, configuredForgeClient } from "../configured-forge.ts";
 import { environmentCredential } from "../credentials.ts";
 import { FORGE_APPS } from "../app-registry.ts";
@@ -115,16 +112,13 @@ export function configuredProductForge(): ProductForge {
 }
 
 /**
- * `harness promote forge-publish --out <file>`: the profile's pending
- * promotion (built and pinned by `apply --no-publish` in this job) published
- * to the forge (see {@link publishProduct}); the projection receipt written
- * to `out` for the job to attest.
+ * Publishes the promotion `commit` the verb just built and checked
+ * (`promotionForgePublish` in `promotion/context.ts`: built fresh, never a
+ * commit built elsewhere) to `branch` (see {@link publishProduct}), and writes
+ * the projection receipt's canonical bytes to `out` for the job to attest.
  */
-export async function forgePublishVerb(input: Readonly<{ local: GitRepository; loaded: LoadedPromotionProfile; out: string; forge: ProductForge }>): Promise<PromotionAnswer> {
-  const { profile } = input.loaded;
-  const pending = resolveRevision(input.local, promotionRefs(profile.name).pending);
-  if (pending === null) throw new PromotionError("promotion_forge_nothing_pending", `the profile ${profile.name} has no pending promotion here: build it in this job first (\`harness promote apply --no-publish\`)`, { profile: profile.name });
-  const receipt = await publishProduct({ client: input.forge.client, repository: input.forge.repository, branch: branchOf(profile.target.ref), local: input.local, commit: pending });
+export async function forgePublishVerb(input: Readonly<{ local: GitRepository; branch: string; commit: string; out: string; forge: ProductForge }>): Promise<PromotionAnswer> {
+  const receipt = await publishProduct({ client: input.forge.client, repository: input.forge.repository, branch: input.branch, local: input.local, commit: input.commit });
   const written = atomicWriteFile(input.out, receiptBytes(receipt));
   if (!written.success) throw written.error;
   return answer("promotion_forge_published", `${receipt.branch} on ${receipt.repository} is ${receipt.commit}, the projection of ${receipt.source} (receipt: ${input.out})`, receipt);

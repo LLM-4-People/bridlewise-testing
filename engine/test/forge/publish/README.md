@@ -4,11 +4,12 @@ The publisher App's work on the forge (`src/workflow/forge/publish/`), tested ag
 
 ## What each file does
 
+- `git-forge.ts` — the git-backed forge (not a test file): the Git Data routes over a bare repository, plus knobs that plant a wrong blob id, a wrong tree, an unsigned commit, or a ref update that is answered but never applied.
 - `product.test.ts` — the product publication:
-  - the built promotion re-made as a signed commit holding the built tree, with parents [tip, source], the message and trailers kept, only the changed blobs uploaded, the branch moved forward, and the canonical receipt;
-  - a branch that moved since the build refused with nothing written;
-  - an unsigned commit or a wrong tree refused as integrity, with the branch unmoved;
-  - a commit with no trailers, or with swapped parents, refused before any request;
-  - the forge's refusals keeping their class (errored, refused);
-  - the verb (nothing pending refused; the receipt written for the attestation);
-  - the `forge-publish` grammar and its round trip.
+  - the re-made signed commit, its tree, parents, message, uploaded blobs and receipt;
+  - a moved branch refused with nothing written;
+  - each barrier with a test that goes red when it is removed (the blob id, the tree, the signature, `force: false`, the head check, the re-read);
+  - only promotion commits published, and the forge's refusal classes kept;
+  - the publisher's check: the built tree must be the projection recomputed from S under the profile read from it (an excluded file, internal notes or a changed shipped file named; a wrong profile blob or name refused);
+  - the verb: it builds itself (a planted pending commit dropped and never carried), checks and publishes; a departing build publishes nothing; a refusing build is the verb's answer;
+  - the grammar: `--out`, `--source` and the reasoned overrides, round trip included.

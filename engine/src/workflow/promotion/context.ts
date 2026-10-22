@@ -45,7 +45,7 @@ import { generatedOutputPaths, pinnedBuildOutputPaths } from "../hash-binding-re
 import { repositoryRegistryArea, resolveRepositoryRegistry, type RepositoryRegistry } from "../repository-registry.ts";
 import { PromotionError, answer, type PromotionAnswer } from "./codes.ts";
 import { applyPromotion } from "./apply.ts";
-import { promotionErrorOf, promotionFolder, promotionRefs, targetTip, type ApplyRun } from "./promotion-run.ts";
+import { dropPending, promotionErrorOf, promotionFolder, promotionRefs, targetTip, type ApplyRun } from "./promotion-run.ts";
 import { promotionState, readLastRun, type LastRun } from "./last-run.ts";
 import { localHold } from "./publication.ts";
 import { holdPromotion, releaseHold, rollbackPromotion } from "./rollback.ts";
@@ -53,9 +53,10 @@ import { autoPromotion, launchUnattendedApply, withUnattendedChain, type Unatten
 import type { PromotionRequest } from "./promote-arguments.ts";
 import { engineRelativeIn, promoterPlacement, runInPromoterHome, type PromoterPlacement } from "./promoter-home.ts";
 import { branchOf, loadPromotionProfiles, parsePromotionProfile, profileCommandNames, selectPromotionProfile, type LoadedPromotionProfile } from "./profile.ts";
-import { classifyTree, explainPaths, planPromotion, projectSource, type PromotionPlan } from "./projection.ts";
-import { configuredProductForge, forgePublishVerb } from "../forge/publish/product.ts";
-import { profileHistory, profileOfTrailer, trailerHistory } from "./trailers.ts";
+import { classifyTree, explainPaths, planPromotion, projectionDeviations, projectSource, type PromotionPlan } from "./projection.ts";
+import { configuredProductForge, forgePublishVerb, type ProductForge } from "../forge/publish/product.ts";
+import { worktreeOperationTimeouts } from "../workflow-config.ts";
+import { profileHistory, profileOfTrailer, promotionTrailersOf, trailerHistory } from "./trailers.ts";
 
 /** The configuration a promotion reads: the command registry, the profile directory, the git it runs, the runner's retry policy and the lock wait. */
 export type PromotionDocument = Pick<ConfigDocument, "workspaceIsolation" | "promotion" | "workspaceGit" | "harness" | "resourceLock">;
@@ -86,7 +87,7 @@ export type PromotionContext = RepositoryContext & Readonly<{
 }>;
 
 /** The repository context of the checkout at `root` (see the header); `document` defaults to the pinned configuration. */
-function resolveRepositoryContext(root: string, document: PromotionDocument = loadPinnedConfigSnapshot().document): RepositoryContext {
+export function resolveRepositoryContext(root: string, document: PromotionDocument = loadPinnedConfigSnapshot().document): RepositoryContext {
   const isolation = document.workspaceIsolation;
   const profileDirectory = document.promotion?.profileDirectory;
   if (isolation === undefined || profileDirectory === undefined) {
@@ -332,7 +333,7 @@ function applyRun(context: PromotionContext, git: WorktreeGitPort, runner: Check
  * (`trigger.ts` `withUnattendedChain`: latest wins — the top-level process's,
  * never the home's child), once every lock it took is released.
  */
-async function promotionBuild(context: PromotionContext, request: PromotionRequest, contextOf: (profile: string, source: string) => PromotionContext, launch: UnattendedLaunch): Promise<PromotionAnswer> {
+async function promotionBuild(context: PromotionContext, request: PromotionRequest, contextOf: (profile: string, source: string) => PromotionContext, launch: UnattendedLaunch, chain = request.verb === "apply"): Promise<PromotionAnswer> {
   const git = configuredWorktreeGitPort(context.document);
   const build = async (): Promise<PromotionAnswer> => {
     const runner = await commandRunner(context);
@@ -356,7 +357,60 @@ async function promotionBuild(context: PromotionContext, request: PromotionReque
       auto: request.auto === true,
     }, run);
   };
-  return request.verb === "apply" ? withUnattendedChain(context, git, build, contextOf, launch) : build();
+  return chain ? withUnattendedChain(context, git, build, contextOf, launch) : build();
+}
+
+/**
+ * `harness promote forge-publish`: the publisher's one verb (decision
+ * PROMO-GH). It BUILDS the promotion itself — any pending commit is dropped
+ * first, so nothing built elsewhere is ever carried — through the same build
+ * as `apply --no-publish` (the projection of S onto the product tip, the
+ * profile's phases, the repository's hooks; the overrides a first promotion
+ * needs pass through with their reason). It then checks the built commit
+ * against the recomputed projection ({@link verifyBuiltProjection}) and
+ * publishes it to the forge as the publisher App (`forge/publish/product.ts`).
+ */
+export async function promotionForgePublish(
+  repository: RepositoryContext,
+  request: PromotionRequest,
+  forge: ProductForge,
+  launch: UnattendedLaunch = launchUnattendedApply,
+  build: (context: PromotionContext, request: PromotionRequest) => Promise<PromotionAnswer> = (context, applyRequest) => promotionBuild(context, applyRequest, (profile, source) => contextFor(repository, profile, source), launch, false),
+): Promise<PromotionAnswer> {
+  const context = contextFor(repository, request.profile, request.source);
+  const git = configuredWorktreeGitPort(context.document);
+  const stale = resolveRevision(context.repository, promotionRefs(context.loaded.profile.name).pending);
+  if (stale !== null) dropPending(context, git, stale, worktreeOperationTimeouts(context.document).inspectMs);
+  const built = await build(context, { ...request, verb: "apply", noPublish: true, noPush: false, auto: false });
+  if (built.code !== "promotion_committed") return built;
+  const commit = (built.data as { commit: string }).commit;
+  verifyBuiltProjection(context, commit, await promotionPlan(context));
+  return forgePublishVerb({ local: context.repository, branch: branchOf(context.loaded.profile.target.ref), commit, out: request.out!, forge });
+}
+
+/**
+ * THE PUBLISHER'S CHECK of a built promotion commit against the projection
+ * recomputed from its source: its `Promotion-Profile` trailer names the
+ * profile and the blob read from S (`promotion_forge_profile_mismatch`), its
+ * `Projected-From` names S, and its tree is the plan's projection tree P but
+ * for generated outputs that differ only in their generated parts
+ * (`promotion_forge_projection_mismatch`, naming each path). A refused plan
+ * (a boundary refusal on the source) refuses the publication too.
+ */
+export function verifyBuiltProjection(context: PromotionContext, commit: string, plan: PromotionPlan): void {
+  const trailers = promotionTrailersOf(context.repository, commit);
+  const profile = `${context.loaded.profile.name}@${context.loaded.blob ?? "working tree"}`;
+  if (trailers.profile !== profile || trailers.projectedFrom !== context.source) {
+    throw new PromotionError("promotion_forge_profile_mismatch", `${commit} names the profile ${String(trailers.profile)} and the source ${String(trailers.projectedFrom)}; the projection is ${profile} of ${context.source}`, { commit, profile: trailers.profile, expectedProfile: profile, source: trailers.projectedFrom, expectedSource: context.source });
+  }
+  const sourceRefusals = plan.refusals.filter((entry) => !["promotion_target_edits", "promotion_deletion_budget"].includes(entry.code));
+  if (sourceRefusals.length > 0 || plan.projection.underived.length > 0) {
+    throw new PromotionError("promotion_forge_projection_mismatch", `the projection of ${context.source} cannot be recomputed (${[...sourceRefusals.map((entry) => entry.code), ...plan.projection.underived.map((path) => `underived ${path}`)].join(", ")})`, { commit, refusals: sourceRefusals.map((entry) => entry.code), underived: plan.projection.underived });
+  }
+  const deviations = projectionDeviations(context.repository, plan.projection.tree, commit);
+  if (deviations.length > 0) {
+    throw new PromotionError("promotion_forge_projection_mismatch", `${commit} departs from the projection of ${context.source} at ${deviations.join(", ")}: only the recomputed projection is published`, { commit, paths: deviations });
+  }
 }
 
 /** `harness promote auto --refs <refs>` over the checkout at `root` (see `trigger.ts`); `launch` starts each unattended run (production: in the background). */
@@ -368,10 +422,7 @@ export function promotionAuto(root: string, refs: string, document: PromotionDoc
 async function verbAnswer(root: string, request: PromotionRequest, document: PromotionDocument | undefined, launch: UnattendedLaunch): Promise<PromotionAnswer> {
   if (request.verb === "auto") return promotionAuto(root, request.refs ?? "", document, launch);
   const repository = resolveRepositoryContext(root, document);
-  if (request.verb === "forge-publish") {
-    const loaded = selectPromotionProfile(declaredProfiles(repository), request.profile, `HEAD:${repository.profileDirectory}`);
-    return forgePublishVerb({ local: repository.repository, loaded, out: request.out!, forge: configuredProductForge() });
-  }
+  if (request.verb === "forge-publish") return promotionForgePublish(repository, request, configuredProductForge(), launch);
   const context = contextFor(repository, request.profile, request.source);
   if (request.verb === "status") return promotionStatus(context);
   if (request.verb === "apply" || request.verb === "rollback") return promotionBuild(context, request, (profile, source) => contextFor(repository, profile, source), launch);

@@ -586,3 +586,23 @@ export function explainPaths(classification: Classification, paths: readonly str
     };
   }));
 }
+
+/**
+ * Where the tree `built` (a candidate's commit, after its converge phase)
+ * departs from the projection tree `projected` (the plan's P, computed purely
+ * from S): every path whose entry differs, unless it is a generated output
+ * that differs only in its generated parts (what the converge phase
+ * regenerates on the product tree). Empty: `built` IS the projection. The
+ * publisher's check that the tree it publishes is the recomputed projection.
+ */
+export function projectionDeviations(repository: GitRepository, projected: string, built: string): readonly string[] {
+  const changed = gitOutput(repository, ["diff-tree", "-r", "-z", "--no-renames", "--name-only", projected, built]).stdout.toString("utf8").split("\0").filter((path) => path.length > 0);
+  if (changed.length === 0) return deepFreeze([]);
+  const reader = commitTreeReader(repository, built);
+  const generated = generatedOutputPathsOf(reader.paths(), (path) => reader.text(path));
+  const blobText = (tree: string, path: string): string | null => {
+    const answer = gitOutput(repository, ["cat-file", "-p", `${tree}:${path}`], { allowed: [0, 128] });
+    return answer.status === 0 ? answer.stdout.toString("utf8") : null;
+  };
+  return deepFreeze(changed.filter((path) => !(generated.has(path) && isGenerationOnlyChange(path, blobText(projected, path), blobText(built, path)))));
+}

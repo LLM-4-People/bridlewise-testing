@@ -12,7 +12,8 @@
  *   apply        [--profile <name>] [--source <rev>] [--no-publish] [--no-push] [--auto]
  *                [--accept-target-edits <path>… --reason <text>] [--allow-deletions --reason <text>]
  *                [--release-hold --reason <text>]
- *   forge-publish [--profile <name>] --out <file>
+ *   forge-publish [--profile <name>] [--source <rev>] --out <file>
+ *                [--accept-target-edits <path>… --reason <text>] [--allow-deletions --reason <text>]
  *   rollback     [--profile <name>] --to <promotion commit> --reason <text>
  *   hold         [--profile <name>] --reason <text>
  *   release-hold [--profile <name>] --reason <text>
@@ -66,6 +67,7 @@ function isPromotionVerb(value: string | undefined): value is PromotionVerb {
 const VERB_FLAGS: Readonly<Partial<Record<PromotionVerb, readonly string[]>>> = deepFreeze({
   plan: ["--diff", "--patch"],
   apply: ["--no-publish", "--no-push", "--auto", "--allow-deletions", "--release-hold"],
+  "forge-publish": ["--allow-deletions"],
 });
 
 /** The verbs a `--reason` always comes with (a person's decision the record explains). */
@@ -93,13 +95,13 @@ export function parsePromoteArguments(argv: readonly string[]): PromotionRequest
       return next;
     };
     if (argument === "--profile" && verb !== "auto") profile = value();
-    else if (argument === "--source" && ["status", "plan", "explain", "apply"].includes(verb)) source = value();
+    else if (argument === "--source" && ["status", "plan", "explain", "apply", "forge-publish"].includes(verb)) source = value();
     else if (VERB_FLAGS[verb]?.includes(argument) === true) flags.add(argument);
-    else if (argument === "--reason" && (verb === "apply" || REASONED_VERBS.has(verb))) reason = value();
+    else if (argument === "--reason" && (verb === "apply" || verb === "forge-publish" || REASONED_VERBS.has(verb))) reason = value();
     else if (argument === "--to" && verb === "rollback") to = value();
     else if (argument === "--refs" && verb === "auto") refs = value();
     else if (argument === "--out" && verb === "forge-publish") out = value();
-    else if (argument === "--accept-target-edits" && verb === "apply") {
+    else if (argument === "--accept-target-edits" && (verb === "apply" || verb === "forge-publish")) {
       acceptTargetEdits = [];
       while (argv[index + 1] !== undefined && !argv[index + 1]!.startsWith("--")) acceptTargetEdits.push(argv[++index]!);
       if (acceptTargetEdits.length === 0) throw new PromotionError("promotion_usage", "--accept-target-edits needs the exact list of the plan's target edits");
@@ -133,6 +135,7 @@ export function parsePromoteArguments(argv: readonly string[]): PromotionRequest
       allowDeletions: flags.has("--allow-deletions"),
       releaseHold: flags.has("--release-hold"),
     } : {}),
+    ...(verb === "forge-publish" ? { allowDeletions: flags.has("--allow-deletions") } : {}),
     ...(acceptTargetEdits === undefined ? {} : { acceptTargetEdits }),
     ...(reason === undefined ? {} : { reason }),
     ...(to === undefined ? {} : { to }),
