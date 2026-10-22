@@ -1,75 +1,67 @@
 /**
- * THE FLOOR SITE'S PUBLISH PLAN AND LINK MAP — one owner.
+ * THE SITE'S PUBLISH PLAN AND LINK MAP — one owner.
  *
- * The site is assembled from two checkouts: the product documentation mirror
- * (`--product <product>/docs`) and this testing checkout. A page published on
- * the site has a SOURCE file in one of them and a PERMALINK (Jekyll
- * `permalink: pretty`, or the page's own front matter). A relative Markdown
- * link in a copied testing page is written for GitHub, where it resolves
- * against the repository tree; the site page lives at its pretty URL, one or
- * more path segments away from the source file. The same link therefore
- * cannot be right in both places unless one side is rewritten.
+ * The one Pages site is built from ONE source: this repository's `docs/`
+ * tree. Every Markdown file under `docs/` is a page unless its front matter
+ * says `published: false`; its URL is its front-matter `permalink`, or the
+ * pretty URL its path gives (`docs/a/b.md` → `/a/b/`; an `index.md` or a
+ * `README.md` is its folder's page). Two pages answering one URL is a refusal,
+ * never a silent winner.
  *
- * This module is that mapping, used by:
- *   - `assembleFloorSite` (scripts/floor/site.mjs) to publish the pages and
- *     rewrite the copied testing pages' relative links to their site URLs;
- *   - `scripts/check-docs-links.mjs`, so a floor page linking to a docs path
- *     the assembler does not publish fails in the normal test run;
- *   - the site-link crawler's fixtures (the mapping explains the expected
- *     `/floor/trackers/TASKS.md` pre-fix shape).
+ * A relative link in a page is written for GitHub, where it resolves against
+ * the repository tree; the site page lives at its pretty URL, one or more
+ * path segments away from the source file. The builder rewrites the BUILT
+ * copy (the committed Markdown is never touched) by one rule:
+ *   - a published docs page → its site URL;
+ *   - a file the site serves under `docs/` (an asset) → its site URL;
+ *   - anything else in the repository (an unpublished page, a script, a test,
+ *     a workflow) → its GitHub URL;
+ *   - a target that does not exist → an error naming the page and the link.
  *
- * THE COMMITTED SOURCE IS NEVER TOUCHED. GitHub keeps rendering the relative
- * paths; only the assembled copy is rewritten.
+ * Used by `scripts/floor/site.mjs` (the builder) and
+ * `scripts/check-docs-links.mjs` (the same rule judged in the normal test run,
+ * so a link the build would refuse is red before any build).
  */
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, posix, resolve, sep } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { posix, resolve } from "node:path";
 
-/** The testing repository a non-published relative target is linked to. */
-export const TESTING_REPO_URL = "https://github.com/LLM-4-People/bridlewise-testing";
-export const TESTING_REPO_BRANCH = "main";
+import { coordinatesOf, repositoryFileUrl, spelledUrls } from "./repository.mjs";
 
-/**
- * The testing trees the assembler copies wholesale. `siteRoot` is where the
- * tree lands in the Jekyll source, which is also where its permalinks start.
- * Adding a tree here is the ONE change that makes its pages publishable.
- */
-export const FLOOR_COPY_ROOTS = Object.freeze([
-  Object.freeze({ docsRoot: "docs/floor", siteRoot: "floor" }),
-  Object.freeze({ docsRoot: "docs/trackers", siteRoot: "trackers" }),
-]);
+/** The site's only source folder, repository-relative. */
+export const DOCS_ROOT = "docs";
 
 /**
- * Testing pages copied OVER the product mirror at the site root. The hub
- * replaces the product home, and the product entry page is the floor's own.
+ * Pages that moved, as `old URL → new URL` (site-relative, with their
+ * trailing slash). Each old URL is served as a redirect page, never as a
+ * second copy of the content.
  */
-export const FLOOR_OVERLAY_PAGES = Object.freeze([
-  Object.freeze({ docsPath: "docs/index.md", sitePath: "index.md" }),
-  Object.freeze({ docsPath: "docs/product.md", sitePath: "product.md" }),
-]);
+export const MOVED_PAGES = Object.freeze(new Map([
+  ["/product/", "/"],
+  ["/roadmap/", "/floor/roadmap/"],
+]));
 
 const MARKDOWN_LINK = /(!?\[[^\]]*\]\()([^)\s]+)((?:\s+"[^"]*")?\))/gu;
 const EXTERNAL_OR_ABSOLUTE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/|#|\{\{|\{%|<)/iu;
+const FENCE = /^\s*(?:```|~~~)/u;
 
-function toPosix(path) {
-  return path.split(sep).join("/");
+/** Whether `text` opens with a YAML front matter block. */
+export function hasFrontMatter(text) {
+  return text.startsWith("---\n") || text.startsWith("---\r\n");
 }
 
-function readPage(file) {
+/** The page text and its front matter's top-level scalar fields. */
+export function readPage(file) {
   const text = readFileSync(file, "utf8");
   const data = {};
-  const endOfOpening = text.startsWith("---\n") ? 3 : text.startsWith("---\r\n") ? 4 : -1;
-  if (endOfOpening !== -1) {
-    const end = text.indexOf("\n---", endOfOpening);
+  if (hasFrontMatter(text)) {
+    const opening = text.startsWith("---\r\n") ? 4 : 3;
+    const end = text.indexOf("\n---", opening);
     if (end !== -1) {
-      const block = text.slice(endOfOpening, end);
-      for (const line of block.split(/\r?\n/u)) {
+      for (const line of text.slice(opening, end).split(/\r?\n/u)) {
         const match = /^([A-Za-z0-9_-]+):\s*(.*)$/u.exec(line);
         if (match === null) continue;
         let value = match[2].trim();
-        if (
-          (value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))
-        ) {
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
           value = value.slice(1, -1);
         }
         data[match[1]] = value;
@@ -87,55 +79,15 @@ function normalizePermalink(permalink) {
   return `${withLeading}/`;
 }
 
-/** The pretty URL Jekyll derives from a docs-relative Markdown path. */
+/** The pretty URL a docs-relative Markdown path gives (`index.md` and `README.md` are their folder's page). */
 export function prettyPermalink(docsPath) {
   const relative = docsPath.replace(/^docs\//u, "").replace(/\.md$/iu, "");
-  if (relative === "index") return "/";
-  if (relative.endsWith("/index")) return `/${relative.slice(0, -"/index".length)}/`;
+  const folderPage = /(?:^|\/)(?:index|README)$/u.exec(relative);
+  if (folderPage !== null) {
+    const folder = relative.slice(0, folderPage.index);
+    return folder.length === 0 ? "/" : `/${folder}/`;
+  }
   return `/${relative}/`;
-}
-
-function pageSource({ docsPath, productRoot, testingRoot }) {
-  const testingFile = resolve(testingRoot, ...docsPath.split("/"));
-  for (const { docsRoot } of FLOOR_COPY_ROOTS) {
-    if (docsPath.startsWith(`${docsRoot}/`)) {
-      return existsSync(testingFile) ? { file: testingFile, owner: "testing" } : null;
-    }
-  }
-  for (const overlay of FLOOR_OVERLAY_PAGES) {
-    if (docsPath === overlay.docsPath) {
-      return existsSync(testingFile) ? { file: testingFile, owner: "testing" } : null;
-    }
-  }
-  // A top-level docs page is product documentation (the mirror is the
-  // reference) or, when the mirror lacks it, the testing page is copied in as
-  // a self-contained fallback. A subdirectory page is NOT published this way:
-  // it may depend on assets and relative structure the copy would not carry.
-  if (!/^docs\/[^/]+\.md$/iu.test(docsPath)) return null;
-  if (productRoot !== undefined) {
-    const productFile = resolve(productRoot, docsPath.slice("docs/".length));
-    if (existsSync(productFile)) return { file: productFile, owner: "product" };
-  }
-  return existsSync(testingFile) ? { file: testingFile, owner: "testing-fallback" } : null;
-}
-
-/**
- * The published page for a docs-relative Markdown path, or `null` when the
- * assembler does not publish it. `productRoot` is optional: without it (the
- * docs-links check, which runs against this checkout alone) a top-level page
- * is judged publishable because the assembler mirrors it or copies the
- * testing fallback.
- */
-export function publishedDocsPage({ docsPath, productRoot, testingRoot }) {
-  const source = pageSource({ docsPath, productRoot, testingRoot });
-  if (source === null) return null;
-  const { data } = readPage(source.file);
-  if (String(data["published"]).toLowerCase() === "false") return null;
-  const permalink =
-    typeof data["permalink"] === "string" && data["permalink"].length > 0
-      ? normalizePermalink(data["permalink"])
-      : prettyPermalink(docsPath);
-  return { sourceFile: source.file, owner: source.owner, permalink };
 }
 
 /** A site URL (with the deployment base path) for a page permalink. */
@@ -152,301 +104,269 @@ export function resolveDocsTarget(pageDocsPath, target) {
   const withoutHash = target.split("#")[0].split("?")[0];
   if (!/\.md$/iu.test(withoutHash)) return null;
   const resolved = posix.normalize(posix.join(posix.dirname(pageDocsPath), withoutHash));
-  return resolved.startsWith("docs/") ? resolved : null;
+  return resolved.startsWith(`${DOCS_ROOT}/`) ? resolved : null;
 }
 
-/**
- * Rewrite one relative target. A relative non-Markdown target is repository
- * content the site does not serve (a test, a workflow, a script); the
- * assembled page keeps a working link by naming its GitHub location. The
- * committed Markdown stays relative, so GitHub renders it against the tree.
- *
- * `unpublishedDocs` is `"error"` for the floor's own pages (a link to a page
- * the plan does not publish is a 404 the assembly must refuse) and
- * `"github"` for a testing page copied as a product fallback: that page is
- * product documentation, and a process-document link it carries is served by
- * the repository, not the site.
- */
-function rewriteTarget(target, { pageDocsPath, testingRoot, productRoot, baseurl, unpublishedDocs = "error" }) {
-  if (EXTERNAL_OR_ABSOLUTE.test(target)) return target;
-  const hashIndex = target.indexOf("#");
-  const hash = hashIndex === -1 ? "" : target.slice(hashIndex);
-  const pathPart = (hashIndex === -1 ? target : target.slice(0, hashIndex)).split("?")[0];
-  if (pathPart.length === 0) return target;
-
-  const docsTarget = resolveDocsTarget(pageDocsPath, pathPart);
-  if (docsTarget !== null) {
-    const page = publishedDocsPage({ docsPath: docsTarget, productRoot, testingRoot });
-    if (page === null) {
-      if (unpublishedDocs === "github") {
-        const repoFile = resolve(testingRoot, ...docsTarget.split("/"));
-        if (existsSync(repoFile)) {
-          return `${TESTING_REPO_URL}/blob/${TESTING_REPO_BRANCH}/${docsTarget}${hash}`;
-        }
-      }
-      throw new Error(
-        `${pageDocsPath}: link '${target}' targets ${docsTarget}, which the floor site does not publish ` +
-          "(see scripts/floor/site-pages.mjs's copy roots and overlay pages)",
-      );
-    }
-    return `${siteUrlForPermalink(page.permalink, baseurl)}${hash}`;
-  }
-
-  // A relative non-Markdown target is repository content the site does not
-  // serve (a test, a workflow, a script). The assembled page keeps a working
-  // link by naming its GitHub location; the committed Markdown stays relative.
-  const repoPath = posix.normalize(posix.join(posix.dirname(pageDocsPath), pathPart));
-  if (repoPath.startsWith("docs/assets/")) {
-    return `${siteUrlForPermalink(`/${repoPath.slice("docs/".length)}`, baseurl)}${hash}`;
-  }
-  const repoFile = resolve(testingRoot, ...repoPath.split("/"));
-  if (!existsSync(repoFile)) {
-    throw new Error(`${pageDocsPath}: link '${target}' names ${repoPath}, which does not exist in the testing checkout`);
-  }
-  const kind = statSync(repoFile).isDirectory() ? "tree" : "blob";
-  return `${TESTING_REPO_URL}/${kind}/${TESTING_REPO_BRANCH}/${repoPath}${hash}`;
-}
-
-/**
- * Rewrite every relative Markdown link in one copied page. Absolute URLs,
- * site URLs, Liquid expressions, anchors and mailto links are untouched; a
- * docs page the assembler does not publish is an ASSEMBLY ERROR by default,
- * because publishing it would ship a 404. A copied product fallback passes
- * `unpublishedDocs: "github"` instead: its non-site links are repository
- * documents and the GitHub URL is where they live.
- */
-export function rewritePageLinks(markdown, options) {
-  let rewritten = 0;
-  const text = markdown.replace(MARKDOWN_LINK, (whole, prefix, target, suffix) => {
-    const next = rewriteTarget(target, options);
-    if (next !== target) rewritten += 1;
-    return `${prefix}${next}${suffix}`;
-  });
-  return { text, rewritten };
-}
-
-function markdownFiles(directory) {
-  if (!existsSync(directory)) return [];
+function markdownFiles(root) {
   const out = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const full = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "data") continue;
-      out.push(...markdownFiles(full));
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      out.push(full);
+  const visit = (relative) => {
+    const directory = resolve(root, ...relative.split("/"));
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const child = `${relative}/${entry.name}`;
+      if (entry.isDirectory()) visit(child);
+      else if (entry.isFile() && entry.name.endsWith(".md")) out.push(child);
     }
-  }
+  };
+  visit(DOCS_ROOT);
   return out;
 }
 
 /**
- * Publish a testing fallback page the product mirror does not provide, and
- * answer the docs paths copied so the caller can rewrite them too. Only a
- * top-level page can be a fallback (see `pageSource`); its site path is the
- * same file name at the site root.
+ * THE PUBLISH PLAN of the tree at `root`: every docs Markdown file with its
+ * permalink (`null` when `published: false`), and a map from each published
+ * permalink to its page. Two pages answering one URL refuse the plan.
  */
-export function materializeFloorFallbacks({ outRoot, productRoot, testingRoot }) {
-  const copied = [];
-  for (const page of floorPages({ testingRoot })) {
-    for (const link of page.links) {
-      const docsPath = resolveDocsTarget(page.docsPath, link);
-      if (docsPath === null) continue;
-      const published = publishedDocsPage({ docsPath, productRoot, testingRoot });
-      if (published === null || published.owner !== "testing-fallback") continue;
-      const sitePath = docsPath.slice("docs/".length);
-      const destination = join(outRoot, ...sitePath.split("/"));
-      if (!existsSync(destination)) {
-        mkdirSync(dirname(destination), { recursive: true });
-        copyFileSync(published.sourceFile, destination);
+export function sitePlan({ root }) {
+  const coordinates = coordinatesOf(root);
+  const pages = new Map();
+  const byPermalink = new Map();
+  const collisions = [];
+  for (const docsPath of markdownFiles(root)) {
+    const file = resolve(root, ...docsPath.split("/"));
+    const { text, data } = readPage(file);
+    const published = String(data["published"]).toLowerCase() !== "false";
+    const permalink = !published
+      ? null
+      : typeof data["permalink"] === "string" && data["permalink"].length > 0
+        ? normalizePermalink(data["permalink"])
+        : prettyPermalink(docsPath);
+    const page = { docsPath, file, permalink, frontMatter: hasFrontMatter(text) };
+    pages.set(docsPath, page);
+    if (permalink === null) continue;
+    const owner = byPermalink.get(permalink);
+    if (owner !== undefined) collisions.push(`${owner.docsPath} and ${docsPath} both publish ${permalink}`);
+    else byPermalink.set(permalink, page);
+  }
+  for (const [from] of MOVED_PAGES) {
+    const owner = byPermalink.get(from);
+    if (owner !== undefined) collisions.push(`${owner.docsPath} publishes ${from}, which the site serves as a moved-page redirect`);
+  }
+  return { pages, byPermalink, collisions, coordinates };
+}
+
+/** The published page for a docs-relative Markdown path, or `null` when the site does not publish it. */
+export function publishedDocsPage({ docsPath, root, plan = sitePlan({ root }) }) {
+  const page = plan.pages.get(docsPath);
+  if (page === undefined || page.permalink === null) return null;
+  return { sourceFile: page.file, permalink: page.permalink };
+}
+
+/** Whether Jekyll serves a static file at this docs-relative path (it skips `_`- and `.`-prefixed names but `.well-known`). */
+function servedStatic(docsRelative) {
+  return docsRelative.split("/").every((segment) => segment === ".well-known" || !/^[_.]/u.test(segment));
+}
+
+/**
+ * Rewrite one relative target by the header's rule: `{ target }` (the link to
+ * write) or `{ error }` (the link names nothing).
+ */
+export function rewriteTarget(target, { pageDocsPath, root, baseurl = "", plan }) {
+  if (EXTERNAL_OR_ABSOLUTE.test(target)) return { target };
+  const hashIndex = target.indexOf("#");
+  const hash = hashIndex === -1 ? "" : target.slice(hashIndex);
+  const pathPart = (hashIndex === -1 ? target : target.slice(0, hashIndex)).split("?")[0];
+  if (pathPart.length === 0) return { target };
+  const repoPath = posix.normalize(posix.join(posix.dirname(pageDocsPath), pathPart)).replace(/\/+$/u, "");
+  if (repoPath === ".." || repoPath.startsWith("../")) {
+    return { error: `${pageDocsPath}: link '${target}' leaves the repository` };
+  }
+  const file = resolve(root, ...repoPath.split("/"));
+  if (!existsSync(file)) {
+    return { error: `${pageDocsPath}: link '${target}' names ${repoPath}, which does not exist` };
+  }
+  const directory = statSync(file).isDirectory();
+  if (repoPath === DOCS_ROOT || repoPath.startsWith(`${DOCS_ROOT}/`)) {
+    if (directory) {
+      for (const name of ["index.md", "README.md"]) {
+        const page = publishedDocsPage({ docsPath: posix.join(repoPath, name), root, plan });
+        if (page !== null) return { target: `${siteUrlForPermalink(page.permalink, baseurl)}${hash}` };
       }
-      copied.push(docsPath);
+    } else if (repoPath.endsWith(".md")) {
+      const page = publishedDocsPage({ docsPath: repoPath, root, plan });
+      if (page !== null) return { target: `${siteUrlForPermalink(page.permalink, baseurl)}${hash}` };
+    } else {
+      const docsRelative = repoPath.slice(DOCS_ROOT.length + 1);
+      if (servedStatic(docsRelative)) return { target: `${siteUrlForPermalink(`/${docsRelative}`, baseurl)}${hash}` };
     }
   }
-  return [...new Set(copied)];
+  return { target: `${repositoryFileUrl(repoPath, directory ? "tree" : "blob", plan.coordinates)}${hash}` };
 }
 
 /**
- * Jekyll converts a Markdown file to a page only when it has YAML front
- * matter; without it the file is copied verbatim as a static asset and the
- * pretty URL the floor links to is never built. The tracker pages are plain
- * Markdown (`TASKS.md` starts with its heading), so the ASSEMBLED copy gets a
- * front matter block with the plan's permalink. The committed source is not
- * edited: GitHub renders it as before.
- *
- * A page that already has front matter is left alone (it may carry a permalink
- * the plan read, or `published: false`).
+ * Rewrite every relative Markdown link of one page (links inside fenced code
+ * are text, not links, and stay as written). Answers the new text, how many
+ * links moved, and every link that names nothing.
  */
-/**
- * Legacy URL shapes that must keep working: links written before the trackers
- * moved out of `floor/` still say `floor/trackers/TASKS.md`, and GitHub-style
- * readers append `.md`. Each alias is a redirect, never a second page.
- */
-export function legacyAliasesFor(docsPath, permalink) {
-  const base = docsPath.split("/").pop().replace(/\.md$/u, "");
-  const aliases = new Set([`${permalink.replace(/\/$/u, "")}.md`]);
-  if (docsPath.startsWith("docs/trackers/")) {
-    aliases.add(`/floor/trackers/${base}.md`);
-    aliases.add(`/floor/trackers/${base}/`);
-  }
-  return [...aliases].filter((alias) => alias !== permalink);
-}
-
-export function materializePageFrontMatter({ outRoot, fallbackPages = [] }) {
-  const pages = [];
-  for (const { docsRoot, siteRoot } of FLOOR_COPY_ROOTS) {
-    const directory = join(outRoot, siteRoot);
-    for (const file of markdownFiles(directory)) {
-      const relative = toPosix(file.slice(directory.length)).replace(/^\/+/u, "");
-      pages.push({ file, docsPath: `${docsRoot}/${relative}` });
-    }
-  }
-  for (const docsPath of fallbackPages) {
-    pages.push({ file: join(outRoot, ...docsPath.slice("docs/".length).split("/")), docsPath });
-  }
-
-  let added = 0;
-  for (const { file, docsPath } of pages) {
-    const text = readFileSync(file, "utf8");
-    if (text.startsWith("---\n") || text.startsWith("---\r\n")) continue;
-    const heading = /^#\s+(.+?)\s*$/mu.exec(text)?.[1]?.replace(/[*_`]/gu, "");
-    const title = heading ?? docsPath.split("/").pop().replace(/\.md$/u, "");
-    const permalink = prettyPermalink(docsPath);
-    // Same chrome as the hand-written floor pages: the layout, the shared
-    // stylesheet hook, and the article page class. Without these a copied
-    // tracker rendered as unstyled body text.
-    writeFileSync(
-      file,
-      `---\nlayout: default\nfloor_assets: true\npage_class: article\ntitle: ${JSON.stringify(title)}\npermalink: ${permalink}\n---\n\n${text}`,
-    );
-    added += 1;
-  }
-  return added;
-}
-
-/**
- * Serve the older URL shapes as real pages. A `redirect_from` header needs the
- * jekyll-redirect-from plugin, and this build proved it was not loaded (the
- * old URLs stayed 404), so the alias is written as a static page: a browser
- * landing on `/floor/trackers/TASKS.md/` is sent to the published page. The
- * directory form means Pages answers the no-slash spelling with a 301 first.
- */
-export function materializeLegacyRedirects({ outRoot, baseurl = "", fallbackPages = [] }) {
-  const pages = [];
-  for (const { docsRoot, siteRoot } of FLOOR_COPY_ROOTS) {
-    const directory = join(outRoot, siteRoot);
-    for (const file of markdownFiles(directory)) {
-      const relative = toPosix(file.slice(directory.length)).replace(/^\/+/u, "");
-      pages.push({ docsPath: `${docsRoot}/${relative}` });
-    }
-  }
-  for (const docsPath of fallbackPages) pages.push({ docsPath });
-  const prefix = baseurl.replace(/\/$/u, "");
-  let written = 0;
-  for (const { docsPath } of pages) {
-    const permalink = prettyPermalink(docsPath);
-    for (const alias of legacyAliasesFor(docsPath, permalink)) {
-      const target = `${prefix}${permalink}`;
-      const directory = join(outRoot, ...alias.split("/").filter(Boolean));
-      // A copied file may already sit at this spelling (a README, for one).
-      // It is reachable as it stands, so an alias directory cannot take its
-      // name and does not need to.
-      if (existsSync(directory) && !statSync(directory).isDirectory()) continue;
-      mkdirSync(directory, { recursive: true });
-      const base = permalink.replace(/\/$/u, "").split("/").pop() ?? "page";
-      // A REAL page, not a bare HTML fragment: the same layout, chrome and
-      // stylesheet as every other page, so an old link lands on something that
-      // looks like the site instead of an unstyled line. The redirect runs as
-      // a script (this build has no redirect plugin); a reader without it gets
-      // the visible link below.
-      writeFileSync(
-        join(directory, "index.html"),
-        `---\nlayout: default\nfloor_assets: true\npage_class: article\ntitle: ${JSON.stringify(`Moved: ${base}`)}\n---\n\n` +
-          `<div class="callout-warning" role="status">\n` +
-          `  <p>This page moved to <a href="${target}">${target}</a>.</p>\n` +
-          `</div>\n` +
-          `<script>location.replace(${JSON.stringify(target)});</script>\n`,
-      );
-      written += 1;
-    }
-  }
-  return written;
-}
-
-/** Rewrite the copied testing pages in place; answer how many links moved. */
-export function rewriteCopiedDocsPages({ outRoot, productRoot, testingRoot, baseurl, fallbackPages = [] }) {
+export function rewritePageLinks(markdown, options) {
   let rewritten = 0;
-  const trees = FLOOR_COPY_ROOTS.map(({ docsRoot, siteRoot }) => ({
-    docsRoot,
-    directory: join(outRoot, siteRoot),
-  }));
-  for (const { docsRoot, directory } of trees) {
-    for (const file of markdownFiles(directory)) {
-      const relative = toPosix(file.slice(directory.length)).replace(/^\/+/u, "");
-      const pageDocsPath = `${docsRoot}/${relative}`;
-      // A copied page with `published: false` is not in the site's output
-      // (`docs/floor/README.md` is integration notes), so its links are not
-      // the site's links and must not make the assembly fail.
-      if (publishedDocsPage({ docsPath: pageDocsPath, productRoot, testingRoot }) === null) continue;
-      const result = rewritePageLinks(readFileSync(file, "utf8"), {
-        pageDocsPath,
-        productRoot,
-        testingRoot,
-        baseurl,
-      });
-      if (result.rewritten > 0) writeFileSync(file, result.text);
-      rewritten += result.rewritten;
+  const errors = [];
+  let fenced = false;
+  const lines = markdown.split("\n").map((line) => {
+    if (FENCE.test(line)) {
+      fenced = !fenced;
+      return line;
     }
-  }
-  for (const docsPath of fallbackPages) {
-    const file = join(outRoot, ...docsPath.slice("docs/".length).split("/"));
-    if (!existsSync(file)) continue;
-    const result = rewritePageLinks(readFileSync(file, "utf8"), {
-      pageDocsPath: docsPath,
-      productRoot,
-      testingRoot,
-      baseurl,
-      unpublishedDocs: "github",
+    if (fenced) return line;
+    return line.replace(MARKDOWN_LINK, (whole, prefix, target, suffix) => {
+      const answer = rewriteTarget(target, options);
+      if (answer.error !== undefined) {
+        errors.push(answer.error);
+        return whole;
+      }
+      if (answer.target !== target) rewritten += 1;
+      return `${prefix}${answer.target}${suffix}`;
     });
-    if (result.rewritten > 0) writeFileSync(file, result.text);
-    rewritten += result.rewritten;
-  }
-  return rewritten;
-}
-
-/** Every copied testing page with its docs path and relative Markdown links. */
-function floorPages({ testingRoot }) {
-  const pages = [];
-  for (const { docsRoot } of FLOOR_COPY_ROOTS) {
-    const directory = resolve(testingRoot, ...docsRoot.split("/"));
-    for (const file of markdownFiles(directory)) {
-      const relative = toPosix(file.slice(directory.length)).replace(/^\/+/u, "");
-      const docsPath = `${docsRoot}/${relative}`;
-      const { text, data } = readPage(file);
-      if (String(data["published"]).toLowerCase() === "false") continue;
-      const links = [];
-      for (const match of text.matchAll(MARKDOWN_LINK)) links.push(match[2]);
-      pages.push({ docsPath, links });
-    }
-  }
-  return pages;
+  });
+  return { text: lines.join("\n"), rewritten, errors };
 }
 
 /**
- * The docs-links guard: a floor/tracker page may only link to a docs page the
- * assembler publishes. Returns `{ page, target, docsPath }` for each link that
- * would 404 on the site.
+ * The redirect pages the site serves for older URL shapes: each page's
+ * GitHub-style `.md` spelling, the trackers' former `/floor/trackers/` home,
+ * and {@link MOVED_PAGES}. Answers `[alias, permalink]` pairs; an alias that
+ * is itself a page's URL is never redirected.
  */
-export function floorPageLinkViolations({ testingRoot }) {
-  const violations = [];
-  for (const page of floorPages({ testingRoot })) {
-    for (const target of page.links) {
-      const docsPath = resolveDocsTarget(page.docsPath, target);
-      if (docsPath === null) continue;
-      if (publishedDocsPage({ docsPath, testingRoot }) === null) {
-        violations.push({ page: page.docsPath, target, docsPath });
-      }
+export function legacyAliases(plan) {
+  const aliases = new Map();
+  for (const page of plan.byPermalink.values()) {
+    if (page.permalink === "/" || !page.permalink.endsWith("/")) continue;
+    aliases.set(`${page.permalink.replace(/\/$/u, "")}.md`, page.permalink);
+    if (page.docsPath.startsWith(`${DOCS_ROOT}/trackers/`)) {
+      const base = page.docsPath.split("/").pop().replace(/\.md$/u, "");
+      aliases.set(`/floor/trackers/${base}.md`, page.permalink);
+      aliases.set(`/floor/trackers/${base}/`, page.permalink);
     }
+  }
+  for (const [from, to] of MOVED_PAGES) aliases.set(from, to);
+  return [...aliases].filter(([alias]) => !plan.byPermalink.has(alias)).sort(([a], [b]) => a.localeCompare(b));
+}
+
+/**
+ * The `_config.yml` keys the builder writes from the repository's one
+ * declaration (`repository.mjs`) and the deployment: the builder refuses a
+ * source config that declares one (a second owner of that value).
+ */
+export const BUILDER_OWNED_CONFIG_KEYS = Object.freeze(["url", "baseurl", "repository", "repository_url", "security_url", "versions_url", "release_version"]);
+
+/**
+ * The record collections under `docs/`: data and dated records the site
+ * renders but other owners write. A record may cite a GitHub object by its
+ * URL (GitHub keeps it working through a rename, and the id is the citation);
+ * every other spelling of the repository's coordinates is refused there too.
+ * The site's own pages, layout, configuration and text files may spell none.
+ */
+export const RECORD_ROOTS = Object.freeze([
+  Object.freeze({ root: "docs/decisions/", why: "decision records cite the issue or pull request that decided them" }),
+  Object.freeze({ root: "docs/community/", why: "the community generator's inputs (GH-9): feature and intake status cites the tracking issue" }),
+  Object.freeze({ root: "docs/trackers/", why: "tracker items and their board cite the issue each one mirrors" }),
+  Object.freeze({ root: "docs/findings/", why: "dated findings cite the issue or run that reproduced them" }),
+]);
+
+/**
+ * Every site path a text names, as Jekyll would emit it, with the forms the
+ * site uses or could: a Liquid literal through any filter chain
+ * (`{{ '/p' | relative_url }}`, `| absolute_url`, `| append: … |
+ * relative_url`, `| prepend: site.baseurl`), a path written after the base
+ * (`{{ site.baseurl }}/p`, `{{ site.url }}{{ site.baseurl }}/p`), and — on a
+ * page whose URL is known — a relative `href`/`src` or Markdown target,
+ * resolved against that URL. Fenced code names nothing. Answers site-root
+ * paths (`/p`).
+ */
+export function siteLinkTargets(text, pageUrl = null) {
+  // Fenced code is text, not links (the same rule as the rewrite).
+  let fenced = false;
+  text = text.split("\n").map((line) => {
+    if (FENCE.test(line)) {
+      fenced = !fenced;
+      return "";
+    }
+    return fenced ? "" : line;
+  }).join("\n");
+  const targets = [];
+  for (const match of text.matchAll(/\{\{-?\s*(["'])(\/[^"'{}]*)\1\s*\|[^}]*?\}\}/gu)) {
+    if (/\|\s*(?:relative_url|absolute_url|prepend:\s*site\.(?:baseurl|url))\b/u.test(match[0])) targets.push(match[2]);
+  }
+  for (const match of text.matchAll(/\{\{-?\s*site\.baseurl\s*-?\}\}(\/[^\s"'<>)\]]*)/gu)) targets.push(match[1]);
+  if (pageUrl !== null) {
+    for (const match of text.matchAll(/(?:(?<![\w-])(?:href|src)\s*=\s*["']|\]\()([^"'\s)]+)/gu)) {
+      const target = match[1];
+      if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|\/|#|\{)/iu.test(target)) continue;
+      targets.push(posix.normalize(posix.join(pageUrl.endsWith("/") ? pageUrl : posix.dirname(pageUrl), target.split(/[?#]/u)[0])));
+    }
+  }
+  return targets.map((target) => target.split(/[?#]/u)[0]);
+}
+
+/** Whether a site path lies in the released versions' folder (the `/v/` tree or `versions.json`). */
+export function inVersionsFolder(sitePath) {
+  return sitePath === "/v" || sitePath.startsWith("/v/") || sitePath === "/versions.json";
+}
+const TEXT_FILE = /\.(?:md|markdown|html?|txt|json|ya?ml|xml|js|css|svg)$/iu;
+
+function textFiles(root) {
+  const out = [];
+  const visit = (relative) => {
+    for (const entry of readdirSync(resolve(root, ...relative.split("/")), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const child = `${relative}/${entry.name}`;
+      if (entry.isDirectory()) visit(child);
+      else if (entry.isFile() && TEXT_FILE.test(entry.name)) out.push(child);
+    }
+  };
+  visit(DOCS_ROOT);
+  return out;
+}
+
+/**
+ * Every way the tree at `root` would refuse the build — the docs-links half
+ * of the site, the same question the builder asks:
+ * - two pages for one URL, and a moved URL a page still publishes;
+ * - a relative link of a published page that names nothing;
+ * - a source file that spells the repository's own GitHub or Pages URL (the
+ *   one declaration is `package.json`; pages read `site.repository_url`,
+ *   `site.url` and `site.baseurl`, links into the tree stay relative);
+ * - any link into the released versions' folder, in any form
+ *   ({@link siteLinkTargets}): inside a release snapshot it would resolve
+ *   under the snapshot, where no versions page exists (`site.versions_url`
+ *   names the live one).
+ * It reads no dependency, so `npm run docs:links` runs before any install;
+ * the builder adds the configuration's own refusals (`site.mjs`).
+ */
+export function siteSourceViolations({ root }) {
+  const plan = sitePlan({ root });
+  const violations = [...plan.collisions];
+  for (const page of plan.byPermalink.values()) {
+    const { errors } = rewritePageLinks(readFileSync(page.file, "utf8"), { pageDocsPath: page.docsPath, root, plan });
+    violations.push(...errors);
+  }
+  for (const path of textFiles(root)) {
+    const text = readFileSync(resolve(root, ...path.split("/")), "utf8");
+    const record = RECORD_ROOTS.some(({ root: recordRoot }) => path.startsWith(recordRoot));
+    const page = plan.pages.get(path);
+    const pageUrl = page === undefined ? null : page.permalink;
+    // A fenced block is text: its lines name no link (judged per line below).
+    let fence = false;
+    const fenced = text.split("\n").map((line) => (FENCE.test(line) ? ((fence = !fence), true) : fence));
+    text.split("\n").forEach((line, index) => {
+      for (const { url, kind } of spelledUrls(line, plan.coordinates)) {
+        if (record && kind === "object") continue;
+        violations.push(record
+          ? `${path}:${String(index + 1)}: spells ${url}; a record cites a repository file or folder by a relative link and the site by its own pages (only a GitHub object — an issue, a pull request, a discussion, a commit, a release, a run — is cited by URL)`
+          : `${path}:${String(index + 1)}: spells the repository's own URL (${url}); use site.repository_url, site.url and site.baseurl, or a relative link (package.json repository.url is the one declaration)`);
+      }
+      for (const target of fenced[index] ? [] : siteLinkTargets(line, pageUrl)) {
+        if (inVersionsFolder(target)) violations.push(`${path}:${String(index + 1)}: links ${target} in the versions folder, which a release snapshot resolves under itself; use site.versions_url`);
+      }
+    });
   }
   return violations;
 }

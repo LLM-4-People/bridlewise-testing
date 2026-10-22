@@ -64,6 +64,7 @@ import { readCheckoutStateRecord, writeCheckoutStateRecord } from "./checkout-st
 import { indexEntries, intentToAddPaths } from "./index-entries.ts";
 import { GIT_OBJECT_NAME } from "./git-port.ts";
 import { directoryGitEnvironment, gitNulRecords, headCommit, headVersions, repositoryToplevel, requiredRepositoryToplevel } from "./repository-ownership.ts";
+import { rawDiffEntries } from "./tree-reader.ts";
 
 const BASELINE_SCHEMA_VERSION = schemaId("live-index-baseline", 2);
 const OBJECT_ID = z.string().regex(GIT_OBJECT_NAME);
@@ -132,15 +133,13 @@ function git(top: string, argv: readonly string[], options: Readonly<{ input?: s
 
 /** The at-risk entries of the checkout's REAL index (see the header). */
 function protectedEntries(top: string): readonly ProtectedEntry[] {
-  // `:<old mode> <new mode> <old> <new> <status>\0<path>\0` — old = HEAD, new = the index.
-  const fields = gitNulRecords(top, ["diff", "--cached", "--raw", "--no-renames", "--no-abbrev", "-z"], "directory");
+  // The raw diff's source side is HEAD, its destination the index.
+  const diff = rawDiffEntries(gitNulRecords(top, ["diff", "--cached", "--raw", "--no-renames", "--no-abbrev", "-z"], "directory"));
   const intents = new Set(intentToAddPaths(top, "directory"));
   const entries: ProtectedEntry[] = [];
-  for (let index = 0; index + 1 < fields.length; index += 2) {
-    const [oldMode, newMode, oldObject, newObject, status] = fields[index]!.replace(/^:/u, "").split(" ");
-    const path = fields[index + 1]!;
-    if (status === "U" || newMode === "000000" || intents.has(path)) continue;
-    entries.push({ path, mode: newMode!, objectId: newObject!, head: oldMode === "000000" ? null : { mode: oldMode!, objectId: oldObject! } });
+  for (const { path, srcMode, dstMode, srcOid, dstOid, status } of diff) {
+    if (status === "U" || dstMode === "000000" || intents.has(path)) continue;
+    entries.push({ path, mode: dstMode, objectId: dstOid, head: srcMode === "000000" ? null : { mode: srcMode, objectId: srcOid } });
   }
   return entries.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
