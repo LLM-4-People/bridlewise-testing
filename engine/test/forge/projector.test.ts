@@ -343,7 +343,7 @@ test("V-27: a foreign edit in each class is detected and handled per mode — ap
     assert.equal(run.verified, false);
     assert.equal(projectionFailure(run)?.code, "projection_drift");
     assert.deepEqual(run.proposals, mode === "approval"
-      ? [{ class: "label", key: "lane:roadmap", fields: { color: "000000" } }, { class: "milestone", key: "M1", fields: { title: "Renamed in the UI" } }, { class: "issue", key: "T-TWO", fields: { labels: ["lane:roadmap", "wontfix"], title: "Retitled in the UI" } }]
+      ? [{ class: "label", key: "lane:roadmap", change: "edited", fields: { color: "000000" } }, { class: "milestone", key: "M1", change: "edited", fields: { title: "Renamed in the UI" } }, { class: "issue", key: "T-TWO", change: "edited", fields: { labels: ["lane:roadmap", "wontfix"], title: "Retitled in the UI" } }]
       : [], `${mode}: a proposal only under approval`);
     // The edit stays foreign on the next run (the baseline is kept), until the record or GitHub moves.
     const again = await applyProjection(projection, github.store, { allowance: 100, previous: run, foreignEdit: mode });
@@ -362,4 +362,60 @@ test("a first run has no baseline: every difference is adopted, never a foreign 
   assert.deepEqual(receipt.foreignEdits, []);
   assert.equal(github.get("label", "lane:roadmap")?.fields.color, "0e8a16");
   assert.equal(receipt.verified, true);
+});
+
+test("V-27 per field: a field newly owned by git is written, never held; one edited field never blocks another field or object; the proposal holds only the edited field", async () => {
+  const { projection } = computeProjection(MILESTONE_INPUT, CONFINEMENT);
+  const github = memoryStore();
+  const first = await applyProjection(projection, github.store, { allowance: 100, previous: null, foreignEdit: "approval" });
+  // A field newly owned by git: the previous receipt records no value for issue.milestone (an older projector did not own it).
+  const olderReceipt = { ...first, objects: Object.fromEntries(Object.entries(first.objects).map(([key, fields]) => [key, Object.fromEntries(Object.entries(fields).filter(([field]) => field !== "milestone"))])) };
+  github.edit("issue", "T-TWO", { milestone: null });
+  const adopted = await applyProjection(projection, github.store, { allowance: 100, previous: olderReceipt, foreignEdit: "approval" });
+  assert.deepEqual(adopted.foreignEdits, [], "a field with no recorded value is nothing an edit could differ from");
+  assert.equal(github.get("issue", "T-TWO")?.fields.milestone, "M1", "the newly owned field is written");
+  assert.equal(adopted.verified, true);
+  // Someone retitles T-TWO on GitHub while its record CLOSES it (proven) and W-ONE's record is retitled.
+  github.edit("issue", "T-TWO", { title: "Retitled in the UI" });
+  const moved = withRoadmapLane(input(MILESTONE_INPUT.items.map((entry) => entry.id === "T-TWO" ? { ...entry, state: "closed", resolution: "completed", tests: ["tests/t-two.test.ts"] } : entry.id === "W-ONE" ? { ...entry, title: "Renamed workstream" } : entry)));
+  const run = await applyProjection(computeProjection(moved, CONFINEMENT).projection, github.store, { allowance: 100, previous: adopted, foreignEdit: "approval" });
+  assert.deepEqual(run.foreignEdits.map((edit) => [edit.key, edit.change, edit.fields]), [["T-TWO", "edited", ["title"]]]);
+  assert.deepEqual(run.proposals, [{ class: "issue", key: "T-TWO", change: "edited", fields: { title: "Retitled in the UI" } }], "the proposal changes only the edited field");
+  const tTwo = github.get("issue", "T-TWO")!.fields;
+  assert.deepEqual([tTwo.title, tTwo.state, tTwo.stateReason], ["Retitled in the UI", "closed", "completed"], "the held title stays; the record's close is written beside it");
+  assert.equal(github.get("issue", "W-ONE")?.fields.title, "Renamed workstream", "another object's change is written");
+  assert.equal(run.verified, false, "a held field leaves the projection unverified");
+  assert.equal(projectionFailure(run)?.code, "projection_drift");
+  assert.ok(run.unverified.every((field) => !(field.key === "T-TWO" && field.field === "title")), "the held field is drift, not an unverified write");
+});
+
+test("V-27 deletion: a projected object deleted on GitHub is a foreign change — approval proposes, auto recreates (with a notice), manual reports; never silently recreated", async () => {
+  const { projection } = computeProjection(MILESTONE_INPUT, CONFINEMENT);
+  for (const mode of ["approval", "auto", "manual"] as const) {
+    const github = memoryStore();
+    const first = await applyProjection(projection, github.store, { allowance: 100, previous: null, foreignEdit: mode });
+    github.remove("issue", "T-TWO");
+    const run = await applyProjection(projection, github.store, { allowance: 100, previous: first, foreignEdit: mode });
+    assert.deepEqual(run.foreignEdits.map((edit) => [edit.key, edit.change, edit.action]), [["T-TWO", "deleted", mode === "auto" ? "restored" : mode === "approval" ? "proposed" : "reported"]], mode);
+    if (mode === "auto") {
+      assert.equal(github.get("issue", "T-TWO")?.fields.title, "T-TWO", "auto recreates it");
+      assert.match(github.notices().at(-1) ?? "", /was deleted on GitHub and is recreated from its record/u);
+      assert.equal(run.verified, true);
+    } else {
+      assert.equal(github.get("issue", "T-TWO"), undefined, `${mode}: never silently recreated`);
+      assert.deepEqual(run.proposals, mode === "approval" ? [{ class: "issue", key: "T-TWO", change: "deleted" }] : []);
+      assert.equal(projectionFailure(run)?.code, "projection_drift");
+    }
+  }
+  // A never-projected object is simply created: absence without a baseline is no deletion.
+  const fresh = await applyProjection(projection, memoryStore().store, { allowance: 100, previous: null, foreignEdit: "manual" });
+  assert.deepEqual(fresh.foreignEdits, []);
+});
+
+test("writes go by phase before class: a milestone's state is written after every issue is created", async () => {
+  const shippedMilestone = withRoadmapLane(input(MILESTONE_INPUT.items.map((entry) => entry.type === "Milestone" ? entry : { ...entry, state: "closed", resolution: "completed", tests: [`tests/${entry.id}.test.ts`] })));
+  const receipt = await applyProjection(computeProjection(shippedMilestone, CONFINEMENT).projection, memoryStore().store, { allowance: 100, previous: null, foreignEdit: "approval" });
+  const order = receipt.writes.map((write) => `${write.phase}:${write.class}`);
+  const milestoneState = order.indexOf("state:milestone");
+  assert.ok(milestoneState > order.lastIndexOf("create:issue"), `the milestone's state (a later class's earlier write would be first by class) comes after every issue create: ${order.join(" ")}`);
 });
