@@ -17,16 +17,12 @@
  * Usage: `node scripts/build-bundle.ts` (Node 24 strips types natively).
  *
  * Determinability: `sourcesContent: false` + esbuild's deterministic output
- * + no sourcemap, and the published bundle is SEALED ({@link publishBundle}):
- * it embeds its own pin, so the pin is the digest with that one literal
- * normalised out and the published text carries it. Bundle bytes and pin are
- * a pure function of the source tree + esbuild version, never of the bundle
- * that was on disk before. After any `src/` change, run
- * `node src/cli.ts harness sync --with-bundle` — it rebuilds the bundle,
- * re-pins `ROOT_POLICY.selfProtection.bundleSha256`, and verifies in one
- * pass (the hash binding in `src/workflow/hash-binding-registry.ts` verifies
- * it). This script is the lower-level build step for the rare case where the
- * bundle alone is needed without the re-pin/verify.
+ * + no sourcemap, so the bundle's bytes are a pure function of the source
+ * tree + esbuild version. No digest of it is committed (#221): a build
+ * output's identity is the build's to report, never a value the tree holds,
+ * and the bundle-staleness guard proves the bundle on disk is a fresh build.
+ * `node src/cli.ts harness sync --with-bundle` builds it with the rest of the
+ * generated values; this script is the lower-level build step.
  */
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -36,8 +32,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 import { atomicWriteFile } from "../src/filesystem/atomic-write.ts";
-import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
-import { sealSelfPinnedSource } from "../src/workflow/hash-binding-registry.ts";
+import { sha256 } from "../src/kernel/integrity.ts";
 import { buildGuardianSpecSchemaArtifact } from "./verification/slice-projections.ts";
 import { bootstrapProcess, isEntryPoint } from "../src/runtime/cli-debug.ts";
 
@@ -107,25 +102,18 @@ function writeArtifactIfChanged(path: string, text: string, label: string): void
 }
 
 /**
- * Publish the bundle SEALED: its pin is the digest of the bundle with that
- * pin normalised out (the registry's `self-pinned-sha256` binding), and the
- * published text carries that digest as its own pin — the exact bytes a
- * rebuild produces once `root-policy.ts` is re-pinned. So the bytes and the
- * pin are a pure function of the sources: two fresh checkouts of one tree
- * publish the same bundle and pin, whatever bundle (if any) was on disk
- * before (FR-15; the former "keep the previous same-source bundle" branch is
- * gone with its reason).
+ * Publish the bundle: the built text, written when it differs, and its
+ * digest (reported, never committed). Two fresh checkouts of one tree publish
+ * the same bytes, whatever bundle (if any) was on disk before (FR-15).
  */
 export function publishBundle(bundleText: string, destination: string): Readonly<{
   bundleSha256: string;
   bundleBytes: number;
 }> {
-  const sealed = sealSelfPinnedSource(ROOT_POLICY.selfProtection.bundleRelativePath, bundleText);
-  writeArtifactIfChanged(destination, sealed.text, "bundle");
-  // No `bundle.js.sha256` sidecar: nothing read it, the pin lives in the
-  // root policy (`bundleSha256`), and copy-back left it stale beside a new
-  // bundle (wf1a-design L6).
-  return { bundleSha256: sealed.digest, bundleBytes: Buffer.byteLength(sealed.text) };
+  writeArtifactIfChanged(destination, bundleText, "bundle");
+  // No `bundle.js.sha256` sidecar: nothing read it, and copy-back left it
+  // stale beside a new bundle (wf1a-design L6).
+  return { bundleSha256: sha256(bundleText), bundleBytes: Buffer.byteLength(bundleText) };
 }
 
 async function buildBundle(): Promise<BuildSummary> {

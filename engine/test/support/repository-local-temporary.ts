@@ -18,7 +18,7 @@ import {
 } from "../../scripts/verification/safe-repository-reader.ts";
 import { createWorkingCopy } from "../../src/git/working-copy.ts";
 import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, removeOwnedTemporaryDirectory } from "../../src/filesystem/private-state.ts";
-import { pinnedBuildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
+import { buildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
 
 export const TEST_REPOSITORY_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const REPOSITORY_LOCAL_TEMPORARY_ROOT = join(
@@ -126,7 +126,7 @@ export function createRepositoryWorkingCopy(
     sourceRoot: TEST_REPOSITORY_ROOT,
     targetRoot: root,
     git: "mirror",
-    carry: pinnedBuildOutputPaths(),
+    carry: buildOutputPaths(),
     ...(options.include === undefined ? {} : { include: options.include }),
   });
   return Object.freeze({ root: copy.root, engineRoot: join(copy.root, engineRelativePath(copy.sourceRoot)) });

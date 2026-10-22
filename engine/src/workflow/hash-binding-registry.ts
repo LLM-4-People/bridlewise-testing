@@ -50,19 +50,6 @@ export const HASH_BINDING_REGISTRY_VERSION = schemaId("hash-binding-registry", 1
 
 export type HashMode =
   | Readonly<{ kind: "file-sha256" }>
-  /**
-   * The SOURCE embeds the very literal the binding writes into the target:
-   * the bundle compiles `root-policy.ts`, which holds the bundle's own pin.
-   * Hashing the raw bytes would make the pin depend on the pin (no fixed
-   * point, or one that depends on which bundle was on disk before), so the
-   * digest is `sha256` of the source with that ONE literal — located by the
-   * binding's own `findRegex`, exactly once, else a typed refusal — replaced
-   * by {@link SELF_PIN_PLACEHOLDER}. The pin is then a pure function of every
-   * other byte, so two fresh checkouts of one tree agree on it, and
-   * {@link sealSelfPinnedSource} publishes the source carrying its own
-   * digest (the exact bytes a rebuild from the re-pinned tree produces).
-   */
-  | Readonly<{ kind: "self-pinned-sha256" }>
   | Readonly<{ kind: "json-field"; fieldName: string }>
   /**
    * The expected literal is a value a named MODULE computes — a derived
@@ -73,45 +60,10 @@ export type HashMode =
    */
   | Readonly<{ kind: "module-constant"; compute: (root: string) => string }>;
 
-/**
- * Where a binding's SOURCE comes from — and therefore whether the repository
- * is supposed to contain it.
- *
- * WHY THIS FIELD EXISTS, MEASURED. A binding pins bytes, and it compares those
- * bytes only when the file is there. That is correct for what it does and it
- * says nothing about whether the file SHOULD be there. Two of the bindings
- * below name paths that `.gitignore` excludes, and both sit under
- * `selfProtection.mayNotBeDisabled`, so a reader who found that had no way to
- * tell "deliberately a build artifact" from "swallowed by an ignore rule the
- * way `coverage/` swallowed a live component in the web tree". The pin cannot
- * answer the question because the question is not about bytes.
- *
- * So each binding declares it, and the answer is checked in BOTH directions:
- * a `repository-source` that git does not track is a clone that cannot
- * verify itself, and a `build-output` that git DOES track is a second answer
- * to a question `src/` already answers, which will go stale on the first
- * branch that edits the source.
- *
- * The field is REQUIRED, so a binding added tomorrow cannot skip the question
- * — that is the difference between this and a list of the two known paths,
- * which would have to be remembered.
- */
-export type HashBindingSourceOrigin =
-  /** Committed to the repository; a clone must contain these bytes. */
-  | Readonly<{ kind: "repository-source" }>
-  /**
-   * Produced by a build, deliberately not committed. `producedBy` is the
-   * command that creates it, so absence is a state with a way out rather than
-   * a bare error — the consumer can NAME the action instead of describing the
-   * lookup that failed.
-   */
-  | Readonly<{ kind: "build-output"; producedBy: string }>;
-
 export type HashBinding = Readonly<{
   id: string;
   description: string;
   sourcePath: string;
-  sourceOrigin: HashBindingSourceOrigin;
   targetPath: string;
   targetKind: "typescript" | "json";
   hashMode: HashMode;
@@ -197,7 +149,6 @@ function externalCommandSourceBindings(): readonly HashBinding[] {
       id: `architecture-external-command-${command.id}-source-sha256`,
       description: `${command.path} bytes -> src/kernel/architecture-external-commands.ts [${command.id}].sourceSha256`,
       sourcePath: command.path,
-      sourceOrigin: { kind: "repository-source" } as const,
       targetPath: "src/kernel/architecture-external-commands.ts",
       targetKind: "typescript" as const,
       hashMode: { kind: "file-sha256" } as const,
@@ -215,7 +166,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "root-policy-config-contracts-source-sha256",
     description: "src/config-contracts.ts bytes -> root-policy.ts configuration.contract.sourceSha256",
     sourcePath: ROOT_POLICY.configuration.contract.sourcePath,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: ROOT_POLICY.sourcePath,
     targetKind: "typescript",
     hashMode: { kind: "file-sha256" },
@@ -225,47 +175,15 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "root-policy-directory-worker-source-sha256",
     description: "src/filesystem/private-directory-create-worker.mjs bytes -> root-policy.ts directoryWorker.sourceSha256",
     sourcePath: ROOT_POLICY.filesystemInfrastructure.privateState.directoryWorker.sourcePath,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: ROOT_POLICY.sourcePath,
     targetKind: "typescript",
     hashMode: { kind: "file-sha256" },
     findRegex: String.raw`(?<=sourcePath: "src/filesystem/private-directory-create-worker\.mjs",\s*sourceSha256: ")${SHA256_HEX}(?=")`,
   },
   {
-    id: "root-policy-test-inventory-hash",
-    description: "test inventory file inventoryHash field -> root-policy.ts verification.testInventoryHash",
-    sourcePath: VERIFICATION_PATHS.testInventory,
-    sourceOrigin: { kind: "repository-source" },
-    targetPath: ROOT_POLICY.sourcePath,
-    targetKind: "typescript",
-    hashMode: { kind: "json-field", fieldName: "inventoryHash" },
-    findRegex: String.raw`(?<=testInventorySchema: "bridlewise-test-inventory/v4",\s*testInventoryHash: ")${SHA256_HEX}(?=")`,
-  },
-  {
-    id: "root-policy-disposition-file-sha256",
-    description: "traceability/test-surface-dispositions.json bytes -> root-policy.ts testSurfaceDispositionBinding.fileSha256",
-    sourcePath: ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath,
-    sourceOrigin: { kind: "repository-source" },
-    targetPath: ROOT_POLICY.sourcePath,
-    targetKind: "typescript",
-    hashMode: { kind: "file-sha256" },
-    findRegex: String.raw`(?<=testSurfaceDispositionBinding:\s*\{\s*fileSha256: ")${SHA256_HEX}(?=")`,
-  },
-  {
-    id: "root-policy-disposition-identity-hash",
-    description: "traceability/test-surface-dispositions.json integrityHash field -> root-policy.ts testSurfaceDispositionBinding.identityHash",
-    sourcePath: ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath,
-    sourceOrigin: { kind: "repository-source" },
-    targetPath: ROOT_POLICY.sourcePath,
-    targetKind: "typescript",
-    hashMode: { kind: "json-field", fieldName: "integrityHash" },
-    findRegex: String.raw`(?<=testSurfaceDispositionBinding:\s*\{\s*fileSha256:\s*"${SHA256_HEX}",\s*identityHash: ")${SHA256_HEX}(?=")`,
-  },
-  {
     id: "requirements-registry-file-sha256",
     description: "traceability/requirements.json bytes -> requirements.ts REQUIREMENTS_REGISTRY_FILE_SHA256",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: "src/kernel/requirements.ts",
     targetKind: "typescript",
     hashMode: { kind: "file-sha256" },
@@ -275,7 +193,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "requirements-registry-source-sha256",
     description: "traceability/canonical/harness-requirements.md bytes -> requirements.ts REQUIREMENTS_REGISTRY_SOURCE_SHA256",
     sourcePath: REQUIREMENTS_REGISTRY_SOURCE_PATH,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: "src/kernel/requirements.ts",
     targetKind: "typescript",
     hashMode: { kind: "file-sha256" },
@@ -285,7 +202,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s1-trace-requirements-registry-file-sha256",
     description: "traceability/requirements.json bytes -> traceability/s1.json requirementsRegistry.fileSha256",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: "traceability/s1.json",
     targetKind: "json",
     hashMode: { kind: "file-sha256" },
@@ -295,7 +211,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s1-trace-requirements-registry-identity-hash",
     description: "requirements registry identity -> traceability/s1.json requirementsRegistry.identityHash",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: "traceability/s1.json",
     targetKind: "json",
     hashMode: { kind: "module-constant", compute: () => REQUIREMENTS_REGISTRY_IDENTITY_HASH },
@@ -305,7 +220,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s2-trace-requirements-registry-file-sha256",
     description: "traceability/requirements.json bytes -> traceability/s2.json requirementsRegistry.fileSha256",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: SLICE_PROJECTION_PATHS.s2Trace,
     targetKind: "json",
     hashMode: { kind: "file-sha256" },
@@ -315,7 +229,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s2-4-trace-requirements-registry-file-sha256",
     description: "traceability/requirements.json bytes -> traceability/s2.4.json requirementsRegistry.fileSha256",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: SLICE_PROJECTION_PATHS.s24Trace,
     targetKind: "json",
     hashMode: { kind: "file-sha256" },
@@ -325,7 +238,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s3-1-trace-requirements-registry-file-sha256",
     description: "traceability/requirements.json bytes -> traceability/s3.1.json requirementsRegistry.fileSha256",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: SLICE_PROJECTION_PATHS.s31Trace,
     targetKind: "json",
     hashMode: { kind: "file-sha256" },
@@ -340,7 +252,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s2-trace-requirements-registry-identity-hash",
     description: "requirements registry identity -> traceability/s2.json requirementsRegistry.identityHash",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: SLICE_PROJECTION_PATHS.s2Trace,
     targetKind: "json",
     hashMode: { kind: "module-constant", compute: () => REQUIREMENTS_REGISTRY_IDENTITY_HASH },
@@ -350,7 +261,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s2-4-trace-requirements-registry-identity-hash",
     description: "requirements registry identity -> traceability/s2.4.json requirementsRegistry.identityHash",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: SLICE_PROJECTION_PATHS.s24Trace,
     targetKind: "json",
     hashMode: { kind: "module-constant", compute: () => REQUIREMENTS_REGISTRY_IDENTITY_HASH },
@@ -360,7 +270,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s3-1-trace-requirements-registry-identity-hash",
     description: "requirements registry identity -> traceability/s3.1.json requirementsRegistry.identityHash",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: SLICE_PROJECTION_PATHS.s31Trace,
     targetKind: "json",
     hashMode: { kind: "module-constant", compute: () => REQUIREMENTS_REGISTRY_IDENTITY_HASH },
@@ -376,7 +285,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s3-1-trace-offline-forensic-hash",
     description: "offline forensic identity -> traceability/s3.1.json contracts.offlineForensicHash",
     sourcePath: "src/forensics/offline-forensics.ts",
-    sourceOrigin: { kind: "repository-source" },
     targetPath: SLICE_PROJECTION_PATHS.s31Trace,
     targetKind: "json",
     hashMode: { kind: "module-constant", compute: () => S3_OFFLINE_FORENSIC_HASH },
@@ -386,7 +294,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s3-1-trace-forensic-schema-bundle-hash",
     description: "generated forensic schema bundle -> traceability/s3.1.json contracts.schemaBundleHash",
     sourcePath: "src/forensics/forensic-contracts.ts",
-    sourceOrigin: { kind: "repository-source" },
     targetPath: SLICE_PROJECTION_PATHS.s31Trace,
     targetKind: "json",
     hashMode: { kind: "module-constant", compute: () => FORENSIC_SCHEMA_BUNDLE_HASH },
@@ -396,7 +303,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s2-4-trace-requirements-source-artifact-sha256",
     description: "traceability/canonical/harness-requirements.md bytes -> traceability/s2.4.json requirementsRegistry.sourceArtifactSha256",
     sourcePath: REQUIREMENTS_REGISTRY_SOURCE_PATH,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: SLICE_PROJECTION_PATHS.s24Trace,
     targetKind: "json",
     hashMode: { kind: "file-sha256" },
@@ -406,7 +312,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s2-4-trace-requirements-schema-artifact-sha256",
     description: "traceability/s2.4-requirements-schema.json bytes -> traceability/s2.4.json requirementsRegistry.schemaArtifact.sha256",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsSchemaArtifact,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: SLICE_PROJECTION_PATHS.s24Trace,
     targetKind: "json",
     hashMode: { kind: "file-sha256" },
@@ -416,7 +321,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "slice-traces-requirements-schema-artifact-sha256",
     description: "traceability/s2.4-requirements-schema.json bytes -> scripts/verification/slice-traces.ts schemaArtifact z.literal",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsSchemaArtifact,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: "scripts/tooling/verification/slice-traces.ts",
     targetKind: "typescript",
     hashMode: { kind: "file-sha256" },
@@ -426,7 +330,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "s1-verification-requirements-schema-artifact-sha256",
     description: "traceability/s2.4-requirements-schema.json bytes -> scripts/s1-verification.ts sha256(schemaBytes) literal",
     sourcePath: SLICE_PROJECTION_PATHS.requirementsSchemaArtifact,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: "scripts/tooling/s1-verification.ts",
     targetKind: "typescript",
     hashMode: { kind: "file-sha256" },
@@ -436,7 +339,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "root-policy-self-protection-guardian-build-stamp",
     description: "guardian/build-stamp.spec (its sealed sources and declared flags) -> root-policy.ts selfProtection.binaryStamp; the REPRODUCIBLE anchor, not the compiler-built binary's bytes",
     sourcePath: ROOT_POLICY.selfProtection.buildStampSpecPath,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: ROOT_POLICY.sourcePath,
     targetKind: "typescript",
     // The stamp is a function of several sealed files, not of one source's
@@ -448,20 +350,9 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     findRegex: String.raw`(?<=binaryStamp: ")${SHA256_HEX}(?=")`,
   },
   {
-    id: "root-policy-self-protection-bundle-sha256",
-    description: "dist/bundle.js bytes, its own embedded pin normalised out -> root-policy.ts selfProtection.bundleSha256 (run `node src/cli.ts harness sync --with-bundle` after any src/ change — builds the bundle, re-pins, and verifies in one pass)",
-    sourcePath: ROOT_POLICY.selfProtection.bundleRelativePath,
-    sourceOrigin: { kind: "build-output", producedBy: "node scripts/build-bundle.ts" },
-    targetPath: ROOT_POLICY.sourcePath,
-    targetKind: "typescript",
-    hashMode: { kind: "self-pinned-sha256" },
-    findRegex: String.raw`(?<=bundleSha256: ")${SHA256_HEX}(?=")`,
-  },
-  {
     id: "root-policy-self-protection-spec-schema-artifact-sha256",
     description: "traceability/self-protection/guardian-spec-schema.json bytes -> root-policy.ts selfProtection.specSchemaArtifactSha256",
     sourcePath: ROOT_POLICY.selfProtection.specSchemaArtifactPath,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: ROOT_POLICY.sourcePath,
     targetKind: "typescript",
     hashMode: { kind: "file-sha256" },
@@ -486,7 +377,6 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     id: "root-policy-self-protection-spec-schema-source-sha256",
     description: "src/filesystem/self-protection/self-protection-contracts.ts bytes -> root-policy.ts selfProtection.specSchemaSourceSha256",
     sourcePath: ROOT_POLICY.selfProtection.specSchemaSourcePath,
-    sourceOrigin: { kind: "repository-source" },
     targetPath: ROOT_POLICY.sourcePath,
     targetKind: "typescript",
     hashMode: { kind: "file-sha256" },
@@ -657,18 +547,17 @@ function generatedReadmePathsOf(paths: readonly string[], readText: (path: strin
 }
 
 /**
- * The ignored build outputs the registry PINS (its `build-output` bindings,
- * e.g. the bundle), repository-relative. The guardian binary is deliberately
- * not here: it is bound by a reproducible stamp over its SOURCES, not by its
- * bytes, so a working copy needs the sources (committed) and a build, not a
- * copied artifact. A copy of the repository that carries the pins but not
- * these answers a different question; the test working copies and the
- * candidate checkout's copy-back carry both.
+ * The ignored build outputs a working copy carries beside the tree (the
+ * bundle), repository-relative. None is pinned by a committed digest: a build
+ * output's digest is a function of the tree and the toolchain, never a value
+ * the tree should hold, and a committed one rewrote one line of root-policy.ts
+ * on every engine change and conflicted on nearly every merge (#221). The
+ * guardian binary is not here either: it is bound by a reproducible stamp over
+ * its committed SOURCES. The test working copies, the candidate checkout's
+ * copy-back and the promoter carry these.
  */
-export function pinnedBuildOutputPaths(): readonly string[] {
-  return listAllBindings()
-    .filter((binding) => binding.sourceOrigin.kind === "build-output")
-    .map((binding) => `engine/${binding.sourcePath}`);
+export function buildOutputPaths(): readonly string[] {
+  return [`engine/${ROOT_POLICY.selfProtection.bundleRelativePath}`];
 }
 
 /**
@@ -898,35 +787,10 @@ export function isGenerationOnlyChange(path: string, before: string | null, afte
   return before !== null && after !== null && stripGeneratedParts(path, before) === stripGeneratedParts(path, after);
 }
 
-/**
- * ABSENCE IS A GUIDED STATE, AND `sourceOrigin` IS WHAT MAKES IT ONE.
- *
- * The field's own doc promised that `producedBy` exists "so absence is a state
- * with a way out rather than a bare error — the consumer can NAME the action
- * instead of describing the lookup that failed". Measured in a fresh clone
- * that legitimately lacks the build outputs, the consumer said:
- *
- *     hash binding source file not found: dist/bundle.js
- *
- * A bare error. `producedBy` was required at compile time, carried in every
- * binding, and read by NOTHING outside one test file — computed, recorded,
- * gated on by nothing, which is the exact shape this sequence exists to
- * eliminate.
- *
- * So the two origins now produce two different messages, because they are two
- * different situations with two different ways out. A build output is missing
- * because it has not been built, and the command that builds it is declared
- * right here. A repository source is missing because the working tree is
- * incomplete, which is not something the reader can fix by running a build.
- */
+/** A binding's source is a committed file; its absence means an incomplete working tree, which no build repairs. */
 function missingSourceMessage(binding: HashBinding): string {
-  if (binding.sourceOrigin.kind === "build-output") {
-    return `${binding.sourcePath} has not been built yet, so the hash binding "${binding.id}" has ` +
-      `nothing to pin. It is a build output and is deliberately not committed. Produce it with: ` +
-      `${binding.sourceOrigin.producedBy}`;
-  }
   return `${binding.sourcePath} is missing from the working tree, so the hash binding ` +
-    `"${binding.id}" has nothing to pin. It is a committed repository source, not a build output, ` +
+    `"${binding.id}" has nothing to pin. It is a committed repository source, ` +
     `so no build produces it — restore it from version control.`;
 }
 
@@ -945,9 +809,6 @@ export function computeBindingHash(root: string, binding: HashBinding): string {
   const sourceText = readFileSync(sourceAbsolutePath, "utf8");
   if (binding.hashMode.kind === "file-sha256") {
     return sha256(sourceText);
-  }
-  if (binding.hashMode.kind === "self-pinned-sha256") {
-    return selfPinDigest(binding, sourceText);
   }
   const fieldName = binding.hashMode.fieldName;
   let parsed: unknown;
@@ -1032,8 +893,7 @@ export function fixtureDigestBindings(root: string): readonly HashBinding[] {
         id: `s2-fixture-digest:${path}`,
         description: `${path} bytes -> ${SLICE_PROJECTION_PATHS.s2Trace} behaviors[${behaviorIndex}].fixtures[${fixtureIndex}].sha256`,
         sourcePath: path,
-        sourceOrigin: { kind: "repository-source" },
-        targetPath: SLICE_PROJECTION_PATHS.s2Trace,
+            targetPath: SLICE_PROJECTION_PATHS.s2Trace,
         targetKind: "json",
         hashMode: { kind: "file-sha256" },
         jsonPath: ["behaviors", String(behaviorIndex), "fixtures", String(fixtureIndex), "sha256"],
@@ -1165,34 +1025,9 @@ function uniqueLiteralMatch(binding: HashBinding, content: string, where: string
   return { index: match.index!, text: match[0] };
 }
 
-/** What a self-pinned source's own pin literal is replaced by before hashing. */
-export const SELF_PIN_PLACEHOLDER = "0".repeat(64);
-
 function replaceUniqueLiteral(binding: HashBinding, text: string, literal: string, where: string): string {
   const match = uniqueLiteralMatch(binding, text, where);
   return `${text.slice(0, match.index)}${literal}${text.slice(match.index + match.text.length)}`;
-}
-
-function selfPinDigest(binding: HashBinding, text: string): string {
-  return sha256(replaceUniqueLiteral(binding, text, SELF_PIN_PLACEHOLDER, binding.sourcePath));
-}
-
-/**
- * Seal a freshly built self-pinned source (the bundle): its digest with its
- * own pin normalised out, and the text carrying that digest as its pin — the
- * exact bytes a rebuild produces once the target is re-pinned, so the
- * published file is a pure function of the other sources (never of what was
- * on disk before). The binding is the one whose `sourcePath` is `sourcePath`
- * and whose mode is `self-pinned-sha256`.
- */
-export function sealSelfPinnedSource(sourcePath: string, text: string): Readonly<{ text: string; digest: string }> {
-  const bindings = HASH_BINDINGS.filter((binding) => binding.sourcePath === sourcePath && binding.hashMode.kind === "self-pinned-sha256");
-  const binding = bindings[0];
-  if (bindings.length !== 1 || binding === undefined) {
-    throw new InputError(`no single self-pinned hash binding has the source ${sourcePath} (${bindings.length} found)`, "input_error");
-  }
-  const digest = selfPinDigest(binding, text);
-  return deepFreeze({ text: replaceUniqueLiteral(binding, text, digest, sourcePath), digest });
 }
 
 function readJsonLiteral(binding: HashBinding, content: string): string {

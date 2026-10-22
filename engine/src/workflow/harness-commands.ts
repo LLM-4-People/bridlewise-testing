@@ -177,12 +177,14 @@ export type HarnessRegenerateOutput = Readonly<{
   testInventory: Readonly<{
     status: "current" | "regenerated" | "skipped";
     testCount: number;
-    inventoryHash: string;
+    /** The inventory's own identity; null on a product-only tree, which carries no test surface. */
+    inventoryHash: string | null;
   }>;
   dispositionAutoAdd: DispositionAutoAddResult;
   dispositionManifest: Readonly<{
-    status: "current" | "regenerated";
-    integrityHash: string;
+    status: "current" | "regenerated" | "absent";
+    /** The manifest's own identity; null when the tree carries no test surface (`absent`). */
+    integrityHash: string | null;
   }>;
   /**
    * Config-document schema artifact regeneration (EXP468 finding fix).
@@ -902,7 +904,7 @@ export function harnessRegenerate(
   // above are visible to it even though ROOT_POLICY was imported at process
   // start.
   const moduleRegistrar = generateModuleRegistrarReport(root, { write });
-  const autoGenerator = generateAutoGeneratorReport(root, { write: false });
+  const autoGenerator = generateAutoGeneratorReport(root);
   // Regenerate the config-document schema artifact (`traceability/config-
   // document-schema.json`). When `src/kernel/config-contracts.ts` changes, the
   // artifact drifts from the on-disk JSON file; it is rebuilt from the on-disk
@@ -1045,15 +1047,14 @@ function recomputeDispositionManifestIntegrityHash(
   root: string,
   write: boolean,
 ): Readonly<{
-  status: "current" | "regenerated";
-  integrityHash: string;
+  status: "current" | "regenerated" | "absent";
+  integrityHash: string | null;
 }> {
   const manifestPath = resolve(root, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath);
   if (!existsSync(manifestPath)) {
     if (!testSurfacePresent(root)) {
-      // A product-only tree carries no test surface to recompute against;
-      // report current rather than refuse — the manifest's subject is absent.
-      return deepFreeze({ status: "current", integrityHash: ROOT_POLICY.verification.testSurfaceDispositionBinding.identityHash });
+      // A product-only tree carries no test surface to recompute against: the manifest's subject is absent.
+      return deepFreeze({ status: "absent", integrityHash: null });
     }
     throw new InputError("test-surface disposition manifest file not found", "input_error");
   }
@@ -1072,7 +1073,7 @@ function recomputeDispositionManifestIntegrityHash(
 function regenerateTestInventory(root: string, write: boolean): Readonly<{
   status: "current" | "regenerated" | "skipped";
   testCount: number;
-  inventoryHash: string;
+  inventoryHash: string | null;
 }> {
   // Invoke scripts/test-inventory.ts as a subprocess to keep the builder-layer
   // test-inventory generator (and its @babel/parser dependency) out of the
@@ -1080,7 +1081,7 @@ function regenerateTestInventory(root: string, write: boolean): Readonly<{
   // On a product-only tree the test surface is absent: report the guided skip
   // rather than spawn a runner that is not there.
   if (!testSurfacePresent(root)) {
-    return { status: "skipped", testCount: 0, inventoryHash: ROOT_POLICY.verification.testInventoryHash };
+    return { status: "skipped", testCount: 0, inventoryHash: null };
   }
   const stdout = runScriptSubprocess(root, "scripts/test-inventory.ts", [write ? "--write" : "--check"], 180_000);
   const parsed = JSON.parse(stdout) as {
@@ -1932,9 +1933,9 @@ export function runArchitectureCheck(root: string): CheckStepResult {
  * ── IT ASKS THE OWNER, NOT THE INVENTORY ABOUT ITSELF ─────────────────────
  *
  * This step used to parse only the inventory's top-level `inventoryHash` and
- * compare it with `ROOT_POLICY.verification.testInventoryHash`. Both sides are
- * the same value by construction (the inventory generator writes the policy
- * pin), so the step compared a value to itself: an inventory emptied to zero
+ * compare it with the root policy's copy of it (a copy since removed, #221).
+ * Both sides were the same value by construction (the inventory generator
+ * wrote the policy pin), so the step compared a value to itself: an inventory emptied to zero
  * tests with its hash preserved passed the commit gate, while the owner
  * (`node scripts/test-inventory.ts --check`) refused it. The same shape hid a
  * stale source hash in the checked-in inventory.

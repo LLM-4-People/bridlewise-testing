@@ -42,7 +42,7 @@ import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
 import { bootstrapProcess } from "../src/runtime/cli-debug.ts";
 import { loadPinnedConfigSnapshotIfPresent } from "../src/kernel/config.ts";
 import { applyCheckoutFiles, engineRelativePath } from "../src/workflow/checkout-setup.ts";
-import { pinnedBuildOutputPaths } from "../src/workflow/hash-binding-registry.ts";
+import { buildOutputPaths } from "../src/workflow/hash-binding-registry.ts";
 import { parseHarnessCommandResult } from "../src/workflow/command-result.ts";
 
 const root = process.argv[2] ?? process.cwd();
@@ -342,7 +342,7 @@ function materializeStagedTree(repositoryRoot: string): string {
   // (`git commit -a`, `-- <path>` and `-i` hand the hook a temporary
   // `GIT_INDEX_FILE`): the staged list above is read the same way, so the list
   // and the materialized tree describe one index.
-  createWorkingCopy({ sourceRoot: repositoryRoot, targetRoot: target, git: "staged", index: indexFilePath(repositoryRoot, "inherited"), carry: pinnedBuildOutputPaths() });
+  createWorkingCopy({ sourceRoot: repositoryRoot, targetRoot: target, git: "staged", index: indexFilePath(repositoryRoot, "inherited"), carry: buildOutputPaths() });
   const dependencyLinks = (trackedFiles(repositoryRoot) ?? [])
     .filter((path) => basename(path) === "package-lock.json")
     .map((path) => join(dirname(path), "node_modules").split(sep).join("/"));

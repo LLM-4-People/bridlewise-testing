@@ -675,8 +675,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "workflow-auto-generator", path: "src/workflow/auto-generator.ts",
       realm: "shared", layer: "domain", owner: "verification-workflow",
-      publicApi: { exportCount: 13, namesSha256: "e2c2569c19177c3914bbee350ec56003b766731fa8c69586c78c42452da67036" },
-      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/config-contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/shared/debug/debug-system.ts","src/workflow/command-result.ts","src/workflow/hash-binding-registry.ts"],
+      publicApi: { exportCount: 8, namesSha256: "6d041830879bfa460e3bdaa9d12836a3c3089cba6b0dbd90df18d4d1992b48c4" },
+      dependencies: ["node:fs","node:path","src/kernel/config-contracts.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/shared/debug/debug-system.ts","src/workflow/command-result.ts","src/workflow/hash-binding-registry.ts"],
       executionBoundary: "effect-adapter", effects: ["filesystem-read", "filesystem-write"],
       ports: { requires: [], provides: ["auto-generation"] },
       responsibilities: ["automated-binding-and-schema-regeneration-replacing-manual-checks"],
@@ -1623,7 +1623,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "hash-binding-registry", path: "src/workflow/hash-binding-registry.ts", realm: "shared",
       layer: "domain", owner: "verification-workflow",
-      publicApi: { exportCount: 30, namesSha256: "1c394e1c5b63d2e30036dd54134581f6c0f2c44e944b88ee865f5671ff5cf115" },
+      publicApi: { exportCount: 27, namesSha256: "3d20d2ef717196a7493529b467dd019fafaecfe57ec7b013f9e65b3d00e66fb7" },
       dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/filesystem/self-protection/guardian-build-stamp.ts","src/forensics/forensic-contracts.ts","src/forensics/offline-forensics.ts","src/git/repository-ownership.ts","src/kernel/architecture-external-commands.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/requirements.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/workflow/byte-pin-objects.ts"],
       executionBoundary: "effect-adapter",
       effects: ["filesystem-read", "filesystem-write"],
@@ -2639,7 +2639,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "build-bundle", path: "scripts/build-bundle.ts",
       realm: "builder", layer: "verification", owner: "self-protection",
       publicApi: { exportCount: 2, namesSha256: "00bd0afcda3ef46a6180f4d6492f22858bd19b792433b3f50c8242e7a0dc159b" },
-      dependencies: ["esbuild","node:fs","node:path","node:url","scripts/verification/slice-projections.ts","src/filesystem/atomic-write.ts","src/kernel/root-policy.ts","src/runtime/cli-debug.ts","src/workflow/hash-binding-registry.ts"],
+      dependencies: ["esbuild","node:fs","node:path","node:url","scripts/verification/slice-projections.ts","src/filesystem/atomic-write.ts","src/kernel/integrity.ts","src/runtime/cli-debug.ts"],
       effects: ["filesystem-write"],
       executionBoundary: "composition-root",
       compositionRoot: true,

@@ -1,31 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
-import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { resolve } from "node:path";
 
 import { canonicalJson, deepFreeze, sha256 } from "../kernel/integrity.ts";
-import { InputError } from "../kernel/errors.ts";
 import { parseSignedReport } from "./command-result.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
-import { VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { buildConfigContract, getConfigContractArtifact } from "../kernel/config-contracts.ts";
 import { verifyBindingById } from "./hash-binding-registry.ts";
 import { handleError } from "../shared/debug/debug-system.ts";
 import { schemaId } from "../kernel/product-identity.ts";
 
-export const AUTO_GENERATOR_SCHEMA_VERSION = schemaId("auto-generator", 1);
-
-export type DispositionBinding = Readonly<{
-  fileSha256: string;
-  identityHash: string;
-  current: Readonly<{ fileSha256: string; identityHash: string }>;
-  matches: boolean;
-}>;
-
-export type InventoryBinding = Readonly<{
-  testInventoryHash: string;
-  current: string;
-  matches: boolean;
-}>;
+export const AUTO_GENERATOR_SCHEMA_VERSION = schemaId("auto-generator", 2);
 
 export type ConfigSchemaBinding = Readonly<{
   schemaHash: string;
@@ -45,54 +29,12 @@ export type AutoGeneratorReport = Readonly<{
   schemaVersion: typeof AUTO_GENERATOR_SCHEMA_VERSION;
   root: string;
   steps: readonly AutoGeneratorStep[];
-  dispositionBinding: DispositionBinding | null;
-  inventoryBinding: InventoryBinding | null;
   configSchemaBinding: ConfigSchemaBinding | null;
   allMatch: boolean;
   generatedAt: string;
   integrityHash: string;
 }>;
 
-export type AutoGeneratorOptions = Readonly<{
-  write?: boolean;
-}>;
-
-export function computeDispositionBinding(root: string): DispositionBinding | null {
-  const dispositionPath = resolve(root, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath);
-  if (!existsSync(dispositionPath)) return null;
-  const fileBytes = readFileSync(dispositionPath, "utf8");
-  const fileSha256 = sha256(fileBytes);
-  const parsed = JSON.parse(fileBytes) as { integrityHash?: string };
-  const identityHash = typeof parsed.integrityHash === "string" ? parsed.integrityHash : sha256(fileBytes);
-  // The expected literals are sourced from the on-disk root policy through the
-  // central hash-binding registry. A static ROOT_POLICY import is stale the
-  // moment an earlier step in the same process rewrote src/root-policy.ts, so
-  // it must never be used as the comparison baseline.
-  const currentFile = verifyBindingById(root, "root-policy-disposition-file-sha256");
-  const currentIdentity = verifyBindingById(root, "root-policy-disposition-identity-hash");
-  return deepFreeze({
-    fileSha256,
-    identityHash,
-    current: deepFreeze({ fileSha256: currentFile.actual, identityHash: currentIdentity.actual }),
-    matches: fileSha256 === currentFile.actual && identityHash === currentIdentity.actual,
-  });
-}
-
-export function computeInventoryBinding(root: string): InventoryBinding | null {
-  const inventoryPath = resolve(root, VERIFICATION_PATHS.testInventory);
-  if (!existsSync(inventoryPath)) return null;
-  const fileBytes = readFileSync(inventoryPath, "utf8");
-  const parsed = JSON.parse(fileBytes) as { inventoryHash?: string };
-  const testInventoryHash = typeof parsed.inventoryHash === "string" ? parsed.inventoryHash : sha256(fileBytes);
-  // File-truthful baseline: read the current on-disk root-policy literal via
-  // the hash-binding registry (see computeDispositionBinding).
-  const current = verifyBindingById(root, "root-policy-test-inventory-hash").actual;
-  return deepFreeze({
-    testInventoryHash,
-    current,
-    matches: testInventoryHash === current,
-  });
-}
 
 /**
  * The config-contract artifact the ON-DISK root policy declares.
@@ -136,45 +78,11 @@ export function computeConfigSchemaBinding(root: string = process.cwd()): Config
   });
 }
 
-export function generateAutoGeneratorReport(
-  root: string,
-  options: AutoGeneratorOptions = {},
-): AutoGeneratorReport {
+export function generateAutoGeneratorReport(root: string): AutoGeneratorReport {
   const steps: AutoGeneratorStep[] = [];
 
-  const dispositionBinding = computeDispositionBinding(root);
-  if (dispositionBinding === null) {
-    steps.push(deepFreeze({ step: "disposition-binding", status: "error", message: "test-surface disposition file not found", details: null }));
-  } else {
-    steps.push(deepFreeze({
-      step: "disposition-binding",
-      status: dispositionBinding.matches ? "pass" : "drift",
-      message: dispositionBinding.matches ? "disposition binding matches root policy" : "disposition binding has drifted from root policy",
-      details: dispositionBinding,
-    }));
-    if (options.write && !dispositionBinding.matches) {
-      updateRootPolicyBinding(root, "testSurfaceDispositionBinding", {
-        fileSha256: dispositionBinding.fileSha256,
-        identityHash: dispositionBinding.identityHash,
-      });
-    }
-  }
-
-  const inventoryBinding = computeInventoryBinding(root);
-  if (inventoryBinding === null) {
-    steps.push(deepFreeze({ step: "inventory-binding", status: "error", message: "test inventory file not found", details: null }));
-  } else {
-    steps.push(deepFreeze({
-      step: "inventory-binding",
-      status: inventoryBinding.matches ? "pass" : "drift",
-      message: inventoryBinding.matches ? "inventory hash matches root policy" : "inventory hash has drifted from root policy",
-      details: inventoryBinding,
-    }));
-    if (options.write && !inventoryBinding.matches) {
-      updateRootPolicyBinding(root, "testInventoryHash", inventoryBinding.testInventoryHash);
-    }
-  }
-
+  // The test inventory and the dispositions carry no root-policy copy of their hashes (#221): each is verified
+  // against a fresh build of itself where it is read, and `harness check` judges their drift.
   const configSchemaBinding = computeConfigSchemaBinding(root);
   steps.push(deepFreeze({
     step: "config-schema-binding",
@@ -220,8 +128,6 @@ export function generateAutoGeneratorReport(
     schemaVersion: AUTO_GENERATOR_SCHEMA_VERSION,
     root,
     steps: deepFreeze(steps),
-    dispositionBinding,
-    inventoryBinding,
     configSchemaBinding,
     allMatch,
     generatedAt: new Date().toISOString(),
@@ -231,38 +137,4 @@ export function generateAutoGeneratorReport(
 
 export function parseAutoGeneratorReport(value: unknown): AutoGeneratorReport {
   return parseSignedReport<AutoGeneratorReport>(value, AUTO_GENERATOR_SCHEMA_VERSION, "auto generator report");
-}
-
-function updateRootPolicyBinding(root: string, bindingKey: string, newValue: unknown): void {
-  const rootPolicyPath = resolve(root, "src/kernel/root-policy.ts");
-  if (!existsSync(rootPolicyPath)) {
-    throw new InputError("root policy file not found", "input_error");
-  }
-  let content = readFileSync(rootPolicyPath, "utf8");
-  // Old literals are re-sourced from the on-disk file via the hash-binding
-  // registry. The static ROOT_POLICY import holds process-start values and
-  // would target the wrong literal after an earlier write in this process.
-  if (bindingKey === "testInventoryHash") {
-    const oldHash = verifyBindingById(root, "root-policy-test-inventory-hash").actual;
-    content = content.replace(
-      `testInventoryHash: "${oldHash}"`,
-      `testInventoryHash: "${newValue as string}"`,
-    );
-  } else if (bindingKey === "testSurfaceDispositionBinding") {
-    const binding = newValue as { fileSha256: string; identityHash: string };
-    const oldFileSha256 = verifyBindingById(root, "root-policy-disposition-file-sha256").actual;
-    const oldIdentityHash = verifyBindingById(root, "root-policy-disposition-identity-hash").actual;
-    content = content.replace(
-      `fileSha256: "${oldFileSha256}"`,
-      `fileSha256: "${binding.fileSha256}"`,
-    );
-    content = content.replace(
-      `identityHash: "${oldIdentityHash}"`,
-      `identityHash: "${binding.identityHash}"`,
-    );
-  }
-  const writeResult = atomicWriteFile(rootPolicyPath, content);
-  if (!writeResult.success) {
-    throw new InputError(`Could not write root policy: ${writeResult.reason ?? "unknown"}`, "input_error");
-  }
 }

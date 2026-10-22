@@ -41,7 +41,7 @@ import { qualificationEvidence, diffRunFailures, latestRunOfTree, readRunHistory
 import { COMMAND_ENVIRONMENT, projectEnvironment } from "../../process/environment-projection.ts";
 import type { JudgedRunRecord } from "../../shared/budget-verdict.ts";
 import { commandsRun, configuredCheckoutCommandRunner, type CheckoutCommandRunner } from "../checkout-setup.ts";
-import { generatedOutputPaths, pinnedBuildOutputPaths } from "../hash-binding-registry.ts";
+import { generatedOutputPaths, buildOutputPaths } from "../hash-binding-registry.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry, type RepositoryRegistry } from "../repository-registry.ts";
 import { PromotionError, answer, type PromotionAnswer } from "./codes.ts";
 import { applyPromotion } from "./apply.ts";
@@ -316,7 +316,7 @@ function applyRun(context: PromotionContext, git: WorktreeGitPort, runner: Check
     git,
     runner,
     generatedOutputs: generatedOutputPaths,
-    buildOutputs: pinnedBuildOutputPaths,
+    buildOutputs: buildOutputPaths,
     engineRelative,
     toolchain: profileToolchain(context),
     plan: (reconciled: PromotionContext) => promotionPlan(reconciled),
