@@ -338,30 +338,29 @@ for (const path of trackedFiles()) {
   }
 }
 
+// The verdict is the exit code, and the loop drains: `process.exit()` can deadlock at shutdown (Node #54918, #351).
 if (findings.length === 0) {
   console.log("secret scan: clean");
-  process.exit(0);
-}
-
-let hard = 0;
-let allowlisted = 0;
-for (const f of findings) {
-  if (f.fixture && f.rule !== "forbidden-file") {
-    allowlisted += 1;
-    continue;
+} else {
+  let hard = 0;
+  let allowlisted = 0;
+  for (const f of findings) {
+    if (f.fixture && f.rule !== "forbidden-file") {
+      allowlisted += 1;
+      continue;
+    }
+    const location = f.line > 0 ? `${f.path}:${f.line}` : f.path;
+    console.error(`${location}: ${f.rule}: ${f.detail}`);
+    // EVERY non-fixture finding is hard. The `fixture` early-continue above is
+    // the only allowlisting decision; a rule may not carve out a second one —
+    // that is how a private-key block outside a fixture certified a tree.
+    hard += 1;
   }
-  const location = f.line > 0 ? `${f.path}:${f.line}` : f.path;
-  console.error(`${location}: ${f.rule}: ${f.detail}`);
-  // EVERY non-fixture finding is hard. The `fixture` early-continue above is
-  // the only allowlisting decision; a rule may not carve out a second one —
-  // that is how a private-key block outside a fixture certified a tree.
-  hard += 1;
-}
 
-if (hard === 0) {
-  console.log(`secret scan: clean (${allowlisted} synthetic fixture reference(s) allowlisted)`);
-  process.exit(0);
+  if (hard === 0) {
+    console.log(`secret scan: clean (${allowlisted} synthetic fixture reference(s) allowlisted)`);
+  } else {
+    console.error(`\nsecret scan: ${hard} finding(s) outside fixture paths`);
+    process.exitCode = 1;
+  }
 }
-
-console.error(`\nsecret scan: ${hard} finding(s) outside fixture paths`);
-process.exit(1);

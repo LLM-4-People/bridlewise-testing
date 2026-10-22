@@ -2093,6 +2093,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/prevention/process-ends-by-draining.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/prevention/process-liveness-owner.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4261,5 +4269,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "57ebb5434a2bb1f96d11e879173ec944a165041a6f5cb4975cc0a80978f4a1d4"
+  "integrityHash": "7de529e3fe2be0b83900964093618492d460a0e3f41911b9313d479638ebc992"
 }

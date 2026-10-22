@@ -21,7 +21,7 @@ export async function runInventoryCoverage(candidateRoot: string): Promise<0 | 1
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
   const root = fileURLToPath(new URL("../../", import.meta.url));
-  await asLockDoor(async () => {
+  const interrupted = await asLockDoor(async () => {
     if (process.env[INSIDE_INSTRUMENT_LOCK_VARIABLE] !== "1") {
       // A coverage run IS the suite plus instrumentation — same cores, same
       // contention — so it holds the same one lock, through the supervising door:
@@ -40,4 +40,5 @@ if (isEntryPoint(import.meta.url)) {
       lock.release();
     }
   });
+  if (interrupted !== null) process.exitCode = interrupted;
 }

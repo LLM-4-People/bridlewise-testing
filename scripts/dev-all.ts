@@ -84,7 +84,8 @@ async function shutdown(code: number): Promise<void> {
   }
 
   removeDevPidfile(devPidfilePath("parent"));
-  process.exit(exitCode);
+  // Every child is stopped; the loop drains. Never `process.exit()`, which can deadlock at shutdown (Node #54918, #351).
+  process.exitCode = exitCode;
 }
 
 process.on("SIGINT", () => shutdown(0));
@@ -108,22 +109,26 @@ function checkPortFree(port: number, label: string): Promise<boolean> {
   });
 }
 
-async function precheckPorts(): Promise<void> {
+/** Whether both ports are free; a busy one is said, with its remedy. */
+async function precheckPorts(): Promise<boolean> {
   const apiFree = await checkPortFree(API_PORT, "api");
   const webFree = await checkPortFree(WEB_PORT, "web");
-  if (apiFree && webFree) return;
+  if (apiFree && webFree) return true;
   console.error("[dev:all] a required port is already in use:");
   if (!apiFree) console.error("  - API port " + API_PORT + " is busy.");
   if (!webFree) console.error("  - web port " + WEB_PORT + " is busy.");
   console.error("[dev:all] stop the running server first:  npm run dev:stop");
   console.error("[dev:all] (or free the port manually), then retry.");
-  process.exit(1);
+  return false;
 }
 
 // Start API first (Vite proxy targets it), then Vite.
-await precheckPorts();
-start("api", devPidfilePath("api"), "node", ["--experimental-strip-types", "server/index.ts"]);
-start("web", devPidfilePath("web"), "npx", ["vite"]);
+if (await precheckPorts()) {
+  start("api", devPidfilePath("api"), "node", ["--experimental-strip-types", "server/index.ts"]);
+  start("web", devPidfilePath("web"), "npx", ["vite"]);
 
-console.log("[dev:all] starting api + web servers...");
-console.log("[dev:all] pid files in " + DEV_PID_DIRECTORY + "/ (use 'npm run dev:stop' to stop)");
+  console.log("[dev:all] starting api + web servers...");
+  console.log("[dev:all] pid files in " + DEV_PID_DIRECTORY + "/ (use 'npm run dev:stop' to stop)");
+} else {
+  process.exitCode = 1;
+}
