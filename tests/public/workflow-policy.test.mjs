@@ -659,6 +659,16 @@ test("network installs are refused in any spelling; probes and near misses pass"
     "${PM} install -y gcc-14",
     "sudo $PM add gcc",
     "$(command -v apt-get) install -y gcc-14",
+    // Any expansion form, after any prefix, and inside eval or a shell's -c (second review of #415).
+    "${PM:-apt-get} install -y gcc-14",
+    "${PM[0]} install -y gcc-14",
+    "timeout 60 $PM install -y gcc-14",
+    "nice -n 5 $PM install -y gcc-14",
+    "doas $PM add gcc",
+    "echo gcc-14 | xargs $PM install -y",
+    "eval \"$PM install -y gcc-14\"",
+    "bash -c \"$PM install -y gcc-14\"",
+    "sh -ec \"apt-get update\"",
   ]) {
     assert.equal(plant(run).length, 1, run);
   }
