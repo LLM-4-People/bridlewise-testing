@@ -148,6 +148,18 @@ export function measureWebBudget(write: boolean, ledgerPath?: string): WebBudget
 /** The generator protocol `harness sync` and `harness check` read: one JSON line, the last one. */
 export type PopulationSync = Readonly<{ allCurrent: boolean; status: "current" | "regenerated" | "stale"; changed: readonly string[]; population: number; phase: "accumulation" | "measured" }>;
 
+/** Where the population arm reads the declaration and the live count, and how it records a new count (the settings document; a test hands its own). */
+export type PopulationSources = Readonly<{ budget: () => ReturnType<typeof readCpuBudget>; live: () => number; record: (population: number) => void }>;
+
+const LIVE_SOURCES: PopulationSources = Object.freeze({
+  budget: readCpuBudget,
+  live: fullRunModuleCount,
+  record: (population: number): void => {
+    installCustomizationConfigStore(engineDocumentStore());
+    writeConfigCustomization(WEB_BUDGET_FLOOR_PATHS.population, population);
+  },
+});
+
 /** The settings document the population lives in, repository-relative (the engine's own). */
 const POPULATION_DOCUMENT = "engine/bridlewise.config.json";
 
@@ -161,15 +173,17 @@ const POPULATION_DOCUMENT = "engine/bridlewise.config.json";
  * never moved without it — so the arm leaves it and the suite's population
  * drift gate decides when the floor must be measured again.
  */
-export function syncWebBudgetPopulation(write: boolean): PopulationSync {
-  const budget = readCpuBudget();
+export function syncWebBudgetPopulation(write: boolean, sources: PopulationSources = LIVE_SOURCES): PopulationSync {
+  const budget = sources.budget();
   if ("missing" in budget) throw new InputError(budget.missing, "web_budget_undeclared");
   if (!("phase" in budget)) return Object.freeze({ allCurrent: true, status: "current", changed: [], population: budget.derivedAtTestFileCount, phase: "measured" });
-  const report = measureWebBudget(write);
-  const population = report.measurement.derivedAtTestFileCount;
-  if (report.status === "migrating") return Object.freeze({ allCurrent: true, status: "current", changed: [], population, phase: "accumulation" });
-  if (report.status === "written") return Object.freeze({ allCurrent: true, status: "regenerated", changed: [POPULATION_DOCUMENT], population, phase: "accumulation" });
-  return Object.freeze({ allCurrent: false, status: "stale", changed: [POPULATION_DOCUMENT], population, phase: "accumulation" });
+  const declared = budget.derivedAtTestFileCount ?? budget.legacy?.derivedAtTestFileCount ?? 0;
+  const live = sources.live();
+  const action = accumulationPopulation(declared, live, write);
+  if (action === "current") return Object.freeze({ allCurrent: true, status: "current", changed: [], population: live, phase: "accumulation" });
+  if (action === "drifted") return Object.freeze({ allCurrent: false, status: "stale", changed: [POPULATION_DOCUMENT], population: live, phase: "accumulation" });
+  sources.record(live);
+  return Object.freeze({ allCurrent: true, status: "regenerated", changed: [POPULATION_DOCUMENT], population: live, phase: "accumulation" });
 }
 
 if (isEntryPoint(import.meta.url)) {
