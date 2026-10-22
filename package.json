@@ -65,6 +65,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
     "@testing-library/svelte": "^5.4.2",
     "@types/node": "^24.13.3",
+    "css-tree": "^3.2.1",
     "jsdom": "^29.1.1",
     "svelte": "^5.56.7",
     "svelte-check": "^4.7.3",
