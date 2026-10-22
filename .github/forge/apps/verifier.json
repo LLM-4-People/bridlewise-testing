@@ -1,0 +1,20 @@
+{
+  "name": "bridlewise-verifier",
+  "url": "https://github.com/LLM-4-People/bridlewise-testing",
+  "description": "Bridlewise independent verification (UR-09): reviews pull requests written by another session.",
+  "public": false,
+  "hook_attributes": {
+    "url": "https://github.com/LLM-4-People/bridlewise-testing",
+    "active": false
+  },
+  "redirect_url": "http://127.0.0.1:47811/callback",
+  "default_permissions": {
+    "checks": "read",
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "write"
+  },
+  "default_events": [],
+  "request_oauth_on_install": false,
+  "setup_on_update": false
+}
