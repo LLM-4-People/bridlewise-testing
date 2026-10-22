@@ -322,7 +322,10 @@ export async function serveAppsPage(options: AppsPageOptions): Promise<AppsPage>
 
   let origin = "";
   const send = (response: ServerResponse, status: number, body: string, headers: Readonly<Record<string, string>> = {}): void => {
-    response.writeHead(status, { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", ...headers });
+    // `same-origin`, never `no-referrer`: GitHub (another origin) still gets no Referer, so the page's one-time token
+    // never leaves it; but under `no-referrer` a browser posts the page's OWN form with `Origin: null` (Fetch, "append a
+    // request Origin header"), and the Origin check below refused Done in Session 1.
+    response.writeHead(status, { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "same-origin", ...headers });
     response.end(body);
   };
   const home = (): string => `/?t=${pageToken}`;

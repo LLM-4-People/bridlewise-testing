@@ -194,6 +194,26 @@ test("a bounded run: its input arrives on stdin; it is ended by a stall or by it
 
 type Answer = Readonly<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }>;
 
+/**
+ * The `Origin` a browser sends with a form POST from a page, as the Fetch
+ * standard's "append a request `Origin` header" step decides it: a
+ * non-GET request carries the page's origin unless the page's referrer
+ * policy says `null` (`no-referrer` always; `same-origin` for another
+ * origin; the downgrade policies from https to http). Session 1's Done was
+ * refused because the page sent `referrer-policy: no-referrer`, so the
+ * browser posted `Origin: null` to the page's own address.
+ */
+function browserFormOrigin(page: Answer, pageOrigin: string, action: string): string {
+  const header = page.headers["referrer-policy"];
+  const policy = (typeof header === "string" ? header.split(",").map((token) => token.trim()).filter((token) => token.length > 0).at(-1) : undefined) ?? "strict-origin-when-cross-origin";
+  const target = new URL(action, pageOrigin);
+  const downgrade = pageOrigin.startsWith("https:") && target.protocol !== "https:";
+  if (policy === "no-referrer") return "null";
+  if (policy === "same-origin") return target.origin === pageOrigin ? pageOrigin : "null";
+  if (policy === "no-referrer-when-downgrade" || policy === "strict-origin" || policy === "strict-origin-when-cross-origin") return downgrade ? "null" : pageOrigin;
+  return pageOrigin;
+}
+
 function call(url: string, options: Readonly<{ method?: string; host?: string; origin?: string; form?: Readonly<Record<string, string>> }> = {}): Promise<Answer> {
   const target = new URL(url);
   const body = options.form === undefined ? undefined : new URLSearchParams(options.form).toString();
@@ -361,7 +381,13 @@ test("the Apps page end to end: host custody, install links, Done guarded by ses
     assert.deepEqual(shown.verifier!.repositories, ["bridlewise-testing", ".github", "bridlewise-coordination", "forge-proving-ground"]);
     assert.equal((await call(`${origin}/done`, { method: "POST", origin, form: { session: "x" } })).status, 403);
     assert.equal((await call(`${origin}/done`, { method: "POST", form: { session: after.session } })).status, 403, "no Origin on a form post is refused");
-    assert.equal((await call(`${origin}/done`, { method: "POST", origin, form: { session: after.session } })).status, 200);
+    assert.equal((await call(`${origin}/done`, { method: "POST", origin: "null", form: { session: after.session } })).status, 403, "an opaque Origin is refused: the check is not weakened");
+    // What a real browser posts from this page: its own origin, by the page's own referrer policy (Session 1's bug: it posted `null`).
+    const page = await call(url);
+    const sent = browserFormOrigin(page, origin, "/done");
+    assert.equal(browserFormOrigin(page, origin, "https://github.com/organizations/LLM-4-People/settings/apps/new"), "null", "toward GitHub nothing of the page's address leaves (no Origin, no Referer): the one-time token stays home");
+    assert.equal(sent, origin, "the page's referrer policy lets its own form carry its origin");
+    assert.equal((await call(`${origin}/done`, { method: "POST", origin: sent, form: { session: after.session } })).status, 200);
   });
 });
 
