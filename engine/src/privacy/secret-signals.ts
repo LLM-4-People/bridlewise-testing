@@ -1,4 +1,4 @@
-import { deepFreeze } from "../kernel/integrity.ts";
+import { deepFreeze, sha256 } from "../kernel/integrity.ts";
 
 export type SecretSignalProfile = "admission" | "classification";
 
@@ -311,6 +311,17 @@ export function treeScannedSignals(): readonly SecretTextSignal[] {
  *
  * `appliesTo: "text"` rows run over every line and every tracked path;
  * `"file-name"` rows run over the tracked path's last segment.
+ *
+ * A row that protects a NAME (an internal host, a private directory) never
+ * spells it: this repository is public, and a pattern that names what it
+ * guards publishes it. Such a row carries `names` (how candidates are cut out
+ * of a text) and `digests` (SHA-256 of each protected name, lower-cased); a
+ * candidate matches when its digest is one of them. Only SHAPE rows (a home
+ * path, a database file name) carry a `pattern`. Every row is applied through
+ * {@link privacySignalMatches}, the one matcher.
+ *
+ * The digests are authored pins: their inputs are deliberately absent from
+ * the tree, so no generator can re-derive them.
  */
 const HOME_PATH_PLACEHOLDERS = deepFreeze([
   "example", "user", "runner", "bridlewise", "ubuntu", "node", "app",
@@ -325,14 +336,65 @@ const HOME_PLACEHOLDER_GUARD = `(?!(?:${HOME_PATH_PLACEHOLDERS.join("|")})(?![A-
 
 export const PUBLICATION_PRIVACY_SIGNALS = deepFreeze([
   { id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path", pattern: new RegExp(`\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u") },
-  { id: "internal-git-host", category: "privacy", appliesTo: "text", description: "internal Git host", pattern: /git\.localserver\.ca\b/u },
-  { id: "internal-provider-host", category: "privacy", appliesTo: "text", description: "internal provider host", pattern: /api\.neuralwatt\.com\b/u },
-  { id: "internal-scratch-path", category: "privacy", appliesTo: "text", description: "internal scratch path", pattern: /\/tmp\/opencode\b/u },
-  { id: "local-evidence-state", category: "privacy", appliesTo: "text", description: "local evidence state directory", pattern: /\bcode-harness\.fresh-evidence\b/u },
+  // BEGIN AUTHORED PINS
+  { id: "internal-git-host", category: "privacy", appliesTo: "text", description: "internal Git host", names: "dotted", digests: ["64228b8af389331cee6e7dba27c81450a7181c1f719e7a133e37128c6a4309e5"] },
+  { id: "internal-provider-host", category: "privacy", appliesTo: "text", description: "internal provider host", names: "dotted", digests: ["c565b621df0b9302f8b7e6881dd58353a803981a9fe69ef0542009f1ad9c76d1"] },
+  { id: "internal-scratch-path", category: "privacy", appliesTo: "text", description: "internal scratch path", names: "scratch-path", digests: ["736a4cae0826a534c3de9b47542cbe9dd50ec8b8714e1d42aa45f4afc0799c0d"] },
+  { id: "local-evidence-state", category: "privacy", appliesTo: "text", description: "local evidence state directory", names: "dotted", digests: ["3bcb2fbbb43fef9d40e18b6e1858d5ca761166d8710552ae03d89b3ae9e6de8b"] },
+  // END AUTHORED PINS
   // A database or SQLite state file (and its -wal/-shm/-journal sidecars) is
   // not a credential file, but a local data blob that is never published.
   { id: "database-state", category: "privacy", appliesTo: "file-name", description: "database state", pattern: /\.(?:db|sqlite3?)(?:-[a-z]+)?$/iu },
 ] as const);
+
+export type PublicationPrivacySignal = (typeof PUBLICATION_PRIVACY_SIGNALS)[number];
+type PrivacyNameKind = "dotted" | "scratch-path";
+
+// A run of name characters; a dotted name (a host, a dotted directory name)
+// is a run whose dot-separated labels are non-empty. Cut by one linear pass,
+// never by a backtracking pattern: the scanner reads multi-megabyte lines.
+const NAME_RUN = /[A-Za-z0-9_.-]+/gu;
+// A directory directly under the system scratch root.
+const SCRATCH_DIRECTORY = /\/tmp\/\w+/gu;
+// The longest label window tried. A protected name is a host or a dotted
+// directory name of a few labels; the bound keeps a long dotted run linear.
+const MAXIMUM_NAME_LABELS = 6;
+
+/**
+ * The candidate names a text holds, by kind. A dotted run yields every
+ * contiguous window of two to {@link MAXIMUM_NAME_LABELS} non-empty labels, so
+ * a protected host is found as a subdomain's suffix or a longer name's prefix
+ * (`a.<host>`, `<host>.x`), but never inside a label (`x<host>`, `x-<host>`).
+ */
+function* privacyNameCandidates(kind: PrivacyNameKind, text: string): Generator<string> {
+  if (kind === "scratch-path") {
+    for (const match of text.matchAll(SCRATCH_DIRECTORY)) yield match[0];
+    return;
+  }
+  for (const match of text.matchAll(NAME_RUN)) {
+    if (!match[0].includes(".")) continue;
+    const labels = match[0].split(".");
+    for (let start = 0; start < labels.length - 1; start += 1) {
+      for (let end = start + 2; end <= Math.min(labels.length, start + MAXIMUM_NAME_LABELS); end += 1) {
+        const window = labels.slice(start, end);
+        if (window.some((label) => label.length === 0)) break;
+        yield window.join(".");
+      }
+    }
+  }
+}
+
+/** THE ONE PRIVACY MATCHER: a shape row by its pattern, a name row by digest. */
+export function privacySignalMatches(
+  signal: Readonly<{ pattern: RegExp } | { names: PrivacyNameKind; digests: readonly string[] }>,
+  text: string,
+): boolean {
+  if ("pattern" in signal) return signal.pattern.test(text);
+  for (const candidate of privacyNameCandidates(signal.names, text)) {
+    if (signal.digests.includes(sha256(candidate.toLowerCase()))) return true;
+  }
+  return false;
+}
 
 export function secretTextSignalIds(
   value: string,

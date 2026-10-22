@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -8,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
-const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
+const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, privacySignalMatches, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
   const dir = mkdtempSync(join(tmpdir(), "bridlewise-secret-scan-"));
@@ -372,15 +373,16 @@ test("a 520-character installation token with dots is found by its row id, outsi
 });
 
 test("each publication-privacy row is reported by its id; database state by file name", () => {
-  const planted = {
-    "home-path": "see /home/private-user/work\n",
-    "internal-git-host": "remote: https://git.localserver.ca/x.git\n",
-    "internal-provider-host": "base: https://api.neuralwatt.com/v1\n",
-    "internal-scratch-path": "scratch: /tmp/opencode/run\n",
-    "local-evidence-state": "state: ~/.local/state/code-harness.fresh-evidence/x\n",
-  };
-  const textRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => signal.appliesTo === "text").map((signal) => signal.id);
-  assert.deepEqual(Object.keys(planted).sort(), [...textRows].sort(), "every text privacy row has a planted case");
+  // A NAME row never spells its name (this repository is public), so it
+  // cannot be planted here; the one matcher it runs through is driven with a
+  // synthetic row below. The SHAPE rows are planted end to end.
+  const shapeRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => "pattern" in signal).map((signal) => signal.id);
+  assert.deepEqual([...shapeRows].sort(), ["database-state", "home-path"],
+    "a new pattern row must not spell a protected name: give it `names` and `digests` instead");
+  for (const signal of PUBLICATION_PRIVACY_SIGNALS.filter((row) => !("pattern" in row))) {
+    assert.ok(signal.digests.length > 0 && signal.digests.every((digest) => /^[0-9a-f]{64}$/u.test(digest)), `${signal.id} carries no SHA-256 digest`);
+  }
+  const planted = { "home-path": "see /home/private-user/work\n" };
   for (const [id, line] of Object.entries(planted)) {
     const dir = repoWith({ "src/notes.md": line });
     try {
@@ -407,6 +409,31 @@ test("each publication-privacy row is reported by its id; database state by file
   } finally {
     rmSync(nearMiss, { recursive: true, force: true });
   }
+});
+
+test("a name row matches by digest: whole labels, any case, as a subdomain or a prefix; never inside a label", () => {
+  // A synthetic protected name (RFC 2606 `.invalid`), through the same
+  // matcher every privacy row runs through.
+  const digest = (name) => createHash("sha256").update(name).digest("hex");
+  const host = { names: "dotted", digests: [digest("probe.internal.invalid")] };
+  for (const text of [
+    "remote: https://probe.internal.invalid/x.git",
+    "base: https://api.probe.internal.invalid/v1",
+    "PROBE.Internal.INVALID",
+    "probe.internal.invalid.example:443",
+  ]) assert.equal(privacySignalMatches(host, text), true, text);
+  // A long dotted run stays linear (the scanner reads multi-megabyte lines).
+  assert.equal(privacySignalMatches(host, `${"a.".repeat(200_000)}probe.internal.invalid`), true);
+  for (const text of ["xprobe.internal.invalid", "x-probe.internal.invalid", "probe.internal.invalidx", "probe-internal-invalid", "probe.internal", "probe..internal.invalid"]) {
+    assert.equal(privacySignalMatches(host, text), false, text);
+  }
+  const scratch = { names: "scratch-path", digests: [digest("/tmp/probescratch")] };
+  assert.equal(privacySignalMatches(scratch, "scratch: /tmp/probescratch/run"), true);
+  assert.equal(privacySignalMatches(scratch, "scratch: /tmp/probescratch-2/run"), true, "a word boundary ends the directory, as before");
+  assert.equal(privacySignalMatches(scratch, "scratch: /tmp/probescratchx"), false);
+  assert.equal(privacySignalMatches(scratch, "scratch: /var/tmp/other"), false);
+  // The scanner applies every privacy row through this matcher (one door).
+  assert.match(readFileSync(SCANNER, "utf8"), /privacySignalMatches\(signal, normalizedLine\)/u);
 });
 
 /**

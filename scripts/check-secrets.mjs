@@ -59,7 +59,7 @@ import { createInterface } from "node:readline";
 // The canonical owner of the secret-file vocabulary. See the module comment:
 // the import is the point, not a convenience.
 import { isSecretFile } from "../engine/src/privacy/secret-files.ts";
-import { PUBLICATION_PRIVACY_SIGNALS, treeScannedSignals } from "../engine/src/privacy/secret-signals.ts";
+import { PUBLICATION_PRIVACY_SIGNALS, privacySignalMatches, treeScannedSignals } from "../engine/src/privacy/secret-signals.ts";
 
 const ROOT = resolve(process.cwd());
 // At or below this size a file is read in one pass. Above it, it is streamed
@@ -192,7 +192,7 @@ function scanJsonDocument(path, text, fixture) {
 function scanText(path, lineNumber, line, fixture) {
   const normalizedLine = normalizePathText(line);
   for (const signal of PRIVACY_TEXT) {
-    if (signal.pattern.test(normalizedLine)) report(path, lineNumber, signal.id, signal.description, fixture);
+    if (privacySignalMatches(signal, normalizedLine)) report(path, lineNumber, signal.id, signal.description, fixture);
   }
   for (const rule of CONTENT_MATCHERS) {
     rule.pattern.lastIndex = 0;
@@ -210,7 +210,7 @@ function scanText(path, lineNumber, line, fixture) {
 function scanPath(path, fixture) {
   const normalized = normalizePathText(path.split("\\").join("/"));
   for (const signal of PRIVACY_TEXT) {
-    if (signal.pattern.test(normalized)) report(normalized, 0, signal.id, `${signal.description} in a file path`, fixture);
+    if (privacySignalMatches(signal, normalized)) report(normalized, 0, signal.id, `${signal.description} in a file path`, fixture);
   }
   for (const rule of CONTENT_MATCHERS) {
     rule.pattern.lastIndex = 0;
@@ -227,7 +227,7 @@ function scanPath(path, fixture) {
   }
   const name = normalized.slice(normalized.lastIndexOf("/") + 1);
   for (const signal of PRIVACY_FILE_NAMES) {
-    if (signal.pattern.test(name)) report(normalized, 0, "forbidden-file", signal.description, false);
+    if (privacySignalMatches(signal, name)) report(normalized, 0, "forbidden-file", signal.description, false);
   }
 }
 
