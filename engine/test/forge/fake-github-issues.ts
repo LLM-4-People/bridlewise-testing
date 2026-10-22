@@ -21,18 +21,23 @@ import type { FakeAnswer, FakeGithub, FakeRequest } from "./fake-github.ts";
 export type FakeIssue = {
   id: number; node_id: string; number: number; title: string; body: string | null;
   state: "open" | "closed"; state_reason: string | null;
-  labels: { name: string }[]; milestone: { number: number } | null; type: { name: string } | null;
+  labels: { name: string }[]; milestone: { number: number } | null; type: { name: string } | null; user: { login: string };
   parent: number | null; blockedBy: number[]; pinned: boolean; comments: string[];
+  /** Present on a pull request, which GitHub's issue list also answers. */
+  pull_request?: Readonly<{ url: string }>;
 };
 export type FakeLabel = { name: string; color: string; description: string | null };
-export type FakeMilestone = { number: number; title: string; description: string | null; state: "open" | "closed" };
+export type FakeMilestone = { number: number; title: string; description: string | null; state: "open" | "closed"; creator: { login: string } };
 
 export type FakeIssues = Readonly<{
+  /** By name in lower case: GitHub's label names are case-insensitive. */
   labels: Map<string, FakeLabel>;
   milestones: Map<number, FakeMilestone>;
   issues: Map<number, FakeIssue>;
-  /** A person's issue: no projector marker unless the body carries one. */
-  open: (input: Readonly<{ title: string; body: string }>) => FakeIssue;
+  /** An issue another account opened (`login`, default a person): it may carry a copied marker. */
+  open: (input: Readonly<{ title: string; body: string; login?: string }>) => FakeIssue;
+  /** A milestone another account created. */
+  milestone: (input: Readonly<{ title: string; login?: string }>) => FakeMilestone;
 }>;
 
 export type FakeIssuesOptions = Readonly<{
@@ -80,10 +85,13 @@ export function installIssues(fake: FakeGithub, repository: string, options: Fak
   };
   const byId = (id: unknown): FakeIssue | undefined => [...issues.values()].find((issue) => issue.id === id);
 
-  function create(input: Readonly<{ title: string; body: string | null }>): FakeIssue {
+  const PERSON = "a-person";
+  const author = (request: FakeRequest): string => fake.principalOf(request) ?? "unknown";
+
+  function create(input: Readonly<{ title: string; body: string | null; login: string }>): FakeIssue {
     const issue: FakeIssue = {
       id: nextId++, node_id: `I_${String(nextId)}`, number: nextNumber++, title: input.title, body: input.body,
-      state: "open", state_reason: null, labels: [], milestone: null, type: null, parent: null, blockedBy: [], pinned: false, comments: [],
+      state: "open", state_reason: null, labels: [], milestone: null, type: null, user: { login: input.login }, parent: null, blockedBy: [], pinned: false, comments: [],
     };
     issues.set(issue.number, issue);
     return issue;
@@ -95,8 +103,8 @@ export function installIssues(fake: FakeGithub, repository: string, options: Fak
     if ("body" in body) issue.body = body.body === null ? null : String(body.body);
     if ("labels" in body) {
       const names = body.labels as string[];
-      if (names.some((name) => !labels.has(name))) return json(422, { message: "Validation Failed", errors: [{ resource: "Label", code: "invalid" }] });
-      issue.labels = names.map((name) => ({ name }));
+      if (names.some((name) => !labels.has(name.toLowerCase()))) return json(422, { message: "Validation Failed", errors: [{ resource: "Label", code: "invalid" }] });
+      issue.labels = names.map((name) => ({ name: labels.get(name.toLowerCase())!.name }));
     }
     if ("milestone" in body) {
       if (body.milestone !== null && !milestones.has(Number(body.milestone))) return json(422, { message: "Validation Failed", errors: [{ resource: "Issue", field: "milestone", code: "invalid" }] });
@@ -116,13 +124,13 @@ export function installIssues(fake: FakeGithub, repository: string, options: Fak
   fake.route("GET", escaped("/labels"), (request) => page(request, [...labels.values()]));
   fake.route("POST", escaped("/labels"), (request) => {
     const body = request.body as FakeLabel;
-    if (labels.has(body.name)) return json(422, { message: "Validation Failed", errors: [{ resource: "Label", code: "already_exists", field: "name" }] });
+    if (labels.has(body.name.toLowerCase())) return json(422, { message: "Validation Failed", errors: [{ resource: "Label", code: "already_exists", field: "name" }] });
     const label = { name: body.name, color: body.color, description: body.description ?? null };
-    labels.set(label.name, label);
+    labels.set(label.name.toLowerCase(), label);
     return json(201, label);
   });
   fake.route("PATCH", escaped("/labels/([^/]+)"), (request, match) => {
-    const label = labels.get(decodeURIComponent(match[1]!));
+    const label = labels.get(decodeURIComponent(match[1]!).toLowerCase());
     if (label === undefined) return json(404, { message: "Not Found" });
     Object.assign(label, request.body as object);
     return json(200, label);
@@ -131,7 +139,8 @@ export function installIssues(fake: FakeGithub, repository: string, options: Fak
   fake.route("GET", escaped("/milestones"), (request) => page(request, [...milestones.values()].filter((milestone) => request.query.get("state") === "all" || milestone.state === (request.query.get("state") ?? "open"))));
   fake.route("POST", escaped("/milestones"), (request) => {
     const body = request.body as Partial<FakeMilestone>;
-    const milestone: FakeMilestone = { number: milestones.size + 1, title: String(body.title), description: body.description ?? null, state: body.state ?? "open" };
+    if ([...milestones.values()].some((other) => other.title === body.title)) return json(422, { message: "Validation Failed", errors: [{ resource: "Milestone", code: "already_exists", field: "title" }] });
+    const milestone: FakeMilestone = { number: milestones.size + 1, title: String(body.title), description: body.description ?? null, state: body.state ?? "open", creator: { login: author(request) } };
     milestones.set(milestone.number, milestone);
     return json(201, milestone);
   });
@@ -147,7 +156,7 @@ export function installIssues(fake: FakeGithub, repository: string, options: Fak
     .sort((left, right) => right.number - left.number).map(restIssue)));
   fake.route("POST", escaped("/issues"), (request) => {
     const body = request.body as Record<string, unknown>;
-    const issue = create({ title: String(body.title), body: (body.body as string | undefined) ?? null });
+    const issue = create({ title: String(body.title), body: (body.body as string | undefined) ?? null, login: author(request) });
     const refused = apply(issue, body);
     if (refused !== undefined) { issues.delete(issue.number); return refused; }
     return json(201, restIssue(issue));
@@ -220,5 +229,13 @@ export function installIssues(fake: FakeGithub, repository: string, options: Fak
     } } } });
   });
 
-  return Object.freeze({ labels, milestones, issues, open: (input) => create(input) });
+  return Object.freeze({
+    labels, milestones, issues,
+    open: (input) => create({ title: input.title, body: input.body, login: input.login ?? PERSON }),
+    milestone: (input) => {
+      const planted: FakeMilestone = { number: milestones.size + 1, title: input.title, description: null, state: "open", creator: { login: input.login ?? PERSON } };
+      milestones.set(planted.number, planted);
+      return planted;
+    },
+  });
 }

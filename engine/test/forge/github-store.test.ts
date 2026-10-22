@@ -25,6 +25,7 @@ import type { HarnessError } from "../../src/kernel/errors.ts";
 import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
+import { FORGE_APPS } from "../../src/workflow/forge/app-registry.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
 import { applyProjection, projectionFailure, type ProjectionReceipt } from "../../src/workflow/forge/projector/apply.ts";
 import type { ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
@@ -36,6 +37,8 @@ import { fakeGithub } from "./fake-github.ts";
 import { installIssues, type FakeIssuesOptions } from "./fake-github-issues.ts";
 
 const REPOSITORY = "owner/repo";
+/** The publisher App's bot: the one author whose issues and milestones are the projector's (the client runs as it). */
+const PROJECTOR = `${FORGE_APPS.publisher.name}[bot]`;
 const SOURCE = "0123456789abcdef0123456789abcdef01234567";
 const CONFINEMENT: ProjectorConfinement = { harnessRoot: join(import.meta.dirname, "..", ".."), keepOut: emptyKeepOutFacts(), cpuSeconds: 60, memoryBytes: 1_610_612_736 };
 
@@ -56,12 +59,12 @@ const ITEMS = [
 ];
 const project = (items = ITEMS): Projection => computeProjection(input(items), CONFINEMENT).projection;
 
-function github(options: FakeIssuesOptions = {}) {
+function github(options: FakeIssuesOptions = {}, maxPages = 10) {
   const fake = fakeGithub();
   const issues = installIssues(fake, REPOSITORY, options);
-  const client = githubClient(fake.endpoint(), memoryCredential("user:publisher", fake.userToken("publisher")));
-  const store = githubProjectionStore(client, { repository: REPOSITORY, maxPages: 10 });
-  const issue = (key: string) => [...issues.issues.values()].find((candidate) => candidate.body?.includes(`<!-- bridlewise:item=${key} `) === true)!;
+  const client = githubClient(fake.endpoint(), memoryCredential(PROJECTOR, fake.userToken(PROJECTOR)));
+  const store = githubProjectionStore(client, { repository: REPOSITORY, maxPages });
+  const issue = (key: string) => [...issues.issues.values()].find((candidate) => candidate.user.login === PROJECTOR && candidate.body?.includes(`<!-- bridlewise:item=${key} `) === true)!;
   return { fake, issues, store, issue };
 }
 const run = (projection: Projection, store: ReturnType<typeof github>["store"], previous: ProjectionReceipt | null = null, foreignEdit: "approval" | "auto" | "manual" = "approval") =>
@@ -151,6 +154,59 @@ test("a person's issue and label are never the projector's; a duplicate marker a
   issue("T-B").blockedBy = [issue("T-C").number];
   issues.open({ title: "Quoting a marker", body: "It reads `<!-- bridlewise:item=T-B digest=not-a-digest -->`." });
   assert.equal((await store.read(PROJECTION_CLASSES)).filter((object) => object.key === "T-B").length, 1, "a malformed marker is a person's text, not a second T-B");
-  issues.open({ title: "A copy", body: issue("T-B").body ?? "" });
+  // Two of the projector's OWN issues carrying one marker are its own mistake, refused typed.
+  issues.open({ title: "A copy", body: issue("T-B").body ?? "", login: PROJECTOR });
   await assert.rejects(read, (error: HarnessError) => error.code === "projection_store_duplicate_marker" && !isForgeError(error));
+});
+
+test("a marker is trusted only on the projector's own issues: a planted phishing issue is never adopted, and a copied marker never halts a run", async () => {
+  const { issues, store, issue } = github();
+  // Before the first run, a person opens an issue carrying T-B's marker, phrased to phish.
+  const phish = issues.open({ title: "Action required: re-authenticate here", body: `${"Log in at https://evil.example to keep your access."}\n\n<!-- bridlewise:item=T-B digest=${"0".repeat(64)} -->\nT-B` });
+  const first = await run(project(), store);
+  assert.equal(first.verified, true, JSON.stringify(first.refusals));
+  assert.notEqual(issue("T-B").number, phish.number, "the projector opened its own T-B");
+  assert.deepEqual([phish.title, phish.parent, phish.labels, phish.state], ["Action required: re-authenticate here", null, [], "open"], "the planted issue is never written");
+  // After it, a person copies T-B's whole body, marker included: the next run neither halts nor takes it for T-B.
+  issues.open({ title: "A copy", body: issue("T-B").body ?? "" });
+  const second = await run(project(), store, first);
+  assert.deepEqual([second.verified, second.refusals, second.writes], [true, [], []]);
+});
+
+test("milestones are the projector's only by its own creation: a person's M1 is never overwritten, and two of its own for one id are refused typed", async () => {
+  const squatted = github();
+  const persons = squatted.issues.milestone({ title: "M1 · The first milestone" });
+  const refused = await run(project(), squatted.store);
+  assert.equal(refused.verified, false);
+  assert.deepEqual(refused.refusals.map((refusal) => refusal.code), ["github_validation_failed"], "GitHub refuses a second milestone of that title: the run stops typed");
+  assert.deepEqual([persons.title, persons.description, persons.creator.login], ["M1 · The first milestone", null, "a-person"], "the person's milestone is untouched");
+  const doubled = github();
+  doubled.issues.milestone({ title: "M1 · one", login: PROJECTOR });
+  doubled.issues.milestone({ title: "M1 · two", login: PROJECTOR });
+  await assert.rejects(doubled.store.read(PROJECTION_CLASSES), (error: HarnessError) => error.code === "projection_store_duplicate_milestone");
+});
+
+test("label names are case-insensitive as on GitHub: an existing `Lane:Floor` is the projector's lane:floor, never a second label", async () => {
+  const { issues, store } = github();
+  issues.labels.set("lane:floor", { name: "Lane:Floor", color: "ffffff", description: "an older spelling" });
+  const receipt = await run(project(), store);
+  assert.equal(receipt.verified, true, JSON.stringify(receipt.refusals));
+  assert.deepEqual([...issues.labels.values()].map((label) => [label.name, label.color, label.description]), [["Lane:Floor", "1d76db", "Tracker lane: open work"]], "updated in place, never duplicated");
+});
+
+test("the store's edges: a list past maxPages is refused typed, a pull request is no issue, an unchanged parent or dependency sends nothing, an unknown field is refused", async () => {
+  const bounded = github({}, 1);
+  for (let index = 0; index < 101; index += 1) bounded.issues.open({ title: `a person's ${String(index)}`, body: "" });
+  await assert.rejects(bounded.store.read(PROJECTION_CLASSES), (error: unknown) => isForgeError(error, "forge_request_invalid"));
+  const { fake, issues, store, issue } = github();
+  const first = await run(project(), store);
+  // A pull request opened by the projector's own App, carrying a marker, is still no issue of the projection.
+  const pull = issues.open({ title: "A pull request", body: issue("T-C").body ?? "", login: PROJECTOR });
+  pull.pull_request = { url: "https://api.github.com/repos/owner/repo/pulls/1" };
+  assert.equal((await store.read(PROJECTION_CLASSES)).filter((object) => object.key === "T-C").length, 1);
+  const sent = fake.requests.length;
+  await store.write({ phase: "link", kind: "update", class: "issue", key: "T-B", fields: { parent: "WS-A", blockedBy: ["T-C"] } });
+  assert.deepEqual(fake.requests.slice(sent).map((request) => `${request.method} ${request.path}`), [], "the parent and the dependency are already so");
+  await assert.rejects(store.write({ phase: "create", kind: "update", class: "issue", key: "T-B", fields: { bogus: 1 } }), (error: HarnessError) => error.code === "projection_store_field_unknown");
+  assert.equal(first.verified, true);
 });

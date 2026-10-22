@@ -9,12 +9,19 @@
  * How each class lives on GitHub:
  *
  *   - `label` — a repository label named by its key (`lane:<lane>`), owned
- *     when it is in the projector's `lane:` namespace;
- *   - `milestone` — a repository milestone titled `<id> · <title>`, keyed by
- *     the id before ` · ` (owned); any other milestone is GitHub's own and
- *     keyed by its title;
- *   - `issue` — an issue whose body carries the projector's marker
- *     (`itemMarker`), keyed by the marker's id. Only that marker and what
+ *     when it is in the projector's `lane:` namespace. GitHub's label names
+ *     are case-insensitive, and so is the key: a label is keyed by its name
+ *     in lower case;
+ *   - `milestone` — a milestone THE PROJECTOR CREATED (its creator is the
+ *     publisher App's bot, read from the App registry) titled
+ *     `<id> · <title>`, keyed by the id; two such milestones for one id are
+ *     refused typed (`projection_store_duplicate_milestone`). A person's
+ *     milestone is GitHub's own, whatever its title, and never written;
+ *   - `issue` — an issue THE PROJECTOR OPENED (its author is the publisher
+ *     App's bot) whose body carries the projector's marker (`itemMarker`),
+ *     keyed by the marker's id. Anyone can open an issue and copy a marker
+ *     into it; such an issue is never read as the projector's, so it can
+ *     neither take over an item nor halt a run. Only that marker and what
  *     follows it is the git-owned `block`; a reporter's text above it is
  *     GitHub-owned and kept on every write. An issue without the marker is
  *     not the projector's and is not read. Its `parent` is the sub-issue
@@ -29,6 +36,7 @@
 import { HarnessError } from "../../../kernel/errors.ts";
 import { compareUtf8Bytes } from "../../../kernel/ordered.ts";
 import type { ForgeClient } from "../port.ts";
+import { FORGE_APPS } from "../app-registry.ts";
 import { repositoryPath } from "../repository-reads.ts";
 import { FIELD_PHASES, findItemMarker, laneLabel, type Fields, type Json, type ProjectionClass } from "./model.ts";
 import type { LiveObject, ProjectionStore, ProjectionWrite } from "./store.ts";
@@ -44,7 +52,9 @@ export type GithubStoreOptions = Readonly<{
 const PAGE_SIZE = 100;
 /** An owned milestone's title: `<id> · <title>`. */
 const MILESTONE_TITLE = /^([A-Z][A-Z0-9-]*) · /u;
-const LANE_NAMESPACE = laneLabel("");
+const LANE_NAMESPACE = laneLabel("").toLowerCase();
+/** The login GitHub gives the publisher App's installation: the one author whose issues and milestones are the projector's. */
+const PROJECTOR_LOGIN = `${FORGE_APPS.publisher.name}[bot]`;
 
 /** The relations and the pin of every issue, a page at a time. */
 const RELATIONS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
@@ -57,11 +67,12 @@ const RELATIONS_QUERY = `query($owner: String!, $name: String!, $cursor: String)
 }`;
 
 type RestLabel = Readonly<{ name: string; color: string; description: string | null }>;
-type RestMilestone = Readonly<{ number: number; title: string; description: string | null; state: string }>;
+type RestUser = Readonly<{ login: string }> | null | undefined;
+type RestMilestone = Readonly<{ number: number; title: string; description: string | null; state: string; creator?: RestUser }>;
 type RestIssue = Readonly<{
   id: number; node_id: string; number: number; title: string; body: string | null; state: string; state_reason: string | null;
   labels: readonly (Readonly<{ name: string }> | string)[]; milestone: Readonly<{ number: number }> | null; type?: Readonly<{ name: string }> | null;
-  pull_request?: unknown;
+  pull_request?: unknown; user?: RestUser;
 }>;
 type RelationNode = Readonly<{ number: number; isPinned: boolean; parent: Readonly<{ number: number }> | null; blockedBy: Readonly<{ totalCount: number; nodes: readonly Readonly<{ number: number }>[] }> }>;
 type RelationsPage = Readonly<{ repository: Readonly<{ issues: Readonly<{ pageInfo: Readonly<{ hasNextPage: boolean; endCursor: string | null }>; nodes: readonly RelationNode[] }> }> | null }>;
@@ -81,6 +92,8 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
   const keyOfNumber = new Map<number, string>();
   const milestones = new Map<string, number>();
   const keyOfMilestone = new Map<number, string>();
+  /** Each label's name as GitHub holds it, by its case-insensitive key. */
+  const labelNames = new Map<string, string>();
 
   const list = <T>(path: string, query: Readonly<Record<string, string>> = {}): Promise<readonly T[]> =>
     client.paginate<T>({ path: `${base}/${path}`, query }, { maxPages: options.maxPages, perPage: PAGE_SIZE });
@@ -89,12 +102,16 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
   async function readMilestones(): Promise<LiveObject[]> {
     milestones.clear();
     keyOfMilestone.clear();
-    return (await list<RestMilestone>("milestones", { state: "all" })).map((milestone) => {
-      const owned = MILESTONE_TITLE.exec(milestone.title);
-      const key = owned?.[1] ?? milestone.title;
+    return (await list<RestMilestone>("milestones", { state: "all" })).map((milestone): LiveObject => {
+      const titled = MILESTONE_TITLE.exec(milestone.title);
+      const fields = { title: milestone.title, description: milestone.description ?? "", state: milestone.state };
+      // A person's milestone is GitHub's own whatever its title: it keys apart from every id and is never written.
+      if (titled === null || milestone.creator?.login !== PROJECTOR_LOGIN) return { class: "milestone", key: `%${String(milestone.number)}`, owned: false, fields };
+      const key = titled[1]!;
+      if (milestones.has(key)) refuse("projection_store_duplicate_milestone", `milestones %${String(milestones.get(key))} and %${String(milestone.number)} are both the projector's ${key}`);
       milestones.set(key, milestone.number);
       keyOfMilestone.set(milestone.number, key);
-      return { class: "milestone", key, owned: owned !== null, fields: { title: milestone.title, description: milestone.description ?? "", state: milestone.state } };
+      return { class: "milestone", key, owned: true, fields };
     });
   }
 
@@ -118,7 +135,8 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
     issues.clear();
     keyOfNumber.clear();
     const marked = (await list<RestIssue>("issues", { state: "all" })).flatMap((issue) => {
-      if (issue.pull_request !== undefined) return [];
+      // A pull request is no issue; an issue the projector did not open is never its own, marker or not.
+      if (issue.pull_request !== undefined || issue.user?.login !== PROJECTOR_LOGIN) return [];
       const body = issue.body ?? "";
       const marker = findItemMarker(body);
       return marker === null ? [] : [{ issue, body, key: marker.key, block: body.slice(marker.index) }];
@@ -140,7 +158,7 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
         title: issue.title,
         block,
         type: issue.type?.name ?? null,
-        labels: issue.labels.map((label) => (typeof label === "string" ? label : label.name)).sort(compareUtf8Bytes),
+        labels: issue.labels.map((label) => (typeof label === "string" ? label : label.name).toLowerCase()).sort(compareUtf8Bytes),
         milestone: issue.milestone === null ? null : keyOfMilestone.get(issue.milestone.number) ?? `%${String(issue.milestone.number)}`,
         parent: facts.parent === null ? null : spell(facts.parent),
         blockedBy: facts.blockedBy.map(spell).sort(compareUtf8Bytes),
@@ -163,9 +181,10 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
   async function writeLabel(write: ProjectionWrite): Promise<void> {
     if (write.kind === "create") {
       await client.rest({ method: "POST", path: `${base}/labels`, body: { name: write.key, ...write.fields } });
+      labelNames.set(write.key.toLowerCase(), write.key);
       return;
     }
-    await client.rest({ method: "PATCH", path: `${base}/labels/${encodeURIComponent(write.key)}`, body: { ...write.fields } });
+    await client.rest({ method: "PATCH", path: `${base}/labels/${encodeURIComponent(labelNames.get(write.key) ?? write.key)}`, body: { ...write.fields } });
   }
 
   async function writeMilestone(write: ProjectionWrite): Promise<void> {
@@ -220,7 +239,8 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
         facts.parent = null;
       } else {
         const target = issueFacts(String(parent));
-        await client.rest({ method: "POST", path: `${base}/issues/${String(target.number)}/sub_issues`, body: { sub_issue_id: facts.id, replace_parent: true } });
+        // Already its parent: nothing to send.
+        if (facts.parent !== target.number) await client.rest({ method: "POST", path: `${base}/issues/${String(target.number)}/sub_issues`, body: { sub_issue_id: facts.id, replace_parent: true } });
         facts.parent = target.number;
       }
     }
@@ -249,8 +269,11 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
     read: async (classes: readonly ProjectionClass[]) => {
       const objects: LiveObject[] = [];
       if (classes.includes("label")) {
+        labelNames.clear();
         for (const label of await list<RestLabel>("labels")) {
-          objects.push({ class: "label", key: label.name, owned: label.name.startsWith(LANE_NAMESPACE), fields: { color: label.color.toLowerCase(), description: label.description ?? "" } });
+          const key = label.name.toLowerCase();
+          labelNames.set(key, label.name);
+          objects.push({ class: "label", key, owned: key.startsWith(LANE_NAMESPACE), fields: { color: label.color.toLowerCase(), description: label.description ?? "" } });
         }
       }
       // Milestones are read whenever issues are: an issue's milestone is spelled by its key.
