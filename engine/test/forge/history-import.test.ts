@@ -31,7 +31,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { dirname, join } from "node:path";
 import test from "node:test";
 
-import { createOwnedTemporaryDirectory, PRIVATE_STATE_EXECUTABLE_MODE } from "../../src/filesystem/private-state.ts";
+import { createOwnedTemporaryDirectory } from "../../src/filesystem/private-state.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { SECRET_TEXT_SIGNAL_CATALOG } from "../../src/privacy/secret-signals.ts";
@@ -485,7 +485,8 @@ test("install-history-tools: the archive comes through the door's pinned downloa
   assert.deepEqual(installed.map((tool) => tool.status), ["installed"]);
   const path = historyToolPath(home, pin);
   assert.deepEqual(readFileSync(path), member);
-  assert.equal(statSync(path).mode & 0o777, PRIVATE_STATE_EXECUTABLE_MODE);
+  // The mode ON DISK against the expected literal (never the constant the code writes with, which would only compare it with itself).
+  assert.equal(statSync(path).mode & 0o777, 0o700, `the installed tool is ${(statSync(path).mode & 0o777).toString(8)}, not 0700 (owner-only read, write, run)`);
   assert.equal(received.length, 2, "the release URL, then the pinned asset host");
   assert.deepEqual((await installHistoryTools(home, settings, { pins: [pin], allowPrivateAddress: true })).map((tool) => tool.status), ["present"]);
   // A member that is not its pin: refused, nothing written.
