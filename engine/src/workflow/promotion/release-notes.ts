@@ -103,7 +103,8 @@ export function creditedPeople(repository: GitRepository, from: string | null, t
 export function renderReleaseNotes(repository: GitRepository, plan: ReleasePlan, settings: ReleaseSettings, repositoryUrl: string): string {
   const from = plan.previous?.source ?? null;
   const to = plan.product.source;
-  const url = repositoryUrl.replace(/\/+$/u, "");
+  // The door validated the address (<forge>/<owner>/<name>, no trailing slash).
+  const url = repositoryUrl;
   const slug = url.split("/").slice(-2).join("/");
   const lines: string[] = [];
   if (plan.prerelease) {
