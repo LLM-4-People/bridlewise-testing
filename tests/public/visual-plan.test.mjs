@@ -77,4 +77,5 @@ test("the Pages workflow runs the check on every pull request and merge group, a
   assert.match(runs, /node scripts\/visual\/screens\.ts --base _visual\/base --head _visual\/head/u);
   assert.match(runs, /"visual-change"/u);
   assert.match(runs, /visual_base_unbuildable/u, "an unbuildable base is a typed refusal, never a skipped comparison");
+  assert.doesNotMatch(runs, /build-floor-data/u, "no live floor snapshot enters a picture: each source step writes its own offline one");
 });
