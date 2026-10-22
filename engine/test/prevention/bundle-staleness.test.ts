@@ -41,7 +41,7 @@ import { build } from "esbuild";
 
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
-import { getBundleBuildOptions, publishBundle } from "../../scripts/build-bundle.ts";
+import { bundleFreshness, getBundleBuildOptions, publishBundle } from "../../scripts/build-bundle.ts";
 
 import { createTempDir } from "../support/temp-dir.ts";
 import { requireHost } from "../support/host-requirement.ts";
@@ -120,4 +120,17 @@ test("BundleStaleness: the published bundle and its digest are a pure function o
   const changedField = rebuilt.replace(/(binaryStamp: ")[0-9a-f]{64}/, `$1${"c".repeat(64)}`);
   assert.notEqual(changedField, rebuilt);
   assert.notEqual(publishBundle(changedField, fresh).bundleSha256, freshResult.bundleSha256);
+});
+
+// The check `harness check` runs (`build-bundle --check`, its bundle step): no committed digest, a rebuild compared
+// byte for byte. A hand edit of one byte is stale, an absent bundle is absent, a fresh copy is current.
+test("BundleStaleness: harness check's freshness verdict refuses an edited bundle and names an absent one", async () => {
+  const rebuilt = await rebuiltBundleText();
+  const dir = createTempDir("bundle-check-");
+  const copy = join(dir, "bundle.js");
+  writeFileSync(copy, rebuilt, "utf8");
+  assert.equal((await bundleFreshness(copy)).status, "current");
+  writeFileSync(copy, `${rebuilt}// edited by hand\n`, "utf8");
+  assert.deepEqual([(await bundleFreshness(copy)).fresh, (await bundleFreshness(copy)).status], [false, "stale"]);
+  assert.equal((await bundleFreshness(join(dir, "missing.js"))).status, "absent");
 });

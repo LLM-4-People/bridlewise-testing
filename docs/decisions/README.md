@@ -163,9 +163,10 @@ check` reports it stale): change a decision's file, never its row.
 
 | Id | Decision | By | State |
 |---|---|---|---|
-| [PROMO-AUTO](PROMO-AUTO-promote-after-every-testing-push.md) | Auto-promotion is on | user | done |
+| [PROMO-AUTO](PROMO-AUTO-promote-after-every-testing-push.md) | Auto-promotion is on | user | superseded by PROMO-GH |
 | [PROMO-DIR](PROMO-DIR-a-generic-promotion-primitive.md) | Promotion is a generic, hands-free primitive | user | pending (PROMO-0) |
 | [PROMO-FIRST](PROMO-FIRST-the-first-promotion-reviewed.md) | The first promotion: reviewed by the user, then applied | user | done |
+| [PROMO-GH](PROMO-GH-the-product-is-promoted-on-land.md) | The product is promoted in the one repository, on every land | user | pending (GH-5) |
 | [PROMO-UD](PROMO-UD-promotion-choices.md) | The promotion design's choices (covers PROMO-UD-1, PROMO-UD-2, PROMO-UD-3, PROMO-UD-4, PROMO-UD-5, PROMO-UD-6, PROMO-UD-7, PROMO-UD-8) | user | pending (PROMO-0) |
 
 ## The Responses sequence

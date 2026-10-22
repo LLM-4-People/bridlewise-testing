@@ -70,7 +70,7 @@ test("T-H1: a rollback to Pg is a NEW commit R (Pg's tree, ONE parent: the tip; 
   assert.equal(fixture.git(["rev-parse", `${rollback}^1`]), second, "forward: on the tip, never a forced push");
   const trailers = (key: string): string => fixture.git(["log", "-1", `--format=%(trailers:key=${key},valueonly)`, rollback]);
   assert.equal(trailers("Promotion-Restores"), first);
-  assert.equal(trailers("Promoted-From"), fixture.git(["log", "-1", "--format=%(trailers:key=Promoted-From,valueonly)", first]));
+  assert.equal(trailers("Projected-From"), fixture.git(["log", "-1", "--format=%(trailers:key=Projected-From,valueonly)", first]));
   assert.match(trailers("Promotion-Profile"), new RegExp(`^${PROFILE_NAME}@[0-9a-f]{40}$`, "u"));
   assert.match(fixture.git(["log", "-1", "--format=%B", rollback]), /the defect shipped in the second promotion/u);
   assert.equal(fixture.remoteGit(["rev-parse", `refs/heads/${TARGET}`]), rollback);

@@ -154,6 +154,8 @@ export type HarnessCheckOutput = Readonly<{
   artifactManifest: CheckStepResult;
   /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
   communityFiles: CheckStepResult;
+  /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
+  bundle: CheckStepResult;
   allPassed: boolean;
 }>;
 
@@ -535,6 +537,9 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the community health files and forms...");
   steps.push(communityFilesStep(regenerateCommunityFiles(root, false)));
 
+  emitProgress(onProgress, "Checking the bundle against a rebuild of the source...");
+  steps.push(bundleFreshnessStep(root));
+
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
     typecheck: steps[0]!,
@@ -559,6 +564,7 @@ export async function harnessCheck(
     trackerBoard: steps[19]!,
     artifactManifest: steps[20]!,
     communityFiles: steps[21]!,
+    bundle: steps[22]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -1462,22 +1468,19 @@ export function harnessRegister(
  *
  * With `--with-bundle`, runs:
  * 1. `harness register --write` (fix module drift)
- * 2. `harness regenerate` (stabilize the non-bundle hash bindings — manifest
- *    hash, config-contracts sha256, disposition identity, etc.)
+ * 2. `harness regenerate` (stabilize the hash bindings — config-contracts
+ *    sha256, the spec-schema pins, etc.)
  * 3. `node scripts/build-bundle.ts` (rebuild the production bundle from the
- *    STABILIZED root-policy so the bundle embeds the correct non-bundle pins)
- * 4. `harness regenerate` (re-pin the fresh bundle sha256 into root-policy)
- * 5. `harness check --skip-typecheck` (verify every gate passes)
+ *    STABILIZED root-policy, which the bundle compiles in, and write the
+ *    guardian spec-schema artifact the build owns)
+ * 4. `harness regenerate` (re-derive what the build wrote: the spec-schema
+ *    artifact's pin)
+ * 5. `harness check --skip-typecheck` (verify every gate passes, the bundle
+ *    against an in-memory rebuild included)
  *
- * The bundle includes root-policy.ts, which pins the bundle sha256 AND the
- * non-bundle hash bindings. Building the bundle before the non-bundle pins
- * are stabilized leaves the bundle stale (the staleness test rebuilds from
- * the updated root-policy and detects the non-self-referential pin drift).
- * Building the bundle after the initial regenerate, then re-pinning with a
- * final regenerate, makes the bundle + the pin converge in a single
- * invocation — eliminating the two-round manual chore (build-bundle ->
- * regenerate -> build-bundle -> regenerate) that was the #1 agent time-waste
- * when touching config/root-policy/workflow-config files.
+ * No digest of the bundle is committed (#221): its freshness is the check's
+ * rebuild comparison. Building after the first regenerate means the bundle
+ * compiles the stabilized policy, so one invocation converges.
  *
  * Each step runs as its OWN CLI subprocess. This is the correctness crux:
  * every step reads file truth through fresh module imports. Running the steps
@@ -1530,6 +1533,33 @@ export async function harnessSync(
   return wrapResult("sync", deepFreeze({ ...output, convergence }), { status: output.allPassed ? "pass" : "fail" });
 }
 
+/**
+ * `harness check`'s bundle step: a rebuild in memory from the current source
+ * (`scripts/build-bundle.ts --check`, the builder layer, as a subprocess like
+ * every builder arm), compared byte for byte with `dist/bundle.js`. The tree
+ * commits no digest of its build output (#221), so this comparison is what
+ * refuses a stale or hand-edited bundle; an absent one is unbuilt and named
+ * with the command that builds it.
+ */
+function bundleFreshnessStep(root: string): CheckStepResult {
+  try {
+    const answer = JSON.parse(runScriptSubprocess(root, "scripts/build-bundle.ts", ["--check"], DEFAULT_SYNC_CHECK_TIMEOUT_MS)) as { fresh?: unknown; status?: unknown; path?: unknown };
+    const fresh = answer.fresh === true;
+    return deepFreeze({
+      step: "bundle",
+      status: fresh ? "pass" : "fail",
+      message: fresh
+        ? `${String(answer.path)} is exactly a rebuild of the current source`
+        : answer.status === "absent"
+          ? `${String(answer.path)} has not been built: run \`node src/cli.ts harness sync --with-bundle\``
+          : `${String(answer.path)} is not a rebuild of the current source (stale or edited by hand): run \`node src/cli.ts harness sync --with-bundle\``,
+      details: answer,
+    });
+  } catch (error) {
+    return deepFreeze({ step: "bundle", status: "fail", message: error instanceof Error ? error.message : "the bundle check failed", details: null });
+  }
+}
+
 /** One pass of `harness sync` (see {@link harnessSync}): the steps, each a CLI subprocess. */
 async function syncPass(
   root: string,
@@ -1537,17 +1567,12 @@ async function syncPass(
 ): Promise<Omit<HarnessSyncOutput, "convergence">> {
   const prune = pruneArguments(options.prune ?? []);
   // Without --with-bundle: register -> regenerate -> check (3 steps).
-  // With --with-bundle: register -> regenerate (stabilize non-bundle pins) ->
-  //   build-bundle (build from the stabilized root-policy) -> regenerate (pin
-  //   the fresh bundle sha256) -> check (5 steps).
-  // The bundle includes root-policy.ts, which pins the bundle sha256 AND the
-  // non-bundle hash bindings (manifest hash, config-contracts sha256, etc.).
-  // Building the bundle BEFORE the non-bundle pins are stabilized leaves the
-  // bundle stale (the staleness test rebuilds from the updated root-policy
-  // and detects the non-self-referential pin drift). Building the bundle
-  // AFTER the initial regenerate, then re-pinning with a final regenerate,
-  // makes the bundle + the pin converge in a single `harness sync
-  // --with-bundle` invocation — eliminating the two-round manual chore.
+  // With --with-bundle: register -> regenerate (stabilize the pins) ->
+  //   build-bundle (build from the stabilized root-policy; writes the spec-schema
+  //   artifact) -> regenerate (re-derive what the build wrote) -> check (5 steps).
+  // The bundle compiles root-policy.ts in, so it is built after the pins
+  // settle; no digest of it is committed (#221), and the check compares it
+  // with an in-memory rebuild.
   const totalSteps = options.withBundle ? 5 : 3;
   let stepIndex = 0;
   let bundleBuild: HarnessCommandResult | undefined;
@@ -1564,7 +1589,7 @@ async function syncPass(
     emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: build production bundle (scripts/build-bundle.ts)...`);
     bundleBuild = runBundleBuildStep(root);
     stepIndex += 1;
-    emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness regenerate (pin fresh bundle sha256)...`);
+    emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness regenerate (re-derive what the build wrote)...`);
     regenerate = runSyncStep(root, "regenerate", prune, DEFAULT_SYNC_REGENERATE_TIMEOUT_MS);
   }
   stepIndex += 1;
@@ -1612,8 +1637,8 @@ export function syncPassVerdict(steps: readonly HarnessSyncStepSummary[], withBu
  * Run the production bundle build (`scripts/build-bundle.ts`) as a subprocess
  * and wrap its BuildSummary into a HarnessCommandResult. In `harness sync
  * --with-bundle`, this runs AFTER the initial regenerate (which stabilizes
- * the non-bundle hash bindings) so the bundle embeds the correct pins, then
- * a final regenerate pins the fresh bundle sha256. A build failure (esbuild
+ * the hash bindings) so the bundle compiles the settled pins, then a final
+ * regenerate re-derives what the build wrote. A build failure (esbuild
  * error, missing entry) surfaces as status "fail" with the stderr diagnostic;
  * it does NOT abort the remaining sync steps (the full picture is more useful
  * than a hard abort).

@@ -1,4 +1,5 @@
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -88,12 +89,27 @@ export function commitFile(repoRoot: string, relativePath: string, content: stri
 }
 
 /**
- * Commit the failure owners' tracker (`ROOT_POLICY.workflow.failureOwners.tracker`)
- * with ONE open task row naming each repository path: the owner the ledger
- * judge requires for a failure that persists from the target.
+ * The failure owners' tracker text whose generated task board holds exactly
+ * `rows` (task rows, `- [ ] **ID** …`): the one reader reads rows ONLY inside
+ * the board's markers (`boardRows`, `TRACKER_BOARD`), so a fixture row typed
+ * outside them owns nothing.
+ */
+export function trackerBoardText(rows: readonly string[]): string {
+  return `# Tasks\n\n${TRACKER_BOARD.begin}\n${rows.join("\n")}\n${TRACKER_BOARD.end}\n`;
+}
+
+/** Commits the tracker ({@link trackerBoardText}) with `rows` in its board. */
+export function commitTrackerBoard(repoRoot: string, rows: readonly string[]): string {
+  return commitFile(repoRoot, ROOT_POLICY.workflow.failureOwners.tracker, trackerBoardText(rows));
+}
+
+/**
+ * Commit the failure owners' tracker with ONE open task row naming each
+ * repository path: the owner the ledger judge requires for a failure that
+ * persists from the target.
  */
 export function commitFailureOwners(repoRoot: string, paths: readonly string[], task = "FIXTURE-OWNER"): string {
-  return commitFile(repoRoot, ROOT_POLICY.workflow.failureOwners.tracker, `# Tasks\n\n- [ ] **${task}** owns ${paths.join(", ")}\n`);
+  return commitTrackerBoard(repoRoot, [`- [ ] **${task}** owns ${paths.join(", ")}`]);
 }
 
 export const TEST_INTEGRATOR_IDENTITY: GitIdentity = deepFreeze({
