@@ -42,6 +42,21 @@ import {
 import { createTempDir } from "../helpers/temp-dir.ts";
 import { TEST_INCLUDE } from "../test-include.ts";
 import { DECLARED_ROOT } from "../declared-root.ts";
+import { readRunCpu } from "../../engine/src/shared/run-cpu.ts";
+import { availableParallelism, loadavg } from "node:os";
+
+/** DIAGNOSTIC (noload lane, not for merge): wall vs CPU of one phase. */
+function phase<T>(label: string, run: () => T): T {
+  const wall0 = performance.now();
+  const cpu0 = readRunCpu();
+  const self0 = process.cpuUsage();
+  const value = run();
+  const self = process.cpuUsage(self0);
+  const cpu1 = readRunCpu();
+  console.error(`[noload-diag] ${label} wall=${(performance.now() - wall0).toFixed(0)}ms selfCpu=${((self.user + self.system) / 1000).toFixed(0)}ms ` +
+    `childCpu=${cpu0 && cpu1 ? cpu1.childCpuMs - cpu0.childCpuMs : "?"}ms load=${loadavg().map((n) => n.toFixed(1)).join("/")} cpus=${availableParallelism()}`);
+  return value;
+}
 
 const WEB_ROOT = process.cwd();
 const INTEGRATION_ROOT = join(WEB_ROOT, "engine");
@@ -277,18 +292,18 @@ describe("every test file this repository holds is executed by something", () =>
    * file's name.
    */
   test("no test file is selected by no runner pattern and executed by nobody", () => {
-    const tests = trackedTestFiles(WEB_ROOT);
+    const tests = phase("ls-files", () => trackedTestFiles(WEB_ROOT));
     // POPULATION AS RUNTIME NUMBERS. A universe that collapsed would report
     // "no orphans" for the wrong reason, and that is the shape this whole
     // file exists to refuse.
     expect(tests.length, "the index yielded no test file at all").toBeGreaterThan(300);
-    const selected = new Set(TEST_INCLUDE.flatMap((pattern) => globSync(pattern, { cwd: WEB_ROOT })));
+    const selected = phase("glob", () => new Set(TEST_INCLUDE.flatMap((pattern) => globSync(pattern, { cwd: WEB_ROOT }))));
     expect(selected.size, "the runner globs selected nothing").toBeGreaterThan(300);
     // THE OTHER DECLARED RUNNER: `npm run test:public` (node:test over the
     // globs its script names), which the CI gate runs. Its files are executed
     // there; driving them again here ran every public test twice, inside one
     // vitest timeout that the growing public suite outgrew.
-    const publicRun = publicRunnerFiles(WEB_ROOT);
+    const publicRun = phase("public", () => publicRunnerFiles(WEB_ROOT));
     expect(publicRun.size, "the test:public script selects nothing").toBeGreaterThan(5);
 
     const orphans = tests.filter((file) => !selected.has(file) && !publicRun.has(file));
@@ -296,7 +311,9 @@ describe("every test file this repository holds is executed by something", () =>
     // guarantee rather than a census. An orphan that cannot be run this way is
     // a red, and the message says the two ways out.
     for (const orphan of orphans) {
-      const run = nodeTestRun(WEB_ROOT, orphan);
+      const run = phase(`node --test ${orphan}`, () => nodeTestRun(WEB_ROOT, orphan));
+      const durations = [...run.output.matchAll(/^(?:not )?ok (\d+) - [^\n]*\n(?:[^\n]*\n){0,3}?\s+duration_ms: ([\d.]+)/gmu)].map((m) => `${m[1]}:${Number(m[2]).toFixed(0)}`);
+      console.error(`[noload-diag] child durations (test:ms): ${durations.join(" ")}`);
       expect(
         run.status,
         `${orphan} is matched by no runner pattern, so vitest never sees it, and running it as ` +
