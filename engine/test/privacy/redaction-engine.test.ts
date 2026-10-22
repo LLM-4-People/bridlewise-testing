@@ -328,6 +328,7 @@ test("applyRedactions: multiple spans all replaced", () => {
   const text = ("sk" + "_abcdefghijklmnopqrstuvwx and gh" + "p_abcdefghijklmnopqrstuvwx");
   const spans = detectSensitiveSpans(text, policy);
   const redacted = applyRedactions(text, spans, policy);
+  assert.ok(redacted.includes("[REDACTED:"), "witness: the planted secrets were redacted in this subject");
   assert.ok(!redacted.includes("sk_"));
   assert.ok(!redacted.includes("ghp_"));
   assert.ok(redacted.includes("[REDACTED:"));
@@ -572,6 +573,7 @@ test("redactText: secret at end of text", () => {
 test("redactText: multiple secrets on same line", () => {
   const text = ("sk" + "_abcdefghijklmnopqrstuvwx gh" + "p_abcdefghijklmnopqrstuvwx");
   const result = redactText(text, policy);
+  assert.ok(result.redactedText.includes("[REDACTED:"), "witness: the planted secrets were redacted in this subject");
   assert.ok(!result.redactedText.includes("sk_"));
   assert.ok(!result.redactedText.includes("ghp_"));
 });

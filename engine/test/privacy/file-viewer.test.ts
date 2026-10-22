@@ -95,6 +95,7 @@ test("viewFile: throws on non-string content", () => {
 test("viewFile full: multiple secrets redacted", () => {
   const content = ("sk" + "_abcdefghijklmnopqrstuvwx\nghp_abcdefghijklmnopqrstuvwx");
   const result = viewFile("test.ts", content, { mode: "full" });
+  assert.ok(viewed(result).content.includes("[REDACTED:"), "witness: the planted secrets were redacted in this subject");
   assert.ok(!viewed(result).content.includes("sk_"));
   assert.ok(!viewed(result).content.includes("ghp_"));
   assert.ok(result.redactionSummary.spanCount >= 2);
@@ -102,6 +103,7 @@ test("viewFile full: multiple secrets redacted", () => {
 
 test("viewFile full: AWS key redacted", () => {
   const result = viewFile("test.ts", ("key = AK" + "IAIOSFODNN7EXAMPLE"), { mode: "full" });
+  assert.ok(viewed(result).content.includes("[REDACTED:"), "witness: the planted key was redacted in this subject");
   assert.ok(!viewed(result).content.includes("AKIA"));
 });
 
@@ -265,6 +267,7 @@ test("viewFile semantic: JSON with secrets is redacted", () => {
   const content = ('{"api_key": "sk' + '_abcdefghijklmnopqrstuvwx"}');
   const result = viewFile("test.json", content, { mode: "semantic", policy: enabledPolicy });
   assert.ok(result.redactionSummary.spanCount > 0);
+  assert.ok(viewed(result).content.includes("[REDACTED:"), "witness: the planted secret was redacted in this subject");
   assert.ok(!viewed(result).content.includes("sk_"));
 });
 

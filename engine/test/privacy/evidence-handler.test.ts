@@ -111,6 +111,9 @@ test("redactForLog: secret content is redacted", () => {
 
 test("redactForLog: metadata does not contain secrets", () => {
   const result = redactForLog(("api_key = sk" + "_abcdefghijklmnopqrstuvwx"));
+  // Witness: the planted secret reached the redactor and was found.
+  assert.equal(result.status, "redacted");
+  assert.ok(result.metadata.spanCount > 0);
   assert.ok(!JSON.stringify(result.metadata).includes("sk_"));
 });
 
@@ -142,6 +145,7 @@ test("redactEvidence: uses provided policy", () => {
 test("redactEvidence: AWS key redacted", () => {
   const result = redactEvidence(("key = AK" + "IAIOSFODNN7EXAMPLE"));
   assert.ok(result.metadata.spanCount > 0);
+  assert.ok(admitted(result).redactedContent.includes("[REDACTED:"), "witness: the planted key was redacted in this subject");
   assert.ok(!admitted(result).redactedContent.includes("AKIA"));
 });
 

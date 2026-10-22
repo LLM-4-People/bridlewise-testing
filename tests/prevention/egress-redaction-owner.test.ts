@@ -262,6 +262,7 @@ describe("B. the shared regex's cursor cannot leak between strings", () => {
     const text = ("sk" + "_aaaaaaaaaaaaaaaaaaaaaaaa and sk" + "_bbbbbbbbbbbbbbbbbbbbbbbb");
     const first = redactForLLMContext(text);
     for (let i = 0; i < 5; i += 1) expect(redactForLLMContext(text)).toBe(first);
+    expect(first, "witness: both planted secrets were redacted in this subject").toMatch(/^\[REDACTED:token\] and \[REDACTED:token\]$/u);
     expect(first).not.toContain("sk_a");
     expect(first).not.toContain("sk_b");
   });
