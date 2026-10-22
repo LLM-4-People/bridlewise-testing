@@ -5,6 +5,7 @@
  * every derived address with it, and nothing else.
  */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
@@ -12,8 +13,15 @@ import test from "node:test";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { configuredForge } from "../../src/workflow/forge/configured-forge.ts";
 import { syncForgeFiles } from "../../src/workflow/forge/generated-files.ts";
-import { configuredRepositoryIdentity, repositoryIdentity, repositoryIdentityCopies } from "../../src/workflow/forge/repository-identity.ts";
+import { configuredRepositoryIdentity, repositoryIdentity, repositoryIdentityCopies, withIdentityLinks } from "../../src/workflow/forge/repository-identity.ts";
 import { createTempDir } from "../support/temp-dir.ts";
+
+/** A fresh git working tree (the identity's copies are read from what a tree owns). */
+function gitTop(prefix: string): string {
+  const top = createTempDir(prefix);
+  execFileSync("git", ["init", "-q"], { cwd: top });
+  return top;
+}
 import { SETTINGS } from "./forge-settings.ts";
 
 test("every address is derived from the organisation, the web origin and the trunk", () => {
@@ -46,7 +54,7 @@ test("only github.com has derivable project Pages; the configured identity is th
 });
 
 test("the identity's copies are generated, a field each: package.json and CITATION.cff follow a rename; another shape is refused", () => {
-  const top = createTempDir("identity-copies-");
+  const top = gitTop("identity-copies-");
   const manifest = { name: "x", repository: { type: "git", url: "https://github.com/LLM-4-People/old.git" }, homepage: "https://github.com/LLM-4-People/old", bugs: { url: "https://github.com/LLM-4-People/old/issues" }, license: "AGPL-3.0-only" };
   writeFileSync(join(top, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   writeFileSync(join(top, "CITATION.cff"), 'cff-version: 1.2.0\nrepository-code: "https://github.com/LLM-4-People/old"\nurl: "https://example.org"\n');
@@ -67,5 +75,22 @@ test("the identity's copies are generated, a field each: package.json and CITATI
   writeFileSync(join(top, "package.json"), `${JSON.stringify({ repository: { url: "u" } })}\n`);
   assert.throws(() => repositoryIdentityCopies(top, repositoryIdentity(renamed)), (error: unknown) => isForgeError(error, "forge_identity_copy_invalid") && /bugs/u.test(error.message));
   // A tree without the files carries no copy.
-  assert.equal(repositoryIdentityCopies(createTempDir("identity-none-"), repositoryIdentity(renamed)).size, 0);
+  assert.equal(repositoryIdentityCopies(gitTop("identity-none-"), repositoryIdentity(renamed)).size, 0);
+});
+
+test("identity links in a hand-written document: each label used gets its generated definition, the clone command follows the identity, and a rename moves both", () => {
+  const identity = repositoryIdentity(SETTINGS);
+  const doc = "# Doc\n\nSee [issue 7][repo:issues/7], the [site][site:floor/help/] and [home][repo:].\n\n<!-- BEGIN GENERATED: clone command, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->\n<!-- END GENERATED: clone command -->\n";
+  const linked = withIdentityLinks(doc, identity);
+  assert.ok(linked.includes("[repo:]: https://github.com/LLM-4-People/bridlewise-testing\n"));
+  assert.ok(linked.includes("[repo:issues/7]: https://github.com/LLM-4-People/bridlewise-testing/issues/7\n"));
+  assert.ok(linked.includes("[site:floor/help/]: https://llm-4-people.github.io/bridlewise-testing/floor/help/\n"));
+  assert.ok(linked.includes("git clone https://github.com/LLM-4-People/bridlewise-testing.git\ncd bridlewise-testing\n"));
+  assert.equal(withIdentityLinks(linked, identity), linked, "regenerating changes nothing");
+  const renamed = withIdentityLinks(linked, repositoryIdentity({ ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, name: "bridlewise" } : repository) }));
+  assert.equal(renamed.includes("bridlewise-testing"), false, "a rename leaves no old address in the document");
+  // A label no longer used loses its definition; a document with none carries no block.
+  assert.equal(withIdentityLinks(linked.replace(" and [home][repo:]", ""), identity).includes("[repo:]:"), false);
+  assert.equal(withIdentityLinks("# Plain\n", identity), "# Plain\n");
+  assert.throws(() => withIdentityLinks("x\n<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->\n", identity), (error: unknown) => isForgeError(error, "forge_identity_copy_invalid"));
 });

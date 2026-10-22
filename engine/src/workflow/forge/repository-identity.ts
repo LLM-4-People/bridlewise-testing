@@ -14,6 +14,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { workingTreeReader } from "../../git/tree-reader.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { ForgeError } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
@@ -67,11 +68,55 @@ export function configuredRepositoryIdentity(): RepositoryIdentity {
   return repositoryIdentity(configuredForge());
 }
 
+/** A Markdown reference to an identity link: `[text][repo:<path>]` (on GitHub) or `[text][site:<path>]` (on the Pages site). */
+const IDENTITY_LABEL = /\]\[((?:repo|site):[^\]\s]*)\]/gu;
+const LINKS_BEGIN = "<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
+const LINKS_END = "<!-- END GENERATED: repository links -->";
+const CLONE_BEGIN = "<!-- BEGIN GENERATED: clone command, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
+const CLONE_END = "<!-- END GENERATED: clone command -->";
+
+/** The address an identity label names: `repo:<path>` under the repository's GitHub URL, `site:<path>` under its Pages site. */
+function identityLinkTarget(label: string, identity: RepositoryIdentity): string {
+  const [kind, ...rest] = label.split(":");
+  const path = rest.join(":");
+  if (kind === "site") return `${identity.pagesUrl}${path}`;
+  return path === "" ? identity.webUrl : `${identity.webUrl}/${path}`;
+}
+
+/**
+ * A hand-written Markdown document with its identity links generated. The
+ * prose names an address only by a reference label (`[text][repo:issues/57]`,
+ * `[text][site:floor/help/]`). One block at the end defines exactly the
+ * labels the text uses, and a clone block holds the clone command; both are
+ * written from the identity. A document that uses no label carries no block.
+ */
+export function withIdentityLinks(text: string, identity: RepositoryIdentity): string {
+  let body = text;
+  const begin = body.indexOf(LINKS_BEGIN);
+  if (begin !== -1) {
+    const end = body.indexOf(LINKS_END, begin);
+    if (end === -1) throw new ForgeError("forge_identity_copy_invalid", "A repository-links block has no end marker.", { field: "repository links" });
+    body = `${body.slice(0, begin).replace(/\n+$/u, "\n")}${body.slice(end + LINKS_END.length).replace(/^\n+/u, "")}`;
+  }
+  const clone = ["```bash", `git clone ${identity.gitUrl}`, `cd ${identity.name}`, "```"].join("\n");
+  for (let at = body.indexOf(CLONE_BEGIN); at !== -1; at = body.indexOf(CLONE_BEGIN, at + 1)) {
+    const end = body.indexOf(CLONE_END, at);
+    if (end === -1) throw new ForgeError("forge_identity_copy_invalid", "A clone-command block has no end marker.", { field: "clone command" });
+    body = `${body.slice(0, at + CLONE_BEGIN.length)}\n${clone}\n${body.slice(end)}`;
+  }
+  const labels = [...new Set([...body.matchAll(IDENTITY_LABEL)].map((match) => match[1]!))].sort();
+  if (labels.length === 0) return body;
+  const definitions = labels.map((label) => `[${label}]: ${identityLinkTarget(label, identity)}`);
+  return `${body.replace(/\n*$/u, "\n")}\n${LINKS_BEGIN}\n${definitions.join("\n")}\n${LINKS_END}\n`;
+}
+
 /**
  * THE COPIES of the identity that other formats insist on carrying as text,
  * each GENERATED from it (a field, never the whole file):
  * - `package.json`: `repository.url`, `homepage`, `bugs.url`;
- * - `CITATION.cff`: `repository-code`.
+ * - `CITATION.cff`: `repository-code`;
+ * - every owned Markdown document's identity links and clone command
+ *   ({@link withIdentityLinks}).
  * Each answer is the file's full new text, for the forge-files arm of
  * `harness sync` to compare and write. A file the tree does not hold carries
  * no copy; a file that holds the copy in another shape is refused
@@ -98,6 +143,15 @@ export function repositoryIdentityCopies(top: string, identity: RepositoryIdenti
     if (at.length !== 1) throw new ForgeError("forge_identity_copy_invalid", `CITATION.cff must hold exactly one top-level repository-code line; it holds ${String(at.length)}.`, { path: "CITATION.cff", field: "repository-code" });
     lines[at[0]!] = `repository-code: "${identity.webUrl}"`;
     copies.set("CITATION.cff", lines.join("\n"));
+  }
+  const tree = workingTreeReader(top);
+  const documents = tree.paths().filter((path) => path.endsWith(".md"));
+  tree.prefetch(documents);
+  for (const path of documents) {
+    const text = tree.text(path);
+    if (text === null) continue;
+    const linked = withIdentityLinks(text, identity);
+    if (linked !== text) copies.set(path, linked);
   }
   return copies;
 }

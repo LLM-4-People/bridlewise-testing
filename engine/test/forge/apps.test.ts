@@ -7,6 +7,7 @@
  * or the environment secret → install links → Done.
  */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { homedir } from "node:os";
@@ -76,6 +77,7 @@ test("the forge section refuses what it must: two trunks, a duplicate name, a no
 
 test("the generated files: written from their owners, hand edits and strays are drift, and the index binds each file's sha256", () => {
   const top = createTempDir("forge-files-");
+  execFileSync("git", ["init", "-q"], { cwd: top });
   const files = forgeGeneratedFiles(SETTINGS);
   assert.deepEqual([...files.keys()], ["apps/agent.json", "apps/verifier.json", "apps/door.json", "apps/publisher.json", "manifest.json"]);
   const index = JSON.parse(files.get("manifest.json")!) as { files: { path: string; sha256: string }[] };

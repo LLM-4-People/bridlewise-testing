@@ -5689,8 +5689,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-forge-repository-identity", path: "src/workflow/forge/repository-identity.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 4, namesSha256: "ea5e0a7f56fe6d039fc4a099c5339673fd95b84b8c312b267cbd708a67959aa5" },
-      dependencies: ["node:fs","node:path","src/kernel/integrity.ts","src/workflow/forge/codes.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/forge-config.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "d5a2627a9f545ebdbf4e0e1b555fb111ddb818a0a4d4a6000ef7cb40d846a599" },
+      dependencies: ["node:fs","node:path","src/git/tree-reader.ts","src/kernel/integrity.ts","src/workflow/forge/codes.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/forge-config.ts"],
     }),
   ],
 });

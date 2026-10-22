@@ -120,9 +120,9 @@ function cell(text: string): string {
   return escapeMarkdownTableCell(text).replace(/\s*\n\s*/gu, " ");
 }
 
-/** A planned claim's line: what it will be, and where it is tracked. */
-function plannedLine(text: string, status: ClaimStatus): string {
-  return `- ${text} Planned; tracked in ${"planned" in status ? status.planned : ""}.`;
+/** A planned claim's line: what it will be, and where it is tracked (its issue, under the repository identity). */
+function plannedLine(facts: CommunityFacts, text: string, status: ClaimStatus): string {
+  return `- ${text} Planned; tracked in ${"planned" in status ? `${repositoryUrl(facts)}/issues/${String(status.planned)}` : ""}.`;
 }
 
 /** Every slot a template may name, rendered from the facts. `feature:<id>` is the feature's sentence while live, and empty while planned. */
@@ -132,9 +132,9 @@ export function communitySlots(facts: CommunityFacts): ReadonlyMap<string, strin
   const teamsLive = features.some((feature) => feature.id === "teams" && isLive(feature.status));
   const liveCategories = intake.discussionCategories.filter((category) => isLive(category.status));
   const planned = [
-    ...features.filter((feature) => !isLive(feature.status)).map((feature) => plannedLine(feature.text, feature.status)),
-    ...intake.discussionCategories.filter((category) => !isLive(category.status)).map((category) => plannedLine(`The ${category.name} Discussion category: ${category.use}.`, category.status)),
-    ...intake.issueForms.filter((form) => !isLive(form.typeStatus)).map((form) => plannedLine(`The ${form.type} issue type, set by the ${form.name} form.`, form.typeStatus)),
+    ...features.filter((feature) => !isLive(feature.status)).map((feature) => plannedLine(facts, feature.text, feature.status)),
+    ...intake.discussionCategories.filter((category) => !isLive(category.status)).map((category) => plannedLine(facts, `The ${category.name} Discussion category: ${category.use}.`, category.status)),
+    ...intake.issueForms.filter((form) => !isLive(form.typeStatus)).map((form) => plannedLine(facts, `The ${form.type} issue type, set by the ${form.name} form.`, form.typeStatus)),
   ];
   const slots = new Map([
     ["repository", facts.repository],

@@ -49,7 +49,7 @@ node src/cli.ts harness forge apps create                # the Apps page, Sessio
 
 - `forge-config.ts` — THE `forge` CONFIGURATION SECTION (spliced into the config document by `src/kernel/config-contracts.ts`): the organisation, the API and web origins, the request bounds (timeout, body size, cleanup, ETag cache entries, page bound), the token renewal margin, the repository topology (name, `kind`, visibility, the proving ground; exactly one trunk) and the Apps page (port, the legacy Apps to narrow); `forgeEndpoint`, `trunkRepository`, `repositoriesOfKinds`. No default in code; it imports no configuration reader (the kernel imports it).
 - `configured-forge.ts` — THE ONE READER of the section (`configuredForgeSection`, the section or its absence for the `harness regenerate` arm; `configuredForge`, the section or `forge_not_configured`) and `configuredForgeClient(credential)`: every entry point that talks to GitHub builds its client here.
-- `repository-identity.ts` — THE REPOSITORY IDENTITY: every address of this repository derives from the forge section's organisation, web origin and trunk repository. That covers `owner/name`, the web, clone and issue URLs, the project Pages address and base path, and the organisation's declared repositories. The floor scripts, the repository-link classifier and the community files read it here, so the rename (P1.10) is one value.
+- `repository-identity.ts` — THE REPOSITORY IDENTITY: every address of this repository derives from the forge section's organisation, web origin and trunk repository: `owner/name`, the web, clone and issue URLs, the project Pages address and base path, and the organisation's declared repositories. Code reads it here (the community files, the repository-link classifier). The forge-files arm of `harness sync` generates every copy other formats carry: `package.json`'s repository fields, `CITATION.cff`'s `repository-code`, and in hand-written Markdown the definitions of `[text][repo:<path>]` and `[text][site:<path>]` references plus the clone-command block. The rename (P1.10) is one value.
 - `repository-reads.ts` — the floor's GitHub reads on the port (it replaced `scripts/floor/github.mjs`, a second client): `workflowRuns`, `latestByWorkflow`, `countOpenAlerts` (the declared population from a one-per-page probe's `rel="last"`, every page checked, a truncated population reported incomplete), `listReleases`, and `readFailureCode` (the status page's words for a typed refusal). Used by `scripts/floor/status.mjs`, `scripts/build-floor-data.mjs` and `scripts/promotion-gate.mjs`.
 
 ## Tests
@@ -59,3 +59,8 @@ upstream: an object store by API path with ETags and pagination, the App flow
 (installation lookup, token minting with JWT verification, manifest
 conversion), authentication, the pinned-version check, refusals on demand and
 routes of a test's own. Every lane tests against it.
+
+<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
+[repo:<path>]: https://github.com/LLM-4-People/bridlewise-testing/<path>
+[site:<path>]: https://llm-4-people.github.io/bridlewise-testing/<path>
+<!-- END GENERATED: repository links -->
