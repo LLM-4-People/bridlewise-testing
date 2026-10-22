@@ -40,12 +40,18 @@ import { wholesaleGeneratedPaths } from "./hash-binding-registry.ts";
  * - `read-only`: a detached worktree for a verifier — no branch, no lease, no
  *   target; it can be validated and never merges.
  *
+ * A feature workspace's record also carries its FORGE state (the target's
+ * upstream, its pull request, the head its last round published, whether it
+ * is ready for review: `workspace-forge.ts`); a read-only one has none.
+ *
  * Every schema is a zod strict object: unknown keys are rejected so a
  * record written by a different revision fails closed instead of being
  * silently truncated.
  */
 
-export const WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 2);
+export const WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 3);
+/** The version before the forge: records of it are migrated in memory on read ({@link migrateWorkspaceRecord}), never written (read-only to this version). */
+const WORKSPACE_SCHEMA_V2 = schemaId("workspace", 2);
 
 export const WORKSPACE_STATES = deepFreeze([
   "admitted",
@@ -248,6 +254,50 @@ const workspaceLeaseSchema = z.strictObject({
 });
 export type WorkspaceLease = DeepReadonly<z.infer<typeof workspaceLeaseSchema>>;
 
+/**
+ * A feature workspace's place on the forge (`workspace-forge.ts`): its land
+ * target's upstream (the remote and the trunk its pull request is opened
+ * against, resolved once at create), the pull request (opened as a draft by
+ * the first published round: the forge opens none without a commit), the
+ * branch head the last round published (the local branch was moved to it: the
+ * same tree), and whether the writer marked it ready for review.
+ */
+const workspaceForgeSchema = z.strictObject({
+  remote: z.string().min(1).max(128).regex(/^[A-Za-z0-9._][A-Za-z0-9._-]*$/u),
+  trunk: BRANCH_SCHEMA,
+  pullRequest: z.strictObject({
+    number: z.number().int().positive(),
+    url: z.string().min(1).max(1024),
+  }).nullable(),
+  publishedHead: GIT_SHA_SCHEMA.nullable(),
+  ready: z.boolean(),
+}).superRefine((forge, context) => {
+  if ((forge.pullRequest === null) !== (forge.publishedHead === null)) {
+    context.addIssue({ code: "custom", path: ["pullRequest"], message: "the first published round opens the pull request: both exist, or neither" });
+  }
+  if (forge.ready && forge.pullRequest === null) {
+    context.addIssue({ code: "custom", path: ["ready"], message: "only an opened pull request is marked ready" });
+  }
+});
+export type WorkspaceForgeState = DeepReadonly<z.infer<typeof workspaceForgeSchema>>;
+
+/**
+ * The forge state of a feature workspace created BEFORE the forge (a v2
+ * record, migrated in memory): it has no upstream recorded. A v2-only
+ * workspace is read-only to this version (`workspace_owned_by_v2_checkout`,
+ * `workspace-registry.ts`), so nothing here ever publishes, lands or saves it.
+ */
+const legacyForgeSchema = z.strictObject({ legacy: z.literal(true) });
+export type LegacyForgeState = DeepReadonly<z.infer<typeof legacyForgeSchema>>;
+
+/** Whether a record's forge state is a migrated legacy one ({@link legacyForgeSchema}). */
+export function isLegacyForgeState(forge: WorkspaceForgeState | LegacyForgeState): forge is LegacyForgeState {
+  return "legacy" in forge;
+}
+
+/** A merge receipt written before the forge (v2): kept verbatim (its hash binds its own version), never re-tagged. */
+const legacyMergeReceiptSchema = mergeReceiptSchema.extend({ schemaVersion: z.literal(WORKSPACE_SCHEMA_V2) });
+
 const workspaceTransitionSchema = z.strictObject({
   from: z.enum(WORKSPACE_STATES),
   to: z.enum(WORKSPACE_STATES),
@@ -265,9 +315,11 @@ export const workspaceRecordSchema = z.strictObject({
   changedPaths: z.array(RELATIVE_PATH_SCHEMA).max(100_000),
   validationReport: validationReportSchema.nullable(),
   conflictReport: conflictReportSchema.nullable(),
-  mergeReceipt: mergeReceiptSchema.nullable(),
+  mergeReceipt: z.union([mergeReceiptSchema, legacyMergeReceiptSchema]).nullable(),
   abortReason: REASON_SCHEMA.nullable(),
   history: z.array(workspaceTransitionSchema).max(4096),
+  /** The forge state of a feature workspace (or its legacy marker); null for a read-only one (it never publishes). */
+  forge: z.union([workspaceForgeSchema, legacyForgeSchema]).nullable(),
   /**
    * How many times the record was saved: the store's compare-and-swap token
    * (`workspace-registry.ts`). A save of a record whose revision is not the
@@ -278,6 +330,9 @@ export const workspaceRecordSchema = z.strictObject({
 }).superRefine((record, context) => {
   if (record.lease.kind === "read-only" && (record.state === "merging" || record.state === "merged")) {
     context.addIssue({ code: "custom", path: ["state"], message: "a read-only workspace never merges" });
+  }
+  if ((record.lease.kind === "read-only") !== (record.forge === null)) {
+    context.addIssue({ code: "custom", path: ["forge"], message: "a feature workspace has a forge state; a read-only one has none" });
   }
 });
 export type WorkspaceRecord = DeepReadonly<z.infer<typeof workspaceRecordSchema>>;
@@ -469,6 +524,38 @@ export function finalizeMergeReceipt(unsigned: UnsignedMergeReceipt): MergeRecei
 
 export function parseWorkspaceRecord(value: unknown): WorkspaceRecord {
   return parseClosed(workspaceRecordSchema, value, "workspace record", "workspace_record_invalid");
+}
+
+/**
+ * THE ONE MIGRATION of a stored record, IN MEMORY (the record store runs it
+ * on every read of the legacy store and never writes the result back: older
+ * code still reads that store): a v2 record (before the forge) becomes v3
+ * deterministically — the record, its lease and its reports
+ * re-tagged; a merge receipt kept verbatim (its hash binds its own version);
+ * the forge state `null` for a read-only workspace and the legacy marker for a
+ * feature one ({@link legacyForgeSchema}). A current record is answered as it
+ * is; any other version is refused (`workspace_record_invalid`). Answers the
+ * parsed record and whether it was migrated.
+ */
+export function migrateWorkspaceRecord(value: unknown): Readonly<{ record: WorkspaceRecord; migrated: boolean }> {
+  const stored = value !== null && typeof value === "object" ? value as Readonly<Record<string, unknown>> : {};
+  if (stored["schemaVersion"] === WORKSPACE_SCHEMA_VERSION) return deepFreeze({ record: parseWorkspaceRecord(value), migrated: false });
+  if (stored["schemaVersion"] !== WORKSPACE_SCHEMA_V2) {
+    throw new InputError(`workspace record of version ${String(stored["schemaVersion"])} is neither ${WORKSPACE_SCHEMA_VERSION} nor the migrated ${WORKSPACE_SCHEMA_V2}`, "workspace_record_invalid");
+  }
+  const retag = (part: unknown): unknown => (part !== null && typeof part === "object" ? { ...part, schemaVersion: WORKSPACE_SCHEMA_VERSION } : part);
+  const lease = stored["lease"] as Readonly<Record<string, unknown>> | undefined;
+  return deepFreeze({
+    record: parseWorkspaceRecord({
+      ...stored,
+      schemaVersion: WORKSPACE_SCHEMA_VERSION,
+      lease: retag(lease),
+      validationReport: retag(stored["validationReport"]),
+      conflictReport: retag(stored["conflictReport"]),
+      forge: lease?.["kind"] === "read-only" ? null : { legacy: true },
+    }),
+    migrated: true,
+  });
 }
 
 export function parseValidationReport(value: unknown): ValidationReport {

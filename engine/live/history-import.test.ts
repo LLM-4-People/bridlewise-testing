@@ -206,3 +206,36 @@ test("end to end, nothing is pushed when the purge leaves residue (a token in an
   await assert.rejects(importHistory({ source: named, target: receiptTarget }, { home, git: GIT }), (error: Error & { code?: string }) => error.code === "history_import_receipt_unsafe" && error.message.includes("is an absolute or home path"));
   assert.equal(git(receiptTarget, "for-each-ref").trim(), "", "nothing was pushed");
 });
+
+test("end to end, an undecodable object the review exempted is refused AFTER the rewrite when the rewrite gave it a new id (a latin1 tag on a rewritten commit), until the review names the new id, which the deterministic rewrite keeps", async () => {
+  const home = testImportHome();
+  const source = createTempDir("history-import-latin1-");
+  git(source, "init", "-q", "-b", "main");
+  write(source, "config.txt", `token = ${GITHUB_TOKEN}\n`);
+  git(source, "add", ".");
+  git(source, "commit", "-q", "-m", "a token to purge, so every later object that reaches it is rewritten");
+  // An annotated tag whose message is latin1 (not UTF-8; a tag has no encoding header for the rewrite to re-encode).
+  const message = join(createTempDir("history-import-latin1-message-"), "message");
+  writeFileSync(message, Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a])); // "café" in latin1
+  execFileSync(GIT, ["-c", "user.name=Import Test", "-c", "user.email=import@example.invalid", "tag", "-a", "v1", "-F", message], { cwd: source });
+  const before = git(source, "rev-parse", "refs/tags/v1").trim();
+  // Without a review it is refused BEFORE the rewrite, listed with its stage.
+  const beforeFolder = await refusalFolder(importHistory({ source, target: bareTarget() }, { home, git: GIT }), "history_import_undecodable");
+  const first = JSON.parse(readFileSync(join(beforeFolder, "undecodable.json"), "utf8")) as { stage: string; undecodable: { oid: string; type: string }[] };
+  assert.deepEqual([first.stage, first.undecodable.map((entry) => [entry.oid, entry.type])], ["before the rewrite", [[before, "tag"]]]);
+  // A review exempting the tag by its id passes that check; the rewrite gives the tag a new id, which is refused after it.
+  let afterFolder = "";
+  await assert.rejects(importHistory({ source, target: bareTarget(), review: review({ binaries: [{ oid: before, reason: "a latin1 tag message, reviewed" }] }) }, { home, git: GIT }), (error: Error & { code?: string; facts?: Readonly<Record<string, unknown>> }) => {
+    afterFolder = String(error.facts?.["runFolder"] ?? "");
+    return error.code === "history_import_undecodable" && error.message.includes("after the rewrite");
+  });
+  const listed = JSON.parse(readFileSync(join(afterFolder, "undecodable.json"), "utf8")) as { stage: string; undecodable: { oid: string; type: string }[] };
+  assert.equal(listed.stage, "after the rewrite");
+  assert.deepEqual(listed.undecodable.map((entry) => entry.type), ["tag"]);
+  assert.notEqual(listed.undecodable[0]!.oid, before, "the rewritten tag has a new id");
+  // The rewrite is deterministic: a review naming both ids lets the same import through, and the new id is what was pushed.
+  const target = bareTarget();
+  const receipt = await importHistory({ source, target, review: review({ binaries: [{ oid: before, reason: "a latin1 tag message, reviewed" }, { oid: listed.undecodable[0]!.oid, reason: "the same tag after the rewrite" }] }) }, { home, git: GIT });
+  assert.equal(receipt.findings.review.binaries, 2);
+  assert.equal(git(target, "rev-parse", "refs/tags/v1").trim(), listed.undecodable[0]!.oid);
+});
