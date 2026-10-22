@@ -81,7 +81,8 @@ function runId(verb: string, values: Readonly<Record<string, string | undefined>
 }
 
 function runUrl(repository: Repository, id: number): string {
-  return `${process.env.GITHUB_SERVER_URL ?? "https://github.com"}/${repository.owner}/${repository.name}/actions/runs/${String(id)}`;
+  // The forge's own web origin (the `forge` configuration), never an environment guess with a default.
+  return `${configuredForge().webUrl.replace(/\/$/u, "")}/${repository.owner}/${repository.name}/actions/runs/${String(id)}`;
 }
 
 /** Posts a failed verdict naming why the run could not be judged (never left pending, never passed). */
