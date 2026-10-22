@@ -1,0 +1,59 @@
+---
+---
+# Bridlewise
+
+> Bridlewise is an experimental, local-first coding cockpit. A run is a causal
+> record: model turns, governed tool calls, file effects, checks, findings, and
+> typed refusals. The product is a developer preview, pre-admission
+> (`harnessReady: false`), not production-ready, and not for sensitive,
+> proprietary, regulated, or production code.
+
+This file is a curated map for language models and agents. It is not a
+substitute for the repository or the security policy. The source and the
+tests are the authority.
+
+## The one-page orientation
+
+- [Landing page](index.md): the concept,
+  the three doors, and the warning.
+- [Run record]({{ site.url }}{{ site.baseurl }}/run/): an
+  illustrative, synthetic causal record. It is not a live model run.
+- [Policy lab]({{ site.url }}{{ site.baseurl }}/policy-lab/): an
+  illustrative governance console. Toggling a switch does not admit a real
+  capability.
+- [Architecture](architecture.md):
+  cockpit, loopback server, engine, guardian, timeline, and memory.
+- [Security and limits](security.md):
+  the safety floor, the confinement model, and what is not defended.
+- [Glossary](glossary.md): the
+  vocabulary the product uses precisely.
+- [Evidence](evidence.md): what can
+  be verified and what cannot.
+- [Known issues](known-issues.md):
+  current gaps, without marketing.
+
+## Repository facts
+
+- Product: {{ site.repository_url }}
+- Development floor: {{ site.repository_url }}
+- Release: {{ site.repository_url }}/releases/tag/v0.0.3-preview
+- License: AGPL-3.0-only.
+- Runtime: Node.js >=24.18.0 <25.0.0. Linux-first; Landlock confinement is
+  Linux-only. The cockpit server binds loopback by default.
+- The public smoke suite is reproducible from a fresh clone; the full
+  corpus-backed development-floor suite is not, because the 4.1 GB corpus is
+  not published.
+
+## What not to infer
+
+- A green CI badge is not a security audit.
+- A recorded run is not a proof that every effect was benign.
+- A successful check is not a guarantee that the check was sufficient.
+- An illustrative UI is not a connected engine.
+- A public preview is not a production support commitment.
+
+## Contact
+
+- Security: private advisory through
+  {{ site.repository_url }}/security/advisories/new
+- Questions: {{ site.repository_url }}/discussions
