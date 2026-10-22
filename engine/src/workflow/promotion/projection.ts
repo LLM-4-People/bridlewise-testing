@@ -67,7 +67,7 @@ export type Classification = Readonly<{
 }>;
 
 /** The one reason a target path ships for (`projected`, or the overlay), or `undefined` when it does not. */
-export function shippedReason(classification: Classification, path: string): PathReason | undefined {
+function shippedReason(classification: Classification, path: string): PathReason | undefined {
   const overlay = classification.overlaid.get(path);
   return overlay === undefined ? classification.projected.get(path) : { rule: "overlay", detail: overlay };
 }
