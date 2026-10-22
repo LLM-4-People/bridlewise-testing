@@ -57,6 +57,12 @@ ships into the client bundle or the server runtime.
 
 - `harness-root/` — the integration merge and bootstrap tooling at the
   harness root.
+- `capture/` — the deterministic cockpit capture (`npm run capture:cockpit`):
+  `cockpit.ts` runs the committed tree in an isolated copy with the fixture
+  model stream and writes the release screenshots, one GIF of the run and a
+  manifest; `cockpit-plan.ts` is its pure plan (sequence, masks, manifest)
+  and `gif.ts` its PNG-to-GIF encoder. [Shipping](../docs/shipping.md#cockpit-captures)
+  states what it guarantees.
 - `floor/` — the testing-site toolchain. `site.mjs` assembles the Jekyll
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes
