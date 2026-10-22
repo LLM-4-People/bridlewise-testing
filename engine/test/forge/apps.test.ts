@@ -104,6 +104,12 @@ test("the generated files: written from their owners, hand edits and strays are 
   syncForgeFiles(top, SOURCES, true);
   assert.equal(syncForgeFiles(top, SOURCES, false).status, "current");
   assert.equal(readFileSync(join(top, ".github/release.yml"), "utf8"), "changelog: {}\n");
+  // No section but a folder: every file under the folder is drift, and a write removes them all (the renders beside it are not the folder's).
+  const orphaned = syncForgeFiles(top, undefined, false);
+  assert.deepEqual(orphaned, { status: "stale", converged: false, changed: [...files.keys()].filter((path) => path.startsWith(".github/forge/")).sort() });
+  assert.equal(syncForgeFiles(top, undefined, true).status, "regenerated");
+  assert.equal(existsSync(join(top, ".github/forge/apps/agent.json")), false);
+  assert.deepEqual(syncForgeFiles(top, undefined, false), { status: "current", converged: true, changed: [] });
 });
 
 /** A recording `gh`: every call's arguments and stdin, and a scripted answer. */
