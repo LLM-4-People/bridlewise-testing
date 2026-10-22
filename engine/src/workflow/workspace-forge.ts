@@ -108,10 +108,14 @@ export type WorkspaceForge = Readonly<{
    * A COMPARE-AND-SWAP of the branch: created at `sha` only while absent
    * (`previous: null`: `POST /git/refs`), else moved to `sha` only while it is
    * at `previous` (GraphQL `updateRefs` with `beforeOid` — REST `PATCH
-   * /git/refs` has no compare-and-swap and is never used). Answers whether it
-   * applied; a branch found elsewhere is `applied: false`, never an overwrite.
+   * /git/refs` has no compare-and-swap and is never used). `forwardOnly`
+   * also refuses a move to a commit that does not descend from `previous`
+   * (`force: false`): the product branch only ever moves forward, while a
+   * workspace's twin head may be rebased. Answers whether it applied; a branch
+   * found elsewhere is `applied: false`, never an overwrite. The caller reads
+   * the branch back: an answer is not a move.
    */
-  setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null }>): Promise<Readonly<{ applied: boolean }>>;
+  setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null; forwardOnly: boolean }>): Promise<Readonly<{ applied: boolean }>>;
   /** The open pull request whose head is `branch`, or null. */
   findPullRequest(branch: string): Promise<ForgePullRequest | null>;
   /** Opens a DRAFT pull request `head` → `base`. */
@@ -133,6 +137,14 @@ export type WorkspaceForge = Readonly<{
    */
   enqueue(number: number, request: Readonly<{ expectedHeadSha: string }>): Promise<ForgeEnqueueAnswer>;
 }>;
+
+/**
+ * The Git Data part of the port: what re-making a commit on the forge and
+ * moving a branch need. The workspace's publication and the product's
+ * (`forge/publish/product.ts`) both take it; its one GitHub adapter is
+ * `githubWorkspaceForge` (`workspace-forge-github.ts`).
+ */
+export type GitDataForge = Pick<WorkspaceForge, "createBlob" | "createTree" | "createCommit" | "branchHead" | "setBranch">;
 
 /** Where a workspace lands on the forge: its target's upstream. */
 export type ForgeTarget = Readonly<{
@@ -272,6 +284,38 @@ function isTwinOfLocal(repository: GitRepository, remoteHead: string, head: stri
 }
 
 /**
+ * THE ONE RE-MAKE of a local commit on the forge (the workspace's rounds and
+ * the product's publication): the blobs its tree adds or changes against its
+ * first parent are uploaded (once per `uploaded`; each answered id must be
+ * the local blob id), its tree is built on the first parent's tree (the
+ * answered tree must be the local one), and the commit is made with the
+ * local message plus `Co-authored-by` naming the local author, and with
+ * the parents `parentOf` maps (a published twin, or the same id). The port's
+ * request carries no author, committer or signature, so the forge signs it;
+ * an unsigned answer is `workspace_publish_unverified`, a mismatch
+ * `workspace_publish_object_mismatch`.
+ */
+export async function remakeCommit(forge: GitDataForge, repository: GitRepository, sha: string, parentOf: (parent: string) => string, uploaded: Set<string>): Promise<ForgeCommit> {
+  const commit = readCommit(repository, sha);
+  const firstParent = commit.parents[0];
+  if (firstParent === undefined) fail("workspace_publish_root_commit", `commit ${sha} has no parent: a re-made commit carries its first parent's tree forward`, { commit: sha });
+  const entries = treeDelta(repository, firstParent, sha);
+  for (const entry of entries) {
+    if (entry.sha === null || entry.mode === "160000" || uploaded.has(entry.sha)) continue;
+    const answered = await forge.createBlob(gitOutput(repository, ["cat-file", "blob", entry.sha]).stdout);
+    if (answered !== entry.sha) fail("workspace_publish_object_mismatch", `the forge stored ${entry.path} of ${sha} as the blob ${answered}, not ${entry.sha}`, { commit: sha });
+    uploaded.add(entry.sha);
+  }
+  const baseTree = text(repository, ["rev-parse", `${firstParent}^{tree}`]).trim();
+  const tree = entries.length === 0 ? baseTree : await forge.createTree({ baseTree, entries });
+  if (tree !== commit.tree) fail("workspace_publish_object_mismatch", `the forge built the tree ${tree} for ${sha}, whose tree is ${commit.tree}`, { commit: sha });
+  const made = await forge.createCommit({ message: twinMessage(repository, commit), tree, parents: commit.parents.map(parentOf) });
+  if (made.tree !== commit.tree) fail("workspace_publish_object_mismatch", `the forge's commit ${made.sha} holds the tree ${made.tree}, not ${commit.tree}`, { commit: sha });
+  if (!made.verified) fail("workspace_publish_unverified", `the forge did not sign the commit ${made.sha} (${made.verificationReason}): a published commit must be Verified (required_signatures)`, { commit: sha, twin: made.sha });
+  return made;
+}
+
+/**
  * Publishes the workspace branch's new commits as signed twins (see the
  * header) and answers the round. A branch with no commit beyond the trunk is
  * refused (`workspace_publish_empty`: the forge opens no pull request without
@@ -310,27 +354,12 @@ export async function publishBranch(request: PublishRequest): Promise<PublishedR
   const uploaded = new Set<string>();
   const published: { local: string; twin: string }[] = [];
   for (const sha of listed) {
-    const commit = readCommit(repository, sha);
-    const firstParent = commit.parents[0];
-    if (firstParent === undefined) fail("workspace_publish_root_commit", `commit ${sha} has no parent: a workspace branch forks from its trunk`, { commit: sha });
-    const entries = treeDelta(repository, firstParent, sha);
-    for (const entry of entries) {
-      if (entry.sha === null || entry.mode === "160000" || uploaded.has(entry.sha)) continue;
-      const answered = await forge.createBlob(gitOutput(repository, ["cat-file", "blob", entry.sha]).stdout);
-      if (answered !== entry.sha) fail("workspace_publish_object_mismatch", `the forge stored ${entry.path} of ${sha} as the blob ${answered}, not ${entry.sha}`, { commit: sha });
-      uploaded.add(entry.sha);
-    }
-    const baseTree = git.revParse(root, `${firstParent}^{tree}`, request.fetchMs);
-    const tree = entries.length === 0 ? baseTree : await forge.createTree({ baseTree, entries });
-    if (tree !== commit.tree) fail("workspace_publish_object_mismatch", `the forge built the tree ${tree} for ${sha}, whose tree is ${commit.tree}`, { commit: sha });
-    const made = await forge.createCommit({ message: twinMessage(repository, commit), tree, parents: commit.parents.map((parent) => twins.get(parent) ?? parent) });
-    if (made.tree !== commit.tree) fail("workspace_publish_object_mismatch", `the forge's commit ${made.sha} holds the tree ${made.tree}, not ${commit.tree}`, { commit: sha });
-    if (!made.verified) fail("workspace_publish_unverified", `the forge did not sign the commit ${made.sha} (${made.verificationReason}): an agent's commit must be Verified (required_signatures)`, { commit: sha, twin: made.sha });
+    const made = await remakeCommit(forge, repository, sha, (parent) => twins.get(parent) ?? parent, uploaded);
     twins.set(sha, made.sha);
     published.push({ local: sha, twin: made.sha });
   }
   const twinHead = twins.get(head)!;
-  const set = await forge.setBranch({ branch, sha: twinHead, previous: remoteHead });
+  const set = await forge.setBranch({ branch, sha: twinHead, previous: remoteHead, forwardOnly: false });
   if (!set.applied) return moved(await forge.branchHead(branch));
   // Read back: the forge's own answer, then the fetched ref.
   const readBack = await forge.branchHead(branch);
