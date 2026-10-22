@@ -1101,7 +1101,15 @@
     }
   },
   "promotion": {
-    "profileDirectory": "promotion"
+    "profileDirectory": "promotion",
+    "release": {
+      "profile": "main-to-product",
+      "train": "auto",
+      "minIntervalHours": 24,
+      "tagPrefix": "v",
+      "discussionCategory": "Releases",
+      "priorReleasesUrl": "https://github.com/LLM-4-People/bridlewise-preview/releases"
+    }
   },
   "forge": {
     "organization": "LLM-4-People",

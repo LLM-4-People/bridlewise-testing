@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "790a2e585967426e69fc9fad776a55e9e9ad5ca2e1091dccd151d0434a4e6a42",
+      sourceSha256: "a6b5f80b18975f200fe6d6fd0161aea7347f024628df2073330d0582ea117fe5",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -1366,7 +1366,7 @@ const ROOT_POLICY_VALUE = {
      */
     binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "069881d1f9125365cd60ad78f240179df9536715d6fbf39fb185e23d12b8b25f",
+    bundleSha256: "1368b67f4905939c77ee083ae0675c32ca44ddf9191f77307196b65d4cfdd74f",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
@@ -2254,10 +2254,10 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "c12be3a5a3c358f25f0884ce0a1e902e225ecfb83b1fb17d52c254a794bb4fb9",
+    testInventoryHash: "3fa44723416fa3d57e9a19ae2eefc13a14a2f8156731b9a5d16d60e7408e54ce",
     testSurfaceDispositionBinding: {
-      fileSha256: "c01d8fb8b930e1ab4bb55ecfc96c7fb9162f71ebd4865973cd0fbfc57061df2e",
-      identityHash: "3cdc2bf3ca46ab7ed695905d4c245378f070704853d9083d295ca89abc4282fd",
+      fileSha256: "e9d93d0d5363521e50df2447a34ed2c13154266e3db75c3810072faa907a86d0",
+      identityHash: "741ad32af7d79e5729412f98cf1ed99d54e8340d887679b00c6ff093cca5be8a",
     },
     testDiscovery: {
       inventoryScope: {
@@ -2709,7 +2709,7 @@ const ROOT_POLICY_VALUE = {
     promotion: {
       refNamespace: `refs/${PRODUCT_NAME}/promotion`,
       trailers: {
-        promotedFrom: "Promoted-From",
+        projectedFrom: "Projected-From",
         profile: "Promotion-Profile",
         acceptedTargetEdits: "Promotion-Accepted-Target-Edits",
         restores: "Promotion-Restores",
