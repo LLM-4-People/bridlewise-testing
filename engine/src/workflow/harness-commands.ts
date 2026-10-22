@@ -27,9 +27,9 @@ import {
   type BindingRepairReport,
 } from "./hash-binding-registry.ts";
 import { configuredLockOptions, lockedResources, withLock, type AcquireLockOptions } from "./resource-lock.ts";
-import { HARNESS_COMMANDS } from "./commands/registry.ts";
-import { syncCommandRegistry, type CommandRegistryReport } from "./commands/command-registry.ts";
-import { unknownFlag } from "./commands/command.ts";
+import { HARNESS_COMMANDS } from "./harness-verbs.ts";
+import { COMMAND_REGISTRY_PATH, type CommandRegistryReport } from "../../scripts/verification/command-registry.ts";
+import { unknownFlag } from "./harness-command.ts";
 import { createMetricsCollector, type MetricsSnapshot } from "../performance/metrics-collector.ts";
 import { configuredPerformanceConfig } from "../performance/configured-performance.ts";
 import { createTimelineStore } from "../timeline/timeline-store.ts";
@@ -152,7 +152,7 @@ export type HarnessCheckOutput = Readonly<{
   artifactManifest: CheckStepResult;
   /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
   communityFiles: CheckStepResult;
-  /** Is `commands/registry.ts` its generator's output of the verb files (src/workflow/commands/command-registry.ts)? */
+  /** Is the verb registry (`harness-verbs.ts`) its generator's output of the verb modules (scripts/verification/command-registry.ts)? */
   commandRegistry: CheckStepResult;
   /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
   bundle: CheckStepResult;
@@ -263,7 +263,7 @@ export type HarnessRegenerateOutput = Readonly<{
    * (src/workflow/community/health-files.ts), never edited by hand.
    */
   communityFiles: CommunityFilesArm;
-  /** The verb registry (`src/workflow/commands/registry.ts`), from the verb files of its folder. */
+  /** The verb registry (`src/workflow/harness-verbs.ts`), from the verb modules of `src/workflow/commands/`. */
   commandRegistry: CommandRegistryReport;
   /**
    * The guardian spec-schema artifact, rebuilt from the live Zod schema
@@ -560,7 +560,7 @@ export async function harnessCheck(
   steps.push(bundleFreshnessStep(root));
 
   emitProgress(onProgress, "Checking the verb registry...");
-  steps.push(commandRegistryStep(syncCommandRegistry(root, false)));
+  steps.push(commandRegistryStep(runCommandRegistry(root, false)));
 
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
@@ -978,8 +978,8 @@ export function harnessRegenerate(
   const frozenRecords = syncFrozenRecords(trackedTop(root), write);
   // The community health files and forms, from their sources (before the inventory digests them).
   const communityFiles = regenerateCommunityFiles(root, write);
-  // The verb registry: every verb file of src/workflow/commands/, imported and listed.
-  const commandRegistry = syncCommandRegistry(root, write);
+  // The verb registry: every module of src/workflow/commands/, imported, judged and listed.
+  const commandRegistry = runCommandRegistry(root, write);
   // The canonical artifact inventory, LAST: every governed file the arms above
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
@@ -1000,7 +1000,7 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && commandRegistry.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && (commandRegistry.allCurrent || commandRegistry.status === "written") &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1273,12 +1273,23 @@ export function evidenceIgnoreStep(evidenceIgnore: DecisionIndexArm): CheckStepR
 }
 
 /** `harness check`'s verb-registry step: a registry that is not its generator's output of the verb files FAILS the check. */
+/**
+ * The verb-registry arm, as a subprocess (`scripts/verification/command-registry.ts`):
+ * it imports every verb module to judge the value it exports, which is
+ * asynchronous, and a module that exports no HarnessCommand is its typed
+ * refusal, passed through.
+ */
+function runCommandRegistry(root: string, write: boolean): CommandRegistryReport {
+  const report = generatorReport<CommandRegistryReport["status"]>(root, "scripts/verification/command-registry.ts", [write ? "--write" : "--check"], "the verb registry", "command_registry_no_result");
+  return deepFreeze({ allCurrent: report.allCurrent, status: report.status, changed: report.changed, verbs: Array.isArray(report.verbs) ? report.verbs.map(String) : [] });
+}
+
 function commandRegistryStep(commandRegistry: CommandRegistryReport): CheckStepResult {
   return deepFreeze({
     step: "command-registry",
-    status: commandRegistry.converged ? "pass" : "fail",
-    message: commandRegistry.converged
-      ? "the verb registry lists exactly the verb files of src/workflow/commands/"
+    status: commandRegistry.allCurrent ? "pass" : "fail",
+    message: commandRegistry.allCurrent
+      ? `the verb registry lists exactly the ${String(commandRegistry.verbs.length)} verb modules of src/workflow/commands/ (${COMMAND_REGISTRY_PATH})`
       : `the verb registry is stale against the verb files (run harness sync): ${commandRegistry.changed.join(", ")}`,
     details: commandRegistry,
   });
@@ -2097,7 +2108,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 `;
 }
 
-/** Every harness verb, derived from the verb files (`commands/registry.ts`, generated): no hand-kept list (#221). */
+/** Every harness verb, derived from the verb modules (`harness-verbs.ts`, generated): no hand-kept list (#221). */
 export const HARNESS_SUBCOMMANDS: readonly string[] = deepFreeze(HARNESS_COMMANDS.map((command) => command.verb));
 
 export type HarnessSubcommand = string;

@@ -1,4 +1,4 @@
-import { type HarnessCommand, unknownFlag } from "./command.ts";
+import { type HarnessCommand, unknownFlag } from "../harness-command.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import type { HarnessTestOptions } from "../harness-commands.ts";
 

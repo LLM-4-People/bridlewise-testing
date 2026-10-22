@@ -80,6 +80,7 @@ The folder lives at `engine/scripts/verification/`.
 - `authority-graph.ts` is consumed by nothing yet.
 - `candidate-format.ts` is consumed by `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/repository-git.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-execution.ts`, `engine/scripts/tooling/verification/artifact-admission.ts`, `engine/scripts/tooling/verification/rejected-binary-fixture.ts` and 1 more.
 - `catch-blocks.ts` is consumed by `engine/scripts/verification/ratchet-baselines.ts`.
+- `command-registry.ts` is consumed by `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/hash-binding-registry.ts`.
 - `consumer-plants.ts` is consumed by nothing yet.
 - `corpus.ts` is consumed by nothing yet.
 - `decision-index.ts` is consumed by nothing yet.
@@ -105,7 +106,7 @@ The folder lives at `engine/scripts/verification/`.
 - `slice-projection-paths.ts` is consumed by `engine/scripts/tooling/verification/slice-traces.ts`, `engine/scripts/verification/slice-declarations.ts`, `engine/scripts/verification/slice-projection-captured-values.ts`, `engine/scripts/verification/slice-projection-inputs.ts`, `engine/scripts/verification/slice-source-contracts.ts`.
 - `slice-projections.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/verification/guardian-spec-artifact.ts`.
 - `slice-source-contracts.ts` is consumed by `engine/scripts/tooling/verification/slice-traces.ts`, `engine/scripts/verification/slice-projection-inputs.ts`.
-- `source-view.ts` is consumed by `engine/scripts/tooling/verification/raw-source-readers.ts`, `engine/scripts/verification/catch-blocks.ts`, `engine/scripts/verification/declared-universe.ts`, `engine/scripts/verification/measurement-contract.ts`, `engine/scripts/verification/ratchet-baselines.ts`, `engine/src/workflow/commands/command-registry.ts`.
+- `source-view.ts` is consumed by `engine/scripts/tooling/verification/raw-source-readers.ts`, `engine/scripts/verification/catch-blocks.ts`, `engine/scripts/verification/declared-universe.ts`, `engine/scripts/verification/measurement-contract.ts`, `engine/scripts/verification/ratchet-baselines.ts`.
 - `source-walk.ts` is consumed by `engine/scripts/verification/consumer-plants.ts`, `engine/scripts/verification/event-loop-callbacks.ts`, `engine/scripts/verification/hermetic-skips.ts`, `engine/scripts/verification/measurement-contract.ts`, `engine/scripts/verification/ratchet-baselines.ts`.
 - `staged-move-loss.ts` is consumed by `engine/scripts/bootstrap-hooks.ts`, `engine/scripts/commit-guard.ts`, `engine/scripts/verification/shipped-hooks.ts`.
 - `static-source.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/architecture.ts`, `engine/src/workflow/module-registrar.ts`.

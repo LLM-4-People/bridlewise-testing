@@ -1,12 +1,14 @@
 /**
- * ONE HARNESS VERB, DECLARED BY ITSELF (#221): every verb is one file in this
- * folder exporting `COMMAND`, and the registry (`registry.ts`) is generated from
- * the folder by `harness sync`. Adding a verb therefore touches only its own
- * file and one generated line, never a central hand-edited list or dispatch
- * chain (the chokepoint every PR that added a verb conflicted on).
+ * ONE HARNESS VERB, DECLARED BY ITSELF (#221): every module of
+ * `src/workflow/commands/` is a verb exporting exactly `COMMAND`, a
+ * `HarnessCommand`, and the registry (`harness-verbs.ts`) is generated from the
+ * folder by `harness sync` (`scripts/verification/command-registry.ts`, which refuses a module that
+ * exports anything else). Adding a verb therefore touches only its own module
+ * and two generated lines, never a central hand-edited list or dispatch chain
+ * (the chokepoint every PR that added a verb conflicted on).
  */
-import { InputError } from "../../kernel/errors.ts";
-import type { CommandAnswer } from "../command-result.ts";
+import { InputError } from "../kernel/errors.ts";
+import type { CommandAnswer } from "./command-result.ts";
 
 /** What a verb is handed: the harness root, its own arguments, and the progress sink (stderr lines). */
 export type CommandContext = Readonly<{

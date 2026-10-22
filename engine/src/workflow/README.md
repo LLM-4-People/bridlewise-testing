@@ -270,17 +270,20 @@ The folder lives at `engine/src/workflow/`.
 - `auto-generator.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
 - `byte-pin-objects.ts` is consumed by `engine/scripts/pin-authority-regeneration.ts`, `engine/src/workflow/hash-binding-registry.ts`.
 - `checkout-setup.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts` and 8 more.
-- `command-result.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/evaluation/cli.ts`, `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/commands/command.ts` and 9 more.
+- `command-result.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/evaluation/cli.ts`, `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/commands/format.ts` and 9 more.
 - `evidence-store.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/forge/cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/record-links.ts`.
 - `failure-owners.ts` is consumed by `engine/scripts/tooling/lessons.ts`, `engine/scripts/verification/decision-index.ts`, `engine/scripts/verification/lesson-trailers.ts`, `engine/scripts/verification/tracker-entries.ts`, `engine/src/workflow/flaky-burn-down.ts`, `engine/src/workflow/harness-commands.ts` and 2 more.
 - `flake-cli.ts` is consumed by `engine/src/workflow/commands/flake.ts`.
 - `flaky-burn-down.ts` is consumed by nothing yet.
 - `format-command.ts` is consumed by `engine/src/workflow/commands/format.ts`.
+- `harness-command.ts` is consumed by `engine/src/workflow/commands/benchmark.ts`, `engine/src/workflow/commands/check.ts`, `engine/src/workflow/commands/deletions.ts`, `engine/src/workflow/commands/diagnostic.ts`, `engine/src/workflow/commands/eval.ts`, `engine/src/workflow/commands/evidence.ts` and 21 more.
 - `harness-commands.ts` is consumed by `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/cli.ts`, `engine/src/workflow/commands/check.ts`, `engine/src/workflow/commands/deletions.ts`, `engine/src/workflow/commands/evidence.ts`, `engine/src/workflow/commands/extension.ts` and 11 more.
+- `harness-verbs.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
 - `hash-binding-registry.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/shared/tree-identity.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/context.ts` and 4 more.
 - `markdown-links.ts` is consumed by `engine/src/workflow/failure-owners.ts`.
 - `module-contract-blocks.ts` is consumed by `engine/src/workflow/module-registrar.ts`.
 - `module-registrar.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
+- `prune-options.ts` is consumed by `engine/src/workflow/commands/regenerate.ts`, `engine/src/workflow/commands/sync.ts`.
 - `reachability.ts` is consumed by `engine/src/workflow/promotion/projection.ts`, `engine/src/workflow/promotion/transforms.ts`.
 - `record-links.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/verification/ratchet-baselines.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/workspace-manager.ts`.
 - `repository-registry.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/workspace-cli.ts` and 2 more.

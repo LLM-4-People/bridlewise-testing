@@ -1,4 +1,4 @@
-import type { HarnessCommand } from "./command.ts";
+import type { HarnessCommand } from "../harness-command.ts";
 
 
 export const COMMAND: HarnessCommand = {

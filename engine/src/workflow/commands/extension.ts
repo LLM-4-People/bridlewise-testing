@@ -1,4 +1,4 @@
-import { type HarnessCommand, unknownFlag } from "./command.ts";
+import { type HarnessCommand, unknownFlag } from "../harness-command.ts";
 import { InputError } from "../../kernel/errors.ts";
 
 export const COMMAND: HarnessCommand = {

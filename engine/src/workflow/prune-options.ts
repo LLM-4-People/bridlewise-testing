@@ -1,4 +1,4 @@
-import { unknownFlag } from "./command.ts";
+import { unknownFlag } from "./harness-command.ts";
 
 /** `[--with-bundle] [--prune <test path>]…` for `sync`; the same without `--with-bundle` for `regenerate`. */
 export function parsePruneOptions(subcommand: string, argv: readonly string[], bundleFlag: boolean): Readonly<{ prune: readonly string[]; withBundle: boolean }> {

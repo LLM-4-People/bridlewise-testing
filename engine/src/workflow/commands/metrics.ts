@@ -1,4 +1,4 @@
-import { type HarnessCommand, unknownFlag } from "./command.ts";
+import { type HarnessCommand, unknownFlag } from "../harness-command.ts";
 
 export const COMMAND: HarnessCommand = {
   verb: "metrics",

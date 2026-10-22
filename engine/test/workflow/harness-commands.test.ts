@@ -1023,7 +1023,7 @@ test("runHarnessCli: an unknown subcommand flag is rejected with actionable erro
   assert.equal(report.subcommand, "regenerate");
   assert.equal(report.originalCode, "unknown_flag");
   assert.ok(typeof report.function === "string" && report.function.length > 0);
-  assert.ok(typeof report.file === "string" && report.file.endsWith("src/workflow/commands/command.ts"), `file must point at the one unknown-flag refusal (commands/command.ts); got ${String(report.file)}`);
+  assert.ok(typeof report.file === "string" && report.file.endsWith("src/workflow/harness-command.ts"), `file must point at the one unknown-flag refusal (harness-command.ts); got ${String(report.file)}`);
   assert.ok(typeof report.line === "number" && report.line > 0);
   assert.ok(typeof report.stack === "string" && report.stack.includes("unknown regenerate flag"));
 });

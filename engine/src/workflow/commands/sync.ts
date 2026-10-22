@@ -1,5 +1,5 @@
-import type { HarnessCommand } from "./command.ts";
-import { parsePruneOptions } from "./prune-options.ts";
+import type { HarnessCommand } from "../harness-command.ts";
+import { parsePruneOptions } from "../prune-options.ts";
 
 export const COMMAND: HarnessCommand = {
   verb: "sync",
