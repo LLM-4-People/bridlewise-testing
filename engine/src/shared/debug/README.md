@@ -17,6 +17,6 @@ Everything goes through here; when debug is off, debug calls are ignored.
 The folder lives at `engine/src/shared/debug/`.
 
 - `debug-config.ts` is consumed by `engine/src/kernel/config-contracts.ts`, `engine/src/runtime/cli-debug.ts`, `engine/src/shared/debug/debug-system.ts`, `server/kernel/canonical.ts`.
-- `debug-system.ts` is consumed by `engine/scripts/tooling/launcher-watch.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/filesystem-cache.ts`, `engine/scripts/verification/staged-move-loss.ts`, `engine/src/awareness/engine.ts`, `engine/src/awareness/git-command-runner.ts` and 86 more.
+- `debug-system.ts` is consumed by `engine/scripts/tooling/launcher-watch.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/filesystem-cache.ts`, `engine/scripts/verification/staged-move-loss.ts`, `engine/src/awareness/engine.ts`, `engine/src/awareness/git-command-runner.ts` and others.
 
 <!-- /consumers:generated -->

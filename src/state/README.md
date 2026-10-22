@@ -51,8 +51,8 @@ The folder lives at `src/state/`.
 - `auto-checks.ts` is consumed by `src/client.ts`, `src/cockpit/flow/ingest.ts`, `src/cockpit/shell/annunciator-data.ts`.
 - `chat-history-load.ts` is consumed by `src/client.ts`, `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/ingest.ts`.
 - `chat-history-reach.ts` is consumed by `src/client.ts`, `src/cockpit/flow/Flow.svelte`.
-- `chat-messages.ts` is consumed by `src/client.ts`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/desk/Gauge.svelte`, `src/cockpit/desk/desk-feed.ts`, `src/cockpit/flow/Beat.svelte`, `src/cockpit/flow/Flow.svelte` and 9 more.
-- `chats.ts` is consumed by `src/client.ts`, `src/cockpit/Cockpit.svelte`, `src/cockpit/boot/probes.ts`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/desk/Gauge.svelte`, `src/cockpit/flow/Flow.svelte` and 18 more.
+- `chat-messages.ts` is consumed by `src/client.ts`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/desk/Gauge.svelte`, `src/cockpit/desk/desk-feed.ts`, `src/cockpit/flow/Beat.svelte`, `src/cockpit/flow/Flow.svelte` and others.
+- `chats.ts` is consumed by `src/client.ts`, `src/cockpit/Cockpit.svelte`, `src/cockpit/boot/probes.ts`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/desk/Gauge.svelte`, `src/cockpit/flow/Flow.svelte` and others.
 - `config-snapshot.ts` is consumed by `src/cockpit/flow/RunPane.svelte`, `src/state/web-ui-config.ts`.
 - `coverage.ts` is consumed by `src/cockpit/desk/desk-data.ts`, `src/cockpit/render/ToolInput.svelte`, `src/cockpit/render/artifact.ts`, `src/cockpit/render/shapes.ts`, `src/cockpit/rooms/custody-data.ts`.
 - `cross-tab.ts` is consumed by `src/cockpit/rooms/instruments-feed.ts`, `src/cockpit/settings/local-prefs.ts`, `src/cockpit/shell/room-warm.ts`, `src/cockpit/sweep/sweep-store.ts`.
@@ -64,15 +64,15 @@ The folder lives at `src/state/`.
 - `memory.ts` is consumed by `src/client.ts`.
 - `metrics.ts` is consumed by `src/client.ts`.
 - `models.ts` is consumed by `src/client.ts`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/settings/ProvidersSection.svelte`, `src/cockpit/shell/Desk.svelte`.
-- `persistence.ts` is consumed by `src/cockpit/editor/buffer.ts`, `src/cockpit/flow/flow-view.ts`, `src/cockpit/rooms/instruments-feed.ts`, `src/cockpit/settings/local-prefs.ts`, `src/cockpit/shell/room-warm.ts`, `src/cockpit/shell/workspace-view.ts` and 5 more.
-- `projects.ts` is consumed by `src/client.ts`, `src/cockpit/Cockpit.svelte`, `src/cockpit/boot/probes.ts`, `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/dev/DevHarness.svelte` and 12 more.
+- `persistence.ts` is consumed by `src/cockpit/editor/buffer.ts`, `src/cockpit/flow/flow-view.ts`, `src/cockpit/rooms/instruments-feed.ts`, `src/cockpit/settings/local-prefs.ts`, `src/cockpit/shell/room-warm.ts`, `src/cockpit/shell/workspace-view.ts` and others.
+- `projects.ts` is consumed by `src/client.ts`, `src/cockpit/Cockpit.svelte`, `src/cockpit/boot/probes.ts`, `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/dev/DevHarness.svelte` and others.
 - `quality.ts` is consumed by `src/client.ts`.
 - `redaction.ts` is consumed by `src/client.ts`, `src/cockpit/flow/types.ts`, `src/state/chat-messages.ts`.
 - `reset-all.ts` is consumed by `src/client.ts`.
 - `run-pane.ts` is consumed by `src/cockpit/flow/RunPane.svelte`.
-- `run-state.ts` is consumed by `src/client.ts`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/composer-router.ts`, `src/cockpit/flow/rewind.ts`, `src/cockpit/shell/RightMenuHost.svelte`, `src/cockpit/sweep/Sweep.svelte` and 1 more.
-- `schema-store.ts` is consumed by `src/client.ts`, `src/cockpit/computer/commands.ts`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/ingest.ts`, `src/cockpit/lens/LensCallout.svelte`, `src/cockpit/rooms/InstrumentsRoom.svelte` and 7 more.
-- `store-registry.ts` is consumed by `src/cockpit/desk/desk-bus.ts`, `src/cockpit/desk/desk-feed.ts`, `src/cockpit/editor/buffer.ts`, `src/cockpit/flow/flow-view.ts`, `src/cockpit/flow/rewind.ts`, `src/cockpit/flow/thinking-fold.ts` and 41 more.
+- `run-state.ts` is consumed by `src/client.ts`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/composer-router.ts`, `src/cockpit/flow/rewind.ts`, `src/cockpit/shell/RightMenuHost.svelte`, `src/cockpit/sweep/Sweep.svelte` and others.
+- `schema-store.ts` is consumed by `src/client.ts`, `src/cockpit/computer/commands.ts`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/ingest.ts`, `src/cockpit/lens/LensCallout.svelte`, `src/cockpit/rooms/InstrumentsRoom.svelte` and others.
+- `store-registry.ts` is consumed by `src/cockpit/desk/desk-bus.ts`, `src/cockpit/desk/desk-feed.ts`, `src/cockpit/editor/buffer.ts`, `src/cockpit/flow/flow-view.ts`, `src/cockpit/flow/rewind.ts`, `src/cockpit/flow/thinking-fold.ts` and others.
 - `telemetry.ts` is consumed by `src/client-debug.ts`, `src/client.ts`, `src/cockpit/boot/probes.ts`.
 - `timeline-event-documents.ts` is consumed by `src/cockpit/flow/BeatScope.svelte`.
 - `timeline-query.ts` is consumed by `src/client.ts`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/spectrum-load.ts`, `src/cockpit/sweep/sweep-data.ts`.
@@ -80,6 +80,6 @@ The folder lives at `src/state/`.
 - `tools.ts` is consumed by `src/client.ts`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/ingest.ts`, `src/cockpit/render/ToolOutput.svelte`, `src/state/run-pane.ts`.
 - `ui-control.ts` is consumed by `src/client.ts`.
 - `web-ui-config.ts` is consumed by `src/cockpit/render/ArtifactFrame.svelte`, `src/state/metrics.ts`.
-- `workspaces.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/computer/admission.ts`, `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/flow-view.ts`, `src/cockpit/flow/run-stream.ts` and 6 more.
+- `workspaces.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/computer/admission.ts`, `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/flow-view.ts`, `src/cockpit/flow/run-stream.ts` and others.
 
 <!-- /consumers:generated -->

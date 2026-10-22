@@ -32,6 +32,6 @@ The folder lives at `engine/src/evaluation/`.
 - `scenario-runner.ts` is consumed by `engine/src/evaluation/cli.ts`, `engine/src/evaluation/index.ts`, `engine/src/evaluation/matrix-executor.ts`.
 - `scenarios.ts` is consumed by `engine/src/evaluation/cli.ts`, `engine/src/evaluation/index.ts`, `engine/src/evaluation/matrix-generator.ts`.
 - `semantic-validators.ts` is consumed by `engine/src/evaluation/cli.ts`, `engine/src/evaluation/index.ts`.
-- `types.ts` is consumed by `engine/src/evaluation/budget-calculator.ts`, `engine/src/evaluation/cli.ts`, `engine/src/evaluation/index.ts`, `engine/src/evaluation/matrix-executor.ts`, `engine/src/evaluation/matrix-generator.ts`, `engine/src/evaluation/results-writer.ts` and 3 more.
+- `types.ts` is consumed by `engine/src/evaluation/budget-calculator.ts`, `engine/src/evaluation/cli.ts`, `engine/src/evaluation/index.ts`, `engine/src/evaluation/matrix-executor.ts`, `engine/src/evaluation/matrix-generator.ts`, `engine/src/evaluation/results-writer.ts` and others.
 
 <!-- /consumers:generated -->

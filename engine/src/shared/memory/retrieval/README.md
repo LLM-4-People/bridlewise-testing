@@ -31,7 +31,7 @@ The folder lives at `engine/src/shared/memory/retrieval/`.
 - `inverted-index.ts` is consumed by `engine/src/memory/memory-search.ts`, `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/retrieval/retriever.ts`.
 - `retriever.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/shared-memory-store.ts`.
 - `rrf.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/retrieval/retriever.ts`.
-- `text-utils.ts` is consumed by `engine/src/memory/memory-search.ts`, `engine/src/memory/tool-result-retrieval.ts`, `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/retrieval/inverted-index.ts`, `engine/src/shared/memory/retrieval/retriever.ts`, `engine/src/shared/memory/retrieval/tfidf.ts` and 1 more.
+- `text-utils.ts` is consumed by `engine/src/memory/memory-search.ts`, `engine/src/memory/tool-result-retrieval.ts`, `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/retrieval/inverted-index.ts`, `engine/src/shared/memory/retrieval/retriever.ts`, `engine/src/shared/memory/retrieval/tfidf.ts` and others.
 - `tfidf.ts` is consumed by `engine/src/memory/tool-result-retrieval.ts`, `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/retrieval/retriever.ts`.
 - `types.ts` is consumed by `engine/src/shared/memory/retrieval/embeddings.ts`, `engine/src/shared/memory/retrieval/retriever.ts`, `engine/src/shared/memory/retrieval/rrf.ts`.
 

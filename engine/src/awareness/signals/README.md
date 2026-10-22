@@ -28,7 +28,7 @@ The folder lives at `engine/src/awareness/signals/`.
 - `bell-clones.ts` is consumed by `engine/src/awareness/engine.ts`.
 - `benford.ts` is consumed by `engine/src/awareness/engine.ts`.
 - `chromatic-number.ts` is consumed by `engine/src/awareness/engine.ts`.
-- `clone-graph.ts` is consumed by `engine/src/awareness/signals/ag-spectrum.ts`, `engine/src/awareness/signals/banach-contraction.ts`, `engine/src/awareness/signals/bell-clones.ts`, `engine/src/awareness/signals/chromatic-number.ts`, `engine/src/awareness/signals/homology.ts`, `engine/src/awareness/signals/mechanism-design.ts` and 1 more.
+- `clone-graph.ts` is consumed by `engine/src/awareness/signals/ag-spectrum.ts`, `engine/src/awareness/signals/banach-contraction.ts`, `engine/src/awareness/signals/bell-clones.ts`, `engine/src/awareness/signals/chromatic-number.ts`, `engine/src/awareness/signals/homology.ts`, `engine/src/awareness/signals/mechanism-design.ts` and others.
 - `clones.ts` is consumed by `engine/src/awareness/engine.ts`.
 - `code-metrics.ts` is consumed by `engine/src/awareness/engine.ts`.
 - `combinatorics.ts` is consumed by `engine/src/awareness/engine.ts`.

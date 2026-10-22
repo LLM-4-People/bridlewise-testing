@@ -49,8 +49,8 @@ The folder lives at `server/router/`.
 - `egress-failures.ts` is consumed by `server/index.ts`, `server/router/router.ts`, `server/router/sse.ts`.
 - `http-listener.ts` is consumed by `server/index.ts`.
 - `rate-limiter.ts` is consumed by `server/blocks/client-telemetry.ts`, `server/router/router.ts`, `server/router/sse.ts`.
-- `router.ts` is consumed by `server/auth/user-context.ts`, `server/blocks/arm.ts`, `server/blocks/custody.ts`, `server/blocks/define.ts`, `server/blocks/intelligence.ts`, `server/blocks/provenance.ts` and 32 more.
+- `router.ts` is consumed by `server/auth/user-context.ts`, `server/blocks/arm.ts`, `server/blocks/custody.ts`, `server/blocks/define.ts`, `server/blocks/intelligence.ts`, `server/blocks/provenance.ts` and others.
 - `sse.ts` is consumed by `server/index.ts`, `server/routes/live.ts`, `server/routes/run-stream.ts`.
-- `validate.ts` is consumed by `server/routes/auto-checks.ts`, `server/routes/awareness.ts`, `server/routes/chats.ts`, `server/routes/config.ts`, `server/routes/editor.ts`, `server/routes/filesystem.ts` and 10 more.
+- `validate.ts` is consumed by `server/routes/auto-checks.ts`, `server/routes/awareness.ts`, `server/routes/chats.ts`, `server/routes/config.ts`, `server/routes/editor.ts`, `server/routes/filesystem.ts` and others.
 
 <!-- /consumers:generated -->

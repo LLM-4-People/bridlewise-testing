@@ -42,7 +42,7 @@ The folder lives at `server/intelligence/`.
 - `content-search.ts` is consumed by `server/tools/tool-executor.ts`.
 - `git-bridge.ts` is consumed by `server/awareness/awareness-worker.ts`, `server/blocks/custody.ts`, `server/intelligence/git-ops-bridge.ts`.
 - `git-ops-bridge.ts` is consumed by `server/blocks/custody.ts`, `server/routes/git-ops.ts`, `server/tools/tool-executor.ts`.
-- `intelligence-bridge.ts` is consumed by `server/awareness/quality-bridge.ts`, `server/blocks/intelligence.ts`, `server/context/context-bridge.ts`, `server/index.ts`, `server/routes/intelligence.ts`, `server/routes/projects.ts` and 1 more.
+- `intelligence-bridge.ts` is consumed by `server/awareness/quality-bridge.ts`, `server/blocks/intelligence.ts`, `server/context/context-bridge.ts`, `server/index.ts`, `server/routes/intelligence.ts`, `server/routes/projects.ts` and others.
 - `quick-view-worker.ts` is consumed by nothing yet.
 - `repository-map-worker.ts` is consumed by nothing yet.
 

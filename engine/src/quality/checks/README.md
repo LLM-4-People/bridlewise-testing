@@ -64,7 +64,7 @@ The folder lives at `engine/src/quality/checks/`.
 - `security-hotspot.ts` is consumed by `engine/src/quality/aggregator.ts`.
 - `shadowed-declaration.ts` is consumed by `engine/src/quality/aggregator.ts`.
 - `shared-helpers.ts` is consumed by `engine/src/quality/checks/code-health.ts`, `engine/src/quality/checks/dead-code.ts`, `engine/src/quality/checks/performance-anti-pattern.ts`, `engine/src/quality/checks/race-condition.ts`, `engine/src/quality/checks/shadowed-declaration.ts`.
-- `shared.ts` is consumed by `engine/src/quality/checks/no-cond-assign.ts`, `engine/src/quality/checks/no-constant-condition.ts`, `engine/src/quality/checks/no-control-regex.ts`, `engine/src/quality/checks/no-dupe-args.ts`, `engine/src/quality/checks/no-dupe-class-members.ts`, `engine/src/quality/checks/no-dupe-keys.ts` and 19 more.
+- `shared.ts` is consumed by `engine/src/quality/checks/no-cond-assign.ts`, `engine/src/quality/checks/no-constant-condition.ts`, `engine/src/quality/checks/no-control-regex.ts`, `engine/src/quality/checks/no-dupe-args.ts`, `engine/src/quality/checks/no-dupe-class-members.ts`, `engine/src/quality/checks/no-dupe-keys.ts` and others.
 - `unnecessary-type-assertion.ts` is consumed by `engine/src/quality/aggregator.ts`.
 - `unreachable-catch.ts` is consumed by `engine/src/quality/aggregator.ts`.
 - `unused-imports.ts` is consumed by `engine/src/quality/aggregator.ts`.

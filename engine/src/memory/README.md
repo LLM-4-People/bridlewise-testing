@@ -26,7 +26,7 @@ The folder lives at `engine/src/memory/`.
 - `memory-config.ts` is consumed by `engine/src/memory/attempt-history.ts`, `engine/src/memory/context-helpers.ts`, `engine/src/memory/unified/trust-enforcer.ts`, `engine/src/memory/unified/unified-tool-result-store.ts`.
 - `memory-search.ts` is consumed by `engine/src/memory/attempt-history.ts`, `engine/src/memory/memory-store.ts`.
 - `memory-store.ts` is consumed by `engine/src/index.ts`, `engine/src/memory/attempt-history.ts`, `server/kernel/canonical.ts`.
-- `memory-types.ts` is consumed by `engine/src/kernel/config-contracts.ts`, `engine/src/memory/attempt-history.ts`, `engine/src/memory/memory-search.ts`, `engine/src/memory/memory-store.ts`, `engine/src/memory/scale/memory-store-1b.ts`, `engine/src/memory/tool-result-store.ts` and 2 more.
+- `memory-types.ts` is consumed by `engine/src/kernel/config-contracts.ts`, `engine/src/memory/attempt-history.ts`, `engine/src/memory/memory-search.ts`, `engine/src/memory/memory-store.ts`, `engine/src/memory/scale/memory-store-1b.ts`, `engine/src/memory/tool-result-store.ts` and others.
 - `tool-result-exposure.ts` is consumed by nothing yet.
 - `tool-result-retrieval.ts` is consumed by `engine/src/memory/tool-result-store.ts`.
 - `tool-result-store.ts` is consumed by nothing yet.

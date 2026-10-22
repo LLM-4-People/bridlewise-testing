@@ -37,7 +37,7 @@ The folder lives at `server/blocks/`.
 - `compose.ts` is consumed by `server/routes/registry.ts`, `server/routes/run.ts`.
 - `coverage.ts` is consumed by `server/routes/registry.ts`.
 - `custody.ts` is consumed by `server/routes/registry.ts`.
-- `define.ts` is consumed by `server/blocks/anatomy.ts`, `server/blocks/arm.ts`, `server/blocks/breaker.ts`, `server/blocks/checks.ts`, `server/blocks/client-telemetry.ts`, `server/blocks/compose.ts` and 13 more.
+- `define.ts` is consumed by `server/blocks/anatomy.ts`, `server/blocks/arm.ts`, `server/blocks/breaker.ts`, `server/blocks/checks.ts`, `server/blocks/client-telemetry.ts`, `server/blocks/compose.ts` and others.
 - `editor.ts` is consumed by `server/routes/registry.ts`.
 - `intelligence.ts` is consumed by `server/routes/intelligence.ts`, `server/routes/registry.ts`.
 - `provenance.ts` is consumed by `server/routes/registry.ts`.

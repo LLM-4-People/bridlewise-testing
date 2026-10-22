@@ -35,7 +35,7 @@ The folder lives at `engine/src/runtime/`.
 - `admitted-node-runtime.ts` is consumed by `engine/scripts/tooling/run-tests.ts`, `engine/src/filesystem/durable-filesystem-internal.ts`, `engine/src/workflow/evidence-store.ts`.
 - `agent-tools.ts` is consumed by `server/kernel/canonical.ts`.
 - `capability-negotiation.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/offline-contracts.ts`.
-- `cli-debug.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/commit-guard.ts`, `engine/scripts/exp409/sweep.mjs`, `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/post-commit.ts` and 28 more.
+- `cli-debug.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/commit-guard.ts`, `engine/scripts/exp409/sweep.mjs`, `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/post-commit.ts` and others.
 - `entry-point.ts` is consumed by `engine/src/runtime/cli-debug.ts`.
 - `event-state.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/offline-contracts.ts`.
 - `extension-tools.ts` is consumed by nothing yet.
@@ -45,14 +45,14 @@ The folder lives at `engine/src/runtime/`.
 - `intelligence-tools.ts` is consumed by nothing yet.
 - `interactive-session.ts` is consumed by `engine/src/index.ts`.
 - `orchestrator-tools.ts` is consumed by `server/kernel/canonical.ts`.
-- `provider-adapter.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/editor/edit-tools.ts`, `engine/src/evaluation/cli.ts`, `engine/src/evaluation/scenario-runner.ts`, `engine/src/index.ts` and 9 more.
+- `provider-adapter.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/editor/edit-tools.ts`, `engine/src/evaluation/cli.ts`, `engine/src/evaluation/scenario-runner.ts`, `engine/src/index.ts` and others.
 - `quality-tools.ts` is consumed by nothing yet.
 - `response-turn.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/provider-adapter.ts`.
 - `runtime-capabilities.ts` is consumed by `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/src/repository-path/logical.ts`.
-- `runtime-config.ts` is consumed by `engine/src/evaluation/cli.ts`, `engine/src/runtime/agent-tools.ts`, `engine/src/runtime/git-tools.ts`, `engine/src/runtime/intelligence-tools.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/orchestrator-tools.ts` and 3 more.
+- `runtime-config.ts` is consumed by `engine/src/evaluation/cli.ts`, `engine/src/runtime/agent-tools.ts`, `engine/src/runtime/git-tools.ts`, `engine/src/runtime/intelligence-tools.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/orchestrator-tools.ts` and others.
 - `sse-parser.ts` is consumed by `engine/src/mcp/transport/streamable-http.ts`, `engine/src/runtime/event-state.ts`, `engine/src/runtime/provider-adapter.ts`, `engine/src/shared/llm/client.ts`.
 - `tool-args.ts` is consumed by `engine/src/index.ts`, `engine/src/runtime/agent-tools.ts`, `engine/src/runtime/git-tools.ts`, `engine/src/runtime/intelligence-tools.ts`, `engine/src/runtime/orchestrator-tools.ts`, `engine/src/tools/built-in-tools.ts`.
-- `tool-registry.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/index.ts`, `engine/src/mcp/registry.ts`, `engine/src/mcp/tool-adapter.ts`, `engine/src/runtime/agent-tools.ts` and 8 more.
+- `tool-registry.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/index.ts`, `engine/src/mcp/registry.ts`, `engine/src/mcp/tool-adapter.ts`, `engine/src/runtime/agent-tools.ts` and others.
 
 <!-- /consumers:generated -->
 

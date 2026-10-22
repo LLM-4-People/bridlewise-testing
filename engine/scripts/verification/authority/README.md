@@ -31,7 +31,7 @@ one stage of that pipeline.
 The folder lives at `engine/scripts/verification/authority/`.
 
 - `applicability.ts` is consumed by `engine/scripts/verification/authority/lock-compiler.ts`, `engine/scripts/verification/authority/registry-runtime.ts`.
-- `contracts.ts` is consumed by `engine/scripts/verification/authority-graph.ts`, `engine/scripts/verification/authority/applicability.ts`, `engine/scripts/verification/authority/derivations.ts`, `engine/scripts/verification/authority/exceptions.ts`, `engine/scripts/verification/authority/lock-compiler.ts`, `engine/scripts/verification/authority/occurrence-discovery.ts` and 4 more.
+- `contracts.ts` is consumed by `engine/scripts/verification/authority-graph.ts`, `engine/scripts/verification/authority/applicability.ts`, `engine/scripts/verification/authority/derivations.ts`, `engine/scripts/verification/authority/exceptions.ts`, `engine/scripts/verification/authority/lock-compiler.ts`, `engine/scripts/verification/authority/occurrence-discovery.ts` and others.
 - `derivations.ts` is consumed by `engine/scripts/verification/authority/lock-compiler.ts`.
 - `exceptions.ts` is consumed by `engine/scripts/verification/authority/lock-compiler.ts`, `engine/scripts/verification/authority/occurrence-discovery.ts`.
 - `literal-semantics.ts` is consumed by `engine/scripts/verification/authority/occurrence-discovery.ts`, `engine/scripts/verification/authority/semantic-resolution.ts`, `engine/scripts/verification/authority/shape-semantics.ts`.
@@ -41,7 +41,7 @@ The folder lives at `engine/scripts/verification/authority/`.
 - `registry-runtime.ts` is consumed by `engine/scripts/verification/authority/lock-compiler.ts`.
 - `semantic-resolution.ts` is consumed by `engine/scripts/verification/authority/lock-compiler.ts`, `engine/scripts/verification/authority/occurrence-discovery.ts`.
 - `shape-semantics.ts` is consumed by `engine/scripts/verification/authority/occurrence-discovery.ts`, `engine/scripts/verification/authority/semantic-resolution.ts`.
-- `shared.ts` is consumed by `engine/scripts/verification/authority/applicability.ts`, `engine/scripts/verification/authority/contracts.ts`, `engine/scripts/verification/authority/derivations.ts`, `engine/scripts/verification/authority/exceptions.ts`, `engine/scripts/verification/authority/literal-semantics.ts`, `engine/scripts/verification/authority/lock-compiler.ts` and 5 more.
+- `shared.ts` is consumed by `engine/scripts/verification/authority/applicability.ts`, `engine/scripts/verification/authority/contracts.ts`, `engine/scripts/verification/authority/derivations.ts`, `engine/scripts/verification/authority/exceptions.ts`, `engine/scripts/verification/authority/literal-semantics.ts`, `engine/scripts/verification/authority/lock-compiler.ts` and others.
 - `typescript-adapter.ts` is consumed by `engine/scripts/verification/authority/literal-semantics.ts`, `engine/scripts/verification/authority/lock-compiler.ts`, `engine/scripts/verification/authority/occurrence-discovery.ts`, `engine/scripts/verification/authority/occurrence-selectors.ts`, `engine/scripts/verification/authority/semantic-resolution.ts`, `engine/scripts/verification/authority/shape-semantics.ts`.
 
 <!-- /consumers:generated -->

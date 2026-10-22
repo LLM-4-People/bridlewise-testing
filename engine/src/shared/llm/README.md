@@ -70,9 +70,9 @@ The folder lives at `engine/src/shared/llm/`.
 
 - `adaptive.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`.
 - `circuit-breaker.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`.
-- `client.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/evaluation/scenario-runner.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/response-turn.ts`, `engine/src/shared/llm/index.ts`, `server/agent/agent-runtime-bridge.ts` and 1 more.
-- `config.ts` is consumed by `engine/src/evaluation/scenario-runner.ts`, `engine/src/evaluation/types.ts`, `engine/src/kernel/config-contracts.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/privacy/redacted-messages.ts`, `engine/src/privacy/responses-observation.ts` and 11 more.
-- `errors.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/runtime/event-state.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/response-turn.ts`, `engine/src/shared/llm/adaptive.ts`, `engine/src/shared/llm/client.ts` and 13 more.
+- `client.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/evaluation/scenario-runner.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/response-turn.ts`, `engine/src/shared/llm/index.ts`, `server/agent/agent-runtime-bridge.ts` and others.
+- `config.ts` is consumed by `engine/src/evaluation/scenario-runner.ts`, `engine/src/evaluation/types.ts`, `engine/src/kernel/config-contracts.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/privacy/redacted-messages.ts`, `engine/src/privacy/responses-observation.ts` and others.
+- `errors.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/runtime/event-state.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/response-turn.ts`, `engine/src/shared/llm/adaptive.ts`, `engine/src/shared/llm/client.ts` and others.
 - `exposure.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`.
 - `failover.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`, `engine/src/shared/llm/provider-http.ts`, `engine/src/shared/llm/responses-preparation.ts`, `engine/src/shared/llm/responses-tracking.ts`.
 - `index.ts` is consumed by `engine/scripts/exp446/run-llm-usefulness.mts`, `engine/scripts/exp462/run-llm-usefulness-10x.mts`, `engine/src/runtime/provider-adapter.ts`.
@@ -87,7 +87,7 @@ The folder lives at `engine/src/shared/llm/`.
 - `responses-preparation.ts` is consumed by `engine/src/shared/llm/client.ts`.
 - `responses-stream.ts` is consumed by `engine/src/runtime/event-state.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`.
 - `responses-tracking.ts` is consumed by `engine/src/shared/llm/client.ts`.
-- `responses.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/kernel/config-contracts.ts`, `engine/src/mcp/tool-name.ts`, `engine/src/privacy/responses-observation.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/provider-adapter.ts` and 12 more.
+- `responses.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/kernel/config-contracts.ts`, `engine/src/mcp/tool-name.ts`, `engine/src/privacy/responses-observation.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/provider-adapter.ts` and others.
 - `stats.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`.
 
 <!-- /consumers:generated -->

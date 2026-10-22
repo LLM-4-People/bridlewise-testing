@@ -13,6 +13,6 @@ The response surface: the one element that renders a surface's answer, and the g
 
 The folder lives at `src/cockpit/response/`.
 
-- `grammar.ts` is consumed by `src/cockpit/boot/Registration.svelte`, `src/cockpit/boot/probes.ts`, `src/cockpit/desk/BreakerRow.svelte`, `src/cockpit/desk/ChannelScope.svelte`, `src/cockpit/desk/ChannelStrip.svelte`, `src/cockpit/desk/DeskPanel.svelte` and 38 more.
+- `grammar.ts` is consumed by `src/cockpit/boot/Registration.svelte`, `src/cockpit/boot/probes.ts`, `src/cockpit/desk/BreakerRow.svelte`, `src/cockpit/desk/ChannelScope.svelte`, `src/cockpit/desk/ChannelStrip.svelte`, `src/cockpit/desk/DeskPanel.svelte` and others.
 
 <!-- /consumers:generated -->

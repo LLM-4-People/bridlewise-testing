@@ -26,7 +26,7 @@ dedups, compresses, stores, and reverses it on read.
 The folder lives at `engine/src/shared/dedup-compression/`.
 
 - `compression.ts` is consumed by `engine/src/shared/dedup-compression/index.ts`, `engine/src/shared/dedup-compression/lower-layer.ts`.
-- `config.ts` is consumed by `engine/src/shared/dedup-compression/compression.ts`, `engine/src/shared/dedup-compression/decompression.ts`, `engine/src/shared/dedup-compression/dedup.ts`, `engine/src/shared/dedup-compression/dynamic-keywords.ts`, `engine/src/shared/dedup-compression/exposure.ts`, `engine/src/shared/dedup-compression/index.ts` and 2 more.
+- `config.ts` is consumed by `engine/src/shared/dedup-compression/compression.ts`, `engine/src/shared/dedup-compression/decompression.ts`, `engine/src/shared/dedup-compression/dedup.ts`, `engine/src/shared/dedup-compression/dynamic-keywords.ts`, `engine/src/shared/dedup-compression/exposure.ts`, `engine/src/shared/dedup-compression/index.ts` and others.
 - `decompression.ts` is consumed by `engine/src/shared/dedup-compression/index.ts`, `engine/src/shared/dedup-compression/lower-layer.ts`.
 - `dedup.ts` is consumed by `engine/src/shared/dedup-compression/index.ts`, `engine/src/shared/dedup-compression/lower-layer.ts`.
 - `dynamic-keywords.ts` is consumed by `engine/src/shared/dedup-compression/dedup.ts`, `engine/src/shared/dedup-compression/index.ts`.

@@ -160,7 +160,7 @@ The folder lives at `engine/src/mcp/`.
 - `auth.ts` is consumed by `engine/src/mcp/config.ts`, `engine/src/mcp/exposure.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`.
 - `config.ts` is consumed by `engine/src/mcp/exposure.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`, `engine/src/shared/exposure/registrations/mcp.ts`, `server/kernel/canonical.ts`.
 - `core.ts` is consumed by `engine/src/mcp/exposure.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`, `engine/src/mcp/tool-adapter.ts`, `server/kernel/canonical.ts`.
-- `errors.ts` is consumed by `engine/src/mcp/config.ts`, `engine/src/mcp/core.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`, `engine/src/mcp/retry.ts` and 6 more.
+- `errors.ts` is consumed by `engine/src/mcp/config.ts`, `engine/src/mcp/core.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`, `engine/src/mcp/retry.ts` and others.
 - `exposure.ts` is consumed by `engine/src/mcp/index.ts`.
 - `factory.ts` is consumed by `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`, `server/kernel/canonical.ts`.
 - `headers.ts` is consumed by `engine/src/mcp/exposure.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `server/kernel/canonical.ts`.

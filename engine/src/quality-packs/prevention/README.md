@@ -31,7 +31,7 @@ Each detector is one module, exported through the `index.ts` barrel.
 
 The folder lives at `engine/src/quality-packs/prevention/`.
 
-- `ast-helpers.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/hermetic-skips.ts`, `engine/src/intelligence/file-slice.ts`, `engine/src/intelligence/quick-view.ts` and 15 more.
+- `ast-helpers.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/hermetic-skips.ts`, `engine/src/intelligence/file-slice.ts`, `engine/src/intelligence/quick-view.ts` and others.
 - `async-effect-normalizer.ts` is consumed by `engine/src/quality-packs/prevention/duplicate-body-detector.ts`.
 - `duplicate-body-detector.ts` is consumed by `engine/src/editor/monotone-complexity-guard.ts`, `engine/src/quality-packs/prevention/index.ts`.
 - `duplicate-body-types.ts` is consumed by `engine/src/quality-packs/prevention/duplicate-body-detector.ts`.

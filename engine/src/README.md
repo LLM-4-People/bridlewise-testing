@@ -61,7 +61,7 @@ from the import graph.
 
 The folder lives at `engine/src/`.
 
-- `architecture-manifest.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/effect-surface.ts`, `engine/src/kernel/architecture-external-commands.ts`, `engine/src/performance/function-manifest.ts` and 2 more.
+- `architecture-manifest.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/effect-surface.ts`, `engine/src/kernel/architecture-external-commands.ts`, `engine/src/performance/function-manifest.ts` and others.
 - `bundle-entry.ts` is consumed by nothing yet.
 - `cli.mjs` is consumed by nothing yet.
 - `cli.ts` is consumed by `engine/src/bundle-entry.ts`, `engine/src/index.ts`.
