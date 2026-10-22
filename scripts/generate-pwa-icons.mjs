@@ -14,6 +14,8 @@
  *   public/icons/icon.svg      the vector mark on its rounded Carbon tile
  *   public/icons/icon-192.png  raster, full-bleed tile (maskable-safe)
  *   public/icons/icon-512.png  raster, full-bleed tile (maskable-safe)
+ *   docs/assets/mark.svg       the site's mark (the favicon of the Pages
+ *                              layout): the same vector, never a hand copy
  *
  * Writing the icons refreshes the service worker's cached-assets digest
  * through its one owner (scripts/service-worker-cache.ts).
@@ -39,6 +41,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TOKENS = resolve(ROOT, "src", "cockpit", "tokens.css");
 const OUT_DIR = resolve(ROOT, "public", "icons");
+const SITE_MARK = resolve(ROOT, "docs", "assets", "mark.svg");
 
 /** The one geometry, shared with the cockpit's `Brand.svelte`. */
 const MARK = BRAND_MARK;
@@ -145,6 +148,7 @@ export function markOutputs(colors = markColors()) {
     [resolve(OUT_DIR, "icon.svg"), Buffer.from(markSvg(colors), "utf8")],
     [resolve(OUT_DIR, "icon-192.png"), markPng(192, colors)],
     [resolve(OUT_DIR, "icon-512.png"), markPng(512, colors)],
+    [SITE_MARK, Buffer.from(markSvg(colors), "utf8")],
   ]);
 }
 

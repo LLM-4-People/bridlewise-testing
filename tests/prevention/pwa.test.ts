@@ -348,6 +348,7 @@ describe("PWA — icon generator (no-dep build tool)", () => {
   it("the committed icons are exactly the generator's output (the one mark, in the token owner's colours)", () => {
     const outputs = markOutputs() as Map<string, Buffer>;
     expect([...outputs.keys()].map((p) => p.slice(root.length + 1)).sort()).toEqual([
+      "docs/assets/mark.svg",
       "public/icons/icon-192.png",
       "public/icons/icon-512.png",
       "public/icons/icon.svg",

@@ -44,7 +44,7 @@ const BRAND = "src/cockpit/shell/Brand.svelte";
 const GENERATOR = "scripts/generate-pwa-icons.mjs";
 const OWNER = "src/cockpit/shell/brand-mark.ts";
 /** The generated copies of the geometry (their bytes are the generator's, judged in pwa.test.ts). */
-const GENERATED = new Set(["public/icons/icon.svg"]);
+const GENERATED = new Set(["public/icons/icon.svg", "docs/assets/mark.svg"]);
 /** The names Brand.svelte must take from the declaration, and nowhere else. */
 const DECLARED_NAMES = ["BRAND_MARK", "inkOf", "strokePath"] as const;
 
@@ -360,7 +360,8 @@ function signatures(): RegExp[] {
 /** The cockpit's stylesheets other than the mark's own: none may style the mark from outside (a filter or opacity there would recolour or hide it). */
 export function outsideStyleFindings(path: string, text: string): string[] {
   if (path === BRAND || !/^(?:src\/|index\.html$)/u.test(path) || !/\.(?:css|svelte|html)$/u.test(path)) return [];
-  const styles = path.endsWith(".css") ? [text] : [...text.matchAll(/<style\b[^>]*>([^<]*)<\/style\s*>/giu)].map((m) => m[1]!);
+  // A component's or a page's stylesheet, cut out by Svelte's own parser (the one markup reader here).
+  const styles = path.endsWith(".css") ? [text] : [(parse(text) as unknown as { css?: { content: { styles: string } } }).css?.content.styles ?? ""];
   return styles.some((css) => /\.brand(?![\w-])/u.test(css)) ? [`${path}: styles the brand mark from outside Brand.svelte`] : [];
 }
 
@@ -480,7 +481,7 @@ describe("one geometry, one palette", () => {
   });
 
   test("mutation: a hand copy of the geometry elsewhere in the tree is caught; near-misses pass", () => {
-    expect(geometryFindings("docs/assets/mark.svg", '<path d="M8 25V7" stroke="#e8ebef"/>')).toHaveLength(1);
+    expect(geometryFindings("docs/assets/logo.svg", '<path d="M8 25V7" stroke="#e8ebef"/>')).toHaveLength(1);
     expect(geometryFindings("src/cockpit/boot/Logo.svelte", '<path d="M8 7L8 25"/>')).toHaveLength(1);
     expect(geometryFindings("docs/x.md", '<circle cx="8" cy="16" r="2.5" fill="#8fd3ff"/>')).toHaveLength(1);
     expect(geometryFindings("src/a.svelte", '<path d="M8 7L9 25"/><circle cx="8" cy="16" r="3"/>')).toEqual([]);
