@@ -58,6 +58,7 @@ export const PROJECTION_PROGRAM: ConfinedModule = Object.freeze({
     "workflow/forge/projector/model.ts",
     "workflow/markdown-links.ts",
     "kernel/product-identity.ts",
+    "kernel/ordered.ts",
     // The one Markdown parser, at the repository's root (pure, no import).
     "../../shared/markdown.ts",
   ].map((path) => join(SOURCE_ROOT, path))),

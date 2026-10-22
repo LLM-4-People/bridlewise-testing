@@ -5650,7 +5650,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-forge-projector-project", path: "src/workflow/forge/projector/project.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "5d7fc1307c4e148d15173534d166fd08c1665b817d7fe617a6f2977003bf21b9" },
-      dependencies: ["src/workflow/forge/projector/model.ts","src/workflow/markdown-links.ts"],
+      dependencies: ["src/kernel/ordered.ts","src/workflow/forge/projector/model.ts","src/workflow/markdown-links.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-projector-projection", path: "src/workflow/forge/projector/projection.ts", realm: "runtime", layer: "infrastructure",
@@ -5665,7 +5665,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-filesystem-self-protection-confined-run", path: "src/filesystem/self-protection/confined-run.ts", realm: "shared", layer: "trusted-kernel",
       owner: "self-protection", publicApi: { exportCount: 4, namesSha256: "d900743e15e03ad13c224b343fed1d62bc1ea660e5640c6f334eefb8ac5b3a48" },
-      dependencies: ["node:child_process","node:fs","node:os","node:path","src/filesystem/private-state.ts","src/filesystem/self-protection/guardian-binary.ts","src/filesystem/self-protection/guardian-build-stamp.ts","src/filesystem/self-protection/self-protection-config.ts","src/filesystem/self-protection/self-protection-contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/process/environment-projection.ts"],
+      dependencies: ["node:child_process","node:fs","node:os","node:path","src/filesystem/private-state.ts","src/filesystem/self-protection/guardian-binary.ts","src/filesystem/self-protection/guardian-build-stamp.ts","src/filesystem/self-protection/self-protection-config.ts","src/filesystem/self-protection/self-protection-contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/process/environment-projection.ts","src/process/process-facts.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-projector-confined", path: "src/workflow/forge/projector/confined.ts", realm: "runtime", layer: "infrastructure",

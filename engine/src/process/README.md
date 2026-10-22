@@ -26,7 +26,7 @@ The folder lives at `engine/src/process/`.
 - `instrument-lock.ts` is consumed by `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-run-lock.ts`, `engine/src/workflow/checkout-setup.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/slot-cli.ts`, `engine/src/workflow/workspace-cli.ts`.
 - `live-network.ts` is consumed by `engine/scripts/tooling/network-under-test.ts`, `engine/src/shared/outbound-http.ts`.
 - `pinned-process-internal.ts` is consumed by `engine/src/filesystem/durable-filesystem-internal.ts`, `engine/src/git/git-adapter.ts`, `engine/src/git/worktree-port.ts`, `engine/src/runtime/admitted-node-runtime.ts`.
-- `process-facts.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/filesystem/checkout-write-door.ts`, `engine/src/filesystem/file-lock.ts`, `engine/src/filesystem/journaled-commit.ts`, `engine/src/filesystem/linux-path.ts`, `engine/src/filesystem/private-state.ts` and 6 more.
+- `process-facts.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/filesystem/checkout-write-door.ts`, `engine/src/filesystem/file-lock.ts`, `engine/src/filesystem/journaled-commit.ts`, `engine/src/filesystem/linux-path.ts`, `engine/src/filesystem/private-state.ts` and 7 more.
 - `supervised-run.ts` is consumed by `engine/scripts/tooling/recorded-command.ts`, `engine/scripts/tooling/test-guards.ts`, `engine/src/shared/run-history.ts`, `engine/src/workflow/checkout-setup.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/promotion/promoter-home.ts` and 2 more.
 - `worker-bootstrap.ts` is consumed by `engine/src/tools/concurrent/worker-pool.ts`, `server/kernel/canonical.ts`.
 

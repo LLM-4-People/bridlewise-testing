@@ -42,6 +42,7 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import { HarnessError } from "../../kernel/errors.ts";
 import { canonicalJson, sha256 } from "../../kernel/integrity.ts";
 import { projectEnvironment } from "../../process/environment-projection.ts";
+import { procfsDocument } from "../../process/process-facts.ts";
 import { createOwnedTemporaryDirectory, PRIVATE_STATE_FILE_MODE, removeOwnedTemporaryDirectory } from "../private-state.ts";
 import { classifyGuardianResult, compileSelfProtectionConfigToSpec, resolveGuardianBinaryPath, verifyGuardianBinaryAvailability } from "./guardian-binary.ts";
 import { computeGuardianBuildStamp } from "./guardian-build-stamp.ts";
@@ -92,7 +93,9 @@ export function narrowGuardianSpec(compiled: GuardianSpec, rules: readonly Narro
 
 /** The shared libraries this node process has mapped (resolved): the ones the same binary needs to start. */
 function mappedLibraries(): readonly string[] {
-  const paths = readFileSync("/proc/self/maps", "utf8").split("\n").map((line) => line.trim().split(/\s+/u)[5]).filter((path): path is string => path !== undefined && path.startsWith("/") && /\.so(?:\.|$)/u.test(path));
+  const maps = procfsDocument("self", "maps");
+  if (maps === undefined) throw new HarnessError("confined_libraries_unknown: this process's mapped libraries cannot be read (no procfs), so the libraries node needs cannot be granted", "confined_libraries_unknown");
+  const paths = maps.split("\n").map((line) => line.trim().split(/\s+/u)[5]).filter((path): path is string => path !== undefined && path.startsWith("/") && /\.so(?:\.|$)/u.test(path));
   return [...new Set(paths.map((path) => realpathSync(path)))].sort();
 }
 
