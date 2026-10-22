@@ -480,13 +480,17 @@ export async function verifyProductCommit(context: PromotionContext, commit: str
  *   - it is a promotion commit: `Projected-From` names its source S and
  *     `Promotion-Profile` the profile and its blob
  *     (`promotion_source_unproven_commit` otherwise);
- *   - S is a commit of the profile's source branch
- *     (`promotion_verify_off_source`);
+ *   - its profile is the one THIS checkout declares at HEAD, and S is a
+ *     commit of that profile's source branch as this repository holds it
+ *     (`promotion_verify_off_source`). Trust never comes from the commit
+ *     under check or from S's own content, which is read only afterwards
+ *     ({@link verifyTarget});
  *   - its tree EQUALS the projection recomputed from S alone by S's own
  *     promoter: the publisher's check, {@link verifyBuiltProjection}, with the
  *     same answers, naming each differing path.
- * From a checkout that is not clean at S it re-runs in the promoter home
- * (S's code), as an apply does.
+ * Only once S is proven a commit of the real source branch does a checkout
+ * that is not clean at S re-run in the promoter home (S's code), whose child
+ * inherits no credential (`promoterHomeEnvironment`).
  */
 async function promotionVerify(repository: RepositoryContext, request: PromotionRequest): Promise<PromotionAnswer> {
   const { context, commit } = verifyTarget(repository, request);
