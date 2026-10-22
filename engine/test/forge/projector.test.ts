@@ -230,7 +230,10 @@ test("an exhausted allowance stops typed and retryable, and the next run resumes
   assert.deepEqual(first.pending, ["issue/B-CHILD", "issue/C-DONE"]);
   assert.deepEqual(first.unverified, [], "the objects the run wrote are verified; the pending ones are only pending");
   assert.equal(projectionFailure(first)?.retryable, true);
-  const second = await applyProjection(projection, github.store, { allowance: 100, previous: null, foreignEdit: "approval" });
+  assert.deepEqual(Object.keys(first.objects).sort(), ["issue/A-PARENT", "label/lane:floor"], "a pending object is not recorded: it was never seen on GitHub");
+  // The next run resumes from this receipt: a pending object is created, never judged deleted.
+  const second = await applyProjection(projection, github.store, { allowance: 100, previous: first, foreignEdit: "approval" });
+  assert.deepEqual(second.foreignEdits, []);
   assert.equal(second.verified, true);
   assert.equal(second.writes.length, 4, "it resumes with exactly the writes left");
 });

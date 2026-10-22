@@ -257,14 +257,16 @@ export async function applyProjection(projection: Projection, store: ProjectionS
   const observedById = new Map(observed.map((object) => [id(object), object]));
   const unverified = verifyProjection(projection, observed, new Set([...pending, ...heldObjects])).filter((field) => heldFields.get(`${field.class}/${field.key}`)?.has(field.field) !== true);
   // The next run's baseline, field by field: what was observed, except a held field (or object), which keeps its recorded digest — still foreign until met.
-  const objects = Object.fromEntries(projection.objects.map((object) => {
+  const objects = Object.fromEntries(projection.objects.flatMap((object): [string, Readonly<Record<string, string>>][] => {
     const recorded = options.previous?.objects[id(object)];
     const seen = observedById.get(id(object));
-    if (heldObjects.has(id(object))) return [id(object), recorded ?? {}];
-    return [id(object), Object.fromEntries(Object.keys(object.fields).map((field) => {
+    if (heldObjects.has(id(object))) return [[id(object), recorded ?? {}]];
+    // Never seen on GitHub (a write still pending): nothing is recorded, so the next run creates it rather than judging it deleted.
+    if (seen === undefined && recorded === undefined) return [];
+    return [[id(object), Object.fromEntries(Object.keys(object.fields).map((field) => {
       const keep = heldFields.get(id(object))?.has(field) === true ? recorded?.[field] : undefined;
       return [field, keep ?? valueDigest(seen?.fields[field])];
-    }))];
+    }))]];
   }));
   const receipt: ProjectionReceipt = deepFreeze({
     schema: PROJECTION_RECEIPT_SCHEMA,
