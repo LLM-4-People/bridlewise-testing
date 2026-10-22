@@ -115,3 +115,12 @@ never the fill). A claim's state is a word in its state ink. Kickers are
 sentence case, never tracked capitals. Text is ink-1 or ink-2 only (ink-3 and
 ink-4 fail AA on paper), and `tests/public/site-design-system.test.mjs` holds
 every stylesheet under `docs/` to these rules and to 4.5:1 in both themes.
+
+Figures are generated, never drawn by hand (`shared/figures.ts`). A figure for
+a README is a light/dark SVG pair in concrete token colours behind a
+`<picture>`, with its facts repeated as a sentence beside it. The decision
+index's status bar is one: it is written with the index, from the same
+records. A figure on the site is declared as data (`docs/_data/figures/`) and
+drawn inline with `fig-*` classes, so it follows the theme switch. Parts are
+labelled directly with their counts, and a hatched part is hatched, so
+identity is never carried by colour alone.
