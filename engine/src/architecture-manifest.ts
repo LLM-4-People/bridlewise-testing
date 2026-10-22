@@ -5516,7 +5516,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-verification-corpus", path: "scripts/verification/corpus.ts", realm: "builder", layer: "verification",
-      owner: "verification-foundation", publicApi: { exportCount: 33, namesSha256: "b0d76e83ee5c6793022491a6ee6e718ed06815053d066f63774b2a9d903a7dcd" },
+      owner: "verification-foundation", publicApi: { exportCount: 35, namesSha256: "d501204bf0ddcfa55cb1e117a72d5022129aaf81b43f733e2fb35bea65fb48ee" },
       dependencies: ["node:child_process","node:crypto","node:fs","node:os","node:path","scripts/generation/repository-path-unicode.ts","scripts/verification/corpus-root.ts","src/filesystem/private-state.ts","src/runtime/cli-debug.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
     }),
