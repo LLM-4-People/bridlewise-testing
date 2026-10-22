@@ -289,10 +289,6 @@ export const DECLARED_ROOT: Readonly<Record<string, RootDeclaration>> = {
     class: "proof",
     because: "The public CI, CodeQL, secret scan, Pages, and failure-reporting workflows.",
   },
-  ".gitleaks.toml": {
-    class: "proof",
-    because: "The secret-scanning configuration used by the public gate.",
-  },
   ".node-version": {
     because: "The runtime pin read by version managers and CI setup.",
   },
