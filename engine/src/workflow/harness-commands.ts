@@ -1521,7 +1521,7 @@ async function syncPass(
   if (bundleBuild !== undefined) steps.push(deepFreeze({ step: "bundle-build", status: bundleBuild.status }));
   if (options.withBundle) steps.push(deepFreeze({ step: "regenerate", status: regenerate.status }));
   steps.push(deepFreeze({ step: "check", status: check.status }));
-  const allPassed = steps.every((step) => step.status === "pass");
+  const allPassed = syncPassVerdict(steps, options.withBundle === true);
   return deepFreeze({
     steps: deepFreeze(steps),
     ...(bundleBuild !== undefined ? { bundleBuild } : {}),
@@ -1531,6 +1531,26 @@ async function syncPass(
     check,
     allPassed,
   });
+}
+
+/**
+ * Whether one sync pass passed, from its step summaries.
+ *
+ * Without the bundle every step is judged. WITH it, the first `regenerate`
+ * is a stabilization step: it runs before the bundle is built, so in a fresh
+ * checkout (CI, a new worktree) the bundle binding has nothing to pin yet
+ * and that step reports "fail" for a file the very next step produces. The
+ * final `regenerate` runs the same generators over the same inputs plus the
+ * built bundle, and the `check` judges everything, so a real failure of the
+ * first is a failure of those too; judging the first again only turned a
+ * converged, clean sync red in every fresh checkout.
+ */
+export function syncPassVerdict(steps: readonly HarnessSyncStepSummary[], withBundle: boolean): boolean {
+  const judged = withBundle ? steps.filter((_step, index) => index !== 1) : steps;
+  if (withBundle && (steps[1]?.step !== "regenerate" || steps[2]?.step !== "bundle-build")) {
+    throw new InputError("sync --with-bundle steps are out of order: the stabilizing regenerate must precede the bundle build", "input_error");
+  }
+  return judged.length > 0 && judged.every((step) => step.status === "pass");
 }
 
 /**
