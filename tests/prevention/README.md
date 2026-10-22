@@ -172,6 +172,7 @@ The `tests/prevention/` folder of the development surface.
 - `recycle-bin-owner.test.ts` — recycle bin: trash is a timestamp, never a hard delete of the row.
 - `redaction-reaches-provider.test.ts` — @vitest-environment node.
 - `removal-is-recorded.test.ts` — @vitest-environment node.
+- `repository-identity-owner.test.ts` — this repository's `owner/name` is spelled only where it is declared (the forge section) or generated from it (package.json, CITATION.cff, the community files); no other tracked code or configuration names it.
 - `resume-gap-heals-in-place.test.ts` — @vitest-environment node.
 - `rewind-reaches-provider.test.ts` — @vitest-environment node; the provider/context group of the split rewind suite.
 - `rewind-record-and-addressing.test.ts` — @vitest-environment node; recorded rewinds, page scoping, refusals, and hostile addressing.

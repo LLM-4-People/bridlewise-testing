@@ -33,6 +33,7 @@ const FORGE_CODES = deepFreeze({
   forge_usage: { class: "input", remedy: "Run `harness forge apps manifests [--check]` or `harness forge apps create`." },
   forge_request_invalid: { class: "input", remedy: "Fix the request: the path must be an API path starting with `/`, with no scheme, host, `..` or fragment, and a query of plain values." },
   forge_endpoint_invalid: { class: "input", remedy: "Name the API as an absolute https URL (http only for a loopback test server) with no credentials, query or fragment." },
+  forge_identity_copy_invalid: { class: "input", remedy: "A file that carries a copy of the repository identity has lost its field (package.json `repository`, `homepage` and `bugs`; CITATION.cff `repository-code`): restore the field, then run harness sync, which writes it from the forge section." },
   forge_app_unknown: { class: "input", remedy: "Name one of the App registry's roles (`app-registry.ts`)." },
   forge_app_key_unavailable: { class: "refused", remedy: "Create the App and store its key with `harness forge apps create` (the key home holds it; nobody copies a key by hand)." },
   forge_app_key_invalid: { class: "integrity", remedy: "The stored App record is unreadable or its key is not an RSA private key: recreate the key in the App's settings and store it again with `harness forge apps create`." },

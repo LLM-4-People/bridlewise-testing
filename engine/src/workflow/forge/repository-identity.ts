@@ -11,6 +11,9 @@
  * GitHub-side rename. Code reads it here, and generated files are
  * regenerated from it.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { ForgeError } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
@@ -62,4 +65,39 @@ export function repositoryIdentity(settings: ForgeSettings): RepositoryIdentity 
 /** This checkout's repository identity, from its configured `forge` section (`forge_not_configured` without one). */
 export function configuredRepositoryIdentity(): RepositoryIdentity {
   return repositoryIdentity(configuredForge());
+}
+
+/**
+ * THE COPIES of the identity that other formats insist on carrying as text,
+ * each GENERATED from it (a field, never the whole file):
+ * - `package.json`: `repository.url`, `homepage`, `bugs.url`;
+ * - `CITATION.cff`: `repository-code`.
+ * Each answer is the file's full new text, for the forge-files arm of
+ * `harness sync` to compare and write. A file the tree does not hold carries
+ * no copy; a file that holds the copy in another shape is refused
+ * (`forge_identity_copy_invalid`), never guessed.
+ */
+export function repositoryIdentityCopies(top: string, identity: RepositoryIdentity): ReadonlyMap<string, string> {
+  const copies = new Map<string, string>();
+  const manifestPath = join(top, "package.json");
+  if (existsSync(manifestPath)) {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    const record = (field: string): Record<string, unknown> => {
+      const value = manifest[field];
+      if (typeof value !== "object" || value === null || Array.isArray(value)) throw new ForgeError("forge_identity_copy_invalid", `package.json \`${field}\` is not an object with a url.`, { path: "package.json", field });
+      return value as Record<string, unknown>;
+    };
+    const updated = { ...manifest, repository: { ...record("repository"), url: identity.gitUrl }, homepage: identity.webUrl, bugs: { ...record("bugs"), url: identity.issuesUrl } };
+    // Key order is kept: the spread keeps each field where the file has it.
+    copies.set("package.json", `${JSON.stringify(updated, null, 2)}\n`);
+  }
+  const citationPath = join(top, "CITATION.cff");
+  if (existsSync(citationPath)) {
+    const lines = readFileSync(citationPath, "utf8").split("\n");
+    const at = lines.flatMap((line, index) => (line.startsWith("repository-code:") ? [index] : []));
+    if (at.length !== 1) throw new ForgeError("forge_identity_copy_invalid", `CITATION.cff must hold exactly one top-level repository-code line; it holds ${String(at.length)}.`, { path: "CITATION.cff", field: "repository-code" });
+    lines[at[0]!] = `repository-code: "${identity.webUrl}"`;
+    copies.set("CITATION.cff", lines.join("\n"));
+  }
+  return copies;
 }

@@ -1,7 +1,8 @@
 /**
- * THE REPOSITORY AND ITS SITE — read from the repository's one declaration of
- * where it lives: `package.json` `repository.url` (the field the P1.10 rename
- * updates, and the one the community-file generator reads too). Nothing in the
+ * THE REPOSITORY AND ITS SITE — read from `package.json` `repository.url`, a
+ * copy GENERATED from the repository identity (the forge section's trunk,
+ * `engine/src/workflow/forge/repository-identity.ts`; the P1.10 rename changes
+ * that one value and `harness sync` rewrites this field). Nothing in the
  * site tooling, the site's pages or its configuration spells a repository
  * name or a site URL: the builder writes these values into `_config.yml`
  * (`repository_url`, `security_url`, `url`) and pages read them from there.
