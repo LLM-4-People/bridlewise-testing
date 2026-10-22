@@ -19,8 +19,12 @@
  *   a preload for each upright face (the first paint's text), and the lead
  *   theme's ground as the browser's `theme-color`.
  *
- * The layout includes the two includes; nothing here is committed.
+ * - `_includes/csp.html`: the Content-Security-Policy meta tag
+ *   (`sitePolicy`), the browser-enforced boundary every page includes first.
+ *
+ * The layout includes the includes; nothing here is committed.
  */
+import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -34,6 +38,42 @@ export const SITE_TOKEN_SHEET = "assets/css/tokens.css";
 export const SITE_FONTS = "assets/fonts";
 export const MARK_INCLUDE = "_includes/brand-mark.svg";
 export const HEAD_INCLUDE = "_includes/design-head.html";
+export const CSP_INCLUDE = "_includes/csp.html";
+
+/**
+ * The only style attributes a page may carry: the table alignments kramdown
+ * writes for a Markdown table's `:--`, `:-:` and `--:` columns. The policy
+ * allows exactly these by hash; any other style attribute is blocked.
+ */
+export const MARKDOWN_STYLE_ATTRIBUTES = Object.freeze(["text-align: left", "text-align: center", "text-align: right"]);
+
+/**
+ * THE SITE'S CONTENT-SECURITY-POLICY, the boundary the browser enforces on
+ * every page whatever spelling produced it. Only the site's own files load:
+ * - no inline script and no event handler;
+ * - no inline `<style>`, and no style attribute beyond the table
+ *   alignments above;
+ * - no remote sheet, font, image or connection;
+ * - no `<base>`, no plugin, no form posting elsewhere.
+ * Written into `_includes/csp.html`, which the base layout and every HTML
+ * page include right after their charset, before anything that loads.
+ */
+export function sitePolicy() {
+  const hashes = MARKDOWN_STYLE_ATTRIBUTES.map((value) => `'sha256-${createHash("sha256").update(value).digest("base64")}'`);
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    `style-src-attr 'unsafe-hashes' ${hashes.join(" ")}`,
+    "font-src 'self'",
+    "img-src 'self'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+  ].join("; ");
+}
+
 /** The site's attribute for an explicit theme choice; its absence is the lead theme. */
 export const THEME_ATTRIBUTE = "data-theme";
 export const LEAD_THEME = "logbook";
@@ -91,6 +131,7 @@ export function writeSiteDesign({ root, outRoot }) {
   for (const font of fonts) copyFileSync(join(root, font.source), join(outRoot, ...SITE_FONTS.split("/"), font.name));
   copyFileSync(join(root, FONT_LICENCE), join(outRoot, ...SITE_FONTS.split("/"), "OFL.txt"));
 
+  write(outRoot, CSP_INCLUDE, `<meta http-equiv="Content-Security-Policy" content="${escapeHtml(sitePolicy())}">\n`);
   write(outRoot, MARK_INCLUDE, markInclude());
   const preloads = fonts
     .filter((font) => font.upright)

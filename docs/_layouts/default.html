@@ -2,6 +2,7 @@
 <html lang="{{ site.lang | default: 'en' }}">
 <head>
   <meta charset="utf-8">
+  {% include csp.html %}
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% if page.url == "/" %}{{ page.title | default: site.title }}{% else %}{{ page.title | default: "Bridlewise" }} · {{ site.title }}{% endif %}</title>
   <meta name="description" content="{{ page.description | default: site.description | escape }}">
@@ -28,15 +29,7 @@
   <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
   <link rel="stylesheet" href="{{ '/assets/floor/floor.css' | relative_url }}">
 
-  <script>
-    (function () {
-      var root = document.documentElement;
-      root.classList.add("js");
-      try {
-        if (localStorage.getItem("bridlewise-theme") === "carbon") root.dataset.theme = "carbon";
-      } catch (error) {}
-    })();
-  </script>
+  <script src="{{ '/assets/js/theme.js' | relative_url }}"></script>
 
   <script type="application/ld+json">
   {
