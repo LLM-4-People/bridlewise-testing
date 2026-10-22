@@ -29,6 +29,13 @@ import { isAlias, isMap, isPair, isScalar, isSeq, LineCounter, parseDocument, vi
  * `push` trigger skips no main commit: a required check it produces would
  * otherwise stay pending on every PR a filter skips.
  *
+ * Contributions from forks are safe by design (github-only §10.1): no
+ * workflow triggers on `pull_request_target` (it runs with the base
+ * repository's write token and secrets while a fork's code is in reach), and a
+ * workflow on a privileged trigger (`workflow_run`, `issue_comment`, `issues`,
+ * `discussion`, `discussion_comment`, `schedule`) never checks out a pull
+ * request's head: it runs `main`'s code and reads a fork's results as data.
+ *
  * Each file is READ AS YAML (the `yaml` package, the repository's one YAML
  * reader), never matched line by line: indentation, flow maps and flow lists
  * are all the same document to GitHub, so they are to this guard. A file that
@@ -198,6 +205,35 @@ function mergeQueueViolations(workflow) {
   }
   if (events.has("pull_request") && !events.has("merge_group") && !PULL_REQUEST_ONLY.has(workflow.path)) {
     violations.push(`${workflow.path}: runs on pull_request but not on merge_group, so the merge queue never reports its checks`);
+  }
+  return violations;
+}
+
+/** The triggers whose runs hold the base repository's write token or secrets while acting on outside input. */
+const PRIVILEGED_EVENTS = new Set(["workflow_run", "issue_comment", "issues", "discussion", "discussion_comment", "schedule"]);
+/** An expression naming a pull request's head (its commit, branch or repository), which a privileged run must never check out. */
+const PULL_REQUEST_HEAD = /github\.event\.(?:workflow_run\.head_(?:sha|branch|repository)|pull_request\.head\.|issue\.pull_request)|github\.head_ref|refs\/pull\//u;
+
+/**
+ * The fork-safety violations of one workflow: a `pull_request_target`
+ * trigger, or a privileged run whose `actions/checkout` step names a pull
+ * request's head (`ref` or `repository`).
+ */
+function forkSafetyViolations(workflow) {
+  const { events, unreadable } = readWorkflow(workflow);
+  if (unreadable.length > 0) return unreadable;
+  const violations = [];
+  if (events.has("pull_request_target")) violations.push(`${workflow.path}: triggers on pull_request_target, which runs with write access and secrets beside a fork's code; use pull_request`);
+  if (![...events].some((event) => PRIVILEGED_EVENTS.has(event))) return violations;
+  const document = parseDocument(workflow.text).toJS();
+  for (const [jobName, job] of Object.entries(document?.jobs ?? {})) {
+    for (const step of Array.isArray(job?.steps) ? job.steps : []) {
+      if (typeof step?.uses !== "string" || !step.uses.startsWith("actions/checkout@")) continue;
+      for (const key of ["ref", "repository"]) {
+        const value = step.with?.[key];
+        if (typeof value === "string" && PULL_REQUEST_HEAD.test(value)) violations.push(`${workflow.path}: job ${jobName} checks out a pull request's head (${key}: ${value}) on a privileged trigger`);
+      }
+    }
   }
   return violations;
 }
@@ -384,4 +420,24 @@ test("two workflows sharing a group prefix are refused", () => {
     workflow(".github/workflows/b.yml", `concurrency:\n  group: ci-\${{ ${PER_RUN_GROUP} }}\n`),
   ];
   assert.equal(sharedGroupPrefixes(shared).length, 1);
+});
+
+test("every live workflow is fork-safe: no pull_request_target, no privileged run checks out a pull request's head", () => {
+  assert.deepEqual(liveWorkflows().flatMap(forkSafetyViolations), []);
+});
+
+test("fork-safety refuses the planted spellings and passes the near misses", () => {
+  const plant = (text) => forkSafetyViolations({ path: ".github/workflows/plant.yml", text });
+  const job = (event, withBlock) => `on: ${event}\njobs:\n  j:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n${withBlock}`;
+  assert.equal(plant("on: pull_request_target\njobs:\n  j:\n    runs-on: x\n    steps: []\n").length, 1);
+  assert.equal(plant("on: [push, pull_request_target]\njobs:\n  j:\n    runs-on: x\n    steps: []\n").length, 1);
+  assert.equal(plant("on:\n  pull_request_target:\n    types: [opened]\njobs:\n  j:\n    runs-on: x\n    steps: []\n").length, 1);
+  for (const ref of ["${{ github.event.workflow_run.head_sha }}", "${{ github.event.pull_request.head.sha }}", "${{ github.head_ref }}", "refs/pull/${{ github.event.issue.number }}/head"]) {
+    assert.equal(plant(job("workflow_run", `        with:\n          ref: "${ref}"\n`)).length, 1, ref);
+  }
+  assert.equal(plant(job("issue_comment", "        with:\n          repository: ${{ github.event.workflow_run.head_repository.full_name }}\n")).length, 1);
+  // Near misses: a privileged run on main's code, and a pull_request run checking out its own head.
+  assert.deepEqual(plant(job("workflow_run", "        with:\n          ref: main\n")), []);
+  assert.deepEqual(plant(job("issue_comment", "")), []);
+  assert.deepEqual(plant(job("pull_request", "        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n")), []);
 });
