@@ -934,8 +934,6 @@ test("profile the cockpit end to end", async ({ page, browserName }, testInfo) =
     realData: { longChat: longChatResult, manyProjects: manyProjectsResult },
     viewports: viewportProfiles,
   });
-  // Whether this profile ran inside the host's one instrument lock (taken by the
-  // perf config's global setup): the regression gate judges only a held one.
   await writeReport(REPORT_PATH, report);
   await testInfo.attach("profile-page-diagnostics", { body: JSON.stringify({ pageEvidence, failedResponses, pendingApi: [...pendingApi], pendingAll: [...pendingAll] }), contentType: "application/json" });
 

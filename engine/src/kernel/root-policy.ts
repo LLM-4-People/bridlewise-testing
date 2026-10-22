@@ -2655,9 +2655,10 @@ const ROOT_POLICY_VALUE = {
        * THE BUDGETS JUDGED IN THE SAME JUDGEMENT (UR-24): a budget gate of a
        * ledger whose breach persists from the target passes only while an
        * open task row names the budget (its config key) and this change's
-       * SLOTTED value is no higher than the target's LOWEST recorded value
-       * (the row field named here). A new breach, a worse one, an unowned or
-       * an unslotted one fails. Any other budget gate fails outright.
+       * value is no higher than the target's LOWEST recorded value (the row
+       * field named here), whatever ran beside either run (NO-LOAD-BLOCK). A
+       * new breach, a worse one or an unowned one fails. Any other budget
+       * gate fails outright.
        */
       budgets: {
         engine: { "cpu-per-test-file": { budget: "testExecution.integrationSuiteCpuBudget", field: "cpuMsPerTestFile" } },
