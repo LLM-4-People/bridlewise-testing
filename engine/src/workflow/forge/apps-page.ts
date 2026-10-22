@@ -180,7 +180,7 @@ function sameToken(given: string | null, expected: string): boolean {
  * exactly the manifest's permissions and events — or the typed
  * `forge_app_conversion_mismatch`, and nothing is stored.
  */
-export function verifyConversion(role: ForgeAppRole, settings: ForgeSettings, answer: Readonly<Record<string, unknown>>): Readonly<{ appId: number; slug: string; clientId: string; pem: string }> {
+function verifyConversion(role: ForgeAppRole, settings: ForgeSettings, answer: Readonly<Record<string, unknown>>): Readonly<{ appId: number; slug: string; clientId: string; pem: string }> {
   const { id, slug, client_id: clientId, pem, name, owner, permissions, events } = answer;
   if (typeof id !== "number" || typeof slug !== "string" || typeof clientId !== "string" || typeof pem !== "string") {
     throw new ForgeError("github_response_invalid", "GitHub's manifest conversion carries no App id, slug, client id or key.", { role });

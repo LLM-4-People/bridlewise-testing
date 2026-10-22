@@ -169,7 +169,7 @@ async function planObjects(context: LiveContext, objects: readonly ForgeObject[]
 }
 
 /** The id a loosening is acknowledged by: `<kind>:<scope>:<key>`. */
-export function looseningId(entry: Readonly<{ kind: string; scope: string; key: string }>): string {
+function looseningId(entry: Readonly<{ kind: string; scope: string; key: string }>): string {
   return `${entry.kind}:${entry.scope}:${entry.key}`;
 }
 

@@ -28,7 +28,7 @@ export type ForgeClass = typeof FORGE_CLASSES[number];
 type CodeEntry = Readonly<{ class: ForgeClass; remedy: string }>;
 
 /** Every code the forge answers with (see the header). */
-export const FORGE_CODES = deepFreeze({
+const FORGE_CODES = deepFreeze({
   forge_not_configured: { class: "input", remedy: "Declare the `forge` section in engine/bridlewise.config.json (its schema is `forge-config.ts`)." },
   forge_usage: { class: "input", remedy: "Run `harness forge apps manifests [--check]` or `harness forge apps create`." },
   forge_declaration_invalid: { class: "input", remedy: "Fix the declaration's owner (the forge section, the App registry, the community sources or the tree) so the generated configuration is whole: the message names what is missing or doubled." },
