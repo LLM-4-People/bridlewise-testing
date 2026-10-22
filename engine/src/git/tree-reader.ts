@@ -131,6 +131,36 @@ function nulRecords(output: Buffer): readonly Buffer[] {
   return records;
 }
 
+/** One entry of git's raw diff: both sides' mode and object id (`000000` and the null id where a side has none), the status letter, the path. */
+export type RawDiffEntry = Readonly<{ srcMode: string; dstMode: string; srcOid: string; dstOid: string; status: string; path: string }>;
+
+/**
+ * THE ONE READER of git's raw diff (`--raw -z --no-abbrev --no-renames`):
+ * its NUL-separated records, `:<src mode> <dst mode> <src id> <dst id>
+ * <status>` then the path, as entries. Every consumer of a raw diff (the
+ * index baseline's protected entries, the worktree port's deleted blobs, the
+ * workspace publisher's tree delta) reads it here; {@link treeDiff} is the
+ * binary-safe door that also checks each path.
+ */
+export function rawDiffEntries(records: readonly string[]): readonly RawDiffEntry[] {
+  const entries: RawDiffEntry[] = [];
+  for (let index = 0; index + 1 < records.length; index += 2) {
+    const header = records[index]!;
+    if (!header.startsWith(":")) {
+      throw new HarnessError(`git's raw diff holds a record that is not a header where one was expected: ${header.slice(0, 80)}`, "tree_reader_raw_diff_invalid");
+    }
+    const [srcMode, dstMode, srcOid, dstOid, status] = header.slice(1).split(" ");
+    entries.push(deepFreeze({ srcMode: srcMode!, dstMode: dstMode!, srcOid: srcOid!, dstOid: dstOid!, status: status!, path: records[index + 1]! }));
+  }
+  return deepFreeze(entries);
+}
+
+/** The raw tree diff (recursive, no renames) from `from` to `to` in `repository`, each path checked UTF-8 (`tree_reader_path_not_utf8`). */
+export function treeDiff(repository: GitRepository, from: string, to: string): readonly RawDiffEntry[] {
+  const records = nulRecords(gitBytes(repository, ["diff-tree", "-r", "-z", "--raw", "--no-abbrev", "--no-renames", from, to]));
+  return rawDiffEntries(records.map((record, index) => (index % 2 === 1 ? utf8Path(record, to) : record.toString("utf8"))));
+}
+
 type CommitEntry = Readonly<{ mode: string; type: string; oid: string; size: number }>;
 
 /**

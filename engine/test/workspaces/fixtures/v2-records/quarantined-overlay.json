@@ -1,0 +1,119 @@
+{
+  "abortReason": "operator abort",
+  "agentName": "codex-dec1-resume",
+  "changedPaths": [
+    "README.md",
+    "docs/decisions/BL-DIR-finish-the-browser-lab.md",
+    "docs/decisions/BL-RES-the-browser-lab-resources.md",
+    "docs/decisions/BL-U1-app-docs-and-server-packages.md"
+  ],
+  "conflictReport": null,
+  "history": [
+    {
+      "at": "2026-10-03T04:06:30.735Z",
+      "from": "admitted",
+      "reason": "workspace created from the overlay 11f2a13c98af3309b90f3d1e4273945819f58403",
+      "to": "active"
+    },
+    {
+      "at": "2026-10-05T04:51:55.247Z",
+      "from": "active",
+      "reason": "full validation started",
+      "to": "validating"
+    },
+    {
+      "at": "2026-10-05T04:51:55.537Z",
+      "from": "validating",
+      "reason": "validation failed",
+      "to": "active"
+    },
+    {
+      "at": "2026-10-05T05:09:20.455Z",
+      "from": "active",
+      "reason": "full validation started",
+      "to": "validating"
+    }
+  ],
+  "lease": {
+    "agentName": "codex-dec1-resume",
+    "baseSha": "6aacb7dd3eab025f75eb2d6a0aae16c0731c068a",
+    "branch": "agent/codex-dec1-resume/734ead805549",
+    "expiresAt": "2026-10-06T05:07:53.328Z",
+    "generation": 11,
+    "heartbeatAt": "2026-10-05T05:07:53.328Z",
+    "issuedAt": "2026-10-03T04:05:16.919Z",
+    "kind": "feature",
+    "nonce": "734ead805549",
+    "overlay": {
+      "checkout": "/home/user/bridlewise-testing",
+      "commit": "11f2a13c98af3309b90f3d1e4273945819f58403",
+      "indexDigest": "479aa5d6446bf3e13a96ae74206867bce5d60f837f0defd3bd94ee06cef9cb5e",
+      "tree": "c10b5b322729ba37fd778ce2aaafd77fbb51a9ea"
+    },
+    "schemaVersion": "bridlewise-workspace/v2",
+    "targetBranch": "testing",
+    "workspaceId": "codex-dec1-resume-734ead805549",
+    "worktreePath": "/home/user/bridlewise-wt/codex-dec1-resume-734ead805549",
+    "writeSet": [
+      "README.md",
+      "docs/decisions",
+      "docs/decisions/BL-DIR-finish-the-browser-lab.md",
+      "docs/decisions/BL-RES-the-browser-lab-resources.md"
+    ],
+    "writeSetIdentity": "f7b6e969007cb2b6bc44eb7a6e87ec2014780946d7d6a19757f91791a4370c06"
+  },
+  "mergeReceipt": null,
+  "revision": 19,
+  "schemaVersion": "bridlewise-workspace/v2",
+  "state": "quarantined",
+  "validationReport": {
+    "baseSha": "6aacb7dd3eab025f75eb2d6a0aae16c0731c068a",
+    "changedPaths": [
+      "README.md",
+      "docs/decisions/BL-DIR-finish-the-browser-lab.md",
+      "docs/decisions/BL-RES-the-browser-lab-resources.md",
+      "docs/decisions/BL-U1-app-docs-and-server-packages.md"
+    ],
+    "full": true,
+    "gates": [
+      {
+        "details": [],
+        "gate": "write-set-proof",
+        "message": "changed set (2408 paths) is inside the declared write set",
+        "status": "pass"
+      },
+      {
+        "details": [
+          "{\"command\":\"format\",\"generatedAt\":\"2026-10-05T05:42:52.383Z\",\"integrityHash\":\"e20beb9eb4050993a9b6266423b3585ebbbe590f062142d70fe439c1f2d8e7f7\",\"result\":{\"changedFiles\":[],\"fixed\":0,\"scanned\":1340,\"write\":false},\"schemaVersion\":\"bridlewise-harness-command/v1\",\"status\":\"pass\"}"
+        ],
+        "gate": "engine-format",
+        "message": "node src/cli.ts harness format --check (in engine)",
+        "status": "pass"
+      },
+      {
+        "details": [
+          "ath\":\"verification/oracles/README.md\"},\"index\":{\"mode\":\"100644\",\"objectId\":\"4e66179ab0603dda65179eb0a2857d6eb5cbf365\",\"path\":\"verification/oracles/README.md\"},\"path\":\"verification/oracles/README.md\",\"states\":[\"clean\"],\"worktree\":{\"bytes\":278,\"mode\":\"100644\",\"objectId\":\"4e66179ab0603dda65179eb0a2857d6eb5cbf365\",\"sha256\":\"f9d7ef8d4d990999d01bab77ed54cf69db81508b6f84b52dad21cc9c4ecf77d9\"}},{\"head\":{\"mode\":\"100644\",\"objectId\":\"323bd5d4aa8d24ab2ee6340582219a1f64306738\",\"path\":\"verification/oracles/content-addressed-evidence.ts\"},\"index\":{\"mode\":\"100644\",\"objectId\":\"323bd5d4aa8d24ab2ee6340582219a1f6"
+        ],
+        "gate": "engine-candidate-format",
+        "message": "npm run -s manifest:candidate (in engine)",
+        "status": "pass"
+      },
+      {
+        "details": [
+          "> bridlewise-web@0.0.1 typecheck\n> npm run typecheck:includes && npm run typecheck:client && npm run typecheck:server && npm run typecheck:templates && npm run typecheck:tests\n\n\n> bridlewise-web@0.0.1 typecheck:includes\n> node engine/scripts/verification/tsconfig-include-liveness.ts .\n\ntsconfig include liveness: /home/user/bridlewise-wt/codex-dec1-resume-734ead805549/tsconfig.json src/**/*.ts\u2192160 shared/**/*.ts\u219216\ntsconfig include liveness: /home/user/bridlewise-wt/codex-dec1-resume-734ead805549/tsconfig.server.json server/**/*.ts\u2192143\ntsconfig include liveness: /home/user/bridlewise-wt/codex-d"
+        ],
+        "gate": "web-typecheck",
+        "message": "npm run typecheck (in .)",
+        "status": "pass"
+      }
+    ],
+    "headSha": "2b2290feb68dcb4549ff8b5dee4cf362b58e6ada",
+    "schemaVersion": "bridlewise-workspace/v2",
+    "startedAt": "2026-10-05T05:42:51.277Z",
+    "status": "fail",
+    "tree": "654fa6938cdf8f3c2cdf501cec5b169a7a1a0ac5",
+    "validatedAt": "2026-10-05T05:50:16.877Z",
+    "workspaceId": "codex-dec1-resume-734ead805549"
+  },
+  "workspaceId": "codex-dec1-resume-734ead805549"
+}

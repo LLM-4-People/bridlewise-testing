@@ -19,6 +19,7 @@ import {
   mkWorkspaceTempDir,
   rawGit,
   registryRoot,
+  trackBranch,
 } from "./workspace-test-support.ts";
 
 /**
@@ -72,6 +73,7 @@ test("a manager rooted in another worktree of the repository sees the same regis
   const { root } = initTempRepo("ws-common");
   const linked = join(mkWorkspaceTempDir("ws-common-linked"), "other");
   rawGit(root, ["worktree", "add", "-q", "-b", "other", linked]);
+  trackBranch(root, "other");
   const config = makeTestConfig(mkWorkspaceTempDir("ws-common-wt"));
   const fromMain = makeManager(root, { config }).manager;
   const fromLinked = makeManager(linked, { config }).manager;
@@ -186,12 +188,12 @@ test("an expired lease aborts through validation and through the sweep; the swee
   clock += 2_000;
   await assert.rejects(() => manager.validate(first.workspaceId), WorkspaceLeaseExpiredError);
   assert.equal(manager.status(first.workspaceId).state, "quarantined");
-  assert.deepEqual(await manager.sweep(), [second.workspaceId]);
+  assert.deepEqual((await manager.sweep()).swept, [second.workspaceId]);
   assert.equal(manager.status(second.workspaceId).state, "quarantined");
   assert.ok(existsSync(first.lease.worktreePath) && existsSync(second.lease.worktreePath), "quarantine preserves the worktrees");
   assert.match(rawGit(root, ["worktree", "list", "--porcelain"]), /locked/u, "a quarantined worktree is locked");
 
   clock += 10_000;
-  assert.deepEqual([...await manager.sweep()].toSorted(), [first.workspaceId, second.workspaceId].toSorted());
+  assert.deepEqual([...(await manager.sweep()).swept].toSorted(), [first.workspaceId, second.workspaceId].toSorted());
   assert.ok(!existsSync(first.lease.worktreePath) && !existsSync(second.lease.worktreePath), "past its retention a quarantined (locked) worktree is removed");
 });

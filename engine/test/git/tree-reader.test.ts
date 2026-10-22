@@ -9,7 +9,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, sy
 import { join } from "node:path";
 import test from "node:test";
 
-import { commitTreeReader, workingTreeReader, writeBlob, writeTree, type GitRepository } from "../../src/git/tree-reader.ts";
+import { commitTreeReader, rawDiffEntries, treeDiff, workingTreeReader, writeBlob, writeTree, type GitRepository } from "../../src/git/tree-reader.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
@@ -130,4 +130,31 @@ test("PC-8: every tree-reader git call runs the configured executable under its 
   const started = Date.now();
   assert.throws(() => commitTreeReader({ root, executable: fake, timeoutMs: 300 }, "HEAD"), (error: unknown) => (error as { code?: string; message?: string }).code === "tree_reader_git_failed" && /ceiling/u.test((error as Error).message));
   assert.ok(Date.now() - started < 20_000, "the ceiling ended the hung git");
+});
+
+test("the one raw-diff reader: both sides' modes and ids, the status and the path; a deletion keeps its source mode; a non-UTF-8 path and a malformed record are refused", () => {
+  const { root, repo, git } = repository();
+  const before = git("rev-parse", "HEAD");
+  rmSync(join(root, "link.ts"));
+  chmodSync(join(root, "run.sh"), 0o644);
+  writeFileSync(join(root, "new é.ts"), "export const n = 1;\n");
+  git("add", "-A");
+  git("commit", "-q", "-m", "change");
+  const after = git("rev-parse", "HEAD");
+  const entries = treeDiff(repo, before, after);
+  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
+  assert.deepEqual(byPath.get("link.ts"), { srcMode: "120000", dstMode: "000000", srcOid: git("rev-parse", `${before}:link.ts`), dstOid: "0".repeat(40), status: "D", path: "link.ts" });
+  assert.deepEqual([byPath.get("run.sh")!.srcMode, byPath.get("run.sh")!.dstMode, byPath.get("run.sh")!.status], ["100755", "100644", "M"]);
+  assert.equal(byPath.get("new é.ts")!.status, "A", "a UTF-8 path is read as git keeps it");
+  assert.equal(entries.length, 3);
+
+  // A path whose bytes are not UTF-8 is refused, never decoded into another name.
+  const raw = Buffer.concat([Buffer.from("raw-"), Buffer.from([0xff]), Buffer.from(".txt")]);
+  writeFileSync(Buffer.concat([Buffer.from(`${root}/`), raw]), "y\n");
+  execFileSync("git", ["add", "-A"], { cwd: root });
+  git("commit", "-q", "-m", "a raw byte name");
+  assert.throws(() => treeDiff(repo, after, git("rev-parse", "HEAD")), { code: "tree_reader_path_not_utf8" });
+
+  assert.throws(() => rawDiffEntries(["not a header", "path"]), { code: "tree_reader_raw_diff_invalid" });
+  assert.deepEqual(rawDiffEntries([]), []);
 });
