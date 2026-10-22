@@ -4,8 +4,8 @@
 // in both themes. Each arm is proved with planted violations in more than one
 // place and with near-misses that must pass.
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +15,7 @@ import { SHARED_CSS } from "../../scripts/floor/design-coverage.mjs";
 import { markInclude } from "../../scripts/floor/site-design.mjs";
 import { sitePlan } from "../../scripts/floor/site-pages.mjs";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
+import { walk } from "../../engine/scripts/verification/source-walk.ts";
 import { readNames, readTokenOwner, themeColor, THEMES, tokenSheet } from "../../shared/token-reader.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -30,14 +31,8 @@ const BURN_DOWN = new Map([
   ["docs/policy-lab/policy-lab.css", "#161: the policy lab's own palette"],
 ]);
 
-function files(directory, extension, output = []) {
-  for (const entry of readdirSync(join(ROOT, directory), { withFileTypes: true })) {
-    const path = `${directory}/${entry.name}`;
-    if (entry.isDirectory()) files(path, extension, output);
-    else if (entry.name.endsWith(extension)) output.push(path);
-  }
-  return output;
-}
+/** The site's files of one kind, through the one source walk (repository-relative). */
+const files = (directory, extension) => walk(join(ROOT, directory), { exts: [extension] }).map((path) => relative(ROOT, path).split(sep).join("/"));
 
 const COLOUR_FUNCTION = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/u;
 const HEX = /#[0-9a-fA-F]{3,8}\b/u;
