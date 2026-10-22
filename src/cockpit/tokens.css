@@ -1302,6 +1302,14 @@ button {
   font-size: var(--f-ui-size);
   font-variant-numeric: tabular-nums slashed-zero;
 }
+/* The browser's own stylesheet gives code, kbd, samp and pre the generic
+ * `monospace`, which a parent's font-family does not override: code inside a
+ * `.code` block rendered in the host's monospace, not the token's (found by
+ * the rendered judgement, scripts/rendered/). The token replaces that default
+ * once, at no specificity, so any component rule still wins. */
+:where(.cockpit) :where(code, kbd, samp, pre) {
+  font-family: var(--face-mono);
+}
 
 /* ── §9 SETTINGS INDEX dims — appended (the settings surface's own owner) ──
  *

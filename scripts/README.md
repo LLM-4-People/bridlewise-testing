@@ -64,6 +64,13 @@ ships into the client bundle or the server runtime.
   manifest; `cockpit-plan.ts` is its pure plan (sequence, masks, manifest)
   and `gif.ts` its PNG-to-GIF encoder. [Shipping](../docs/shipping.md#cockpit-captures)
   states what it guarantees.
+- `rendered/` — the rendered judgement: what the browser actually shows,
+  judged by ONE rule table (`rules.ts`: the brand mark's computed paint and
+  visibility, the families text renders in, no request leaving the origin).
+  `judge.ts` runs the table on a page and over every page of a built site
+  (`judge.ts site`); the capture walk calls it on every cockpit view
+  (`capture/cockpit.ts --judge-only`); `proof.ts` proves each rule on planted
+  breaks. CI's "Rendered pages" job runs all three.
 - `floor/` — the testing-site toolchain. `site.mjs` assembles the Jekyll
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes

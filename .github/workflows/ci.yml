@@ -75,10 +75,14 @@ jobs:
       - name: Build engine bundle
         run: npm --prefix engine run build:bundle
 
-      - name: Install the pinned compiler
+      - name: Require the pinned compiler from the runner image
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-14
+          # gcc-14 ships in the ubuntu-24.04 image. Installing it over the
+          # network only ever waited on a package mirror (a hung mirror held
+          # two shards for their whole 45-minute budget, #333). A missing
+          # compiler is a named failure, never an install.
+          command -v gcc-14 >/dev/null || { echo "::error::gcc-14 is not in the runner image; the guardian build needs it (#333)"; exit 1; }
+          gcc-14 --version
 
       - name: Build guardian
         run: make -C engine/guardian all
@@ -153,6 +157,69 @@ jobs:
             exit 1
           fi
 
+  # What the browser actually renders, judged by the one rule table
+  # (scripts/rendered/rules.ts): the brand mark's computed paint and
+  # visibility, the families text renders in, and no request leaving the
+  # origin. The rules first prove themselves on planted breaks; then every
+  # cockpit view the capture walk reaches and every page of the built site
+  # are judged. A static guard reads spellings; this reads the result.
+  rendered:
+    name: Rendered pages (mark, fonts, network)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            engine/package-lock.json
+
+      - name: Install web and engine dependencies
+        run: |
+          npm ci --no-audit --no-fund
+          npm --prefix engine ci --no-audit --no-fund
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      - name: Build the guardian (the cockpit's custody and checks need it)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14
+          make -C engine/guardian all
+
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+
+      - name: The rendered rules catch every planted break
+        run: node --experimental-strip-types scripts/rendered/proof.ts
+
+      - name: Judge every cockpit view as rendered
+        run: node --experimental-strip-types scripts/capture/cockpit.ts --judge-only --demo-root "$RUNNER_TEMP/demo"
+
+      - name: Build the site source
+        run: |
+          mkdir -p "$RUNNER_TEMP/versions"
+          node scripts/build-site.mjs source --out .site --baseurl /rendered --versions "$RUNNER_TEMP/versions"
+
+      - name: Build the site with Jekyll
+        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
+        with:
+          source: ./.site
+          destination: ./_site
+          build_revision: ${{ github.sha }}
+
+      - name: Judge every built page as rendered
+        run: node --experimental-strip-types scripts/rendered/judge.ts site --site _site --baseurl /rendered
+
   shards:
     name: Full suite shards
     uses: ./.github/workflows/test-shards.yml
@@ -192,10 +259,14 @@ jobs:
       - name: Install engine dependencies
         run: npm --prefix engine ci --no-audit --no-fund
 
-      - name: Install the pinned compiler
+      - name: Require the pinned compiler from the runner image
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-14
+          # gcc-14 ships in the ubuntu-24.04 image. Installing it over the
+          # network only ever waited on a package mirror (a hung mirror held
+          # two shards for their whole 45-minute budget, #333). A missing
+          # compiler is a named failure, never an install.
+          command -v gcc-14 >/dev/null || { echo "::error::gcc-14 is not in the runner image; the guardian build needs it (#333)"; exit 1; }
+          gcc-14 --version
 
       - name: Install hooks and build the confinement supervisor
         run: |

@@ -36,13 +36,13 @@
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { createConnection } from "node:net";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 
-import { portListeners } from "../dev-processes.ts";
+import { allProcessIds, ancestorsOf, commandLineOf } from "../../engine/src/process/process-facts.ts";
+import { portAnswers, portListeners } from "../dev-processes.ts";
 import {
   ACCOUNT_USERNAME,
   API_PORT,
@@ -80,6 +80,7 @@ import {
   type ViewportId,
 } from "./cockpit-plan.ts";
 import { decodePngRgb, encodeGif } from "./gif.ts";
+import { judgePage, watchRequests } from "../rendered/judge.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -120,31 +121,27 @@ interface Options {
   readonly out: string | null;
   readonly demoRoot: string;
   readonly keepScratch: boolean;
+  /** Judge every view as rendered (scripts/rendered/) without writing images, video or a manifest: the CI check. */
+  readonly judgeOnly: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Options {
   let out: string | null = null;
   let demoRoot = DEFAULT_DEMO_ROOT;
   let keepScratch = false;
+  let judgeOnly = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--out") out = resolve(argv[++i] ?? "");
     else if (arg === "--demo-root") demoRoot = resolve(argv[++i] ?? "");
     else if (arg === "--keep-scratch") keepScratch = true;
-    else throw new CaptureRefusal("argument_unknown", `${String(arg)} (known: --out <dir>, --demo-root <dir>, --keep-scratch)`);
+    else if (arg === "--judge-only") judgeOnly = true;
+    else throw new CaptureRefusal("argument_unknown", `${String(arg)} (known: --out <dir>, --demo-root <dir>, --keep-scratch, --judge-only)`);
   }
-  return { out, demoRoot, keepScratch };
+  return { out, demoRoot, keepScratch, judgeOnly };
 }
 
 // ── Preflight ──
-
-function portAnswers(port: number): Promise<boolean> {
-  return new Promise((done) => {
-    const socket = createConnection({ host: "127.0.0.1", port });
-    socket.once("connect", () => { socket.destroy(); done(true); });
-    socket.once("error", () => done(false));
-  });
-}
 
 async function refuseBusyPorts(): Promise<void> {
   const ports = [WEB_PORT, API_PORT];
@@ -244,25 +241,12 @@ function sd(app: string, env: NodeJS.ProcessEnv, verb: "start" | "stop"): void {
 
 // ── BL-GPU: the browser must not have spawned a GPU process ──
 
+/** The command lines of every live descendant of `root`, through the one procfs owner (process-facts.ts). */
 function descendantCommandLines(root: number): string[] {
-  const parent = new Map<number, number>();
-  for (const name of readdirSync("/proc")) {
-    if (!/^\d+$/u.test(name)) continue;
-    try {
-      const stat = readFileSync(`/proc/${name}/stat`, "utf8");
-      parent.set(Number(name), Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]));
-    } catch { /* the process ended */ }
-  }
-  const lines: string[] = [];
-  const isDescendant = (pid: number): boolean => {
-    for (let p = parent.get(pid); p !== undefined && p > 1; p = parent.get(p)) if (p === root) return true;
-    return false;
-  };
-  for (const pid of parent.keys()) {
-    if (!isDescendant(pid)) continue;
-    try { lines.push(readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " ")); } catch { /* ended */ }
-  }
-  return lines;
+  return allProcessIds().filter((pid) => ancestorsOf(pid).includes(root)).flatMap((pid) => {
+    const command = commandLineOf(pid);
+    return command === undefined ? [] : [command.join(" ")];
+  });
 }
 
 // ── The page layer: stillness, masks, the label ──
@@ -407,6 +391,9 @@ interface Surface {
   readonly page: Page;
 }
 
+/** Every request finding of the rendered rules (scripts/rendered/), in every context the run opens. */
+const offOrigin = new Set<string>();
+
 async function newSurface(browser: Browser, theme: Theme, viewport: ViewportId, badge: string | null, video?: string): Promise<Surface> {
   const spec = VIEWPORTS[viewport];
   const context = await browser.newContext({
@@ -422,6 +409,7 @@ async function newSurface(browser: Browser, theme: Theme, viewport: ViewportId, 
     ...(video !== undefined ? { recordVideo: { dir: video, size: { width: spec.width, height: spec.height } } } : {}),
   });
   await context.clock.setFixedTime(new Date(FIXED_INSTANT_ISO));
+  watchRequests(context, "cockpit", APP_ORIGIN, (finding) => offOrigin.add(`[${theme}/${viewport}] ${finding}`));
   const config: LayerConfig = { css: STILLNESS_CSS, theme, themeKey: THEME_STORAGE_KEY, textMasks: TEXT_MASKS, regionMasks: REGION_MASKS, badge };
   await context.addInitScript(captureLayer, config);
   const page = await context.newPage();
@@ -584,6 +572,12 @@ async function capture(state: Run, surface: Surface, stage: ShotStage, parkPoint
   const spec = VIEWPORTS[surface.viewport];
   if (parkPointer) await page.mouse.move(1, spec.height - 1);
   await settle(page, 400, 4000);
+  // THE RENDERED JUDGEMENT: the mark and the fonts, as the browser computed them on this view.
+  for (const finding of await judgePage(page, "cockpit")) state.violations.push(`${file}: ${finding}`);
+  if (state.options.judgeOnly) {
+    log(`judged ${file}`);
+    return;
+  }
   const readText = (): Promise<string> => page.evaluate(() => (window as unknown as { __capture: { pageText: () => string } }).__capture.pageText());
   const regionsMasked = await page.locator("[data-capture-mask]:visible").count();
   const masked = maskedLabels(await readText());
@@ -629,7 +623,7 @@ async function capture(state: Run, surface: Surface, stage: ShotStage, parkPoint
 /** The fixture run, recorded: a fresh signed-in desktop page with video on. */
 async function fixtureRun(state: Run, browser: Browser): Promise<void> {
   const videoDir = join(state.scratch, "video");
-  const surface = await newSurface(browser, "carbon", "desktop", badgeText(true, true), videoDir);
+  const surface = await newSurface(browser, "carbon", "desktop", badgeText(true, true), state.options.judgeOnly ? undefined : videoDir);
   const { page } = surface;
   const recordStart = Date.now();
   await openRoot(page);
@@ -648,6 +642,13 @@ async function fixtureRun(state: Run, browser: Browser): Promise<void> {
   await settle(page, 800, 8000);
   await page.waitForTimeout(1500);
   const clipEnd = Date.now() - recordStart;
+  if (state.options.judgeOnly) {
+    // The run's own page, judged as rendered, with no recording.
+    for (const finding of await judgePage(page, "cockpit")) state.violations.push(`fixture run: ${finding}`);
+    await surface.context.close();
+    log("judged the fixture run");
+    return;
+  }
   const video = page.video();
   await surface.context.close();
   if (video === null) throw new CaptureRefusal("video_missing", "the run page recorded no video");
@@ -743,10 +744,11 @@ async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const commit = run("git", ["-C", REPO_ROOT, "rev-parse", "HEAD"], { timeoutMs: 10_000 }).trim();
   const out = options.out ?? join(REPO_ROOT, ".bridlewise", "capture", commit);
-  if (existsSync(out) && readdirSync(out).length > 0) throw new CaptureRefusal("output_exists", `${out} is not empty; choose another --out or remove it`);
+  // A judgement writes nothing to keep: no output folder, no encoder.
+  if (!options.judgeOnly && existsSync(out) && readdirSync(out).length > 0) throw new CaptureRefusal("output_exists", `${out} is not empty; choose another --out or remove it`);
   await refuseBusyPorts();
-  const ffmpeg = playwrightFfmpeg();
-  mkdirSync(out, { recursive: true });
+  const ffmpeg = options.judgeOnly ? "" : playwrightFfmpeg();
+  if (!options.judgeOnly) mkdirSync(out, { recursive: true });
 
   const scratch = mkdtempSync(join(tmpdir(), "bridlewise-capture-"));
   writeFileSync(join(scratch, SCRATCH_MARKER), "");
@@ -770,7 +772,12 @@ async function main(): Promise<void> {
     };
     await drive(state, browser);
     const chromiumVersion = browser.version();
-    if (state.violations.length > 0) throw new CaptureRefusal("capture_unpublishable", `\n  ${state.violations.join("\n  ")}`);
+    state.violations.push(...[...offOrigin].sort());
+    if (state.violations.length > 0) throw new CaptureRefusal(options.judgeOnly ? "rendered_judgement_failed" : "capture_unpublishable", `\n  ${state.violations.join("\n  ")}`);
+    if (options.judgeOnly) {
+      log(`judged every view as rendered: the mark, the fonts and the network hold (${((Date.now() - started) / 1000).toFixed(0)} s)`);
+      return;
+    }
     const scripts: Record<string, Uint8Array> = {};
     for (const name of readdirSync(HERE).filter((f) => f.endsWith(".ts")).toSorted()) scripts[`scripts/capture/${name}`] = readFileSync(join(HERE, name));
     const playwrightVersion = (JSON.parse(readFileSync(join(REPO_ROOT, "node_modules", "playwright-core", "package.json"), "utf8")) as { version: string }).version;
