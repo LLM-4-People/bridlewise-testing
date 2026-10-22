@@ -10,7 +10,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { htmlWithout } from "../../shared/markup.ts";
 
-const SHARED_CSS = ["assets/css/style.css", "assets/floor/floor.css"];
+/** The stylesheets the one shell loads on every page (after the generated token sheet). */
+export const SHARED_CSS = ["assets/css/style.css", "assets/floor/floor.css"];
 const FLOOR_CSS = "assets/floor/floor.css";
 export const STANDALONE_ALLOWLIST = new Map([
   ["/policy-lab/", "Standalone interactive governance demo with its own HTML shell and policy-lab.css."],
@@ -54,24 +55,11 @@ export const MISSING_ALLOWLIST = new Map([
 export const UNUSED_ALLOWLIST = new Map([
   ["floor-pill", "Created by docs/assets/floor/floor.js for live status/atlas rows."],
   ["floor-empty", "Toggled by floor.js when a live region has no rows."],
-  ["floor-table-wrap", "Reserved wrapper hook; current tables scroll on the table itself."],
-  ["floor-hero", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-title", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-lede", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-actions", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-section", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-section-head", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-grid", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-card", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-card--wide", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-stat-grid", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-stat", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-stat-label", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-flow", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-flow-step", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-rule", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-label", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
-  ["floor-kicker", "Legacy floor landing component; no current page emits it (kept while the hub is redesigned)."],
+  ["dimmed", "Set on the roadmap graph by its own script (engine/scripts/roadmap/graph.ts) while a chain is lit."],
+  ["upstream", "Set by the roadmap graph's script on the items a focused item waits on."],
+  ["downstream", "Set by the roadmap graph's script on the items that wait on a focused item."],
+  ["focus", "Set by the roadmap graph's script on the item under the pointer or focus."],
+  ["hidden", "Set by the roadmap graph's milestone filter on the items it hides."],
 ]);
 
 function walk(directory, extension, output = []) {

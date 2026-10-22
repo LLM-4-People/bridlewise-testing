@@ -47,6 +47,17 @@ two cannot drift.
   each in one pass (no double unescaping, no token formed across a removed
   region). `tests/public/markup-owner.test.mjs` refuses a hand-rolled copy
   anywhere in the tree.
+- `token-reader.ts` — THE TOKEN OWNER READ AS DATA: the one door between
+  the design system (`src/cockpit/tokens.css`) and every surface that cannot
+  load it as a stylesheet — the Pages site's generated token sheet, the
+  generated icons, README images and social cards. It parses the owner's
+  themes, follows `var()`, makes a colour concrete (hex, `rgb[a]`, `oklch`,
+  `color-mix` in sRGB) and writes a surface's token sheet; an undeclared name
+  is a typed refusal.
+- `repository-coordinates.ts` — THE REPOSITORY'S COORDINATES: where the one
+  repository lives and where its site is served, derived from `package.json`
+  `repository.url` (the one declaration), for the site builder and the public
+  words; no file spells the repository's own URL.
 
 ## Where it lives and what consumes it
 
@@ -62,11 +73,13 @@ The folder lives at `shared/`.
 - `event-types.ts` is consumed by `server/db/schema.ts`, `server/run/run-executor.ts`, `server/safety/safety-bridge.ts`, `src/client.ts`, `src/cockpit/flow/ingest.ts`, `src/cockpit/flow/types.ts` and 2 more.
 - `html-preview.ts` is consumed by `src/state/web-ui-config.ts`.
 - `input-schemas.ts` is consumed by `server/routes/auto-checks.ts`, `server/routes/chats.ts`, `server/routes/projects.ts`, `src/state/auto-checks.ts`, `src/state/chats.ts`, `src/state/projects.ts`.
-- `markdown.ts` is consumed by `engine/src/workflow/markdown-links.ts`, `engine/src/workflow/record-links.ts`, `src/cockpit/render/MdBlocks.svelte`, `src/cockpit/render/MdInline.svelte`, `src/cockpit/render/Prose.svelte`, `src/cockpit/render/StreamText.svelte`.
-- `markup.ts` is consumed by `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/promotion/release-notes.ts`.
+- `markdown.ts` is consumed by `engine/src/workflow/failure-owners.ts`, `engine/src/workflow/markdown-links.ts`, `engine/src/workflow/record-links.ts`, `src/cockpit/render/MdBlocks.svelte`, `src/cockpit/render/MdInline.svelte`, `src/cockpit/render/Prose.svelte` and 1 more.
+- `markup.ts` is consumed by `engine/scripts/roadmap/graph.ts`, `engine/scripts/roadmap/render.ts`, `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/promotion/release-notes.ts`.
 - `module-contract.ts` is consumed by `server/schema/derive-modules.ts`, `server/schema/ui-declarations.ts`, `src/cockpit/rooms/instruments-data.ts`, `src/cockpit/settings/settings-data.ts`, `src/state/schema-store.ts`.
 - `provenance.ts` is consumed by `server/blocks/provenance.ts`, `src/cockpit/lens/LensCallout.svelte`, `src/cockpit/lens/lens-callout-data.ts`, `src/data/broker.ts`, `src/data/ledger.ts`, `src/state/lens.ts`.
+- `repository-coordinates.ts` is consumed by `engine/scripts/brand/messaging.ts`.
 - `routes.ts` is consumed by `server/tools/ui-control.ts`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/shell/RightMenuHost.svelte`, `src/cockpit/shell/right-menu.ts`, `src/cockpit/shell/view-request.ts` and 3 more.
+- `token-reader.ts` is consumed by nothing yet.
 - `types.ts` is consumed by `src/client.ts`, `src/cockpit/desk/TripScope.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/run-stream.ts`, `src/state/chat-messages.ts`, `src/state/config-snapshot.ts` and 6 more.
 - `ui-schema.ts` is consumed by `server/schema/ui-declarations.ts`, `server/schema/ui-schema.ts`, `src/client.ts`, `src/cockpit/lens/lens-callout-data.ts`, `src/cockpit/rooms/InstrumentCell.svelte`, `src/cockpit/rooms/InstrumentsRoom.svelte` and 5 more.
 - `web-ui-defaults.ts` is consumed by `server/kernel/harness-config.ts`, `src/state/web-ui-config.ts`.

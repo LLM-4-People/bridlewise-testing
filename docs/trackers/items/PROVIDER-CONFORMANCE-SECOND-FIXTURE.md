@@ -6,6 +6,7 @@ title: Add a second provider conformance fixture
 state: closed
 resolution: completed
 lane: floor
+parent: M3-PROVIDERS
 opened: 2026-10-20
 closed: 2026-10-20
 ---

@@ -315,6 +315,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/brand/brand.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/candidate-format.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -942,6 +950,22 @@
     },
     {
       "path": "test/forge/github-client.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/projector.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/roadmap-feed.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -2521,6 +2545,22 @@
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Qualified by the central Node test pattern and executed by the inventory-derived Node runner.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/roadmap/graph.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/roadmap/render.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
       "evidenceLinks": [],
       "blocksFullRepositoryClaim": false
     },
@@ -4109,6 +4149,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/tracker-status.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/tree-landing.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4245,5 +4293,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "58b412eb4dbe4fa6c0310199e9f220d617562010c8fed21327f34f714802564d"
+  "integrityHash": "f5044c9300f58abeadd59352bbcb10f5ec75807c6404bf6fbd423b26eb45b7e4"
 }

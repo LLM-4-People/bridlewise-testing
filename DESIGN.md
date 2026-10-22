@@ -95,3 +95,31 @@ Motion is finite and event-bound through the existing motion owner. A confirmed
 change can receive one brief arrival treatment; idle surfaces do no decorative
 work. Honor reduced motion and keep feedback readable after movement ends.
 No continuous sparks, polling for animation, or new runtime dependencies.
+
+## Public surfaces
+
+The Pages site, the README images, the social cards and the icons wear the
+same system. They read `src/cockpit/tokens.css` through one reader,
+`shared/token-reader.ts`, and never restate a value. The site loads a sheet
+generated at build time: only the tokens its stylesheets read
+(`scripts/floor/site-design.mjs`). The owner's "public page" block adds the few
+measures a reading page needs: the page column, the prose measure, a fixed rem
+reading ramp and the one fluid display size.
+
+The public site leads in Logbook (paper); Carbon is the remembered alternative.
+A page is a logbook page. A section starts on a hairline, and a ledger starts
+on a heavy rule with dashed rules between its entries. A receipt is a white
+slip with dotted leaders and a mono stamp. A refusal pairs the model's call
+(the turn hue on its top edge) with the harness's answer (warn on its top edge,
+never the fill). A claim's state is a word in its state ink. Kickers are
+sentence case, never tracked capitals. Text is ink-1 or ink-2 only (ink-3 and
+ink-4 fail AA on paper), and `tests/public/site-design-system.test.mjs` holds
+every stylesheet under `docs/` to these rules and to 4.5:1 in both themes.
+
+The landing is the claims register, shown at the commit the site was built
+from. It opens with the promise set at display size, and beside it the receipt:
+how many claims hold, how many are retracted, how many are designed but not
+built, and how many are not claimed. Below come the ledger, one real refusal
+quoted from the code, and the name's dictionary entry. The claims page uses the
+same ledger and receipt. Every word comes from the messaging source and the
+claims register, and every value printed is escaped.

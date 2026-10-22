@@ -426,6 +426,7 @@
       },
       "usedIn": [
         ".github/workflows/ci.yml",
+        ".github/workflows/pages.yml",
         ".github/workflows/test-shards.yml"
       ],
       "drift": "The exact package version is runner-image-specific, so the runner label and this name are the pin. The guard refuses any apt package not declared here and any install line the declaration does not name. The compiler itself is declared once, by engine/guardian/Makefile (CC := gcc-14), and both call sites (.github/workflows/ci.yml and .github/workflows/test-shards.yml) install this package and invoke that owner without a CC= literal. This is listed in knownExceptions; the owner is the guardian build owner."

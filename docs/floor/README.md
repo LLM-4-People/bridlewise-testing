@@ -16,7 +16,7 @@ This README is integration notes, not a site page. `published: false` keeps it o
 | `contribute.md` | `/contribute/` | Contributor hub |
 | `floor/index.md` | `/floor/` | Floor landing page |
 | `floor/help.md` | `/floor/help/` | Contribution lanes and review checklist |
-| `floor/roadmap.md` | `/floor/roadmap/` | Milestones, workstreams, exit criteria, and generated status blocks |
+| `floor/roadmap.md` | `/floor/roadmap/` | The roadmap, rendered from the roadmap feed at publish, and the dated snapshot |
 | `floor/promotion.md` | `/floor/promotion/` | Projection and gate contract |
 | `floor/atlas.md` | `/floor/atlas/` | Generated test atlas and filter UI |
 | `floor/evidence.md` | `/floor/evidence/` | Rerunnable checks and non-proofs |
@@ -30,7 +30,7 @@ All published pages use `layout: default`, `title`, `description`, and `permalin
 `node scripts/build-site.mjs` (the steps are `scripts/floor/site.mjs`; the publish plan and link map are `scripts/floor/site-pages.mjs`) builds the site from this repository alone:
 
 1. `source --out .site --baseurl <base> [--versions <dir>]`: copy `docs/` (every Markdown file is a page unless `published: false`; its URL is its `permalink` or its pretty path, and two pages for one URL refuse the build), rewrite each page's relative links (a published page or a served asset becomes its site URL; any other repository path becomes its GitHub URL; a link naming nothing refuses the build), give each plain Markdown page a front matter and wrap its body as raw text, write the redirect pages for older URLs (`/product/`, `/roadmap/`, the trackers' former `/floor/trackers/` home and each page's `.md` spelling), list the released versions at `/v/`, write the floor data (`floor/data/atlas.json` and an offline `status.json`), and refuse any page that names a path the build does not produce. A link into the versions folder in any form is refused: pages link the versions page through `site.versions_url`. The committed source is never edited: GitHub resolves the relative links against the repository.
-2. Refresh the live status online (`node scripts/build-floor-data.mjs --root . --out .site/floor/data`, through the forge client), then Jekyll builds `.site` into `_site`.
+2. Refresh the live status online (`node scripts/build-floor-data.mjs --root . --site .site`, through the forge client), then Jekyll builds `.site` into `_site`.
 3. `finish --site _site --baseurl <base> [--versions <dir>]`: merge each release's pre-built documentation snapshot at `/v/<version>/`, then crawl every internal link of the whole output and run the design coverage over the pages this build rendered.
 
 A release snapshot is built at release time with `source --baseurl <base>/v/<version> --release <version>` (whole, floor data included), then Jekyll, and attached to the release; the Pages build only merges it.
@@ -48,7 +48,7 @@ The pages expect two static files, both generated at build or publication time. 
 
 Write them into the Jekyll source before the build, not into `_site` after it. Do not hand-edit either file; regenerate it from its source. The generators must produce deterministic, public, redacted JSON. No token, local path, host name, database key, private fixture name, or unreviewed hold text may enter either file.
 
-`floor/roadmap.md` also carries generated blocks, but they are authored into the page before the build. `npm run docs:roadmap` renders them from the page's `ROADMAP-PLAN` block, the open rows of `docs/trackers/TASKS.md`, and the non-proofs in `docs/floor/evidence.md`. Edit an owner, never a rendered table; `tests/prevention/roadmap-status-owner.test.ts` refuses drift.
+The roadmap page's body (`floor/roadmap.md`, between its `GENERATED AT PUBLISH` markers), `/floor/roadmap/print/`, `/floor/roadmap/feed.xml` and `/floor/roadmap/data/roadmap.json` are written into the Jekyll source after the floor data: `engine/scripts/tooling/roadmap-feed.ts` computes the feed (the one roadmap model) and `engine/scripts/roadmap/cli.ts build` renders it. The committed page keeps only its shell and the dated snapshot.
 
 ### Atlas schema
 

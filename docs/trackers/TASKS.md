@@ -13,6 +13,56 @@ Each row is one item file in `docs/trackers/items/` (format `bridlewise-tracker-
 ## Open
 
 - [ ] **Bring the supported suite under the calibrated-work cap** — the old raw-CPU row is SUPERSEDED, not rescaling its numbers. Two full runs on 2026-10-20 measured 2124.7 and 2183.7 ms/file against a 2032.2 ms/file cap, but those figures are in the retired `raw-cpu-ms/v0` unit: the runs were measured with NO calibration reading, so they are INCOMPARABLE with the current declaration and no arithmetic converts them. The red was the box, not the suite: the same tree moved to 2124.7 ms/file under load ~9-10 against the 1926 ms/file floor, and raw CPU is not invariant at saturation. The metric now judges calibrated work (`calibrated-work/v1`): each run pairs its CPU delta with a fixed start/end calibration benchmark (256 KiB working set, six fixed chunks, `--no-opt`, median chunk; `engine/src/shared/run-cpu.ts` `computeRunWork`) and judges `workUnitsPerTestFile = (runCpuMs / calibrationMs) / testFileCount` — computed once, read by the verdict, the reporter, the engine runner and the pages. The declaration is in ACCUMULATION (0 of 12 clean judged full runs); the retired 1926 ms/file at 521 files is recorded under `legacy` with `incomparable: true` and its two ledger rows carry no metric, so they never feed the new window. Next: run the full suite twelve times inside the instrument lock; `npm run budget:measure -- --check` must stop answering `migrating`, then the window's clean median is derived into the floor from the calibrated rows alone (later floors go through `npm run budget:measure -- --write`). Measured residual on a four-file/68-test subset (2026-10-20, 12-core WSL2): among runs inside BOTH declared bounds (drift <=15%, load5 <=1.7/cpu), units/file spread 1.1% and the eight-burner step +1.1%, against raw 7.0% spread and +7.3%; the two runs outside the drift bound (26.2% and 17.9% start/end drift) are DEFERRED, never judged. Evidence: `docs/floor/evidence.md`.
+- [ ] **No clean judged run in calibrated-work/v1 yet** — No clean judged run in calibrated-work/v1: 0 of 12 recorded; the retired raw-CPU window is incomparable, so the cap is derived from new runs alone.
+
+## Roadmap
+
+- [ ] **Per-capability readiness receipts** — Every capability names its gate decision, the policy fact that decided it, and a remedy when denied.
+  Carried from: M2 workstream 1, existing roadmap; receipt shape recorded in TASKS.md.
+- [ ] **Each capability has a failure path and a regression** — Each capability has a documented failure path and a regression.
+  Carried from: M3 exit criterion 1, existing roadmap; backup and restore carry the first regression.
+- [ ] **A newcomer can go from clone to a reviewable change** — A new contributor can install, run the public gate, pick a labeled issue, and open a reviewable change using only public instructions.
+  Carried from: M4 exit criterion 1, existing roadmap; install and run are proved, the labeled-issue path is not.
+- [ ] **Close the remaining pre-admission gates** — Model invocation, repository mutation, process execution and network egress each have an admission decision or a named refusal.
+  Carried from: M2 workstream 2, existing roadmap.
+- [ ] **No admitted capability without a receipt** — No capability is described as admitted without a reproducible receipt.
+  Carried from: M2 exit criterion 2, existing roadmap; only preflight is admitted.
+- [ ] **Provider conformance fixtures and clearer setup failures** — The Responses path and a second provider shape are proved offline, with typed setup failures.
+  Carried from: M3 workstream 2, existing roadmap; a second fixture is closed in TASKS.md.
+- [ ] **Issue lanes with evidence requirements and a named next action** — Every open issue names the evidence it needs or the decision it waits on.
+  Carried from: M4 workstream 2, existing roadmap; lives on GitHub, not in this tree.
+- [ ] **Every open issue names its missing evidence** — Every open issue states what evidence is missing or what decision is needed.
+  Carried from: M4 exit criterion 2, existing roadmap; judged on GitHub, not in this tree.
+- [ ] **Publish the method and limits of the safety and privacy controls** — The detectors, redaction and Landlock boundary are documented with their limits.
+  Carried from: M2 workstream 3, existing roadmap.
+- [ ] **MCP coverage** — The MCP transports and server lifecycle have conformance coverage and named prerequisites.
+  Carried from: M3 later list, existing roadmap; not one of the six workstreams.
+- [ ] **Platform limits are stated before installation** — Platform limits are stated before installation.
+  Carried from: M3 exit criterion 3, existing roadmap.
+- [ ] **The roadmap and issue labels agree** — The roadmap and the issue labels agree about the current milestone.
+  Carried from: M4 exit criterion 3, existing roadmap; judged on GitHub, not in this tree.
+- [ ] **Reproducible performance report** — A profile at the judged head is generated by npm run perf:profile under the idle-host contract and judged by the regression gate.
+  Carried from: M1 workstream 4, existing roadmap.
+- [ ] **Release provenance and verification** — Versioned metadata, checksums, attestations and a verification path ship; signing follows a reproducible build.
+  Carried from: M2 workstream 4, existing roadmap.
+- [ ] **Cross-platform path handling with an explicit Landlock refusal** — Platform limits are stated before installation, and unsupported confinement refuses explicitly.
+  Carried from: M3 workstream 3, existing roadmap.
+- [ ] **Performance claims link to a method and a report** — Performance claims link to a method and a report.
+  Carried from: M3 exit criterion 4, existing roadmap; the method and probe exist, the envelope does not.
+- [ ] **A documented example matches its command output** — A documentation example is verified against the command output before it ships.
+  Carried from: M4 exit criterion 4, existing roadmap; docs:links checks targets, not command output.
+- [ ] **10x test-phase factor on a documented runner class** — The full-suite test phase is at least 10x faster than the single-runner baseline on the documented runner class, and the receipt records the measured factor.
+  Carried from: M1 exit criterion 5, existing roadmap; 2.81x measured at d47909de.
+- [ ] **Independent security review** — An independent review is commissioned, or its absence is stated without implying that CI is an audit.
+  Carried from: M2 workstream 5, existing roadmap.
+- [ ] **Measured scale and performance envelope** — Large repositories and concurrent runs have a measured envelope, and red budgets are tracked rather than called a pass.
+  Carried from: M3 workstream 4, existing roadmap; red LCP, long-task, API and long-chat budgets.
+- [ ] **A node:test shard runner that preserves the inventory contract** — The public node:test smoke files run inside the same shard and receipt contract as the supported Vitest set, without leaving the inventory.
+  Carried from: M1 help-wanted lane, existing roadmap; no task row yet.
+- [ ] **Accessibility and responsive behavior as tested contracts** — Accessibility and responsive behavior have tested contracts, not visual claims.
+  Carried from: M3 workstream 5, existing roadmap.
+- [ ] **A stable extension surface with compatibility notes** — Extension points carry compatibility notes and a tested failure path.
+  Carried from: M3 workstream 6, existing roadmap.
 
 ## Flaky burn-down owners
 
@@ -62,6 +112,61 @@ Each row is one item file in `docs/trackers/items/` (format `bridlewise-tracker-
 - [x] **Publish the full supported-set shard receipt** — CI run 39439338300 at `3b4db454` ran the matrix on a push: the plan, ten `ubuntu-24.04` shards (521 files, 8722 tests, 8722 passed, 0 failed, 0 skipped), and the merge all succeeded, and the merge job uploaded the `test-shard-receipt` artifact described in [the evidence page](../floor/evidence.md#the-sharded-gate). This supersedes the prose-only d47909de receipt. The artifact records `testPhaseMs` 88000 but no same-commit single-host baseline, so it does not re-derive the 2.81x factor; the roadmap's 10x exit line remains open.
 - [x] **Re-measure the shard weights at the manifest's own head** — closed 2026-10-20 at `f54df4a5`. CI run `39470087124`'s `test-shard-receipt` artifact measured the ten `ubuntu-24.04` shards over 523 files and 8734 tests (8734 passed, 0 failed, 0 skipped): `testPhaseMs` 83438, `testPhaseCpuMs` 658687, shard walls 49566–81359 ms (max/min **1.64x**). The heavy shard was 8 (81359 ms, 53 files; `promotion-boundary` 29003 ms, `subprocess-confinement-owner` 22641 ms, `content-search-deadline` 11618 ms, `redaction-reaches-provider` 9362 ms); the light shard was 4 (49566 ms, 52 files, 579 tests). The checked-in weights from `0ba57912` predicted 1.00x, so the imbalance was stale measurement, not the assignment: the run's per-file `endTime - startTime` differed from the checked-in weight by 0.052x–10.47x and the weight sum fell from 1487347 ms to 798882 ms (1.86x). Re-derived through the manifest owner (`node scripts/test-shard-manifest.mjs measure --manifest tests/test-shards.json --head f54df4a5… --runner ubuntu-24.04 --out tests/test-shards.json` over the ten `test-shard-report-*` artifacts), which rewrote all 523 weights and `measuredHeadSha`; the new plan predicts 79888–79889 ms per shard (1.00x). The after wall spread is not measured: the run had at most three concurrent files, and packing the same file durations into three slots per shard gives a 26630–39967 ms critical path (1.50x) because `test-isolation-contract` alone costs 39967 ms; the next receipt confirms the wall, and splitting that file is the remaining lever. MEASURED 2026-10-20 (CI run 39471843640 on 9c4526e7, artifact test-shard-receipt): the walls did NOT improve — 45184–79817 ms, max/min 1.766x against the previous 1.641x, same 523 files and 8734 tests, all green. The weights are now truthful (the own-measure path rewrote all 523), but summed file cost is not wall time: setup, collection and per-file overhead are not in the weights, so balancing the sums cannot balance the walls. The open work is therefore wall-aware packing or per-shard overhead accounting (or splitting test-isolation-contract), not another weight edit — the weights themselves are measured and owned.
 - [x] **Activate the sharded full-suite gate** — `.github/workflows/test-shards.yml` is now a reusable workflow called by the `shards` job in `.github/workflows/ci.yml` on every push and pull request to `main`; the merge refuses a failed shard or a union that is not the manifest exactly once, and uploads `test-shard-receipt`. The dispatch path and runner choice remain. The local two-shard sample and the refusal arms are recorded in [the evidence page](../floor/evidence.md#the-sharded-gate).
+- [x] **The clean-machine setup names every build before the suite** — The setup sequence names the guardian build and engine bundle before the supported suite, and docs/testing.md names each refusal rather than calling it a skip.
+  Carried from: docs/testing.md: Development-floor setup; TASKS.md: Verify the public floor on a fresh machine.
+- [x] **Docs and briefings resolve only to tracked paths** — The docs link check resolves every tracked repository-relative Markdown link, and the briefing liveness guard refuses a linked path or backticked repo path that git does not hold.
+  Carried from: tests/prevention/agent-docs-liveness.test.ts; scripts/check-docs-links.mjs.
+- [x] **Tracked modes and the self-protection config keep their contract** — A tracked file recorded as 100644 stays 0644 in the working tree; a new atomic write takes 0600 only when it creates the file; and engine/bridlewise.config.json is 0600 in the checkout and CI.
+  Carried from: TASKS.md: PUBLIC-SNAPSHOT-FILE-MODES; .github/workflows/ci.yml.
+- [x] **Every gate carries a replayable evidence record** — The evidence page's gates name a command and an expected shape, and the record-your-own-check form gives a reviewer the claim, commit, command, observation, and interpretation fields.
+  Carried from: docs/floor/evidence.md: Record your own check.
+- [x] **Public floor, public gate and preview release** — Both repositories, the Pages sites, the public gate, failure reporting, the promotion gate and v0.0.3-preview are live.
+  Carried from: M0, existing roadmap.
+- [x] **Build the floor from a clean machine** — A clean clone reaches the public gate, the pinned corpus probe, and the supported suite through the documented commands; the sharded gate and receipt (M1), corpus boundary (M1), contributor hub (M4), and remaining known gaps (M2-X4) are composed here rather than restated.
+  Carried from: TASKS.md closed rows: Verify the public floor on a fresh machine, Publish the corpus manifest; docs/testing.md setup; composes M1-SHARD, M1-RECEIPT, M1-CORPUS, M4-HUB and M2-X4.
+- [x] **Reproducible fixtures** — The pinned corpus subset is fetched and verified outside the checkout; the raw cache stays unpublished.
+  Carried from: M1 workstream 3, existing roadmap.
+- [x] **One qualification receipt** — The merge refuses a missing, duplicate, failed, skipped, dirty or wrong-commit shard and uploads one receipt with the counts, timings and exclusion anchors.
+  Carried from: M1 workstream 2, existing roadmap.
+- [x] **Repair the baseline reds** — The supported file set runs without a failing or skipped test, and every exclusion is named with evidence.
+  Carried from: M1 workstream 5, existing roadmap.
+- [x] **Shard the full suite** — The manifest verifies against the live suite, the plan is deterministic, and a matrix of runners executes disjoint shards.
+  Carried from: M1 workstream 1, existing roadmap.
+- [x] **CI calls the shard workflow** — A push and pull-request CI job calls the shard workflow; dispatch remains available.
+  Carried from: M1 exit criterion 1, existing roadmap.
+- [x] **The merge refuses a bad shard set** — The merge refuses a missing shard, a duplicate file, a skipped file, a failed result, a dirty tree, or a shard from another commit.
+  Carried from: M1 exit criterion 2, existing roadmap.
+- [x] **The merge uploads one receipt** — The merge uploads one receipt naming the manifest digest, shard indexes and timings, pass/fail counts, and the excluded files with their evidence anchors.
+  Carried from: M1 exit criterion 3, existing roadmap.
+- [x] **The receipt names commit, class, time and prerequisites** — One receipt records the exact commit, shard count, runner class, total test-phase time, and any unsupported suite with its named prerequisite.
+  Carried from: M1 exit criterion 4, existing roadmap.
+- [x] **A fresh clone runs the supported suite** — A fresh clone with the documented setup runs the supported suite without guessing which tests are silently missing.
+  Carried from: M1 exit criterion 6, existing roadmap; met at b866b826.
+- [x] **preflight names each capability** — preflight names each capability and its state, with evidence and a remedy for anything denied.
+  Carried from: M2 exit criterion 1, existing roadmap; receipt shape recorded in TASKS.md.
+- [x] **A release is verifiable from published assets** — A release can be verified from published assets and instructions.
+  Carried from: M2 exit criterion 3, existing roadmap.
+- [x] **The review boundary is stated without an audit claim** — The project states exactly what has and has not been reviewed, without implying that CI is an audit.
+  Carried from: M2 exit criterion 4, existing roadmap.
+- [x] **Backup and restore for the database and key home, with verification** — One documented flow backs up and restores the database with its key material and proves each copy opens.
+  Carried from: M3 workstream 1, existing roadmap; task board done row.
+- [x] **Backup and restore are one verified flow** — Backup and restore are one documented flow with a verification step.
+  Carried from: M3 exit criterion 2, existing roadmap.
+- [x] **A first-patch path for docs, tests, guards, benchmarks and portability** — Each contribution lane starts from a public command and a reviewable first step.
+  Carried from: M4 workstream 3, existing roadmap.
+- [x] **A contributor hub distinct from the product home** — The floor has its own front door, separate from the product documentation mirror.
+  Carried from: M4 workstream 1, existing roadmap.
+- [x] **Review expectations that reward reproduction and prevention** — The review guide asks for the reproduction, the prevention guard and the evidence, not only a green run.
+  Carried from: M4 workstream 4, existing roadmap.
+- [x] **A roadmap that records state and exit criteria instead of a wish list** — Every planned-but-not-done item is rendered from its owner, and a guard refuses a stale status block.
+  Carried from: M4 workstream 5, existing roadmap; this change.
+- [x] **Skipping or hiding a failing test to make a badge green** — A failing test is owned by a named task row, and a guard refuses a stale duplicate.
+- [x] **A hosted multi-tenant service in the preview** — The preview is a single-user developer preview and carries no hosting claim.
+- [x] **Publishing the raw 4.1 GB corpus as a repository** — Mixed licenses, nested histories, duplicate checkouts and credential-shaped fixtures.
+- [x] **A production-readiness claim before the admission evidence exists** — The admission gates are open and no capability beyond preflight is admitted.
+- [x] **A release date** — This roadmap is a statement of intent, not a schedule.
+- [x] **A universal provider compatibility claim** — Provider conformance is proved per shape, not universally.
+- [x] **A benchmark number without its method** — Performance claims must link to a method and a report.
 - [x] **Make the performance report reproducible** — the idle-host contract is documented in the test map, and a fresh `2caada8f` profile was judged by the regression gate (36/36); the red LCP, long-task, API, and long-chat budgets belong to M3.
 - [x] **Add per-capability admission receipts** — every `preflight` capability entry now names the fact that decided it and what would change a denial: `evidence.path` is `engine/src/kernel/root-policy.ts`, `evidence.field` is `capabilities.<name>` (covered by the receipt's `rootPolicyHash`), and `remedy` is `null` only for the admitted `preflight` capability while each denied capability names its governance gate as the remedy. The regression test (`engine/test/preflight.test.ts`, "each capability receipt names its covering policy fact and a remedy when denied") failed before the fix with `TypeError: Cannot read properties of undefined (reading 'path')` and passes 29/29 after; the focused preflight/S1/S2.4 consumer set is 57/57, `tests/prevention/exposure-reachable.test.ts` is 14/14, `npm --prefix engine run typecheck` is clean, `npm run test:public` is 29/29, and `node --experimental-strip-types src/cli.ts harness check --skip-typecheck` passed with the architecture manifest in sync (869 modules, no registry change). This closes the receipt shape only: the M2 admission gates for model invocation, repository mutation, process execution, and network egress remain open, and no capability beyond `preflight` is admitted.
 - [x] **Add a second provider conformance fixture** — the Chat Completions request and stream shapes are proved offline without a universal-compatibility claim.

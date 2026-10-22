@@ -48,7 +48,9 @@ ships into the client bundle or the server runtime.
   dev-server boot against a served transform artifact.
 - `svelte-css-scope-probe.ts` — refuses a dev server that serves a
   component's CSS unscoped.
-- `generate-pwa-icons.mjs` — emits the PWA icons using only Node built-ins.
+- `generate-pwa-icons.mjs` — draws the brand mark's icons from its one geometry (`src/cockpit/shell/brand-mark.ts`) in the token owner's colours, using only Node built-ins.
+- `service-worker-cache.ts` — the service worker's cache version, derived once: the digest of every asset it caches, written into `public/sw.js` (`--write|--check`) and into the built worker by the build (`serviceWorkerDigestPlugin`, vite.config.ts).
+- `vendor-fonts.ts` — the one writer of `public/fonts/` and its pin (`fonts.lock.json`): copies IBM's Plex files from their npm releases after checking each tarball against the registry's integrity; `--check` (offline) and `--verify-upstream` (the receipt that the files are unmodified).
 - `db-archive.ts` — the conversation-archive shell (the development root package's `db-archive` script, with
   `--db <database> --chats-file <file>`; not installed in the product projection): a thin shell over the `database.conversations.archive` action (`server/db/conversation-archive.ts`); stop the server first.
 
@@ -60,12 +62,13 @@ ships into the client bundle or the server runtime.
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes
   through the forge port (`engine/src/workflow/forge/repository-reads.ts`).
-  `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
-  blocks: it renders them from the page's `ROADMAP-PLAN` block, the open rows
-  of `docs/trackers/TASKS.md`, and the non-proofs in
-  `docs/floor/evidence.md`. Run `npm run docs:roadmap` to regenerate;
-  `npm run docs:roadmap -- --check` is the read-only form, and
-  `tests/prevention/roadmap-status-owner.test.ts` refuses drift.
+  `site-design.mjs` writes the site's design assets at build time from the
+  one design system: the token sheet (only what the site's stylesheets read,
+  through `shared/token-reader.ts`), the self-hosted fonts, the icon, and the
+  mark from its one geometry.
+  The roadmap is not rendered here: the site build computes the roadmap
+  feed (`engine/scripts/tooling/roadmap-feed.ts`) and renders it with
+  `engine/scripts/roadmap/cli.ts build`.
 
 ## Where it lives and what consumes it
 

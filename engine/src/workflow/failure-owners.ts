@@ -46,7 +46,8 @@ import { HarnessError, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { schemaId } from "../kernel/product-identity.ts";
 import { relativePath, rewriteRelativeLinks } from "./markdown-links.ts";
-import { spliceGeneratedBlock, splitGeneratedBlock, TRACKER_BOARD } from "../kernel/verification-paths.ts";
+import { extractMarkdown, isSafeLinkTarget, parseProse, type InlineNode, type MdBlock } from "../../../shared/markdown.ts";
+import { DECISION_INDEX, spliceGeneratedBlock, splitGeneratedBlock, TRACKER_BOARD } from "../kernel/verification-paths.ts";
 
 // ── Task rows ───────────────────────────────────────────────────────────────
 
@@ -232,21 +233,30 @@ export function readEntries(root: string, directory: string): readonly { readonl
 const TRACKER_ITEM_SCHEMA = schemaId("tracker-item", 1);
 /** An item id: upper-case words and numbers joined by hyphens; the file is `<id>.md`. */
 const TRACKER_ITEM_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/u;
-/** The item types: each is the GitHub issue type its projection carries (github-only §9.2). */
-const TRACKER_ITEM_TYPES = Object.freeze(["Workstream", "Task", "Bug", "Flake", "Lesson", "Risk", "Finding", "Security", "Intake"] as const);
+/**
+ * The item types: each is the GitHub issue type its projection carries
+ * (github-only §9.2). A `Milestone` is the roadmap's grouping: it has no lane
+ * and no state of its own (its state is computed from its members,
+ * src/workflow/tracker-status.ts), and items name it in `milestone`.
+ */
+const TRACKER_ITEM_TYPES = Object.freeze(["Milestone", "Workstream", "Task", "Bug", "Flake", "Lesson", "Risk", "Finding", "Security", "Intake"] as const);
+/** How soon an open item is meant: a plan's order of intent, never a date. */
+const TRACKER_HORIZONS = Object.freeze(["now", "next", "later"] as const);
 const TRACKER_ITEM_STATES = Object.freeze(["open", "closed"] as const);
 /** How a closed item closed: its projection's `state_reason`. */
 const TRACKER_ITEM_RESOLUTIONS = Object.freeze(["completed", "not-planned", "duplicate"] as const);
 const TRACKER_ITEM_SEVERITIES = Object.freeze(["P0", "P1", "P2", "P3"] as const);
 /**
- * The board's lanes, in board order, with their section headings (the open
- * rows of a lane; every closed row is under `DONE_HEADING`). A heading is the
- * section name the roadmap's ROADMAP-PLAN `taskSections` state rules key on.
+ * The board's lanes, in board order: each one's section heading (the open
+ * rows of a lane; every closed row is under `DONE_HEADING`) and the
+ * GitHub label its items carry (`lane:<lane>`, this colour and description;
+ * the projector writes the label, src/workflow/forge/projector/).
  */
-const TRACKER_LANES = Object.freeze({
-  floor: "Open",
-  "flaky-burn-down": "Flaky burn-down owners",
-  "private-web": "Private web lanes (retained as ordinary work)",
+export const TRACKER_LANES = Object.freeze({
+  floor: Object.freeze({ heading: "Open", color: "1d76db", description: "Tracker lane: the public floor's open work" }),
+  roadmap: Object.freeze({ heading: "Roadmap", color: "0e8a16", description: "Tracker lane: a roadmap workstream, exit criterion or scope statement" }),
+  "flaky-burn-down": Object.freeze({ heading: "Flaky burn-down owners", color: "d93f0b", description: "Tracker lane: owns an entry of a flaky burn-down list" }),
+  "private-web": Object.freeze({ heading: "Private web lanes (retained as ordinary work)", color: "c5def5", description: "Tracker lane: a private web workstream kept as ordinary work" }),
 } as const);
 const DONE_HEADING = "Done";
 
@@ -259,9 +269,11 @@ export type TrackerItem = Readonly<{
   type: TrackerItemType;
   /** The display title; `null` when the id is the title. */
   title: string | null;
-  state: typeof TRACKER_ITEM_STATES[number];
+  /** Open or closed; `null` for a Milestone (computed from its members). */
+  state: typeof TRACKER_ITEM_STATES[number] | null;
   resolution: typeof TRACKER_ITEM_RESOLUTIONS[number] | null;
-  lane: TrackerLane;
+  /** The board lane; `null` for a Milestone. */
+  lane: TrackerLane | null;
   ownerRole: string | null;
   milestone: string | null;
   parent: string | null;
@@ -269,8 +281,17 @@ export type TrackerItem = Readonly<{
   relates: readonly string[];
   severity: typeof TRACKER_ITEM_SEVERITIES[number] | null;
   area: readonly string[];
-  /** An `evidence:<path>` record link or an https URL. */
+  /** An `evidence:<path>` record link, a repository document (`docs/…/page.md#anchor`) or an https URL. */
   evidence: string | null;
+  /** The plan's rank among its siblings (lower first); `null` when unranked. */
+  order: number | null;
+  horizon: typeof TRACKER_HORIZONS[number] | null;
+  /** The decision records the item carries out (`docs/decisions/`, by id). */
+  decisions: readonly string[];
+  /** The tests that prove it (repository paths). */
+  tests: readonly string[];
+  /** The RFC discussion that shapes it (`discussion-<n>`). */
+  rfc: string | null;
   /** The GitHub object the item adopted (`issue-<n>` or `discussion-<n>`), when it came in from GitHub. */
   gh: string | null;
   /** `YYYY-MM-DD`. */
@@ -287,21 +308,66 @@ function yamlPlain(item: string): string | null {
   if (/^(?:y|yes|n|no|true|false|on|off|null|~)$/iu.test(item) || /^[-+]?(?:\.?\d)[\d._:eE+-]*$/u.test(item)) return `${JSON.stringify(item)} reads as a YAML boolean, null or number, not text`;
   return null;
 }
-/** A title is a row's head on the board: one line, no `*` (it would end the row's bold id). */
+/** A title is a row's head on the board: one line, no `*` (it would end the row's bold id), no markup. */
 function titleCheck(item: string): string | null {
-  return item.includes("*") ? `${JSON.stringify(item)} carries "*", which would end the board row's bold id` : yamlPlain(item);
+  if (item.includes("*")) return `${JSON.stringify(item)} carries "*", which would end the board row's bold id`;
+  if (/<[A-Za-z/!?]/u.test(item)) return `${JSON.stringify(item)} opens markup: a title is text, never markup`;
+  return yamlPlain(item);
 }
+
+/**
+ * THE ITEM TEXT'S MARKUP JUDGEMENT — the one choke point every item-derived
+ * page goes through (the board, the roadmap, the item's own page, the feed):
+ * item text is Markdown and NEVER raw HTML, because every renderer that
+ * publishes it (kramdown on Pages) passes inline HTML through, and items are
+ * written from intake (a stored-XSS path). Read by the one Markdown parser
+ * (`shared/markdown.ts`): markup opened in prose — `<` and a letter, `/`,
+ * `!` or `?`, outside a code span or a fenced block, where every renderer
+ * shows it as text — is refused, and so is a link
+ * target that is neither relative nor a safe scheme (`isSafeLinkTarget`:
+ * http, https, mailto). Answers the problem, or `null`.
+ */
+export function itemMarkupViolation(markdown: string): string | null {
+  const prose: string[] = [];
+  const inline = (nodes: readonly InlineNode[]): void => {
+    for (const node of nodes) {
+      if (node.type === "text") prose.push(node.text);
+      else if (node.type !== "code") inline(node.children);
+    }
+  };
+  const blocks = (list: readonly MdBlock[]): void => {
+    for (const block of list) {
+      if (block.type === "paragraph" || block.type === "heading") inline(block.children);
+      else if (block.type === "blockquote") blocks(block.children);
+      else if (block.type === "list") for (const item of block.items) { inline(item.children); blocks(item.subBlocks); }
+      else if (block.type === "table") for (const row of [block.header, ...block.rows]) for (const cell of row) inline(cell);
+    }
+  };
+  blocks(parseProse(markdown));
+  // A tag, comment or processing instruction opens with `<` and a letter, `/`, `!` or `?` (the HTML tokenizer's rule); `<=` is text.
+  const raw = prose.find((text) => /<[A-Za-z/!?]/u.test(text));
+  if (raw !== undefined) return `the text ${JSON.stringify(raw.trim())} opens markup outside code: item text is Markdown, never raw HTML (put a literal in backticks)`;
+  const unsafe = extractMarkdown(markdown).links.find(({ target }) => /^[a-z][a-z0-9+.-]*:|^\/\//iu.test(target) && !isSafeLinkTarget(target));
+  return unsafe === undefined ? null : `the link target ${JSON.stringify(unsafe.target)} is neither relative nor http, https or mailto`;
+}
+
+/** What a whole-set judgement may also check: the decision ids that exist, and whether a repository path exists. */
+export type TrackerItemContext = Readonly<{ decisions?: ReadonlySet<string>; exists?: (path: string) => boolean }>;
 
 /**
  * Every way the item files `entries` (`<id>.md` with its text) break the
  * `bridlewise-tracker-item/v1` format, judged together: each file is named by
- * its id; `parent`, `blocked-by` and `relates` name OTHER items that exist;
- * no parent chain returns to its start; a closed item names how and when it
- * closed, an open one neither.
+ * its id; `parent`, `blocked-by` and `relates` name OTHER items that exist,
+ * `milestone` a Milestone item; no parent or blocked-by chain returns to its
+ * start; a closed item names how and when it closed, an open one neither; a
+ * Milestone has no lane or state. With `context`, every decision an item
+ * names exists, and every test path exists.
  */
-export function trackerItemViolations(entries: readonly { readonly name: string; readonly text: string }[]): readonly string[] {
+export function trackerItemViolations(entries: readonly { readonly name: string; readonly text: string }[], context: TrackerItemContext = {}): readonly string[] {
   const ids = new Set(entries.map(({ name }) => name.replace(/\.md$/u, "")));
+  const milestones = new Set(entries.filter(({ text }) => parseFrontMatter(text)?.fields.get("type") === "Milestone").map(({ name }) => name.replace(/\.md$/u, "")));
   const parents = new Map<string, string>();
+  const blockers = new Map<string, readonly string[]>();
   const problems: string[] = [];
   for (const { name, text } of entries) {
     const id = name.replace(/\.md$/u, "");
@@ -310,7 +376,15 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
       continue;
     }
     const otherItem = (item: string): string | null => (item === id ? `${item} is this item itself` : ids.has(item) ? null : `${item} names no item`);
+    // A Milestone groups through `milestone`, never as a parent or a blocker.
+    const otherWorkItem = (item: string): string | null => otherItem(item) ?? (milestones.has(item) ? `${item} is a Milestone (name it in milestone)` : null);
     const closed = (fields: FrontMatter): boolean => fields.get("state") === "closed";
+    const milestone = (fields: FrontMatter): boolean => fields.get("type") === "Milestone";
+    const decision = (item: string): string | null => (context.decisions === undefined || context.decisions.has(item) ? null : `${item} names no decision record`);
+    const testPath = (item: string): string | null => {
+      if (item.startsWith("/") || item.split("/").includes("..")) return `${item} is not a repository-relative path`;
+      return context.exists === undefined || context.exists(item) ? null : `${item} is not a file of the repository`;
+    };
     problems.push(...entryViolations(name, text, {
       closed: true,
       fields: {
@@ -319,17 +393,22 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
         type: { required: true, values: TRACKER_ITEM_TYPES },
         // A flaky owner is matched by its row id (src/workflow/flaky-burn-down.ts), so its row is headed by its id.
         title: { check: titleCheck, forbiddenWhen: (fields) => fields.get("lane") === "flaky-burn-down" },
-        state: { required: true, values: TRACKER_ITEM_STATES },
+        state: { required: (fields) => !milestone(fields), forbiddenWhen: milestone, values: TRACKER_ITEM_STATES },
         resolution: { required: closed, forbiddenWhen: (fields) => !closed(fields), values: TRACKER_ITEM_RESOLUTIONS },
-        lane: { required: true, values: Object.keys(TRACKER_LANES) },
+        lane: { required: (fields) => !milestone(fields), forbiddenWhen: milestone, values: Object.keys(TRACKER_LANES) },
         "owner-role": { check: yamlPlain },
-        milestone: { check: yamlPlain },
-        parent: { pattern: TRACKER_ITEM_ID, check: otherItem },
-        "blocked-by": { list: true, pattern: TRACKER_ITEM_ID, check: otherItem },
+        milestone: { forbiddenWhen: milestone, pattern: TRACKER_ITEM_ID, check: (item) => (milestones.has(item) ? null : `${item} names no Milestone item`) },
+        parent: { forbiddenWhen: milestone, pattern: TRACKER_ITEM_ID, check: otherWorkItem },
+        "blocked-by": { list: true, pattern: TRACKER_ITEM_ID, check: otherWorkItem },
         relates: { list: true, pattern: TRACKER_ITEM_ID, check: otherItem },
         severity: { values: TRACKER_ITEM_SEVERITIES },
         area: { list: true, check: yamlPlain },
-        evidence: { pattern: /^(?:evidence:\S+|https:\/\/\S+)$/u },
+        evidence: { pattern: /^(?:evidence:\S+|https:\/\/\S+|(?:[\w.-]+\/)*[\w.-]+\.md(?:#[\w-]+)?)$/u },
+        order: { pattern: /^(?:0|[1-9]\d{0,5})$/u },
+        horizon: { forbiddenWhen: (fields) => closed(fields) || milestone(fields), values: TRACKER_HORIZONS },
+        decisions: { list: true, pattern: /^[A-Z][A-Z0-9]*[a-z]?(?:-[A-Z0-9]+[a-z]?)*$/u, check: decision },
+        tests: { list: true, check: testPath },
+        rfc: { pattern: /^discussion-[1-9]\d*$/u },
         // `issue-31`, never `#31`: YAML reads ` #31` as a comment.
         gh: { pattern: /^(?:issue|discussion)-[1-9]\d*$/u },
         opened: { required: true, pattern: DATE },
@@ -342,10 +421,13 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
     const closedOn = parsed.fields.get("closed") ?? "";
     if (DATE.test(opened) && DATE.test(closedOn) && closedOn < opened) problems.push(`${name}: closed ${closedOn} is before opened ${opened}`);
     if (parsed.body.trim().length === 0) problems.push(`${name}: the body is empty`);
+    const markup = itemMarkupViolation(parsed.body);
+    if (markup !== null) problems.push(`${name}: ${markup}`);
     // A body line shaped like a task row would be a second row on the board, owning failures no item declares.
     for (const line of parsed.body.split("\n")) if (ROW.test(line)) problems.push(`${name}: the body line ${JSON.stringify(line.trim())} is a task row; a row is an item of its own`);
     const parent = parsed.fields.get("parent");
     if (parent !== undefined && parent.length > 0) parents.set(id, parent);
+    blockers.set(id, listValue(parsed.fields.get("blocked-by") ?? "[]") ?? []);
   }
   for (const start of parents.keys()) {
     const seen = new Set([start]);
@@ -354,12 +436,24 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
       seen.add(next);
     }
   }
+  // A blocked-by cycle would block every member forever: refused, like a parent cycle.
+  const visiting = new Set<string>();
+  const done = new Set<string>();
+  const visit = (id: string, path: readonly string[]): void => {
+    if (done.has(id)) return;
+    if (visiting.has(id)) { problems.push(`${path[0]}.md: its blocked-by chain returns to ${id}`); return; }
+    visiting.add(id);
+    for (const next of blockers.get(id) ?? []) visit(next, [...path, next]);
+    visiting.delete(id);
+    done.add(id);
+  };
+  for (const id of [...blockers.keys()].sort()) visit(id, [id]);
   return problems;
 }
 
 /** The items of `entries` (`<id>.md` with its text), in id order; refused whole (typed) when any breaks the format. */
-export function trackerItems(entries: readonly { readonly name: string; readonly text: string }[]): readonly TrackerItem[] {
-  const problems = trackerItemViolations(entries);
+export function trackerItems(entries: readonly { readonly name: string; readonly text: string }[], context: TrackerItemContext = {}): readonly TrackerItem[] {
+  const problems = trackerItemViolations(entries, context);
   if (problems.length > 0) throw new InputError(`the tracker items break ${TRACKER_ITEM_SCHEMA}:\n${problems.join("\n")}`, "tracker_item_invalid");
   return deepFreeze(entries.map(({ text }) => {
     const { fields, body } = parseFrontMatter(text)!;
@@ -369,9 +463,9 @@ export function trackerItems(entries: readonly { readonly name: string; readonly
       id: fields.get("id")!,
       type: fields.get("type") as TrackerItemType,
       title: optional("title"),
-      state: fields.get("state") as TrackerItem["state"],
+      state: optional("state") as TrackerItem["state"],
       resolution: optional("resolution") as TrackerItem["resolution"],
-      lane: fields.get("lane") as TrackerLane,
+      lane: optional("lane") as TrackerItem["lane"],
       ownerRole: optional("owner-role"),
       milestone: optional("milestone"),
       parent: optional("parent"),
@@ -380,6 +474,11 @@ export function trackerItems(entries: readonly { readonly name: string; readonly
       severity: optional("severity") as TrackerItem["severity"],
       area: list("area"),
       evidence: optional("evidence"),
+      order: fields.has("order") ? Number(fields.get("order")) : null,
+      horizon: optional("horizon") as TrackerItem["horizon"],
+      decisions: list("decisions"),
+      tests: list("tests"),
+      rfc: optional("rfc"),
       gh: optional("gh"),
       opened: fields.get("opened")!,
       closed: optional("closed"),
@@ -396,10 +495,66 @@ export function trackerItemsOf(reader: TreeReader): readonly TrackerItem[] {
   return trackerItems(paths.map((path) => ({ name: path.slice(prefix.length), text: reader.text(path) ?? "" })));
 }
 
-/** The items of the repository at `root` (`TRACKER_BOARD.items`); a tree without the folder has none. */
+/**
+ * The items of the repository at `root` (`TRACKER_BOARD.items`), judged
+ * against the decision records beside them and the files of the tree; a tree
+ * without the folder has none.
+ */
 export function readTrackerItems(root: string): readonly TrackerItem[] {
   if (!existsSync(join(root, TRACKER_BOARD.items))) return deepFreeze([]);
-  return trackerItems(readEntries(root, TRACKER_BOARD.items));
+  return trackerItems(readEntries(root, TRACKER_BOARD.items), { decisions: new Set(readDecisionRecords(root).map((record) => record.id)), exists: (path) => existsSync(join(root, path)) });
+}
+
+/** A decision record as the tracker reads it: its id, whether it is in force, and how far it is carried out. */
+export type DecisionRecord = Readonly<{ id: string; status: string; implementation: string; title: string }>;
+
+/** The decision records among `entries` (`<file>.md` with its text), from their front matter. */
+export function decisionRecords(entries: readonly { readonly name: string; readonly text: string }[]): readonly DecisionRecord[] {
+  return deepFreeze(entries.flatMap(({ text }) => {
+    const parsed = parseFrontMatter(text);
+    const id = parsed?.fields.get("id");
+    if (parsed === null || id === undefined) return [];
+    return [{ id, status: parsed.fields.get("status") ?? "", implementation: parsed.fields.get("implementation") ?? "", title: /^# (.+)$/mu.exec(parsed.body)?.[1]?.trim() ?? id }];
+  }));
+}
+
+/** The decision records of the repository at `root` (`DECISION_INDEX`'s folder); none when the folder is absent. */
+export function readDecisionRecords(root: string): readonly DecisionRecord[] {
+  const directory = posix.dirname(DECISION_INDEX.path);
+  return existsSync(join(root, directory)) ? decisionRecords(readEntries(root, directory)) : deepFreeze([]);
+}
+
+/**
+ * The status facts of the item files `entries` AS THEY WERE (a commit of the
+ * items' history): id, type, open or closed and how, parent, milestone,
+ * blocked-by, decisions, tests and evidence, read from the front matter WITHOUT judging the
+ * format of the day — a past commit is history, read as written, never
+ * refused by a later rule. A file without front matter or an id is skipped.
+ */
+export function itemStatusFacts(entries: readonly { readonly name: string; readonly text: string }[]): readonly Readonly<{
+  id: string; type: string; state: "open" | "closed" | null; resolution: "completed" | "not-planned" | "duplicate" | null;
+  parent: string | null; milestone: string | null; blockedBy: readonly string[]; decisions: readonly string[];
+  tests: readonly string[]; evidence: string | null;
+}>[] {
+  return deepFreeze(entries.flatMap(({ text }) => {
+    const fields = parseFrontMatter(text)?.fields;
+    const id = fields?.get("id");
+    if (fields === undefined || id === undefined) return [];
+    const state = fields.get("state");
+    const resolution = fields.get("resolution");
+    return [{
+      id,
+      type: fields.get("type") ?? "Task",
+      state: state === "open" || state === "closed" ? state : null,
+      resolution: resolution === "completed" || resolution === "not-planned" || resolution === "duplicate" ? resolution : null,
+      parent: fields.get("parent") ?? null,
+      milestone: fields.get("milestone") ?? null,
+      blockedBy: listValue(fields.get("blocked-by") ?? "[]") ?? [],
+      decisions: listValue(fields.get("decisions") ?? "[]") ?? [],
+      tests: listValue(fields.get("tests") ?? "[]") ?? [],
+      evidence: fields.get("evidence") ?? null,
+    }];
+  }));
 }
 
 // ── The board ───────────────────────────────────────────────────────────────
@@ -422,17 +577,19 @@ export function itemRow(item: TrackerItem): string {
 }
 
 /**
- * THE BOARD, generated from the items alone: one section per lane holding
- * open items (its {@link TRACKER_LANES} heading; oldest opened first), then
+ * THE BOARD, generated from the items alone (a Milestone is no row): one
+ * section per lane holding open items (its {@link TRACKER_LANES} heading;
+ * ranked by `order`, then oldest opened first), then
  * every closed item under `Done` (most recently closed first); ties by id.
  * It is the text between the `TRACKER_BOARD` markers; nothing in it is typed
  * by hand.
  */
 export function renderTrackerBoard(items: readonly TrackerItem[]): string {
   const byId = (left: TrackerItem, right: TrackerItem): number => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  const rank = (item: TrackerItem): number => item.order ?? Number.MAX_SAFE_INTEGER;
   const section = (heading: string, rows: readonly TrackerItem[]): string[] => (rows.length === 0 ? [] : [`## ${heading}\n\n${rows.map(itemRow).join("\n")}\n`]);
-  const open = (Object.entries(TRACKER_LANES) as [TrackerLane, string][]).flatMap(([lane, heading]) =>
-    section(heading, items.filter((item) => item.state === "open" && item.lane === lane).sort((left, right) => left.opened.localeCompare(right.opened) || byId(left, right))));
+  const open = (Object.entries(TRACKER_LANES) as [TrackerLane, typeof TRACKER_LANES[TrackerLane]][]).flatMap(([lane, { heading }]) =>
+    section(heading, items.filter((item) => item.state === "open" && item.lane === lane).sort((left, right) => rank(left) - rank(right) || left.opened.localeCompare(right.opened) || byId(left, right))));
   const done = section(DONE_HEADING, items.filter((item) => item.state === "closed").sort((left, right) => right.closed!.localeCompare(left.closed!) || byId(left, right)));
   return [...open, ...done].join("\n");
 }

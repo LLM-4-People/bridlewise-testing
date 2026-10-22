@@ -6,6 +6,7 @@ title: Verify the public floor on a fresh machine
 state: closed
 resolution: completed
 lane: floor
+parent: M0-B1
 opened: 2026-10-20
 closed: 2026-10-20
 ---
