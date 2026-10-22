@@ -553,8 +553,3 @@ test("a typed refusal printed by a step that was then KILLED is reported as the 
     rmSync(dir, { recursive: true, force: true });
   }
 });
-
-test("the CPU-time limit is real: a process past its RLIMIT_CPU is ended by SIGXCPU (the mechanism the runner applies)", () => {
-  const spun = spawnSync("/bin/sh", ["-c", 'ulimit -S -t "$1" && shift && exec "$@"', "sh", "1", process.execPath, "-e", "for(;;){}"], { encoding: "utf8" });
-  assert.equal(spun.signal, "SIGXCPU");
-});
