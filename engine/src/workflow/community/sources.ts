@@ -66,7 +66,12 @@ const ROLES = z.strictObject({
 /** The id of the checkbox block every issue form ends with (generated from `confirmations`): no field may take it. */
 export const CONFIRMATIONS_FIELD_ID = "confirmations";
 
-/** A form field, with the rules GitHub's form schema adds: options only (and always) on a dropdown, `render` only on a textarea. */
+/**
+ * A form field, with the rules GitHub's form schema adds (options only, and
+ * always, on a dropdown) and one of ours: a textarea always has `render`, and
+ * only a textarea does. GitHub accepts file attachments in a textarea WITHOUT
+ * `render`; an upload is a credential-leak path, so no form field takes one.
+ */
 const FIELD = z.strictObject({
   kind: z.enum(["textarea", "input", "dropdown"]),
   id: z.string().regex(/^[a-z][a-z0-9-]*$/u).refine((id) => id !== CONFIRMATIONS_FIELD_ID, `"${CONFIRMATIONS_FIELD_ID}" is the generated checkbox block's id`),
@@ -77,7 +82,7 @@ const FIELD = z.strictObject({
   options: z.array(z.string().min(1)).min(1).optional(),
   required: z.boolean(),
 }).refine((field) => (field.kind === "dropdown") === (field.options !== undefined), "a dropdown names its options, and only a dropdown does")
-  .refine((field) => field.render === undefined || field.kind === "textarea", "only a textarea renders as code");
+  .refine((field) => (field.render !== undefined) === (field.kind === "textarea"), "a textarea renders as text (so it takes no attachment), and only a textarea renders");
 
 /** A form's fields: at least one, each id once. */
 const FIELDS = z.array(FIELD).min(1).refine((fields) => new Set(fields.map((field) => field.id)).size === fields.length, "a form's field ids are unique");

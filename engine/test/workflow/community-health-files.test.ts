@@ -206,6 +206,7 @@ test("a template that names no generated file is drift, and the form schema refu
       ["a dropdown with no options", field({ kind: "dropdown" })],
       ["options on an input", field({ kind: "input", options: ["a"] })],
       ["render on an input", field({ kind: "input", render: "shell" })],
+      ["a textarea without render (it would take attachments)", field({ kind: "textarea", render: undefined })],
       ["the confirmations id", field({ id: "confirmations" })],
       ["a repeated field id", (json: Record<string, unknown>) => { const forms = json.issueForms as { fields: Record<string, unknown>[] }[]; forms[0]!.fields[1]!.id = forms[0]!.fields[0]!.id; }],
       ["a planned claim with no tracking URL", (json: Record<string, unknown>) => { (json.issueForms as Record<string, unknown>[])[0]!.typeStatus = { planned: "soon" }; }],
