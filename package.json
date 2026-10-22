@@ -31,6 +31,7 @@
     "run-diff": "node --experimental-strip-types engine/scripts/tooling/run-diff.ts",
     "budget:measure": "node --experimental-strip-types scripts/testing/measure-web-budget.ts",
     "perf:profile": "node --experimental-strip-types scripts/testing/perf-profile.ts",
+    "capture:cockpit": "node --experimental-strip-types scripts/capture/cockpit.ts",
     "corpus:manifest": "node --experimental-strip-types engine/scripts/verification/corpus.ts manifest",
     "corpus:fetch": "node --experimental-strip-types engine/scripts/verification/corpus.ts fetch",
     "corpus:verify": "node --experimental-strip-types engine/scripts/verification/corpus.ts verify",
