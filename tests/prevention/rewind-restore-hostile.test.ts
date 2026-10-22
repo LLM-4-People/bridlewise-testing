@@ -71,7 +71,7 @@ describe("hostile restore cases", () => {
     expect((again.body as { message: string }).message).toContain("already been brought back");
     // One reversal in the record, not two.
     expect((await withdrawn(ids.chatId)).stretches.filter((s) => s.restored)).toHaveLength(1);
-  }, 30000);
+  });
 
   test("hostile: an event id this chat never recorded is refused", async () => {
     const ids = await newConversation("restore-unknown-event");
@@ -79,7 +79,7 @@ describe("hostile restore cases", () => {
     const res = await restore(ids.chatId, "evt-nobody-recorded");
     expect(res.status).toBe(404);
     expect((res.body as { error: string }).error).toBe("not_found");
-  }, 30000);
+  });
 
   test("hostile: a withdrawal recorded in ANOTHER conversation cannot be restored here", async () => {
     const mine = await newConversation("restore-cross-chat-a");
@@ -95,7 +95,7 @@ describe("hostile restore cases", () => {
     // …and it did NOT leak into this chat's list, nor come undone in its own.
     expect((await withdrawn(mine.chatId)).stretches).toEqual([]);
     expect((await withdrawn(other.chatId)).stretches[0]!.restored).toBe(false);
-  }, 40000);
+  });
 
   test("hostile: another user can neither see nor restore this conversation's withdrawals", async () => {
     const ids = await newConversation("restore-cross-user");
@@ -113,7 +113,7 @@ describe("hostile restore cases", () => {
     expect(discardedMessageIdsForChat(ids.chatId, ownerUserId).size).toBe(
       (data.discardedMessageIds as string[]).length,
     );
-  }, 40000);
+  });
 
   test("hostile: the restore door refuses malformed input with a 4xx, never a 500", async () => {
     const ids = await newConversation("restore-malformed");
@@ -135,7 +135,7 @@ describe("hostile restore cases", () => {
       expect(res.status, `${shown} must be refused`).toBeGreaterThanOrEqual(400);
       expect(res.status, `${shown} produced a server error`).toBeLessThan(500);
     }
-  }, 30000);
+  });
 
   test("hostile: a NUL-bearing event id is refused AS AN ID, not truncated into a real one", async () => {
     // NUL has twice hidden code from text tools in this project, so the
@@ -153,7 +153,7 @@ describe("hostile restore cases", () => {
     expect(discardedMessageIdsForChat(ids.chatId, ownerUserId).size).toBe(
       (data.discardedMessageIds as string[]).length,
     );
-  }, 30000);
+  });
 
   test("hostile: two restores of the same withdrawal at once produce ONE reversal", async () => {
     const ids = await newConversation("restore-concurrent");
@@ -174,7 +174,7 @@ describe("hostile restore cases", () => {
     const restoredRows = await storedMessages(ids.chatId);
     expect(restoredRows.filter((m) => m.discarded === true)).toHaveLength(0);
     expect(discardedMessageIdsForChat(ids.chatId, ownerUserId).size).toBe(0);
-  }, 40000);
+  });
 
   test("the restore APPEND refuses a second reversal for one withdrawal — deterministically, at the owner", async () => {
     // The HTTP race above is real but TIMING-dependent: it needs the suite's
@@ -211,7 +211,7 @@ describe("hostile restore cases", () => {
     expect(String((caught as Error).message)).toContain("already been brought back");
     // Exactly one stretch, restored once.
     expect((await withdrawn(ids.chatId)).stretches.filter((s) => s.restored)).toHaveLength(1);
-  }, 30000);
+  });
 
   test("the reversal is an APPEND — it lands in the same append-only lane", async () => {
     // The restore is only honest if it obeys the same law as the thing it
@@ -230,5 +230,5 @@ describe("hostile restore cases", () => {
     // The triggers the schema declares are what refuse an edit to either
     // event; read from the schema owner so a dropped trigger is caught here.
     expect(APPEND_ONLY_TRIGGERS.length).toBeGreaterThan(0);
-  }, 30000);
+  });
 });

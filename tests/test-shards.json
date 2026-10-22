@@ -2,7 +2,7 @@
   "schemaVersion": "bridlewise-test-shard-manifest/v1",
   "measuredHeadSha": "f54df4a547cd5ff45f06e43617d4898fefd850b1",
   "measuredAt": "2026-10-20T17:56:30.903Z",
-  "weightSource": "vitest-json:endTime-startTime; 536 supported files; 523 measured from 10 green shard report(s) at f54df4a547cd5ff45f06e43617d4898fefd850b1 (ubuntu-24.04), and tests/prevention/external-surface-registry.test.ts (218 ms at 4f958ef1), tests/prevention/measurement-contract.test.ts (39.6 s), tests/prevention/guardian-compiler-pin.test.ts (3 ms), tests/prevention/guardian-runner-accounting.test.ts (14 ms) and tests/prevention/suite-work-metric-owner.test.ts (600 ms at 17a220f5) measured on their own on 2026-10-20 pending the full re-measurement; tests/prevention/log-never-disabled.test.ts (8 ms) measured on its own at 4c1da180 pending the full re-measurement; tests/unit/custody-blocks-http.test.ts (639 ms) and tests/unit/editor-recycle-http.test.ts (1.6 s) measured on their own on 2026-10-21 pending the full re-measurement; tests/unit/floor-site-links.test.ts (18 ms at 2413d833) measured on its own on 2026-10-21 pending the full re-measurement; tests/unit/capture-cockpit-plan.test.ts (30 ms at 5fa89c26) measured on its own on 2026-10-21 pending the full re-measurement; tests/cockpit/brand-mark-owner.test.ts (113 ms at ef0909d7) measured on its own on 2026-10-21 pending the full re-measurement",
+  "weightSource": "vitest-json:endTime-startTime; 537 supported files; 523 measured from 10 green shard report(s) at f54df4a547cd5ff45f06e43617d4898fefd850b1 (ubuntu-24.04), and tests/prevention/external-surface-registry.test.ts (218 ms at 4f958ef1), tests/prevention/measurement-contract.test.ts (39.6 s), tests/prevention/guardian-compiler-pin.test.ts (3 ms), tests/prevention/guardian-runner-accounting.test.ts (14 ms) and tests/prevention/suite-work-metric-owner.test.ts (600 ms at 17a220f5) measured on their own on 2026-10-20 pending the full re-measurement; tests/prevention/log-never-disabled.test.ts (8 ms) measured on its own at 4c1da180 pending the full re-measurement; tests/unit/custody-blocks-http.test.ts (639 ms) and tests/unit/editor-recycle-http.test.ts (1.6 s) measured on their own on 2026-10-21 pending the full re-measurement; tests/unit/floor-site-links.test.ts (18 ms at 2413d833) measured on its own on 2026-10-21 pending the full re-measurement; tests/unit/capture-cockpit-plan.test.ts (30 ms at 5fa89c26) measured on its own on 2026-10-21 pending the full re-measurement; tests/prevention/test-cpu-class.test.ts (31.4 s with its nested plant run at 66d7cc2a) measured on its own on 2026-10-22 pending the full re-measurement; tests/cockpit/brand-mark-owner.test.ts (113 ms at ef0909d7) measured on its own on 2026-10-21 pending the full re-measurement",
   "files": [
     {
       "path": "tests/cockpit/a11y-hidden-focus-owner.test.ts",
@@ -1523,6 +1523,10 @@
     {
       "path": "tests/prevention/template-token-sanitization.test.ts",
       "weightMs": 3473
+    },
+    {
+      "path": "tests/prevention/test-cpu-class.test.ts",
+      "weightMs": 31390
     },
     {
       "path": "tests/prevention/test-helpers-dedup.test.ts",

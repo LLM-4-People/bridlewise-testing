@@ -230,7 +230,7 @@ describe("map index lifecycle — one door", () => {
       await reap();
       rmSync(project, { recursive: true, force: true });
     }
-  }, 45_000);
+  });
 });
 
 describe("map index lifecycle — the folder watch arms only on indexable paths", () => {
@@ -432,7 +432,7 @@ describe("map index lifecycle — the folder watch arms only on indexable paths"
       await reap();
       rmSync(project, { recursive: true, force: true });
     }
-  }, 60_000);
+  });
 });
 
 afterEach(() => {
@@ -522,7 +522,7 @@ describe("map index lifecycle — the smart trigger (the hinted, stat-diffed reb
       await reap();
       rmSync(project, { recursive: true, force: true });
     }
-  }, 60_000);
+  });
 
   test("the hinted rebuild's WORKER INPUT carries the changed path — observed at the pool seam", async () => {
     // SMART-TRIGGER-HINT (the forwarding proof). The arm above proves a
@@ -660,7 +660,7 @@ describe("map index lifecycle — the smart trigger (the hinted, stat-diffed reb
       await reap();
       rmSync(project, { recursive: true, force: true });
     }
-  }, 60_000);
+  });
 
   test("a no-change TTL refresh keeps the SAME map object WITHOUT spawning a worker (the empty-diff gate on the main thread), then a real change swaps it through the worker", async () => {
     // SMART-TRIGGER-1, updated to the no-change TTL refresh's new owner:
@@ -793,7 +793,7 @@ describe("map index lifecycle — the smart trigger (the hinted, stat-diffed reb
       rmSync(project, { recursive: true, force: true });
       rmSync(configDir, { recursive: true, force: true });
     }
-  }, 60_000);
+  });
 
   test("a previous scan BIGGER than the main-thread door takes the WORKER path — the request thread never stat-walks a huge tree", async () => {
     // THE SIZE DOOR. The no-change TTL refresh's stat walk is O(tree)
@@ -952,7 +952,7 @@ describe("map index lifecycle — the smart trigger (the hinted, stat-diffed reb
       rmSync(project, { recursive: true, force: true });
       rmSync(configDir, { recursive: true, force: true });
     }
-  }, 60_000);
+  });
 
   test("an external same-bytes touch (mtime-only change) rebuilds to a byte-identical map", async () => {
     // SMART-TRIGGER-2 (precision). A touch that changes nothing but the
@@ -1035,5 +1035,5 @@ describe("map index lifecycle — the smart trigger (the hinted, stat-diffed reb
       await reap();
       rmSync(project, { recursive: true, force: true });
     }
-  }, 60_000);
+  });
 });
