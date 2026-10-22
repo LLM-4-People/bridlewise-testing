@@ -53,7 +53,7 @@ import { autoPromotion, launchUnattendedApply, withUnattendedChain, type Unatten
 import type { PromotionRequest } from "./promote-arguments.ts";
 import { engineRelativeIn, promoterPlacement, runInPromoterHome, type PromoterPlacement } from "./promoter-home.ts";
 import { branchOf, loadPromotionProfiles, parsePromotionProfile, profileCommandNames, selectPromotionProfile, type LoadedPromotionProfile } from "./profile.ts";
-import { classifyTree, explainPaths, planPromotion, projectSource, type PromotionPlan } from "./projection.ts";
+import { classifyTree, explainPaths, isAncestor, planPromotion, projectSource, type PromotionPlan } from "./projection.ts";
 import { configuredProductForge, forgePublishVerb, type ProductForge } from "../forge/publish/product.ts";
 import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { planRelease } from "./release-train.ts";
@@ -426,8 +426,58 @@ export async function verifyBuiltProjection(context: PromotionContext, run: Appl
   const built = resolveRevision(context.repository, commit, "tree")!;
   if (built !== recomputed) {
     const paths = gitOutput(context.repository, ["diff-tree", "-r", "-z", "--no-renames", "--name-only", recomputed, built]).stdout.toString("utf8").split("\0").filter((path) => path.length > 0);
-    throw new PromotionError("promotion_forge_projection_mismatch", `${commit} departs from the projection recomputed from ${context.source} at ${paths.join(", ")}: only the recomputed projection is published`, { commit, paths, recomputed, built });
+    throw new PromotionError("promotion_forge_projection_mismatch", `${commit} departs from the projection recomputed from ${context.source} at ${paths.join(", ")}: the product is only ever the recomputed projection`, { commit, paths, recomputed, built });
   }
+}
+
+/** The product commit `verify` checks and the context of its source (see {@link promotionVerify}): resolved, and refused where it is no promotion of the source branch. */
+export function verifyTarget(repository: RepositoryContext, request: PromotionRequest): Readonly<{ context: PromotionContext; commit: string; profile: string }> {
+  const named = request.commit ?? contextFor(repository, request.profile, undefined).target;
+  if (named === null) throw new PromotionError("promotion_target_missing", "the profile's target branch does not exist here: fetch it, or name the product commit with --commit", {});
+  const commit = resolveRevision(repository.repository, named);
+  if (commit === null) throw new PromotionError("promotion_usage", `--commit ${named} names no commit`, { commit: named });
+  const trailers = promotionTrailersOf(repository.repository, commit);
+  const profile = profileOfTrailer(trailers.profile);
+  if (trailers.projectedFrom === null || profile === null) {
+    throw new PromotionError("promotion_source_unproven_commit", `${commit} carries no Projected-From or Promotion-Profile trailer: it is not a promotion commit`, { commit });
+  }
+  const context = contextFor(repository, profile.name, trailers.projectedFrom);
+  const sourceTip = resolveRevision(context.repository, context.loaded.profile.source.ref);
+  if (sourceTip === null || !isAncestor(context.repository, context.source, sourceTip)) {
+    throw new PromotionError("promotion_verify_off_source", `${commit} names the source ${context.source}, which is not a commit of ${context.loaded.profile.source.ref}${sourceTip === null ? " (absent here)" : ""}`, { commit, source: context.source, sourceRef: context.loaded.profile.source.ref });
+  }
+  return deepFreeze({ context, commit, profile: trailers.profile! });
+}
+
+/** The recompute of `verify` over `run` (the publisher's check, {@link verifyBuiltProjection}), as its answer. */
+export async function verifyProductCommit(context: PromotionContext, commit: string, run: ApplyRun): Promise<PromotionAnswer> {
+  await verifyBuiltProjection(context, run, commit);
+  const profile = promotionTrailersOf(context.repository, commit).profile;
+  return answer("promotion_verified", `${commit} is the projection of ${context.source} by ${String(profile)}: the tree recomputed from the source equals it`, { commit, source: context.source, profile, tree: resolveRevision(context.repository, commit, "tree") });
+}
+
+/**
+ * `harness promote verify [--commit <rev>]`: P4.1's check of a product commit
+ * (default: the profile's target tip), which anyone holding the product and
+ * its source can run:
+ *   - it is a promotion commit: `Projected-From` names its source S and
+ *     `Promotion-Profile` the profile and its blob
+ *     (`promotion_source_unproven_commit` otherwise);
+ *   - S is a commit of the profile's source branch
+ *     (`promotion_verify_off_source`);
+ *   - its tree EQUALS the projection recomputed from S alone by S's own
+ *     promoter: the publisher's check, {@link verifyBuiltProjection}, with the
+ *     same answers, naming each differing path.
+ * From a checkout that is not clean at S it re-runs in the promoter home
+ * (S's code), as an apply does.
+ */
+async function promotionVerify(repository: RepositoryContext, request: PromotionRequest): Promise<PromotionAnswer> {
+  const { context, commit } = verifyTarget(repository, request);
+  const git = configuredWorktreeGitPort(context.document);
+  const runner = await commandRunner(context);
+  const placement = promoterPlacement(context, git);
+  if (placement.kind === "home") return runInPromoterHome(context, git, placement, { ...request, verb: "verify", profile: context.loaded.profile.name, commit }, runner);
+  return verifyProductCommit(context, commit, applyRun(context, git, runner, placement.engineRelative));
 }
 
 /** `harness promote auto --refs <refs>` over the checkout at `root` (see `trigger.ts`); `launch` starts each unattended run (production: in the background). */
@@ -440,6 +490,7 @@ async function verbAnswer(root: string, request: PromotionRequest, document: Pro
   if (request.verb === "auto") return promotionAuto(root, request.refs ?? "", document, launch);
   const repository = resolveRepositoryContext(root, document);
   if (request.verb === "forge-publish") return promotionForgePublish(repository, request, configuredProductForge());
+  if (request.verb === "verify") return promotionVerify(repository, request);
   const context = contextFor(repository, request.profile, request.source);
   if (request.verb === "status") return promotionStatus(context);
   if (request.verb === "apply" || request.verb === "rollback") return promotionBuild(context, request, (profile, source) => contextFor(repository, profile, source), launch);

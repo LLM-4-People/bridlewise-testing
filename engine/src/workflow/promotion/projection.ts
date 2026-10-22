@@ -361,7 +361,8 @@ function promoterDigest(): string {
   return promoterDigestMemo;
 }
 
-function isAncestor(repository: GitRepository, ancestor: string, descendant: string): boolean {
+/** Whether `ancestor` is `descendant` or one of its ancestors. */
+export function isAncestor(repository: GitRepository, ancestor: string, descendant: string): boolean {
   return gitOutput(repository, ["merge-base", "--is-ancestor", ancestor, descendant], { allowed: [0, 1] }).status === 0;
 }
 

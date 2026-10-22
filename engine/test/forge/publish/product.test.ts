@@ -23,7 +23,7 @@ import { isForgeError } from "../../../src/workflow/forge/codes.ts";
 import { remakeCommit } from "../../../src/workflow/workspace-forge.ts";
 import { publishProduct, receiptBytes, type ProjectionReceipt } from "../../../src/workflow/forge/publish/product.ts";
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
-import { forgePublishWith, resolvePromotionContext, verifyBuiltProjection } from "../../../src/workflow/promotion/context.ts";
+import { forgePublishWith, resolvePromotionContext, resolveRepositoryContext, verifyBuiltProjection, verifyProductCommit, verifyTarget } from "../../../src/workflow/promotion/context.ts";
 import { formatPromoteArguments, parsePromoteArguments } from "../../../src/workflow/promotion/promote-arguments.ts";
 import { promotionRefs } from "../../../src/workflow/promotion/promotion-run.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
@@ -254,4 +254,38 @@ test("the grammar: forge-publish needs --out, takes --source and the reasoned ov
   const request = parsePromoteArguments(["forge-publish", "--profile", "main-to-product", "--source", "HEAD", "--out", "receipt.json", "--accept-target-edits", "README.md", "--allow-deletions", "--reason", "the seeded product's first projection"]);
   assert.deepEqual([request.allowDeletions, request.acceptTargetEdits, request.reason], [true, ["README.md"], "the seeded product's first projection"]);
   assert.deepEqual(parsePromoteArguments(formatPromoteArguments(request)), request);
+});
+
+test("verify (P4.1's check): a product commit is the projection of the main commit its trailer names, recomputed here from that commit alone", async () => {
+  const fixture = landing("publish-verify");
+  const built = await builtByTheFixture(fixture);
+  const repository = resolveRepositoryContext(fixture.root, documentOf(fixture, false));
+  const run = fixtureRun(fixture);
+  const named = verifyTarget(repository, { verb: "verify", commit: built });
+  assert.deepEqual([named.commit, named.context.source, named.profile], [built, fixture.tip(SOURCE), `${PROFILE_NAME}@${fixture.loaded().blob!}`]);
+  const verified = await verifyProductCommit(named.context, named.commit, run);
+  assert.equal(verified.code, "promotion_verified", verified.message);
+  // The default is the target's tip: the product as it stands.
+  fixture.git(["update-ref", `refs/heads/${TARGET}`, built]);
+  assert.equal(verifyTarget(repository, { verb: "verify" }).commit, built);
+  // A product commit that departs from the recompute names each path.
+  const planted = tampered(fixture, built, { "dev/tool.ts": "export const leaked = 1;\n" });
+  const departed = await refusedWith("promotion_forge_projection_mismatch", () => verifyProductCommit(verifyTarget(repository, { verb: "verify", commit: planted }).context, planted, run));
+  assert.deepEqual(departed.facts["paths"], ["dev/tool.ts"]);
+  // No trailers: no promotion commit at all.
+  await refusedWith("promotion_source_unproven_commit", async () => verifyTarget(repository, { verb: "verify", commit: fixture.git(["rev-list", "--max-parents=0", TARGET]).split("\n")[0]! }));
+  // A source that is not a commit of the source branch: projected from somewhere else.
+  const elsewhere = fixture.git(["commit-tree", fixture.git(["rev-parse", `${fixture.tip(SOURCE)}^{tree}`]), "-m", "not on the source branch"]);
+  const offSource = fixture.git(["commit-tree", fixture.git(["rev-parse", `${built}^{tree}`]), "-p", fixture.git(["rev-parse", `${built}^1`]), "-p", elsewhere, "-m", `promote\n\nProjected-From: ${elsewhere}\nPromotion-Profile: ${PROFILE_NAME}@${fixture.loaded().blob!}`]);
+  await refusedWith("promotion_verify_off_source", async () => verifyTarget(repository, { verb: "verify", commit: offSource }));
+  await refusedWith("promotion_usage", async () => verifyTarget(repository, { verb: "verify", commit: "no-such-revision" }));
+});
+
+test("the grammar: verify takes --commit (and --source, as the promoter home spells it back), nothing else of another verb's", () => {
+  const request = parsePromoteArguments(["verify", "--profile", "main-to-product", "--commit", "product", "--source", "HEAD"]);
+  assert.deepEqual([request.verb, request.commit, request.source], ["verify", "product", "HEAD"]);
+  assert.deepEqual(parsePromoteArguments(formatPromoteArguments(request)), request);
+  for (const argv of [["verify", "--out", "x"], ["plan", "--commit", "x"], ["verify", "--reason", "x"], ["verify", "--allow-deletions"]]) {
+    assert.throws(() => parsePromoteArguments(argv), (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_usage", argv.join(" "));
+  }
 });
