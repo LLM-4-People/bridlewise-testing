@@ -19,6 +19,7 @@ import { assembleRelease, releaseAssetNames } from "../../../src/workflow/promot
 import { parseReleaseArguments, readReleaseRecords, runReleaseCli } from "../../../src/workflow/promotion/release-cli.ts";
 import { creditedName, creditedPeople, decisionChanges, landedPullRequests, renderReleaseNotes } from "../../../src/workflow/promotion/release-notes.ts";
 import { planRelease, type ReleasePlan, type ReleaseRecord, type ReleaseSettings } from "../../../src/workflow/promotion/release-train.ts";
+import { escapeMarkdownText } from "../../../../shared/markup.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
 import { PROFILE_DIRECTORY, PROFILE_NAME, SOURCE, TARGET, json, promotionFixture, type PromotionFixture } from "./promotion-fixture.ts";
 
@@ -63,6 +64,12 @@ function releaseTag(fixture: PromotionFixture, tag: string, commit: string): voi
 /** A published release record as the forge lists it. */
 const published = (tag: string, at: number): ReleaseRecord => ({ tag, draft: false, publishedAt: new Date(at).toISOString() });
 
+/** A tracker item (the public record) on the source, `open` or `closed`. */
+function record(fixture: PromotionFixture, id: string, state: "open" | "closed", type = "Task"): void {
+  const closed = state === "closed" ? "resolution: completed\nclosed: 2026-10-21\n" : "";
+  fixture.commit(SOURCE, { [`docs/trackers/items/${id}.md`]: `---\nschema: bridlewise-tracker-item/v1\nid: ${id}\ntype: ${type}\ntitle: The ${id.toLowerCase()} record\nstate: ${state}\n${closed}lane: floor\nopened: 2026-10-20\n---\n\nWhat ${id} tracks.\n` }, `${id} ${state}`);
+}
+
 function refusedWith(code: string, run: () => unknown): void {
   assert.throws(run, (error: unknown) => error instanceof PromotionError && error.promotionCode === code);
 }
@@ -80,8 +87,8 @@ test("the train: a product with no Projected-From is never released; a projectio
   const released = plan(fixture, { now: new Date(at + 5 * HOUR), releases: records });
   assert.ok(released.previous !== null && released.previous.tag === "v1.0.0" && released.previous.source === fixture.tip(SOURCE));
   assert.deepEqual([released.lastPublishedAt, released.hoursSincePrevious], ["2026-10-20T12:00:00.000Z", 5], "the interval runs from the release record's own published_at; a draft is no publication");
-  assert.deepEqual(released.reasons, ["version_released", "product_unchanged", "interval"], "5 hours after a release, a 24-hour interval waits");
-  assert.deepEqual(plan(fixture, { now: new Date(at + 5 * HOUR), releases: null }).reasons, ["version_released", "product_unchanged", "releases_unread"], "records not read: the interval is unmeasured, never \"due\"");
+  assert.deepEqual(released.reasons, ["version_released", "product_unchanged", "no_record_closed", "interval"], "5 hours after a release, a 24-hour interval waits");
+  assert.deepEqual(plan(fixture, { now: new Date(at + 5 * HOUR), releases: null }).reasons, ["version_released", "product_unchanged", "no_record_closed", "releases_unread"], "records not read: the interval is unmeasured, never \"due\"");
   const later = new Date(at + 48 * HOUR);
   for (const [records, why] of [
     [[], "an empty list"],
@@ -91,8 +98,9 @@ test("the train: a product with no Projected-From is never released; a projectio
     const waiting = plan(fixture, { now: later, releases: records });
     assert.ok(waiting.reasons.includes("releases_unread") && waiting.hoursSincePrevious === null, `${why}: no published record of v1.0.0, so the interval is unmeasured and nothing departs`);
   }
-  assert.deepEqual(plan(fixture, { now: new Date(at + HOUR), releases: records }).reasons, ["version_released", "product_unchanged", "interval"]);
+  assert.deepEqual(plan(fixture, { now: new Date(at + HOUR), releases: records }).reasons, ["version_released", "product_unchanged", "no_record_closed", "interval"]);
 
+  record(fixture, "SHIP-THE-THING", "closed");
   project(fixture, { "assets/notes.txt": "a product change\n" });
   assert.deepEqual(plan(fixture, { now: new Date(at + 48 * HOUR), releases: records }).reasons, ["version_released"], "a changed product with the same declared version waits for the next version");
 
@@ -162,7 +170,7 @@ test("the notes: landed pull requests, decision records and credited names betwe
   assert.deepEqual(decisionChanges(fixture.repository, from, next.product.source), [{ status: "added", path: "docs/decisions/D-90-a-decision.md", title: "Decide the thing" }]);
   assert.deepEqual(creditedPeople(fixture.repository, from, next.product.source), ["@octo-cat", "Ada Writer", "Bo Pair", "Cy Third", "Dee Plain", "Paren Name"], "a name, or a private address's login; a bare address credits nobody");
   const notes = renderReleaseNotes(fixture.repository, next, SETTINGS, "https://forge.example/owner/name");
-  for (const expected of ["- Add a decision (#8)", "- Ship the topic (#9)", "added: [Decide the thing]", "@octo-cat, Ada Writer, Bo Pair, Cy Third, Dee Plain, Paren Name", "gh release verify v1.1.0 --repo owner/name", "compare/v1.0.0...v1.1.0"]) assert.ok(notes.includes(expected), `${expected}\n${notes}`);
+  for (const expected of ["- Add a decision (#8)", "- Ship the topic (#9)", "added: [Decide the thing]", "@octo\\-cat, Ada Writer, Bo Pair, Cy Third, Dee Plain, Paren Name", "gh release verify v1.1.0 --repo owner/name", "compare/v1.0.0...v1.1.0"]) assert.ok(notes.includes(expected), `${expected}\n${notes}`);
   assert.doesNotMatch(notes, /@[A-Za-z0-9.-]+\.[a-z]{2,}|noreply/u, "no address is published, in any form a trailer can take");
   assert.equal(renderReleaseNotes(fixture.repository, next, SETTINGS, "https://forge.example/owner/name"), notes, "the same plan gives the same notes");
 });
@@ -184,6 +192,42 @@ test("a product seeded with earlier previews: their tags are previous releases, 
   refusedWith("promotion_release_version_invalid", () => plan(fixture));
 });
 
+test("a public record must have closed since the last release: open, reopened and earlier closures do not count; the notes list what closed", () => {
+  const fixture = promotionFixture("release-records");
+  record(fixture, "EARLIER", "closed");
+  record(fixture, "STILL-OPEN", "open");
+  const first = project(fixture, { "package.json": manifest(fixture, "1.0.0") });
+  const opening = plan(fixture);
+  assert.deepEqual([opening.due, opening.closedRecords], [true, null], "the first projected release has no range to read closures from");
+  releaseTag(fixture, "v1.0.0", first);
+  const records = [published("v1.0.0", Date.parse("2026-10-01T00:00:00Z"))];
+  record(fixture, "BOUNCED", "closed");
+  record(fixture, "BOUNCED", "open");
+  project(fixture, { "package.json": manifest(fixture, "1.1.0") });
+  const waiting = plan(fixture, { releases: records });
+  assert.deepEqual([waiting.reasons, waiting.closedRecords], [["no_record_closed"], []], "an item closed before the release, one still open, and one closed then reopened: none closed since");
+  record(fixture, "STILL-OPEN", "closed");
+  record(fixture, "A-FLAKE", "closed", "Flake");
+  project(fixture, { "assets/next.txt": "next\n" });
+  const due = plan(fixture, { releases: records });
+  assert.deepEqual([due.due, due.closedRecords?.map((entry) => entry.id)], [true, ["A-FLAKE", "STILL-OPEN"]]);
+  const notes = renderReleaseNotes(fixture.repository, due, SETTINGS, "https://forge.example/owner/name");
+  assert.ok(notes.includes("## Closed\n\n- Flake: The a\\-flake record (`A-FLAKE`)\n- Task: The still\\-open record (`STILL-OPEN`)\n"), notes);
+});
+
+test("every text a record carries reaches the notes through the markup owner: a planted title, pull request title and name cannot inject Markdown or HTML", () => {
+  const fixture = promotionFixture("release-markup");
+  const first = project(fixture, { "package.json": manifest(fixture, "1.0.0") });
+  releaseTag(fixture, "v1.0.0", first);
+  const evil = "<script>alert(1)</script> [x](javascript:alert(1)) _b_";
+  fixture.commit(SOURCE, { "docs/trackers/items/EVIL.md": `---\nschema: bridlewise-tracker-item/v1\nid: EVIL\ntype: Task\ntitle: ${evil}\nstate: closed\nresolution: completed\nlane: floor\nopened: 2026-10-20\nclosed: 2026-10-21\n---\n\nA planted title.\n` }, `${evil} **bold** (#7)\n\nSigned-off-by: <img src=x onerror=alert(1)> Name`);
+  project(fixture, { "package.json": manifest(fixture, "1.1.0") });
+  const notes = renderReleaseNotes(fixture.repository, plan(fixture, { releases: [published("v1.0.0", Date.now() - 48 * HOUR)] }), SETTINGS, "https://forge.example/owner/name");
+  for (const raw of ["<script>", "](javascript", "_b_", "**bold**", "<img"]) assert.ok(!notes.includes(raw), `${raw} reached the notes raw:\n${notes}`);
+  assert.ok(notes.includes(`- Task: ${escapeMarkdownText(evil)} (\`EVIL\`)`), `the closed record's title went through the owner:\n${notes}`);
+  assert.ok(notes.includes(`- ${escapeMarkdownText(`${evil} **bold**`)} (#7)`), `the pull request title went through the owner:\n${notes}`);
+});
+
 test("a lightweight release tag on the product's line is refused, whatever its age; one on a main commit is no release", () => {
   const fixture = promotionFixture("release-lightweight");
   const first = project(fixture, { "package.json": manifest(fixture, "1.0.0") });
@@ -193,7 +237,7 @@ test("a lightweight release tag on the product's line is refused, whatever its a
   refusedWith("promotion_release_tag_lightweight", () => plan(fixture, { releases: [published("v1.0.0", Date.now() - 2 * HOUR)] }));
   fixture.git(["tag", "-d", "v1.0.0"]);
   releaseTag(fixture, "v1.0.0", first);
-  assert.deepEqual(plan(fixture, { releases: [published("v1.0.0", Date.now() - 2 * HOUR)] }).reasons, ["version_released", "product_unchanged", "interval"], "the same release, tagged annotated, is read, and its record's time keeps the interval");
+  assert.deepEqual(plan(fixture, { releases: [published("v1.0.0", Date.now() - 2 * HOUR)] }).reasons, ["version_released", "product_unchanged", "no_record_closed", "interval"], "the same release, tagged annotated, is read, and its record's time keeps the interval");
 });
 
 test("the release records file: one forge record per line, any other shape refused", () => {
