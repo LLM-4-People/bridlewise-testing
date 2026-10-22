@@ -97,16 +97,22 @@ const ENTRY_SCHEMA = z.strictObject({
   evidenceLinks: z.array(NONEMPTY_STRING),
   blocksFullRepositoryClaim: z.boolean(),
 });
-const MANIFEST_SCHEMA = z.strictObject({
+/**
+ * The manifest AS COMMITTED: the dispositions and their policy pin, no
+ * aggregate hash (#221). A stored `integrityHash` was one line every branch
+ * that added a test rewrote, so any two such branches conflicted; the
+ * identity is computed from the entries where it is needed.
+ */
+const MANIFEST_FILE_SCHEMA = z.strictObject({
   schemaVersion: z.literal(DISCOVERY.dispositionRegistry.schemaVersion),
   role: z.literal("complete-recognizable-test-surface-disposition"),
   policyHash: z.string().regex(/^[0-9a-f]{64}$/u),
   entries: z.array(ENTRY_SCHEMA),
-  integrityHash: z.string().regex(/^[0-9a-f]{64}$/u),
 });
 
 export type TestSurfaceDispositionEntry = Readonly<z.infer<typeof ENTRY_SCHEMA>>;
-export type TestSurfaceDispositionManifest = Readonly<z.infer<typeof MANIFEST_SCHEMA>>;
+/** The manifest in memory: the committed fields, and `integrityHash`, its identity computed from them. */
+export type TestSurfaceDispositionManifest = Readonly<z.infer<typeof MANIFEST_FILE_SCHEMA> & { integrityHash: string }>;
 
 export function isQualifiedCanonicalNodeTestSource(path: string): boolean {
   return QUALIFIED_TEST_SOURCE_MATCHERS.some((matcher) => matcher.test(path));
@@ -179,29 +185,21 @@ export function createTestSurfaceDispositionManifest(
     policyHash: testSurfacePolicyHash(),
     entries: [...entries].toSorted((left, right) => compareUtf8Bytes(left.path, right.path)),
   } as const;
-  return parseTestSurfaceDispositionManifest({
-    ...unsigned,
-    integrityHash: canonicalHash(unsigned),
-  });
+  return parseTestSurfaceDispositionManifest(unsigned);
 }
 
 /**
- * The manifest's shape WITHOUT its signature — the only form a re-signing
- * caller may read.
+ * The shape the one writer READS before it rewrites: the committed fields,
+ * and a stored `integrityHash` from before #221, which the rewrite drops.
  */
-const UNSIGNED_MANIFEST_SCHEMA = z.strictObject({
-  schemaVersion: z.literal(DISCOVERY.dispositionRegistry.schemaVersion),
-  role: z.literal("complete-recognizable-test-surface-disposition"),
-  policyHash: z.string().regex(/^[0-9a-f]{64}$/u),
-  entries: z.array(ENTRY_SCHEMA),
-  integrityHash: z.string().regex(/^[0-9a-f]{64}$/u),
-});
+const REWRITE_INPUT_SCHEMA = MANIFEST_FILE_SCHEMA.extend({ integrityHash: z.string().regex(/^[0-9a-f]{64}$/u).optional() });
 
-/** The manifest as bytes, in the one format every writer of it produces. */
+/** The manifest as bytes, in the one format every writer of it produces (the committed fields; no aggregate hash). */
 export function serializeTestSurfaceDispositionManifest(
   manifest: TestSurfaceDispositionManifest,
 ): string {
-  return `${JSON.stringify(manifest, null, 2)}\n`;
+  const { integrityHash: _identity, ...committed } = manifest;
+  return `${JSON.stringify(committed, null, 2)}\n`;
 }
 
 /**
@@ -244,7 +242,7 @@ export function resignTestSurfaceDispositionManifest(text: string): Readonly<{
     "Test-surface disposition manifest contains a duplicate key",
     "test_surface_disposition_key_duplicate",
   );
-  const parsed = UNSIGNED_MANIFEST_SCHEMA.parse(JSON.parse(text) as unknown);
+  const parsed = REWRITE_INPUT_SCHEMA.parse(JSON.parse(text) as unknown);
   const currentPolicyHash = testSurfacePolicyHash();
   // A STALE POLICY REFUSES: the dispositions were made under rules that no
   // longer apply (the conservation pins are not part of it: see
@@ -260,15 +258,19 @@ export function resignTestSurfaceDispositionManifest(text: string): Readonly<{
   }
   for (const entry of parsed.entries) assertDispositionSemantics(entry);
   const resigned = createTestSurfaceDispositionManifest(parsed.entries);
+  const rewritten = serializeTestSurfaceDispositionManifest(resigned);
   return deepFreeze({
-    status: resigned.integrityHash === parsed.integrityHash ? "current" : "regenerated",
+    status: rewritten === text ? "current" : "regenerated",
     integrityHash: resigned.integrityHash,
-    text: serializeTestSurfaceDispositionManifest(resigned),
+    text: rewritten,
   });
 }
 
 export function parseTestSurfaceDispositionManifest(value: unknown): TestSurfaceDispositionManifest {
-  const parsed = MANIFEST_SCHEMA.parse(value);
+  // An in-memory manifest carries its computed identity; a value that claims one must match its entries.
+  const claimed = typeof value === "object" && value !== null && "integrityHash" in value ? (value as { integrityHash: unknown }).integrityHash : undefined;
+  const { integrityHash: _claimed, ...fields } = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
+  const parsed = MANIFEST_FILE_SCHEMA.parse(typeof value === "object" && value !== null ? fields : value);
   if (parsed.policyHash !== testSurfacePolicyHash()) {
     throw new HarnessError(
       "test-surface disposition manifest policyHash is stale relative to current discovery policy",
@@ -277,13 +279,13 @@ export function parseTestSurfaceDispositionManifest(value: unknown): TestSurface
       { manifestPolicyHash: parsed.policyHash, currentPolicyHash: testSurfacePolicyHash() },
     );
   }
-  const { integrityHash, ...unsigned } = parsed;
-  if (canonicalHash(unsigned) !== integrityHash) {
+  // A claimed identity is judged after the policy: a stale policy is the cause to name.
+  if (claimed !== undefined && claimed !== canonicalHash(parsed)) {
     throw new HarnessError(
       "test-surface disposition manifest integrity is invalid",
       "test_surface_disposition_integrity_invalid",
       false,
-      { declared: integrityHash, recomputed: canonicalHash(unsigned) },
+      { declared: String(claimed), recomputed: canonicalHash(parsed) },
     );
   }
   const sorted = [...parsed.entries].toSorted((left, right) => compareUtf8Bytes(left.path, right.path));
@@ -297,7 +299,7 @@ export function parseTestSurfaceDispositionManifest(value: unknown): TestSurface
     );
   }
   for (const entry of parsed.entries) assertDispositionSemantics(entry);
-  return deepFreeze(parsed) as TestSurfaceDispositionManifest;
+  return deepFreeze({ ...parsed, integrityHash: canonicalHash(parsed) }) as TestSurfaceDispositionManifest;
 }
 
 function assertDispositionSemantics(entry: TestSurfaceDispositionEntry): void {

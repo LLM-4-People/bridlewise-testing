@@ -72,15 +72,14 @@ test("the live manifest round-trips through the owner byte-for-byte", () => {
   assert.ok(manifest.entries.length > 100, `entries: ${manifest.entries.length}`);
 });
 
-test("a stale SIGNATURE heals, and heals to what the one writer would have written", () => {
+test("a stored aggregate hash (the format before #221) heals away, to what the one writer would have written", () => {
   const manifest = parseTestSurfaceDispositionManifestText(liveManifestText());
-  // The plant: a signature that is valid in shape and wrong in value, which is
-  // exactly what a hand edit to an entry leaves behind.
-  const damaged = serializeTestSurfaceDispositionManifest({
-    ...manifest,
-    integrityHash: "0".repeat(64),
-  });
+  // The plant: the committed fields plus a stored `integrityHash`, the one line every branch that added a test
+  // rewrote. The one writer stores no aggregate hash, so the heal drops it.
+  const { integrityHash: _identity, ...committed } = manifest;
+  const damaged = `${JSON.stringify({ ...committed, integrityHash: "0".repeat(64) }, null, 2)}\n`;
   assert.notEqual(damaged, liveManifestText());
+  assert.doesNotMatch(liveManifestText(), /"integrityHash"/u, "the committed manifest carries no aggregate hash");
 
   const healed = resignTestSurfaceDispositionManifest(damaged);
   assert.equal(healed.status, "regenerated");
