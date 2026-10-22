@@ -15,10 +15,11 @@ import { InputError } from "../../kernel/errors.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { isForgeError } from "../forge/codes.ts";
 import type { ForgeClient } from "../forge/port.ts";
+import { DOOR_CHECK } from "../gates/main-integrity.ts";
 
 export type Repository = Readonly<{ owner: string; name: string }>;
 
-export const DOOR_CHECK_NAME = "bridlewise/door";
+export const DOOR_CHECK_NAME = DOOR_CHECK.name;
 
 function refuse(what: string): never {
   throw new InputError(`GitHub answered an unexpected shape: ${what}`, "door_github_answer_invalid");

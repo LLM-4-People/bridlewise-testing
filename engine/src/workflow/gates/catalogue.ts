@@ -107,6 +107,16 @@ export const ACTION_PINS = deepFreeze({
 
 export type ActionName = keyof typeof ACTION_PINS;
 
+/**
+ * WHETHER THE DOOR IS THE GATE YET (runbook P3.7, the flip). Until the door
+ * App exists and the trunk ruleset requires `bridlewise/door`, no `main`
+ * commit carries the door's check, so the post-land seal
+ * (`main-integrity.ts`) would fail every land for a reason that is a stage of
+ * the migration, not a bypass. The coordinator flips this line with the
+ * ruleset; from then on `ci.yml` seals every `main` commit.
+ */
+export const DOOR_ENFORCED = false;
+
 /** The runner every gate job uses (four vCPU; free and unlimited on a public repository). */
 export const GATE_RUNNER: RunnerClass = "ubuntu-24.04";
 /**

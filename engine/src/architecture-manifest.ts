@@ -5567,13 +5567,13 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-gates-catalogue", path: "src/workflow/gates/catalogue.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 22, namesSha256: "2afddf44280a26c02c6f414658aa8a19ac33643546ab1c48fb746f59ca806388" },
+      owner: "verification-workflow", publicApi: { exportCount: 23, namesSha256: "50d1475d0c710ff115169fe3e4e6a6781907b2c9a00a8339d470c177ed4705b1" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-gates-cli", path: "src/workflow/gates/gates-cli.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "7a628d6e7b7bb87babef94f74a83c0eeea8a3aa5d967299978b0b2d75dcea726" },
-      dependencies: ["guardian/build.ts","node:fs","node:path","node:util","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/tree-identity.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/github.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/cell-run.ts","src/workflow/gates/key.ts","src/workflow/gates/plan.ts","src/workflow/gates/populations.ts","src/workflow/gates/reuse.ts","src/workflow/gates/seal.ts"],
+      dependencies: ["guardian/build.ts","node:fs","node:path","node:util","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/tree-identity.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/github.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/cell-run.ts","src/workflow/gates/key.ts","src/workflow/gates/main-integrity.ts","src/workflow/gates/plan.ts","src/workflow/gates/populations.ts","src/workflow/gates/reuse.ts","src/workflow/gates/seal.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-plan", path: "src/workflow/gates/plan.ts", realm: "runtime", layer: "infrastructure",
@@ -5703,7 +5703,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-door-door-github", path: "src/workflow/door/door-github.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 26, namesSha256: "21fdfcd4def3ea84a2c440c4cf802e3e2f946038f6d07b13ee09cf49f1462323" },
-      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/forge/codes.ts"],
+      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/forge/codes.ts","src/workflow/gates/main-integrity.ts"],
     }),
     moduleContract({
       id: "src-workflow-door-judge", path: "src/workflow/door/judge.ts", realm: "runtime", layer: "infrastructure",
@@ -5739,6 +5739,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-workflow-gates-reuse", path: "src/workflow/gates/reuse.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 11, namesSha256: "7dec4cf6270cd7f12e70c75003ece2c162bd9c3a002efa38ced06032d926c748" },
       dependencies: ["src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/gates/catalogue.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-gates-main-integrity", path: "src/workflow/gates/main-integrity.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "58d90f880aeb3def9e0c95efbae8552991dc33ba220ff36a729483acacd44775" },
+      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/forge/app-registry.ts","src/workflow/gates/reuse.ts"],
     }),
   ],
 });
