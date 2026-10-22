@@ -18,7 +18,7 @@ page_class: home
     <a class="button primary" href="{{ '/quickstart/' | relative_url }}">Start with a disposable copy</a>
     <a class="button" href="{{ '/floor/claims/' | relative_url }}">Check every claim</a>
     <a class="button" href="{{ '/floor/roadmap/' | relative_url }}">Read the roadmap</a>
-    <a class="button" href="https://github.com/LLM-4-People/bridlewise-testing">Read the source</a>
+    <a class="button" href="{{ site.repository_url }}">Read the source</a>
   </div>
   <p class="hero-note">Developer preview. Not production-ready, not audited, not for sensitive code.</p>
 <!-- END GENERATED: the site's front door -->

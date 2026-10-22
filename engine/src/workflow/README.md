@@ -270,7 +270,7 @@ The folder lives at `engine/src/workflow/`.
 - `harness-commands.ts` is consumed by `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/cli.ts`.
 - `hash-binding-registry.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/shared/tree-identity.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/context.ts` and 4 more.
 - `markdown-links.ts` is consumed by `engine/src/workflow/failure-owners.ts`.
-- `messaging.ts` is consumed by `engine/scripts/brand/cli.ts`, `engine/scripts/brand/render.ts`.
+- `messaging.ts` is consumed by `engine/scripts/brand/words.ts`.
 - `module-contract-blocks.ts` is consumed by `engine/src/workflow/module-registrar.ts`.
 - `module-registrar.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
 - `reachability.ts` is consumed by `engine/src/workflow/promotion/projection.ts`, `engine/src/workflow/promotion/transforms.ts`.

@@ -1,6 +1,6 @@
 /**
  * THE MESSAGING SOURCE — the project's public words and identity in one file
- * (`docs/brand/messaging.json`): the name, the addresses, the promise, the
+ * (`docs/brand/messaging.json`): the name, the promise, the
  * summary, what this repository is, the honest status line, the licence, the
  * repository description and topics, and the name's own story (the
  * dictionary entry). Every generated surface reads it: the README's and the
@@ -8,8 +8,9 @@
  * check`), the org profile, the repository metadata (description, homepage
  * and topics, for the forge's repository settings), the release-note header,
  * the claims page, the roadmap and (through DESIGN's renderers) the social
- * images. None restates a word of it. Renaming the repository or moving the
- * site is a one-line change here.
+ * images. None restates a word of it. The addresses are not words: the
+ * repository's and the site's come from `package.json` `repository.url`,
+ * their one declaration (scripts/floor/repository.mjs).
  *
  * It lives in the runtime layer so the forge's settings declarations read the
  * same reader the builder-layer renderers (engine/scripts/brand/) read.
@@ -28,10 +29,6 @@ const TOPIC = /^[a-z0-9][a-z0-9-]{0,49}$/u;
 
 export type Messaging = Readonly<{
   name: string;
-  /** `https://github.com/<owner>/<repository>`, no trailing slash. */
-  repositoryUrl: string;
-  /** The site's root, with a trailing slash. */
-  siteUrl: string;
   /** The one-line promise (concept A): what every surface leads with. */
   promise: string;
   /** Two sentences: what it is, and what makes it different. */
@@ -57,12 +54,11 @@ export function messagingViolations(document: unknown): readonly string[] {
   if (typeof document !== "object" || document === null || Array.isArray(document)) return ["the source is not a JSON object"];
   const record = document as Record<string, unknown>;
   const problems: string[] = [];
-  const known = ["schema", "repositoryUrl", "siteUrl", "topics", "about", ...TEXT_FIELDS];
+  // The repository's and the site's addresses are not words: package.json repository.url is their one declaration.
+  const known = ["schema", "topics", "about", ...TEXT_FIELDS];
   for (const key of Object.keys(record)) if (!known.includes(key)) problems.push(`${key} is not a field of the messaging source`);
   if (record.schema !== MESSAGING_SCHEMA) problems.push(`schema must be ${MESSAGING_SCHEMA}`);
   for (const field of TEXT_FIELDS) if (typeof record[field] !== "string" || (record[field] as string).trim().length === 0) problems.push(`${field} is required`);
-  if (typeof record.repositoryUrl !== "string" || !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/u.test(record.repositoryUrl)) problems.push("repositoryUrl must be https://github.com/<owner>/<repository> with no trailing slash");
-  if (typeof record.siteUrl !== "string" || !/^https:\/\/\S+\/$/u.test(record.siteUrl)) problems.push("siteUrl must be an https URL ending in /");
   if (typeof record.description === "string" && record.description.length > DESCRIPTION_MAX) problems.push(`description is ${record.description.length} characters; GitHub allows ${DESCRIPTION_MAX}`);
   if (typeof record.status === "string" && !/developer preview/iu.test(record.status)) problems.push("status must say it is a developer preview");
   if (typeof record.description === "string" && !/developer preview/iu.test(record.description)) problems.push("description must say it is a developer preview");

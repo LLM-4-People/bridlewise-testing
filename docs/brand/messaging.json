@@ -1,8 +1,6 @@
 {
   "schema": "bridlewise-messaging/v1",
   "name": "Bridlewise",
-  "repositoryUrl": "https://github.com/LLM-4-People/bridlewise-testing",
-  "siteUrl": "https://llm-4-people.github.io/bridlewise-testing/",
   "promise": "Every claim comes with a receipt.",
   "summary": "Bridlewise is a free, open-source, local-first cockpit for AI coding runs. Every claim it makes about itself links to the check that backs it, and a claim whose check fails is struck out automatically.",
   "repository": "This repository is the development floor: the source of Bridlewise together with every test, prevention guard, benchmark and decision record. The product repository is projected from it.",

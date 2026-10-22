@@ -7,7 +7,8 @@
  *       the README block, the org profile and the repository metadata from
  *       these; the release train prepends the release header.
  *   node scripts/brand/cli.ts build --site <assembled site> --checks <status.json>
- *       The claims page (`<site>/floor/claims/index.md`), every claim judged
+ *       The claims page's body (into `<site>/floor/claims.md`, the shell the site
+ *       assembles from docs/floor/claims.md), every claim judged
  *       at the snapshot's commit; run by the Pages build after the floor data.
  *   node scripts/brand/cli.ts sync --write|--check
  *       THE HARNESS ARM (`harness sync` writes, `harness check` judges): both
@@ -28,8 +29,8 @@ import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { decisionStates, readClaims } from "./claims.ts";
-import { readMessaging } from "../../src/workflow/messaging.ts";
-import { claimsSitePage, FRONT_DOORS, judgeClaims, orgProfile, readmeHero, releaseHeader, repositoryMetadata, type CheckResult } from "./render.ts";
+import { readWords } from "./words.ts";
+import { claimsPage, CLAIMS_PAGE_BLOCK, FRONT_DOORS, judgeClaims, orgProfile, readmeHero, releaseHeader, repositoryMetadata, type CheckResult } from "./render.ts";
 
 const REPOSITORY_ROOT = dirname(fileURLToPath(new URL("../../", import.meta.url)));
 const SURFACES = ["readme-hero", "org-profile", "repo-metadata", "release-header"] as const;
@@ -51,7 +52,7 @@ export function readStatus(path: string): Readonly<{ commit: string; checks: rea
 
 /** One surface's text, rendered from this repository's sources. */
 export function renderSurface(root: string, surface: typeof SURFACES[number]): string {
-  const messaging = readMessaging(root);
+  const messaging = readWords(root);
   const claims = readClaims(root);
   switch (surface) {
     case "readme-hero": return `${readmeHero(messaging, claims, decisionStates(root))}\n`;
@@ -77,7 +78,7 @@ export function syncFrontDoors(root: string, write: boolean): SyncReport {
   const rendered: { path: string; next: string; current: string }[] = [];
   const missing: string[] = [];
   try {
-    const messaging = readMessaging(root);
+    const messaging = readWords(root);
     const claims = readClaims(root);
     const decisions = decisionStates(root);
     for (const path of [...new Set(FRONT_DOORS.map((door) => door.path))]) {
@@ -123,7 +124,12 @@ function run(argv: readonly string[]): number {
     if (values.site === undefined || values.checks === undefined) throw new InputError("brand build needs --site and --checks", "input_error");
     const status = readStatus(values.checks);
     const judged = judgeClaims(readClaims(REPOSITORY_ROOT), status.checks, status.commit);
-    writeFile(join(values.site, "floor", "claims", "index.md"), claimsSitePage(readMessaging(REPOSITORY_ROOT), judged, status.commit, decisionStates(REPOSITORY_ROOT)));
+    // The page is the site's own (docs/floor/claims.md, assembled into the site); its block is the judged claims.
+    const page = join(values.site, "floor", "claims.md");
+    const shell = readFileSync(page, "utf8");
+    const filled = withFrontBlock(shell, CLAIMS_PAGE_BLOCK.begin, CLAIMS_PAGE_BLOCK.end, claimsPage(readWords(REPOSITORY_ROOT), judged, status.commit, decisionStates(REPOSITORY_ROOT)));
+    if (filled === null) throw new InputError(`${page} carries no single claims block between its markers`, "claims_page_shell_invalid");
+    writeFile(page, filled);
     process.stdout.write(`${JSON.stringify({ commit: status.commit, claims: judged.length, retracted: judged.filter((j) => j.verdict === "retracted").map((j) => j.claim.id) })}\n`);
     return 0;
   }

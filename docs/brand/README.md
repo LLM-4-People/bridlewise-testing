@@ -8,10 +8,12 @@ The project's public words, in two sources that every generated surface reads.
 
 ## What each file does
 
-- `messaging.json` holds the name, the repository and site addresses, the
+- `messaging.json` holds the name, the
   promise, the summary, what this repository is, the developer-preview status line, the licence, the
   repository description and topics, and the name's own story (a cited
   dictionary entry). Its format is checked by `engine/src/workflow/messaging.ts`.
+  The repository's and the site's addresses are not in it: `package.json`
+  `repository.url` declares them once.
 - `claims.json` is the claims register. Every public claim belongs to one of
   three kinds:
   - a claim that holds while its checks pass;
@@ -34,5 +36,5 @@ these two files:
 - the release-note header;
 - the claims page.
 
-The roadmap renderer reads the addresses. Edit these two files, never a
+Edit these two files, never a
 rendered surface.

@@ -19,7 +19,7 @@
  */
 import { escapeHtml } from "../../../shared/markup.ts";
 import type { Claim, DecisionState } from "./claims.ts";
-import type { Messaging } from "../../src/workflow/messaging.ts";
+import type { Words } from "./words.ts";
 
 /** One check as the floor's status snapshot (`bridlewise-floor-status/v1`) reports it. */
 export type CheckResult = Readonly<{ id: string; status: string; headSha: string | null; runUrl: string | null }>;
@@ -53,10 +53,12 @@ export function judgeClaims(claims: readonly Claim[], checks: readonly CheckResu
 const h = escapeHtml;
 const code = (text: string): string => ["`", text, "`"].join("");
 const md = (text: string): string => text.replace(/([\\`*_[\]|<>])/gu, "\\$1");
-const blob = (m: Messaging, path: string): string => (path.startsWith("https://") ? path : `${m.repositoryUrl}/blob/main/${path}`);
+/** A repository file as a page the site serves links it: through `site.repository_url`, never a spelled address. */
+const siteBlob = (path: string): string => (path.startsWith("https://") ? path : `{{ site.repository_url }}/blob/main/${path}`);
+const blob = (m: Words, path: string): string => (path.startsWith("https://") ? path : `${m.repositoryUrl}/blob/main/${path}`);
 
 /** The README's front block: the promise, the summary, the preview warning, and the claims with their proof. */
-export function readmeHero(m: Messaging, claims: readonly Claim[], decisions: ReadonlyMap<string, DecisionState>): string {
+export function readmeHero(m: Words, claims: readonly Claim[], decisions: ReadonlyMap<string, DecisionState>): string {
   const holds = claims.filter((c) => c.kind === "holds-when-green");
   const designed = claims.filter((c) => c.kind === "designed");
   const not = claims.filter((c) => c.kind === "not-claimed");
@@ -85,7 +87,7 @@ export function readmeHero(m: Messaging, claims: readonly Claim[], decisions: Re
 }
 
 /** The org profile: who we are, the honest status, where to look, and the name's own story. */
-export function orgProfile(m: Messaging, claims: readonly Claim[]): string {
+export function orgProfile(m: Words, claims: readonly Claim[]): string {
   const holds = claims.filter((c) => c.kind === "holds-when-green").length;
   const designed = claims.filter((c) => c.kind === "designed").length;
   return [
@@ -105,12 +107,12 @@ export function orgProfile(m: Messaging, claims: readonly Claim[]): string {
 
 /** The repository's metadata as GitHub takes it. */
 /** The README's front block (written by `harness sync` between {@link FRONT_DOORS}' README markers): the name, then the hero. */
-export function readmeFront(m: Messaging, claims: readonly Claim[], decisions: ReadonlyMap<string, DecisionState>): string {
+export function readmeFront(m: Words, claims: readonly Claim[], decisions: ReadonlyMap<string, DecisionState>): string {
   return [`# ${md(m.name)}`, "", readmeHero(m, claims, decisions)].join("\n");
 }
 
 /** The site home's hero text (written by `harness sync` between {@link FRONT_DOORS}' site markers, inside the page's hero section), in the site's own components. */
-export function siteFront(m: Messaging): string {
+export function siteFront(m: Words): string {
   return [
     `  <p class="eyebrow">${h(m.name)} <span class="dot" aria-hidden="true"></span> ${h(m.license)} <span class="dot" aria-hidden="true"></span> Developer preview</p>`,
     `  <h1>${h(m.promise)}</h1>`,
@@ -120,7 +122,7 @@ export function siteFront(m: Messaging): string {
     `    <a class="button primary" href="{{ '/quickstart/' | relative_url }}">Start with a disposable copy</a>`,
     `    <a class="button" href="{{ '/floor/claims/' | relative_url }}">Check every claim</a>`,
     `    <a class="button" href="{{ '/floor/roadmap/' | relative_url }}">Read the roadmap</a>`,
-    `    <a class="button" href="${h(m.repositoryUrl)}">Read the source</a>`,
+    `    <a class="button" href="{{ site.repository_url }}">Read the source</a>`,
     `  </div>`,
     `  <p class="hero-note">${h(m.status)}</p>`,
   ].join("\n");
@@ -131,7 +133,7 @@ export function siteFront(m: Messaging): string {
  * sources by `harness sync` (`cli.ts sync`) and judged by `harness check`.
  * The text around a block is hand-written; the block is never edited by hand.
  */
-export const FRONT_DOORS: readonly Readonly<{ path: string; begin: string; end: string; render: (m: Messaging, claims: readonly Claim[], decisions: ReadonlyMap<string, DecisionState>) => string }>[] = [
+export const FRONT_DOORS: readonly Readonly<{ path: string; begin: string; end: string; render: (m: Words, claims: readonly Claim[], decisions: ReadonlyMap<string, DecisionState>) => string }>[] = [
   {
     path: "README.md",
     begin: "<!-- BEGIN GENERATED: the front door, from docs/brand/ (harness sync; engine/scripts/brand/cli.ts) -->",
@@ -152,12 +154,12 @@ export const FRONT_DOORS: readonly Readonly<{ path: string; begin: string; end: 
   },
 ];
 
-export function repositoryMetadata(m: Messaging): Readonly<{ description: string; homepage: string; topics: readonly string[] }> {
+export function repositoryMetadata(m: Words): Readonly<{ description: string; homepage: string; topics: readonly string[] }> {
   return { description: m.description, homepage: m.siteUrl, topics: m.topics };
 }
 
 /** The header every release note opens with: the status line and where the evidence lives. */
-export function releaseHeader(m: Messaging): string {
+export function releaseHeader(m: Words): string {
   return [
     `> [!WARNING]`,
     `> **${md(m.status)}** Every release is a preview: the files are attached for inspection, not for deployment.`,
@@ -168,21 +170,21 @@ export function releaseHeader(m: Messaging): string {
 
 
 /** The claims page body (HTML for the one site layout): every claim judged at the published commit. */
-export function claimsPage(m: Messaging, judged: readonly JudgedClaim[], commit: string, decisions: ReadonlyMap<string, DecisionState>): string {
+export function claimsPage(m: Words, judged: readonly JudgedClaim[], commit: string, decisions: ReadonlyMap<string, DecisionState>): string {
   const words: Readonly<Record<JudgedClaim["verdict"], string>> = { holds: "holds", retracted: "retracted", unchecked: "not checked in this build", designed: "designed, not built", "not-claimed": "not claimed" };
   const row = (j: JudgedClaim): string => {
     const c = j.claim;
     const proof = c.kind === "holds-when-green"
-      ? `${j.checks.map((k) => `${k.runUrl === null ? h(k.id) : `<a href="${h(k.runUrl)}">${h(k.id)}</a>`} <span class="floor-state" data-status="${h(k.status)}">${h(k.status)}</span>`).join(" · ")}${c.evidence === null ? "" : ` · <a href="${h(blob(m, c.evidence))}">${h(c.evidence)}</a>`}`
+      ? `${j.checks.map((k) => `${k.runUrl === null ? h(k.id) : `<a href="${h(k.runUrl)}">${h(k.id)}</a>`} <span class="floor-state" data-status="${h(k.status)}">${h(k.status)}</span>`).join(" · ")}${c.evidence === null ? "" : ` · <a href="${h(siteBlob(c.evidence))}">${h(c.evidence)}</a>`}`
       : c.kind === "designed"
-        ? `decision <a href="${h(blob(m, decisions.get(c.decision)?.path ?? "docs/decisions/README.md"))}">${h(c.decision)}</a>: ${h(decisions.get(c.decision)?.implementation ?? "unknown")}`
-        : `${h(c.reason)}${c.evidence === null ? "" : ` <a href="${h(blob(m, c.evidence))}">Evidence</a>`}`;
+        ? `decision <a href="${h(siteBlob(decisions.get(c.decision)?.path ?? "docs/decisions/README.md"))}">${h(c.decision)}</a>: ${h(decisions.get(c.decision)?.implementation ?? "unknown")}`
+        : `${h(c.reason)}${c.evidence === null ? "" : ` <a href="${h(siteBlob(c.evidence))}">Evidence</a>`}`;
     return `<tr data-verdict="${j.verdict}"><td class="floor-claim">${h(c.text)}</td><td>${proof}</td><td><span class="floor-state" data-status="${j.verdict}">${h(words[j.verdict])}</span></td></tr>`;
   };
   const count = (v: JudgedClaim["verdict"]): number => judged.filter((j) => j.verdict === v).length;
   return [
     `<div class="floor-claims" data-commit="${h(commit)}">`,
-    `<p class="floor-lede">${h(m.promise)} Each claim below is judged at <a href="${h(`${m.repositoryUrl}/commit/${commit}`)}">main@${h(commit.slice(0, 8))}</a> from the checks that ran on that commit. A claim whose check is red, or did not run there, is struck out until it passes again. Claims we do not make are listed too.</p>`,
+    `<p class="floor-lede">${h(m.promise)} Each claim below is judged at <a href="${h(`{{ site.repository_url }}/commit/${commit}`)}">main@${h(commit.slice(0, 8))}</a> from the checks that ran on that commit. A claim whose check is red, or did not run there, is struck out until it passes again. Claims we do not make are listed too.</p>`,
     `<p class="floor-facts">${count("holds")} hold · ${count("retracted")} retracted · ${count("unchecked")} not checked · ${count("designed")} designed, not built · ${count("not-claimed")} not claimed</p>`,
     `<p class="floor-gap">${h(m.status)}</p>`,
     `<table class="floor-table floor-claims-table"><thead><tr><th scope="col">Claim</th><th scope="col">Proof you can rerun</th><th scope="col">Verdict</th></tr></thead><tbody>${judged.map(row).join("")}</tbody></table>`,
@@ -191,10 +193,12 @@ export function claimsPage(m: Messaging, judged: readonly JudgedClaim[], commit:
 }
 
 /** The claims page as a site page: front matter for the one layout, then the body. */
-export function claimsSitePage(m: Messaging, judged: readonly JudgedClaim[], commit: string, decisions: ReadonlyMap<string, DecisionState>): string {
-  return [
-    "---", "layout: default", "floor_assets: true", "page_class: claims", 'title: "Claims"',
-    `description: ${JSON.stringify(`${m.promise} Every claim Bridlewise makes, judged against the checks that ran on the published commit.`)}`,
-    "permalink: /floor/claims/", "---", "", "# Claims", "", claimsPage(m, judged, commit, decisions), "",
-  ].join("\n");
-}
+/**
+ * The claims page's shell (`docs/floor/claims.md`, a page the site builds):
+ * the site build writes the judged claims between these markers.
+ */
+export const CLAIMS_PAGE_BLOCK = Object.freeze({
+  path: "docs/floor/claims.md",
+  begin: "<!-- BEGIN GENERATED AT PUBLISH: the claims, judged at the published commit (engine/scripts/brand/cli.ts build) -->",
+  end: "<!-- END GENERATED AT PUBLISH: the claims -->",
+});

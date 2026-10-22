@@ -5696,18 +5696,23 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "scripts-brand-cli", path: "scripts/brand/cli.ts", realm: "builder", layer: "verification",
       owner: "verification", publicApi: { exportCount: 4, namesSha256: "a4382622910100c6264df7db7dbe4acf3915d022d9e7b60ade45204e2eec9904" },
-      dependencies: ["node:fs","node:path","node:url","node:util","scripts/brand/claims.ts","scripts/brand/render.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/runtime/cli-debug.ts","src/workflow/messaging.ts"],
+      dependencies: ["node:fs","node:path","node:url","node:util","scripts/brand/claims.ts","scripts/brand/render.ts","scripts/brand/words.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/runtime/cli-debug.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
     }),
     moduleContract({
       id: "scripts-brand-render", path: "scripts/brand/render.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 12, namesSha256: "ce5f3582b856c6fc78b2ddb34a848a3784763680e6edaae773e19f5257743618" },
+      owner: "verification", publicApi: { exportCount: 12, namesSha256: "c65b1e99f51a3795a95a3d5af434b429df357108b056b51be3f3a4a8f961c6d8" },
       dependencies: ["../shared/markup.ts"],
     }),
     moduleContract({
       id: "src-workflow-messaging", path: "src/workflow/messaging.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "32b7bd7e8765493e90694a228297d8b8c8e368f73062f64480868f50091db67f" },
       dependencies: ["node:fs","node:path","src/kernel/errors.ts"],
+    }),
+    moduleContract({
+      id: "scripts-brand-words", path: "scripts/brand/words.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 2, namesSha256: "bd1f8fbde6391c8e88510e876e33dbbd177eac65a3d2a7dc1ee97db13fe8546f" },
+      dependencies: ["../scripts/floor/repository.mjs","src/workflow/messaging.ts"],
     }),
   ],
 });
