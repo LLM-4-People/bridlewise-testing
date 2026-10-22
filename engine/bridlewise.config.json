@@ -773,7 +773,6 @@
     }
   },
   "harness": {
-    "typecheckTimeoutMs": 120000,
     "commandErroredRetries": 2,
     "commandRetryBackoffMs": 60000
   },
