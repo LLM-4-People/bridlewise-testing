@@ -15,6 +15,7 @@ The `engine/test/workflow/` folder of the development surface.
 - `gating-never-subtracts.test.ts` — a WITHHELD TEST IS A SKIPPED TEST, NEVER A SUBTRACTED ONE. This is the regression test for the largest hole the suite has had.
 - `harness-commands-cli-fixes.test.ts` — the `harness-commands-cli-fixes.test` module.
 - `harness-commands-timeouts.test.ts` — the `harness-commands-timeouts.test` module.
+- `community-health-files.test.ts` — the community sources' refusals (role table, intake registry), the one YAML emitter, and the generated health files and forms: `harness sync` writes them, `harness check` names a hand edit or a stale form, and this repository's own files are current.
 - `harness-commands.test.ts` — the `harness-commands.test` module.
 - `inventory-test-run.test.ts` — the `inventory-test-run.test` module.
 - `module-registrar-scan.test.ts` — the `module-registrar-scan.test` module.
@@ -29,6 +30,7 @@ The `engine/test/workflow/` folder of the development surface.
 - `test-inventory-binding.test.ts` — the `test-inventory-binding.test` module.
 - `test-result-collector-concurrency.test.ts` — the `test-result-collector-concurrency.test` module.
 - `test-result-collector.test.ts` — the `test-result-collector.test` module.
+- `tracker-items.test.ts` — the structured tracker: every way an item file breaks `bridlewise-tracker-item/v1` is refused and the whole set refused typed, link rebasing between the items folder and the board, the board's lane and Done order, check and sync on a scratch tree, and this repository's board equal to its items row for row.
 - `tree-landing.test.ts` — the tree landing's postconditions over a port whose answers the test chooses: a candidate that does not hold the computed tree, a commit recording another tree or other parents, a commit reaching missing objects (each refused, typed), a hook's refusal answered as `commit_refused` with its words, and a git step's failure typed by the phase runner (the machine's `git_errored` over both git doors, git's refusal `git_failed`; a commit the machine ended is never `commit_refused`) (the real flow is `promotion/apply.test.ts`'s).
 - `harness-prune.test.ts` — a deleted test is refused with its typed code (surviving a trailing runtime warning) and the exact `--prune` command; a named prune goes through, a present file cannot be pruned.
 - `working-copy.test.ts` — the working-copy builder (mirror, stage-all, staged, narrowed; canonical alternates, no store freshening, the git staging view, remotes), refresh (keeping authored paths) and differences, the checkout setup, the command runner (its errored/failed classes — an environmental code counts only on a line that reports it — the errored-class retries inside the runner, a ceiling retried, a workspace phase riding out an errored install, and the runner's log line per attempt), the `workspaceIsolation` setup schema and the dead-command rule's owner (`unconsumedCommands`), and a copy of this checkout answering the conservation identity as the checkout does.

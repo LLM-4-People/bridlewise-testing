@@ -11,7 +11,7 @@
  *     milestone focus, not-planned statements, and the state rule for each
  *     TASKS.md section);
  *   - `docs/trackers/TASKS.md` open rows, read through the one task-row
- *     parser (`engine/src/workflow/failure-owners.ts` `taskRows`);
+ *     parser (`engine/src/workflow/failure-owners.ts` `boardRows`);
  *   - `docs/floor/evidence.md`'s explicit non-proofs (`What this does not
  *     prove`, the audit-scope paragraph, and `What none of this proves`).
  *
@@ -28,7 +28,9 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
-import { taskRows, type TaskRow } from "../../engine/src/workflow/failure-owners.ts";
+import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
+import { boardRows, type TaskRow } from "../../engine/src/workflow/failure-owners.ts";
+import { escapeHtml, escapeMarkdownTableCell, stripTags } from "../../shared/markup.ts";
 
 export const ROADMAP_PATH = "docs/floor/roadmap.md";
 export const TASKS_PATH = "docs/trackers/TASKS.md";
@@ -267,8 +269,7 @@ export function readRoadmapPlan(pageText: string): RoadmapPlan {
 
 /** The GitHub / kramdown heading id: punctuation is removed, then each remaining space becomes a hyphen. */
 export function headingSlug(heading: string): string {
-  return heading
-    .replace(/<[^>]*>/gu, "")
+  return stripTags(heading)
     .replace(/[`*_~]/gu, "")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s-]/gu, "")
@@ -328,7 +329,7 @@ function openSectionMap(trackerText: string, rows: readonly TaskRow[]): Readonly
 }
 
 function openTasks(plan: RoadmapPlan, trackerText: string): readonly OpenTask[] {
-  const openRows = taskRows(trackerText).filter((row) => !row.done);
+  const openRows = boardRows(trackerText).filter((row) => !row.done);
   const sections = openSectionMap(trackerText, openRows);
   return openRows.map((row) => {
     const section = sections.get(row.id) ?? "Unsectioned";
@@ -469,7 +470,7 @@ export function roadmapDrift(pageText: string, sources: RoadmapSources, reposito
       if (!milestoneIds.has(item.milestone)) violations.push(`${kind} ${item.id}: unknown milestone ${item.milestone}`);
     }
   }
-  const openRows = taskRows(sources.trackerText).filter((row) => !row.done);
+  const openRows = boardRows(sources.trackerText).filter((row) => !row.done);
   const openIds = new Set(openRows.map((row) => row.id));
   if (openIds.size !== openRows.length) violations.push("TASKS.md holds two open rows with the same id");
   const sections = openSectionMap(sources.trackerText, openRows);
@@ -508,11 +509,7 @@ function escapeRegExp(value: string): string {
 }
 
 function cell(value: string): string {
-  return normalizeProse(value).replace(/\|/gu, "\\|");
-}
-
-function html(value: string): string {
-  return value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;");
+  return escapeMarkdownTableCell(normalizeProse(value));
 }
 
 function link(evidence: string): string {
@@ -616,7 +613,7 @@ function renderPlan(plan: RoadmapPlan): string {
     const workstreams = plan.workstreams.filter((item) => item.milestone === milestone.id);
     const exits = plan.exitCriteria.filter((item) => item.milestone === milestone.id);
     lines.push("");
-    lines.push(`#### ${milestone.id} · ${html(milestone.title)} — ${cell(milestone.state)} (${done} shipped · ${open} open)`);
+    lines.push(`#### ${milestone.id} · ${escapeHtml(milestone.title)} — ${cell(milestone.state)} (${done} shipped · ${open} open)`);
     lines.push("");
     lines.push("**Workstreams**");
     lines.push("");
@@ -741,6 +738,7 @@ function run(argv: readonly string[]): number {
   return 0;
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   process.exitCode = run(process.argv.slice(2));
 }

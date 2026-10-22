@@ -34,6 +34,15 @@ jobs:
             exit 0
           fi
 
+          # A merge-queue run reports on its own pull request: a failed group
+          # removes the PR from the queue, and its throwaway
+          # gh-readonly-queue/* branch never recovers, so an issue for it
+          # would stay open forever.
+          if [ "$EVENT" = "merge_group" ]; then
+            echo "No issue action for a merge-queue run: the queue reports it on the PR"
+            exit 0
+          fi
+
           if [ -n "${PR_NUMBER:-}" ]; then
             target="PR #${PR_NUMBER}"
           elif [ -n "${HEAD_BRANCH:-}" ]; then

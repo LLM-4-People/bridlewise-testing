@@ -1,5 +1,5 @@
 /**
- * ONE-FILE-PER-ENTRY RECORDS: the one front-matter reader and the one checker.
+ * ONE-FILE-PER-ENTRY RECORDS: the lesson and decision formats and the decision index.
  *
  * Workflow lessons (`docs/trackers/workflow-lessons/`) and decisions
  * (`docs/decisions/`) are each one Markdown file per entry, opened by a front
@@ -11,126 +11,23 @@
  *     acted_in: [engine/src/a.ts, tests/b.test.ts]
  *     ---
  *
- * Both formats are read by {@link parseFrontMatter} and judged by
- * {@link entryViolations} against a per-kind {@link EntrySchema}, so a rule
- * (a required field, an enumeration, a list of tracked paths) is spelled once.
+ * Both formats are read by the tracker's one front-matter reader
+ * (src/workflow/failure-owners.ts `parseFrontMatter`, which also reads the
+ * structured tracker items) and judged by its `entryViolations` against a
+ * per-kind schema, so a rule (a required field, an enumeration, a list of
+ * tracked paths) is spelled once.
  * The format tests, the commit guard's `Lesson:` trailer check and the
  * `lessons` report all read entries through this module.
  */
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 import { DECISION_INDEX } from "../../src/kernel/verification-paths.ts";
+import { entryViolations, listValue, parseFrontMatter, type FrontMatter } from "../../src/workflow/failure-owners.ts";
 
 /** Where each kind of entry lives, repository-relative. */
 export const LESSONS_DIRECTORY = "docs/trackers/workflow-lessons";
 /** The decisions live beside their generated index (`DECISION_INDEX.path`, one spelling). */
 export const DECISIONS_DIRECTORY = dirname(DECISION_INDEX.path);
-
-/** The field names and values of one front matter, in file order. */
-export type FrontMatter = ReadonlyMap<string, string>;
-
-/**
- * The front matter of `text` (between a leading `---` line and the next), or
- * `null` when the text opens with none. `body` is everything after it;
- * `duplicates` names every field spelled twice (the first value is kept, and
- * the checker refuses the entry: a second spelling silently winning was how a
- * stale status could hide below a fresh one).
- */
-export function parseFrontMatter(text: string): { readonly fields: FrontMatter; readonly body: string; readonly duplicates: readonly string[] } | null {
-  const match = /^---\n([\s\S]*?)\n---\n/u.exec(text);
-  if (match === null) return null;
-  const fields = new Map<string, string>();
-  const duplicates: string[] = [];
-  for (const line of match[1]!.split("\n")) {
-    const colon = line.indexOf(":");
-    if (colon <= 0) continue;
-    const name = line.slice(0, colon).trim();
-    if (fields.has(name)) duplicates.push(name);
-    else fields.set(name, line.slice(colon + 1).trim());
-  }
-  return { fields, body: text.slice(match[0].length), duplicates };
-}
-
-/** A `[a, b]` list value as its items; `null` when the value is not a bracketed list. */
-export function listValue(value: string): readonly string[] | null {
-  if (!value.startsWith("[") || !value.endsWith("]")) return null;
-  return value.slice(1, -1).split(",").map((item) => item.trim()).filter((item) => item.length > 0);
-}
-
-type Condition = (fields: FrontMatter) => boolean;
-
-/** What one field of a kind of entry must be. */
-export type FieldRule = Readonly<{
-  /** `true`: always required; a function: required exactly when it answers true. */
-  required?: boolean | Condition;
-  /** The field must be absent when this answers true. */
-  forbiddenWhen?: Condition;
-  /** An enumeration the value (or each list item) must belong to. */
-  values?: readonly string[];
-  /** A shape the value (or each list item) must match. */
-  pattern?: RegExp;
-  /** The value is a `[a, b]` list (at least one item when present). */
-  list?: boolean;
-  /** A further judgement of one value or item; returns the problem, or `null`. */
-  check?: (item: string) => string | null;
-}>;
-
-/** A kind of entry: its fields and the Markdown sections its body must hold. */
-export type EntrySchema = Readonly<{
-  fields: Readonly<Record<string, FieldRule>>;
-  sections?: readonly string[];
-  /** A pattern the body must open with (e.g. a `# ` title). */
-  bodyOpens?: RegExp;
-}>;
-
-/** Every way `text` breaks `schema`, each prefixed with `label`. */
-export function entryViolations(label: string, text: string, schema: EntrySchema): readonly string[] {
-  const parsed = parseFrontMatter(text);
-  if (parsed === null) return [`${label}: no front matter`];
-  const { fields, body, duplicates } = parsed;
-  const problems: string[] = duplicates.map((name) => `${label}: ${name} is spelled twice`);
-  for (const [name, rule] of Object.entries(schema.fields)) {
-    const value = fields.get(name);
-    const required = typeof rule.required === "function" ? rule.required(fields) : rule.required === true;
-    if (value === undefined || value.length === 0) {
-      if (required) problems.push(`${label}: ${name} is required`);
-      continue;
-    }
-    if (rule.forbiddenWhen?.(fields) === true) {
-      problems.push(`${label}: ${name} does not belong on this entry`);
-      continue;
-    }
-    let items: readonly string[] = [value];
-    if (rule.list === true) {
-      const listed = listValue(value);
-      if (listed === null || listed.length === 0) {
-        problems.push(`${label}: ${name} must be a non-empty [a, b] list`);
-        continue;
-      }
-      items = listed;
-    }
-    for (const item of items) {
-      if (rule.values !== undefined && !rule.values.includes(item)) problems.push(`${label}: ${name} must be one of ${rule.values.join(", ")} (was ${item})`);
-      else if (rule.pattern !== undefined && !rule.pattern.test(item)) problems.push(`${label}: ${name} ${item} does not match ${String(rule.pattern)}`);
-      else {
-        const problem = rule.check?.(item) ?? null;
-        if (problem !== null) problems.push(`${label}: ${name} ${problem}`);
-      }
-    }
-  }
-  if (schema.bodyOpens !== undefined && !schema.bodyOpens.test(body)) problems.push(`${label}: the body must open with ${String(schema.bodyOpens)}`);
-  for (const section of schema.sections ?? []) if (!`\n${body}`.includes(`\n${section}`)) problems.push(`${label}: missing ${section}`);
-  return problems;
-}
-
-/** Each `.md` entry of `directory` (not its README) with its text. */
-export function readEntries(root: string, directory: string): readonly { readonly name: string; readonly text: string }[] {
-  return readdirSync(join(root, directory))
-    .filter((name) => name.endsWith(".md") && name !== "README.md")
-    .sort()
-    .map((name) => ({ name, text: readFileSync(join(root, directory, name), "utf8") }));
-}
 
 // ── Workflow lessons ────────────────────────────────────────────────────────
 
@@ -213,13 +110,20 @@ export const DECISION_GROUPS = Object.freeze({
   scale: "Scale",
   memory: "Memory layers",
   labs: "Labs (docs, browser, intelligence)",
+  // The GitHub-only rules (GITHUB-*, GH-*) and the public messaging rules (MKT-*).
+  github: "GitHub",
+  brand: "Brand and public messaging",
 } as const);
 
 /**
  * Every way the decision files `entries` break the decision format, judged
  * together: ids and their `covers` aliases are unique; `superseded_by` and
  * `overrides` name OTHER ids that exist; every supersession chain ends at a
- * decision in force, without a cycle.
+ * decision in force, without a cycle; and an amendment is recorded on both
+ * ends: a decision another one `overrides` names it in `amended_by`, and
+ * every `amended_by` names a decision whose `overrides` names this one (or
+ * one of the ids it covers), so a reader of the older decision always learns
+ * it was amended, and by what.
  */
 export function decisionViolations(entries: readonly { readonly name: string; readonly text: string }[], tracked?: ReadonlySet<string>): readonly string[] {
   const known = new Map<string, string>();
@@ -244,9 +148,26 @@ export function decisionViolations(entries: readonly { readonly name: string; re
     if (fields === undefined) continue;
     for (const alias of [fields.get("id") ?? "", ...(listValue(fields.get("covers") ?? "") ?? [])]) if (alias.length > 0 && !fieldsOf.has(alias)) fieldsOf.set(alias, fields);
   }
+  // Who amends whom: each `overrides` target (an id or a covered alias) → the ids of the decisions that override it.
+  const amenders = new Map<string, Set<string>>();
+  for (const { text } of entries) {
+    const fields = parseFrontMatter(text)?.fields;
+    const amender = fields?.get("id") ?? "";
+    for (const target of listValue(fields?.get("overrides") ?? "") ?? []) {
+      const holder = fieldsOf.get(target)?.get("id") ?? target;
+      // Overriding itself is refused once, by the overrides field's own check.
+      if (holder === amender) continue;
+      if (!amenders.has(holder)) amenders.set(holder, new Set());
+      amenders.get(holder)!.add(amender);
+    }
+  }
   for (const { name, text } of entries) {
     const id = parseFrontMatter(text)?.fields.get("id") ?? "";
     const knownId = (item: string): string | null => (item === id ? `${item} is this decision itself` : known.has(item) ? null : `${item} names no decision`);
+    const amendedBy = new Set(listValue(parseFrontMatter(text)?.fields.get("amended_by") ?? "") ?? []);
+    for (const amender of amenders.get(id) ?? []) {
+      if (!amendedBy.has(amender)) problems.push(`${name}: ${amender} overrides it, so its amended_by must name ${amender}`);
+    }
     if (DECISION_ID.test(id) && !name.startsWith(`${id}-`)) problems.push(`${name}: its id ${id} does not name it`);
     // A supersession chain ends at a decision in force: never a cycle, never a dead end.
     const seen = new Set<string>([id]);
@@ -266,6 +187,7 @@ export function decisionViolations(entries: readonly { readonly name: string; re
         status: { required: true, values: DECISION_STATUSES },
         superseded_by: { required: (fields) => fields.get("status") === "superseded", forbiddenWhen: (fields) => fields.get("status") !== "superseded", check: knownId },
         overrides: { list: true, check: knownId },
+        amended_by: { list: true, check: (item) => knownId(item) ?? ((amenders.get(id) ?? new Set()).has(item) ? null : `${item} does not override this decision (its overrides must name ${id})`) },
         covers: { list: true, pattern: DECISION_ID },
         group: { required: true, values: Object.keys(DECISION_GROUPS) },
         implementation: { required: true, values: DECISION_IMPLEMENTATIONS },
@@ -283,9 +205,11 @@ export function decisionViolations(entries: readonly { readonly name: string; re
 /** One decision's index row: its id and file, its title (with the ids it covers), its author, its state. */
 function indexRow(name: string, fields: FrontMatter, title: string): string {
   const covers = listValue(fields.get("covers") ?? "") ?? [];
-  const state = fields.get("status") === "superseded"
+  const amended = listValue(fields.get("amended_by") ?? "") ?? [];
+  const state = (fields.get("status") === "superseded"
     ? `superseded by ${fields.get("superseded_by") ?? "?"}`
-    : `${fields.get("implementation") ?? "?"}${fields.get("route") === undefined ? "" : ` (${fields.get("route")!})`}`;
+    : `${fields.get("implementation") ?? "?"}${fields.get("route") === undefined ? "" : ` (${fields.get("route")!})`}`)
+    + (amended.length === 0 ? "" : `, amended by ${amended.join(", ")}`);
   return `| [${fields.get("id") ?? "?"}](${name}) | ${title}${covers.length === 0 ? "" : ` (covers ${covers.join(", ")})`} | ${fields.get("by") ?? "?"} | ${state} |`;
 }
 
@@ -307,16 +231,4 @@ export function renderDecisionIndex(entries: readonly { readonly name: string; r
     return rows.length === 0 ? [] : [`## ${heading}\n\n| Id | Decision | By | State |\n|---|---|---|---|\n${rows.join("\n")}\n`];
   });
   return sections.join("\n");
-}
-
-/**
- * The README `readme` with its generated block replaced by `index`, or
- * `null` when the README carries no (or a torn) block: a README without the
- * markers is refused, never silently left ungenerated.
- */
-export function withDecisionIndex(readme: string, index: string): string | null {
-  const begin = readme.indexOf(DECISION_INDEX.begin);
-  const end = readme.indexOf(DECISION_INDEX.end);
-  if (begin < 0 || end < begin) return null;
-  return `${readme.slice(0, begin + DECISION_INDEX.begin.length)}\n\n${index}\n${readme.slice(end)}`;
 }
