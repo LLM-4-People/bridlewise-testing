@@ -60,7 +60,7 @@ test("headers: canonicalHeaderName capitalizes each dash segment", () => {
   assert.equal(canonicalHeaderName("Content-Type"), "Content-Type");
 });
 
-test("headers: redactHeaders masks Authorization and *key*/*token* headers", () => {
+test("headers: redactHeaders masks the credential-bearing headers (isSensitiveHeaderName) and passes the rest", () => {
   const r = redactHeaders({ Authorization: "Bearer secret123", "X-Api-Key": "k", "Accept": "application/json" });
   assert.equal(r["Authorization"], "<redacted:16>"); // "Bearer secret123" is 16 chars
   assert.equal(r["X-Api-Key"], "<redacted:1>");

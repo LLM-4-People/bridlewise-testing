@@ -55,8 +55,11 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { ownedSiblingTemporaryName } from "../../src/filesystem/private-state.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 
-/** Repository-relative path the tests resolve the corpus at. */
-export const CORPUS_ROOT = "engine/large-codebases";
+import { CORPUS_ENGINE_ROOT, CORPUS_FETCH_COMMAND, CORPUS_ROOT } from "./corpus-root.ts";
+import { parsePathPolicySourceManifest } from "../generation/repository-path-unicode.ts";
+
+/** Repository-relative path the tests resolve the corpus at (owned by `corpus-root.ts`). */
+export { CORPUS_ROOT };
 /** The generated manifest, committed. */
 export const MANIFEST_PATH = "engine/test/fixtures/corpus-manifest.json";
 export const MANIFEST_SCHEMA = "bridlewise-corpus-manifest/v1";
@@ -68,6 +71,19 @@ export const GENERATOR_REVISION = "corpus-ts-1";
 
 /** Licences the publisher has reviewed as permissive. A new member is a review, not a config edit. */
 export const PERMITTED_LICENSES: readonly string[] = Object.freeze(["MIT", "ISC", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"]);
+
+/**
+ * Licences reviewed for REFERENCE ONLY: such a member's files are fetched into
+ * the cache (outside every checkout) for the tests that read them, and are
+ * never published, vendored or redistributed — the AGPL tree carries only the
+ * pins. Git's GPL-2.0-only `path.c` and its t0060 test, the path policy's NTFS
+ * alias authority, are the one such member; they come from the path-policy
+ * source manifest, never from `corpus-manifest.json`.
+ */
+export const REFERENCE_ONLY_LICENSES: readonly string[] = Object.freeze(["GPL-2.0-only"]);
+
+/** The path-policy source authority, repository-relative: the git member's pins live there, once. */
+export const PATH_POLICY_MANIFEST_PATH = "engine/traceability/sources/path-policy/manifest.json";
 
 export const REPOSITORY_ROOT = resolve(import.meta.dirname, "..", "..", "..");
 
@@ -292,6 +308,75 @@ export function readManifest(path = join(REPOSITORY_ROOT, MANIFEST_PATH)): Corpu
   return validateManifest(parsed);
 }
 
+/**
+ * The git member, DERIVED from the path-policy source manifest: its upstream,
+ * commit and the three files (COPYING, path.c, t/t0060-path-utils.sh) with the
+ * sizes and digests that manifest already pins. There is no second copy of
+ * those pins: the manifest's paths point into this corpus (`large-codebases/
+ * git/…`), and a path that does not is refused here.
+ */
+export function pathPolicyMember(repoRoot = REPOSITORY_ROOT): CorpusMember {
+  const path = join(repoRoot, PATH_POLICY_MANIFEST_PATH);
+  if (!existsSync(path)) refuse("corpus_manifest_absent", `the path-policy source manifest is absent at ${path}`);
+  return gitCorpusMember(parsePathPolicySourceManifest(readFileSync(path, "utf8")).sourceSets.git);
+}
+
+/** The path-policy git source set's own shape: what {@link gitCorpusMember} reads. */
+export type PathPolicyGitSourceSet = Readonly<{
+  upstream: Readonly<{ repository: string; commit: string }>;
+  license: Readonly<{ spdx: string; path: string; byteLength: number; sha256: string }>;
+  sources: readonly Readonly<{ path: string; byteLength: number; sha256: string }>[];
+}>;
+
+/**
+ * THE LICENCE BOUNDARY, as the corpus enforces it: the git member is admitted
+ * only with a reference-only licence, and only when every one of its files
+ * points INTO the corpus root (a binding pointing back into the tracked tree
+ * would vendor GPL bytes there). Separate from the file read so each refusal
+ * is driven directly.
+ */
+export function gitCorpusMember(git: PathPolicyGitSourceSet): CorpusMember {
+  if (!REFERENCE_ONLY_LICENSES.includes(git.license.spdx)) {
+    refuse("corpus_license_unreviewed", `git member: licence ${git.license.spdx} is not reviewed for reference-only fetching`);
+  }
+  const prefix = `${CORPUS_ENGINE_ROOT}/git/`;
+  const files = [git.license, ...git.sources].map((binding) => {
+    if (!binding.path.startsWith(prefix)) refuse("corpus_path_invalid", `git member: ${binding.path} does not point into ${prefix}`);
+    const relativePath = safeRelativePath(binding.path.slice(prefix.length), "git member");
+    return Object.freeze({ path: relativePath, sizeBytes: binding.byteLength, sha256: binding.sha256 });
+  }).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return Object.freeze({
+    name: "git",
+    upstream: publicUpstream(`${git.upstream.repository}.git`, "git member"),
+    commit: commitValue(git.upstream.commit, "git member"),
+    license: git.license.spdx,
+    files: Object.freeze(files),
+  });
+}
+
+/**
+ * THE CORPUS the fetch materialises and the verify judges: the committed
+ * manifest's members plus the reference-only git member. The digest (and so
+ * the cache directory) covers both, so a changed pin is a new cache, never a
+ * stale one judged by new rules.
+ */
+export function readCorpus(repoRoot = REPOSITORY_ROOT): CorpusManifest {
+  const manifest = readManifest(join(repoRoot, MANIFEST_PATH));
+  const git = pathPolicyMember(repoRoot);
+  if (manifest.members.some((member) => member.name === git.name)) {
+    refuse("corpus_manifest_invalid", `corpus-manifest.json must not carry a ${git.name} member: its pins live in ${PATH_POLICY_MANIFEST_PATH}`);
+  }
+  const payload = {
+    schemaVersion: manifest.schemaVersion,
+    generatorRevision: manifest.generatorRevision,
+    root: manifest.root,
+    members: Object.freeze([...manifest.members, git]),
+    derived: manifest.derived,
+    notIncluded: manifest.notIncluded,
+  };
+  return Object.freeze({ ...payload, manifestSha256: manifestDigest(payload) });
+}
+
 /** The cache root: outside every checkout, under the user's cache home by default. */
 export function defaultCacheDir(manifest: CorpusManifest, base = join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bridlewise", "corpus")): string {
   return join(base, manifest.manifestSha256.slice(0, 12));
@@ -323,7 +408,7 @@ export function verifyCorpus(repoRoot: string, manifest: CorpusManifest): Corpus
     return { ok: false, root: null, problems: [{ path: CORPUS_ROOT, reason: (error as CorpusError).message }] };
   }
   if (root === null) {
-    return { ok: false, root: null, problems: [{ path: CORPUS_ROOT, reason: `absent — run npm run corpus:fetch` }] };
+    return { ok: false, root: null, problems: [{ path: CORPUS_ROOT, reason: `absent — run ${CORPUS_FETCH_COMMAND}` }] };
   }
   const problems = judgeCache(root, manifest);
   return { ok: problems.length === 0, root, problems };
@@ -611,7 +696,7 @@ export function main(argv: readonly string[]): number {
       return 0;
     }
     if (command === "fetch") {
-      const manifest = readManifest();
+      const manifest = readCorpus();
       const cacheDir = parseArg(argv, "--cache") ?? defaultCacheDir(manifest);
       const written = fetchCorpus(manifest, { cacheDir, log: (line) => process.stdout.write(`${line}\n`) });
       const link = linkCorpus(REPOSITORY_ROOT, written);
@@ -621,7 +706,7 @@ export function main(argv: readonly string[]): number {
       return 0;
     }
     if (command === "verify") {
-      const manifest = readManifest();
+      const manifest = readCorpus();
       const verdict = verifyCorpus(REPOSITORY_ROOT, manifest);
       if (!verdict.ok) {
         for (const problem of verdict.problems) process.stderr.write(`${problem.path}: ${problem.reason}\n`);
