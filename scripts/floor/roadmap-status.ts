@@ -49,6 +49,7 @@ import { TESTING_REPO_URL } from "./site-pages.mjs";
 
 /** This repository's URL: only its own pull requests, runs and releases prove a close (`closeProof`). */
 const REPOSITORY_URL: string = TESTING_REPO_URL;
+import { escapeHtml, escapeMarkdownTableCell, stripTags } from "../../shared/markup.ts";
 
 export const ROADMAP_PATH = "docs/floor/roadmap.md";
 export const EVIDENCE_PATH = "docs/floor/evidence.md";
@@ -133,8 +134,7 @@ function isOpen(state: RoadmapState): boolean {
 
 /** The GitHub / kramdown heading id: punctuation is removed, then each remaining space becomes a hyphen. */
 export function headingSlug(heading: string): string {
-  return heading
-    .replace(/<[^>]*>/gu, "")
+  return stripTags(heading)
     .replace(/[`*_~]/gu, "")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s-]/gu, "")
@@ -287,11 +287,7 @@ function escapeRegExp(value: string): string {
 }
 
 function cell(value: string): string {
-  return normalizeProse(value).replace(/\|/gu, "\\|");
-}
-
-function html(value: string): string {
-  return value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;");
+  return escapeMarkdownTableCell(normalizeProse(value));
 }
 
 function table(headers: readonly string[], rows: readonly (readonly string[])[]): string {
@@ -305,7 +301,7 @@ function table(headers: readonly string[], rows: readonly (readonly string[])[])
 
 /** A link from the roadmap page to an item's own record. */
 function itemLink(item: TrackerItem): string {
-  return `[${cell(html(item.title ?? item.id))}](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${item.id}.md`)})`;
+  return `[${cell(escapeHtml(item.title ?? item.id))}](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${item.id}.md`)})`;
 }
 
 /** The first paragraph of an item's body: its outcome, in one cell. */
@@ -337,7 +333,7 @@ function milestoneLink(roadmap: Roadmap, id: string | null): string {
 /** Each milestone's section, from its Milestone item alone (the one place its title and prose are written): `## <id> · <title>` (the anchor every link targets) and its body, links rebased to this page. */
 function renderMilestones(roadmap: Roadmap): string {
   return roadmap.milestones.map((milestone) => [
-    `## ${milestone.id} · ${html(milestone.title ?? milestone.id)}`,
+    `## ${milestone.id} · ${escapeHtml(milestone.title ?? milestone.id)}`,
     "",
     `**State:** ${roadmap.status(milestone).state} — ${roadmap.status(milestone).because}. [The record](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${milestone.id}.md`)}).`,
     "",
@@ -414,7 +410,7 @@ function renderPlan(roadmap: Roadmap): string {
   for (const milestone of roadmap.milestones) {
     const items = [...roadmap.workstreams, ...roadmap.exitCriteria].filter((item) => item.milestone === milestone.id);
     lines.push("");
-    lines.push(`#### ${milestone.id} · ${html(milestone.title ?? milestone.id)} — ${cell(roadmap.status(milestone).state)} (${count(roadmap, items, "shipped")} shipped · ${items.filter((item) => isOpen(roadmap.status(item).state)).length} open)`);
+    lines.push(`#### ${milestone.id} · ${escapeHtml(milestone.title ?? milestone.id)} — ${cell(roadmap.status(milestone).state)} (${count(roadmap, items, "shipped")} shipped · ${items.filter((item) => isOpen(roadmap.status(item).state)).length} open)`);
     lines.push("");
     lines.push("**Workstreams**");
     lines.push("");
