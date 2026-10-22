@@ -5452,7 +5452,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-failure-owners", path: "src/workflow/failure-owners.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 31, namesSha256: "3454ae3c0e7b658728bfa6f80e2fd6617939b4c43448b7a21303f318b19740fb" },
+      owner: "verification-workflow", publicApi: { exportCount: 32, namesSha256: "9f854e2feb0ccba60a045598f8014cff570c9f6abb2214e4e458e8f0d15ca74e" },
       dependencies: ["../shared/markup.ts","node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/verification-paths.ts","src/workflow/markdown-links.ts","src/workflow/site-prose.ts"],
     }),
     moduleContract({
