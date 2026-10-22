@@ -170,22 +170,21 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     // readable after redaction, and a keep mark or an existing mask is not
     // re-read as a value (the write-back contract again).
     //
-    // ── AN EXPRESSION IN A CODE ASSIGNMENT IS NOT A PASSWORD (#70) ──
+    // ── NO CODE-EXPRESSION VETO, DELIBERATELY (#70, reviewed 2026-10-22) ──
     //
-    // `password = request.headers['apikey']` read `request.headers[` as the
-    // password, and `password = readPassword(prompt)` read the call. Code
-    // writes an assignment with a SPACED `=`; a connection string writes
-    // `Password=…` with none. So the veto needs both: the value follows
-    // whitespace, AND it is a call or an index (an identifier chain straight
-    // into `(` or `[`) or a member chain (`config.password`). A DSN password
-    // holding `.`, `[` or `(` (`Pwd=Pa55[word]`) has no space before it and
-    // is still a credential; a spaced dotted value (`Password = my.pass`) is
-    // the one shape the veto gives up, and only in code-assignment form.
+    // `password = request.headers['apikey']` matches (`request.headers[`).
+    // The catalogue reads TEXT, never a file type, and that line is a valid
+    // INI / my.cnf / ADO.NET value as written; a veto keyed on its shape
+    // (a spaced `=`, a dotted or bracketed value) was measured to miss real
+    // passwords (`password = my.secret.value`, `Password = x.y`, a tab before
+    // the value, a value holding `[` or `(`) that nothing else catches. A
+    // missed credential is never acceptable, so the row over-matches a code
+    // expression; the reviewed over-match is declared where it is tested.
     id: "dsn-credential",
     category: "credential",
     description: "connection-string credential",
-    admission: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)(?!(?<=\s)[A-Za-z_$][\w$]*(?:(?:\.[A-Za-z_$][\w$]*)*[(\[]|(?:\.[A-Za-z_$][\w$]*)+(?=[\s;&"'`),]|$)))[^\s;&"'`]+/iu,
-    classification: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)(?!(?<=\s)[A-Za-z_$][\w$]*(?:(?:\.[A-Za-z_$][\w$]*)*[(\[]|(?:\.[A-Za-z_$][\w$]*)+(?=[\s;&"'`),]|$)))[^\s;&"'`]+/iu,
+    admission: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)[^\s;&"'`]+/iu,
+    classification: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)[^\s;&"'`]+/iu,
   },
   {
     // Oracle EZConnect: `[jdbc:]oracle:(thin|oci):user/pass@host`. There is
