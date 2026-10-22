@@ -4,7 +4,8 @@
  *
  *   harness door preflight --run <id> --github-output <file>
  *   harness door stream    --run <id>
- *   harness door judge     --run <id> --artifacts <dir> --out <dir> --github-output <file>
+ *   harness door reuse-claim --artifacts <dir> --github-output <file>
+ *   harness door judge     --run <id> --artifacts <dir> [--reuse <dir>] --out <dir> --github-output <file>
  *   harness door action    --event <event.json>
  *
  * `preflight` refuses hostile artifacts before any download and says
@@ -34,10 +35,12 @@ import { forgeEndpoint } from "../forge/forge-config.ts";
 import { githubClient } from "../forge/github.ts";
 import type { ForgeClient } from "../forge/port.ts";
 import { findCheckRun, getWorkflowRun, writeCheckRun, type Repository } from "./door-github.ts";
+import { findVerdictLocator } from "../gates/reuse.ts";
+import { parsePlan } from "../gates/plan.ts";
 import { judgeCompletedRun } from "./judge.ts";
 import { preflightArtifacts, rerunCold, streamProgress } from "./stream.ts";
 
-const VERBS = ["preflight", "stream", "judge", "action"] as const;
+const VERBS = ["preflight", "stream", "reuse-claim", "judge", "action"] as const;
 
 /** The streamer's cadence and its bound (display only; the job's own ceiling is 15 minutes). */
 const STREAM_INTERVAL_MS = 20_000;
@@ -110,8 +113,16 @@ export async function runDoorCli(engineRoot: string, argv: readonly string[]): P
     const ending = await streamProgress(client, repository, id, { intervalMs: STREAM_INTERVAL_MS, deadline: Date.now() + STREAM_BUDGET_MS });
     return { result: wrapResult("door", deepFreeze({ ending }), { status: "pass" }) };
   }
+  if (verb === "reuse-claim") {
+    // The plan claims reuse: the door locates the verdict for K itself, by name (never by the run's word).
+    const values = flags(verb, rest, ["artifacts", "github-output"]);
+    const plan = parsePlan(JSON.parse(readFileSync(join(resolve(required(verb, values, "artifacts")), "gate-plan", "plan.json"), "utf8")));
+    const locator = plan.reuse === undefined ? null : await findVerdictLocator(client, repository, plan.keyDigest, "success");
+    if (values["github-output"] !== undefined) appendFileSync(values["github-output"], `key=${plan.keyDigest}\ndoor-run=${locator === null ? "" : String(locator.runId)}\n`);
+    return { result: wrapResult("door", deepFreeze({ claimed: plan.reuse !== undefined, located: locator !== null }), { status: "pass" }) };
+  }
   if (verb === "judge") {
-    const values = flags(verb, rest, ["run", "artifacts", "out", "github-output"]);
+    const values = flags(verb, rest, ["run", "artifacts", "reuse", "out", "github-output"]);
     const id = runId(verb, values);
     const out = resolve(required(verb, values, "out"));
     const top = repositoryToplevel(engineRoot, "directory");
@@ -127,6 +138,7 @@ export async function runDoorCli(engineRoot: string, argv: readonly string[]): P
         artifactsDirectory: resolve(required(verb, values, "artifacts")),
         runId: id,
         runUrl: runUrl(repository, id),
+        ...(values.reuse === undefined ? {} : { reuseDirectory: resolve(values.reuse) }),
       });
     } catch (error) {
       if (!(error instanceof HarnessError)) throw error;
@@ -148,7 +160,7 @@ export async function runDoorCli(engineRoot: string, argv: readonly string[]): P
       run: judged.verdict.runUrl,
       door: { workflowSha: mainSha },
     }));
-    if (values["github-output"] !== undefined) appendFileSync(values["github-output"], "attest=true\n");
+    if (values["github-output"] !== undefined) appendFileSync(values["github-output"], `attest=true\nkey=${judged.verdict.key}\nverdict=${judged.verdict.conclusion}\n`);
     return { result: wrapResult("door", deepFreeze({ verdict: judged.verdict.conclusion, key: judged.verdict.key, findings: judged.verdict.findings.length }), { status: "pass" }) };
   }
   const values = flags(verb, rest, ["event"]);

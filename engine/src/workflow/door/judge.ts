@@ -37,11 +37,12 @@ import { gateKey, treeKeyInputs } from "../gates/key.ts";
 import { catalogueDigest, parsePlan, type GatePlan } from "../gates/plan.ts";
 import { readResults, sealReceipt, type GateReceipt, type JobOutcome } from "../gates/seal.ts";
 import { workflowText } from "../gates/workflows.ts";
-import { blobText, diffFiles, fetchCommits, listDirectory, mergeTree, pathObjectId, readBlob } from "./door-git.ts";
+import { findVerdictLocator, judgeReuseProof, pipelineChanged, reuseEligibility } from "../gates/reuse.ts";
+import { blobText, diffFiles, fetchCommits, listDirectory, mergeTree, readBlob } from "./door-git.ts";
 import { getGitCommit, getWorkflowRun, listRunAttempts, listRunJobs, mergeQueueEntries, openAlertCommits, type Repository, type WorkflowRunFacts } from "./door-github.ts";
-import { GENERATOR_SOURCES, judgeRatchet } from "./ratchet.ts";
+import { judgeRatchet } from "./ratchet.ts";
 import { judgeTree, TREE_POLICY, type ChangedFile, type CommitRecord } from "./tree-judge.ts";
-import { failedTestFiles, judgeAttempts, judgeRun, verdictCheckRun, type DoorVerdict, type IdentityFinding, type QueueFinding } from "./verdict.ts";
+import { failedTestFiles, judgeAttempts, judgeRun, verdictCheckRun, type AttemptFinding, type DoorVerdict, type IdentityFinding, type QueueFinding } from "./verdict.ts";
 import type { CheckRunWrite } from "./door-github.ts";
 
 /** How much the door reads before it judges (pages of API lists). */
@@ -59,6 +60,8 @@ export type JudgeContext = Readonly<{
   runId: number;
   /** The run's page, for the check's details. */
   runUrl: string;
+  /** Where `door.yml` put a claimed reuse's proof (`keydoc.json`, `verified.json` from `gh attestation verify`), when the plan claims one. */
+  reuseDirectory?: string;
 }>;
 
 export type Judgement = Readonly<{
@@ -100,7 +103,7 @@ export function pullCommitRecords(git: GitRepository, mainSha: string, base: str
   });
 }
 
-type Identity = Readonly<{ findings: readonly IdentityFinding[]; queue: readonly QueueFinding[]; base: string | null; head: string | null; checkSha: string }>;
+type Identity = Readonly<{ findings: IdentityFinding[]; queue: readonly QueueFinding[]; base: string | null; head: string | null; checkSha: string }>;
 
 /** Step 2: does the plan name the tree GitHub says the run built? */
 async function judgeIdentity(context: JudgeContext, run: WorkflowRunFacts, plan: GatePlan): Promise<Identity> {
@@ -168,13 +171,29 @@ export async function judgeCompletedRun(context: JudgeContext): Promise<Judgemen
   if (!existsSync(planPath)) throw new InputError("the CI run uploaded no plan (gate-plan/plan.json): nothing to judge", "door_plan_missing");
   const plan = parsePlan(readJson(planPath));
   const identity = await judgeIdentity(context, run, plan);
-  const generatorChanged = GENERATOR_SOURCES.some((path) => pathObjectId(context.git, plan.headSha, path) !== pathObjectId(context.git, context.mainSha, path));
+  const generatorChanged = pipelineChanged(context.git, plan.headSha, context.mainSha);
   const keyFindings = judgeKey(context, plan, generatorChanged);
   const jobs = await listRunJobs(context.client, context.repository, run.id, DOOR_READ_PAGES);
   const outcomes: Record<string, { result: JobOutcome }> = {};
   for (const job of jobs) {
     const conclusion = job.conclusion;
     if (conclusion === "success" || conclusion === "failure" || conclusion === "cancelled" || conclusion === "skipped") outcomes[job.name] = { result: conclusion };
+  }
+  // REUSE, PROVEN AGAIN HERE: a plan that claims it must be eligible (not a fork, not CI-changing, no failed
+  // verdict of this exact key on record) and carry a proof the door verifies itself (`judgeReuseProof`).
+  const failedBefore = (await findVerdictLocator(context.client, context.repository, plan.keyDigest, "failure")) !== null;
+  const reuseFindings: AttemptFinding[] = failedBefore ? [{ rule: "attempt-laundering", detail: "a failed verdict of this exact key stands: only a new tree (a Flake-cause fix) turns it green" }] : [];
+  if (plan.reuse !== undefined) {
+    const eligibility = reuseEligibility({ fork: run.headRepositoryId !== run.repositoryId, generatorChanged, cold: false, failedBefore });
+    if (!eligibility.eligible) identity.findings.push(...eligibility.reasons.map((reason) => ({ rule: "identity" as const, detail: `reuse refused: ${reason}` })));
+    try {
+      const directory = context.reuseDirectory;
+      if (directory === undefined || !existsSync(join(directory, "verified.json"))) throw new InputError("no verified proof was produced for the claimed reuse", "gate_reuse_unproven");
+      judgeReuseProof(plan.keyDigest, readFileSync(join(directory, "keydoc.json")), readJson(join(directory, "verified.json")));
+    } catch (error) {
+      if (!(error instanceof InputError)) throw error;
+      identity.findings.push({ rule: "identity", detail: `reuse refused: ${error.message}` });
+    }
   }
   const resultsDirectory = join(context.artifactsDirectory, "results");
   const receipt = sealReceipt({ plan, results: existsSync(resultsDirectory) ? readResults(resultsDirectory) : [], jobs: outcomes, event: run.event });
@@ -200,7 +219,7 @@ export async function judgeCompletedRun(context: JudgeContext): Promise<Judgemen
     key: plan.keyDigest,
     receipt,
     identity: [...identity.findings, ...keyFindings],
-    attempts: attemptFindings,
+    attempts: [...attemptFindings, ...reuseFindings],
     ratchet,
     tree,
     queue: identity.queue,

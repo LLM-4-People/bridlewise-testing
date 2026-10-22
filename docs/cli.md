@@ -126,8 +126,8 @@ These verbs are for maintainers of the development floor. They assume the privat
 | `harness frozen` | Inspect or accept frozen records |
 | `harness rollback` | Roll back a recorded change |
 | `harness slot` | Run a bounded long task under the slot supervisor |
-| `harness gates list\|population\|plan\|setup\|run\|shard\|seal` | The gate catalogue's verbs: the same commands CI's generated `ci.yml` runs (`engine/src/workflow/gates/`) |
-| `harness door preflight\|stream\|judge\|action` | The door's verbs, run by the generated `door.yml` as the door App (`engine/src/workflow/door/`) |
+| `harness gates list\|population\|plan\|reuse\|setup\|run\|shard\|seal` | The gate catalogue's verbs: the same commands CI's generated `ci.yml` runs (`engine/src/workflow/gates/`) |
+| `harness door preflight\|stream\|reuse-claim\|judge\|action` | The door's verbs, run by the generated `door.yml` as the door App (`engine/src/workflow/door/`) |
 | `harness forge apps manifests [--check]` | Write (or check) the generated App manifests under `.github/forge/` from the App registry (`engine/src/workflow/forge/`) |
 | `harness forge apps create` | Serve the local Apps page (127.0.0.1) that creates the four GitHub Apps from their manifests and stores each key where the registry says |
 

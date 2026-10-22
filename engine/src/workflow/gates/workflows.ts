@@ -52,6 +52,7 @@ import {
   type Toolchain,
 } from "./catalogue.ts";
 import { Commented, emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
+import { DOOR_PREDICATE_TYPE } from "./reuse.ts";
 
 export const WORKFLOW_DIRECTORY = GENERATED_WORKFLOW_FILES.directory;
 
@@ -168,17 +169,48 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
       name: "plan",
       "runs-on": GATE_RUNNER,
       "timeout-minutes": 10,
-      permissions: { contents: "read" },
-      outputs: { cells: "${{ steps.plan.outputs.cells }}" },
+      permissions: { contents: "read", actions: "read", attestations: "read" },
+      outputs: { cells: "${{ steps.reuse.outputs.cells || steps.plan.outputs.cells }}", reuse: "${{ steps.reuse.outputs.reuse || 'false' }}" },
       steps: [
-        ...gateJobSetup([], "plan"),
-        { name: "Plan the gate cells", id: "plan", run: `${HARNESS} gates plan --out "$RUNNER_TEMP/gate-plan" --github-output "$GITHUB_OUTPUT"` },
+        // The parent is the base the run's merge was made on: the reuse lookup compares the pipeline's owner with it.
+        { ...checkoutStep(), with: { "persist-credentials": false, "fetch-depth": 2 } },
+        ...gateJobSetup([], "plan").slice(1),
+        {
+          name: "Plan the gate cells and look up a door verdict for the key",
+          id: "plan",
+          env: { GH_TOKEN: "${{ github.token }}", COLD: "${{ inputs.cold }}", FORK: "${{ github.event.pull_request.head.repo.fork }}" },
+          run: `${HARNESS} gates plan --out "$RUNNER_TEMP/gate-plan" --reuse-lookup --github-output "$GITHUB_OUTPUT"`,
+        },
+        {
+          name: "Download the door's verdict for the key",
+          if: "${{ steps.plan.outputs.reuse-run != '' }}",
+          uses: uses("download-artifact"),
+          with: { name: "door-verdict-${{ steps.plan.outputs.key }}-success", path: "${{ runner.temp }}/reuse", "run-id": "${{ steps.plan.outputs.reuse-run }}", "github-token": "${{ github.token }}" },
+        },
+        {
+          // A proof that does not verify reuses nothing: the run goes cold (the step's failure is that decision).
+          name: "Verify the door's attestation of that verdict",
+          id: "verify",
+          if: "${{ steps.plan.outputs.reuse-run != '' }}",
+          "continue-on-error": true,
+          env: { GH_TOKEN: "${{ github.token }}" },
+          run: `gh attestation verify "$RUNNER_TEMP/reuse/keydoc.json" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/door.yml" --source-ref refs/heads/main --predicate-type ${DOOR_PREDICATE_TYPE} --deny-self-hosted-runners --format json > "$RUNNER_TEMP/reuse/verified.json"`,
+        },
+        {
+          name: "Reuse every gate on the proven verdict",
+          id: "reuse",
+          if: "${{ steps.verify.outcome == 'success' }}",
+          "continue-on-error": true,
+          env: { REUSE_RUN: "${{ steps.plan.outputs.reuse-run }}" },
+          run: `${HARNESS} gates reuse --plan "$RUNNER_TEMP/gate-plan/plan.json" --keydoc "$RUNNER_TEMP/reuse/keydoc.json" --proof "$RUNNER_TEMP/reuse/verified.json" --door-run "$REUSE_RUN" --github-output "$GITHUB_OUTPUT"`,
+        },
         { name: "Upload the plan", uses: uses("upload-artifact"), with: { name: "gate-plan", path: "${{ runner.temp }}/gate-plan", "if-no-files-found": "error", "retention-days": 90 } },
       ],
     },
     light: {
       name: "light",
       needs: ["plan"],
+      if: "${{ needs.plan.outputs.reuse != 'true' }}",
       "runs-on": GATE_RUNNER,
       "timeout-minutes": 60,
       permissions: { contents: "read" },
@@ -314,8 +346,6 @@ export function codeqlWorkflow(): Workflow {
   };
 }
 
-/** The predicate type of the door's verdict attestation (its subject is the key document, whose digest is K). */
-export const DOOR_PREDICATE_TYPE = "https://bridlewise.dev/attestations/gate-verdict/v1";
 
 /** The door App's token, minted in the `door` environment (the only place its key exists). */
 function doorTokenStep(): Step {
@@ -387,12 +417,41 @@ export function doorWorkflow(): Workflow {
             uses: uses("download-artifact"),
             with: { pattern: "gate-results-*", "merge-multiple": true, path: "${{ runner.temp }}/ci/results", "run-id": "${{ github.event.workflow_run.id }}", "github-token": "${{ github.token }}" },
           },
-          { name: "Judge the run and post the verdict", id: "judge", if: "${{ !cancelled() }}", env: runEnvironment, run: `${HARNESS} door judge --run "$RUN_ID" --artifacts "$RUNNER_TEMP/ci" --out "$RUNNER_TEMP/door" --github-output "$GITHUB_OUTPUT"` },
+          {
+            // A plan that claims reuse: the door finds the verdict for K itself (by name, never by the run's word).
+            name: "Locate a claimed reuse",
+            id: "claim",
+            if: "${{ steps.preflight.outputs.accepted == 'true' }}",
+            env: runEnvironment,
+            run: `${HARNESS} door reuse-claim --artifacts "$RUNNER_TEMP/ci" --github-output "$GITHUB_OUTPUT"`,
+          },
+          {
+            name: "Download the claimed verdict",
+            if: "${{ steps.claim.outputs.door-run != '' }}",
+            uses: uses("download-artifact"),
+            with: { name: "door-verdict-${{ steps.claim.outputs.key }}-success", path: "${{ runner.temp }}/reuse", "run-id": "${{ steps.claim.outputs.door-run }}", "github-token": "${{ github.token }}" },
+          },
+          {
+            name: "Verify the claimed verdict's attestation",
+            if: "${{ steps.claim.outputs.door-run != '' }}",
+            "continue-on-error": true,
+            env: { GH_TOKEN: "${{ github.token }}" },
+            run: `gh attestation verify "$RUNNER_TEMP/reuse/keydoc.json" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/door.yml" --source-ref refs/heads/main --predicate-type ${DOOR_PREDICATE_TYPE} --deny-self-hosted-runners --format json > "$RUNNER_TEMP/reuse/verified.json"`,
+          },
+          { name: "Judge the run and post the verdict", id: "judge", if: "${{ !cancelled() }}", env: runEnvironment, run: `${HARNESS} door judge --run "$RUN_ID" --artifacts "$RUNNER_TEMP/ci" --reuse "$RUNNER_TEMP/reuse" --out "$RUNNER_TEMP/door" --github-output "$GITHUB_OUTPUT"` },
           {
             name: "Attest the verdict",
             if: "${{ steps.judge.outputs.attest == 'true' }}",
             uses: uses("attest"),
             with: { "subject-path": "${{ runner.temp }}/door/keydoc.json", "predicate-type": DOOR_PREDICATE_TYPE, "predicate-path": "${{ runner.temp }}/door/predicate.json" },
+          },
+          {
+            // THE LOCATOR: every verdict's key document and predicate, named by K and the outcome (reuse finds a
+            // success by name; a failure of the same K stands against any later reuse).
+            name: "Publish the verdict's locator",
+            if: "${{ steps.judge.outputs.attest == 'true' }}",
+            uses: uses("upload-artifact"),
+            with: { name: "door-verdict-${{ steps.judge.outputs.key }}-${{ steps.judge.outputs.verdict }}", path: "${{ runner.temp }}/door", "if-no-files-found": "error", "retention-days": 90 },
           },
         ],
       },

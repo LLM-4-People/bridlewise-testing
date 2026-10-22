@@ -25,7 +25,9 @@ import { githubClient } from "../../../src/workflow/forge/github.ts";
 import { memoryCredential } from "../../../src/workflow/forge/credentials.ts";
 import { GATE_CATALOGUE } from "../../../src/workflow/gates/catalogue.ts";
 import { gateKeyDocument } from "../../../src/workflow/gates/key.ts";
-import { catalogueDigest, planGates, type GatePlan } from "../../../src/workflow/gates/plan.ts";
+import { catalogueDigest, planGates, reusedPlan, type GatePlan } from "../../../src/workflow/gates/plan.ts";
+import { DOOR_PREDICATE_TYPE } from "../../../src/workflow/gates/reuse.ts";
+import { canonicalJson } from "../../../src/kernel/integrity.ts";
 import { GATE_RESULT_SCHEMA } from "../../../src/workflow/gates/cell-run.ts";
 import { workflowText } from "../../../src/workflow/gates/workflows.ts";
 import { GENERATED_WORKFLOW_FILES } from "../../../src/kernel/verification-paths.ts";
@@ -106,6 +108,13 @@ function planFor(sceneValue: Scene, commit: string, overrides: Readonly<{ tree?:
   });
 }
 
+/** A reused run's artifacts: the plan alone (no cell ran). */
+function artifactsFor(plan: GatePlan): string {
+  const directory = mkGitTempDir("door-artifacts");
+  write(directory, "gate-plan/plan.json", JSON.stringify(plan));
+  return directory;
+}
+
 /** The artifacts as `door.yml` lays them out: the plan and every passed result. */
 function artifacts(plan: GatePlan): string {
   const directory = mkGitTempDir("door-artifacts");
@@ -134,6 +143,12 @@ function github(sceneValue: Scene, run: Readonly<{ event: string; headSha: strin
     fake.objects.set(`/repos/o/r/git/commits/${commit}`, { sha: commit, tree: { sha: tree }, parents: parents.map((sha) => ({ sha })) });
   }
   fake.route("POST", /^\/graphql$/u, () => ({ status: 200, body: { data: { repository: { mergeQueue: { entries: { nodes: [] } } } } } }));
+  // The verdict locators: none unless a test plants one (by its exact name, as the API filters).
+  fake.route("GET", /^\/repos\/o\/r\/actions\/artifacts$/u, (request) => {
+    const name = request.query.get("name") ?? "";
+    const planted = (fake.objects.get(`locator:${name}`) as unknown[] | undefined) ?? [];
+    return { status: 200, body: { total_count: planted.length, artifacts: planted } };
+  });
   return fake;
 }
 
@@ -245,4 +260,27 @@ test("the streamer shows progress, cancels a destroyed group's run and says dequ
     return { status: 200, body: { workflow_run_id: 77 } };
   });
   assert.equal(await rerunCold(client, REPOSITORY, { headBranch: "pr", headSha: value.head }), 77, "dispatched cold on the judged branch, answering the run id");
+});
+
+test("a claimed reuse passes only when the door's own proof holds and no failed verdict of the key is on record (V-3 shape)", async () => {
+  const value = scene();
+  const base = planFor(value, value.testMerge);
+  const reused = reusedPlan(base, { key: base.keyDigest, doorRun: 5, predicate: { verdict: "success" } });
+  const keyDocument = canonicalJson(base.key);
+  const proofDirectory = mkGitTempDir("door-reuse");
+  writeFileSync(join(proofDirectory, "keydoc.json"), keyDocument);
+  writeFileSync(join(proofDirectory, "verified.json"), JSON.stringify([{ verificationResult: { statement: { subject: [{ digest: { sha256: base.keyDigest } }], predicateType: DOOR_PREDICATE_TYPE, predicate: { verdict: "success", key: base.keyDigest } } } }]));
+  const run = { event: "pull_request", headSha: value.head } as const;
+  const directory = artifactsFor(reused);
+  const proven = await judgeCompletedRun({ ...context(value, github(value, run), directory), reuseDirectory: proofDirectory });
+  assert.deepEqual(proven.verdict.findings, [], JSON.stringify(proven.verdict.findings));
+  assert.equal(proven.verdict.conclusion, "success");
+  assert.ok(proven.receipt.gates.some((gate) => gate.status === "reused"));
+  const unproven = await judgeCompletedRun({ ...context(value, github(value, run), directory) });
+  assert.ok(unproven.verdict.findings.some((finding) => /reuse refused/u.test(finding.detail)), "a claim with no proof is refused");
+  const fake = github(value, run);
+  fake.objects.set(`locator:door-verdict-${base.keyDigest}-failure`, [{ id: 1, name: `door-verdict-${base.keyDigest}-failure`, expired: false, created_at: "2026-10-21T00:00:00Z", workflow_run: { id: 4 } }]);
+  const failedBefore = await judgeCompletedRun({ ...context(value, fake, directory), reuseDirectory: proofDirectory });
+  assert.ok(failedBefore.verdict.findings.some((finding) => finding.rule === "attempt-laundering"), "a failed verdict of this exact key stands");
+  assert.equal(failedBefore.verdict.conclusion, "failure");
 });

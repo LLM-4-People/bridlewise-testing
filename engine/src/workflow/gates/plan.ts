@@ -53,6 +53,13 @@ export type GatePlan = Readonly<{
   gates: readonly Readonly<{ id: string; class: Gate["class"]; role: Gate["role"]; reuse: Gate["reuse"] }>[];
   populations: readonly PopulationListing[];
   cells: readonly ShardCell[];
+  /**
+   * Present when every gate is REUSED (`reuse.ts`): the door's attested
+   * success for this exact K, found by its locator in `doorRun` and proven by
+   * its attestation. The cells are then empty; the door proves it again on
+   * its own reads before it accepts it.
+   */
+  reuse?: Readonly<{ key: string; doorRun: number; predicate: Readonly<Record<string, unknown>> }>;
 }>;
 
 /** The digest of a catalogue: what a plan, a result and a receipt bind to. */
@@ -159,12 +166,19 @@ export function parsePlan(value: unknown): GatePlan {
   if (typeof plan!.headSha !== "string" || !SHA.test(plan!.headSha) || typeof plan!.treeId !== "string" || !SHA.test(plan!.treeId)) refuse("no head sha or tree id");
   if (typeof plan!.key !== "object" || plan!.key === null || plan!.keyDigest !== gateKey(plan!.key) || plan!.key.treeId !== plan!.treeId) refuse("its key document does not hash to its key, or names another tree");
   if (!Array.isArray(plan!.gates) || !Array.isArray(plan!.cells) || !Array.isArray(plan!.populations)) refuse("no gates, cells or populations");
+  if (plan!.reuse !== undefined && (plan!.reuse.key !== plan!.keyDigest || plan!.cells!.length > 0)) refuse("a reuse for another key, or with cells left to run");
   const cellIds = new Set<string>();
   for (const cell of plan!.cells!) {
     if (typeof cell.cell !== "string" || cellIds.has(cell.cell) || !Array.isArray(cell.files) || cell.files.length === 0) refuse(`cell ${String(cell.cell)}`);
     cellIds.add(cell.cell);
   }
   return deepFreeze(plan as GatePlan);
+}
+
+/** The plan of a fully reused tree: no cell runs; the reuse is the door's proven verdict for K. */
+export function reusedPlan(plan: GatePlan, reuse: NonNullable<GatePlan["reuse"]>): GatePlan {
+  if (reuse.key !== plan.keyDigest) throw new InputError("a reuse names another key than the plan's", "gate_plan_invalid");
+  return deepFreeze({ ...plan, cells: [], reuse });
 }
 
 /** The matrix the CI `shard` job expands: one `{cell, gate, title}` per cell (the files stay in plan.json). */

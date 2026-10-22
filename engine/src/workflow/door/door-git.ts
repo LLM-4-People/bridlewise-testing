@@ -11,6 +11,7 @@
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { InputError } from "../../kernel/errors.ts";
 import { gitOutput, type GitRepository } from "../../git/tree-reader.ts";
+import { pathObjectId } from "../gates/reuse.ts";
 
 const SHA = /^[0-9a-f]{40}$/u;
 
@@ -23,13 +24,6 @@ function requireSha(value: string, what: string): string {
 export function fetchCommits(repository: GitRepository, commits: readonly string[]): void {
   if (commits.length === 0) return;
   gitOutput(repository, ["fetch", "--no-tags", "--quiet", "--filter=blob:none", "origin", ...commits.map((commit) => requireSha(commit, "a fetched commit"))]);
-}
-
-/** The object id `<commit>:<path>` names, or null when the commit holds no such path. */
-export function pathObjectId(repository: GitRepository, commit: string, path: string): string | null {
-  const answer = gitOutput(repository, ["rev-parse", "--verify", "--quiet", `${requireSha(commit, "a commit")}:${path}`], { allowed: [0, 1, 128] });
-  const id = answer.stdout.toString("utf8").trim();
-  return answer.status === 0 && SHA.test(id) ? id : null;
 }
 
 /** The bytes of `<commit>:<path>`, or null when absent. */

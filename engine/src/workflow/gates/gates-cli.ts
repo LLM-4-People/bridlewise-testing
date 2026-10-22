@@ -5,6 +5,8 @@
  *   harness gates list
  *   harness gates population <web-tests|engine-tests>   (`--text`: one file per line)
  *   harness gates plan  --out <dir> [--github-output <file>]
+ *   harness gates plan  --out <dir> --reuse-lookup --github-output <file>   (CI: GH_TOKEN, COLD, FORK)
+ *   harness gates reuse --plan <plan.json> --keydoc <keydoc.json> --proof <verified.json> --door-run <id> --github-output <file>
  *   harness gates setup <registry command>…
  *   harness gates run   <gate> --plan <plan.json> --out <dir>
  *   harness gates shard <cell> --plan <plan.json> --out <dir>
@@ -32,7 +34,14 @@ import { readMeasuredTree, readRepositoryHeadSha } from "../../shared/tree-ident
 import { wrapResult, type CommandAnswer } from "../command-result.ts";
 import { GATE_CATALOGUE, type Population } from "./catalogue.ts";
 import { workingTreeKey } from "./key.ts";
-import { catalogueDigest, matrixCells, parsePlan, planGates, type GatePlan } from "./plan.ts";
+import { findVerdictLocator, judgeReuseProof, pipelineChanged, reuseEligibility } from "./reuse.ts";
+import { resolveRevision } from "../../git/tree-reader.ts";
+import { configuredGitRepository } from "../../git/worktree-port.ts";
+import { configuredForge } from "../forge/configured-forge.ts";
+import { environmentCredential } from "../forge/credentials.ts";
+import { forgeEndpoint } from "../forge/forge-config.ts";
+import { githubClient } from "../forge/github.ts";
+import { catalogueDigest, matrixCells, parsePlan, planGates, reusedPlan, type GatePlan } from "./plan.ts";
 import { listPopulation } from "./populations.ts";
 import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
 import { loadPinnedConfigSnapshot } from "../../kernel/config.ts";
@@ -40,7 +49,14 @@ import { checkoutCommandRunner, configuredCheckoutCommandRunner, runDeclaredComm
 import { registryCommand, runLightGate, runShard, type RunEnvironment } from "./cell-run.ts";
 import { parseJobOutcomes, readResults, renderReceipt, sealReceipt } from "./seal.ts";
 
-const VERBS = ["list", "population", "plan", "setup", "run", "shard", "seal"] as const;
+const VERBS = ["list", "population", "plan", "reuse", "setup", "run", "shard", "seal"] as const;
+
+/** `owner/name` (GITHUB_REPOSITORY), or the typed refusal. */
+function repositoryOf(value: string | undefined): Readonly<{ owner: string; name: string }> {
+  const [owner, name, ...rest] = (value ?? "").split("/");
+  if (owner === undefined || owner === "" || name === undefined || name === "" || rest.length > 0) throw new InputError("the reuse lookup runs in CI: GITHUB_REPOSITORY names no owner/name", "gate_reuse_invalid");
+  return { owner, name };
+}
 
 function repositoryRootOf(engineRoot: string): string {
   const top = repositoryToplevel(engineRoot, "directory");
@@ -116,14 +132,45 @@ export async function runGatesCli(engineRoot: string, argv: readonly string[]): 
     };
   }
   if (verb === "plan") {
-    const { values } = options(verb, rest, { out: "string", "github-output": "string" }, 0);
+    const reuseLookup = rest.includes("--reuse-lookup");
+    const { values } = options(verb, rest.filter((argument) => argument !== "--reuse-lookup"), { out: "string", "github-output": "string" }, 0);
     const out = resolve(required(verb, values, "out"));
     const plan = await planWorkingTree(repositoryRoot);
     mkdirSync(out, { recursive: true });
     writeFileSync(join(out, "plan.json"), `${canonicalJson(plan)}\n`);
-    if (values["github-output"] !== undefined) appendFileSync(values["github-output"], `cells=${JSON.stringify(matrixCells(plan))}\n`);
     writeFileSync(join(out, "keydoc.json"), canonicalJson(plan.key));
+    // THE REUSE LOOKUP (CI only): is there a door verdict for this exact K the run may reuse? The door proves it
+    // again before it accepts it; here it only decides whether the cells need to run.
+    let reuseRun = "";
+    if (reuseLookup) {
+      const client = githubClient(forgeEndpoint(configuredForge()), environmentCredential("ci", "GH_TOKEN"));
+      const repository = repositoryOf(process.env.GITHUB_REPOSITORY);
+      const git = configuredGitRepository(loadPinnedConfigSnapshot().document, repositoryRoot);
+      const base = resolveRevision(git, "HEAD^1", "commit");
+      const eligibility = reuseEligibility({
+        fork: process.env.FORK === "true",
+        cold: process.env.COLD === "true" || process.env.GITHUB_EVENT_NAME === "schedule",
+        generatorChanged: base === null || pipelineChanged(git, "HEAD", base),
+        failedBefore: (await findVerdictLocator(client, repository, plan.keyDigest, "failure")) !== null,
+      });
+      const locator = eligibility.eligible ? await findVerdictLocator(client, repository, plan.keyDigest, "success") : null;
+      if (locator !== null) reuseRun = String(locator.runId);
+      process.stderr.write(`reuse: ${eligibility.eligible ? (locator === null ? "eligible, no door verdict for this key yet" : `a door verdict for this key in run ${reuseRun}`) : `not eligible (${eligibility.reasons.join("; ")})`}\n`);
+    }
+    if (values["github-output"] !== undefined) appendFileSync(values["github-output"], `cells=${JSON.stringify(matrixCells(plan))}\nkey=${plan.keyDigest}\nreuse-run=${reuseRun}\n`);
     return { result: wrapResult("gates", deepFreeze({ plan: join(out, "plan.json"), headSha: plan.headSha, treeId: plan.treeId, key: plan.keyDigest, cells: plan.cells.map((cell) => ({ cell: cell.cell, files: cell.files.length, weight: cell.weight })) }), { status: "pass" }) };
+  }
+  if (verb === "reuse") {
+    const { values } = options(verb, rest, { plan: "string", keydoc: "string", proof: "string", "door-run": "string", "github-output": "string" }, 0);
+    const planPath = required(verb, values, "plan");
+    const plan = readPlanFile(planPath);
+    const proof = judgeReuseProof(plan.keyDigest, readFileSync(required(verb, values, "keydoc")), JSON.parse(readFileSync(required(verb, values, "proof"), "utf8")));
+    const doorRun = Number(required(verb, values, "door-run"));
+    if (!Number.isSafeInteger(doorRun) || doorRun <= 0) throw new InputError("gates reuse: --door-run is not a run id", "input_error");
+    const reused = reusedPlan(plan, { key: proof.key, doorRun, predicate: proof.predicate });
+    writeFileSync(planPath, `${canonicalJson(reused)}\n`);
+    if (values["github-output"] !== undefined) appendFileSync(values["github-output"], "cells=[]\nreuse=true\n");
+    return { result: wrapResult("gates", deepFreeze({ reused: proof.key, doorRun }), { status: "pass" }) };
   }
   if (verb === "setup") {
     if (rest.length === 0 || rest.some((name) => name.startsWith("-"))) throw new InputError("gates setup takes the registry setup commands to run", "input_error");

@@ -249,6 +249,14 @@ export function validateCatalogue(gates: readonly Gate[]): readonly Gate[] {
 
 export const GATE_CATALOGUE: readonly Gate[] = deepFreeze(validateCatalogue(GATES));
 
+/**
+ * The paths that ARE the pipeline's owner: the catalogue and its generator,
+ * the generated-file list, and the command registry the gates run. A tree
+ * that changes any of them changes CI: the door's ratchet judges it as
+ * CI-changing, and it is never reused (`reuse.ts`).
+ */
+export const GENERATOR_SOURCES = deepFreeze(["engine/src/workflow/gates", "engine/src/kernel/verification-paths.ts", "engine/bridlewise.config.json"] as const);
+
 /** Every registry command the catalogue runs (the dead-command check counts the gates as a consumer). */
 export function catalogueCommandNames(catalogue: readonly Gate[] = GATE_CATALOGUE): readonly string[] {
   return [...new Set(catalogue.flatMap((gate) => [...gate.setup, ...gate.commands.map((entry) => entry.command), ...(gate.cellCommand === undefined ? [] : [gate.cellCommand])]))].toSorted();

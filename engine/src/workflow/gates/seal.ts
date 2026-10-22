@@ -35,7 +35,7 @@ export type JobOutcome = "success" | "failure" | "cancelled" | "skipped";
 export type GateVerdict = Readonly<{
   id: string;
   role: Gate["role"];
-  status: "passed" | "failed" | "not-run";
+  status: "passed" | "failed" | "not-run" | "reused";
   cells: readonly Readonly<{ cell: string; status: "passed" | "failed" | "missing"; tests?: number; refusal?: string }>[];
 }>;
 
@@ -123,6 +123,11 @@ export function sealReceipt(inputs: SealInputs): GateReceipt {
       gates.push({ id: gate.id, role: gate.role, status, cells: [{ cell: gate.id, status: outcome === undefined ? "missing" : status, ...(outcome === "success" ? {} : { refusal: `job ${gate.id} ended ${String(outcome ?? "without a result")}` }) }] });
       continue;
     }
+    if (plan.reuse !== undefined) {
+      // Every light and suite gate is reused: the door's proven verdict for this exact K stands for it.
+      gates.push({ id: gate.id, role: gate.role, status: "reused", cells: [] });
+      continue;
+    }
     const cellIds = gate.class === "light" ? [gate.id] : plan.cells.filter((cell) => cell.gate === gate.id).map((cell) => cell.cell);
     if (gate.class === "suite" && cellIds.length === 0) refusals.push(`suite ${gate.id} has no planned cell`);
     const cells = cellIds.map((cellId) => {
@@ -153,7 +158,7 @@ export function sealReceipt(inputs: SealInputs): GateReceipt {
     const covered = plan.cells.filter((cell) => cell.gate === population).flatMap((cell) => cell.files);
     if (new Set(covered).size !== covered.length) refusals.push(`suite ${population}: a file is planned in two shards`);
   }
-  for (const listing of plan.populations) {
+  for (const listing of plan.reuse === undefined ? plan.populations : []) {
     const suite = catalogue.find((gate) => gate.population === listing.population);
     if (suite === undefined) continue;
     const covered = new Set(plan.cells.filter((cell) => cell.gate === suite.id).flatMap((cell) => cell.files));

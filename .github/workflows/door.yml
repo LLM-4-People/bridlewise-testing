@@ -119,13 +119,34 @@ jobs:
           path: ${{ runner.temp }}/ci/results
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
+      - name: Locate a claimed reuse
+        id: claim
+        if: ${{ steps.preflight.outputs.accepted == 'true' }}
+        env:
+          DOOR_TOKEN: ${{ steps.token.outputs.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: node engine/src/cli.ts harness door reuse-claim --artifacts "$RUNNER_TEMP/ci" --github-output "$GITHUB_OUTPUT"
+      - name: Download the claimed verdict
+        if: ${{ steps.claim.outputs.door-run != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: door-verdict-${{ steps.claim.outputs.key }}-success
+          path: ${{ runner.temp }}/reuse
+          run-id: ${{ steps.claim.outputs.door-run }}
+          github-token: ${{ github.token }}
+      - name: Verify the claimed verdict's attestation
+        if: ${{ steps.claim.outputs.door-run != '' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh attestation verify "$RUNNER_TEMP/reuse/keydoc.json" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/door.yml" --source-ref refs/heads/main --predicate-type https://bridlewise.dev/attestations/gate-verdict/v1 --deny-self-hosted-runners --format json > "$RUNNER_TEMP/reuse/verified.json"
       - name: Judge the run and post the verdict
         id: judge
         if: ${{ !cancelled() }}
         env:
           DOOR_TOKEN: ${{ steps.token.outputs.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
-        run: node engine/src/cli.ts harness door judge --run "$RUN_ID" --artifacts "$RUNNER_TEMP/ci" --out "$RUNNER_TEMP/door" --github-output "$GITHUB_OUTPUT"
+        run: node engine/src/cli.ts harness door judge --run "$RUN_ID" --artifacts "$RUNNER_TEMP/ci" --reuse "$RUNNER_TEMP/reuse" --out "$RUNNER_TEMP/door" --github-output "$GITHUB_OUTPUT"
       - name: Attest the verdict
         if: ${{ steps.judge.outputs.attest == 'true' }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -133,6 +154,14 @@ jobs:
           subject-path: ${{ runner.temp }}/door/keydoc.json
           predicate-type: https://bridlewise.dev/attestations/gate-verdict/v1
           predicate-path: ${{ runner.temp }}/door/predicate.json
+      - name: Publish the verdict's locator
+        if: ${{ steps.judge.outputs.attest == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: door-verdict-${{ steps.judge.outputs.key }}-${{ steps.judge.outputs.verdict }}
+          path: ${{ runner.temp }}/door
+          if-no-files-found: error
+          retention-days: 90
   action:
     name: action
     if: github.event_name == 'check_run'
