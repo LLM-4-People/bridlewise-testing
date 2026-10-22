@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { startWebSocketServer, type WebSocketPeer } from "../support/websocket-server.ts";
 import test from "node:test";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -421,14 +421,33 @@ test("stdio: a host that refuses to start the server surfaces as mcp_spawn_refus
 // child's OWN boot witness before closing: the ready file is written by the
 // child's first statement, so its presence means its SIGTERM handler exists.
 /**
- * Until the child announces itself by its file: an EVENT, waited for as long
- * as it takes (the test's own hang backstop ends a child that never boots).
- * It used to give up after 250 polls of 20 ms, a 5 s wall judgement a loaded
- * host's slow node boot could fail (NO-LOAD-BLOCK).
+ * Until the child announces itself by its file — EVENTS only, never a wall
+ * timeout (NO-LOAD-BLOCK): ready when the file exists; refused, naming how it
+ * ended, when the child exits first; refused when the test's own signal
+ * aborts (the runner's hang backstop, a cancel). It used to give up after 250
+ * polls of 20 ms, a 5 s wall judgement a loaded host's slow boot could fail.
  */
-async function untilFileExists(path: string, periodMs: number): Promise<true> {
-  while (!existsSync(path)) await new Promise((resolve) => setTimeout(resolve, periodMs));
-  return true;
+function untilChildReady(path: string, child: () => ChildProcess | undefined, signal: AbortSignal, periodMs: number): Promise<true> {
+  return new Promise((resolve, reject) => {
+    let timer: NodeJS.Timeout | undefined;
+    const finish = (error?: Error): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      if (error === undefined) resolve(true); else reject(error);
+    };
+    const onAbort = (): void => finish(new Error(`the wait for ${path} ended: the test's signal aborted (${String(signal.reason)})`));
+    const look = (): void => {
+      if (existsSync(path)) return finish();
+      const spawned = child();
+      if (spawned !== undefined && (spawned.exitCode !== null || spawned.signalCode !== null)) {
+        return finish(new Error(`the child exited before it was ready (code ${String(spawned.exitCode)}, signal ${String(spawned.signalCode)}): ${path} never appeared`));
+      }
+      timer = setTimeout(look, periodMs);
+    };
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    look();
+  });
 }
 
 // The count of THIS worker's live script children carrying a unique marker
@@ -441,7 +460,9 @@ function liveMarkCount(marker: string): number {
     parentOf(pid) === process.pid && isProcessAlive(pid) && (commandLineOf(pid) ?? []).join(" ").includes(marker)).length;
 }
 
+/** A scripted stdio child behind a transport, and the child process itself (for the readiness wait). */
 function spawnScriptedChild(options: { ready: string; flushed: string; flushMs: number; ignoreSigterm: boolean; selfExitMs: number; terminationMs: number }) {
+  let spawned: ChildProcess | undefined;
   // READY IS ANNOUNCED ONLY ONCE THE SIGTERM HANDLER IS INSTALLED. The child
   // used to write its ready file first: a child preempted between the two (a
   // loaded host) was ready by its file while a SIGTERM still took the default
@@ -453,7 +474,7 @@ function spawnScriptedChild(options: { ready: string; flushed: string; flushMs: 
       : "process.on('SIGTERM',()=>{require('node:fs').writeFileSync(process.env.STDIO_FLUSHED_PATH,'received\\n',{flag:'a'});setTimeout(()=>{require('node:fs').writeFileSync(process.env.STDIO_FLUSHED_PATH,'completed\\n',{flag:'a'});process.exit(0)}," + options.flushMs + ")});") +
     "require('node:fs').writeFileSync(process.env.STDIO_READY_PATH,'');" +
     "setTimeout(()=>process.exit(0)," + options.selfExitMs + ")";
-  return createStdioTransport(
+  const transport = createStdioTransport(
     {
       command: process.execPath,
       // The extra argv entry carries the unique marker so the /proc witness
@@ -461,22 +482,23 @@ function spawnScriptedChild(options: { ready: string; flushed: string; flushMs: 
       args: ["-e", esc, options.flushed],
       cwd: process.cwd(),
       env: { STDIO_READY_PATH: options.ready, STDIO_FLUSHED_PATH: options.flushed },
-      spawn: (command, args, spawnOptions) => spawn(command, [...args], { ...spawnOptions, stdio: [...spawnOptions.stdio] }),
+      spawn: (command, args, spawnOptions) => (spawned = spawn(command, [...args], { ...spawnOptions, stdio: [...spawnOptions.stdio] })),
       closeGraceMs: options.terminationMs, stderrTailBytes: 8192, ...STDIO_BOUNDS,
     },
   );
+  return { transport, ready: (signal: AbortSignal): Promise<true> => untilChildReady(options.ready, () => spawned, signal, 20) };
 }
 
-test("stdio: close escalates a ready child that ignores SIGTERM within the configured bound", { timeout: 35_000 }, async () => {
+test("stdio: close escalates a ready child that ignores SIGTERM within the configured bound", { timeout: 35_000 }, async (t) => {
   // The owner creates AND registers removal in one call (removed even when
   // this arm fails) — no hand-rolled mkdtemp + trailing rmSync that leaks on
   // the failure path it is supposed to diagnose.
   const dir = createTempDir("stdio-terminate-");
   const ready = join(dir, "ready.txt");
   const flushed = join(dir, "flushed.txt");
-  const transport = spawnScriptedChild({ ready, flushed, flushMs: 0, ignoreSigterm: true, selfExitMs: 30_000, terminationMs: 50 });
+  const { transport, ready: childReady } = spawnScriptedChild({ ready, flushed, flushMs: 0, ignoreSigterm: true, selfExitMs: 30_000, terminationMs: 50 });
   await transport.connect();
-  assert.equal(await untilFileExists(ready, 20), true, "the child must boot before its signal behaviour means anything");
+  assert.equal(await childReady(t.signal), true, "the child must boot before its signal behaviour means anything");
   const started = Date.now();
   await transport.close();
   const elapsed = Date.now() - started;
@@ -576,13 +598,13 @@ test("stdio: a polite close cancels the escalation timer — the configured boun
   assert.equal(transport.isConnected, false);
 });
 
-test("stdio: a generous termination bound lets a ready child finish its SIGTERM flush — the polite path is taken", { timeout: 35_000 }, async () => {
+test("stdio: a generous termination bound lets a ready child finish its SIGTERM flush — the polite path is taken", { timeout: 35_000 }, async (t) => {
   const dir = createTempDir("stdio-terminate-");
   const ready = join(dir, "ready.txt");
   const flushed = join(dir, "flushed.txt");
-  const transport = spawnScriptedChild({ ready, flushed, flushMs: 400, ignoreSigterm: false, selfExitMs: 30_000, terminationMs: 10_000 });
+  const { transport, ready: childReady } = spawnScriptedChild({ ready, flushed, flushMs: 400, ignoreSigterm: false, selfExitMs: 30_000, terminationMs: 10_000 });
   await transport.connect();
-  assert.equal(await untilFileExists(ready, 20), true, "the child must boot before its signal behaviour means anything");
+  assert.equal(await childReady(t.signal), true, "the child must boot before its signal behaviour means anything");
   await transport.close();
   assert.equal(transport.isConnected, false);
   assert.equal(
@@ -947,5 +969,21 @@ test("retry: the outbound door's policy refusal is never retried — one request
     assert.equal(server.requests.length, 1, "the redirecting host saw one request, not retry.count");
   } finally {
     await server.close();
+  }
+});
+
+test("stdio: the readiness wait ends on an EVENT — a child that exits before it is ready is refused, naming its exit; an aborted signal ends it too", async () => {
+  const dir = createTempDir("stdio-ready-");
+  const never = join(dir, "never.txt");
+  const child = spawn(process.execPath, ["-e", "process.exit(3)"], { stdio: "ignore" });
+  await assert.rejects(untilChildReady(never, () => child, new AbortController().signal, 20), /the child exited before it was ready \(code 3, signal null\)/u);
+  const sleeper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], { stdio: "ignore" });
+  try {
+    const aborted = new AbortController();
+    const waiting = untilChildReady(never, () => sleeper, aborted.signal, 20);
+    aborted.abort(new Error("the runner's backstop"));
+    await assert.rejects(waiting, /the test's signal aborted \(Error: the runner's backstop\)/u);
+  } finally {
+    sleeper.kill("SIGKILL");
   }
 });
