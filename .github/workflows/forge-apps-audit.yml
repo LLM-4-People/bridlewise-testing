@@ -36,6 +36,9 @@ jobs:
           - role: publisher
             environment: publish
     environment: ${{ matrix.environment }}
+    # Exactly read access to the repository: the App's own token does the audit, the run's token needs nothing more.
+    permissions:
+      contents: read
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -51,11 +54,12 @@ jobs:
             package-lock.json
             engine/package-lock.json
 
+      # No dependency's install script runs in a job that is handed an App key.
       - name: Install web dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Install engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund
+        run: npm --prefix engine ci --ignore-scripts --no-audit --no-fund
 
       - name: Enforce the self-protection config mode
         run: chmod 600 engine/bridlewise.config.json

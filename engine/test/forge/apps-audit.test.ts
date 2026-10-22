@@ -15,6 +15,7 @@ import test from "node:test";
 import { FORGE_APPS } from "../../src/workflow/forge/app-registry.ts";
 import { environmentKeyCustody, keyHomeCustody, storeAppKey } from "../../src/workflow/forge/app-keys.ts";
 import { auditAppInstallation } from "../../src/workflow/forge/apps-audit.ts";
+import { runForgeCli } from "../../src/workflow/forge/cli.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { fakeGithub } from "./fake-github.ts";
 import { temporaryKeyHome } from "./forge-key-home.ts";
@@ -91,4 +92,33 @@ test("an environment App signs only with the key its job is handed; a host App n
       if (value === undefined) delete process.env[variable]; else process.env[variable] = value;
     }
   }
+});
+
+test("the events are checked: an installation subscribed to events the registry does not declare fails the events check", async () => {
+  const { fake, app, run } = hostAudit(FORGE_APPS.agent.permissions, HOST_REPOSITORIES);
+  fake.route("GET", /^\/app\/installations$/u, () => ({ status: 200, body: [{ id: app.installationId, account: { login: ORG }, repository_selection: "selected", permissions: FORGE_APPS.agent.permissions, events: ["push"] }] }));
+  const audit = await run();
+  assert.deepEqual(checkOf(audit, "events"), { check: "events", ok: false, expected: [], found: ["push"] });
+  assert.equal(audit.ok, false, "one failed check fails the audit");
+});
+
+test("the CLI's verdict is every audit's: the host Apps exact passes, one App off fails the verb, and a role outside the registry is refused", async () => {
+  const fake = fakeGithub();
+  const keyHome = temporaryKeyHome();
+  const install = (role: "agent" | "verifier", permissions: Readonly<Record<string, string>>) => {
+    const app = fake.installApp({ slug: FORGE_APPS[role].name, permissions, repositories: HOST_REPOSITORIES });
+    storeAppKey(keyHome, role, { appId: app.appId, slug: app.slug, clientId: app.clientId, pem: app.pem });
+  };
+  const wiring = { settings: () => SETTINGS, endpoint: () => fake.endpoint(), hostCustody: () => keyHomeCustody(keyHome) };
+  install("agent", FORGE_APPS.agent.permissions);
+  install("verifier", { ...FORGE_APPS.verifier.permissions, issues: "write" });
+  const answer = await runForgeCli(".", ["apps", "audit"], () => {}, wiring);
+  const verdict = answer.result.result as { ok: boolean; audits: { role: string; ok: boolean }[] };
+  assert.deepEqual(verdict.audits.map((audit) => `${audit.role}:${String(audit.ok)}`), ["agent:true", "verifier:false"]);
+  assert.equal(verdict.ok, false);
+  assert.equal(answer.result.status, "fail", "one App off fails the verb");
+  const agentOnly = await runForgeCli(".", ["apps", "audit", "--role", "agent"], () => {}, wiring);
+  assert.equal((agentOnly.result.result as { ok: boolean }).ok, true);
+  assert.equal(agentOnly.result.status, "pass");
+  await assert.rejects(runForgeCli(".", ["apps", "audit", "--role", "owner"], () => {}, wiring), (error: unknown) => isForgeError(error, "forge_usage"));
 });
