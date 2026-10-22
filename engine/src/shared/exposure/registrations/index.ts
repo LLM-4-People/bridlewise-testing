@@ -108,7 +108,7 @@ const MODULE_REGISTRATIONS = [
  * `registrations/shared.ts` sat beside these files for the life of the
  * directory and was never in the list above. Driven, its five signals did not
  * exist at runtime; tree-shaking had already deleted its symbols from
- * `dist/bundle.js`, and that deletion is what `bundleSha256` certifies — so
+ * `dist/bundle.js`, and that deletion is what a fresh build reproduces — so
  * the shipped artefact never contained it and nothing ever noticed. The
  * guard that should have caught it iterated the same list, and therefore
  * passed vacuously.

@@ -67,19 +67,6 @@ const INVENTORY_SCHEMA = z.strictObject({
   inventoryHash: z.string().regex(/^[0-9a-f]{64}$/u),
 });
 
-const LEGACY_V1_V2_INVENTORY_SCHEMA = z.strictObject({
-  schemaVersion: z.enum(["bridlewise-test-inventory/v1", "bridlewise-test-inventory/v2"]),
-  tests: z.array(ENTRY_SCHEMA).min(1),
-  inventoryHash: z.string().regex(/^[0-9a-f]{64}$/u),
-});
-
-const LEGACY_V3_INVENTORY_SCHEMA = z.strictObject({
-  schemaVersion: z.literal("bridlewise-test-inventory/v3"),
-  scope: TEST_SURFACE_SCOPE_SCHEMA,
-  tests: z.array(ENTRY_SCHEMA).min(1),
-  inventoryHash: z.string().regex(/^[0-9a-f]{64}$/u),
-});
-
 export type TestInventoryEntry = Readonly<z.infer<typeof ENTRY_SCHEMA>>;
 export type TestInventory = DeepReadonly<z.infer<typeof INVENTORY_SCHEMA>>;
 export type TestInventoryBuildOptions = Readonly<{
@@ -278,9 +265,10 @@ export function createTestInventory(
 }
 
 /**
- * Replaces the inventory and the root policy's pin of it as ONE journaled
- * transaction (`src/filesystem/journaled-commit.ts`, the one multi-file
- * commit owner, which also asks the checkout write door for both files).
+ * Replaces the inventory as a journaled transaction
+ * (`src/filesystem/journaled-commit.ts`, the one commit owner, which also asks
+ * the checkout write door for the file). The root policy holds no copy of the
+ * inventory's hash (#221), so the inventory is the transaction's one file.
  * Phases: `journal-written`, `staged`, `committed:<path>`, `verified`.
  */
 export function writeTestInventoryTransaction(
@@ -291,17 +279,9 @@ export function writeTestInventoryTransaction(
 ): void {
   const root = resolve(candidateRoot);
   const inventoryPath = join(root, INVENTORY_PATH);
-  const rootPolicyPath = join(root, ROOT_POLICY_PATH);
   const nextInventory = parseTestInventoryDocument(inventory);
   assertInventoryMatchesBoundProjection(root, nextInventory, options);
-  const baseInventory = parseInventoryBase(readFileSync(inventoryPath, "utf8"));
-  const nextRootPolicyText = replacePinnedInventoryHash(
-    readFileSync(rootPolicyPath, "utf8"),
-    baseInventory.inventoryHash,
-    nextInventory.inventoryHash,
-  );
   commitJournaled(root, TRANSACTION_JOURNAL, [
-    { path: ROOT_POLICY_PATH, bytes: Buffer.from(nextRootPolicyText, "utf8"), mode: statSync(rootPolicyPath).mode & 0o7777 },
     { path: INVENTORY_PATH, bytes: Buffer.from(`${canonicalJson(nextInventory)}\n`, "utf8"), mode: statSync(inventoryPath).mode & 0o7777 },
   ], { onPhase });
 }
@@ -338,9 +318,8 @@ export function loadTestInventoryWithSnapshot(candidateRoot: string): Readonly<{
   );
   const value: unknown = JSON.parse(inventoryText);
   const inventory = parseTestInventoryDocument(value);
-  if (inventory.schemaVersion !== ROOT_POLICY.verification.testInventorySchema ||
-    inventory.inventoryHash !== ROOT_POLICY.verification.testInventoryHash) {
-    throw new Error("test inventory hash is invalid");
+  if (inventory.schemaVersion !== ROOT_POLICY.verification.testInventorySchema) {
+    throw new Error("test inventory schema is not the root policy's");
   }
   const built = readTestSourceSnapshot(root);
   assertSameTestInventoryProjection(inventory, buildTestInventoryFromSnapshot(built));
@@ -512,16 +491,7 @@ function main(argv: readonly string[]): number {
   const inventory = buildTestInventory(root);
   const inventoryBytes = `${canonicalJson(inventory)}\n`;
   const inventoryPath = join(root, INVENTORY_PATH);
-  const rootPolicyPath = join(root, ROOT_POLICY_PATH);
-  const rootPolicyBytes = readFileSync(rootPolicyPath, "utf8");
-  const baseInventory = parseInventoryBase(readFileSync(inventoryPath, "utf8"));
-  const updatedRootPolicyBytes = replacePinnedInventoryHash(
-    rootPolicyBytes,
-    baseInventory.inventoryHash,
-    inventory.inventoryHash,
-  );
   const inventoryMatches = readFileSync(inventoryPath, "utf8") === inventoryBytes;
-  const rootPolicyMatches = rootPolicyBytes === updatedRootPolicyBytes;
   const sourceSetHash = canonicalHash([...new Map(inventory.tests.map((entry) => [
     entry.sourceId,
     { sourceId: entry.sourceId, sourceHash: entry.sourceHash },
@@ -532,21 +502,21 @@ function main(argv: readonly string[]): number {
       generatorRevision: GENERATOR_REVISION,
       inventoryHash: inventory.inventoryHash,
       sourceSetHash,
-      status: inventoryMatches && rootPolicyMatches && !transactionPresent ? "current" : "drift",
+      status: inventoryMatches && !transactionPresent ? "current" : "drift",
       testCount: inventory.tests.length,
       transactionPresent,
       conservation,
     })}\n`);
-    return inventoryMatches && rootPolicyMatches && !transactionPresent ? 0 : 1;
+    return inventoryMatches && !transactionPresent ? 0 : 1;
   }
 
   if (transactionPresent) throw new Error("test inventory transaction recovery is required");
-  if (!inventoryMatches || !rootPolicyMatches) writeTestInventoryTransaction(root, inventory);
+  if (!inventoryMatches) writeTestInventoryTransaction(root, inventory);
   process.stdout.write(`${canonicalJson({
     generatorRevision: GENERATOR_REVISION,
     inventoryHash: inventory.inventoryHash,
     sourceSetHash,
-    status: inventoryMatches && rootPolicyMatches ? "current" : "written",
+    status: inventoryMatches ? "current" : "written",
     testCount: inventory.tests.length,
     conservation,
   })}\n`);
@@ -808,10 +778,6 @@ function loadBoundTestSurfaceManifest(root: string): TestSurfaceDispositionManif
     manifestRead.bytes,
     TEST_DISCOVERY.dispositionRegistry.manifestPath,
   ));
-  if (sha256(manifestRead.bytes) !== ROOT_POLICY.verification.testSurfaceDispositionBinding.fileSha256 ||
-    manifest.integrityHash !== ROOT_POLICY.verification.testSurfaceDispositionBinding.identityHash) {
-    throw new Error("test-surface disposition binding is stale");
-  }
   return manifest;
 }
 
@@ -834,19 +800,6 @@ function decodeTestSource(bytes: Buffer, sourceId: string): string {
   } catch {
     throw new Error(`test inventory source is not valid UTF-8: ${sourceId}`);
   }
-}
-
-function replacePinnedInventoryHash(source: string, baseInventoryHash: string, nextInventoryHash: string): string {
-  const schemaMarker = `    testInventorySchema: "${ROOT_POLICY.verification.testInventorySchema}",`;
-  const marker = `    testInventoryHash: "${baseInventoryHash}",`;
-  const schemaIndex = source.indexOf(schemaMarker);
-  const index = source.indexOf(marker);
-  if (schemaIndex < 0 || source.indexOf(schemaMarker, schemaIndex + schemaMarker.length) >= 0 ||
-    index < schemaIndex || source.indexOf(marker, index + marker.length) >= 0) {
-    throw new Error("root policy inventory base marker is missing, stale, or ambiguous");
-  }
-  return source.slice(0, index) + `    testInventoryHash: "${nextInventoryHash}",` +
-    source.slice(index + marker.length);
 }
 
 function topLevelBindings(body: readonly AstNode[]): ReadonlyMap<string, AstNode> {
@@ -1558,28 +1511,6 @@ function memberPropertyName(value: AstNode): string | undefined {
   }
   if (value.property.type === "StringLiteral" && typeof value.property.value === "string") return value.property.value;
   return undefined;
-}
-
-function parseInventoryBase(text: string): Readonly<{ inventoryHash: string }> {
-  assertNoDuplicateJsonObjectKeys(
-    text,
-    "Base test inventory contains a duplicate key",
-    "test_inventory_base_key_duplicate",
-  );
-  const inventory = z.union([
-    INVENTORY_SCHEMA,
-    LEGACY_V1_V2_INVENTORY_SCHEMA,
-    LEGACY_V3_INVENTORY_SCHEMA,
-  ]).parse(JSON.parse(text) as unknown);
-  const expectedHash = inventory.schemaVersion === ROOT_POLICY.verification.testInventorySchema
-    ? testInventoryIdentity(inventory.scope, inventory.tests)
-    : inventory.schemaVersion === "bridlewise-test-inventory/v3"
-      ? canonicalHash({ scope: inventory.scope, tests: inventory.tests })
-      : canonicalHash(inventory.tests);
-  if (expectedHash !== inventory.inventoryHash) {
-    throw new Error("base test inventory hash is invalid");
-  }
-  return inventory;
 }
 
 function isAstNode(value: unknown): value is AstNode {

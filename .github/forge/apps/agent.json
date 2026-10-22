@@ -1,0 +1,21 @@
+{
+  "name": "bridlewise-agent",
+  "url": "https://github.com/LLM-4-People/bridlewise-testing",
+  "description": "Bridlewise writer agents: pushes agent branches and opens draft pull requests. Minted per action on the maintainer's host; no model ever sees a key or a token.",
+  "public": false,
+  "hook_attributes": {
+    "url": "https://github.com/LLM-4-People/bridlewise-testing",
+    "active": false
+  },
+  "redirect_url": "http://127.0.0.1:47811/callback",
+  "default_permissions": {
+    "actions": "read",
+    "checks": "read",
+    "contents": "write",
+    "metadata": "read",
+    "pull_requests": "write"
+  },
+  "default_events": [],
+  "request_oauth_on_install": false,
+  "setup_on_update": false
+}
