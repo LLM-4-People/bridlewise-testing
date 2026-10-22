@@ -44,7 +44,7 @@ test("the first round publishes signed twins with the same trees, moves the loca
   const { root, bare, manager, forge } = forgeFixture("ws-forge-round");
   const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src", "bin"] });
   const worktree = record.lease.worktreePath;
-  assert.deepEqual(record.forge, { remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false }, "create resolved the target's upstream and opened nothing yet");
+  assert.deepEqual(record.forge, { remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false, land: null }, "create resolved the target's upstream and opened nothing yet");
   writeFile(worktree, "src/deep/nested/a.ts", "export const a = 1;\n");
   writeFile(worktree, "bin/run.sh", "#!/bin/sh\necho run\n");
   chmodSync(join(worktree, "bin/run.sh"), 0o755);
@@ -92,7 +92,7 @@ test("the first round publishes signed twins with the same trees, moves the loca
   assert.ok(pull.body.includes("Tune the feature"), "the commits are listed");
   assert.ok(pull.body.includes("Not validated at this tree yet"));
   assert.ok(!pull.body.includes(worktree), "no local path reaches the forge");
-  assert.deepEqual(published.forge, { remote: "origin", trunk: "main", pullRequest: { number: 1, url: "https://forge.test/pull/1" }, publishedHead: round.head, ready: false });
+  assert.deepEqual(published.forge, { remote: "origin", trunk: "main", pullRequest: { number: 1, url: "https://forge.test/pull/1" }, publishedHead: round.head, ready: false, land: null });
   assert.equal(forgeStateOf(manager.status(record.workspaceId)).publishedHead, round.head, "the record is saved");
 });
 
@@ -357,7 +357,7 @@ test("an adopted pull request opened against another base is refused, and a dele
   await forge.openDraftPullRequest({ head: record.lease.branch!, base: "side", title: "t", body: "b" });
   await assert.rejects(() => manager.publish(record.workspaceId), throwsCode("workspace_pull_request_base_mismatch"));
 
-  manager.abort(record.workspaceId);
+  await manager.abort(record.workspaceId);
 
   // A deletion is sent with the mode the entry had: a link's deletion is a link's.
   const deleting = await manager.create({ agentName: "deleter", mode: "feature", writeSet: ["link.md"] });

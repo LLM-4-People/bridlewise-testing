@@ -32,12 +32,16 @@ follows is [WORKFLOW.md](WORKFLOW.md).
 
 ## 1b. Feature → `testing`: the workspace merge — refusals and the land
 
-`npm run ws -- merge <id>` (= `node engine/src/cli.ts harness workspace merge
-<id>`, the integrator in `engine/src/workflow/workspace-manager.ts`) lands a
-validated workspace on its target branch — one of
-`workspaceIsolation.landTargets` (this repository: `testing` only; `master`
-never). It lands locally and the caller pushes. Under the repository's merge
-lock (merges queue):
+A feature workspace lands on its target's UPSTREAM trunk on the forge — one
+of `workspaceIsolation.landTargets`, which name the forge's trunk (this
+repository: `main` on GitHub), never a local branch name: any local branch
+whose upstream is that trunk lands there, and a target whose upstream is
+another trunk, another remote, or none is refused at create. There are two
+ways to land, side by side: `ws land` through the forge's merge queue (§1c),
+and the local integrator, `npm run ws -- merge <id>` (= `node
+engine/src/cli.ts harness workspace merge <id>`, in
+`engine/src/workflow/workspace-manager.ts`), which lands locally and leaves
+the push to the caller. Under the repository's merge lock (merges queue):
 
 1. **Preconditions.** Validated (`ws validate`), the target still a land
    target, the lease live, the worktree intact and clean at the validated
@@ -73,18 +77,67 @@ that dies leaves it `merging`: `ws recover <id>` finishes or rolls back.
 
 A feature workspace's target must track an upstream branch on a remote
 (`branch.<target>.remote`/`.merge`): `create` refuses one that does not
-(`workspace_target_untracked`). `publish` re-makes the branch's new commits
+(`workspace_target_untracked`), and one whose remote is not the forge's
+trunk repository (`workspace_forge_remote_unknown`). `publish` re-makes the branch's new commits
 on the forge as signed twins through the Git Data API (moving the forge
 branch only from where the workspace left it: another writer's commits are
 refused, `branch_moved_by_another_writer`) and opens or regenerates the DRAFT
 pull request; `ready` takes it out of draft once its published tree passed
 `validate`, and any later round that publishes a new head returns it to
-draft. Records are stored per version: the store before the forge (v2),
-which older code still uses, is read and migrated in memory and never
-written. A v2-only workspace is read-only to this version until the
+draft. Records are stored per version: each older store (v3, before the
+land; v2, before the forge), which older code still uses, is read and
+migrated in memory through one chain (v2 → v3 → v4) and never written. A
+workspace only an older store knows is read-only to this version until the
 recorded P7 cutover: every verb that would change it refuses
-(`workspace_owned_by_v2_checkout`, naming its record and worktree) — act on
-it from the checkout of the version that made it.
+(`workspace_owned_by_v3_checkout` or `workspace_owned_by_v2_checkout`,
+naming its record and worktree) — act on it from the checkout of the version
+that made it.
+
+## 1c. Feature → `main` on the forge: `ws land`
+
+`npm run ws -- land <id>` puts a workspace's pull request in the forge's
+MERGE QUEUE and waits for the queue's verdict. Auto-merge is never used.
+
+1. **Preconditions.** Validated, published, ready, and nothing unpublished:
+   the worktree's HEAD is the published head, clean, and its tree is the one
+   `validate` passed. Then the harness's own judgement, against the trunk as
+   the forge holds it now: the land target, the lease, the overlay's
+   checkout, every changed path inside the lease, nothing merged on the
+   trunk since the fork point touching one, the staleness budget, the
+   pending leases. A refusal sends the record back to `active`.
+2. **The request.** The pull request is read once. If it is closed, or its
+   head is not the published one, the land is refused before anything is
+   asked (`workspace_pull_request_closed`, `workspace_published_head_moved`).
+   Otherwise the record becomes `merging`, naming the one head that may
+   land, and GraphQL `enqueuePullRequest` is sent with that head as
+   `expectedHeadOid`. If it is already queued at that head, nothing is
+   asked: the land only waits.
+   - GitHub refuses the enqueue (not mergeable, a check or a review
+     missing): `workspace_enqueue_refused`, and the record goes back to
+     `validating`.
+   - GitHub answers that it queued another head: `workspace_land_foreign_head`.
+3. **The wait.** The pull request is read once every `landing.pollIntervalMs`
+   (each read covers its whole state). Leaving the queue without merging
+   (`workspace_land_dequeued`), a moved head (`workspace_published_head_moved`)
+   or a close ends the land, and the record goes back to `active`. After
+   `landing.timeoutMs` the wait stops with `workspace_land_pending`: the
+   record stays `merging`, `ws land` resumes the wait, and `ws recover`
+   looks once.
+4. **After the merge** (under the merge lock): the trunk is fetched.
+   - If the trunk does not hold the merge commit: `workspace_land_unconfirmed`
+     (retriable).
+   - If the merge commit's second parent is not EXACTLY the head that was
+     asked for: `workspace_land_foreign_head`, and no receipt is written.
+   Otherwise the local target follows the trunk: the overlay's adoption, or
+   the tree landing's fast-forward or ref swap. If git refuses the follow,
+   the refusal is recorded, never thrown, because the land already
+   happened. Then the qualifying runs and the timeline are imported, the
+   worktree and the local branch are removed, and the hashed LAND receipt
+   is written. Finishing is idempotent: a land that another land or a
+   recover already finished answers its receipt.
+
+`ws abort` closes the workspace's open pull request with a comment and keeps
+its branch.
 
 ## 2. The commands
 
@@ -92,6 +145,7 @@ it from the checkout of the version that made it.
 node src/cli.ts harness workspace create --agent <name> --write-set <path…> [--target <branch>] [--base <ref>]
 node src/cli.ts harness workspace validate <id> [--full]
 node src/cli.ts harness workspace publish <id> | ready <id>
+node src/cli.ts harness workspace land <id>
 node src/cli.ts harness workspace merge <id>
 node src/cli.ts harness workspace recover <id> | abort <id> [--quarantine]
 ```

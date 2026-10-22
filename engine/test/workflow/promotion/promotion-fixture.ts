@@ -294,6 +294,7 @@ function fixtureDocument(commands: WorkspaceIsolationConfig["commands"], workRoo
       mergeLock: lock,
       landTargets: [SOURCE],
       killGraceMs: 1_000,
+      landing: { pollIntervalMs: 1, timeoutMs: 60_000 },
       links: [],
       commands,
       phases: { setup: [], validate: ["gate"], regenerate: [], merge: [] },
