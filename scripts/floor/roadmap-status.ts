@@ -16,7 +16,8 @@
  *   - `docs/floor/evidence.md`'s explicit non-proofs (`What this does not
  *     prove`, the audit-scope paragraph, and `What none of this proves`).
  *
- * EVERY STATE IS COMPUTED, never typed: shipped, in progress, planned,
+ * EVERY STATE IS COMPUTED: a close is the item's recorded claim, `shipped`
+ * only when linked evidence proves it and `claimed` otherwise; in progress, planned,
  * blocked or not planned comes from the item's own facts, its sub-items, what
  * it is blocked by and the decisions it carries out
  * (`engine/src/workflow/tracker-status.ts`), and the reason is printed beside
@@ -37,15 +38,27 @@ import { fileURLToPath } from "node:url";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { TRACKER_BOARD } from "../../engine/src/kernel/verification-paths.ts";
-import { readDecisionRecords, readTrackerItems, TRACKER_LANES, type DecisionRecord, type TrackerItem } from "../../engine/src/workflow/failure-owners.ts";
+import { readDecisionRecords, readTrackerItems, rebaseRelativeLinks, TRACKER_LANES, type DecisionRecord, type TrackerItem } from "../../engine/src/workflow/failure-owners.ts";
 import { relativePath } from "../../engine/src/workflow/markdown-links.ts";
 import { itemStatuses, ROADMAP_STATES, type ItemStatus, type RoadmapState } from "../../engine/src/workflow/tracker-status.ts";
+import { itemMarkupViolation } from "../../engine/src/workflow/failure-owners.ts";
+import { recordedEvidence } from "../../engine/src/workflow/evidence-store.ts";
+// The site tooling is plain Node ESM with no declaration file (the same import the floor-site tests make).
+// @ts-expect-error -- a .mjs module has no declaration file in the TS program.
+import { TESTING_REPO_URL } from "./site-pages.mjs";
+
+/** This repository's URL: only its own pull requests, runs and releases prove a close (`closeProof`). */
+const REPOSITORY_URL: string = TESTING_REPO_URL;
 
 export const ROADMAP_PATH = "docs/floor/roadmap.md";
 export const EVIDENCE_PATH = "docs/floor/evidence.md";
 const PAGE_DIRECTORY = dirname(ROADMAP_PATH);
 
 export const ROADMAP_BLOCKS = {
+  milestones: {
+    begin: "<!-- BEGIN GENERATED: roadmap milestones, from the Milestone tracker items (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    end: "<!-- END GENERATED: roadmap milestones -->",
+  },
   summary: {
     begin: "<!-- BEGIN GENERATED: roadmap summary, from the tracker items and the decision records (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap summary -->",
@@ -66,7 +79,8 @@ const HORIZONS = ["now", "next", "later"] as const;
 
 export type EvidenceNonProof = Readonly<{ area: string; anchor: string; text: string }>;
 
-export type RoadmapSources = Readonly<{ items: readonly TrackerItem[]; decisions: readonly DecisionRecord[]; evidenceText: string }>;
+/** The roadmap's owners: the items, the decision records, the evidence paths recorded in tracked manifests (a close's proof), the evidence page. */
+export type RoadmapSources = Readonly<{ items: readonly TrackerItem[]; decisions: readonly DecisionRecord[]; recordedEvidence: ReadonlySet<string>; evidenceText: string }>;
 
 export type RoadmapReport = Readonly<{
   staleBlocks: readonly RoadmapBlock[];
@@ -91,7 +105,7 @@ const byOrder = (left: TrackerItem, right: TrackerItem): number =>
   (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
 
 function readRoadmap(sources: RoadmapSources): Roadmap {
-  const statuses = itemStatuses(sources.items, sources.decisions);
+  const statuses = itemStatuses(sources.items, { decisions: sources.decisions, recordedEvidence: sources.recordedEvidence, repositoryUrl: REPOSITORY_URL });
   const status = (item: TrackerItem): ItemStatus => statuses.get(item.id) ?? fail(`no state was computed for ${item.id}`);
   const plan = sources.items.filter((item) => item.lane === "roadmap" && item.milestone !== null);
   return Object.freeze({
@@ -101,6 +115,15 @@ function readRoadmap(sources: RoadmapSources): Roadmap {
     board: sources.items.filter((item) => item.state === "open" && item.milestone === null).sort(byOrder),
     notPlanned: sources.items.filter((item) => item.lane === "roadmap" && item.milestone === null && status(item).state === "not planned").sort(byOrder),
     status,
+  });
+}
+
+/** Every way an item's text would publish markup (the item format's judgement, applied again to whatever items the renderer is handed). */
+function markupViolations(items: readonly TrackerItem[]): readonly string[] {
+  return items.flatMap((item) => {
+    const title = item.title !== null && /<[A-Za-z/!?]/u.test(item.title) ? [`${item.id}: its title opens markup: a title is text, never markup`] : [];
+    const body = itemMarkupViolation(item.body);
+    return [...title, ...(body === null ? [] : [`${item.id}: ${body}`])];
   });
 }
 
@@ -205,11 +228,14 @@ export function extractEvidenceNonProofs(markdown: string): readonly EvidenceNon
 }
 
 
-/** Renders the three generated blocks from the items. */
+/** Renders the generated blocks from the items. Item text that would publish markup is refused, never rendered. */
 export function renderRoadmapPage(pageText: string, sources: RoadmapSources): string {
+  const markup = markupViolations(sources.items);
+  if (markup.length > 0) fail(`item text would publish markup:\n${markup.join("\n")}`);
   const roadmap = readRoadmap(sources);
   const nonProofs = extractEvidenceNonProofs(sources.evidenceText);
   const bodies: Record<RoadmapBlock, string> = {
+    milestones: renderMilestones(roadmap),
     summary: renderSummary(roadmap),
     plan: renderPlan(roadmap),
     open: renderOpenWork(roadmap, nonProofs),
@@ -279,7 +305,7 @@ function table(headers: readonly string[], rows: readonly (readonly string[])[])
 
 /** A link from the roadmap page to an item's own record. */
 function itemLink(item: TrackerItem): string {
-  return `[${cell(item.title ?? item.id)}](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${item.id}.md`)})`;
+  return `[${cell(html(item.title ?? item.id))}](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${item.id}.md`)})`;
 }
 
 /** The first paragraph of an item's body: its outcome, in one cell. */
@@ -308,7 +334,20 @@ function milestoneLink(roadmap: Roadmap, id: string | null): string {
 }
 
 /** The state and, for anything but a plain shipped or planned item, the evidence it rests on. */
+/** Each milestone's section, from its Milestone item alone (the one place its title and prose are written): `## <id> · <title>` (the anchor every link targets) and its body, links rebased to this page. */
+function renderMilestones(roadmap: Roadmap): string {
+  return roadmap.milestones.map((milestone) => [
+    `## ${milestone.id} · ${html(milestone.title ?? milestone.id)}`,
+    "",
+    `**State:** ${roadmap.status(milestone).state} — ${roadmap.status(milestone).because}. [The record](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${milestone.id}.md`)}).`,
+    "",
+    rebaseRelativeLinks(milestone.body, TRACKER_BOARD.items, PAGE_DIRECTORY),
+  ].join("\n")).join("\n\n---\n\n");
+}
+
+/** The state, and for an open state its evidence; a claim reads as the unverified claim it is. */
 function stateText(status: ItemStatus): string {
+  if (status.state === "claimed") return "claimed, unverified";
   return status.state === "shipped" || status.state === "planned" ? status.state : `${status.state} (${status.because})`;
 }
 
@@ -325,13 +364,13 @@ function renderSummary(roadmap: Roadmap): string {
   const lines: string[] = [];
   lines.push("### Where the floor stands");
   lines.push("");
-  lines.push(`**${tally.shipped} of ${total} tracked items shipped (${percent}%).** The tracked total covers the roadmap's workstreams and exit criteria and every open tracker item. ${roadmap.notPlanned.length} not-planned statements sit outside it. Every state below is computed from the items' evidence, never typed.`);
+  lines.push(`**${tally.shipped} of ${total} tracked items shipped (${percent}%).** The tracked total covers the roadmap's workstreams and exit criteria and every open tracker item. ${roadmap.notPlanned.length} not-planned statements sit outside it. A close counts as shipped only when linked evidence proves it; a close without proof reads claimed.`);
   lines.push("");
-  lines.push(`${tally.shipped} shipped · ${tally["in progress"]} in progress · ${tally.planned} planned · ${tally.blocked} blocked · ${roadmap.notPlanned.length} not planned.`);
+  lines.push(`${tally.shipped} shipped · ${tally.claimed} claimed, unverified · ${tally["in progress"]} in progress · ${tally.planned} planned · ${tally.blocked} blocked · ${roadmap.notPlanned.length} not planned.`);
   lines.push("");
   lines.push("### Milestones");
   lines.push("");
-  lines.push("A milestone's state is computed from its members: shipped when every planned member shipped, in progress when any landed. Shipped and open count the workstreams and exit criteria assigned to it.");
+  lines.push("A milestone's state is computed from its members: shipped when every planned member shipped (proven), claimed when every member is closed but some only by an unverified claim, in progress when any proven work landed. Shipped and open count the workstreams and exit criteria assigned to it.");
   lines.push("");
   lines.push(table(["Milestone", "Focus", "State", "Shipped", "Open"], roadmap.milestones.map((milestone) => {
     const members = [...roadmap.workstreams, ...roadmap.exitCriteria].filter((item) => item.milestone === milestone.id);
@@ -437,6 +476,7 @@ function readSources(repositoryRoot: string): RoadmapSources {
   return Object.freeze({
     items: readTrackerItems(repositoryRoot),
     decisions: readDecisionRecords(repositoryRoot),
+    recordedEvidence: new Set(recordedEvidence(repositoryRoot).keys()),
     evidenceText: readFileSync(join(repositoryRoot, EVIDENCE_PATH), "utf8"),
   });
 }

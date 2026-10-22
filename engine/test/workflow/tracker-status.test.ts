@@ -8,21 +8,34 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { decisionProgress, itemStatuses, type StatusItem } from "../../src/workflow/tracker-status.ts";
+import { decisionProgress, itemStatuses as statusesWith, type StatusDecision, type StatusItem } from "../../src/workflow/tracker-status.ts";
 
 const item = (id: string, fields: Partial<StatusItem> = {}): StatusItem => ({
-  id, type: "Task", state: "open", resolution: null, parent: null, milestone: null, blockedBy: [], decisions: [], ...fields,
+  id, type: "Task", state: "open", resolution: null, parent: null, milestone: null, blockedBy: [], decisions: [], tests: [], evidence: null, ...fields,
 });
-const shipped = (id: string, fields: Partial<StatusItem> = {}): StatusItem => item(id, { state: "closed", resolution: "completed", ...fields });
+/** A close PROVEN (its tests exist), so it is shipped. */
+const shipped = (id: string, fields: Partial<StatusItem> = {}): StatusItem => item(id, { state: "closed", resolution: "completed", tests: [`tests/${id}.test.ts`], ...fields });
+/** A close with nothing linked: a claim. */
+const claimed = (id: string, fields: Partial<StatusItem> = {}): StatusItem => item(id, { state: "closed", resolution: "completed", ...fields });
+const itemStatuses = (items: readonly StatusItem[], decisions: readonly StatusDecision[]) => statusesWith(items, { decisions, recordedEvidence: new Set(), repositoryUrl: "https://github.com/owner/repo" });
 
 test("a closed item is shipped or not planned; an open one with nothing landed is planned", () => {
   const states = itemStatuses([shipped("A"), item("B", { state: "closed", resolution: "not-planned" }), item("C", { state: "closed", resolution: "duplicate" }), item("D")], []);
   assert.deepEqual([...states.entries()].map(([id, status]) => [id, status.state, status.because]), [
-    ["A", "shipped", "closed as completed"],
+    ["A", "shipped", "proven by tests tests/A.test.ts"],
     ["B", "not planned", "closed as not-planned"],
     ["C", "not planned", "closed as duplicate"],
     ["D", "planned", "nothing of it has landed"],
   ]);
+});
+
+test("a close with no linked proof is claimed, never shipped; a claim is no progress for a parent and unblocks nothing", () => {
+  const states = itemStatuses([claimed("C"), item("W", { blockedBy: ["C"] }), item("P"), claimed("K", { parent: "P" })], []);
+  assert.deepEqual(states.get("C"), { state: "claimed", because: "closed as completed; no linked evidence proves it" });
+  assert.deepEqual(states.get("W"), { state: "blocked", because: "blocked by C" });
+  assert.equal(states.get("P")?.state, "planned");
+  const milestone = item("M1", { type: "Milestone", state: null });
+  assert.equal(itemStatuses([milestone, { ...claimed("A"), milestone: "M1" }, { ...shipped("B"), milestone: "M1" }], []).get("M1")?.state, "claimed", "every member closed, one only claimed");
 });
 
 test("blocked while a blocker is not shipped, whatever else landed; free once it ships", () => {
