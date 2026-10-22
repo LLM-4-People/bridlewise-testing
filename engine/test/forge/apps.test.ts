@@ -232,7 +232,10 @@ const stateOf = (data: PageData, role: string): string => new URL(data.apps.find
 test("barrier 1, the token: the page and its states answer only the holder of the one-time token printed in the terminal", async () => {
   await withPage({}, async ({ url, origin }) => {
     assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/\?t=[0-9a-f]{48}$/u);
-    for (const attempt of [`${origin}/`, `${origin}/?t=`, `${origin}/?t=${"0".repeat(48)}`, `${url.slice(0, -1)}0`, `${url}x`]) {
+    // A near miss guaranteed different from the real token: its last character flipped (never one that may equal it).
+    const flipped = `${url.slice(0, -1)}${url.endsWith("0") ? "1" : "0"}`;
+    assert.notEqual(flipped, url);
+    for (const attempt of [`${origin}/`, `${origin}/?t=`, `${origin}/?t=${"0".repeat(48)}`, flipped, `${url}x`]) {
       const answer = await call(attempt);
       assert.equal(answer.status, 404, attempt);
       assert.ok(!answer.body.includes("state="), "no state is served");
