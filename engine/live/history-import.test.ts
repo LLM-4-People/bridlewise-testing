@@ -201,7 +201,7 @@ test("end to end, nothing is pushed when the purge leaves residue (a token in an
   write(named, "README.md", "plain\n");
   git(named, "add", ".");
   git(named, "commit", "-q", "-m", "plain");
-  git(named, "branch", "notes=/home/someone/drafts");
+  git(named, "branch", "notes=/home/user/drafts"); // a documented placeholder home: the tree holds no real one
   const receiptTarget = bareTarget();
   await assert.rejects(importHistory({ source: named, target: receiptTarget }, { home, git: GIT }), (error: Error & { code?: string }) => error.code === "history_import_receipt_unsafe" && error.message.includes("is an absolute or home path"));
   assert.equal(git(receiptTarget, "for-each-ref").trim(), "", "nothing was pushed");
