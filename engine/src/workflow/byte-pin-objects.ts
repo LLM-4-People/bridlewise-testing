@@ -23,6 +23,8 @@
  */
 import { parse as parseTypeScriptSource } from "@babel/parser";
 
+import { HarnessError } from "../kernel/errors.ts";
+
 /** One recognized byte-pin object: its semantic identity and the source offsets of the measured fields. */
 export type BytePinObject = Readonly<{
   /** The literal target path, when the pin writes it as a string. */
@@ -116,7 +118,7 @@ export function bytePinSha256Ranges(text: string): readonly Readonly<{ literal: 
   try {
     program = parseTypeScriptSource(text, { sourceType: "module", plugins: ["typescript"] });
   } catch (error) {
-    throw new Error(`byte-pin source is not parseable TypeScript: ${error instanceof Error ? error.message : String(error)}`);
+    throw new HarnessError(`byte-pin source is not parseable TypeScript: ${error instanceof Error ? error.message : String(error)}`, "byte_pin_source_unparseable");
   }
   return [...eachBytePinObject(program)].map((pin) => ({
     literal: pin.sha256,
