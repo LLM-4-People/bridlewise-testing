@@ -4,6 +4,8 @@ import { join, resolve } from "node:path";
 import { buildAtlas } from "./floor/atlas.mjs";
 import { stableJson } from "./floor/files.mjs";
 import { buildStatus } from "./floor/status.mjs";
+import { configuredForgeClient } from "../engine/src/workflow/forge/configured-forge.ts";
+import { anonymousCredential, environmentCredential } from "../engine/src/workflow/forge/credentials.ts";
 
 function parseArgs(argv) {
   const out = {
@@ -11,7 +13,6 @@ function parseArgs(argv) {
     product: null,
     out: null,
     offline: false,
-    token: process.env.GH_TOKEN || null,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -19,7 +20,6 @@ function parseArgs(argv) {
     else if (arg === "--product") out.product = argv[++index];
     else if (arg === "--out") out.out = argv[++index];
     else if (arg === "--offline") out.offline = true;
-    else if (arg === "--token") out.token = argv[++index];
     else throw new Error(`Unknown argument: ${arg}`);
   }
   if (!out.out) throw new Error("--out is required");
@@ -28,7 +28,6 @@ function parseArgs(argv) {
     product: out.product ? resolve(out.product) : null,
     out: resolve(out.out),
     offline: out.offline,
-    token: out.token,
   };
 }
 
@@ -42,7 +41,9 @@ async function main() {
   const status = await buildStatus({
     testingRoot: args.testing,
     productRoot: args.product,
-    token: args.token,
+    // The credential is the workflow's token in GH_TOKEN, read at call time, never an argument.
+    client: args.offline ? null : configuredForgeClient(environmentCredential("floor:GH_TOKEN", "GH_TOKEN")),
+    publicClient: args.offline ? null : configuredForgeClient(anonymousCredential("anonymous:floor")),
     offline: args.offline,
     counts: atlas.counts,
   });
