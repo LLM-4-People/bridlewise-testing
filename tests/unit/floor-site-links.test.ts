@@ -66,7 +66,9 @@ const REAL_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
  * so its floor data is a stand-in; the real tree's builds (the release
  * snapshot test here, the floor-data test) write the real atlas and status.
  */
-const source = (options: Record<string, unknown>) => buildSiteSource({ floorData: async () => ({ atlas: { fixture: true }, status: { fixture: true } }), ...options });
+/** A floor status snapshot of the fixture's own shape: no check reported, so every bound claim reads as not run. */
+const FIXTURE_STATUS = { schemaVersion: "bridlewise-floor-status/v1", generatedAt: "2026-10-22T00:00:00.000Z", source: { commit: "c".repeat(40) }, checks: [] };
+const source = (options: Record<string, unknown>) => buildSiteSource({ floorData: async () => ({ atlas: { fixture: true }, status: FIXTURE_STATUS }), ...options });
 
 describe("A. the crawler resolves built pages, assets and external URLs", () => {
   test("a clean Jekyll-shaped fixture passes — pretty URLs, assets, relatives and externals", () => {
@@ -164,6 +166,9 @@ function repository(extra: Readonly<Record<string, string>> = {}): string {
     "public/icons/icon.svg": "<svg/>\n",
     "docs/assets/css/style.css": "body { color: var(--ink-1); background: var(--ground-0); }\n",
     "docs/assets/floor/floor.css": "",
+    // The public words and the claims register the site judges into _data/brand.json.
+    "docs/brand/messaging.json": JSON.stringify({ schema: "bridlewise-messaging/v1", name: "Fixture", promise: "A promise.", summary: "A summary.", status: "Developer preview. Not for sensitive code.", license: "AGPL-3.0", description: "A fixture. Developer preview.", topics: ["fixture"], about: { word: "fixture", partOfSpeech: "noun", definition: "a thing fixed in place", source: "A dictionary", sourceUrl: "https://example.test/fixture", line: "A line." } }),
+    "docs/brand/claims.json": JSON.stringify({ schema: "bridlewise-claims/v1", claims: [{ id: "held", kind: "holds-when-green", text: "Held", checks: ["ci"] }, { id: "none", kind: "not-claimed", text: "Nothing", reason: "None." }] }),
     "docs/_config.yml": "title: Fixture\nplugins:\n  - jekyll-sitemap\n",
     "docs/_layouts/default.html": "<html><body>{{ content }}</body></html>\n",
     "docs/index.md": "---\ntitle: Home\npermalink: /\n---\n\n# Home\n\n[Roadmap](floor/roadmap.md) · [Engine](../engine/x.ts)\n",
@@ -266,6 +271,12 @@ describe("D. the source step", () => {
     expect(readFileSync(join(out, "_includes/design-head.html"), "utf8")).toContain('<meta name="theme-color" content="#f6f4ef">');
     expect(readFileSync(join(out, "_includes/brand-mark.svg"), "utf8")).toMatch(/^<svg class="brand-mark"/u);
     expect(readFileSync(join(out, "assets/fonts/OFL.txt"), "utf8")).toBe("licence\n");
+    // The claims are judged against the snapshot written with them: the
+    // fixture reports no check, so the bound claim is retracted, never "holds".
+    const brand = JSON.parse(readFileSync(join(out, "_data/brand.json"), "utf8")) as { commit: string; judgedAt: string; claims: { id: string; verdict: string }[] };
+    expect(brand.commit).toBe("c".repeat(40));
+    expect(brand.judgedAt).toBe("2026-10-22T00:00:00.000Z");
+    expect(brand.claims.map((claim) => [claim.id, claim.verdict])).toEqual([["held", "retracted"], ["none", "not-claimed"]]);
     const config = readFileSync(join(out, "_config.yml"), "utf8");
     // Every coordinate comes from package.json and the deployment's base path.
     expect(parse(config)).toMatchObject({

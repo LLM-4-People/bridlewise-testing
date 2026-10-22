@@ -76,7 +76,7 @@ jobs:
       - name: Generate floor data
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/build-floor-data.mjs --root . --out .site/floor/data
+        run: node scripts/build-floor-data.mjs --root . --site .site
 
       # The roadmap feed computes its projection in the sealed realm, which the
       # guardian confines: it is built here exactly as the CI engine job builds it.
