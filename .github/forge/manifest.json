@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "bridlewise-forge-generated-files/v1",
+  "generator": "harness sync (engine/src/workflow/forge/generated-files.ts); never edit by hand",
+  "files": [
+    {
+      "path": "apps/agent.json",
+      "sha256": "e0c3ce2f855e0533ecf885cd3c0883c9c2ea600768b576b09180d59657611a02",
+      "owner": "engine/src/workflow/forge/generated-files.ts"
+    },
+    {
+      "path": "apps/verifier.json",
+      "sha256": "e01b84147e880c4b63e6d89de8dac2447fcbaa14d3063c08380c479dc35969d8",
+      "owner": "engine/src/workflow/forge/generated-files.ts"
+    },
+    {
+      "path": "apps/door.json",
+      "sha256": "d09ae10e47494fae24b2f0429f1524da354de48ec2bc5583da2d95d5e2a07281",
+      "owner": "engine/src/workflow/forge/generated-files.ts"
+    },
+    {
+      "path": "apps/publisher.json",
+      "sha256": "1973371d15aee07619e23b215ce888979387b4521b07737379b12a2e932d0fc3",
+      "owner": "engine/src/workflow/forge/generated-files.ts"
+    }
+  ]
+}
