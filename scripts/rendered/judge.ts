@@ -131,7 +131,8 @@ async function main(argv: readonly string[]): Promise<number> {
   const findings = await judgeSite(resolve(values.site), values.baseurl);
   const pages = sitePages(resolve(values.site), values.baseurl).length;
   for (const finding of findings) process.stdout.write(`${finding}\n`);
-  process.stdout.write(`${JSON.stringify({ surface: "site", pages, rules: RENDERED_RULES.filter((r) => r.surfaces.includes("site")).map((r) => r.id), findings: findings.length })}\n`);
+  const pending = RENDERED_RULES.flatMap((r) => (r.pending?.site === undefined ? [] : [{ id: r.id, why: r.pending.site }]));
+  process.stdout.write(`${JSON.stringify({ surface: "site", pages, rules: RENDERED_RULES.filter((r) => r.surfaces.includes("site")).map((r) => r.id), pending, findings: findings.length })}\n`);
   return findings.length === 0 ? 0 : 1;
 }
 
