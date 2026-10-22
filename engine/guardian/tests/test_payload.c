@@ -26,6 +26,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <sys/socket.h>
+#include <signal.h>
+#include <stdlib.h>
 
 static int report(int kind, int e)
 {
@@ -38,7 +41,7 @@ static int report(int kind, int e)
 int main(int argc, char **argv)
 {
     if (argc < 3) {
-        fprintf(stderr, "usage: test_payload <read|write|create|list> <path>\n");
+        fprintf(stderr, "usage: test_payload <read|write|create|list|socket|spin|signal|alloc> <path|inet|unix|pid|MiB|->\n");
         return 2;
     }
     const char *mode = argv[1];
@@ -78,6 +81,33 @@ int main(int argc, char **argv)
         closedir(d);
         if (e == EACCES) return report(1, e);
         if (e != 0) return report(2, e);
+        return report(0, 0);
+    } else if (strcmp(mode, "socket") == 0) {
+        /* `socket inet` / `socket unix`: may a socket of that family be made? */
+        int family = strcmp(path, "unix") == 0 ? AF_UNIX : AF_INET;
+        int fd = socket(family, SOCK_STREAM, 0);
+        if (fd < 0) return report(errno == EACCES ? 1 : 2, errno);
+        close(fd);
+        return report(0, 0);
+    } else if (strcmp(mode, "spin") == 0) {
+        /* Burn a BOUNDED amount of CPU work (far past any ceiling a test sets):
+         * a CPU ceiling ends it first; without one it returns, never hangs. */
+        volatile unsigned long n = 0;
+        for (unsigned long i = 0; i < 40000000000UL; i++) n++;
+        printf("SPIN_ENDED\n");
+        return 3;
+    } else if (strcmp(mode, "signal") == 0) {
+        /* `signal <pid>`: may SIGTERM reach that process? */
+        if (kill((pid_t)atol(path), SIGTERM) == 0) return report(0, 0);
+        printf("%s:%d\n", errno == EPERM ? "EPERM" : "ERROR", errno);
+        return 1;
+    } else if (strcmp(mode, "alloc") == 0) {
+        /* `alloc <MiB>`: allocate and touch that much memory. */
+        size_t bytes = (size_t)atol(path) * 1024 * 1024;
+        char *block = malloc(bytes);
+        if (block == NULL) { printf("ENOMEM\n"); return 1; }
+        for (size_t i = 0; i < bytes; i += 4096) block[i] = 1;
+        free(block);
         return report(0, 0);
     }
 
