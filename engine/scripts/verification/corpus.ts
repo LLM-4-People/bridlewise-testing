@@ -318,7 +318,24 @@ export function readManifest(path = join(REPOSITORY_ROOT, MANIFEST_PATH)): Corpu
 export function pathPolicyMember(repoRoot = REPOSITORY_ROOT): CorpusMember {
   const path = join(repoRoot, PATH_POLICY_MANIFEST_PATH);
   if (!existsSync(path)) refuse("corpus_manifest_absent", `the path-policy source manifest is absent at ${path}`);
-  const git = parsePathPolicySourceManifest(readFileSync(path, "utf8")).sourceSets.git;
+  return gitCorpusMember(parsePathPolicySourceManifest(readFileSync(path, "utf8")).sourceSets.git);
+}
+
+/** The path-policy git source set's own shape: what {@link gitCorpusMember} reads. */
+export type PathPolicyGitSourceSet = Readonly<{
+  upstream: Readonly<{ repository: string; commit: string }>;
+  license: Readonly<{ spdx: string; path: string; byteLength: number; sha256: string }>;
+  sources: readonly Readonly<{ path: string; byteLength: number; sha256: string }>[];
+}>;
+
+/**
+ * THE LICENCE BOUNDARY, as the corpus enforces it: the git member is admitted
+ * only with a reference-only licence, and only when every one of its files
+ * points INTO the corpus root (a binding pointing back into the tracked tree
+ * would vendor GPL bytes there). Separate from the file read so each refusal
+ * is driven directly.
+ */
+export function gitCorpusMember(git: PathPolicyGitSourceSet): CorpusMember {
   if (!REFERENCE_ONLY_LICENSES.includes(git.license.spdx)) {
     refuse("corpus_license_unreviewed", `git member: licence ${git.license.spdx} is not reviewed for reference-only fetching`);
   }
