@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  insertModuleContractBlock,
   scanSourceModules,
   compareModuleRegistrations,
   generateModuleRegistrarReport,
@@ -274,6 +275,37 @@ test("ModuleRegistrar: write mode auto-registers unregistered source files", () 
     assert.ok(after.includes(`id: "src-auto-reg-new-b"`), "id for auto-reg-new-b.ts must be path-derived");
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("ModuleRegistrar: two branches that each add a module merge cleanly — a new block goes before its successor by path, never at the tail (#221)", () => {
+  // The real manifest is the base; one branch adds module A, the other module B. Merged three-way by git, the two
+  // additions must merge with no conflict and equal the manifest that added both.
+  const base = readFileSync(join(ROOT, "src", "architecture-manifest.ts"), "utf8");
+  const block = (path: string): string => `    moduleContract({\n      id: "${path.replace(/[^A-Za-z0-9]+/gu, "-")}", path: "${path}", realm: "engine", layer: "kernel",\n      owner: "kernel", publicApi: { exportCount: 1, namesSha256: "${"0".repeat(64)}" },\n      dependencies: [],\n    }),`;
+  const add = (content: string, path: string): string => {
+    const next = insertModuleContractBlock(content, block(path), path);
+    assert.ok(next !== null, "the modules array close was found");
+    return next;
+  };
+  const pathA = "src/kernel/sorted-new-a.ts";
+  const pathB = "src/workflow/sorted-new-b.ts";
+  const withA = add(base, pathA);
+  const withB = add(base, pathB);
+  const withBoth = add(withA, pathB);
+  assert.equal(withBoth, add(withB, pathA), "the order the two arrive in does not matter");
+  assert.equal(withA.trimEnd().endsWith("});"), true);
+  assert.ok(!/sorted-new-a[\s\S]*\n  \],\n\}\);\n?$/u.test(withA.slice(-400)), "the new block is not appended at the tail");
+  const dir = createTempDir("registrar-merge-");
+  try {
+    writeFileSync(join(dir, "ours"), withA);
+    writeFileSync(join(dir, "base"), base);
+    writeFileSync(join(dir, "theirs"), withB);
+    const merged = spawnSync("git", ["merge-file", "-p", join(dir, "ours"), join(dir, "base"), join(dir, "theirs")], { encoding: "utf8" });
+    assert.equal(merged.status, 0, `the two additions conflicted:\n${merged.stdout.slice(0, 2000)}`);
+    assert.equal(merged.stdout, withBoth, "the clean merge is exactly the manifest that registered both");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
