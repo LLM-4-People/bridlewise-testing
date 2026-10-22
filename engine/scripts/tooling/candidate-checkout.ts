@@ -111,7 +111,7 @@ import { assertIndexAtBaseline, recordIndexBaseline } from "../../src/git/index-
 import { assertSameFilesystem, checkoutCommandRunner, configuredCheckoutCommandRunner, engineRelativePath, owedSetup, prepareCheckout, rerunChangedSetup, type CheckoutCommandRunner, type CheckoutStep, type ConvergenceReport } from "../../src/workflow/checkout-setup.ts";
 import { pruneArguments } from "../../src/workflow/harness-commands.ts";
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
-import { generatedOutputPaths, pinnedBuildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
+import { generatedOutputPaths, buildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { importJudgedRuns, suiteLedgerPaths, withdrawImportedRuns } from "../../src/shared/run-history.ts";
 
@@ -181,7 +181,7 @@ function git(cwd: string, argv: readonly string[]): string {
  * Refresh never overwrites them; copy-back writes only them.
  */
 function candidateAuthoredPaths(target: string): readonly string[] {
-  return [...generatedOutputPaths(target), ...pinnedBuildOutputPaths()];
+  return [...generatedOutputPaths(target), ...buildOutputPaths()];
 }
 
 /** Where the candidate records the source's authored bytes it last saw (in its own git dir). */

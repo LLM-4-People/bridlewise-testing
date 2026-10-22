@@ -676,8 +676,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "workflow-auto-generator", path: "src/workflow/auto-generator.ts",
       realm: "shared", layer: "domain", owner: "verification-workflow",
-      publicApi: { exportCount: 13, namesSha256: "e2c2569c19177c3914bbee350ec56003b766731fa8c69586c78c42452da67036" },
-      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/config-contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/shared/debug/debug-system.ts","src/workflow/command-result.ts","src/workflow/hash-binding-registry.ts"],
+      publicApi: { exportCount: 8, namesSha256: "6d041830879bfa460e3bdaa9d12836a3c3089cba6b0dbd90df18d4d1992b48c4" },
+      dependencies: ["node:fs","node:path","src/kernel/config-contracts.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/shared/debug/debug-system.ts","src/workflow/command-result.ts","src/workflow/hash-binding-registry.ts"],
       executionBoundary: "effect-adapter", effects: ["filesystem-read", "filesystem-write"],
       ports: { requires: [], provides: ["auto-generation"] },
       responsibilities: ["automated-binding-and-schema-regeneration-replacing-manual-checks"],
@@ -1624,7 +1624,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "hash-binding-registry", path: "src/workflow/hash-binding-registry.ts", realm: "shared",
       layer: "domain", owner: "verification-workflow",
-      publicApi: { exportCount: 30, namesSha256: "1c394e1c5b63d2e30036dd54134581f6c0f2c44e944b88ee865f5671ff5cf115" },
+      publicApi: { exportCount: 27, namesSha256: "3d20d2ef717196a7493529b467dd019fafaecfe57ec7b013f9e65b3d00e66fb7" },
       dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/filesystem/self-protection/guardian-build-stamp.ts","src/forensics/forensic-contracts.ts","src/forensics/offline-forensics.ts","src/git/repository-ownership.ts","src/kernel/architecture-external-commands.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/requirements.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/workflow/byte-pin-objects.ts"],
       executionBoundary: "effect-adapter",
       effects: ["filesystem-read", "filesystem-write"],
@@ -2639,8 +2639,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "build-bundle", path: "scripts/build-bundle.ts",
       realm: "builder", layer: "verification", owner: "self-protection",
-      publicApi: { exportCount: 2, namesSha256: "00bd0afcda3ef46a6180f4d6492f22858bd19b792433b3f50c8242e7a0dc159b" },
-      dependencies: ["esbuild","node:fs","node:path","node:url","scripts/verification/slice-projections.ts","src/filesystem/atomic-write.ts","src/kernel/root-policy.ts","src/runtime/cli-debug.ts","src/workflow/hash-binding-registry.ts"],
+      publicApi: { exportCount: 3, namesSha256: "b3544ac6577a32e74307ecc2c9a3c75f0e3f3f3ebd375a23821441778ba1e204" },
+      dependencies: ["esbuild","node:fs","node:path","node:url","scripts/verification/slice-projections.ts","src/filesystem/atomic-write.ts","src/kernel/integrity.ts","src/runtime/cli-debug.ts"],
       effects: ["filesystem-write"],
       executionBoundary: "composition-root",
       compositionRoot: true,
@@ -4715,8 +4715,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-privacy-secret-signals", path: "src/privacy/secret-signals.ts", realm: "shared", layer: "domain",
-      owner: "privacy-and-redaction", publicApi: { exportCount: 9, namesSha256: "a7b30711dc617a2edc07384e96b0a8c486feb447ef84e8dc87dbcbe02288bf84" },
-      dependencies: ["src/kernel/integrity.ts"],
+      owner: "privacy-and-redaction", publicApi: { exportCount: 14, namesSha256: "898be30af8fcd937944f98b2127331eb530f431b92ec9233dc4250fc73ea13ad" },
+      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts"],
     }),
     moduleContract({
       id: "src-runtime-capability-negotiation", path: "src/runtime/capability-negotiation.ts", realm: "shared", layer: "infrastructure",
@@ -5032,7 +5032,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-checkout-setup", path: "src/workflow/checkout-setup.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 31, namesSha256: "24c36c6961c8ed7518a8b84f2c8998996e38c49d41b414a1ce8c4e44ae3ae15a" },
+      owner: "verification-workflow", publicApi: { exportCount: 32, namesSha256: "e1fc49aca64930db142b17425e8ada73ea0af585ba640d0870183a225c83e288" },
       dependencies: ["node:fs","node:os","node:path","node:string_decoder","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/git/repository-ownership.ts","src/git/working-copy.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/privacy/evidence-handler.ts","src/process/instrument-lock.ts","src/process/supervised-run.ts","src/shared/ambient-load.ts","src/shared/debug/debug-system.ts","src/shared/run-history.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
@@ -5451,7 +5451,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-failure-owners", path: "src/workflow/failure-owners.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 25, namesSha256: "e39879233f7a66c11780b2265106dcb70f182f8e6d94952a619f7395bbfc77c5" },
+      owner: "verification-workflow", publicApi: { exportCount: 26, namesSha256: "aa4bdcdec6600f7f250a108a7be28748ad64163deaa83ebe69ace5a30af60ee4" },
       dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/verification-paths.ts","src/workflow/markdown-links.ts"],
     }),
     moduleContract({
@@ -5655,12 +5655,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-promotion-release-notes", path: "src/workflow/promotion/release-notes.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "566f89510164deefb7afe3e790f0b2535ed529ca2700c61a3b3235fe110bcde6" },
-      dependencies: ["src/git/tree-reader.ts"],
+      dependencies: ["../shared/markup.ts","src/git/tree-reader.ts"],
     }),
     moduleContract({
       id: "src-workflow-promotion-release-train", path: "src/workflow/promotion/release-train.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "3b52f7acddb70486d0b61809ea140df94baef344d493c1e3000b1d0d67d6e1fd" },
-      dependencies: ["src/extensions/semver.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/trailers.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 9, namesSha256: "2fc63b7f573682eb1e9c647f99834635b2772897a0d132eed13f70fd20fa1a53" },
+      dependencies: ["src/extensions/semver.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/workflow/failure-owners.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/trailers.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-apps-page", path: "src/workflow/forge/apps-page.ts", realm: "runtime", layer: "infrastructure",
