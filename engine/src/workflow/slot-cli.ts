@@ -25,7 +25,7 @@ import { readTestExecutionConfig } from "./test-result-collector.ts";
 export type SlotRunOutput = Readonly<{ command: readonly string[]; exitCode: number; ending: string }>;
 
 /**
- * Who holds the lock, for a slot run: the program and how many arguments it
+ * The run's label in the registry, for a slot run: the program and how many arguments it
  * got — never the arguments themselves (a person reads it; a command line is
  * unbounded and carries anything).
  */

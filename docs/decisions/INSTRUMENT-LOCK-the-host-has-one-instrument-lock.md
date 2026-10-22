@@ -96,10 +96,10 @@ behind lab runs.
 **Built, and this decision superseded (2026-10-22).** No heavy run waits for
 another. `src/process/instrument-lock.ts` admits every heavy run AT ONCE and
 records it in a run registry beside the configured path (shown, never waited
-on); every supervisor an admitted run starts runs in a cgroup v2 scope of its
-own (`systemd-run --user --scope`, `testExecution.instrumentLock.perRun`:
-memory ceiling and CPU weight) and under the harness's CPU-time limit
-(`src/process/subprocess-bounds.ts`). A host that cannot make the scope
+on); the admitting process moves into a cgroup v2 scope of the run's own
+(`testExecution.instrumentLock.perRun`: memory ceiling and CPU weight) and
+under the harness's CPU-time limit (`src/process/subprocess-bounds.ts`), so
+everything the run starts is born under both. A host that cannot make the scope
 refuses the run (`per_run_caps_unavailable`); there is no uncapped mode. The
 wait, its poll interval and its signal handling are deleted. What stays of
 this decision: the registry's place and the one definition of heavy; the

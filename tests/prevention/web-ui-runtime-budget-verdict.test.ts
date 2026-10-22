@@ -58,7 +58,7 @@ import { currentQualificationOutcome, finalizeQualifiedRun, runForInvocation } f
 import type { RunQualificationTerminal } from "../../engine/src/shared/budget-verdict.ts";
 import { readTrackedTreeDirty } from "../../engine/src/shared/tree-identity.ts";
 import { readRunCpu, type CalibrationReading } from "../../engine/src/shared/run-cpu.ts";
-import { measureWebBudget } from "../../scripts/testing/measure-web-budget.ts";
+import { accumulationPopulation, measureWebBudget } from "../../scripts/testing/measure-web-budget.ts";
 import { engineConfigDocumentPath } from "../../engine/src/kernel/config.ts";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { resetServerConfig } from "../../server/kernel/config.ts";
@@ -814,6 +814,13 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
     expect(report.declared.derivedAtTestFileCount).toBe(fullRunModuleCount());
   });
 
+  test("the TOOL generates the accumulation population: current when it equals the live count, drifted on check, written on write", () => {
+    expect(accumulationPopulation(534, 534, false)).toBe("current");
+    expect(accumulationPopulation(534, 534, true)).toBe("current");
+    expect(accumulationPopulation(534, 535, false)).toBe("drifted");
+    expect(accumulationPopulation(536, 535, true)).toBe("write");
+  });
+
   test("the TOOL writes only the document it measured: a HARNESS_CONFIG_PATH elsewhere is refused before any write (WF-1b3b design LOW 12)", () => {
     const engineDocument = engineConfigDocumentPath();
     const engineBytes = readFileSync(engineDocument);
@@ -1014,21 +1021,18 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
       IDENTITIES,
     );
     expect(withMut.windowReadings).not.toContain(935);
-    // THE BUSY-CLEAN ROW FEEDS ITS ADJUSTED READING — the acceptance
-    // scenario's mechanism, pinned on the derivation: a row at amb5 0.8
-    // reading 935 (inside its own adjusted line 1,000 × 1.047 × 1.04 =
-    // 1,088.9) feeds, at 935 / 1.04 = 899.0 — its quiet-equivalent cost, so
-    // a busy stretch cannot drag the window's centre up. A mutant that
-    // excludes busy rows starves the window on a busy box (the quiet
-    // dependency the design forbids); one that feeds the RAW reading
-    // inflates the median by 4% for free.
+    // A BUSY-HOST ROW FEEDS ITS READING AS RECORDED (NO-LOAD-BLOCK, audit
+    // A-08, A-12): a row at amb5 0.8 reading 935 is under the cap, so it
+    // feeds at 935 — never excluded for busyness, never divided by a load
+    // factor. A mutant that excludes busy rows starves the window on a busy
+    // box; one that re-adds an adjustment feeds 899.
     const withBusy = deriveRollingBaseline(
       budget(),
       [...clean, ranAt(935, { ambientLoad5PerCpu: 0.8 })],
       FULL,
       IDENTITIES,
     );
-    expect(withBusy.windowReadings).toContain(899.0384615384615);
+    expect(withBusy.windowReadings).toContain(935);
     // And the population-drifted row still never feeds — the one condition
     // that remains an exclusion, because it is about the SUITE, not the box.
     const withDrifted = deriveRollingBaseline(
@@ -2012,7 +2016,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
     expect(process.exitCode).toBe(exitBefore);
   });
 
-  test("THE PERF BUDGETS REACH THE RUN AND THE LEDGER (correctness B-N2): a profile report over a budget FAILS the run by its gate, and the row records every measurement the ledger judge compares", () => {
+  test("THE PERF BUDGETS REACH THE RUN AND THE LEDGER (correctness B-N2): a profile report over a judged budget FAILS the run by its gate, a wall-time reading is a recorded signal, and the row records every measurement", () => {
     const dir = createTempDir("reporter-perf-");
     const cacheDir = join(dir, "cache");
     mkdirSync(cacheDir);
@@ -2023,9 +2027,13 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
       writeFileSync(p, "x");
       utimesSync(p, past, past);
     }
-    // The planted report breaches the API budget (1,926 ms against 250).
+    // The planted report breaches the tab DOM-node budget (9,000 against the configured 8,000) — a judged
+    // budget; its wall-time readings (the API's 1,926 ms among them) are recorded signals, never a fail.
     const report = join(dir, "report.json");
-    writeFileSync(report, JSON.stringify(plantedReport({ treeIdentity: { headSha: "0".repeat(40), dirty: false, measuredSurfaceHash: readMeasuredSurfaceHash(reporterRepository()) } })));
+    writeFileSync(report, JSON.stringify(plantedReport({
+      treeIdentity: { headSha: "0".repeat(40), dirty: false, measuredSurfaceHash: readMeasuredSurfaceHash(reporterRepository()) },
+      tabs: [{ name: "a", ok: true, switchMs: 90, domNodes: 900 }, { name: "b", ok: true, switchMs: 120, domNodes: 9000 }],
+    })));
     const exits: number[] = [];
     const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU,
       summaryPath: join(dir, "summary.json"), historyPath: join(dir, "history.json"), cacheDir, repositoryRoot: reporterRepository(),
@@ -2036,8 +2044,11 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
     expect(exits, "a breached perf budget fails the run").toContain(1);
     const raw = JSON.parse(readFileSync(join(dir, "history.json"), "utf8")) as { runs: Record<string, unknown>[] };
     const outcomes = (raw.runs[0]!["qualification"] as { outcomes: { gate: string; kind: string }[] }).outcomes;
-    expect(outcomes.find((outcome) => outcome.gate === "performance:apiResponseMaxMs")?.kind, "the breach is its own gate's fail").toBe("fail");
-    expect((raw.runs[0]![ROOT_POLICY.workflow.webPerformanceBudgets.ledgerField] as Record<string, number>)["apiResponseMaxMs"], "the row records the measurement the ledger judge compares").toBe(1926);
+    expect(outcomes.find((outcome) => outcome.gate === "performance:tabDomNodesMax")?.kind, "the breach is its own gate's fail").toBe("fail");
+    expect(outcomes.find((outcome) => outcome.gate === "performance:apiResponseMaxMs")?.kind, "a wall-time reading is a recorded signal").toBe("not-judged");
+    const measured = raw.runs[0]![ROOT_POLICY.workflow.webPerformanceBudgets.ledgerField] as Record<string, number>;
+    expect(measured["tabDomNodesMax"], "the row records the measurement the ledger judge compares").toBe(9000);
+    expect(measured["apiResponseMaxMs"], "and the signal beside it").toBe(1926);
   });
 
   test("a judged run's PER-TEST FAILURE ROWS land in its ledger record — the flaky memory's substrate", () => {

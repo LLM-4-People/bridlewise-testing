@@ -10,21 +10,15 @@
 import type { FileLockHandle } from "../filesystem/file-lock.ts";
 
 let owned: FileLockHandle | undefined;
-let launchPrefix: readonly string[] | undefined;
 
 /**
- * Record (or, with `undefined`, forget) the admitted run this process owns,
- * with the LAUNCH PREFIX that puts each supervisor it starts under the run's
- * caps (src/process/instrument-lock.ts: its cgroup scope and CPU-time limit).
+ * Record (or, with `undefined`, forget) the admitted run this process owns.
+ * Its caps need no launch prefix: the owner itself is inside the run's scope
+ * and CPU-time limit, so every supervisor it starts is born under them
+ * (src/process/instrument-lock.ts).
  */
-export function setOwnedInstrumentHold(handle: FileLockHandle | undefined, prefix: readonly string[] | undefined): void {
+export function setOwnedInstrumentHold(handle: FileLockHandle | undefined): void {
   owned = handle;
-  launchPrefix = handle === undefined ? undefined : prefix;
-}
-
-/** The argv that goes before a supervisor this process starts, so it runs under the owned run's caps; none outside an owned run. */
-export function ownedRunLaunchPrefix(): readonly string[] | undefined {
-  return launchPrefix;
 }
 
 /** The hold this process owns now, if any. */

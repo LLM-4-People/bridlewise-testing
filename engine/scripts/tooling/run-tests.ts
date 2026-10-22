@@ -158,15 +158,13 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
       // this exits 0 — or it never gets here, because the refusal above threw.
       return finish(0);
     }
-    // ONE INSTRUMENT AT A TIME, ENFORCED HERE — and not at the top of this
-    // function, on purpose: `harness regenerate` shells out to the
-    // `--auto-add-dispositions` sub-CLI above as a DESCENDANT of a run that
-    // already holds the lock, and a lock taken at the top would make that
-    // child refuse against its own ancestor. The sub-CLI returns before this
-    // line; everything below it is the run, and the run is what contends.
-    // THE HOST'S ONE INSTRUMENT LOCK: the whole suite is heavy, so the door
-    // waits here while another heavy run holds the lock (saying who), and the
-    // run's measurement records that it held it (the handle's stamp).
+    // HEAVY-RUN ADMISSION, HERE — and not at the top of this function, on
+    // purpose: `harness regenerate` shells out to the `--auto-add-dispositions`
+    // sub-CLI above, which runs no tests and needs no run of its own. The
+    // sub-CLI returns before this line; everything below it is the run. The
+    // whole suite is heavy, so it is admitted at once (never waiting for
+    // another run) and this process enters the run's caps — its cgroup scope
+    // and CPU-time limit — before the worker and every test child start.
     const instrumentLock = enforceTestRunLock("engine npm test", { testFileCount: inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
     releaseInstrumentLock = instrumentLock.release;
     // BEFORE THE RUN, AND AFTER THE SUB-CLI ABOVE: the corpora git cannot

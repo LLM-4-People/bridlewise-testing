@@ -133,13 +133,18 @@ test("recycled: a LIVE pid with another start time is another process — its re
   assert.equal(existsSync(bare), true, "a fresh unidentified record is kept until the file lock's bound");
 });
 
-test("borrowed: a run admitted for this process's parent is borrowed, and the child never releases it", () => {
+test("borrowed: a run admitted for an ancestor is borrowed from inside the run's scope (only there), and the child never releases it", () => {
   const dir = createTempDir("test-run-lock-parent-");
   const record = writePlantedRun(dir, process.ppid, "the parent runner");
-  const borrowed = borrowInstrumentLock(lockPathOf(dir), "the child runner");
-  assert.equal(borrowed?.owns, false, "the child borrows; it does not own");
-  borrowed?.release();
+  // The borrower is this process's child inside the run's scope, where an admitted run's processes are.
+  const child = spawnSync("systemd-run", ["--user", "--scope", "--quiet", "--collect", `--unit=bridlewise-run-planted-${String(process.ppid)}`, process.execPath,
+    "--experimental-strip-types", "--input-type=module", "-e",
+    `const { borrowInstrumentLock } = await import(${JSON.stringify(pathToFileURL(join(ENGINE_ROOT, "src", "process", "instrument-lock.ts")).href)}); ` +
+      `const borrowed = borrowInstrumentLock(${JSON.stringify(lockPathOf(dir))}, "the child runner"); borrowed?.release(); console.log(String(borrowed?.owns));`], { encoding: "utf8" });
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.stdout.trim(), "false", "the child borrows; it does not own");
   assert.equal(existsSync(record), true, "a borrowed handle must not release the parent's record");
+  assert.equal(borrowInstrumentLock(lockPathOf(dir), "outside the scope"), undefined, "the same lineage outside the run's scope borrows nothing");
 });
 
 test("re-entrant: a second admission in the same process is borrowed, and only the owner releases", () => {

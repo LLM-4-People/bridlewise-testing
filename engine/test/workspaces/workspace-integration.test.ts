@@ -1615,7 +1615,7 @@ test("a land keeps the canonical config's 0600: the merge's fast-forward rewrite
   assert.equal(statSync(join(root, configFile)).mode & 0o777, 0o600, "the landing checkout's config keeps 0600");
 });
 
-test("a read-only create does not run a heavy setup instrument (it never waits for the lock a validate holds); a feature create runs it", async () => {
+test("a read-only create does not run a heavy setup instrument (a verifier runs single files); a feature create runs it", async () => {
   const { root } = initTempRepo("ws-heavy-setup");
   const ran: string[] = [];
   const commands = makeFakeCommands({ warm: (cwd) => { ran.push(cwd); return { step: "warm", status: "pass", message: "warmed", details: [] }; } });

@@ -39,11 +39,13 @@ no matter what cpu usage we have" … "no matter what task".
 - Retroactive: a whole-tree and all-labs audit lists every load-dependent gate
   and wait, and each gets an owned fix.
 
-Built (2026-10-22): heavy runs are admitted at once under per-run caps — a
-cgroup v2 scope per supervised command (memory ceiling, CPU weight) and the
-harness's CPU-time limit — and never wait for each other
-(`engine/src/process/instrument-lock.ts`); a host that cannot cap a run
-refuses it. The harness's script subprocesses are bounded by CPU work and one
+Built (2026-10-22): heavy runs are admitted at once under per-run caps and
+never wait for each other (`engine/src/process/instrument-lock.ts`).
+Admission moves the admitting process itself into the run's own cgroup v2
+scope (memory ceiling, CPU weight) and under the harness's CPU-time limit, so
+everything the run starts — a supervised command or a child spawned directly
+— is born under them, and a process borrows a run only from inside its scope:
+there is no uncapped path. A host that cannot cap a run refuses it. The harness's script subprocesses are bounded by CPU work and one
 hang backstop, never a wall timeout (`engine/src/process/subprocess-bounds.ts`).
 
 Built (2026-10-22), the measurement half: no reading is stamped "held" or

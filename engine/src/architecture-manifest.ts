@@ -2639,7 +2639,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "build-bundle", path: "scripts/build-bundle.ts",
       realm: "builder", layer: "verification", owner: "self-protection",
-      publicApi: { exportCount: 3, namesSha256: "b3544ac6577a32e74307ecc2c9a3c75f0e3f3f3ebd375a23821441778ba1e204" },
+      publicApi: { exportCount: 3, namesSha256: "4e205f2ad24c52bb2c20082aa26fdba9f44f0166b31e02dbe9484c5e505da67a" },
       dependencies: ["esbuild","node:fs","node:path","node:url","scripts/verification/slice-projections.ts","src/filesystem/atomic-write.ts","src/kernel/integrity.ts","src/runtime/cli-debug.ts"],
       effects: ["filesystem-write"],
       executionBoundary: "composition-root",
@@ -5466,12 +5466,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-process-instrument-lock-adoption", path: "src/process/instrument-lock-adoption.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 4, namesSha256: "72e634338de0129bc93f98cecddf8ac33a2f796ea0080ff4e04f4b136e843da2" },
+      owner: "process-infrastructure", publicApi: { exportCount: 3, namesSha256: "fbb9ded126b3b1adc9a9ef562d7a22306d3d7f3738881f77aeb4d911e3e8059b" },
       dependencies: [],
     }),
     moduleContract({
       id: "src-process-instrument-lock", path: "src/process/instrument-lock.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 12, namesSha256: "3bf053297e6a49b86a5b18544749b4c11322c93c64f0d591edcdf68ff45df43d" },
+      owner: "process-infrastructure", publicApi: { exportCount: 10, namesSha256: "b3dd8cbdd752c56d72cbbfffc46de9d3160446bc6fbfe7991a76ca38d9a8919a" },
       dependencies: ["node:child_process","node:fs","node:path","src/filesystem/file-lock.ts","src/filesystem/path-identity.ts","src/filesystem/self-protection/keep-out.ts","src/filesystem/user-folders.ts","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/process/instrument-lock-adoption.ts","src/process/process-facts.ts","src/process/subprocess-bounds.ts"],
     }),
     moduleContract({
@@ -5689,8 +5689,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-process-subprocess-bounds", path: "src/process/subprocess-bounds.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 4, namesSha256: "37fa5303dde9c0389749615a7a52846af75674aad407db8c6a1c478665e0d7e9" },
-      dependencies: [],
+      owner: "process-infrastructure", publicApi: { exportCount: 4, namesSha256: "574ac55bd3e8eabaab90dff123ce6ddd21e49de033699e94f0c681c07b206f02" },
+      dependencies: ["node:child_process","node:fs"],
     }),
   ],
 });
