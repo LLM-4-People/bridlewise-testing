@@ -814,13 +814,15 @@ td code {
 
 /* ── Callouts: a note, and a limit ──────────────────────────────────────── */
 
+/* A note is a slip pinned to the page: its edge is a rule, never a frame,
+   never a fill of colour. A note's edge is ink; a limit's is warn. */
 .callout,
 .callout-warning,
 main blockquote {
   margin: var(--sp-5) 0;
-  padding: var(--sp-4) var(--sp-5);
-  border: var(--hairline-w) solid var(--line-1);
-  border-radius: var(--radius-card);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  border: 0;
+  border-top: var(--rule-w) solid var(--ink-2);
   background: var(--ground-1);
   color: var(--ink-1);
 }
@@ -830,8 +832,7 @@ main blockquote {
 .callout-warning,
 .callout-caution,
 .callout-important {
-  border-color: color-mix(in srgb, var(--warn) 55%, var(--line-1));
-  box-shadow: inset 0 var(--rule-w) 0 var(--warn);
+  border-top-color: var(--warn);
 }
 
 .callout > :last-child,
