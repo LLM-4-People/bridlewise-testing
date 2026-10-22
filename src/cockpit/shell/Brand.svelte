@@ -1,10 +1,12 @@
 <script lang="ts">
   /**
    * The brand mark, shared by entry and workspace chrome. Drawn inline from
-   * the one geometry (`brand-mark.ts`) in the live theme's tokens, so the
-   * Logbook theme gets a paper tile rather than a dark square.
+   * the one geometry (`brand-mark.ts`): each part is painted with the token
+   * the geometry names for it, read live, so the Logbook theme gets a paper
+   * tile rather than a dark square and the mark never disagrees with the
+   * generated icons.
    */
-  import { BRAND_MARK, strokePath } from "./brand-mark.ts";
+  import { BRAND_MARK, inkOf, strokePath } from "./brand-mark.ts";
 
   let { wordmark = false }: { wordmark?: boolean } = $props();
 </script>
@@ -16,12 +18,12 @@
     aria-label={wordmark ? undefined : "Bridlewise"}
     aria-hidden={wordmark ? "true" : undefined}
   >
-    <rect class="tile" width={BRAND_MARK.grid} height={BRAND_MARK.grid} rx={BRAND_MARK.tileRadius} />
-    <path class="rein" d={strokePath(BRAND_MARK.rein)} stroke-width={BRAND_MARK.stroke} />
+    <rect width={BRAND_MARK.grid} height={BRAND_MARK.grid} rx={BRAND_MARK.tileRadius} style:fill={inkOf(BRAND_MARK.tile)} />
+    <path d={strokePath(BRAND_MARK.rein)} stroke-width={BRAND_MARK.stroke} style:stroke={inkOf(BRAND_MARK.rein.ink)} />
     {#each BRAND_MARK.lines as line (strokePath(line))}
-      <path class="line" d={strokePath(line)} stroke-width={BRAND_MARK.stroke} />
+      <path d={strokePath(line)} stroke-width={BRAND_MARK.stroke} style:stroke={inkOf(line.ink)} />
     {/each}
-    <circle class="beam" cx={BRAND_MARK.beam.at[0]} cy={BRAND_MARK.beam.at[1]} r={BRAND_MARK.beam.r} />
+    <circle cx={BRAND_MARK.beam.at[0]} cy={BRAND_MARK.beam.at[1]} r={BRAND_MARK.beam.r} style:fill={inkOf(BRAND_MARK.beam.ink)} />
   </svg>
   {#if wordmark}<span>bridlewise</span>{/if}
 </span>
@@ -30,9 +32,5 @@
   .brand { display: inline-flex; align-items: center; gap: var(--sp-3); min-width: 0; color: var(--ink-1); font: var(--f-prose-size) var(--face-sans); }
   svg { display: block; width: var(--monitor-h); height: var(--monitor-h); flex: none; }
   .wordmark svg { width: var(--horizon-h); height: var(--horizon-h); }
-  .tile { fill: var(--ground-2); }
-  .rein, .line { fill: none; stroke-linecap: round; }
-  .rein { stroke: var(--ink-1); }
-  .line { stroke: var(--ink-2); }
-  .beam { fill: var(--beam); }
+  path { fill: none; stroke-linecap: round; }
 </style>

@@ -1,7 +1,10 @@
 /**
- * THE brand mark's geometry: one declaration on a 32-unit grid, read by the
- * cockpit's `Brand.svelte` (drawn in the live theme's tokens) and by
- * `scripts/generate-pwa-icons.mjs` (the icon files, in the Carbon values).
+ * THE brand mark's geometry AND its palette: one declaration on a 32-unit
+ * grid, each part naming the token that colours it. Read by the cockpit's
+ * `Brand.svelte` (each part painted with `inkOf(part.ink)`, the live theme's
+ * value) and by `scripts/generate-pwa-icons.mjs` (the icon files, in the
+ * token owner's Carbon values). Nothing else restates a coordinate or a
+ * part's colour (tests/cockpit/brand-mark-owner.test.ts).
  *
  * The mark is the bridle: a rein (the vertical stroke) with three record
  * lines, and the one live beam where the rein is held. Each part names the
@@ -38,4 +41,9 @@ export const BRAND_MARK: Mark = Object.freeze(MARK);
 /** An SVG path for one stroke of the mark. */
 export function strokePath(stroke: Stroke): string {
   return `M${stroke.from[0]} ${stroke.from[1]}L${stroke.to[0]} ${stroke.to[1]}`;
+}
+
+/** A part's colour as the cockpit paints it: the token the geometry names, read live (the theme decides its value). */
+export function inkOf(token: string): string {
+  return `var(${token})`;
 }
