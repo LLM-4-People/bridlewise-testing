@@ -875,9 +875,9 @@ Every open row of [TASKS.md](../trackers/TASKS.md) appears here. A row leaves th
 
 | Task | State | Owner | Evidence |
 |---|---|---|---|
+| **FLAKY-PUBLIC-ENGINE-GUARD-REDS-ON-ROUND-TREES**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-PUBLIC-ENGINE-UNDIAGNOSED**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-PUBLIC-ENGINE-UNLOGGED-RECORDS**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
-| **FLAKY-PUBLIC-ENGINE-GUARD-REDS-ON-ROUND-TREES**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-PUBLIC-S1-B12-CONTROL**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-PUBLIC-WEB-GUARD-REDS-ON-ROUND-TREES**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |
 | **FLAKY-PUBLIC-WEB-WATCHDOG-C3**<br>Exit: Reproduce, fix, or explicitly retire the entry; the row closes. | planned | public floor flaky memory | [TASKS](../trackers/TASKS.md) |

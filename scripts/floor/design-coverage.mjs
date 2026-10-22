@@ -8,6 +8,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { htmlWithout } from "../../shared/markup.ts";
 
 const SHARED_CSS = ["assets/css/style.css", "assets/floor/floor.css"];
 const FLOOR_CSS = "assets/floor/floor.css";
@@ -91,13 +92,10 @@ function insideMain(html) {
   if (start === -1) return "";
   const end = html.indexOf("</main>", start);
   if (end === -1) return "";
-  return html
-    .slice(start, end)
-    .replace(/<nav class="breadcrumb"[\s\S]*?<\/nav>/u, "")
-    .replace(/<script\b[\s\S]*?<\/script>/gu, "")
-    .replace(/<style\b[\s\S]*?<\/style>/gu, "")
-    .replace(/<pre\b[\s\S]*?<\/pre>/gu, "")
-    .replace(/<code\b[\s\S]*?<\/code>/gu, "");
+  return htmlWithout(
+    html.slice(start, end).replace(/<nav class="breadcrumb"[\s\S]*?<\/nav>/u, ""),
+    { elements: ["script", "style", "pre", "code"] },
+  );
 }
 
 function tagsIn(markup) {

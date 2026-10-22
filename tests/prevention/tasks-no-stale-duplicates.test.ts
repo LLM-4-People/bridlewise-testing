@@ -15,16 +15,16 @@ import { describe, test, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { taskRows } from "../../engine/src/workflow/failure-owners.ts";
+import { boardRows } from "../../engine/src/workflow/failure-owners.ts";
 
 const tasksPath = resolve(__dirname, "../../docs/trackers/TASKS.md");
 
-/** Open and closed titles, read by the ONE task-row parser (engine/src/workflow/failure-owners.ts `taskRows`). */
+/** Open and closed titles, read by the ONE task-row parser (engine/src/workflow/failure-owners.ts `boardRows`). */
 function collectTitles(): { open: Set<string>; done: Set<string> } {
   const open = new Set<string>();
   const done = new Set<string>();
   if (!existsSync(tasksPath)) return { open, done };
-  for (const row of taskRows(readFileSync(tasksPath, "utf8"))) {
+  for (const row of boardRows(readFileSync(tasksPath, "utf8"))) {
     // normalize: lowercase, collapse whitespace for a stable comparison key
     const key = row.id.trim().toLowerCase().replace(/\s+/g, " ");
     (row.done ? done : open).add(key);
