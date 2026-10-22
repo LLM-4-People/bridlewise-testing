@@ -25,11 +25,11 @@ import type {
   ChatStreamEvent,
   ProviderAdapter,
 } from "../../src/runtime/provider-adapter.ts";
-import { makeMockProvider } from "../support/mock-provider.ts";
+import { makeMockProvider, referenceTransportUpstream } from "../support/mock-provider.ts";
 import { makeTimelineRecorder } from "../support/timeline.ts";
 import { devMatrix } from "../support/matrix.ts";
 import { mkTempDir } from "../support/temp-dir.ts";
-import { address, serve, type UpstreamRequest } from "../support/loopback-upstream.ts";
+import { address, serve } from "../support/loopback-upstream.ts";
 
 /**
  * Adversarial / mutation tests for the fix2 commit (1983566) that closed
@@ -1055,12 +1055,7 @@ test("C9: reference transport also records the request-body with stream=false", 
     const tl = mkTimeline(dir);
     const matrix = devMatrix();
     const cell = matrix.cells[0]!;
-    const mockFetch = async (_url: string, _init: UpstreamRequest): Promise<Response> => {
-      return new Response(JSON.stringify({
-        choices: [{ message: { content: "IDENTITY_PROBE_OK" }, finish_reason: "stop" }],
-        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-      }), { status: 200, headers: { "content-type": "application/json" } });
-    };
+    const mockFetch = referenceTransportUpstream({ content: "IDENTITY_PROBE_OK" });
     const runner = createScenarioRunner({ timeline: tl });
     serve(mockFetch);
     await runner.runCell(makeRequest(matrix, cell.cell_id, "test", {

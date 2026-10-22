@@ -445,7 +445,6 @@ export type LegitimateRawReader =
   | "web:tests/setup/source-tree-immutable.ts"
   | "web:scripts/check-docs-links.mjs"
   | "web:scripts/check-secrets.mjs"
-  | "web:scripts/floor/site.mjs"
   | "web:scripts/floor/site-pages.mjs"
   | "web:tests/prevention/agent-docs-liveness.test.ts"
   | "web:tests/prevention/declared-pattern-liveness.test.ts";
@@ -468,7 +467,7 @@ export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
   },
   "web:scripts/floor/site-pages.mjs": {
     why:
-      "The subject is the assembled Markdown and its front matter, which is prose "
+      "The subject is the docs Markdown and its front matter, which is prose "
       + "rather than program text: the link targets being rewritten live inside "
       + "document prose, and the page is written back with every other byte kept. A "
       + "code view would blank exactly the spans the rewrite must see and would "
@@ -509,13 +508,6 @@ export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
       "synthetic-fixture allowlist. A source view would blank or rewrite the " +
       "credential-shaped strings it must detect, so the raw bytes are the " +
       "correct input and the report names paths rather than code semantics.",
-  },
-  "web:scripts/floor/site.mjs": {
-    why:
-      "The site assembler copies product documentation, Markdown, CSS, and " +
-      "configuration byte for byte into the Pages source tree. A view would " +
-      "change the artifact it assembles, so it must read and write the same " +
-      "bytes the product repository ships.",
   },
   "web:tests/helpers/vm-isolation-witness.ts": {
     why:
