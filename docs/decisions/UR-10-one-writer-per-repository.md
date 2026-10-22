@@ -5,6 +5,7 @@ by: user
 group: user-rules
 status: in-force
 implementation: standing
+amended_by: [UR-23]
 ---
 # One writer per repository
 

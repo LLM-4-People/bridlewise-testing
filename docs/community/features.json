@@ -1,0 +1,47 @@
+{
+  "schema": "bridlewise-community-features/v1",
+  "features": [
+    {
+      "id": "web-signoff",
+      "text": "Commits made in GitHub's web editor are signed off by GitHub.",
+      "status": {
+        "live": "the repository setting web_commit_signoff_required is true (set 2026-10-21)"
+      }
+    },
+    {
+      "id": "issueops",
+      "text": "Bot commands in issues and pull requests (`/status`, `/accept`, `/decline`, `/duplicate`, `/reproduce`, `/explain`): a triage command opens a pull request adding a record, and the issue follows the record once it lands.",
+      "status": {
+        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/105"
+      }
+    },
+    {
+      "id": "track",
+      "text": "`/track` turns an Ideas discussion or an objection to a decision into a tracker record.",
+      "status": {
+        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/107"
+      }
+    },
+    {
+      "id": "intake-redaction",
+      "text": "A secret pasted into an issue is redacted by the publisher, with a comment saying why.",
+      "status": {
+        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/109"
+      }
+    },
+    {
+      "id": "projection",
+      "text": "Issues, milestones and the project board generated from the harness's own records, with one Floor log comment per land.",
+      "status": {
+        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/111"
+      }
+    },
+    {
+      "id": "teams",
+      "text": "The GitHub teams `triagers` and `reviewers`, applied from the role table.",
+      "status": {
+        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/112"
+      }
+    }
+  ]
+}
