@@ -52,8 +52,9 @@ source, and every promotion commit names the exact profile blob it used.
   re-resolves the source lockfile against it with a registry command; a
   `makefile` keeps the listed `targets` of the source Makefile (each kept rule
   crosses verbatim, `.PHONY` names only the kept ones; a missing target, a
-  kept rule needing a dropped one, or a line outside its small grammar is
-  refused), so the target's recipe has one source.
+  kept rule needing a dropped one, a kept recipe running make in this
+  Makefile — `make`, `$(MAKE)`, `${MAKE}`, `-C .` — on a target it drops,
+  or a line outside its small grammar is refused), so the target's recipe has one source.
 - `phases` — the registry commands a promotion runs in its candidate
   (`setup`, then `converge` repeated until a pass changes nothing — what it
   changes must be generated outputs —, then `verify`, which must change

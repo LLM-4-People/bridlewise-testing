@@ -32,7 +32,9 @@
  * promotion view's (`tests/helpers/promotion-view.ts`), the one answer every
  * guard asks about what ships.
  */
-import { posix } from "node:path";
+import { spawnSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join, posix } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import type { TreeReader } from "../../engine/src/git/tree-reader.ts";
@@ -41,6 +43,7 @@ import { excludedBy, profileCommandNames, type LoadedPromotionProfile } from "..
 import { moduleSpecifiers, normalizeRepositoryPath } from "../../engine/src/workflow/reachability.ts";
 import { classifyTree, derivePureTransforms, projectionAdvisories, shippedSources } from "../../engine/src/workflow/promotion/projection.ts";
 import { promotionView } from "../helpers/promotion-view.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
 
 const { document, tree, profiles } = promotionView();
 const isolation = document.workspaceIsolation!;
@@ -120,6 +123,20 @@ describe("the source-side promotion guard", () => {
         .toEqual([`${document}: names \`npm run missing-script\`, which the derived ${manifest} does not carry`]);
     }
     expect(checkedDocuments, "no shipped README was exercised — the document guard's universe collapsed").toBeGreaterThan(0);
+  });
+
+  test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: each derived Makefile runs — `make -n` of every kept target succeeds", (_name, loaded) => {
+    const classification = classifyTree(tree, loaded.profile);
+    const { texts } = derivePureTransforms(tree, loaded.profile, classification);
+    for (const transform of loaded.profile.transforms) {
+      if (transform.kind !== "makefile") continue;
+      const folder = createTempDir("derived-makefile-");
+      writeFileSync(join(folder, "Makefile"), texts.get(transform.path)!);
+      for (const target of transform.targets) {
+        const run = spawnSync("make", ["-n", target], { cwd: folder, encoding: "utf8" });
+        expect(run.status, `${transform.path}: make -n ${target}: ${run.stderr}`).toBe(0);
+      }
+    }
   });
 
   test("every registry command is run by a workspace phase or a promotion profile (no dead command)", () => {

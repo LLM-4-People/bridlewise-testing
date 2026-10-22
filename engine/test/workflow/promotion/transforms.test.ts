@@ -5,10 +5,14 @@
  * then refused as the machine's; a failed one is the change's).
  */
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import { deriveMakefile, deriveManifest, type ManifestContext } from "../../../src/workflow/promotion/transforms.ts";
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
+import { createTempDir } from "../../support/temp-dir.ts";
 import { SOURCE, SOURCE_LOCK, SOURCE_MANIFEST, json, promotionFixture } from "./promotion-fixture.ts";
 
 const context = (overrides: Partial<ManifestContext> = {}): ManifestContext => ({
@@ -158,6 +162,55 @@ test("the makefile transform refuses by code: a missing target, a kept rule need
     assert.equal(error.promotionCode, "promotion_makefile_unparseable", JSON.stringify(text));
     assert.equal(error.facts["line"], line, JSON.stringify(text));
   }
+});
+
+test("the makefile transform refuses a kept recipe that runs make on a target it drops, in every spelling, and judges only this Makefile", () => {
+  const refusal = (recipe: string, keep: readonly string[] = ["a"]): PromotionError | null => {
+    try {
+      deriveMakefile(`a:\n\t${recipe}\n\nb:\n\techo b\n\nc:\n\techo c\n`, keep, "Makefile");
+      return null;
+    } catch (error) {
+      assert.ok(error instanceof PromotionError, String(error));
+      return error;
+    }
+  };
+  for (const recipe of ["$(MAKE) b", "make b", "make -C . b", "${MAKE} b", "@$(MAKE) b", "-make b", "make -f Makefile b", "make --file=./Makefile b", "make --directory=. b", "make -s -j4 -k b", "make -j 4 b", "make -Cb/.. b", "$(MAKE) c b", "make VAR=1 b", "$(MAKE)"]) {
+    const error = refusal(recipe, ["a", "c"]);
+    assert.equal(error?.promotionCode, "promotion_makefile_recipe_target_dropped", recipe);
+    assert.deepEqual([error.facts["target"], error.facts["line"], error.facts["targets"]], ["a", 2, recipe === "$(MAKE)" ? [] : ["b"]], recipe);
+  }
+  for (const recipe of ["$(MAKE) c", "make -C . c", "make -f Makefile c", "make -C guardian all", "make -C engine/guardian test", "make -f other.mk b", "echo build", "make -C ./sub b"]) {
+    assert.equal(refusal(recipe, ["a", "c"]), null, `${recipe}: a kept target, or another Makefile's`);
+  }
+  for (const recipe of ["echo make b", "cd x && make b", "make b; echo", "make b | tee log", "make b > log", "$(MAKE) $(TARGET)", "make $$X", "make -C", "make -C /abs b", "make \"b\"", "make -C a -C b x", "make --bogus=1 c", "env make b", "make \\$x"]) {
+    const error = refusal(recipe, ["a", "c"]);
+    assert.equal(error?.promotionCode, "promotion_makefile_unparseable", recipe);
+    assert.equal(error.facts["line"], 2, recipe);
+  }
+});
+
+test("the derived Makefile runs: `make -n` of every kept target succeeds, recursive make included", () => {
+  const source = [
+    ".PHONY: all build test lint",
+    "",
+    "all:", "\t$(MAKE) build", "\t@${MAKE} -s test",
+    "",
+    "build:", "\techo build",
+    "",
+    "test: build", "\techo test", "\tmake -C guardian all",
+    "",
+    "lint:", "\techo lint", "\tmake -C . lint-only",
+    "",
+  ].join("\n");
+  const kept = ["all", "build", "test"];
+  const derived = deriveMakefile(source, kept, "Makefile");
+  const folder = createTempDir("derived-makefile-");
+  writeFileSync(join(folder, "Makefile"), derived.text);
+  for (const target of kept) {
+    const run = spawnSync("make", ["-n", target], { cwd: folder, encoding: "utf8" });
+    assert.equal(run.status, 0, `make -n ${target}: ${run.stderr}`);
+  }
+  assert.equal(spawnSync("make", ["-n", "lint"], { cwd: folder, encoding: "utf8" }).status, 2, "the dropped target is gone: make itself says so");
 });
 
 test("PC-4: the command a kept segment runs is found behind environment assignments and an npx / npm exec launcher", () => {

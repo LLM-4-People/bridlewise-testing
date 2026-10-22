@@ -75,6 +75,7 @@ export const PROMOTION_CODES = deepFreeze({
   promotion_manifest_bin_ambiguous: { class: "precondition", remedy: "Two devDependencies provide the command a kept script runs: remove the ambiguous one from the source manifest." },
   promotion_makefile_target_missing: { class: "precondition", remedy: "The profile keeps a target the source Makefile does not declare (a typo or a rename): correct the transform's `targets` list, or restore the rule." },
   promotion_makefile_prerequisite_dropped: { class: "precondition", remedy: "A kept Makefile rule depends on a rule the profile drops: keep that prerequisite too, or drop the rule that needs it." },
+  promotion_makefile_recipe_target_dropped: { class: "precondition", remedy: "A kept Makefile recipe runs make (`make`, `$(MAKE)`, `${MAKE}`) in this Makefile on a target the derived file does not keep, or on none: keep that target too, name the kept target it runs, or drop the rule." },
   promotion_makefile_unparseable: { class: "precondition", remedy: "Rewrite the source Makefile in the grammar the transform judges: blank lines, `#` comments, one `.PHONY:` line, single-target rules and tab-indented recipe lines (no variables, conditionals, includes, pattern rules or continued lines)." },
   promotion_transform_failed: { class: "failed", remedy: "The transform's command failed on the derived inputs: read the output tail and fix the manifest on the source." },
   promotion_transform_errored: { class: "errored", remedy: "None: the machine was busy or offline (the retries are exhausted); run it again later." },

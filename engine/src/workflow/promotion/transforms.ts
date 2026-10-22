@@ -14,6 +14,7 @@
  *   each kept rule (its comments, header and recipe) crosses verbatim, every
  *   other rule is dropped, and `.PHONY` names only the kept targets. A kept
  *   rule whose prerequisite is dropped is refused, never emptied, and so is
+ *   a kept recipe that runs make on a target the file no longer keeps, and
  *   any line outside the small grammar it judges. Pure.
  * - `lockfile` — the source lockfile re-resolved against the derived
  *   manifest by the registry command the transform names (npm's
@@ -195,7 +196,83 @@ export type DerivedMakefile = Readonly<{ text: string; explanation: MakefileExpl
 const MAKE_RULE = /^([A-Za-z0-9][A-Za-z0-9._-]*):(?!=)((?:[ \t]+[A-Za-z0-9][A-Za-z0-9._/-]*)*)[ \t]*$/u;
 const MAKE_PHONY = /^\.PHONY:((?:[ \t]+[A-Za-z0-9][A-Za-z0-9._-]*)*)[ \t]*$/u;
 
-type MakeRule = { target: string; prerequisites: readonly string[]; lines: string[] };
+type MakeRule = { target: string; prerequisites: readonly string[]; lines: string[]; recipe: { line: number; text: string }[] };
+
+/** The command words that run make: the program, and the variable a recipe calls it by. */
+const MAKE_WORDS: ReadonlySet<string> = new Set(["make", "$(MAKE)", "${MAKE}"]);
+/** Shell syntax around a make invocation (a sequence, a pipe, a redirection, a quote, an escape, a substitution or variable other than the make word): its targets cannot be read off its words. */
+const MAKE_SHELL_SYNTAX = /[;|&<>`"'\\]|\$\((?!MAKE\))|\$\{(?!MAKE\})|\$[A-Za-z_@<^*?%+$]/u;
+/** make's options that take a value (`-C dir`, `-Cdir`, `--directory=dir`, `--directory dir`), by short letter and long name. */
+const MAKE_VALUE_OPTIONS: Readonly<Record<string, "directory" | "file" | "other">> = {
+  C: "directory", f: "file", I: "other", o: "other", W: "other",
+  directory: "directory", file: "file", makefile: "file", "include-dir": "other", "old-file": "other", "assume-old": "other", "what-if": "other", "new-file": "other", "assume-new": "other",
+};
+/** make's options whose value is an optional number (`-j`, `-j4`, `-j 4`, `--jobs=4`). */
+const MAKE_NUMBER_OPTIONS: ReadonlySet<string> = new Set(["j", "l", "jobs", "load-average", "max-load"]);
+
+/**
+ * The targets a recipe line runs make on IN THIS Makefile, or null when the
+ * line runs no make, or runs another Makefile (`-C` another folder, `-f`
+ * another file). A make word anywhere but the command position, shell
+ * syntax around it, or an option it cannot read is `unparseable`: what the
+ * line runs cannot be judged.
+ */
+function makeInvocationTargets(recipe: string, makefile: string, unparseable: (why: string) => PromotionError): readonly string[] | null {
+  const body = recipe.slice(1).replace(/^[@+\-\s]+/u, "");
+  const words = body.split(/\s+/u).filter((word) => word !== "");
+  const at = words.findIndex((word) => MAKE_WORDS.has(word));
+  if (at === -1) return null;
+  if (at !== 0) throw unparseable(`names ${words[at]!} other than as its command word`);
+  if (MAKE_SHELL_SYNTAX.test(words.slice(1).join(" "))) throw unparseable("runs make with shell syntax around it, so its targets cannot be read");
+  const values: { directory: string[]; file: string[] } = { directory: [], file: [] };
+  const targets: string[] = [];
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index]!;
+    const take = (attached: string, option: string): string => {
+      const value = attached !== "" ? attached : words[++index];
+      if (value === undefined) throw unparseable(`gives ${option} no value`);
+      return value;
+    };
+    if (word.startsWith("--") && word.length > 2) {
+      const [name, ...rest] = word.slice(2).split("=");
+      const attached = rest.join("=");
+      const kind = MAKE_VALUE_OPTIONS[name!];
+      if (kind !== undefined) {
+        const value = take(attached, `--${name!}`);
+        if (kind !== "other") values[kind].push(value);
+      } else if (MAKE_NUMBER_OPTIONS.has(name!)) {
+        if (attached !== "" && !/^\d+$/u.test(attached)) throw unparseable(`passes the option ${word}, which it cannot read`);
+        if (attached === "" && /^\d+$/u.test(words[index + 1] ?? "")) index += 1;
+      } else if (!/^[a-z][a-z-]*$/u.test(name!) || attached !== "") throw unparseable(`passes the option ${word}, which it cannot read`);
+    } else if (word.startsWith("-") && word.length > 1) {
+      const cluster = word.slice(1);
+      for (let position = 0; position < cluster.length; position += 1) {
+        const letter = cluster[position]!;
+        const kind = MAKE_VALUE_OPTIONS[letter];
+        if (kind !== undefined) {
+          const value = take(cluster.slice(position + 1), `-${letter}`);
+          if (kind !== "other") values[kind].push(value);
+          break;
+        }
+        if (MAKE_NUMBER_OPTIONS.has(letter)) {
+          const attached = cluster.slice(position + 1);
+          if (attached !== "" && !/^\d+$/u.test(attached)) throw unparseable(`passes the option ${word}, which it cannot read`);
+          if (attached === "" && /^\d+$/u.test(words[index + 1] ?? "")) index += 1;
+          break;
+        }
+        if (!/[A-Za-z]/u.test(letter)) throw unparseable(`passes the option ${word}, which it cannot read`);
+      }
+    } else if (word.includes("=")) continue; // a variable assignment
+    else targets.push(word);
+  }
+  if (values.directory.length > 1 || values.file.length > 1) throw unparseable("names more than one -C or -f, so the Makefile it runs cannot be read");
+  const absolute = [...values.directory, ...values.file].find((value) => value.startsWith("/"));
+  if (absolute !== undefined) throw unparseable(`names the absolute path ${absolute}, which cannot be judged`);
+  const here = normalizeRepositoryPath(directoryOf(makefile), ".");
+  if (values.directory[0] !== undefined && normalizeRepositoryPath(directoryOf(makefile), values.directory[0]) !== here) return null;
+  if (values.file[0] !== undefined && normalizeRepositoryPath(directoryOf(makefile), values.file[0]) !== makefile) return null;
+  return targets;
+}
 
 /**
  * The derived Makefile (see the header). The grammar it judges, line by line:
@@ -207,7 +284,14 @@ type MakeRule = { target: string; prerequisites: readonly string[]; lines: strin
  * `promotion_makefile_unparseable`: what a rule means there cannot be judged
  * line by line. A kept target the source does not declare is
  * `promotion_makefile_target_missing`; a kept rule naming a dropped
- * prerequisite is `promotion_makefile_prerequisite_dropped`.
+ * prerequisite is `promotion_makefile_prerequisite_dropped`; a kept recipe
+ * line that runs make in this Makefile (`make`, `$(MAKE)` or `${MAKE}` as its
+ * command word, any options, `-C .` or `-f` this file) on a target the
+ * derived file does not keep, or on none (the default goal), is
+ * `promotion_makefile_recipe_target_dropped`. A make word it cannot read
+ * (not the command word, shell syntax around it, an unknown option) is
+ * `promotion_makefile_unparseable`. Make run on another Makefile (`-C`
+ * another folder) is not this file's to judge.
  */
 export function deriveMakefile(sourceText: string, keepTargets: readonly string[], path: string): DerivedMakefile {
   const unparseable = (line: number, text: string, why: string): PromotionError =>
@@ -223,6 +307,7 @@ export function deriveMakefile(sourceText: string, keepTargets: readonly string[
     if (text.startsWith("\t")) {
       if (open === null || comments.length > 0) throw unparseable(line, text, "is a recipe line under no rule");
       open.lines.push(text);
+      open.recipe.push({ line, text });
       return;
     }
     if (text.trim() === "") {
@@ -246,7 +331,7 @@ export function deriveMakefile(sourceText: string, keepTargets: readonly string[
     const rule = MAKE_RULE.exec(text);
     if (rule === null) throw unparseable(line, text, "is not a blank line, a comment, the .PHONY line, a single-target rule or a tab-indented recipe line");
     if (rules.some((existing) => existing.target === rule[1])) throw unparseable(line, text, `declares ${rule[1]!} a second time`);
-    open = { target: rule[1]!, prerequisites: rule[2]!.trim().split(/\s+/u).filter((name) => name !== ""), lines: [...comments, text] };
+    open = { target: rule[1]!, prerequisites: rule[2]!.trim().split(/\s+/u).filter((name) => name !== ""), lines: [...comments, text], recipe: [] };
     comments = [];
     rules.push(open);
   });
@@ -261,6 +346,14 @@ export function deriveMakefile(sourceText: string, keepTargets: readonly string[
     const dropped = rule.prerequisites.filter((prerequisite) => declared.has(prerequisite) && !kept.has(prerequisite));
     if (dropped.length > 0) {
       throw new PromotionError("promotion_makefile_prerequisite_dropped", `${path} keeps ${rule.target}, whose prerequisite ${dropped.join(", ")} the profile drops: the rule would no longer do what it says`, { makefile: path, target: rule.target, prerequisites: dropped });
+    }
+    for (const { line, text } of rule.recipe) {
+      const targets = makeInvocationTargets(text, path, (why) => unparseable(line, text, why));
+      if (targets === null) continue;
+      const unkept = targets.filter((target) => !kept.has(target));
+      if (targets.length === 0 || unkept.length > 0) {
+        throw new PromotionError("promotion_makefile_recipe_target_dropped", `${path}:${String(line)} keeps ${rule.target}, whose recipe runs make ${targets.length === 0 ? "on no target (its default goal)" : `on ${unkept.join(", ")}, which the derived Makefile does not keep`}: it would fail with "No rule to make target"`, { makefile: path, target: rule.target, line, targets: unkept });
+      }
     }
   }
   const keptRules = rules.filter((rule) => kept.has(rule.target));

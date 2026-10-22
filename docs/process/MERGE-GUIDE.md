@@ -310,6 +310,7 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_manifest_bin_ambiguous` | precondition | 3 | Two devDependencies provide the command a kept script runs: remove the ambiguous one from the source manifest. |
 | `promotion_makefile_target_missing` | precondition | 3 | The profile keeps a target the source Makefile does not declare (a typo or a rename): correct the transform's `targets` list, or restore the rule. |
 | `promotion_makefile_prerequisite_dropped` | precondition | 3 | A kept Makefile rule depends on a rule the profile drops: keep that prerequisite too, or drop the rule that needs it. |
+| `promotion_makefile_recipe_target_dropped` | precondition | 3 | A kept Makefile recipe runs make (`make`, `$(MAKE)`, `${MAKE}`) in this Makefile on a target the derived file does not keep, or on none: keep that target too, name the kept target it runs, or drop the rule. |
 | `promotion_makefile_unparseable` | precondition | 3 | Rewrite the source Makefile in the grammar the transform judges: blank lines, `#` comments, one `.PHONY:` line, single-target rules and tab-indented recipe lines (no variables, conditionals, includes, pattern rules or continued lines). |
 | `promotion_transform_failed` | failed | 5 | The transform's command failed on the derived inputs: read the output tail and fix the manifest on the source. |
 | `promotion_transform_errored` | errored | 4 | None: the machine was busy or offline (the retries are exhausted); run it again later. |
