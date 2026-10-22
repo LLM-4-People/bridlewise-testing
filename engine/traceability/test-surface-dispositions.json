@@ -949,6 +949,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/forge/publish/product.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/foundation-cascade.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4165,6 +4173,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workspaces/workspace-forge-github.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workspaces/workspace-forge.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4181,6 +4197,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workspaces/workspace-land.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workspaces/workspace-migration.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4190,6 +4214,14 @@
     },
     {
       "path": "test/workspaces/workspace-overlay.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/workspaces/workspace-stack.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -4245,5 +4277,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "58b412eb4dbe4fa6c0310199e9f220d617562010c8fed21327f34f714802564d"
+  "integrityHash": "c9f17c5523d24b4c13bfa5a0e8d7a71a7cde584c8c6831f37b9ff2ed5a052bee"
 }

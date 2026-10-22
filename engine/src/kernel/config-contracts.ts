@@ -1185,11 +1185,20 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     leaseTtlMs: z.number().int().positive().max(31_536_000_000),
     admissionLock: workspaceLockSchema,
     mergeLock: workspaceLockSchema,
-    // The ONLY branches a workspace may land on (`workspace create` refuses
-    // any other target before anything is made, and `merge` checks again). A
-    // product branch that changes only through a promotion door is never one
-    // of them (UR-12), so no workspace can fast-forward it.
+    // The ONLY trunks a workspace may land on: its target's UPSTREAM branch on
+    // the forge (the forge's view, never a local branch name: `workspace
+    // create` refuses any other before anything is made, and `merge` and
+    // `land` check again). A product branch that changes only through a
+    // promotion door is never one of them (UR-12).
     landTargets: z.array(z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u)).min(1).max(64),
+    // `workspace land` waits on the forge's merge queue: it reads the pull
+    // request every `pollIntervalMs` and stops waiting after `timeoutMs` (a
+    // wait budget, never a verdict: the record stays `merging`, `workspace
+    // land` resumes it and `workspace recover` looks once).
+    landing: z.strictObject({
+      pollIntervalMs: z.number().int().min(1).max(600_000),
+      timeoutMs: z.number().int().positive().max(86_400_000),
+    }),
     // How long a supervised command told to stop (its ceiling, an operator's
     // Ctrl-C) has before it and every descendant are killed.
     killGraceMs: z.number().int().positive().max(60_000),

@@ -19,6 +19,20 @@ same.
 6. **Record.** Update the task board, the roadmap when the state changes, and
    any public evidence page, then commit.
 
+## Workspaces
+
+A writer works in a workspace (`npm run ws -- create …`), which lands on
+GitHub only. GitHub is the one repository host. A workspace's target must be a branch
+whose upstream is the GitHub trunk, `main` of the configured trunk
+repository (`workspaceIsolation.landTargets`). A target that tracks another
+host's branch is refused at create (`workspace_forge_remote_unknown`), and
+so is the retired Gitea `testing`. The refusal names the GitHub trunk as the
+remedy. A target that tracks another branch of the trunk repository is
+refused too (`workspace_target_not_landable`). A workspace lands through its
+pull request and the merge queue (`ws land`), or through the local
+integrator (`ws merge`). The [merge guide](MERGE-GUIDE.md) owns the steps
+and refusals of both (§1b and §1c).
+
 ## Roles and review
 
 The [agent process](AGENTS.md#evidence) owns the evidence bar. [Roles](ROLES.md)

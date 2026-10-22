@@ -5,6 +5,7 @@ import { readLinuxMountPoints } from "../../src/filesystem/linux-path.ts";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
+import { HarnessError } from "../../src/kernel/errors.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { landCommit } from "../../src/workflow/tree-landing.ts";
@@ -29,6 +30,8 @@ import {
   commitFile,
   commitTrackerBoard,
   failGate,
+  fakeForgeFactory,
+  forgeStateOf,
   initTempRepo,
   makeFakeCommands,
   makeGitPort,
@@ -375,7 +378,7 @@ test("the lease exempts a regeneration, never a path: an authored edit of a pin-
   // A workspace that LEASES the pin-bearing file blocks another's authored
   // edit of it (admission), and the merge's pending-lease check judges the
   // authored set: a pin-only change never conflicts with that lease.
-  manager.abort(authoring.workspaceId);
+  await manager.abort(authoring.workspaceId);
   const owner = await manager.create({ agentName: "owner", mode: "feature", writeSet: [PIN_BEARING] });
   await assert.rejects(() => manager.create({ agentName: "intruder", mode: "feature", writeSet: [PIN_BEARING] }), (error: unknown) =>
     error instanceof WorkspaceConflictError && error.report.kind === "static-overlap");
@@ -420,26 +423,50 @@ test("the changed set is what the merge brings: after a rebase onto the moved ta
   assert.equal(report.status, "pass");
 });
 
-test("land targets: a workspace never lands on an undeclared branch (a product branch), named or inherited from the invoking checkout", async () => {
+test("land targets name the forge's trunk, never a local branch: any local branch whose upstream is origin/main lands; an upstream trunk not declared (a product branch), no upstream, or a remote the forge does not know is refused — named or inherited from the invoking checkout", async () => {
   const { root } = initTempRepo("ws-landtarget");
   const workspaceRoot = mkWorkspaceTempDir("ws-landtarget-wt");
-  rawGit(root, ["branch", "product"]);
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
+  // Any local name: what lands is its upstream, the trunk main.
+  rawGit(root, ["branch", "--track", "my-local-name", "origin/main"]);
+  const anyName = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src/any"], target: "my-local-name" });
+  assert.deepEqual([forgeStateOf(anyName).remote, forgeStateOf(anyName).trunk], ["origin", "main"]);
+  await manager.abort(anyName.workspaceId);
+  // A local branch NAMED main whose upstream is the product trunk is not main.
+  rawGit(root, ["branch", "product"]);
+  trackBranch(root, "product");
+  rawGit(root, ["branch", "--track", "main-lookalike", "origin/product"]);
+  await assert.rejects(() => manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"], target: "main-lookalike" }), throwsCode("workspace_target_not_landable"));
   await assert.rejects(() => manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"], target: "product" }), throwsCode("workspace_target_not_landable"));
+  rawGit(root, ["branch", "untracked"]);
+  await assert.rejects(() => manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"], target: "untracked" }), throwsCode("workspace_target_untracked"));
+  // A remote the forge does not know (the composition root's factory refuses it): refused at create, before anything is made.
+  rawGit(root, ["remote", "add", "elsewhere", mkWorkspaceTempDir("ws-landtarget-elsewhere")]);
+  rawGit(root, ["branch", "foreign"]);
+  rawGit(root, ["config", "branch.foreign.remote", "elsewhere"]);
+  // Another host's branch (the retired Gitea `testing`): the remote is refused before its trunk is judged.
+  rawGit(root, ["config", "branch.foreign.merge", "refs/heads/testing-on-another-host"]);
+  const knowsOrigin = makeManager(root, { config: makeTestConfig(workspaceRoot), forge: (target) => {
+    if (target.remote !== "origin") throw new HarnessError(`the remote ${target.remote} is not the forge's trunk repository`, "workspace_forge_remote_unknown");
+    return fakeForgeFactory(target);
+  } }).manager;
+  await assert.rejects(() => knowsOrigin.create({ agentName: "worker", mode: "feature", writeSet: ["src"], target: "foreign" }), throwsCode("workspace_forge_remote_unknown"));
+  // Inherited from the invoking checkout: a checkout of the product branch.
   const linked = join(mkWorkspaceTempDir("ws-landtarget-linked"), "product");
   rawGit(root, ["worktree", "add", "-q", linked, "product"]);
   const fromProduct = makeManager(linked, { config: makeTestConfig(workspaceRoot) }).manager;
   await assert.rejects(() => fromProduct.create({ agentName: "worker", mode: "feature", writeSet: ["src"] }), throwsCode("workspace_target_not_landable"));
   writeFile(linked, "dirty.txt", "dirty\n");
   await assert.rejects(() => fromProduct.create({ agentName: "worker", mode: "overlay", writeSet: [] }), throwsCode("workspace_target_not_landable"));
-  assert.deepEqual(manager.list(), [], "nothing was reserved, snapshotted or made");
+  assert.deepEqual(manager.list().filter((record) => record.state !== "aborted"), [], "nothing was reserved, snapshotted or made");
   assert.equal(rawGit(root, ["worktree", "list", "--porcelain"]).split("\n").filter((line) => line.startsWith("worktree ")).length, 2);
-  // A target removed from the declaration after create is refused at merge.
+  // A target removed from the declaration after create is refused at merge and at land.
   const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
   commitFile(record.lease.worktreePath, "src/x.ts", "export const x = 1;\n");
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
   const narrowed = makeManager(root, { config: makeTestConfig(workspaceRoot, { landTargets: ["side"] }) }).manager;
   await assert.rejects(() => narrowed.merge(record.workspaceId), throwsCode("workspace_target_not_landable"));
+  await assert.rejects(() => narrowed.land(record.workspaceId), throwsCode("workspace_target_not_landable"));
   assert.equal(manager.status(record.workspaceId).state, "validating");
 });
 
@@ -464,7 +491,7 @@ test("an integrator that died mid-merge is recovered: before the land the worktr
     }
     const current = store.load(record.workspaceId)!;
     store.save({ ...current, state: "merging", history: [...current.history, { from: current.state, to: "merging", at: new Date().toISOString(), reason: "the integrator took the merge lock" }] });
-    assert.throws(() => manager.abort(record.workspaceId), throwsCode("workspace_abort_denied"));
+    await assert.rejects(() => manager.abort(record.workspaceId), throwsCode("workspace_abort_denied"));
     return record;
   };
 
@@ -539,7 +566,7 @@ test("the merge's own checks: a pending lease on a changed path (a record admitt
   store.save({ ...stored, lease: { ...stored.lease, writeSet: ["src/f.ts"] } });
   await assert.rejects(() => manager.merge(record.workspaceId), (error: unknown) =>
     error instanceof WorkspaceConflictError && error.report.conflicts.some((entry) => entry.otherWorkspaceId === intruder.workspaceId));
-  manager.abort(intruder.workspaceId);
+  await manager.abort(intruder.workspaceId);
   assert.equal((await manager.validate(record.workspaceId)).status, "pass");
   commitFile(root, "elsewhere/1.txt", "1\n");
   commitFile(root, "elsewhere/2.txt", "2\n");
@@ -970,7 +997,7 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
     let persisted: WorkspaceRecord = manager.status(record.workspaceId);
     const injected = new Error(`injected ${failure}`);
     let inject = true;
-    const records = { load: () => persisted, list: () => [persisted], legacyRecordPath: () => null, save(next: WorkspaceRecord): WorkspaceRecord {
+    const records = { load: () => persisted, list: () => [persisted], olderRecord: () => null, save(next: WorkspaceRecord): WorkspaceRecord {
       if (inject && failure === "receipt-save" && next.state === "merged") throw injected;
       persisted = { ...next, revision: next.revision + 1 };
       return persisted;
@@ -1453,9 +1480,9 @@ test("a workspace's snapshot refs go with it at abort (A5-design L4), and stay w
     manager.snapshot(workspace.workspaceId, "two");
     assert.equal(refsOf(workspace.workspaceId).length, 2);
   }
-  manager.abort(aborted.workspaceId);
+  await manager.abort(aborted.workspaceId);
   assert.deepEqual(refsOf(aborted.workspaceId), [], "an aborted workspace leaves no snapshot ref");
-  manager.abort(kept.workspaceId, { quarantine: true });
+  await manager.abort(kept.workspaceId, { quarantine: true });
   assert.equal(refsOf(kept.workspaceId).length, 2, "a quarantined workspace keeps its recovery points");
   // Its quarantine expired: the sweep removes the worktree, the branch and the recovery points (A5-correctness L2).
   const later = makeManager(root, { config, now: () => new Date(Date.now() + 2 * config.quarantineTtlMs) }).manager;
