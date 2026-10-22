@@ -113,5 +113,10 @@ slip with dotted leaders and a mono stamp. A refusal pairs the model's call
 (the turn hue on its top edge) with the harness's answer (warn on its top edge,
 never the fill). A claim's state is a word in its state ink. Kickers are
 sentence case, never tracked capitals. Text is ink-1 or ink-2 only (ink-3 and
-ink-4 fail AA on paper), and `tests/public/site-design-system.test.mjs` holds
-every stylesheet under `docs/` to these rules and to 4.5:1 in both themes.
+ink-4 fail AA on paper). The site build parses every stylesheet it hands
+Jekyll and refuses one that is not this system (`scripts/floor/site-style.mjs`):
+every colour, duration and face is a token `var()` with no fallback, the
+themes and tokens are declared only in the owner, nothing is imported or
+fetched from elsewhere, and the sheets are plain CSS.
+`tests/public/site-design-system.test.mjs` proves each refusal and holds the
+text to 4.5:1 in both themes.

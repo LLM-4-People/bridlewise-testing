@@ -1,103 +1,129 @@
 // The public site wears the one design system (src/cockpit/tokens.css) and
-// declares none of its own: every stylesheet under docs/ reads the owner's
-// tokens through the generated sheet, and the text it sets meets WCAG 2.2 AA
-// in both themes. Each arm is proved with planted violations in more than one
-// place and with near-misses that must pass.
+// declares none of its own: every stylesheet the site build hands Jekyll is
+// parsed and judged by scripts/floor/site-style.mjs (the build refuses a
+// finding), and the text it sets meets WCAG 2.2 AA in both themes. Each arm
+// is proved with planted violations and with near-misses that must pass.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
 import { SHARED_CSS } from "../../scripts/floor/design-coverage.mjs";
+import { buildSiteSource } from "../../scripts/floor/site.mjs";
 import { markInclude } from "../../scripts/floor/site-design.mjs";
 import { sitePlan } from "../../scripts/floor/site-pages.mjs";
+import { declaredTokens, judgeSiteStyles, siteStyleViolations, STYLE_BURN_DOWN } from "../../scripts/floor/site-style.mjs";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
-import { walk } from "../../engine/scripts/verification/source-walk.ts";
 import { readNames, readTokenOwner, themeColor, THEMES, tokenSheet } from "../../shared/token-reader.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (path) => readFileSync(join(ROOT, path), "utf8");
 const OWNER = readTokenOwner(read("src/cockpit/tokens.css"));
-
-/**
- * The burn-down list: stylesheets that still carry a palette of their own.
- * It only shrinks; each entry names the issue that removes it.
- */
-const BURN_DOWN = new Map([
-  ["docs/run/run-demo.css", "#161: the run demo's own palette"],
-  ["docs/policy-lab/policy-lab.css", "#161: the policy lab's own palette"],
-]);
-
-/** The site's files of one kind, through the one source walk (repository-relative). */
-const files = (directory, extension) => walk(join(ROOT, directory), { exts: [extension] }).map((path) => relative(ROOT, path).split(sep).join("/"));
-
-const COLOUR_FUNCTION = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/u;
+const TOKENS = declaredTokens(OWNER);
 const HEX = /#[0-9a-fA-F]{3,8}\b/u;
-const DURATION = /(?<![\w-])\d*\.?\d+m?s\b/u;
+const judge = (css) => siteStyleViolations(css, { tokens: TOKENS });
 
-/** What a site stylesheet may not hold (see the header). */
-export function siteStyleViolations(css) {
-  const findings = [];
-  const text = css.replace(/\/\*[\s\S]*?\*\//gu, "");
-  for (const block of text.matchAll(/([^{}]*)\{([^{}]*)\}/gu)) {
-    const selector = block[1].trim();
-    if (/:root\b|\[data-theme\b|\[data-cockpit-theme\b/u.test(selector)) findings.push(`theme block: ${selector}`);
-    for (const declaration of block[2].split(";")) {
-      const match = /^\s*([\w-]+)\s*:\s*([\s\S]+?)\s*$/u.exec(declaration);
-      if (match === null) continue;
-      const [, property, value] = match;
-      const literal = value.replace(/var\([^()]*\)/gu, "");
-      if (property.startsWith("--")) findings.push(`custom property declared: ${property}`);
-      if (HEX.test(literal) || COLOUR_FUNCTION.test(literal.replace(/color-mix\(/gu, ""))) findings.push(`colour literal: ${property}: ${value}`);
-      if (/^(?:transition|animation)(?:-duration|-delay)?$/u.test(property) && DURATION.test(literal)) findings.push(`duration literal: ${property}: ${value}`);
-      if (property === "color" && /var\(\s*--ink-[34]\s*\)/u.test(value)) findings.push(`faint ink as text: ${property}: ${value}`);
-    }
+/** A scratch directory under the run's TMPDIR, removed afterwards. */
+function scratch(run) {
+  const directory = mkdtempSync(join(tmpdir(), "site-style-"));
+  try {
+    return run(directory);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
-  return findings;
 }
 
-test("every stylesheet under docs/ uses only the owner's tokens (the burn-down list only shrinks)", () => {
-  const sheets = files("docs", ".css");
-  assert.ok(sheets.length >= 4, `the walk found the site's stylesheets: ${sheets.join(", ")}`);
-  for (const path of BURN_DOWN.keys()) assert.ok(sheets.includes(path), `${path} is gone: delete its burn-down entry`);
-  const offenders = [];
-  for (const path of sheets) {
-    const findings = siteStyleViolations(read(path));
-    if (BURN_DOWN.has(path)) {
-      assert.ok(findings.length > 0, `${path} is clean now: delete its burn-down entry (${BURN_DOWN.get(path)})`);
-      continue;
-    }
-    offenders.push(...findings.map((finding) => `${path}: ${finding}`));
+test("the site build judges every stylesheet it hands Jekyll, and they read only the owner's tokens", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "site-style-build-"));
+  try {
+    const out = join(directory, "site");
+    // The floor data is not a stylesheet: an empty snapshot keeps the build offline and fast.
+    await buildSiteSource({ root: ROOT, out, baseurl: "/site", floorData: async () => ({ atlas: {}, status: {} }) });
+    const { sheets, findings } = judgeSiteStyles({ root: ROOT, sourceRoot: out });
+    assert.deepEqual(findings, []);
+    for (const path of ["assets/css/style.css", "assets/floor/floor.css", ...STYLE_BURN_DOWN.keys()]) assert.ok(sheets.includes(path), `the build input lists ${path}`);
+    assert.ok(!sheets.includes("assets/css/tokens.css"), "the generated token sheet is the owner's projection, judged by its generator");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
-  assert.deepEqual(offenders, []);
 });
 
-test("the guard catches each violation, in a rule and in a media block, and passes the near-misses", () => {
+test("the guard parses: each violation is found in any case, in a rule and in a media block", () => {
   const planted = [
-    ".a { color: #101216; }",
-    "@media (max-width: 960px) { .b { background: rgba(0, 0, 0, 0.5); } }",
-    ".c { border-color: oklch(0.7 0.1 250); }",
-    ".d { --local: 4px; }",
-    ":root { color: var(--ink-1); }",
-    'html[data-theme="carbon"] .e { color: var(--ink-1); }',
-    ".f { transition: opacity 120ms ease; }",
-    ".g { animation-duration: .2s; }",
-    ".h { color: var(--ink-3); }",
+    [".a { color: #101216; }", /colour literal: #101216/u],
+    [".a { color: #FFF; }", /colour literal: #FFF/u],
+    ["@media (max-width: 960px) { .b { background: rgba(0, 0, 0, 0.5); } }", /colour literal: rgba\(\)/u],
+    [".b { background: RGB(0, 0, 0); }", /colour literal: RGB\(\)/u],
+    [".c { border-color: oklch(0.7 0.1 250); }", /colour literal: oklch\(\)/u],
+    [".c { color: red; }", /colour literal: red/u],
+    [".c { border: 1px solid Tomato; }", /colour literal: Tomato/u],
+    [".c { outline-color: CanvasText; }", /colour literal: CanvasText/u],
+    [".c { color: var(--ink-1, #fff); }", /carries a fallback/u],
+    [".c { color: var(--site-only); }", /declares no such token/u],
+    [".d { --local: 4px; }", /custom property declared/u],
+    [":root { color: var(--ink-1); }", /theme block/u],
+    ['html[data-theme="carbon"] .e { color: var(--ink-1); }', /theme block/u],
+    [".f { transition: opacity 120ms ease; }", /duration literal: 120ms/u],
+    [".f { transition: opacity 120MS ease; }", /duration literal: 120MS/u],
+    [".g { animation: spin .2s linear; }", /duration literal: \.2s/u],
+    [".h { color: var(--ink-3); }", /faint ink as text/u],
+    [".i { font-family: Georgia, serif; }", /not one --face-\* token/u],
+    [".i { font: 16px/1.5 Georgia; }", /the shorthand sets a family/u],
+    ['@import url("https://fonts.example/plex.css");', /@import/u],
+    ['@import "local.css";', /@import/u],
+    [".j { background: url(https://cdn.example/x.png); }", /url\(\) leaves the site/u],
+    [".j { background: url(//cdn.example/x.png); }", /url\(\) leaves the site/u],
+    ["@font-face { font-family: Plex; src: url(/x.woff2); }", /@font-face/u],
+    ["@property --x { syntax: '<number>'; inherits: false; initial-value: 0; }", /@property/u],
+    ["@page { margin: 0; }", /not an at-rule/u],
+    [".k { color: var(--ink-1);", /never closed/u],
   ];
-  for (const css of planted) assert.equal(siteStyleViolations(css).length, 1, `planted: ${css}`);
+  for (const [css, expected] of planted) {
+    const findings = judge(css);
+    assert.ok(findings.some((finding) => expected.test(finding)), `planted: ${css} gave ${JSON.stringify(findings)}`);
+  }
   const nearMisses = [
     ".a { color: var(--ink-1); background: color-mix(in srgb, var(--accent) 12%, transparent); }",
-    ".b { transition: opacity var(--t-1) var(--ease-out); }",
+    ".a { color: currentColor; text-decoration-color: currentcolor; }",
+    ".b { transition: background var(--t-1) var(--ease-out), color var(--t-1); }",
     "#main .c { width: calc(100% - var(--sp-6)); }",
     ".d { border: var(--hairline-w) solid var(--line-1); }",
     ".e { border-bottom-color: var(--ink-3); }",
     "@media (max-width: 960px) { .f { display: none; } }",
-    ".g { content: \"#1\"; grid-template-columns: repeat(2, 1fr); }",
+    ".g { content: \"#1 red 120ms {\"; grid-template-columns: repeat(2, 1fr); }",
+    ".h { font-family: var(--face-mono); }",
+    ".h { font: inherit; }",
+    ".i { background: url(../img/local.png); }",
   ];
-  for (const css of nearMisses) assert.deepEqual(siteStyleViolations(css), [], `near-miss: ${css}`);
+  for (const css of nearMisses) assert.deepEqual(judge(css), [], `near-miss: ${css}`);
+});
+
+test("the file set is the build input: a Sass source anywhere is refused; the token sheet is the generator's", () => {
+  scratch((source) => {
+    const put = (path, text) => {
+      mkdirSync(dirname(join(source, path)), { recursive: true });
+      writeFileSync(join(source, path), text);
+    };
+    put("assets/css/style.css", ".a { color: var(--ink-1); }\n");
+    put("assets/css/main.scss", "---\n---\n$ink: #101216;\n.a { color: $ink; }\n");
+    put("_sass/partial.scss", ".b { color: red; }\n");
+    put("assets/css/tokens.css", ":root { --ink-1: #101216; }\n");
+    const { sheets, findings } = judgeSiteStyles({ root: ROOT, sourceRoot: source });
+    assert.ok(!sheets.includes("assets/css/tokens.css"), "the generated token sheet is not judged here");
+    assert.deepEqual(findings.map((finding) => finding.split(":")[0]), ["_sass/partial.scss", "assets/css/main.scss"]);
+    assert.ok(findings.every((finding) => /a Sass source/u.test(finding)));
+  });
+});
+
+test("the burn-down list only shrinks: each entry is still in the source and still fails", () => {
+  for (const [path, issue] of STYLE_BURN_DOWN) {
+    assert.ok(existsSync(join(ROOT, "docs", path)), `${path} is gone: delete its burn-down entry (${issue})`);
+    assert.ok(judge(read(`docs/${path}`)).length > 0, `${path} is clean now: delete its burn-down entry (${issue})`);
+  }
 });
 
 test("the shell's stylesheets compile into a token sheet: every name they read is the owner's", () => {
