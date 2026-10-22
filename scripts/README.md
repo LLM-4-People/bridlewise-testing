@@ -58,7 +58,8 @@ ships into the client bundle or the server runtime.
   harness root.
 - `floor/` — the testing-site toolchain. `site.mjs` assembles the Jekyll
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
-  and `files.mjs`/`github.mjs` share the filesystem and GitHub reads.
+  `files.mjs` shares the filesystem reads, and every GitHub read goes
+  through the forge port (`engine/src/workflow/forge/repository-reads.ts`).
   `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
   blocks: it renders them from the page's `ROADMAP-PLAN` block, the open rows
   of `docs/trackers/TASKS.md`, and the non-proofs in

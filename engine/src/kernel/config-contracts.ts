@@ -18,6 +18,7 @@ import {
 } from "../performance/performance-config.ts";
 import { SELF_PROTECTION_CONFIG_SCHEMA } from "../filesystem/self-protection/self-protection-config.ts";
 import { OUTBOUND_POLICY_SCHEMA } from "../shared/outbound-policy.ts";
+import { FORGE_CONFIG_SCHEMA } from "../workflow/forge/forge-config.ts";
 import { DEBUG_CONFIG_SCHEMA, debugConfigRefusalMessage, debugConfigViolations } from "../shared/debug/debug-config.ts";
 import {
   AWARENESS_CONFIG_SCHEMA,
@@ -1895,6 +1896,10 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     resourceLock: resourceLockConfigSchema.optional(),
     workspaceIsolation: workspaceIsolationConfigSchema,
     promotion: promotionConfigSchema,
+    // The forge (src/workflow/forge/): GitHub, the one forge — the
+    // organisation, origins, request bounds and the repository topology
+    // (`forge-config.ts` declares the section beside its owner).
+    forge: FORGE_CONFIG_SCHEMA.optional(),
     evaluation: evaluationConfigSchema.optional(),
     migrationAuthority: migrationAuthorityConfigSchema,
     testExecution: testExecutionConfigSchema,

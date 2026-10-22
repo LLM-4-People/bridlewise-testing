@@ -1037,6 +1037,58 @@
       "priorReleasesUrl": "https://github.com/LLM-4-People/bridlewise-preview/releases"
     }
   },
+  "forge": {
+    "organization": "LLM-4-People",
+    "apiUrl": "https://api.github.com",
+    "webUrl": "https://github.com",
+    "userAgent": "bridlewise-forge",
+    "request": {
+      "timeoutMs": 30000,
+      "maxResponseBytes": 16777216,
+      "cleanupTimeoutMs": 2000,
+      "etagCacheEntries": 1024,
+      "maxPages": 50
+    },
+    "tokenRenewBeforeMs": 300000,
+    "repositories": [
+      {
+        "name": "bridlewise-testing",
+        "kind": "trunk",
+        "visibility": "public"
+      },
+      {
+        "name": ".github",
+        "kind": "meta",
+        "visibility": "public"
+      },
+      {
+        "name": "bridlewise-evidence",
+        "kind": "evidence",
+        "visibility": "public"
+      },
+      {
+        "name": "bridlewise-coordination",
+        "kind": "notes",
+        "visibility": "private"
+      },
+      {
+        "name": "bridlewise-archive",
+        "kind": "archive",
+        "visibility": "private"
+      },
+      {
+        "name": "bridlewise",
+        "kind": "archive",
+        "visibility": "public"
+      },
+      {
+        "name": "forge-proving-ground",
+        "kind": "none",
+        "visibility": "public",
+        "provingGround": true
+      }
+    ]
+  },
   "codeIntelligence": {
     "autoIndexOnProjectAdd": true,
     "indexPollMs": 1500,
