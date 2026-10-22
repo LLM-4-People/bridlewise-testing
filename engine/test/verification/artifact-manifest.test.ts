@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -17,7 +18,7 @@ import { createTempDir } from "../support/temp-dir.ts";
  * drop is a decision.
  *
  * The defects this file pins:
- *  - `generatedAt` and `origin.{license,producingTool}` were read back out of
+ *  - a capture stamp and `origin.{license,producingTool}` were read back out of
  *    the document (the prior entry's origin was reused by digest wholesale),
  *    so a hand edit passed `--check`, passed `harness check`, and survived
  *    `harness regenerate` while `artifactAdmissionViolations` refused the same
@@ -45,26 +46,27 @@ function makeFixture(): string {
 }
 
 function readManifest(root: string): Record<string, unknown> & {
-  generatedAt: string;
   entries: Array<{ path: string; origin: Record<string, string> }>;
 } {
   return JSON.parse(readFileSync(join(root, ARTIFACT_MANIFEST_PATH), "utf8"));
 }
 
-test("artifact-manifest: the producer derives generatedAt from the captures and is byte-stable", () => {
+test("artifact-manifest: the producer reads no clock — one tree gives the same bytes at any two times, one entry per line (#221)", (t) => {
   const root = makeFixture();
   try {
+    t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-01-01T00:00:00Z") });
     const written = syncArtifactManifest(root, { write: true });
     assert.equal(written.status, "written");
     assert.equal(written.entries, GOVERNED.length);
     const committed = readFileSync(join(root, ARTIFACT_MANIFEST_PATH), "utf8");
-    const manifest = readManifest(root);
-    const latestCapture = manifest.entries
-      .map((entry) => entry.origin.capturedAt)
-      .toSorted()
-      .at(-1);
-    assert.equal(manifest.generatedAt, latestCapture, "the document stamp is the latest capture, not a value the document chose");
-    assert.equal(syncArtifactManifest(root, { write: false }).allCurrent, true, "a second run over one tree must be byte-stable");
+    assert.doesNotMatch(committed, /capturedAt|generatedAt/u, "no wall-clock stamp in the record");
+    const lines = committed.split("\n");
+    for (const path of GOVERNED) {
+      assert.equal(lines.filter((line) => line.includes(`"path":"${path}"`)).length, 1, `${path} has a line of its own`);
+    }
+    // A year later, the same tree: the same bytes, current, and a write changes nothing.
+    t.mock.timers.setTime(Date.parse("2027-06-15T12:34:56Z"));
+    assert.equal(syncArtifactManifest(root, { write: false }).allCurrent, true, "a run at another time over one tree is byte-identical");
     assert.equal(syncArtifactManifest(root, { write: true }).status, "current");
     assert.equal(readFileSync(join(root, ARTIFACT_MANIFEST_PATH), "utf8"), committed);
   } finally {
@@ -72,25 +74,33 @@ test("artifact-manifest: the producer derives generatedAt from the captures and 
   }
 });
 
-test("artifact-manifest: a hand-edited generatedAt reds --check and the next write restores the derived stamp", () => {
-  const root = makeFixture();
+test("artifact-manifest: two branches that change different artifacts merge cleanly into the manifest of both (#221)", () => {
+  const manifestAfter = (edits: Readonly<Record<string, string>>): string => {
+    const root = makeFixture();
+    try {
+      for (const [path, text] of Object.entries(edits)) writeRelative(root, path, text);
+      syncArtifactManifest(root, { write: true });
+      return readFileSync(join(root, ARTIFACT_MANIFEST_PATH), "utf8");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+  const base = manifestAfter({});
+  // Entries sort by path (traceability/README.md, traceability/canonical/…, verification/…): the two edited
+  // artifacts' lines have an unchanged one between them, as any two artifacts of a real tree almost always do.
+  const ours = manifestAfter({ [GOVERNED[1]]: "edited on one branch\n" });
+  const theirs = manifestAfter({ [GOVERNED[2]]: "edited on the other branch\n" });
+  const both = manifestAfter({ [GOVERNED[1]]: "edited on one branch\n", [GOVERNED[2]]: "edited on the other branch\n" });
+  const dir = createTempDir("artifact-manifest-merge-");
   try {
-    syncArtifactManifest(root, { write: true });
-    const path = join(root, ARTIFACT_MANIFEST_PATH);
-    const committed = readFileSync(path, "utf8");
-    // A SURGICAL edit: only the timestamp differs, so the byte compare is the
-    // only thing that can catch it — and it does, because the rebuild derives
-    // the stamp from the captures instead of reading this one back.
-    const edited = committed.replace(/"generatedAt":"[^"]+"/u, '"generatedAt":"2020-01-01T00:00:00Z"');
-    assert.notEqual(edited, committed);
-    writeFileSync(path, edited);
-    const drifted = syncArtifactManifest(root, { write: false });
-    assert.equal(drifted.allCurrent, false, "a hand-edited document stamp is not current");
-    assert.equal(drifted.status, "stale");
-    syncArtifactManifest(root, { write: true });
-    assert.equal(readFileSync(path, "utf8"), committed, "the producer republishes its derived stamp");
+    writeFileSync(join(dir, "ours"), ours);
+    writeFileSync(join(dir, "base"), base);
+    writeFileSync(join(dir, "theirs"), theirs);
+    const merged = spawnSync("git", ["merge-file", "-p", join(dir, "ours"), join(dir, "base"), join(dir, "theirs")], { encoding: "utf8" });
+    assert.equal(merged.status, 0, `the two branches' manifests conflicted:\n${merged.stdout}`);
+    assert.equal(merged.stdout, both, "the clean merge is exactly the manifest of both changes");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -122,7 +132,7 @@ test("artifact-manifest: a hand-edited origin.license or producingTool reds --ch
   }
 });
 
-test("artifact-manifest: the provenance policy refuses an unadmitted origin and a stamp the entries do not derive", () => {
+test("artifact-manifest: the provenance policy refuses an unadmitted origin", () => {
   const root = makeFixture();
   try {
     syncArtifactManifest(root, { write: true });
@@ -130,19 +140,12 @@ test("artifact-manifest: the provenance policy refuses an unadmitted origin and 
     // The committed document passes its own policy.
     assert.deepEqual([...artifactProvenanceViolations(manifest as never)], []);
     const tampered = structuredClone(manifest) as never as {
-      generatedAt: string;
       entries: Array<{ id: string; origin: Record<string, string> }>;
     };
     tampered.entries[0]!.origin["license"] = "unknown";
     assert.ok(
       artifactProvenanceViolations(tampered as never).includes("artifact-origin-not-admitted:" + tampered.entries[0]!.id),
       "an unadmitted origin must be named by the shared policy",
-    );
-    const restamped = structuredClone(manifest) as never as { generatedAt: string };
-    restamped.generatedAt = "2020-01-01T00:00:00Z";
-    assert.ok(
-      artifactProvenanceViolations(restamped as never).includes("artifact-generated-at-not-derived-from-captures"),
-      "a stamp the entries do not derive must be named by the shared policy",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -210,7 +213,6 @@ test("artifact-manifest: the builder refuses a previous origin that is not one o
     tampered.entries[0]!.origin["producingTool"] = "rogue-tool";
     const rebuilt = buildArtifactAdmissionManifest({
       root: rawSafeRepositoryRootAccess(root),
-      generatedAt: "2026-10-21T00:00:00Z",
       previousManifest: tampered,
     });
     assert.notEqual(
