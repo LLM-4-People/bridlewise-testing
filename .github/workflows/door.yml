@@ -43,8 +43,8 @@ jobs:
         run: chmod 600 engine/bridlewise.config.json
       - name: Give the job its own temporary root
         run: |
-          mkdir -p "$RUNNER_TEMP/tmp"
-          echo "TMPDIR=$RUNNER_TEMP/tmp" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.cache/bridlewise-tmp/ci"
+          echo "TMPDIR=$HOME/.cache/bridlewise-tmp/ci" >> "$GITHUB_ENV"
       - name: Mint the door App's token
         id: token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -88,8 +88,8 @@ jobs:
         run: chmod 600 engine/bridlewise.config.json
       - name: Give the job its own temporary root
         run: |
-          mkdir -p "$RUNNER_TEMP/tmp"
-          echo "TMPDIR=$RUNNER_TEMP/tmp" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.cache/bridlewise-tmp/ci"
+          echo "TMPDIR=$HOME/.cache/bridlewise-tmp/ci" >> "$GITHUB_ENV"
       - name: Mint the door App's token
         id: token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -189,8 +189,8 @@ jobs:
         run: chmod 600 engine/bridlewise.config.json
       - name: Give the job its own temporary root
         run: |
-          mkdir -p "$RUNNER_TEMP/tmp"
-          echo "TMPDIR=$RUNNER_TEMP/tmp" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.cache/bridlewise-tmp/ci"
+          echo "TMPDIR=$HOME/.cache/bridlewise-tmp/ci" >> "$GITHUB_ENV"
       - name: Mint the door App's token
         id: token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0

@@ -2177,7 +2177,7 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
       answer = await runDoorCli(root, rest);
     } else if (subcommand === "gates") {
       const { runGatesCli } = await import("./gates/gates-cli.ts");
-      answer = await runGatesCli(root, rest);
+      answer = await runGatesCli(root, rest, onProgress);
     } else if (subcommand === "workspace") {
       const { runWorkspaceCli } = await import("./workspace-cli.ts");
       answer = { result: await runWorkspaceCli(root, rest) };

@@ -24,10 +24,11 @@ import { deepFreeze } from "../../kernel/integrity.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 import { renderReceipt, type GateReceipt } from "../gates/seal.ts";
 import type { CheckAnnotation, CheckRunWrite } from "./door-github.ts";
+import { DOOR_LIMITS } from "./door-config.ts";
 import type { RatchetVerdict } from "./ratchet.ts";
 import type { TreeFinding } from "./tree-judge.ts";
 
-export const DOOR_VERDICT_SCHEMA = schemaId("door-verdict", 1);
+const DOOR_VERDICT_SCHEMA = schemaId("door-verdict", 1);
 
 /** The two buttons of the check (`requested_action` identifiers, at most 20 characters). */
 export const DOOR_ACTIONS = deepFreeze([
@@ -90,8 +91,6 @@ function code(text: string): string {
 }
 
 /** GitHub's bounds on a check run's output (title 255, summary and text 65535 characters). */
-const TITLE_MAX = 255;
-const SUMMARY_MAX = 65_000;
 
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 40)}\n\n… (clipped at ${String(max)} characters)`;
@@ -102,7 +101,7 @@ export function verdictCheckRun(verdict: DoorVerdict, receipt: GateReceipt, fail
   const failedGates = receipt.gates.filter((gate) => gate.role === "required" && gate.status === "failed").map((gate) => gate.id);
   const title = verdict.conclusion === "success"
     ? `Every required gate passed (${String(receipt.tests)} suite tests)`
-    : `Refused: ${[...failedGates.map((id) => `${id} failed`), ...verdict.findings.map((finding) => finding.rule)].slice(0, 6).join(", ")}`;
+    : `Refused: ${[...failedGates.map((id) => `${id} failed`), ...verdict.findings.map((finding) => finding.rule)].slice(0, DOOR_LIMITS.refusalsNamed).join(", ")}`;
   const lines = [
     `**Verdict:** ${verdict.conclusion}  ·  **K:** ${code(verdict.key)}  ·  [CI run](${verdict.runUrl})`,
     verdict.ciChanging ? "\n**This tree changes CI** (the gate catalogue or its generator): it is judged cold and is never reused." : "",
@@ -114,7 +113,7 @@ export function verdictCheckRun(verdict: DoorVerdict, receipt: GateReceipt, fail
     lines.push("### The door's findings", "", ...verdict.findings.map((finding) => {
       const where = [
         finding.path === undefined ? "" : ` ${code(finding.path)}`,
-        finding.commit === undefined ? "" : ` (commit ${code(finding.commit.slice(0, 12))})`,
+        finding.commit === undefined ? "" : ` (commit ${code(finding.commit.slice(0, DOOR_LIMITS.commitShaCharacters))})`,
         finding.gate === undefined ? "" : ` (gate ${code(finding.gate)})`,
       ].join("");
       return `- **${finding.rule}**${where}: ${finding.detail}`;
@@ -122,17 +121,17 @@ export function verdictCheckRun(verdict: DoorVerdict, receipt: GateReceipt, fail
   }
   const annotations: CheckAnnotation[] = [
     ...verdict.findings.filter((finding) => finding.path !== undefined).map((finding): CheckAnnotation => ({
-      path: finding.path!, start_line: 1, end_line: 1, annotation_level: "failure", title: finding.rule, message: finding.detail.slice(0, 60_000),
+      path: finding.path!, start_line: 1, end_line: 1, annotation_level: "failure", title: finding.rule, message: finding.detail.slice(0, DOOR_LIMITS.annotationMessageCharacters),
     })),
-    ...failedTests.map((test): CheckAnnotation => ({ path: test.path, start_line: 1, end_line: 1, annotation_level: "failure", title: "test failed", message: test.message.slice(0, 60_000) })),
+    ...failedTests.map((test): CheckAnnotation => ({ path: test.path, start_line: 1, end_line: 1, annotation_level: "failure", title: "test failed", message: test.message.slice(0, DOOR_LIMITS.annotationMessageCharacters) })),
   ];
   return deepFreeze({
     status: "completed",
     conclusion: verdict.conclusion,
     externalId: verdict.key,
     detailsUrl: verdict.runUrl,
-    title: clip(title, TITLE_MAX),
-    summary: clip(lines.join("\n"), SUMMARY_MAX),
+    title: clip(title, DOOR_LIMITS.titleCharacters),
+    summary: clip(lines.join("\n"), DOOR_LIMITS.summaryCharacters),
     annotations,
     actions: DOOR_ACTIONS.map((action) => ({ ...action })),
   });
@@ -161,7 +160,7 @@ export function failedTestFiles(report: unknown, toRepositoryPath: (name: string
     const assertions = Array.isArray(row.assertionResults) ? (row.assertionResults as Record<string, unknown>[]) : [];
     const first = assertions.find((assertion) => assertion?.status !== "passed");
     const message = String(Array.isArray(first?.failureMessages) ? (first!.failureMessages as unknown[])[0] ?? "" : row.message ?? "").split("\n")[0] ?? "";
-    failed.push({ path, message: `${first?.title === undefined ? "" : `${String(first.title)}: `}${message}`.slice(0, 1000) });
+    failed.push({ path, message: `${first?.title === undefined ? "" : `${String(first.title)}: `}${message}`.slice(0, DOOR_LIMITS.testMessageCharacters) });
   }
   return failed;
 }

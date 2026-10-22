@@ -8,6 +8,7 @@ verdict.
 
 ## What each file does
 
+- `door-config.ts` — the door's bounds in one place (`DOOR_LIMITS`): the pages read before judging, GitHub's check-run caps (annotations per request, title, summary and message characters), the names shown in a title, and the streamer's cadence. Each is a protocol limit or a display bound, never a judgement.
 - `door-github.ts` — the door's typed GitHub operations on the one forge client (`../forge/port.ts`): a run and its attempts, its jobs and artifacts (listed, never downloaded here), a pull request and its commits, a git commit's tree and parents, a ref's existence, cancelling a run, the open secret-scanning alerts by commit, the check run (created or updated; annotations beyond 50 appended), a workflow dispatch that answers its run id, the merge queue's entries.
 - `tree-judge.ts` — the content policy (size, compiled-code and archive extensions, credential file names, the one secret catalogue over the diff's text), the DCO sign-off of every commit, and open secret-scanning alerts on the pull request's commits.
 - `ratchet.ts` — the gate ratchet: with the pipeline's owner unchanged, every workflow is main's generator output byte for byte; a tree that changes the owner keeps every gate main requires, still required, and is never reused.
@@ -24,9 +25,10 @@ verdict.
 The folder lives at `engine/src/workflow/door/`.
 
 - `door-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
+- `door-config.ts` is consumed by `engine/src/workflow/door/door-cli.ts`, `engine/src/workflow/door/door-github.ts`, `engine/src/workflow/door/judge.ts`, `engine/src/workflow/door/stream.ts`, `engine/src/workflow/door/verdict.ts`.
 - `door-git.ts` is consumed by `engine/src/workflow/door/judge.ts`.
 - `door-github.ts` is consumed by `engine/src/workflow/door/door-cli.ts`, `engine/src/workflow/door/judge.ts`, `engine/src/workflow/door/stream.ts`, `engine/src/workflow/door/verdict.ts`.
-- `judge.ts` is consumed by `engine/src/workflow/door/door-cli.ts`, `engine/src/workflow/door/stream.ts`.
+- `judge.ts` is consumed by `engine/src/workflow/door/door-cli.ts`.
 - `ratchet.ts` is consumed by `engine/src/workflow/door/judge.ts`, `engine/src/workflow/door/verdict.ts`.
 - `stream.ts` is consumed by `engine/src/workflow/door/door-cli.ts`.
 - `tree-judge.ts` is consumed by `engine/src/workflow/door/judge.ts`, `engine/src/workflow/door/verdict.ts`.

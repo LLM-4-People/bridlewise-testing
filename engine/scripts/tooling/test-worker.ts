@@ -7,9 +7,9 @@ import {
   refreshCandidateTestIdentityExcluding,
 } from "./candidate-manifest.ts";
 import { enableSharedCompileCache } from "./compile-cache.ts";
-import { executeInventoryTestRun, readCellSources } from "./inventory-test-run.ts";
+import { executeInventoryTestRun } from "./inventory-test-run.ts";
 import { loadTestInventoryWithSnapshot } from "../test-inventory.ts";
-import { createTestReceipt, createTestResultReceipt, type TestResultReceipt } from "./test-receipt.ts";
+import { createTestReceipt, createTestResultReceipt, readCellSources, type TestResultReceipt } from "./test-receipt.ts";
 import { verifyS1Repository, type S1Verification } from "./s1-verification.ts";
 import { canonicalHash, canonicalJson, deepFreeze } from "../../src/kernel/integrity.ts";
 import { extractErrorContext, extractErrorMessage } from "../../src/kernel/errors.ts";
