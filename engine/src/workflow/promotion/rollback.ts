@@ -4,7 +4,7 @@
  * `harness promote rollback --to <promotion commit Pg> --reason <text>`
  * ({@link rollbackPromotion}) restores the target to what an earlier
  * promotion shipped: a commit R whose tree is Pg's, whose ONE parent is the
- * target's current tip, carrying `Promotion-Profile` and `Promoted-From` of
+ * target's current tip, carrying `Promotion-Profile` and `Projected-From` of
  * Pg and `Promotion-Restores: <Pg>`, as Pg's committer at Pg's committer date
  * (the same rollback of the same tip is the same commit). R is built,
  * certified and published exactly like a promotion (`apply.ts` `buildAndPin`:
@@ -78,7 +78,7 @@ export function rollbackPromotion(initial: PromotionContext, request: Readonly<{
       auditEvent("promotion.recovery", { kind: "pending_resumed", profile: profile.name, pending: pending.commit, rollback: to });
       commit = pending.commit;
     } else {
-      const heldSource = history[0]?.trailers.promotedFrom ?? null;
+      const heldSource = history[0]?.trailers.projectedFrom ?? null;
       // The hold's blob now (the receipt names it), its ref only once R is pinned: a failed build leaves no hold behind.
       const hold = holdBlob(context, { heldSource, restores: to, reason: request.reason });
       const subject = `rollback(${profile.name}): restore ${shortId(to)} on ${branchOf(profile.target.ref)}`;
@@ -89,7 +89,7 @@ export function rollbackPromotion(initial: PromotionContext, request: Readonly<{
         secondParent: null,
         message: () => [
           subject, "", request.reason, "",
-          `${trailers.promotedFrom}: ${line.trailers.promotedFrom ?? to}`,
+          `${trailers.projectedFrom}: ${line.trailers.projectedFrom ?? to}`,
           `${trailers.profile}: ${line.trailers.profile!}`,
           `${trailers.restores}: ${to}`,
         ].join("\n"),
@@ -132,7 +132,7 @@ export function holdPromotion(context: PromotionContext, reason: string, run: Pi
     const existing = syncHold(context, run.git);
     if (existing !== null) return answer("promotion_hold_set", `${profile.name} is already held (${existing.reason})`, { hold: existing });
     const target = resolveRevision(context.repository, profile.target.ref) ?? context.target;
-    const heldSource = target === null ? null : profileHistory(context.repository, target, profile.name)[0]?.trailers.promotedFrom ?? null;
+    const heldSource = target === null ? null : profileHistory(context.repository, target, profile.name)[0]?.trailers.projectedFrom ?? null;
     const blob = setHold(context, run.git, holdBlob(context, { heldSource, restores: null, reason }));
     try {
       pushHold(context, run.git, false);

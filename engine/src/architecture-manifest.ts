@@ -5300,7 +5300,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-promotion-projection", path: "src/workflow/promotion/projection.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 13, namesSha256: "b5c2942de5f953b0cb067171faa98e156fb891e162c960434afda54c05d71345" },
+      owner: "verification-workflow", publicApi: { exportCount: 15, namesSha256: "6e28305517233a22fb4e75676d8bebf565224f7bed5382f72cb5ce7fd0cd7daf" },
       dependencies: ["node:fs","node:path","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/checkout-setup.ts","src/workflow/hash-binding-registry.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/trailers.ts","src/workflow/promotion/transforms.ts","src/workflow/reachability.ts"],
     }),
     moduleContract({
@@ -5316,7 +5316,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-reachability", path: "src/workflow/reachability.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 16, namesSha256: "2f02fe28da8b068e1ffb653c04b5baa74891c4ec413856c43ea7e17e5b176319" },
-      dependencies: ["node:module","src/intelligence/js-tokenizer.ts","src/kernel/integrity.ts"],
+      dependencies: ["node:module","src/intelligence/js-tokenizer.ts","src/kernel/integrity.ts","src/kernel/language-extensions.ts"],
     }),
     moduleContract({
       id: "src-workflow-repository-registry", path: "src/workflow/repository-registry.ts", realm: "runtime", layer: "infrastructure",
@@ -5645,7 +5645,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-community-health-files", path: "src/workflow/community/health-files.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 14, namesSha256: "3a1fb430b7b60f951cd3dbe2c7436d5631ef1ce70142476f9a1c71280834d3b3" },
-      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/text/yaml-emit.ts","src/workflow/community/sources.ts"],
+      dependencies: ["../shared/markup.ts","node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/text/yaml-emit.ts","src/workflow/community/sources.ts"],
     }),
     moduleContract({
       id: "src-workflow-community-sources", path: "src/workflow/community/sources.ts", realm: "runtime", layer: "infrastructure",
