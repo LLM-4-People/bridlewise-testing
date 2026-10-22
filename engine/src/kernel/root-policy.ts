@@ -1366,7 +1366,7 @@ const ROOT_POLICY_VALUE = {
      */
     binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "849a9d3344f3d32bcb2ba2de53691bf4853cc9560ffa7f0cd2eb22dda8729911",
+    bundleSha256: "024c400129589542aa6c25986291a72590b36761b33125d80704c819c64224de",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
@@ -2254,7 +2254,7 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "d584df2372f369c344f5babdf75e39bceede0a59f480adda87692a0a0e8b6ab3",
+    testInventoryHash: "ef9f5bf8137e1ea1c2262cbd7bdd12b4850923e574b0cb148bc5af37c7c4050a",
     testSurfaceDispositionBinding: {
       fileSha256: "afc299298ef635218e1a556319c4777e06b92f12914dbd19d6a068be4e0c5975",
       identityHash: "b0eb149cceeefbdc2ed5d79b16a2165c390e51fd493aa90a00edc02436918692",
@@ -2709,7 +2709,7 @@ const ROOT_POLICY_VALUE = {
     promotion: {
       refNamespace: `refs/${PRODUCT_NAME}/promotion`,
       trailers: {
-        promotedFrom: "Promoted-From",
+        projectedFrom: "Projected-From",
         profile: "Promotion-Profile",
         acceptedTargetEdits: "Promotion-Accepted-Target-Edits",
         restores: "Promotion-Restores",

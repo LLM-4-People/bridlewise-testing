@@ -233,6 +233,10 @@ export const DECLARED_ROOT: Readonly<Record<string, RootDeclaration>> = {
     class: "proof",
     because: "Declares the browser-driven suite.",
   },
+  "product-only": {
+    class: "proof",
+    because: "The product branch's own files (its README and Makefile): the promotion profile's overlay ships each at the top of the product tree, never at this path.",
+  },
   "promotion": {
     class: "proof",
     because: "The promotion profiles (`harness promote`): what of this branch ships to which branch, and the gates a promotion runs; read from the source commit, never shipped.",
@@ -265,23 +269,20 @@ export const DECLARED_ROOT: Readonly<Record<string, RootDeclaration>> = {
     because: "Documentation and the cutover's own analysis tooling and manifests.",
   },
   // ── PUBLIC REPOSITORY SURFACES ──────────────────────────────────────────
-  // The public snapshot carries community, CI, and contributor files that the
-  // private tree did not. They do not ship in the product projection, so each
-  // one states its proof or record class here.
+  // The public repository carries community, CI, and contributor files. The
+  // ones the product projection ships carry no class (what ships is the
+  // profile's answer); the others state their proof or record class here.
   "AGENTS.md": {
     class: "record",
     because: "The public agent briefing: the process links, working rules, and commands an agent with no prior context must read first.",
   },
   ".devcontainer": {
-    class: "proof",
     because: "The disposable development container that installs both dependency trees and runs the cockpit on loopback.",
   },
   ".editorconfig": {
-    class: "proof",
     because: "The formatting contract shared by editors and generated files.",
   },
   ".gitattributes": {
-    class: "proof",
     because: "The line-ending and archive rules git applies to the tracked tree.",
   },
   ".github": {
@@ -289,19 +290,15 @@ export const DECLARED_ROOT: Readonly<Record<string, RootDeclaration>> = {
     because: "The public CI, CodeQL, secret scan, Pages, and failure-reporting workflows.",
   },
   ".node-version": {
-    class: "proof",
     because: "The runtime pin read by version managers and CI setup.",
   },
   ".nvmrc": {
-    class: "proof",
     because: "The same runtime pin for nvm users; kept in step with the supported Node range.",
   },
   "CHANGELOG.md": {
-    class: "record",
     because: "The public history of preview releases and their verification.",
   },
   "CITATION.cff": {
-    class: "record",
     because: "The citable identity, licence, and version of the public repository.",
   },
   "CODE_OF_CONDUCT.md": {
@@ -317,19 +314,16 @@ export const DECLARED_ROOT: Readonly<Record<string, RootDeclaration>> = {
     because: "The public decision and maintainership model.",
   },
   "LICENSE": {
-    class: "record",
-    because: "The AGPL-3.0-only licence text for the public repository.",
+    because: "The AGPL-3.0-only licence text; it ships with the product.",
   },
   "Makefile": {
     class: "proof",
     because: "The guardian build and test entry points used by the public gate.",
   },
   "NOTICE": {
-    class: "record",
     because: "The public attribution notice.",
   },
   "SECURITY.md": {
-    class: "record",
     because: "The private vulnerability-reporting path and the supported-version statement.",
   },
   "SUPPORT.md": {
@@ -337,11 +331,9 @@ export const DECLARED_ROOT: Readonly<Record<string, RootDeclaration>> = {
     because: "The public support boundary for a preview with no support contract.",
   },
   "THIRD_PARTY_NOTICES.md": {
-    class: "record",
     because: "The third-party licence inventory for the public repository.",
   },
   "bin": {
-    class: "proof",
     because: "The public CLI launcher used by the quickstart and the local workflow verbs.",
   },
 };
