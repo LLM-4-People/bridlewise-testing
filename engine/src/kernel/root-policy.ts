@@ -1366,7 +1366,7 @@ const ROOT_POLICY_VALUE = {
      */
     binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "3584d235cd16ca98ceaec64aa208ab95a25ca9354d3653c3d03855340cf3ca09",
+    bundleSha256: "3a960c4874ac523a502d14905060eec926c6dbee3d3104cf3b1063acb6b24d0b",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
