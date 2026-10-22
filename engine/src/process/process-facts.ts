@@ -450,6 +450,28 @@ export function processGroupOf(pid: number): number | undefined {
   return statNumber(pid, STAT_FIELD.pgrp);
 }
 
+/**
+ * The CPU time, in ms, of every live member of process group `pgid`: each
+ * member's own user and system time plus its reaped children's (`proc(5)`
+ * fields 14-17), so a member that already reaped its workers still counts
+ * them. `undefined` when procfs cannot answer or no member is left. The
+ * measure a CPU budget judges a supervised tool by (never its wall time: a
+ * loaded host slows a process down, it does not make it do more work).
+ */
+export function processGroupCpuMs(pgid: number): number | undefined {
+  let ticks = 0;
+  let members = 0;
+  for (const pid of allProcessIds()) {
+    const fields = statFieldsOf(pid);
+    if (fields === undefined || Number(fields[STAT_FIELD.pgrp - 3]) !== pgid) continue;
+    const used = [STAT_FIELD.utime, STAT_FIELD.stime, STAT_FIELD.cutime, STAT_FIELD.cstime].map((field) => Number(fields[field - 3]));
+    if (!used.every(Number.isFinite)) continue;
+    ticks += used.reduce((sum, value) => sum + value, 0);
+    members += 1;
+  }
+  return members === 0 ? undefined : ticks * CLOCK_TICK_MS;
+}
+
 /** The process's start time (clock ticks since boot, `proc(5)` field 22), or `undefined`. */
 function startTimeOf(pid: number): number | undefined {
   return statNumber(pid, STAT_FIELD.starttime);

@@ -1995,7 +1995,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 export const HARNESS_SUBCOMMANDS = deepFreeze([
   "check", "test", "register", "regenerate", "sync", "new-module", "eval",
   "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "slot", "flake", "frozen",
+  "format", "index", "deletions", "evidence", "promote", "slot", "flake", "frozen", "forge",
 ] as const);
 
 export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
@@ -2133,6 +2133,9 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
     } else if (subcommand === "slot") {
       const { runSlotCli } = await import("./slot-cli.ts");
       answer = await runSlotCli(rest);
+    } else if (subcommand === "forge") {
+      const { runForgeCli } = await import("./forge/forge-cli.ts");
+      answer = await runForgeCli(root, rest, onProgress);
     } else if (subcommand === "flake") {
       const { runFlakeCli } = await import("./flake-cli.ts");
       answer = await runFlakeCli(rest);

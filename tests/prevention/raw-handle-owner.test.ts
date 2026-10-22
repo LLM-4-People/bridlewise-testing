@@ -131,12 +131,12 @@ const LEGACY_RAW_HANDLE_SITES: ReadonlyArray<Readonly<{
   {
     file: modulePathMatching("process/supervised-run.ts"),
     what: "spawn(",
-    why: "the TEST-RUN supervisor (both suites' runners and the nested launches tests make): the web server never loads it, and the runner process that does has no component registry; the child it spawns is the native subreaper, whose receipt accounts for every process of the run and which kills them all when the run ends",
+    why: "THE ONE PROCESS SUPERVISOR, in the engine CLI and the test runners only (the web server never loads it, and those processes have no component registry): the test-run mode spawns the native subreaper, whose receipt accounts for every process of the run and which kills them all when the run ends; the work-bounded mode (runCpuBounded, the history importer's pinned tools) spawns its command in a process group of its own, stopped as a group through the owned-process terminate when its CPU budget or stall bound is reached",
   },
   {
     file: modulePathMatching("process/supervised-run.ts"),
     what: "setInterval(",
-    why: "the same test-run supervisor's stall clock: cleared when the supervised run settles (exit-backed, bounded by the kill grace), in a runner process the web server never is",
+    why: "the same supervisor's watch clocks — the test-run mode's stall clock and the work-bounded mode's CPU and stall poll — each cleared when its run settles (exit-backed), in an engine CLI or runner process the web server never is",
   },
   {
     file: modulePathMatching("db/client.ts"),
