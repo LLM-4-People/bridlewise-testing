@@ -435,7 +435,7 @@ test("repository-local fixture cleanup isolates retained concurrent and crashed 
   }
 });
 
-test("inventory transaction upgrades a v2 test-only base to repository-surface v4", (t) => {
+test("inventory transaction replaces any base (even a v2 test-only one) with repository-surface v4, and touches no other file", (t) => {
   const root = temporaryRoot(t);
   mkdirSync(join(root, "src"), { recursive: true });
   mkdirSync(join(root, "traceability"), { recursive: true });
@@ -446,32 +446,18 @@ test("inventory transaction upgrades a v2 test-only base to repository-surface v
     tests: base.tests,
     inventoryHash: canonicalHash(base.tests),
   } as const;
-  writeFileSync(join(root, VERIFICATION_PATHS.testInventory), `${canonicalJson(legacy)}\n`);
+  const inventoryPath = join(root, VERIFICATION_PATHS.testInventory);
+  writeFileSync(inventoryPath, `${canonicalJson(legacy)}\n`);
+  // The root policy holds no copy of the inventory's hash (#221): a policy file beside it is not the transaction's.
   mkdirSync(join(root, dirname(POLICY_REL)), { recursive: true });
-  writeFileSync(join(root, POLICY_REL), [
-    "export const policy = {",
-    "  verification: {",
-    `    testInventorySchema: "${ROOT_POLICY.verification.testInventorySchema}",`,
-    `    testInventoryHash: "${legacy.inventoryHash}",`,
-    "  },",
-    "};",
-    "",
-  ].join("\n"));
+  const policyText = "export const policy = {};\n";
+  writeFileSync(join(root, POLICY_REL), policyText);
   writeTest(root, "test/source.test.ts", 'test("next", () => undefined);\n');
   const next = buildTestInventory(root);
 
-  const inventoryPath = join(root, VERIFICATION_PATHS.testInventory);
-  const legacyText = canonicalJson(legacy);
-  writeFileSync(inventoryPath, `{"inventoryHash":"${legacy.inventoryHash}",${legacyText.slice(1)}\n`);
-  assert.throws(
-    () => writeTestInventoryTransaction(root, next, () => undefined, testInventoryBuildOptions(root)),
-    /duplicate key/u,
-  );
-  writeFileSync(inventoryPath, `${legacyText}\n`);
   writeTestInventoryTransaction(root, next, () => undefined, testInventoryBuildOptions(root));
-
   assert.deepEqual(JSON.parse(readFileSync(inventoryPath, "utf8")), next);
-  assert.match(readFileSync(join(root, POLICY_REL), "utf8"), new RegExp(next.inventoryHash, "u"));
+  assert.equal(readFileSync(join(root, POLICY_REL), "utf8"), policyText, "the transaction wrote no root-policy pin");
 });
 
 test("inventory authority rejects omitted or renamed tests within a covered source file", (t) => {
@@ -485,14 +471,6 @@ test("inventory authority rejects omitted or renamed tests within a covered sour
   ].join("\n"));
   const full = buildTestInventory(root);
   writeFileSync(join(root, VERIFICATION_PATHS.testInventory), `${canonicalJson(full)}\n`);
-  mkdirSync(join(root, dirname(POLICY_REL)), { recursive: true });
-  writeFileSync(join(root, POLICY_REL), [
-    "export const policy = { verification: {",
-    `  testInventorySchema: "${ROOT_POLICY.verification.testInventorySchema}",`,
-    `  testInventoryHash: "${full.inventoryHash}",`,
-    "} };",
-    "",
-  ].join("\n"));
 
   const omittedTests = [full.tests[0]!];
   const omitted = createTestInventory(full.scope, omittedTests);

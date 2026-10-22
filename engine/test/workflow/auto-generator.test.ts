@@ -4,69 +4,16 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 
 import {
-  computeDispositionBinding,
-  computeInventoryBinding,
   computeConfigSchemaBinding,
   generateAutoGeneratorReport,
   parseAutoGeneratorReport,
   AUTO_GENERATOR_SCHEMA_VERSION,
 } from "../../src/workflow/auto-generator.ts";
 import { canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
-import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
-import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 
 const ROOT = process.cwd();
-
-test("AutoGenerator: computeDispositionBinding returns binding for real project", () => {
-  const binding = computeDispositionBinding(ROOT);
-  assert.ok(binding !== null);
-  assert.ok(typeof binding!.fileSha256 === "string");
-  assert.ok(typeof binding!.identityHash === "string");
-  assert.ok(binding!.fileSha256.length === 64);
-  assert.ok(binding!.identityHash.length === 64);
-});
-
-test("AutoGenerator: computeDispositionBinding matches current root policy", () => {
-  const binding = computeDispositionBinding(ROOT);
-  assert.ok(binding !== null);
-  assert.equal(binding!.current.fileSha256, ROOT_POLICY.verification.testSurfaceDispositionBinding.fileSha256);
-  assert.equal(binding!.current.identityHash, ROOT_POLICY.verification.testSurfaceDispositionBinding.identityHash);
-});
-
-test("AutoGenerator: computeDispositionBinding returns null for missing file", () => {
-  const tmpDir = createTempDir("auto-gen-missing-disp-");
-  try {
-    const binding = computeDispositionBinding(tmpDir);
-    assert.equal(binding, null);
-  } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
-  }
-});
-
-test("AutoGenerator: computeInventoryBinding returns binding for real project", () => {
-  const binding = computeInventoryBinding(ROOT);
-  assert.ok(binding !== null);
-  assert.ok(typeof binding!.testInventoryHash === "string");
-  assert.ok(binding!.testInventoryHash.length === 64);
-});
-
-test("AutoGenerator: computeInventoryBinding matches current root policy", () => {
-  const binding = computeInventoryBinding(ROOT);
-  assert.ok(binding !== null);
-  assert.equal(binding!.current, ROOT_POLICY.verification.testInventoryHash);
-});
-
-test("AutoGenerator: computeInventoryBinding returns null for missing file", () => {
-  const tmpDir = createTempDir("auto-gen-missing-inv-");
-  try {
-    const binding = computeInventoryBinding(tmpDir);
-    assert.equal(binding, null);
-  } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
-  }
-});
 
 test("AutoGenerator: computeConfigSchemaBinding returns valid binding", () => {
   const binding = computeConfigSchemaBinding(ROOT);
@@ -111,18 +58,10 @@ test("AutoGenerator: generateAutoGeneratorReport produces valid report", () => {
   assert.ok(typeof report.integrityHash === "string");
 });
 
-test("AutoGenerator: report has disposition binding step", () => {
+test("AutoGenerator: the report holds no root-policy copy of the inventory's or the dispositions' hash (#221)", () => {
   const report = generateAutoGeneratorReport(ROOT);
-  const step = report.steps.find((entry) => entry.step === "disposition-binding");
-  assert.ok(step);
-  assert.equal(step!.status, "pass");
-});
-
-test("AutoGenerator: report has inventory binding step", () => {
-  const report = generateAutoGeneratorReport(ROOT);
-  const step = report.steps.find((entry) => entry.step === "inventory-binding");
-  assert.ok(step);
-  assert.equal(step!.status, "pass");
+  assert.deepEqual(report.steps.filter((entry) => entry.step === "disposition-binding" || entry.step === "inventory-binding"), []);
+  assert.equal("dispositionBinding" in report || "inventoryBinding" in report, false);
 });
 
 test("AutoGenerator: report has config schema binding step", () => {
@@ -166,18 +105,6 @@ test("AutoGenerator: report has root field", () => {
   assert.equal(report.root, ROOT);
 });
 
-test("AutoGenerator: report has dispositionBinding field", () => {
-  const report = generateAutoGeneratorReport(ROOT);
-  assert.ok(report.dispositionBinding !== null);
-  assert.ok(typeof report.dispositionBinding!.fileSha256 === "string");
-});
-
-test("AutoGenerator: report has inventoryBinding field", () => {
-  const report = generateAutoGeneratorReport(ROOT);
-  assert.ok(report.inventoryBinding !== null);
-  assert.ok(typeof report.inventoryBinding!.testInventoryHash === "string");
-});
-
 test("AutoGenerator: report has configSchemaBinding field", () => {
   const report = generateAutoGeneratorReport(ROOT);
   assert.ok(report.configSchemaBinding !== null);
@@ -216,32 +143,6 @@ test("AutoGenerator: parseAutoGeneratorReport throws on missing integrity hash",
   const raw = JSON.parse(canonicalJson(report));
   delete raw.integrityHash;
   assert.throws(() => parseAutoGeneratorReport(raw), /integrity hash/);
-});
-
-test("AutoGenerator: report detects missing disposition file", () => {
-  const tmpDir = createTempDir("auto-gen-nodisp-");
-  try {
-    const report = generateAutoGeneratorReport(tmpDir);
-    const step = report.steps.find((entry) => entry.step === "disposition-binding");
-    assert.ok(step);
-    assert.equal(step!.status, "error");
-    assert.equal(report.dispositionBinding, null);
-  } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
-  }
-});
-
-test("AutoGenerator: report detects missing inventory file", () => {
-  const tmpDir = createTempDir("auto-gen-noinv-");
-  try {
-    const report = generateAutoGeneratorReport(tmpDir);
-    const step = report.steps.find((entry) => entry.step === "inventory-binding");
-    assert.ok(step);
-    assert.equal(step!.status, "error");
-    assert.equal(report.inventoryBinding, null);
-  } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
-  }
 });
 
 test("AutoGenerator: report detects missing qualification authority inventory", () => {
@@ -295,32 +196,6 @@ test("AutoGenerator: report determinism - same root produces same report (ignori
     assert.equal(report1.steps[i]!.step, report2.steps[i]!.step);
     assert.equal(report1.steps[i]!.status, report2.steps[i]!.status);
   }
-});
-
-test("AutoGenerator: disposition binding captures fileSha256 from actual file", () => {
-  const binding = computeDispositionBinding(ROOT);
-  assert.ok(binding !== null);
-  const dispositionPath = join(ROOT, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath);
-  const fileBytes = readFileSync(dispositionPath, "utf8");
-  assert.equal(binding!.fileSha256, sha256(fileBytes));
-});
-
-test("AutoGenerator: disposition binding captures identityHash from file content", () => {
-  const binding = computeDispositionBinding(ROOT);
-  assert.ok(binding !== null);
-  const dispositionPath = join(ROOT, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath);
-  const fileBytes = readFileSync(dispositionPath, "utf8");
-  const parsed = JSON.parse(fileBytes);
-  assert.equal(binding!.identityHash, parsed.integrityHash);
-});
-
-test("AutoGenerator: inventory binding captures testInventoryHash from file", () => {
-  const binding = computeInventoryBinding(ROOT);
-  assert.ok(binding !== null);
-  const inventoryPath = join(ROOT, VERIFICATION_PATHS.testInventory);
-  const fileBytes = readFileSync(inventoryPath, "utf8");
-  const parsed = JSON.parse(fileBytes);
-  assert.equal(binding!.testInventoryHash, parsed.inventoryHash);
 });
 
 test("AutoGenerator: config schema binding has correct schema hash", () => {
