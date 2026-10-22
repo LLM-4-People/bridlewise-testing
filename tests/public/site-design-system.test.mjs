@@ -127,6 +127,9 @@ test("the layouts, includes and HTML pages hold no style of their own and load n
     ['<link rel="icon" href="data:image/svg+xml,%3Csvg%3E">', /inlines a data: resource/u],
     ['<meta http-equiv="Refresh" content="0; url=https://example.org/">', /<meta http-equiv="refresh">/u],
     ['<base href="https://cdn.example/">', /<base>/u],
+    ["<head><script>window.x = 1;</script></head>", /an inline <script>/u],
+    ['<script type="module">import "https://cdn.example/x.js";</script>', /an inline <script>/u],
+    ['<img alt="" src="x.png" ONLOAD="alert(1)">', /<img onload>: an event handler/u],
   ];
   for (const [html, expected] of planted) {
     const findings = siteMarkupViolations(html);
@@ -138,6 +141,8 @@ test("the layouts, includes and HTML pages hold no style of their own and load n
     '<a href="https://github.com/example">source</a><script src="run-demo.js" type="module"></script>',
     '<img alt="a figure" src="assets/x.png" srcset="assets/x.png 1x, assets/x@2.png 2x"><img alt="" src="data:image/png;base64,AA==">',
     "<p>The word style, a style sheet and a <code>style</code> attribute named in prose.</p>",
+    '<script type="application/ld+json">{"@type": "WebPage"}</script><script src="site.js" defer></script>',
+    '<p data-online="yes">a data attribute that holds "on" inside its name</p>',
   ];
   for (const html of nearMisses) assert.deepEqual(siteMarkupViolations(html), [], `near-miss: ${html}`);
 });
@@ -161,7 +166,6 @@ test("every page carries the one Content-Security-Policy first: only the site's 
     const text = read(path);
     if (!/<head>/iu.test(text)) continue;
     assert.match(text, /<meta charset="utf-8">\n {2}\{% include csp\.html %\}\n/u, `${path} includes the policy right after its charset`);
-    assert.doesNotMatch(text, /<script>|<script type="module">/u, `${path} holds no inline script`);
   }
 });
 
