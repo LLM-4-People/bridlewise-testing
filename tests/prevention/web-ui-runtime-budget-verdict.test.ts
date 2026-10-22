@@ -678,6 +678,27 @@ describe("the run's own costs are judged, and a refusal is not a pass", () => {
     expect(noLeg.message).toContain("no 5-minute ambient load");
   });
 
+  test("THE ACCUMULATION WINDOW COUNTS EVERY READING, WHATEVER RAN BESIDE IT: a row from a run that shared the host, and a legacy row stamped before admission existed, count toward N like any other (NO-LOAD-BLOCK, audit A-12)", () => {
+    const accumulating = {
+      phase: "accumulation" as const,
+      metric: "calibrated-work/v1",
+      minimumJudgedRuns: 12,
+      maxPopulationDriftFraction: 0.03,
+      derivedAtTestFileCount: FULL,
+      calibrationDriftMaxFraction: 0.15,
+      validThroughLoad5PerCpu: 1.25,
+    };
+    const counted = (priorRuns: readonly Record<string, unknown>[]): string =>
+      judgeRunCosts(judgeRuntimeBudget(goodSummary(), OPTS), { ...INPUTS, cpuBudget: accumulating, priorRuns: priorRuns as never })
+        .find((o) => o.gate === "cpu-per-test-file")!.message;
+    const plain = [ranAt(990), ranAt(991), ranAt(992)];
+    expect(counted(plain)).toContain("4 of the 12 clean judged full runs");
+    // The same three readings, two of them taken beside another heavy run ("unslotted") and one a legacy
+    // "held" row: the window counts all three, exactly as it counts the plain ones.
+    const shared = [{ ...ranAt(990), heavySlot: "unslotted" }, { ...ranAt(991), heavySlot: "unslotted" }, { ...ranAt(992), heavySlot: "held" }];
+    expect(counted(shared)).toContain("4 of the 12 clean judged full runs");
+  });
+
   test("THE 23.9s-of-330s FILE — one file eating 7.2% of the pool FAILS", () => {
     const out = judgeRunCosts(
       judgeRuntimeBudget(
