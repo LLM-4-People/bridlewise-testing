@@ -55,7 +55,7 @@ test("the live categories are one GraphQL read on the forge port, and the verb r
   });
   const client = githubClient(fake.endpoint(), memoryCredential("user:maintainer", fake.userToken("maintainer")));
   assert.deepEqual(await liveCategories(client, "o", "r"), [{ slug: "q-a", name: "Q&A", answerable: true, description: "" }]);
-  for (const argv of [[], ["categories", "extra"], ["labels"]]) {
+  for (const argv of [[], ["categories", "extra"], ["labels", "extra"], ["bogus"]]) {
     await assert.rejects(runCommunityCli(REPOSITORY, argv), (error: unknown) => error instanceof HarnessError && error.code === "community_usage", JSON.stringify(argv));
   }
 });

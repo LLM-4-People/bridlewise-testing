@@ -16,6 +16,7 @@ The `engine/test/workflow/` folder of the development surface.
 - `harness-commands-cli-fixes.test.ts` — the `harness-commands-cli-fixes.test` module.
 - `harness-commands-timeouts.test.ts` — the `harness-commands-timeouts.test` module.
 - `community-categories.test.ts` — the Discussion-category audit: no drift when the repository matches the registry; each kind of drift named with what to do; the live read is one GraphQL query on the fake GitHub; the verb refuses what it does not know.
+- `community-labels.test.ts` — the community labels as code: the registry refuses what GitHub would not store; a declared label missing or different is drift (names without case); other labels are listed, not judged; the live read is paginated on the fake GitHub.
 - `community-health-files.test.ts` — the community sources' refusals (role table, intake registry), the one YAML emitter, and the generated health files and forms: `harness sync` writes them, `harness check` names a hand edit or a stale form, and this repository's own files are current.
 - `harness-commands.test.ts` — the `harness-commands.test` module.
 - `inventory-test-run.test.ts` — the `inventory-test-run.test` module.

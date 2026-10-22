@@ -35,6 +35,7 @@ import { dirname, join } from "node:path";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../kernel/errors.ts";
 import { emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
+import { readLabels } from "./labels.ts";
 import { escapeMarkdownTableCell } from "../../../../shared/markup.ts";
 import {
   COMMUNITY_DIRECTORY,
@@ -109,6 +110,8 @@ export function readCommunityFacts(repositoryRoot: string): CommunityFacts {
   const makefile = "engine/guardian/Makefile";
   const compiler = /^CC\s*:=\s*(\S+)$/mu.exec(readFileSync(join(repositoryRoot, makefile), "utf8"))?.[1];
   if (compiler === undefined) templateInvalid(makefile, "declares no CC := … line");
+  // The label registry is a community source too: harness check refuses it when it cannot mean anything.
+  readLabels(repositoryRoot);
   return Object.freeze({ roles: readRoles(repositoryRoot), intake: readIntake(repositoryRoot), features: readFeatures(repositoryRoot), repository, nodeRange, compiler });
 }
 
