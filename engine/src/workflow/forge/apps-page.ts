@@ -195,7 +195,7 @@ export function verifyConversion(role: ForgeAppRole, settings: ForgeSettings, an
   if (typeof ownerRecord.login !== "string" || ownerRecord.login.toLowerCase() !== settings.organization.toLowerCase() || ownerRecord.type !== "Organization") mismatches.push("owner");
   if (name !== manifest.name) mismatches.push("name");
   if (typeof permissions !== "object" || permissions === null || Array.isArray(permissions) || !sameSet(permissions as Record<string, unknown>, manifest.default_permissions)) mismatches.push("permissions");
-  if (!Array.isArray(events) || [...events].sort().join(",") !== [...manifest.default_events].sort().join(",")) mismatches.push("events");
+  if (!Array.isArray(events) || events.length !== manifest.default_events.length || !manifest.default_events.every((event) => events.includes(event))) mismatches.push("events");
   if (mismatches.length > 0) {
     throw new ForgeError("forge_app_conversion_mismatch", `GitHub created an App (${String(slug)}) whose ${mismatches.join(", ")} differ from the declared ${role} App; nothing was stored.`, { role, slug: String(slug), mismatches });
   }

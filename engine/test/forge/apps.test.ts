@@ -322,7 +322,8 @@ test("a name a half-finished attempt took is detected: shown with what to do, ne
     const data = pageData((await call(url)).body);
     const verifier = data.apps.find((app) => app.role === "verifier")!;
     assert.equal(verifier.createUrl, null);
-    assert.match(verifier.note!, /exists, but no key for it is stored here.*delete it/su);
+    assert.match(verifier.note!, /exists, but no key for it is stored here/u);
+    assert.match(verifier.note!, /delete it in the organisation's settings/u);
     assert.ok(data.apps.find((app) => app.role === "agent")!.createUrl !== null, "the others stay creatable");
   });
 });
