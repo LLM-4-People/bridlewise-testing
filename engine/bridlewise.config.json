@@ -1191,7 +1191,7 @@
         {
           "id": "code-only",
           "label": "Code only",
-          "instruction": "Respond with code only \u2014 no prose."
+          "instruction": "Respond with code only — no prose."
         },
         {
           "id": "explanation-plus-code",

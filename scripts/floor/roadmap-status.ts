@@ -11,7 +11,7 @@
  *     milestone focus, not-planned statements, and the state rule for each
  *     TASKS.md section);
  *   - `docs/trackers/TASKS.md` open rows, read through the one task-row
- *     parser (`engine/src/workflow/failure-owners.ts` `taskRows`);
+ *     parser (`engine/src/workflow/failure-owners.ts` `boardRows`);
  *   - `docs/floor/evidence.md`'s explicit non-proofs (`What this does not
  *     prove`, the audit-scope paragraph, and `What none of this proves`).
  *
@@ -28,7 +28,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
-import { taskRows, type TaskRow } from "../../engine/src/workflow/failure-owners.ts";
+import { boardRows, type TaskRow } from "../../engine/src/workflow/failure-owners.ts";
 
 export const ROADMAP_PATH = "docs/floor/roadmap.md";
 export const TASKS_PATH = "docs/trackers/TASKS.md";
@@ -328,7 +328,7 @@ function openSectionMap(trackerText: string, rows: readonly TaskRow[]): Readonly
 }
 
 function openTasks(plan: RoadmapPlan, trackerText: string): readonly OpenTask[] {
-  const openRows = taskRows(trackerText).filter((row) => !row.done);
+  const openRows = boardRows(trackerText).filter((row) => !row.done);
   const sections = openSectionMap(trackerText, openRows);
   return openRows.map((row) => {
     const section = sections.get(row.id) ?? "Unsectioned";
@@ -469,7 +469,7 @@ export function roadmapDrift(pageText: string, sources: RoadmapSources, reposito
       if (!milestoneIds.has(item.milestone)) violations.push(`${kind} ${item.id}: unknown milestone ${item.milestone}`);
     }
   }
-  const openRows = taskRows(sources.trackerText).filter((row) => !row.done);
+  const openRows = boardRows(sources.trackerText).filter((row) => !row.done);
   const openIds = new Set(openRows.map((row) => row.id));
   if (openIds.size !== openRows.length) violations.push("TASKS.md holds two open rows with the same id");
   const sections = openSectionMap(sources.trackerText, openRows);
