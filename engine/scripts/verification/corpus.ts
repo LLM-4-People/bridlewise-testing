@@ -397,6 +397,55 @@ function git(args: readonly string[], cwd: string): Buffer {
   return execFileSync("git", args, { cwd, encoding: "buffer", maxBuffer: 256 * 1024 * 1024 }) as Buffer;
 }
 
+/**
+ * THE NETWORK BOUND. A fetch from an upstream (and the partial clone's lazy
+ * blob reads, which reach the promisor remote) waited on the network without
+ * limit: a stalled host held the run for its whole budget. Each network step
+ * now runs under git's own stall detector (`http.lowSpeedLimit` /
+ * `http.lowSpeedTime`: below this many bytes a second for this long, from the
+ * connection on, git gives up), which ends a silent host, a dead connection
+ * and a stalled transfer alike, in a typed refusal naming the host — never a
+ * retry. Upstreams are https only (`publicUpstream`), so the detector always
+ * applies. There is deliberately no process timeout on top: killing `git`
+ * leaves its remote helper holding the output pipe, and the synchronous call
+ * then waits for the helper anyway (measured: the test hung).
+ */
+export type CorpusNetworkBound = Readonly<{ stallBytesPerSecond: number; stallSeconds: number }>;
+export const CORPUS_NETWORK_BOUND: CorpusNetworkBound = Object.freeze({
+  stallBytesPerSecond: 1_000,
+  stallSeconds: 60,
+});
+
+function upstreamHost(upstream: string): string {
+  try {
+    return new URL(upstream).host || upstream;
+  } catch {
+    return upstream;
+  }
+}
+
+/** A git step that reaches `member`'s upstream: stall-bounded, hang-bounded, refused by name. */
+function networkGit(args: readonly string[], cwd: string, member: Readonly<{ name: string; upstream: string }>, bound: CorpusNetworkBound): Buffer {
+  const bounded = [
+    "-c", `http.lowSpeedLimit=${String(bound.stallBytesPerSecond)}`,
+    "-c", `http.lowSpeedTime=${String(bound.stallSeconds)}`,
+    ...args,
+  ];
+  try {
+    return execFileSync("git", bounded, {
+      cwd, encoding: "buffer", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
+    }) as Buffer;
+  } catch (error) {
+    const failure = error as { stderr?: Buffer };
+    const detail = (failure.stderr?.toString("utf8") ?? "").trim().split("\n").filter((line) => line.length > 0).at(-1) ?? "";
+    const host = upstreamHost(member.upstream);
+    if (/too slow|timed out|timeout/iu.test(detail)) {
+      refuse("corpus_fetch_stalled", `fetching ${member.name} from ${host} stalled below ${String(bound.stallBytesPerSecond)} B/s for ${String(bound.stallSeconds)} s: ${detail}`);
+    }
+    refuse("corpus_fetch_failed", `fetching ${member.name} from ${host} failed: ${detail || (error as Error).message}`);
+  }
+}
+
 function gitText(args: readonly string[], cwd: string): string {
   return git(args, cwd).toString("utf8").trim();
 }
@@ -413,8 +462,9 @@ function writeCacheFile(root: string, relativePath: string, bytes: Buffer): void
  * place only after it verifies, so a killed fetch never leaves a half cache
  * that the next run would judge as the real one.
  */
-export function fetchCorpus(manifest: CorpusManifest, options: { cacheDir?: string; repoRoot?: string; log?: (line: string) => void } = {}): string {
+export function fetchCorpus(manifest: CorpusManifest, options: { cacheDir?: string; repoRoot?: string; log?: (line: string) => void; network?: CorpusNetworkBound } = {}): string {
   const repoRoot = options.repoRoot ?? REPOSITORY_ROOT;
+  const network = options.network ?? CORPUS_NETWORK_BOUND;
   const cacheDir = options.cacheDir ?? defaultCacheDir(manifest);
   const log = options.log ?? (() => {});
   const inside = relative(repoRoot, cacheDir);
@@ -442,9 +492,10 @@ export function fetchCorpus(manifest: CorpusManifest, options: { cacheDir?: stri
       log(`fetching ${member.name} @ ${member.commit}`);
       git(["init", "-q"], checkout);
       git(["remote", "add", "origin", member.upstream], checkout);
-      git(["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", member.commit], checkout);
+      networkGit(["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", member.commit], checkout, member, network);
       for (const file of member.files) {
-        const bytes = git(["cat-file", "blob", `${member.commit}:${file.path}`], checkout);
+        // A partial clone reads the blob from the promisor remote: a network step.
+        const bytes = networkGit(["cat-file", "blob", `${member.commit}:${file.path}`], checkout, member, network);
         if (bytes.byteLength !== file.sizeBytes || sha256Hex(bytes) !== file.sha256) {
           refuse("corpus_blob_mismatch", `${member.name}/${file.path}: fetched blob does not match the manifest`);
         }
@@ -454,7 +505,7 @@ export function fetchCorpus(manifest: CorpusManifest, options: { cacheDir?: stri
     for (const entry of manifest.derived) {
       const member = manifest.members.find((candidate) => candidate.name === entry.member);
       if (member === undefined) refuse("corpus_manifest_invalid", `derived ${entry.path}: unknown member ${entry.member}`);
-      const source = git(["cat-file", "blob", `${member.commit}:${entry.source}`], join(staging, member.name));
+      const source = networkGit(["cat-file", "blob", `${member.commit}:${entry.source}`], join(staging, member.name), member, network);
       if (source.byteLength !== entry.sizeBytes || sha256Hex(source) !== entry.sha256) {
         refuse("corpus_blob_mismatch", `${entry.path}: derived blob does not match the manifest`);
       }
