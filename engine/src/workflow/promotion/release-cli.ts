@@ -1,5 +1,5 @@
 /**
- * THE RELEASE DOOR — `harness release <records|plan|notes|assemble>`: the release
+ * THE RELEASE DOOR — `harness release <records|plan|notes|sbom|assemble>`: the release
  * train's verbs, each answering the promotion envelope (`codes.ts`: one
  * table of answers for the product's publication) with its class's exit
  * code and a `--text` report.
@@ -7,6 +7,7 @@
  *   records   --out <records.jsonl>
  *   plan      --releases <records.jsonl> [--now <iso time>] [--manual]
  *   notes     --releases … --repository <forge>/<owner>/<name> --out <file> [--now …] [--manual]
+ *   sbom      --releases … --out <file> [--now …] [--manual]
  *   assemble  --releases … --out <empty folder> --bundle <file> --guardian <file>
  *             --sbom <file> --docs-site <file> [--now …] [--manual]
  *
@@ -17,9 +18,10 @@
  * environment), so the job holds no `gh api` step of its own.
  *
  * The clock is read here and only here (`--now` replaces it): the plan is a
- * function of the repository, the settings and that time. `notes` and
- * `assemble` refuse unless the train is due, so a release is never built
- * for a plan that says "not now".
+ * function of the repository, the settings and that time. `notes`, `sbom`
+ * and `assemble` refuse unless the train is due, so a release is never built
+ * for a plan that says "not now". `sbom` writes the SPDX document of the
+ * product commit's own lockfiles (`release-sbom.ts`).
  */
 import { readFileSync } from "node:fs";
 
@@ -30,19 +32,21 @@ import { resolveRepositoryContext, type PromotionDocument } from "./context.ts";
 import type { PromoteCliOutcome } from "./promote-cli.ts";
 import { assembleRelease, RELEASE_INPUTS, type ReleaseInput } from "./release-assets.ts";
 import { renderReleaseNotes } from "./release-notes.ts";
+import { releaseSbom } from "./release-sbom.ts";
 import { RELEASE_WAIT_REMEDIES, planRelease, type ReleasePlan, type ReleaseRecord } from "./release-train.ts";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { configuredForge } from "../forge/configured-forge.ts";
 import { configuredProductForge, forgeRefusal, type ProductForge } from "../forge/publish/product.ts";
 import { listReleases } from "../forge/repository-reads.ts";
 
-const VERBS = deepFreeze(["records", "plan", "notes", "assemble"] as const);
+const VERBS = deepFreeze(["records", "plan", "notes", "sbom", "assemble"] as const);
 type ReleaseVerb = typeof VERBS[number];
 
 const VALUE_FLAGS: Readonly<Record<ReleaseVerb, readonly string[]>> = deepFreeze({
   records: ["--out"],
   plan: ["--now", "--releases"],
   notes: ["--now", "--releases", "--repository", "--out"],
+  sbom: ["--now", "--releases", "--out"],
   assemble: ["--now", "--releases", "--out", "--bundle", "--guardian", "--sbom", "--docs-site"],
 });
 
@@ -69,7 +73,7 @@ export function parseReleaseArguments(argv: readonly string[]): ReleaseRequest {
       values.set(argument, value);
     } else throw usage(`${verb} takes no ${argument}`);
   }
-  const required = verb === "records" ? ["--out"] : verb === "notes" ? ["--releases", "--repository", "--out"] : verb === "assemble" ? VALUE_FLAGS.assemble.filter((flag) => flag !== "--now") : ["--releases"];
+  const required = verb === "records" ? ["--out"] : verb === "sbom" ? ["--releases", "--out"] : verb === "notes" ? ["--releases", "--repository", "--out"] : verb === "assemble" ? VALUE_FLAGS.assemble.filter((flag) => flag !== "--now") : ["--releases"];
   const absent = required.filter((flag) => !values.has(flag));
   if (absent.length > 0) throw usage(`${verb} needs ${absent.join(", ")}`);
   if (values.has("--repository") && !/^https:\/\/[^/\s]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(values.get("--repository")!)) throw usage("--repository is the repository's web address, <forge>/<owner>/<name> (the release job passes $GITHUB_SERVER_URL/$GITHUB_REPOSITORY)");
@@ -163,6 +167,12 @@ async function releaseVerb(root: string, request: ReleaseRequest, document?: Pro
     const written = atomicWriteFile(out, renderReleaseNotes(context.repository, plan, settings, request.values.get("--repository")!));
     if (!written.success) throw written.error;
     return answer("promotion_release_notes_written", `the notes of ${plan.tag} are in ${out}`, { plan, out });
+  }
+  if (request.verb === "sbom") {
+    const out = request.values.get("--out")!;
+    const written = atomicWriteFile(out, releaseSbom(context.repository, plan));
+    if (!written.success) throw written.error;
+    return answer("promotion_release_sbom_written", `the SBOM of ${plan.tag} (SPDX 2.3, the product commit's own lockfiles) is in ${out}`, { plan, out });
   }
   const inputs = Object.fromEntries(RELEASE_INPUTS.map((role) => [role, request.values.get(INPUT_FLAGS[role])!]));
   const assets = assembleRelease({ repository: context.repository, plan, out: request.values.get("--out")!, inputs, platform: `${process.platform}-${process.arch}` });
