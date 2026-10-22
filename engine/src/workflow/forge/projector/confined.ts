@@ -98,8 +98,8 @@ function linkProgram(module: ConfinedModule, input: string): string {
     `try { answer = ${name}(${JSON.stringify(input)}); }`,
     `catch (error) { process.stderr.write("projection_failed: " + (error && error.code ? error.code + ": " : "") + String(error && error.message !== undefined ? error.message : error) + "\\n"); process.exit(5); }`,
     `if (typeof answer !== "string") { process.stderr.write("projection_failed: ${name} answered " + typeof answer + ", not text\\n"); process.exit(5); }`,
-    `process.stdout.write(answer);`,
-    `process.exit(0);`,
+    // Exit only once the whole answer is written: a pipe write may still be pending when write() returns.
+    `process.stdout.write(answer, (error) => process.exit(error ? 5 : 0));`,
   ].join("\n");
 }
 

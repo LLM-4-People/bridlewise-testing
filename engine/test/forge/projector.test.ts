@@ -127,6 +127,10 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   refused(planted("bare", "import x from 'zod';\nexport function projectText(): string { return String(x); }"), "projection_import_refused", /zod/u);
   // A CPU spin is ended by its CPU ceiling (by CPU work, never wall time).
   refused(planted("spin", "export function projectText(): string { for (;;) {} }"), "projection_cpu_exhausted", /CPU seconds/u, () => confinedCall(planted("spin", "export function projectText(): string { for (;;) {} }"), "{}", { ...CONFINEMENT, cpuSeconds: 1 }));
+  // A large answer arrives whole (a pipe write can still be pending when write() returns).
+  const large = confinedCall(planted("large", "export function projectText(): string { return 'x'.repeat(4_000_000) + 'END'; }"), "{}", CONFINEMENT);
+  assert.equal(large.length, 4_000_003);
+  assert.ok(large.endsWith("END"));
   refused(planted("not-text", "export function projectText(): number { return 1; }"), "projection_failed", /answered number, not text/u);
   // The parent's environment never reaches the program: a NODE_OPTIONS preload is ignored.
   const preload = join(directory, "preload.cjs");
