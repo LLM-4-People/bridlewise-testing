@@ -28,6 +28,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
+import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { boardRows, type TaskRow } from "../../engine/src/workflow/failure-owners.ts";
 import { escapeHtml, escapeMarkdownTableCell, stripTags } from "../../shared/markup.ts";
 
@@ -745,6 +746,7 @@ function run(argv: readonly string[]): number {
   return 0;
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   process.exitCode = run(process.argv.slice(2));
 }

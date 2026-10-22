@@ -20,9 +20,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { absoluteProcessDocLinkReason } from "./repository-links.ts";
+import { isEntryPoint } from "../engine/src/runtime/entry-point.ts";
 import { siteSourceViolations } from "./floor/site-pages.mjs";
 
 const linkPattern = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
@@ -138,8 +138,7 @@ export function checkSiteLinks({ root = process.cwd() } = {}) {
   return siteSourceViolations({ root });
 }
 
-const invokedDirectly = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (invokedDirectly) {
+if (isEntryPoint(import.meta.url)) {
   const { files, missing } = checkDocsLinks();
   const siteMissing = checkSiteLinks();
   const failures = [...missing, ...siteMissing];

@@ -480,6 +480,9 @@ function audit(tree: Tree): Finding[] {
     build.filter((path) => path.startsWith(".devcontainer/")).map((path) => path.slice(".devcontainer/".length)),
   );
   for (const name of tree.list(".devcontainer")) {
+    // The folder's README documents it (the README census requires one,
+    // since the folder ships) and is no build input; every other file is.
+    if (name === "README.md") continue;
     if (!declaredDevcontainer.has(name)) {
       findings.push({ rule: "build-universe", detail: `.devcontainer/${name} is a build file outside the enumerated universe` });
     }
@@ -1230,6 +1233,12 @@ describe("external surfaces — plants fail for the defect they name", () => {
     if (!isRecord(engines)) throw new Error("engine/package.json lost its engines object");
     const changed = JSON.stringify({ ...manifest, engines: { ...engines, node: ">=20.0.0 <25.0.0" } }, null, 2) + "\n";
     expectRule(planted({ "engine/package.json": changed }), "node-range", "engine/package.json");
+  });
+
+  test("an undeclared devcontainer file is refused; the folder's README is documentation, not a build input", () => {
+    expectRule(planted({ ".devcontainer/compose.override.yml": "services: {}\n" }), "build-universe", ".devcontainer/compose.override.yml");
+    expectRule(planted({ ".devcontainer/README.txt": "a near-miss of the README name\n" }), "build-universe", ".devcontainer/README.txt");
+    expect(planted({ ".devcontainer/README.md": "# .devcontainer\n\nRewritten documentation.\n" }).filter((finding) => finding.rule === "build-universe")).toEqual([]);
   });
 
   test("an undeclared workflow file is refused", () => {

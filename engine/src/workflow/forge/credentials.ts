@@ -1,6 +1,6 @@
 /**
  * THE FORGE CREDENTIALS — every way a forge client is told who it runs as.
- * There are exactly four, and none reads a token from a file:
+ * There are exactly five, and none reads a token from a file:
  *
  * - {@link appInstallationCredential}: an App installation token, minted by
  *   the harness from the host's key custody (`app-keys.ts`), narrowed to ONE
@@ -14,7 +14,9 @@
  *   environment variable (a workflow's `GITHUB_TOKEN` or a minted App token),
  *   read at call time;
  * - {@link memoryCredential}: a token held only in this process's memory (the
- *   maintainer's short-lived token typed at `harness forge apply`'s prompt).
+ *   maintainer's short-lived token typed at `harness forge apply`'s prompt);
+ * - {@link anonymousCredential}: none, for GitHub's unauthenticated endpoints
+ *   only (the App manifest conversion: its one-hour code is the secret).
  */
 import { ForgeError } from "./codes.ts";
 import { FORGE_APPS, narrowedPermissions, type ForgeAppRole, type ForgePermissions } from "./app-registry.ts";
@@ -39,7 +41,7 @@ export function appJwt(custody: AppKeyCustody, role: ForgeAppRole, nowMs: number
 }
 
 /** The App itself (`role`), for `/app/…` endpoints. */
-export function appJwtCredential(custody: AppKeyCustody, role: ForgeAppRole): ForgeCredential {
+function appJwtCredential(custody: AppKeyCustody, role: ForgeAppRole): ForgeCredential {
   return Object.freeze({
     principal: `app:${FORGE_APPS[role].name}`,
     authorization: async () => `Bearer ${appJwt(custody, role, Date.now())}`,
@@ -56,6 +58,11 @@ export function environmentCredential(principal: string, variable: string): Forg
       return `Bearer ${token.trim()}`;
     },
   });
+}
+
+/** No credential: for GitHub's unauthenticated endpoints only (the App manifest conversion). */
+export function anonymousCredential(principal: string): ForgeCredential {
+  return Object.freeze({ principal, authorization: async () => undefined });
 }
 
 /** A token held only in memory (typed at a prompt). */

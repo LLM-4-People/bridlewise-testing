@@ -24,6 +24,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, posix, resolve, sep } from "node:path";
 import { decodeHtmlEntities, htmlWithout } from "../../shared/markup.ts";
+import { isEntryPoint } from "../../engine/src/runtime/entry-point.ts";
 
 const HTML_TAG = /<[a-zA-Z][^>]*>/gu;
 const LINK_ATTRIBUTE = /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)')/giu;
@@ -169,8 +170,7 @@ function parseArgs(argv) {
   return options;
 }
 
-const invokedDirectly = process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(import.meta.filename);
-if (invokedDirectly) {
+if (isEntryPoint(import.meta.url)) {
   try {
     const options = parseArgs(process.argv.slice(2));
     const result = crawlSiteLinks({ siteRoot: options.site, baseurl: options.baseurl });
