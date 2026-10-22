@@ -17,6 +17,7 @@ import { deepFreeze } from "../../kernel/integrity.ts";
 import { ROOT_POLICY } from "../../kernel/root-policy.ts";
 import { gitOutput, resolveRevision, type GitRepository } from "../../git/tree-reader.ts";
 import type { CommitIdentity, WorktreeGitPort } from "../../git/worktree-port.ts";
+import { remoteTrackingRef } from "../../git/git-port.ts";
 import { auditEvent, debugLog } from "../../shared/debug/debug-system.ts";
 import { assertSameFilesystem, type CheckoutCommandRunner } from "../checkout-setup.ts";
 import { LockAcquisitionTimeout, acquireLock, configuredLockOptions } from "../resource-lock.ts";
@@ -202,5 +203,5 @@ export function removeCandidate(context: PromotionContext, git: WorktreeGitPort,
 
 /** The target tip T of `profile`: the local target branch, else its remote-tracking ref; `null` before the target exists. */
 export function targetTip(repository: GitRepository, profile: PromotionProfile): string | null {
-  return resolveRevision(repository, profile.target.ref) ?? (profile.remote === null ? null : resolveRevision(repository, `refs/remotes/${profile.remote}/${branchOf(profile.target.ref)}`));
+  return resolveRevision(repository, profile.target.ref) ?? (profile.remote === null ? null : resolveRevision(repository, remoteTrackingRef(profile.remote, branchOf(profile.target.ref))));
 }

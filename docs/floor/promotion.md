@@ -1,6 +1,5 @@
 ---
 layout: default
-floor_assets: true
 page_class: floor
 title: "Promotion contract"
 description: "How the product branch is computed from main: the projection boundary, the overlay, deterministic gates, manual decisions, and release step."
@@ -19,7 +18,7 @@ This is the contract between `main` and the `product` branch of the one reposito
 
 The product branch is not edited directly and is not merged into. A source commit is checked on the floor, then carried through the promotion door. The rule is recorded as [UR-12]({{ '/decisions/UR-12-master-changes-only-through-the-promotion-door/' | relative_url }}) in the decision set.
 
-The profile is [`promotion/main-to-product.json`](https://github.com/LLM-4-People/bridlewise/blob/main/promotion/main-to-product.json). It declares:
+The profile is [`promotion/main-to-product.json`](../../promotion/main-to-product.json). It declares:
 
 | Field | Value in the current profile | Meaning |
 |---|---|---|
@@ -119,7 +118,7 @@ A reusable reporter watches the public workflows in both repositories. A failure
 | `integrity` | A state that must not happen | Stop and preserve the evidence; do not publish |
 | `parked` | The remote has the commit, but the target checkout has overlapping edits | The next run or a fast-forward lands it |
 
-The full catalogue and the one remedy for each code live in the [promotion source](https://github.com/LLM-4-People/bridlewise-testing/tree/main/engine/src/workflow/promotion). Read the code and the remedy in the refusal instead of guessing from the exit status.
+The full catalogue and the one remedy for each code live in the [promotion source](../../engine/src/workflow/promotion). Read the code and the remedy in the refusal instead of guessing from the exit status.
 
 ## What this contract does not prove
 

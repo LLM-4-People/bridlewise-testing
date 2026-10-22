@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mechanical design-system guard for the assembled docs site.
 //
-// One shell (scripts/floor/site.mjs) loads style.css and floor.css on every
-// Jekyll page. This check reads the built HTML and refuses a content class
+// One shell (docs/_layouts/default.html, built by scripts/floor/site.mjs)
+// loads style.css and floor.css on every Jekyll page. This check reads the built HTML and refuses a content class
 // with no CSS rule, or a floor.css class that no page uses. The allowlists
 // name the only intentional exceptions, each with a reason.
 
@@ -122,8 +122,13 @@ function cssClasses(css) {
   return classes;
 }
 
-export function inventory(siteRoot) {
-  const files = walk(siteRoot, ".html");
+/**
+ * `exclude`: site-path prefixes judged elsewhere — a released docs snapshot
+ * (`/v/<version>/`) was judged by its own build and never changes, so today's
+ * stylesheets are not its yardstick.
+ */
+export function inventory(siteRoot, { exclude = [] } = {}) {
+  const files = walk(siteRoot, ".html").filter((file) => !exclude.some((prefix) => pagePath(siteRoot, file).startsWith(prefix)));
   const pages = [];
   const tags = new Map();
   const classes = new Map();
@@ -143,8 +148,8 @@ export function inventory(siteRoot) {
   return { files, pages, tags, classes };
 }
 
-export function coverage(siteRoot) {
-  const inventoryResult = inventory(siteRoot);
+export function coverage(siteRoot, options = {}) {
+  const inventoryResult = inventory(siteRoot, options);
   const sharedCss = SHARED_CSS.map((path) => readFileSync(join(siteRoot, path), "utf8")).join("\n");
   const floorCss = readFileSync(join(siteRoot, FLOOR_CSS), "utf8");
   const rules = cssClasses(sharedCss);

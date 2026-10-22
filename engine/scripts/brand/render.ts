@@ -109,22 +109,20 @@ export function readmeFront(m: Messaging, claims: readonly Claim[], decisions: R
   return [`# ${md(m.name)}`, "", readmeHero(m, claims, decisions)].join("\n");
 }
 
-/** The site home's hero (written by `harness sync` between {@link FRONT_DOORS}' site markers), in the site's own components. */
+/** The site home's hero text (written by `harness sync` between {@link FRONT_DOORS}' site markers, inside the page's hero section), in the site's own components. */
 export function siteFront(m: Messaging): string {
   return [
-    `<section class="hero">`,
     `  <p class="eyebrow">${h(m.name)} <span class="dot" aria-hidden="true"></span> ${h(m.license)} <span class="dot" aria-hidden="true"></span> Developer preview</p>`,
     `  <h1>${h(m.promise)}</h1>`,
     `  <p class="lede">${h(m.summary)}</p>`,
     `  <p class="lede">${h(m.repository)}</p>`,
     `  <div class="actions">`,
-    `    <a class="button primary" href="{{ '/floor/help/' | relative_url }}">Find a way to help</a>`,
-    `    <a class="button" href="{{ '/floor/roadmap/' | relative_url }}">Read the roadmap</a>`,
+    `    <a class="button primary" href="{{ '/quickstart/' | relative_url }}">Start with a disposable copy</a>`,
     `    <a class="button" href="{{ '/floor/claims/' | relative_url }}">Check every claim</a>`,
-    `    <a class="button" href="${h(m.repositoryUrl)}">Open the repository</a>`,
+    `    <a class="button" href="{{ '/floor/roadmap/' | relative_url }}">Read the roadmap</a>`,
+    `    <a class="button" href="${h(m.repositoryUrl)}">Read the source</a>`,
     `  </div>`,
     `  <p class="hero-note">${h(m.status)}</p>`,
-    `</section>`,
   ].join("\n");
 }
 
@@ -148,9 +146,9 @@ export const FRONT_DOORS: readonly Readonly<{ path: string; begin: string; end: 
   },
   {
     path: "docs/index.md",
-    begin: "# BEGIN GENERATED: the site's description, from docs/brand/messaging.json (harness sync)",
-    end: "# END GENERATED: the site's description",
-    render: (m) => `description: ${JSON.stringify(m.description)}`,
+    begin: "# BEGIN GENERATED: the site's title and description, from docs/brand/messaging.json (harness sync)",
+    end: "# END GENERATED: the site's title and description",
+    render: (m) => [`title: ${JSON.stringify(`${m.name}: ${m.promise}`)}`, `description: ${JSON.stringify(m.description)}`].join("\n"),
   },
 ];
 
