@@ -22,8 +22,9 @@
  *   - the mode allows it: `auto` departs, `manual` departs only when asked
  *     (`--manual`, a person's dispatch), `approval` departs and says the run
  *     needs an approving reviewer (the release environment's).
- * ("At least one public record closed since the last release" joins these
- * once the structured tracker exists: issue #102.)
+ *   - at least one public record (a tracker item, `failure-owners.ts`) closed
+ *     between the previous release's source and S (`no_record_closed`; the
+ *     first projected release has no range, so the condition does not apply);
  * A release before the projection (the product branch keeps the previews
  * it was seeded with) is a previous release like any other; it has no
  * source (`previous.source` is null), so the notes compare nothing across it.
@@ -43,12 +44,13 @@ import { compareSemver, isValidSemver, parseSemver } from "../../extensions/semv
 import { PromotionError } from "./codes.ts";
 import { loadPromotionProfiles, selectPromotionProfile } from "./profile.ts";
 import { promotionTrailersOf } from "./trailers.ts";
+import { trackerItemsOf, type TrackerItem } from "../failure-owners.ts";
 
 /** The declared release settings (`promotion.release` in the configuration document; the schema owns each field's meaning). */
 export type ReleaseSettings = NonNullable<NonNullable<ConfigDocument["promotion"]>["release"]>;
 
 /** Why the train does not depart now (each a condition that does not hold). */
-export type ReleaseWaitReason = "version_released" | "product_unchanged" | "releases_unread" | "interval" | "manual_mode";
+export type ReleaseWaitReason = "version_released" | "product_unchanged" | "no_record_closed" | "releases_unread" | "interval" | "manual_mode";
 
 export type ReleasePlan = Readonly<{
   due: boolean;
@@ -67,6 +69,8 @@ export type ReleasePlan = Readonly<{
   /** The newest release record's publication time (the interval's origin), or `null` when none was published or the records were not read. */
   lastPublishedAt: string | null;
   productChanged: boolean;
+  /** The public records closed since the previous release's source (`null` for the first projected release: no range). */
+  closedRecords: readonly ClosedRecord[] | null;
   hoursSincePrevious: number | null;
   discussionCategory: string;
 }>;
@@ -116,6 +120,22 @@ function previousRelease(repository: GitRepository, commit: string, settings: Re
 
 /** One release record as the forge lists it (`GET /repos/{owner}/{repo}/releases`): its tag, whether it is a draft, and when it was published. */
 export type ReleaseRecord = Readonly<{ tag: string; draft: boolean; publishedAt: string | null }>;
+
+/** A tracker item that closed between two sources: its id, type and title. */
+export type ClosedRecord = Readonly<{ id: string; type: TrackerItem["type"]; title: string; resolution: TrackerItem["resolution"] }>;
+
+/**
+ * The public records (the tracker items, one owner: `failure-owners.ts`) that
+ * are closed at `to` and were not closed at `from` (open, or absent): what
+ * closed between two releases' sources. A record closed and reopened in
+ * between is open at `to`, so it does not count.
+ */
+export function closedRecords(repository: GitRepository, from: string, to: string): readonly ClosedRecord[] {
+  const before = new Map(trackerItemsOf(commitTreeReader(repository, from)).map((item) => [item.id, item]));
+  return deepFreeze(trackerItemsOf(commitTreeReader(repository, to))
+    .filter((item) => item.state === "closed" && before.get(item.id)?.state !== "closed")
+    .map((item) => ({ id: item.id, type: item.type, title: item.title ?? item.id, resolution: item.resolution })));
+}
 
 /** The newest publication time among the published (non-draft) records, or `null` when none was published. */
 function lastPublishedAt(records: readonly ReleaseRecord[]): string | null {
@@ -172,6 +192,10 @@ export function planRelease(input: ReleasePlanInput): ReleasePlan {
   const reasons: ReleaseWaitReason[] = [];
   if (resolveRevision(repository, `refs/tags/${tag}`, "object") !== null) reasons.push("version_released");
   if (!productChanged) reasons.push("product_unchanged");
+  // The first projected release (no previous release, or a pre-projection
+  // preview with no source) has no range to read closed records from.
+  const closed = previous === null || previous.source === null ? null : closedRecords(repository, previous.source, source);
+  if (closed !== null && closed.length === 0) reasons.push("no_record_closed");
   if (!recordsRead) reasons.push("releases_unread");
   if (hoursSincePrevious !== null && hoursSincePrevious < settings.minIntervalHours) reasons.push("interval");
   if (settings.train === "manual" && !input.manual) reasons.push("manual_mode");
@@ -186,6 +210,7 @@ export function planRelease(input: ReleasePlanInput): ReleasePlan {
     product: { ref: productRef, commit, tree, source },
     previous,
     productChanged,
+    closedRecords: closed,
     lastPublishedAt: publishedAt,
     hoursSincePrevious,
     discussionCategory: settings.discussionCategory,
@@ -196,6 +221,7 @@ export function planRelease(input: ReleasePlanInput): ReleasePlan {
 export const RELEASE_WAIT_REMEDIES: Readonly<Record<ReleaseWaitReason, string>> = deepFreeze({
   version_released: "the product's declared version is already released: declare the next version in package.json on main",
   product_unchanged: "the product has not changed since the last release",
+  no_record_closed: "no public record (a tracker item) has closed since the last release",
   releases_unread: "the previous release's published record was not read (no records, or none published for its tag), so the interval since it is unmeasured (the release job reads the records from the forge)",
   interval: "the minimum interval since the last release was published (release.minIntervalHours) has not passed",
   manual_mode: "the train is manual (release.train): a person dispatches the release",
