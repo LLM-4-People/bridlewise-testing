@@ -6,6 +6,7 @@ group: prompt-cache
 status: in-force
 implementation: pending
 route: RC-12
+amended_by: [Q11]
 ---
 # The context budget is a ratio of the model window
 
