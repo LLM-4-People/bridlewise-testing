@@ -187,7 +187,6 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     github: { kind: "door-only", reason: "its negative lookaheads inspect the value's context (a call after it, an identifier or hex shape), which GitHub's Hyperscan subset cannot express" },
     treeScan: { reason: "a context grammar with known benign hits in shipped code (an enum value such as `credentialSecret: \"credential-secret\"`); the door's tree judge enforces it" },
     fixtures: { positive: [["api_key = \"", "Zm9vYmFyYmF6cXV4MTIz", "\""]], negative: ["password = getPasswordFromVault()"] },
-   
     category: "credential",
     description: "credential assignment",
     admission: /(?:api[_ -]?key|authorization|password|private[_ -]?key|secret|session[_ -]?token)\s*[:=]\s*["']?(?![A-Za-z0-9+/_-]{16,}\s*\()(?!(?:[A-Za-z]*_[A-Za-z_]*|[0-9a-f]{32,})(?:[^A-Za-z0-9_$]|$))[A-Za-z0-9+/_-]{16,}/iu,
@@ -234,7 +233,6 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     github: { kind: "door-only", reason: "the keep-mark veto and the last-@ userinfo grammar are lookarounds; GitHub's generic postgres/mongodb/mysql patterns cover only some schemes" },
     treeScan: { reason: "shipped documentation and the redaction owner's own grammar sources spell example connection strings; the door's tree judge enforces it" },
     fixtures: { positive: [["postgres://app:", "Hunter2pass", "@db.internal/app"]], negative: ["postgres://app@db.internal/app"] },
-   
     category: "credential",
     description: "connection-string credential",
     admission: /\b[a-z][a-z0-9+.-]*:\/\/(?!(?:‹keep:[^›\s]{1,200}›)@)[^\s/?#]*:[^\s/?#]+@[^\s/?#]+|@[^\s/?#]*:[^\s/?#]+@[^\s/?#]+/iu,
@@ -260,7 +258,6 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     github: { kind: "custom", startDelimiter: "(?:[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Pp][Ww][Dd])[ \\t]*=[ \\t]*", pattern: "[^\\s;&\"'`]+", mustNotMatch: ["^(?:null|undefined|true|false)$", "^[‹\\[<`\"'\\\\]"] },
     treeScan: { reason: "shipped documentation and the redaction owner's own grammar sources spell example DSNs; the door's tree judge enforces it" },
     fixtures: { positive: [["Server=db;User Id=app;Pass", "word=", "Hunter2pass;"]], negative: ["Password=null"] },
-   
     category: "credential",
     description: "connection-string credential",
     admission: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)[^\s;&"'`]+/iu,
@@ -274,7 +271,6 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     id: "oracle-connection-string",
     github: { kind: "custom", pattern: "(?:jdbc:)?oracle:(?:thin|oci):[^\\s@/:]+/[^\\s@/?#]+@", endDelimiter: "[^\\s/?#]" }, treeScan: true,
     fixtures: { positive: [["jdbc:oracle:thin:app/", "Hunter2pass", "@db.internal:1521/XE"]], negative: ["jdbc:oracle:thin:@db.internal:1521/XE"] },
-   
     category: "credential",
     description: "Oracle connection-string credential",
     admission: /\b(?:jdbc:)?oracle:(?:thin|oci):[^\s@/:]+\/[^\s@/?#]+@(?=[^\s/?#])/iu,
