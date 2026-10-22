@@ -125,7 +125,7 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
   /** Autolinks on the trunk: `<keyPrefix><num>` in any GitHub text links to `urlTemplate` (which holds `<num>`). */
   autolinks: z.array(z.strictObject({
     keyPrefix: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,31}-$/u),
-    urlTemplate: z.string().regex(/^https:\/\/\S+<num>\S*$/u),
+    urlTemplate: z.string().regex(/^https:\/\/[^\s<>]+<num>[^\s<>]*$/u),
     isAlphanumeric: z.boolean(),
   })),
   /** The Dependabot file (github-only §6.4): one entry per package root, grouped, with cooldowns. */
@@ -134,7 +134,7 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     openPullRequestsLimit: z.number().int().min(0).max(20),
     cooldownDays: z.number().int().min(0).max(90),
     majorCooldownDays: z.number().int().min(0).max(90),
-    packages: z.array(z.strictObject({ ecosystem: z.enum(["npm", "github-actions", "cargo"]), directory: z.string().regex(/^\/(?:[A-Za-z0-9._-]+\/?)*$/u), group: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/u) })).min(1),
+    packages: z.array(z.strictObject({ ecosystem: z.enum(["npm", "github-actions", "cargo"]), directory: z.string().regex(/^\/(?:[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*)?$/u), group: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/u) })).min(1),
     /** Lockfiles under these prefixes are frozen records (benchmarks), never updated. */
     frozenPrefixes: z.array(z.string().regex(/^(?:[A-Za-z0-9._-]+\/)+$/u)),
   }),
