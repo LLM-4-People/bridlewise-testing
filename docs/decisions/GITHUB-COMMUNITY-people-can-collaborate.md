@@ -6,7 +6,7 @@ group: github
 status: in-force
 implementation: partial
 route: P5.4
-acted_in: [CONTRIBUTING.md, GOVERNANCE.md, CODE_OF_CONDUCT.md, .github/ISSUE_TEMPLATE/bug_report.yml, .github/PULL_REQUEST_TEMPLATE.md, .devcontainer/devcontainer.json]
+acted_in: [CONTRIBUTING.md, GOVERNANCE.md, CODE_OF_CONDUCT.md, .github/ISSUE_TEMPLATE/bug.yml, .github/PULL_REQUEST_TEMPLATE.md, .devcontainer/devcontainer.json]
 ---
 # People can collaborate, help and interact
 

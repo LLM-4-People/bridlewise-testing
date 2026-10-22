@@ -262,6 +262,20 @@ function callbackTexts(argument, file) {
   return texts;
 }
 
+/**
+ * Whether a replace of ONE literal markup character inserts around it rather
+ * than escaping it: the replacement starts with that same character
+ * (`link.replaceAll("<", \`<${base}\`)` rewrites a Link header's URLs; an
+ * escape removes the raw character). Only a literal string pattern of one
+ * character qualifies.
+ */
+function keepsTheCharacter(resolved, replacementNode, file) {
+  if (resolved === null || resolved.regex || resolved.text.length !== 1) return false;
+  const replacement = resolvePattern(replacementNode, file);
+  // `&` → `&amp;` starts with `&` too: an entity is an escape, never an insertion.
+  return replacement !== null && replacement.text.startsWith(resolved.text) && !ENTITY.test(replacement.text);
+}
+
 /** The violations of one parsed program, each `path:line rule`. */
 function programViolations(path, code, lineOffsetOf) {
   const file = ts.createSourceFile(path, code, ts.ScriptTarget.Latest, true, /\.[cm]?ts$/u.test(path) ? ts.ScriptKind.TS : ts.ScriptKind.JS);
@@ -287,7 +301,9 @@ function programViolations(path, code, lineOffsetOf) {
       if (resolved?.regex === true && (TAG_FILTER.test(pattern.replace(REGEX_SYNTAX_ANGLES, "")) || matchesGenericTags(resolved))) {
         report(node, "tag-filter (use htmlWithout / stripTags)");
       }
-      if ((name === "replace" || name === "replaceAll") && pattern !== null && MARKUP_CHARS_ONLY.test(pattern)) report(node, "markup-char (use escapeHtml)");
+      if ((name === "replace" || name === "replaceAll") && pattern !== null && MARKUP_CHARS_ONLY.test(pattern) && !keepsTheCharacter(resolved, args[1], file)) {
+        report(node, "markup-char (use escapeHtml)");
+      }
       if (name !== null && (TRANSFORMS.has(name) || READS.has(name) || name === "RegExp" || name === "test" || name === "exec") && pattern !== null && ENTITY_PATTERN.test(pattern)) {
         report(node, "entity-pattern (use decodeHtmlEntities)");
       }
@@ -482,6 +498,7 @@ test("near misses are not flagged", () => {
       'const masked = text.replace(/[^\\r\\n]+/gu, MARKER);',
       'const segments = command.split(/&&|\\|\\||[;\\n]/u);',
       'const arrow = code.replace(/=>/g, "->");',
+      'const link = header.replaceAll("<", `<${apiUrl}`);',
       'const anyRun = text.replace(/[^\\r\\n]+/gu, "*");',
       'const printable = /^[\\x20-\\x7e]+$/u.test(key);',
       'const typeArgs = source.match(/fn\\s+(\\w+)\\s*(<[^>]*>)?\\s*\\(/);',
