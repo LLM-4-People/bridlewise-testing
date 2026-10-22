@@ -43,7 +43,7 @@ import { finiteNumber, type CollectCost } from "./budget-verdict.ts";
 export type { CollectCost } from "./budget-verdict.ts";
 
 /** Everything a file occupied a worker for, from vitest's module diagnostics. */
-export const OCCUPANCY_FIELDS = [
+const OCCUPANCY_FIELDS = [
   "collectDuration",
   "setupDuration",
   "environmentSetupDuration",
