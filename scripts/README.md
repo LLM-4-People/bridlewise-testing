@@ -62,6 +62,10 @@ ships into the client bundle or the server runtime.
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes
   through the forge port (`engine/src/workflow/forge/repository-reads.ts`).
+  `site-design.mjs` writes the site's design assets at build time from the
+  one design system: the token sheet (only what the site's stylesheets read,
+  through `shared/token-reader.ts`), the self-hosted fonts, the icon, and the
+  mark from its one geometry.
   `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
   blocks: it renders them from the page's `ROADMAP-PLAN` block, the open rows
   of `docs/trackers/TASKS.md`, and the non-proofs in
