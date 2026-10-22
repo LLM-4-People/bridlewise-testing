@@ -37,11 +37,11 @@
  *   (GH_TOKEN; writes deploy=true|false to $GITHUB_OUTPUT)
  */
 import { appendFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import { configuredForgeClient } from "../../engine/src/workflow/forge/configured-forge.ts";
 import { environmentCredential } from "../../engine/src/workflow/forge/credentials.ts";
 import { compareCommits, deploymentStatuses, deployments } from "../../engine/src/workflow/forge/repository-reads.ts";
+import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { REPOSITORY } from "./repository.mjs";
 
 export const PAGES_ENVIRONMENT = "github-pages";
@@ -119,8 +119,8 @@ export async function checkDeployOrder({ sha, client, repository = REPOSITORY, s
   return { published, ...deployDecision({ sha, published, comparison, supersede }) };
 }
 
-const invokedDirectly = process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(import.meta.filename);
-if (invokedDirectly) {
+if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   const value = (flag) => {
     const index = process.argv.indexOf(flag);
     return index === -1 ? null : process.argv[index + 1] ?? "";

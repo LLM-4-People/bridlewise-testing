@@ -224,3 +224,28 @@ export function responseSseResponse(options: ResponsesFixture = {}, init: Respon
 export function responseJsonResponse(options: ResponsesFixture = {}, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(responseResource(options)), { ...init, headers: { "content-type": "application/json", ...Object.fromEntries(new Headers(init.headers)) } });
 }
+
+/**
+ * A loopback upstream for the evaluation's two provider paths at once. The
+ * identity probe goes through the provider adapter, which speaks the
+ * Responses API (`…/responses`, answered here in the Responses wire shape,
+ * streamed when the request asks for a stream, with the requested model so
+ * the identity can be established). The reference transport is its own raw
+ * HTTP oracle on `…/chat/completions` (answered in that shape). A request
+ * carrying the probe prompt is answered with the probe marker.
+ */
+export function referenceTransportUpstream(options: Readonly<{ content: string; headers?: Readonly<Record<string, string>> }>): (url: string, init: { body: string | undefined }) => Promise<Response> {
+  return async (url, init) => {
+    const body = JSON.parse(init.body ?? "{}") as { model?: string; stream?: boolean };
+    const content = (init.body ?? "").includes("Reply with exactly: IDENTITY_PROBE_OK") ? "IDENTITY_PROBE_OK" : options.content;
+    const headers = { ...(options.headers ?? {}) };
+    if (new URL(url).pathname.endsWith("/responses")) {
+      const fixture = { content, model: body.model ?? "test-model", usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } as ResponseUsage };
+      return body.stream === true ? responseSseResponse(fixture, { headers }) : responseJsonResponse(fixture, { headers });
+    }
+    return new Response(JSON.stringify({
+      choices: [{ message: { content }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    }), { status: 200, headers: { "content-type": "application/json", ...headers } });
+  };
+}

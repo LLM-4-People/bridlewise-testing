@@ -10,6 +10,7 @@ import { sameOrderedValues } from "../../../src/kernel/ordered.ts";
 import { hasSecretTextSignal } from "../../../src/privacy/secret-signals.ts";
 import { strictUtf8Text } from "../../verification/candidate-format.ts";
 import { verifyRejectedBinaryFixture } from "./rejected-binary-fixture.ts";
+import { VERIFICATION_PATHS } from "../../../src/kernel/verification-paths.ts";
 import {
   readSafeRepositoryFile,
   safeRepositoryEntryStatus,
@@ -41,9 +42,10 @@ const ARTIFACT_ENTRY_SCHEMA = z.strictObject({
   ]),
   authorityStatus: z.enum(["canonical", "derived", "non-authoritative-research"]),
   authorityKey: NONEMPTY,
+  // No wall-clock time anywhere in the record (#221): a capture stamp made every regeneration that saw a changed
+  // input a different document, so the inventory was not a function of the tree and conflicted on every land.
   origin: z.strictObject({
     kind: NONEMPTY,
-    capturedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u),
     producingTool: NONEMPTY,
     producingModel: NONEMPTY,
     toolVersion: NONEMPTY,
@@ -88,42 +90,25 @@ const REJECTED_CANDIDATE_SCHEMA = z.strictObject({
 });
 
 export const ARTIFACT_ADMISSION_MANIFEST_SCHEMA = z.strictObject({
-  schemaVersion: z.literal("bridlewise-artifact-admission/v3"),
+  schemaVersion: z.literal("bridlewise-artifact-admission/v4"),
   role: z.literal("canonical-important-artifact-inventory"),
   policyHash: SHA256,
-  generatedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u),
   managedRoots: z.array(NONEMPTY).min(1),
   selfPath: z.literal(ARTIFACT_MANIFEST_PATH),
   entries: z.array(ARTIFACT_ENTRY_SCHEMA).min(1),
   rejectedCandidates: z.array(REJECTED_CANDIDATE_SCHEMA).min(1),
 });
 
-const PREVIOUS_V2_ARTIFACT_ENTRY_SCHEMA = ARTIFACT_ENTRY_SCHEMA.omit({
-  contentFormat: true,
-  mayEstablishEvidence: true,
-}).extend({
-  contentFormat: z.enum(["canonical-text", "deterministic-gzip-archive"]),
-});
-const PREVIOUS_V2_ARTIFACT_ADMISSION_MANIFEST_SCHEMA = z.strictObject({
-  schemaVersion: z.literal("bridlewise-artifact-admission/v2"),
-  role: z.literal("canonical-important-artifact-inventory"),
-  policyHash: SHA256,
-  generatedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u),
-  managedRoots: z.array(NONEMPTY).min(1),
-  selfPath: z.literal(ARTIFACT_MANIFEST_PATH),
-  entries: z.array(PREVIOUS_V2_ARTIFACT_ENTRY_SCHEMA).min(1),
-  rejectedCandidates: z.array(REJECTED_CANDIDATE_SCHEMA).min(1),
-});
-const LEGACY_ARTIFACT_ENTRY_SCHEMA = PREVIOUS_V2_ARTIFACT_ENTRY_SCHEMA.omit({ contentFormat: true });
-const LEGACY_ARTIFACT_ADMISSION_MANIFEST_SCHEMA = z.strictObject({
-  schemaVersion: z.literal("bridlewise-artifact-admission/v1"),
-  role: z.literal("canonical-important-artifact-inventory"),
-  policyHash: SHA256,
-  generatedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u),
-  managedRoots: z.array(NONEMPTY).min(1),
-  selfPath: z.literal(ARTIFACT_MANIFEST_PATH),
-  entries: z.array(LEGACY_ARTIFACT_ENTRY_SCHEMA).min(1),
-  rejectedCandidates: z.array(REJECTED_CANDIDATE_SCHEMA).min(1),
+/**
+ * The previous record's v3 shape (capture stamps on every origin and a document stamp), read ONLY so a rebuild can
+ * reuse an admitted origin across the migration to v4; nothing is written in it.
+ */
+const PREVIOUS_V3_ARTIFACT_ADMISSION_MANIFEST_SCHEMA = z.object({
+  schemaVersion: z.literal("bridlewise-artifact-admission/v3"),
+  entries: z.array(z.object({
+    integrity: z.object({ byteLength: z.number().int().nonnegative(), sha256: SHA256 }),
+    origin: ARTIFACT_ENTRY_SCHEMA.shape.origin.extend({ capturedAt: z.string() }),
+  })),
 });
 
 export type ArtifactAdmissionManifest = Readonly<z.infer<typeof ARTIFACT_ADMISSION_MANIFEST_SCHEMA>>;
@@ -278,44 +263,38 @@ export function verifyArtifactAdmission(input: ArtifactAdmissionInput, violation
 }
 
 /**
- * Build the canonical inventory from the governed roots.
- *
- * `generatedAt` is the timestamp a NEW (or byte-changed) artifact is captured
- * at; it is NOT the document's `generatedAt`. The document's stamp is derived
- * from the resulting entries (the latest `capturedAt`), so a hand edit of the
- * document's stamp cannot be reproduced by a later build. `previousManifest`
- * supplies the historical RECORD: a prior origin is reused only when it
- * matches a pinned origin shape ({@link artifactProvenanceViolations}).
+ * Build the canonical inventory from the governed roots: a FUNCTION OF THE
+ * TREE (#221). No clock is read: a new or byte-changed artifact is recorded
+ * with the mechanical origin, and two builds of one tree at any two times are
+ * the same bytes. `previousManifest` supplies the historical RECORD: a prior
+ * origin is reused only when it matches a pinned origin shape
+ * ({@link artifactProvenanceViolations}); a v3 record's capture stamps are
+ * dropped as it is read.
  */
 export function buildArtifactAdmissionManifest(input: Readonly<{
   root: SafeRepositoryRootAccessInput;
   paths?: readonly string[];
-  /** The capture stamp new entries receive; the document's stamp is derived from the entries. */
-  generatedAt: string;
   previousManifest?: unknown;
 }>): ArtifactAdmissionManifest {
   const managedRoots = [...ROOT_POLICY.artifactGovernance.governedRoots];
   const previous = ARTIFACT_ADMISSION_MANIFEST_SCHEMA.safeParse(input.previousManifest);
-  const previousV2 = previous.success
-    ? undefined
-    : PREVIOUS_V2_ARTIFACT_ADMISSION_MANIFEST_SCHEMA.safeParse(input.previousManifest);
-  const legacyPrevious = previous.success || previousV2?.success
-    ? undefined
-    : LEGACY_ARTIFACT_ADMISSION_MANIFEST_SCHEMA.safeParse(input.previousManifest);
+  const previousV3 = previous.success ? undefined : PREVIOUS_V3_ARTIFACT_ADMISSION_MANIFEST_SCHEMA.safeParse(input.previousManifest);
   const previousByHash = new Map<string, Readonly<{
     integrity: Readonly<{ byteLength: number; sha256: string }>;
     origin: ArtifactAdmissionManifest["entries"][number]["origin"];
   }>>();
   if (previous.success) {
     for (const entry of previous.data.entries) previousByHash.set(entry.integrity.sha256, entry);
-  } else if (previousV2?.success) {
-    for (const entry of previousV2.data.entries) previousByHash.set(entry.integrity.sha256, entry);
-  } else if (legacyPrevious?.success) {
-    for (const entry of legacyPrevious.data.entries) previousByHash.set(entry.integrity.sha256, entry);
+  } else if (previousV3?.success) {
+    for (const entry of previousV3.data.entries) {
+      const { capturedAt: _stamp, ...origin } = entry.origin;
+      previousByHash.set(entry.integrity.sha256, { integrity: entry.integrity, origin });
+    }
   }
   const candidatePaths = input.paths ?? discoverGovernedArtifactPaths(input.root, managedRoots);
   const paths = [...new Set(candidatePaths)].filter((path) =>
-    path !== ARTIFACT_MANIFEST_PATH && managedRoots.some((root) => path.startsWith(root)) &&
+    // The test inventory is a cache of the tree, not committed (#221): no governed artifact.
+    path !== ARTIFACT_MANIFEST_PATH && path !== VERIFICATION_PATHS.testInventory && managedRoots.some((root) => path.startsWith(root)) &&
     !isRepositoryScanExcludedPath(path) && isRegularFile(input.root, path)).toSorted();
   const independentReviewPolicy = ROOT_POLICY.artifactGovernance.independentReview;
   const extensionReviewComplete = isIndependentReviewCurrent(input.root, paths);
@@ -349,7 +328,7 @@ export function buildArtifactAdmissionManifest(input: Readonly<{
     // unadmitted claim, and this capture replaces it with the mechanical one.
     const origin = prior !== undefined && admittedOriginShape(prior.origin, path) !== undefined
       ? prior.origin
-      : mechanicalOrigin(path, input.generatedAt);
+      : mechanicalOrigin(path);
     const authorityStatus = authorityStatusFor(path);
     const artifactType = artifactTypeFor(path);
     const historical = path.includes("/historical-");
@@ -393,18 +372,10 @@ export function buildArtifactAdmissionManifest(input: Readonly<{
       mayEstablishEvidence: contentFormat !== "rejected-binary-fixture",
     };
   });
-  // `generatedAt` is DERIVED from the record it stamps: the latest capture.
-  // The producer must never read it back from the previous document — that is
-  // how a hand-edited timestamp became "the value this run produced".
-  const generatedAt = entries.reduce(
-    (latest, entry) => entry.origin.capturedAt > latest ? entry.origin.capturedAt : latest,
-    "",
-  );
   return ARTIFACT_ADMISSION_MANIFEST_SCHEMA.parse({
-    schemaVersion: "bridlewise-artifact-admission/v3",
+    schemaVersion: "bridlewise-artifact-admission/v4",
     role: "canonical-important-artifact-inventory",
     policyHash: canonicalHash(ROOT_POLICY.artifactGovernance),
-    generatedAt,
     managedRoots,
     selfPath: ARTIFACT_MANIFEST_PATH,
     entries,
@@ -487,8 +458,8 @@ function licenseFor(path: string): string {
  * path. Anything else is not a record — it is an unadmitted claim, refused by
  * the check (`artifact-origin-not-admitted`) and replaced by a fresh
  * mechanical capture when the producer writes. A capture cannot be laundered
- * into another shape by a sync pass, and `generatedAt` is no longer read from
- * the document at all (it is the latest `capturedAt`).
+ * into another shape by a sync pass, and the record carries no clock at all
+ * (#221).
  */
 type ArtifactOriginShape = Readonly<{
   id: string;
@@ -555,11 +526,10 @@ function admittedOriginShape(
 }
 
 /** The origin a fresh (or byte-changed) artifact is captured with: the mechanical shape, licence from the path authority. */
-function mechanicalOrigin(path: string, capturedAt: string): ArtifactAdmissionManifest["entries"][number]["origin"] {
+function mechanicalOrigin(path: string): ArtifactAdmissionManifest["entries"][number]["origin"] {
   const shape = ARTIFACT_ORIGIN_SHAPES[0]!;
   return {
     kind: shape.kind,
-    capturedAt,
     producingTool: shape.producingTool,
     producingModel: shape.producingModel,
     toolVersion: shape.toolVersion,
@@ -569,23 +539,14 @@ function mechanicalOrigin(path: string, capturedAt: string): ArtifactAdmissionMa
 }
 
 /**
- * THE PROVENANCE POLICY — the shared checks every artifact admission runs:
- * every origin is one of the pinned shapes (never an edited claim), and the
- * document's `generatedAt` is DERIVED from the entries (the latest capture),
- * never read back from the document.
+ * THE PROVENANCE POLICY — the shared check every artifact admission runs:
+ * every origin is one of the pinned shapes (never an edited claim). The record
+ * carries no clock, so there is no stamp to derive or to forge.
  */
 export function artifactProvenanceViolations(manifest: ArtifactAdmissionManifest): readonly string[] {
-  const violations: string[] = [];
-  let latestCapture = "";
-  for (const entry of manifest.entries) {
-    if (admittedOriginShape(entry.origin, entry.path) === undefined) {
-      violations.push(`artifact-origin-not-admitted:${entry.id}`);
-    }
-    if (entry.origin.capturedAt > latestCapture) latestCapture = entry.origin.capturedAt;
-  }
-  if (manifest.generatedAt !== latestCapture) {
-    violations.push("artifact-generated-at-not-derived-from-captures");
-  }
+  const violations = manifest.entries
+    .filter((entry) => admittedOriginShape(entry.origin, entry.path) === undefined)
+    .map((entry) => `artifact-origin-not-admitted:${entry.id}`);
   return deepFreeze([...new Set(violations)].toSorted());
 }
 
