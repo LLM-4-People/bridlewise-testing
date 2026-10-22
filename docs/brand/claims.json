@@ -6,7 +6,7 @@
       "kind": "holds-when-green",
       "text": "It tells you it is not ready for production: its readiness check answers harnessReady false",
       "checks": [
-        "testing.ci"
+        "ci"
       ],
       "evidence": "tests/public/cli.test.mjs"
     },
@@ -15,7 +15,7 @@
       "kind": "holds-when-green",
       "text": "A refusal is typed: it names the rule and what to do, never a quiet substitute",
       "checks": [
-        "testing.ci"
+        "ci"
       ],
       "evidence": "tests/public/cli.test.mjs"
     },
@@ -24,7 +24,7 @@
       "kind": "holds-when-green",
       "text": "From chat, the model cannot commit: git_commit answers governance_required and the commit stays yours",
       "checks": [
-        "testing.ci"
+        "ci"
       ],
       "evidence": "tests/unit/tool-executor-unified.test.ts",
       "example": {
@@ -39,7 +39,7 @@
       "kind": "holds-when-green",
       "text": "A run executes once: reopening it never starts a second execution",
       "checks": [
-        "testing.ci"
+        "ci"
       ],
       "evidence": "tests/prevention/run-executes-once.test.ts"
     },
@@ -48,7 +48,7 @@
       "kind": "holds-when-green",
       "text": "Commands the model starts cannot read outside the project (Linux, Landlock)",
       "checks": [
-        "testing.ci"
+        "ci"
       ],
       "evidence": "tests/prevention/subprocess-confinement-owner.test.ts"
     },
@@ -57,7 +57,7 @@
       "kind": "holds-when-green",
       "text": "Secrets are redacted before the provider sees the prompt",
       "checks": [
-        "testing.ci"
+        "ci"
       ],
       "evidence": "tests/prevention/redaction-reaches-provider.test.ts"
     },
@@ -66,7 +66,7 @@
       "kind": "holds-when-green",
       "text": "No secret is committed to the public tree",
       "checks": [
-        "testing.secret"
+        "secret"
       ],
       "evidence": "scripts/check-secrets.mjs"
     },
@@ -75,7 +75,7 @@
       "kind": "holds-when-green",
       "text": "CodeQL analyses every change",
       "checks": [
-        "testing.codeql"
+        "codeql"
       ],
       "evidence": ".github/workflows/codeql.yml"
     },

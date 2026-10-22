@@ -24,11 +24,8 @@
  *   `docs/_data/figures/<name>.json`, drawn inline by `shared/figures.ts`
  *   with classes the stylesheet inks, so it follows the theme switch. A
  *   malformed figure refuses the build (`site_figure_invalid`).
- * - `_data/brand.json`: the public words and every claim judged at the floor
- *   status snapshot's commit (`engine/scripts/brand/cli.ts` `siteData`), for
- *   the landing and `/floor/claims/` templates. The snapshot is the one the
- *   source step just wrote, so the claims are judged on the commit the site is
- *   built from; a register or snapshot that cannot be read refuses the build.
+ * - `_data/brand.json` is written with the floor data, by `writeBrandData`
+ *   (below), from `site.mjs` `writeFloorData`.
  *
  * The layout includes the two includes; nothing here is committed.
  */
@@ -48,13 +45,25 @@ export const SITE_FONTS = "assets/fonts";
 export const SITE_ICON = "assets/icon.svg";
 export const MARK_INCLUDE = "_includes/brand-mark.svg";
 export const HEAD_INCLUDE = "_includes/design-head.html";
-/** The judged claims and the public words, as the templates read them (`site.data.brand`). */
-export const BRAND_DATA = "_data/brand.json";
-/** The floor status snapshot the source step writes before the design step. */
-const STATUS_SNAPSHOT = "floor/data/status.json";
 /** Where the site's figures are declared (docs-relative, so in the assembled source too) and where they are drawn. */
 export const FIGURE_DATA = "_data/figures";
 export const FIGURE_INCLUDES = "_includes/figures";
+/** The judged claims and the public words, as the templates read them (`site.data.brand`). */
+export const BRAND_DATA = "_data/brand.json";
+
+/**
+ * The public words and every claim judged against the site's floor status
+ * snapshot (`engine/scripts/brand/cli.ts` `siteData`), written to
+ * `_data/brand.json` for the landing and `/floor/claims/` templates. Called by
+ * the one floor-data writer (`site.mjs` `writeFloorData`) every time a
+ * snapshot is written, so the claims are always judged against the snapshot
+ * the site ships. A register or snapshot that cannot be read refuses.
+ */
+export function writeBrandData({ root, site }) {
+  write(site, BRAND_DATA, `${JSON.stringify(siteData(root, join(site, ...STATUS_SNAPSHOT.split("/"))), null, 2)}\n`);
+}
+/** The floor status snapshot (site-relative) the claims are judged against. */
+export const STATUS_SNAPSHOT = "floor/data/status.json";
 /** The site's attribute for an explicit theme choice; its absence is the lead theme. */
 export const THEME_ATTRIBUTE = "data-theme";
 export const LEAD_THEME = "logbook";
@@ -124,7 +133,6 @@ export function writeSiteDesign({ root, outRoot }) {
     `<link rel="stylesheet" href="{{ '/${SITE_TOKEN_SHEET}' | relative_url }}">`,
     "",
   ].join("\n"));
-  write(outRoot, BRAND_DATA, `${JSON.stringify(siteData(root, join(outRoot, ...STATUS_SNAPSHOT.split("/"))), null, 2)}\n`);
   const figures = writeFigures(outRoot);
   return { tokens: used.size, fonts: fonts.length, figures };
 }
