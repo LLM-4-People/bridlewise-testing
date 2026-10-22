@@ -26,6 +26,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <sys/socket.h>
 
 static int report(int kind, int e)
 {
@@ -38,7 +39,7 @@ static int report(int kind, int e)
 int main(int argc, char **argv)
 {
     if (argc < 3) {
-        fprintf(stderr, "usage: test_payload <read|write|create|list> <path>\n");
+        fprintf(stderr, "usage: test_payload <read|write|create|list|socket|spin> <path|inet|unix|->\n");
         return 2;
     }
     const char *mode = argv[1];
@@ -79,6 +80,17 @@ int main(int argc, char **argv)
         if (e == EACCES) return report(1, e);
         if (e != 0) return report(2, e);
         return report(0, 0);
+    } else if (strcmp(mode, "socket") == 0) {
+        /* `socket inet` / `socket unix`: may a socket of that family be made? */
+        int family = strcmp(path, "unix") == 0 ? AF_UNIX : AF_INET;
+        int fd = socket(family, SOCK_STREAM, 0);
+        if (fd < 0) return report(errno == EACCES ? 1 : 2, errno);
+        close(fd);
+        return report(0, 0);
+    } else if (strcmp(mode, "spin") == 0) {
+        /* Burn CPU until a CPU ceiling ends the process (never returns on its own). */
+        volatile unsigned long n = 0;
+        for (;;) n++;
     }
 
     fprintf(stderr, "unknown mode '%s'\n", mode);

@@ -19,6 +19,7 @@ the spec compiler relies on. The guardian binary itself lives under
   mode / unconfined.
 - `self-protection-contracts.ts` — the guardian spec schema, the Landlock
   access-flag vocabulary, and the flag metadata.
+- `confined-run.ts` — A NODE PROGRAM IN THE NARROWEST CONFINEMENT. `runConfinedNode` compiles the spec with the one compiler, then narrows it with `narrowGuardianSpec`: every rule must lie inside a compiled rule with a subset of its access, and the result is node's binary, its mapped libraries and one empty OpenSSL configuration, all read-only. It adds `network: "refused"` and `cpu_seconds`, gives the program no environment, passes the program on stdin and answers how it ended. A host whose guardian cannot confine is a typed refusal. The clock is stated as unrefusable (the vDSO).
 - `guardian-binary.ts` — resolving and verifying the guardian binary (its
   path, its reproducible build stamp recomputed from the sealed sources and
   checked against the root-policy pin, and a two-part confinement probe: a
@@ -114,12 +115,13 @@ is reached (sec-e-correctness M-4):
 
 The folder lives at `engine/src/filesystem/self-protection/`.
 
-- `guardian-binary.ts` is consumed by `engine/src/filesystem/self-protection/index.ts`.
-- `guardian-build-stamp.ts` is consumed by `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/workflow/hash-binding-registry.ts`.
+- `confined-run.ts` is consumed by `engine/src/workflow/forge/projector/confined.ts`.
+- `guardian-binary.ts` is consumed by `engine/src/filesystem/self-protection/confined-run.ts`, `engine/src/filesystem/self-protection/index.ts`.
+- `guardian-build-stamp.ts` is consumed by `engine/src/filesystem/self-protection/confined-run.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/workflow/hash-binding-registry.ts`.
 - `index.ts` is consumed by `server/kernel/canonical.ts`.
-- `keep-out.ts` is consumed by `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/temporary-root.ts`, `engine/src/process/instrument-lock.ts`.
+- `keep-out.ts` is consumed by `engine/src/filesystem/self-protection/confined-run.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/temporary-root.ts`, `engine/src/process/instrument-lock.ts`, `engine/src/workflow/forge/projector/confined.ts`.
 - `key-home.ts` is consumed by `engine/src/filesystem/persisted-key.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/keep-out.ts`, `engine/src/workflow/forge/app-keys.ts`.
-- `self-protection-config.ts` is consumed by `engine/src/cli.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/keep-out.ts`, `engine/src/filesystem/self-protection/key-home.ts`, `engine/src/kernel/config-contracts.ts` and 1 more.
-- `self-protection-contracts.ts` is consumed by `engine/scripts/verification/slice-projections.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/self-protection-config.ts`, `engine/src/kernel/root-policy.ts`.
+- `self-protection-config.ts` is consumed by `engine/src/cli.ts`, `engine/src/filesystem/self-protection/confined-run.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/keep-out.ts`, `engine/src/filesystem/self-protection/key-home.ts` and 2 more.
+- `self-protection-contracts.ts` is consumed by `engine/scripts/verification/slice-projections.ts`, `engine/src/filesystem/self-protection/confined-run.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/self-protection-config.ts`, `engine/src/kernel/root-policy.ts`.
 
 <!-- /consumers:generated -->

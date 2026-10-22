@@ -2,11 +2,12 @@
  * `project(S, L)` — THE DESIRED GITHUB STATE, a pure function of its input
  * (github-only §9.0).
  *
- * PURE: it imports only the projection's other pure modules, and runs in the
- * sealed realm (`realm.ts`): no network, no clock, no randomness and no
- * locale exist there, so a projection that tried any of them is a typed
- * refusal, never a different answer. The same input always gives the same D;
- * the host spells it canonically (`canonicalJson`) and digests it.
+ * PURE: it imports only the projection's other pure modules, and runs in a
+ * separate process under the harness's confinement (`confined.ts`): no file
+ * and no network reachable, the program and its input on stdin, its answer on
+ * stdout; computed twice and refused if the two differ. The same input always
+ * gives the same D; the host spells it canonically (`canonicalJson`) and
+ * digests it.
  *
  * What it projects (each class's fields are `FIELD_PHASES`, model.ts):
  *   - `label`: one per tracker lane (`lane:<lane>`, its colour and description);
@@ -71,7 +72,7 @@ export function project(input: ProjectionInput): Projection {
   return { schema: PROJECTION_SCHEMA, source: input.source, ledger: input.ledger, objects };
 }
 
-/** The realm's entry: the input's JSON text in, D's JSON text out (only text crosses the realm's boundary). */
+/** The confined program's entry: the input's JSON text in, D's JSON text out (only text crosses the boundary). */
 export function projectText(inputText: string): string {
   return JSON.stringify(project(JSON.parse(inputText) as ProjectionInput));
 }

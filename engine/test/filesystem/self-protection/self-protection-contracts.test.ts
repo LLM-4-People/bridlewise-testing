@@ -117,13 +117,22 @@ test("self-protection-contracts: schema rejects negative abi_version_hint", () =
 });
 
 test("self-protection-contracts: error codes table is complete and typed", () => {
-  assert.deepEqual(new Set(Object.keys(GUARDIAN_BINARY_ERROR_CODES)), new Set(["2", "3", "4", "5", "6", "7", "8", "9", "10", "64"]));
-  for (const code of [2, 3, 4, 5, 6, 7, 8, 9, 64] as const) {
+  assert.deepEqual(new Set(Object.keys(GUARDIAN_BINARY_ERROR_CODES)), new Set(["2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "64"]));
+  for (const code of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 64] as const) {
     assert.equal(isGuardianPreExecFailure(code), true, `${code} should be a pre-exec failure`);
   }
   assert.equal(isGuardianPreExecFailure(0), false);
   assert.equal(isGuardianPreExecFailure(1), false);
   assert.equal(isGuardianPreExecFailure(100), false);
+});
+
+test("self-protection-contracts: the network refusal and the CPU ceiling are typed spec fields", () => {
+  assert.equal(GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, network: "refused", cpu_seconds: 30 }).network, "refused");
+  assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, network: "open" }), "only \"refused\"");
+  assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, cpu_seconds: 0 }));
+  assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, cpu_seconds: 86_401 }));
+  assert.equal(GUARDIAN_BINARY_ERROR_CODES[11], "network_refusal_failed");
+  assert.equal(GUARDIAN_BINARY_ERROR_CODES[12], "cpu_limit_failed");
 });
 
 test("self-protection-contracts: maskFlagNamesToAbi drops flags above the ABI", () => {

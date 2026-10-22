@@ -1364,11 +1364,11 @@ const ROOT_POLICY_VALUE = {
      * regenerates is a value someone can add or edit without evidence — the
      * exact shape this floor refuses.
      */
-    binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
+    binaryStamp: "b424101b633614f589abc5218260e1b9366afc20e3ef0b5aac1e648e25275675",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "30becdd18fa27e5b9cd3e1c568c7dfaecb51348e0b6df2380a6a43c488606696",
+    bundleSha256: "960773f84a422f10c40721323bf14b96fecae3b0d027cc60a042c4fa008f37f4",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
-    specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
+    specSchemaArtifactSha256: "8755d3bfdf407127f3de2594e24b285adcc23d54770e43eb994f9316b0c8e9a7",
     /**
      * THE SOURCE HALF OF THE SPEC-SCHEMA PIN.
      *
@@ -1391,7 +1391,7 @@ const ROOT_POLICY_VALUE = {
      * decides admission is the reviewed source".
      */
     specSchemaSourcePath: "src/filesystem/self-protection/self-protection-contracts.ts",
-    specSchemaSourceSha256: "13e5d2112ef059ae3efac6ab66668b6d06a1210bdd5068e9bd3473cf0492255f",
+    specSchemaSourceSha256: "d8504788022beca997fb1521a928eeca6595af2fc7feaf919bfb2e9a9e0e6baf",
     /**
      * RELATIVE TO THE HARNESS ROOT — the tree that holds `dist/bundle.js` and
      * `guardian/build/…` above, never the repository root.
@@ -2254,7 +2254,7 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "c142873e7cdff94338df554f5f4c43ee7340b06c1480bcedc38761088bf24296",
+    testInventoryHash: "7a861671bc47477e3460cdf593a52b2c560485c8fc26ddb05f5ee72bea60b123",
     testSurfaceDispositionBinding: {
       fileSha256: "672fc73d4b3ac223bddd834cae99613d777d4a141ff167f3d98b48fcb110d428",
       identityHash: "6a92dd390ca8603f52e9bd92592a8d66b0e2caa2fbdc65b9134398001fc2c583",

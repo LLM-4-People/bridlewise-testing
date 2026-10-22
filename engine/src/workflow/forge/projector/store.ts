@@ -21,6 +21,12 @@ export type LiveObject = Readonly<{
   class: ProjectionClass;
   key: string;
   fields: Fields;
+  /**
+   * Whether the projector made it: an issue carrying its marker, a label in
+   * its registry's namespace (`lane:`). Only an owned object D does not hold
+   * is an orphan; a person's label (`bug`) or issue is GitHub's own.
+   */
+  owned: boolean;
 }>;
 
 /** One write: create an object with its `create` fields, or set some fields of an existing one. */
@@ -33,7 +39,7 @@ export type ProjectionWrite = Readonly<{
 }>;
 
 export type ProjectionStore = Readonly<{
-  /** Every live object of `classes` (conditional reads: an unchanged answer costs no rate limit). */
+  /** Every live object of `classes` (conditional reads: an unchanged answer costs no rate limit). The GitHub store paces its content-creating writes by GitHub's own answer (`retry-after`, the secondary-limit reset), never a fixed sleep. */
   read: (classes: readonly ProjectionClass[]) => Promise<readonly LiveObject[]>;
   /** One write; a refusal is typed (a budget refusal carries when to resume). */
   write: (write: ProjectionWrite) => Promise<void>;

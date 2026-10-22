@@ -24,7 +24,7 @@ export type MemoryStore = Readonly<{
   get: (klass: ProjectionClass, key: string) => LiveObject | undefined;
   /** An edit by someone else: set `fields` directly (V-27). */
   edit: (klass: ProjectionClass, key: string, fields: Fields) => void;
-  /** An object someone else created. */
+  /** An object someone else created (`owned`: whether it carries the projector's marker or namespace). */
   put: (object: LiveObject) => void;
 }>;
 
@@ -44,7 +44,7 @@ export function memoryStore(options: MemoryStoreOptions = {}): MemoryStore {
       const current = objects.get(id);
       if (write.kind === "create") {
         if (current !== undefined) throw new HarnessError(`${id} already exists`, "memory_store_conflict");
-        objects.set(id, { class: write.class, key: write.key, fields: { ...BORN_FIELDS[write.class], ...kept(write.class, write.fields) } });
+        objects.set(id, { class: write.class, key: write.key, fields: { ...BORN_FIELDS[write.class], ...kept(write.class, write.fields) }, owned: true });
         return;
       }
       if (current === undefined) throw new HarnessError(`${id} does not exist`, "memory_store_missing");
