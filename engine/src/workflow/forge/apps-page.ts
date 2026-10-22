@@ -29,9 +29,10 @@
  *    the exact repositories, the legacy Apps to narrow, and the Discussion
  *    categories (from the community intake).
  *
- * The page is rendered from ONE JSON document embedded in it (no value is
- * spliced into HTML: the page's own script builds the DOM with
- * `textContent` and form values), under a nonce content security policy.
+ * The page is rendered from ONE JSON document embedded in it as one quoted
+ * attribute, escaped by the markup owner (`shared/markup.ts`); no other value
+ * is spliced into HTML: the page's own script builds the DOM with
+ * `textContent` and form values, under a nonce content security policy.
  * `/done` must carry the page's session token and come from its own origin.
  * Nothing here waits on a timer: the page lives until the maintainer presses
  * **Done** (or the process is stopped).
@@ -40,6 +41,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { escapeHtml } from "../../../../shared/markup.ts";
 import { HarnessError } from "../../kernel/errors.ts";
 import { guarded } from "../../process/fault-policy.ts";
 import { randomBytes } from "../../kernel/integrity.ts";
@@ -89,9 +91,9 @@ function token(): string {
 
 /** The page's script: renders the embedded document with DOM APIs only. */
 const PAGE_SCRIPT = `
-const data = JSON.parse(document.getElementById("data").textContent);
-const el = (tag, text, attributes) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; for (const [k, v] of Object.entries(attributes ?? {})) node.setAttribute(k, v); return node; };
 const main = document.querySelector("main");
+const data = JSON.parse(main.dataset.page);
+const el = (tag, text, attributes) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; for (const [k, v] of Object.entries(attributes ?? {})) node.setAttribute(k, v); return node; };
 if (data.error) { const box = el("section", undefined, { role: "alert" }); box.append(el("h2", "Refused: " + data.error.code), el("p", data.error.message), el("p", data.error.remedy)); main.append(box); }
 const apps = el("section"); apps.append(el("h2", "1. Create the four Apps"), el("p", "Each button opens GitHub with the generated manifest; there, click \\u201cCreate GitHub App\\u201d. The key is stored for you: you never see or copy it."));
 for (const app of data.apps) {
@@ -132,8 +134,8 @@ done.append(session, el("button", "Done: close this page", { type: "submit" }));
 `;
 
 function page(document: unknown, nonce: string): string {
-  // The one embedding: JSON inside a non-executed script element, with `<` escaped so no `</script>` can end it.
-  const data = JSON.stringify(document).replace(/</gu, "\\u003c");
+  // The one embedding: the JSON document in a quoted attribute, escaped by the markup owner, so no value can leave it.
+  const data = escapeHtml(JSON.stringify(document));
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -144,8 +146,7 @@ function page(document: unknown, nonce: string): string {
 </head>
 <body>
 <h1>Bridlewise forge: Session 1</h1>
-<main></main>
-<script id="data" type="application/json">${data}</script>
+<main data-page="${data}"></main>
 <script nonce="${nonce}">${PAGE_SCRIPT}</script>
 </body>
 </html>
