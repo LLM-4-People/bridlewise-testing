@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M1-NODETEST
 type: Workstream
 title: A node:test shard runner that preserves the inventory contract

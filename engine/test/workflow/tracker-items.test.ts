@@ -12,7 +12,7 @@ import test from "node:test";
 
 import { spliceGeneratedBlock, TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 import {
-  boardRows, itemRow, ownersOf, readEntries, readTrackerItems, rebaseRelativeLinks, renderTrackerBoard, syncTrackerBoard, taskRows,
+  boardRows, declaredNames, itemRow, ownersOf, readEntries, readTrackerItems, renderTrackerBoard, syncTrackerBoard, taskRows,
   trackerItems, trackerItemViolations, type TrackerItem,
 } from "../../src/workflow/failure-owners.ts";
 import { createTempDir } from "../support/temp-dir.ts";
@@ -21,7 +21,7 @@ const REPOSITORY_ROOT = join(import.meta.dirname, "..", "..", "..");
 
 const item = (id: string, fields: Record<string, string>, body = "The outcome."): { name: string; text: string } => ({
   name: `${id}.md`,
-  text: `---\n${Object.entries({ schema: "bridlewise-tracker-item/v1", id, type: "Task", state: "open", lane: "floor", opened: "2026-10-20", ...fields })
+  text: `---\n${Object.entries({ schema: "bridlewise-tracker-item/v1", published: "false", id, type: "Task", state: "open", lane: "floor", opened: "2026-10-20", ...fields })
     .filter(([, value]) => value.length > 0).map(([name, value]) => `${name}: ${value}`).join("\n")}\n---\n\n${body}\n`,
 });
 
@@ -54,17 +54,13 @@ test("every way an item breaks the format is refused, and the whole set is refus
     [[item("A-ONE", { parent: "B-TWO" }), item("B-TWO", { parent: "A-ONE" })], /parent chain returns to/u],
     [[item("A-ONE", { title: "Colon: then a space" })], /not a plain YAML scalar/u],
     [[item("A-ONE", { gh: "31" })], /gh 31 does not match/u],
-    // Item text reaches Pages: it is Markdown, never raw HTML (a stored-XSS path from intake).
-    [[item("A-ONE", {}, "<script>alert(1)</script> the outcome.")], /opens markup outside code/u],
-    [[item("A-ONE", {}, "an <img src=x onerror=alert(1)> image")], /opens markup outside code/u],
-    [[item("A-ONE", {}, "see [this](javascript:alert(1)).")], /neither relative nor http, https or mailto/u],
-    [[item("A-ONE", { title: "x <img src=x onerror=alert(1)> y" })], /opens markup: a title is text/u],
+    // An item is a record, never a site page: the site renders its text only through the escaping renderers.
+    [[item("A-ONE", { published: "" })], /published is required/u],
+    [[item("A-ONE", { published: "true" })], /published must be one of false/u],
     // YAML reads ` #31` as a comment: the item would lose its GitHub link on the site.
     [[item("A-ONE", { gh: "#31" })], /gh #31 does not match/u],
     [[item("A-ONE", { title: "No" })], /reads as a YAML boolean, null or number/u],
     [[item("A-ONE", { title: "1.5" })], /reads as a YAML boolean, null or number/u],
-    // A `*` in a title would end the row's bold id: the row would be keyed by a fragment.
-    [[item("A-ONE", { title: "Fix **B-TWO** now" })], /carries "\*"/u],
     // A flaky owner is matched by its row id, so it is headed by its id.
     [[item("FLAKY-A", { lane: "flaky-burn-down", title: "A flaky lane" })], /title does not belong on this entry/u],
     // A body line shaped like a task row would be a second, phantom row on the board.
@@ -111,12 +107,9 @@ test("the roadmap's fields: a Milestone groups by `milestone` and has no lane or
   }
 });
 
-test("a relative link in an item's body is rewritten to the same file as seen from the board", () => {
-  assert.equal(rebaseRelativeLinks("see [x](../../floor/a.md#b), [y](https://e.org/z), [z](#here)", TRACKER_BOARD.items, "docs/trackers"),
-    "see [x](../floor/a.md#b), [y](https://e.org/z), [z](#here)");
-  assert.equal(rebaseRelativeLinks("[x](../floor/a.md)", "docs/trackers", TRACKER_BOARD.items), "[x](../../floor/a.md)");
-  // What is a link is the one Markdown parser's answer: code is never rewritten; a reference definition is.
-  assert.equal(rebaseRelativeLinks("`[x](../../a.md)` and [y][r]\n\n[r]: ../../b.md", TRACKER_BOARD.items, "docs/trackers"), "`[x](../../a.md)` and [y][r]\n\n[r]: ../b.md");
+test("a relative link in an item's body reaches the board as the same file seen from the board; code is never a link", () => {
+  const [row] = trackerItems([item("A-ONE", {}, "see [x](../../floor/a.md#b), [y](https://e.org/z) and `[c](../../a.md)`.")]);
+  assert.equal(itemRow(row!), "- [ ] **A-ONE** — see [x](../floor/a.md#b), [y](https://e.org/z) and <code>[c](../../a.md)</code>\\.");
 });
 
 test("the board renders open rows per lane (oldest first) and every closed row under Done (newest first)", () => {
@@ -127,8 +120,8 @@ test("the board renders open rows per lane (oldest first) and every closed row u
     item("NEW-DONE", { state: "closed", resolution: "not-planned", closed: "2026-11-02", title: "Retire the thing" }, "Two lines,\nkept as continuation."),
   ])];
   assert.equal(renderTrackerBoard(items), [
-    "## Flaky burn-down owners\n\n- [ ] **FLAKY-B** — The outcome.\n- [ ] **FLAKY-A** — The outcome.\n",
-    "## Done\n\n- [x] **Retire the thing** — Two lines,\n  kept as continuation.\n- [x] **OLD-DONE** — The outcome.\n",
+    "## Flaky burn-down owners\n\n- [ ] **FLAKY-B** — The outcome\\.\n- [ ] **FLAKY-A** — The outcome\\.\n",
+    "## Done\n\n- [x] **Retire the thing** — Two lines, kept as continuation\\.\n- [x] **OLD-DONE** — The outcome\\.\n",
   ].join("\n"));
   // The row a guard reads back is the item: its id or title, its state, its whole text.
   const rows = taskRows(renderTrackerBoard(items));
@@ -136,8 +129,21 @@ test("the board renders open rows per lane (oldest first) and every closed row u
   assert.equal(rows[2]!.text, itemRow(items.find((entry) => entry.id === "NEW-DONE")!));
 });
 
-test("markup inside code, a comparison and a safe link are text, not markup", () => {
-  assert.deepEqual(trackerItemViolations([item("A-ONE", {}, "keep a `<db>.pre-restore` copy; a <= b; see [the run](https://github.com/owner/repo/actions/runs/1) and [a page](../floor/a.md).\n\n```\n<div>in a fence</div>\n```")]), []);
+test("no spelling of an item publishes markup on the board: raw HTML, an unclosed fence, Liquid and a kramdown attribute list are text", () => {
+  const planted = [
+    "<script>alert(1)</script> and <img src=x onerror=alert(1)>",
+    "{% include evil.html %} {{ site.github }} {: onclick=\"alert(3)\"}",
+    "[a link](javascript:alert(4)) and <!-- a comment -->",
+    // Last: a fence never closed runs to the end of the body.
+    "```\n<script>alert(2)</script> in a fence never closed",
+  ].join("\n\n");
+  const [planted0] = trackerItems([item("A-ONE", { title: "<b>bold</b> {{ site.x }} {% raw %}" }, planted)]);
+  const row = itemRow(planted0!);
+  for (const raw of ["<script", "<img", "<b>", "<!--", "{%", "{{", "{:", "javascript:"]) assert.ok(!row.includes(raw), `${raw} reached the board raw:\n${row}`);
+  // What the board shows is still the item's text, read back by the owners judge (a test's path, whole).
+  const [owner] = trackerItems([item("FLAKY-A", { lane: "flaky-burn-down", type: "Flake" }, "Owns engine/test/a_b.test.ts and `engine/test/c.test.ts`.")]);
+  const read = declaredNames(taskRows(itemRow(owner!))[0]!);
+  assert.ok(read.has("engine/test/a_b.test.ts") && read.has("engine/test/c.test.ts"), [...read].join(" "));
 });
 
 test("a phantom row in a body never reaches the board's owners: the item is refused before it renders", () => {
@@ -153,7 +159,7 @@ test("a board without its block is refused, and a stale one is caught by check a
   writeFileSync(join(root, TRACKER_BOARD.path), `# Tasks\n\nprose\n\n${TRACKER_BOARD.begin}\n${TRACKER_BOARD.end}\n`);
   assert.deepEqual(syncTrackerBoard(root, false), { status: "stale", converged: false, changed: [TRACKER_BOARD.path], problems: [] });
   assert.deepEqual(syncTrackerBoard(root, true), { status: "regenerated", converged: true, changed: [TRACKER_BOARD.path], problems: [] });
-  assert.equal(readFileSync(join(root, TRACKER_BOARD.path), "utf8"), `# Tasks\n\nprose\n\n${TRACKER_BOARD.begin}\n\n## Open\n\n- [ ] **A-ONE** — The outcome.\n\n${TRACKER_BOARD.end}\n`);
+  assert.equal(readFileSync(join(root, TRACKER_BOARD.path), "utf8"), `# Tasks\n\nprose\n\n${TRACKER_BOARD.begin}\n\n## Open\n\n- [ ] **A-ONE** — The outcome\\.\n\n${TRACKER_BOARD.end}\n`);
   assert.deepEqual(syncTrackerBoard(root, false), { status: "current", converged: true, changed: [], problems: [] });
   const synced = readFileSync(join(root, TRACKER_BOARD.path), "utf8");
   // A row typed by hand above or below the block owns nothing, and the check refuses it, unwritten.

@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: RELEASE-V0-0-3-EVIDENCE
 type: Task
 title: Record the v0.0.3 release evidence

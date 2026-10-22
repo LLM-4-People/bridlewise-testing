@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: NOT-PLANNED-HIDDEN-FAILURES
 type: Task
 title: Skipping or hiding a failing test to make a badge green

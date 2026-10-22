@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M2-RECEIPTS
 type: Workstream
 title: Per-capability readiness receipts

@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M3-BACKUP
 type: Workstream
 title: Backup and restore for the database and key home, with verification

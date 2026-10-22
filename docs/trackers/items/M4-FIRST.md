@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M4-FIRST
 type: Workstream
 title: A first-patch path for docs, tests, guards, benchmarks and portability

@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M3-SCALE
 type: Workstream
 title: Measured scale and performance envelope

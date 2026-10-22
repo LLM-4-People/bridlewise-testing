@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M4-HUB
 type: Workstream
 title: A contributor hub distinct from the product home

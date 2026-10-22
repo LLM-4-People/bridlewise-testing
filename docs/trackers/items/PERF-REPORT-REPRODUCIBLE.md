@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: PERF-REPORT-REPRODUCIBLE
 type: Task
 title: Make the performance report reproducible

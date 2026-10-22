@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: PREFLIGHT-ADMISSION-RECEIPTS
 type: Task
 title: Add per-capability admission receipts

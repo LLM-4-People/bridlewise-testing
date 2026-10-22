@@ -4085,6 +4085,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/site-prose.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/test-execution-config.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4293,5 +4301,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "a9e81352a4dba7aada10bbcd3a39e251628ceebd4bcb03623e0e742f07678622"
+  "integrityHash": "0692f3a466f6e7a87e9f170261de424aa688628c841fa5b0d77f3487ea42743f"
 }

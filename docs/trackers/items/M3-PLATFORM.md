@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M3-PLATFORM
 type: Workstream
 title: Cross-platform path handling with an explicit Landlock refusal

@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-SHARD-WEIGHTS-REMEASURE
 type: Task
 title: Re-measure the shard weights at the manifest's own head

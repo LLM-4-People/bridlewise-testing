@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: NOT-PLANNED-READINESS-CLAIM
 type: Task
 title: A production-readiness claim before the admission evidence exists

@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: M1-SHARD
 type: Workstream
 title: Shard the full suite
