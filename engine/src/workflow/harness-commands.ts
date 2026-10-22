@@ -11,7 +11,7 @@ import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { resignTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, FRONT_DOOR_GENERATOR, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES } from "../kernel/verification-paths.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
@@ -158,6 +158,8 @@ export type HarnessCheckOutput = Readonly<{
   artifactManifest: CheckStepResult;
   /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
   communityFiles: CheckStepResult;
+  /** Are the brand sources valid, and would `harness regenerate` rewrite a front door's block (engine/scripts/brand/cli.ts sync)? */
+  frontDoors: CheckStepResult;
   /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
   bundle: CheckStepResult;
   allPassed: boolean;
@@ -268,6 +270,12 @@ export type HarnessRegenerateOutput = Readonly<{
    */
   communityFiles: CommunityFilesArm;
   /**
+   * The front doors (the README's and the site home's opening blocks), from
+   * the messaging source and the claims register, both validated whole
+   * (engine/scripts/brand/cli.ts sync).
+   */
+  frontDoors: FrontDoorsArm;
+  /**
    * The guardian spec-schema artifact, rebuilt from the live Zod schema
    * (`scripts/verification/guardian-spec-artifact.ts`) BEFORE the binding
    * repair re-pins its sha256, so a schema edit converges in one pass.
@@ -306,6 +314,14 @@ export type CommunityFilesArm = Readonly<{
   changed: readonly string[];
   /** The refusal's `code: message`, empty otherwise. */
   refusal: string;
+}>;
+
+/** What the front-door arm did: a generator arm, or `refused` with the sources' problems (an invalid source, a missing block). */
+export type FrontDoorsArm = Readonly<{
+  status: "current" | "regenerated" | "stale" | "absent" | "refused";
+  converged: boolean;
+  changed: readonly string[];
+  problems: readonly string[];
 }>;
 
 /** What the README consumer arm did: `changed` is what a write rewrote, or what a check found stale. */
@@ -558,6 +574,9 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the community health files and forms...");
   steps.push(communityFilesStep(regenerateCommunityFiles(root, false)));
 
+  emitProgress(onProgress, "Checking the brand sources and the front doors...");
+  steps.push(frontDoorsStep(regenerateFrontDoors(root, false)));
+
   emitProgress(onProgress, "Checking the bundle against a rebuild of the source...");
   steps.push(bundleFreshnessStep(root));
 
@@ -586,7 +605,8 @@ export async function harnessCheck(
     trackerBoard: steps[20]!,
     artifactManifest: steps[21]!,
     communityFiles: steps[22]!,
-    bundle: steps[23]!,
+    frontDoors: steps[23]!,
+    bundle: steps[24]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -972,11 +992,13 @@ export function harnessRegenerate(
   const frozenRecords = syncFrozenRecords(trackedTop(root), write);
   // The community health files and forms, from their sources (before the inventory digests them).
   const communityFiles = regenerateCommunityFiles(root, write);
+  // The front doors, from the brand sources (validated whole), before the inventory digests the README.
+  const frontDoors = regenerateFrontDoors(root, write);
   // The canonical artifact inventory, LAST: every governed file the arms above
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, frontDoors, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -992,7 +1014,7 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && frontDoors.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1329,6 +1351,33 @@ function regenerateDecisionIndex(root: string, write: boolean): DecisionIndexArm
   if (!existsSync(resolve(root, DECISION_INDEX.generator))) return deepFreeze({ status: "absent" as const, converged: true, changed: [] });
   const report = generatorReport<DecisionIndexArm["status"]>(root, DECISION_INDEX.generator, [write ? "--write" : "--check"], "the decision index generator", "decision_index_no_result");
   return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed });
+}
+
+/**
+ * The front-door arm, as a subprocess like the other builder-layer arms: the
+ * brand generator validates both sources and renders the README's and the site
+ * home's opening blocks (`FRONT_DOOR_GENERATOR.generator`). A tree without the
+ * generator (a product-only tree) is converged by absence.
+ */
+export function regenerateFrontDoors(root: string, write: boolean): FrontDoorsArm {
+  if (!existsSync(resolve(root, FRONT_DOOR_GENERATOR.generator))) return deepFreeze({ status: "absent" as const, converged: true, changed: [], problems: [] });
+  const report = generatorReport<FrontDoorsArm["status"]>(root, FRONT_DOOR_GENERATOR.generator, ["sync", write ? "--write" : "--check"], "the front-door generator", "front_doors_no_result");
+  const problems = Array.isArray(report.problems) ? report.problems.filter((p): p is string => typeof p === "string") : [];
+  return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed, problems });
+}
+
+/** `harness check`'s front-door step: an invalid brand source or a stale front-door block FAILS the check. */
+export function frontDoorsStep(frontDoors: FrontDoorsArm): CheckStepResult {
+  return deepFreeze({
+    step: "front-doors",
+    status: frontDoors.converged ? "pass" : "fail",
+    message: frontDoors.status === "refused"
+      ? `the brand sources (docs/brand/) are invalid: ${frontDoors.problems.join("; ")}`
+      : frontDoors.converged
+        ? `the brand sources are valid and the front doors match them${frontDoors.status === "absent" ? " (this tree carries no brand generator)" : ""}`
+        : `a front door is stale against docs/brand/ (run harness sync): ${frontDoors.changed.join(", ")}`,
+    details: frontDoors,
+  });
 }
 
 /** The shipped-hooks arm (`SHIPPED_HOOK_FILES.generator`, relative to the engine); a tree without the generator is converged by absence. */

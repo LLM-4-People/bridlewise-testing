@@ -1,17 +1,23 @@
 /**
  * THE MESSAGING SOURCE — the project's public words and identity in one file
  * (`docs/brand/messaging.json`): the name, the addresses, the promise, the
- * summary, the honest status line, the licence, the repository description
- * and topics, and the name's own story (the dictionary entry). Every
- * generated surface reads it: the README's front block, the org profile, the
- * repository metadata, the release-note header, the claims page, the roadmap
- * and (through DESIGN's renderers) the social images. None restates a word of
- * it. Renaming the repository or moving the site is a one-line change here.
+ * summary, what this repository is, the honest status line, the licence, the
+ * repository description and topics, and the name's own story (the
+ * dictionary entry). Every generated surface reads it: the README's and the
+ * site home's front blocks (written by `harness sync`, judged by `harness
+ * check`), the org profile, the repository metadata (description, homepage
+ * and topics, for the forge's repository settings), the release-note header,
+ * the claims page, the roadmap and (through DESIGN's renderers) the social
+ * images. None restates a word of it. Renaming the repository or moving the
+ * site is a one-line change here.
+ *
+ * It lives in the runtime layer so the forge's settings declarations read the
+ * same reader the builder-layer renderers (engine/scripts/brand/) read.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { InputError } from "../../src/kernel/errors.ts";
+import { InputError } from "../kernel/errors.ts";
 
 export const MESSAGING_PATH = "docs/brand/messaging.json";
 export const MESSAGING_SCHEMA = "bridlewise-messaging/v1";
@@ -30,6 +36,8 @@ export type Messaging = Readonly<{
   promise: string;
   /** Two sentences: what it is, and what makes it different. */
   summary: string;
+  /** One or two sentences: what THIS repository is, in the same words every front door uses. */
+  repository: string;
   /** The developer-preview line every surface carries, verbatim. */
   status: string;
   license: string;
@@ -41,7 +49,7 @@ export type Messaging = Readonly<{
   about: Readonly<{ word: string; partOfSpeech: string; definition: string; source: string; sourceUrl: string; line: string }>;
 }>;
 
-const TEXT_FIELDS = ["name", "promise", "summary", "status", "license", "description"] as const;
+const TEXT_FIELDS = ["name", "promise", "summary", "repository", "status", "license", "description"] as const;
 const ABOUT_FIELDS = ["word", "partOfSpeech", "definition", "source", "sourceUrl", "line"] as const;
 
 /** Every way `document` breaks the messaging format. */

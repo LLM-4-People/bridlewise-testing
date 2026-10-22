@@ -1,10 +1,34 @@
-# bridlewise-testing
+<!-- BEGIN GENERATED: the front door, from docs/brand/ (harness sync; engine/scripts/brand/cli.ts) -->
+# Bridlewise
 
-**The development floor for [Bridlewise](https://github.com/LLM-4-People/bridlewise): tests, prevention guards, benchmarks, design decisions, and verification machinery.**
+**Every claim comes with a receipt.**
 
-<p align="center">
-  <img src="docs/assets/dev-floor.png" alt="The Bridlewise development floor: tests, prevention guards, benchmarks, and 134 decision records. Developer preview; not a product." width="100%">
-</p>
+Bridlewise is a free, open-source, local-first cockpit for AI coding runs. Every claim it makes about itself links to the check that backs it, and a claim whose check fails is struck out automatically.
+
+This repository is the development floor: the source of Bridlewise together with every test, prevention guard, benchmark and decision record. The product repository is projected from it.
+
+> [!WARNING]
+> **Developer preview. Not production-ready, not audited, not for sensitive code.**
+
+### What we claim, and the check behind each
+
+| Claim | Checked by | Proof |
+|---|---|---|
+| It tells you it is not ready for production: its readiness check answers harnessReady false | `testing.ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
+| A refusal is typed: it names the rule and what to do, never a quiet substitute | `testing.ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
+| From chat, the model cannot commit: git\_commit answers governance\_required and the commit stays yours | `testing.ci` | [tests/unit/tool-executor-unified.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/unit/tool-executor-unified.test.ts) |
+| A run executes once: reopening it never starts a second execution | `testing.ci` | [tests/prevention/run-executes-once.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/run-executes-once.test.ts) |
+| Commands the model starts cannot read outside the project (Linux, Landlock) | `testing.ci` | [tests/prevention/subprocess-confinement-owner.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/subprocess-confinement-owner.test.ts) |
+| Secrets are redacted before the provider sees the prompt | `testing.ci` | [tests/prevention/redaction-reaches-provider.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/redaction-reaches-provider.test.ts) |
+| No secret is committed to the public tree | `testing.secret` | [scripts/check-secrets.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/scripts/check-secrets.mjs) |
+| CodeQL analyses every change | `testing.codeql` | [.github/workflows/codeql.yml](https://github.com/LLM-4-People/bridlewise-testing/blob/main/.github/workflows/codeql.yml) |
+
+A claim whose check is red is struck out on the [live claims page](https://llm-4-people.github.io/bridlewise-testing/floor/claims/) until it passes again.
+
+**Designed, not built yet:** A malicious module cannot bypass the core ([UD-CORE-NO-BYPASS](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/UD-CORE-NO-BYPASS-a-module-cannot-bypass-core.md)); The model never sees a credential ([CRED-DIR](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/CRED-DIR-credentials-the-model-never-sees.md)); Layered memory with provenance and forgetting ([MEM-DIR](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/MEM-DIR-continue-the-memory-layers-lab.md)).
+
+**Not claimed:** An independent security audit (None has been done: no third-party review, penetration test or certification exists); Signed releases (Releases carry checksums and a promotion receipt, but no signature yet).
+<!-- END GENERATED: the front door -->
 
 [![CI](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml)
 [![Docs and floor](https://img.shields.io/badge/docs-development%20floor-8fd3ff.svg)](https://llm-4-people.github.io/bridlewise-testing/floor/)
@@ -35,7 +59,7 @@ The floor site is a record, not a hosted test service. It does not run suites, h
 
 ## What this repository is
 
-This is the **development floor** from which the Bridlewise product is projected. It carries the source tree plus the suites and records that are deliberately excluded from the product repository:
+This repository carries the source tree plus the suites and records that are deliberately excluded from the product repository:
 
 - unit, integration, prevention, cockpit, performance, and end-to-end tests;
 - engine domain tests for the editor, intelligence, memory, privacy, safety, timeline, workflow, MCP, and quality packs;

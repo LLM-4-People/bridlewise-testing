@@ -9,8 +9,17 @@
  *   node scripts/brand/cli.ts build --site <assembled site> --checks <status.json>
  *       The claims page (`<site>/floor/claims/index.md`), every claim judged
  *       at the snapshot's commit; run by the Pages build after the floor data.
+ *   node scripts/brand/cli.ts sync --write|--check
+ *       THE HARNESS ARM (`harness sync` writes, `harness check` judges): both
+ *       sources validated whole — every cited proof path exists, every
+ *       decision named is a record — and each front door's generated block
+ *       (`FRONT_DOORS`: the README, the site home) rendered from them. One
+ *       JSON line, the generator protocol: `{allCurrent, status, changed,
+ *       problems}`, `status` "refused" with the problems when a source is
+ *       invalid, so a pull request that breaks a source fails the required
+ *       check instead of the Pages build on main.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -19,8 +28,8 @@ import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { decisionStates, readClaims } from "./claims.ts";
-import { readMessaging } from "./messaging.ts";
-import { claimsSitePage, judgeClaims, orgProfile, readmeHero, releaseHeader, repositoryMetadata, type CheckResult } from "./render.ts";
+import { readMessaging } from "../../src/workflow/messaging.ts";
+import { claimsSitePage, FRONT_DOORS, judgeClaims, orgProfile, readmeHero, releaseHeader, repositoryMetadata, type CheckResult } from "./render.ts";
 
 const REPOSITORY_ROOT = dirname(fileURLToPath(new URL("../../", import.meta.url)));
 const SURFACES = ["readme-hero", "org-profile", "repo-metadata", "release-header"] as const;
@@ -52,7 +61,40 @@ export function renderSurface(root: string, surface: typeof SURFACES[number]): s
   }
 }
 
-function write(path: string, text: string): void {
+type SyncReport = Readonly<{ allCurrent: boolean; status: "current" | "regenerated" | "stale" | "refused"; changed: readonly string[]; problems: readonly string[] }>;
+
+/** The text of `path` with its generated block set to `block`; null when the file carries no single block between `begin` and `end`. */
+export function withFrontBlock(text: string, begin: string, end: string, block: string): string | null {
+  const from = text.indexOf(begin);
+  const to = text.indexOf(end);
+  if (from < 0 || to < from || text.indexOf(begin, from + 1) >= 0) return null;
+  return `${text.slice(0, from + begin.length)}\n${block}\n${text.slice(to)}`;
+}
+
+/** Validates both sources and renders every front door; with `write`, rewrites a stale block. A broken source or a missing block is `refused`, never skipped. */
+export function syncFrontDoors(root: string, write: boolean): SyncReport {
+  let rendered: { path: string; next: string | null; current: string }[];
+  try {
+    const messaging = readMessaging(root);
+    const claims = readClaims(root);
+    const decisions = decisionStates(root);
+    rendered = FRONT_DOORS.map((door) => {
+      const file = join(root, door.path);
+      const current = existsSync(file) ? readFileSync(file, "utf8") : "";
+      return { path: door.path, current, next: withFrontBlock(current, door.begin, door.end, door.render(messaging, claims, decisions)) };
+    });
+  } catch (error) {
+    if (!(error instanceof InputError)) throw error;
+    return { allCurrent: false, status: "refused", changed: [], problems: [`${error.code}: ${error.message}`] };
+  }
+  const missing = rendered.filter((r) => r.next === null).map((r) => `${r.path} carries no single generated front-door block`);
+  if (missing.length > 0) return { allCurrent: false, status: "refused", changed: [], problems: missing };
+  const changed = rendered.filter((r) => r.next !== r.current);
+  if (write) for (const r of changed) writeFile(join(root, r.path), r.next!);
+  return { allCurrent: changed.length === 0 || write, status: changed.length === 0 ? "current" : write ? "regenerated" : "stale", changed: changed.map((r) => r.path), problems: [] };
+}
+
+function writeFile(path: string, text: string): void {
   // Served or published files: world-readable.
   const written = atomicWriteFile(path, text, { exactMode: 0o644 });
   if (!written.success) throw new HarnessError(`Failed to write ${path}: ${written.reason ?? "unknown error"}`, "brand_write_failed");
@@ -66,7 +108,7 @@ function run(argv: readonly string[]): number {
     const { values } = parseArgs({ args: flags, options: { out: { type: "string" } } });
     const text = renderSurface(REPOSITORY_ROOT, surface as typeof SURFACES[number]);
     if (values.out === undefined) process.stdout.write(text);
-    else write(values.out, text);
+    else writeFile(values.out, text);
     return 0;
   }
   if (command === "build") {
@@ -74,11 +116,18 @@ function run(argv: readonly string[]): number {
     if (values.site === undefined || values.checks === undefined) throw new InputError("brand build needs --site and --checks", "input_error");
     const status = readStatus(values.checks);
     const judged = judgeClaims(readClaims(REPOSITORY_ROOT), status.checks, status.commit);
-    write(join(values.site, "floor", "claims", "index.md"), claimsSitePage(readMessaging(REPOSITORY_ROOT), judged, status.commit, decisionStates(REPOSITORY_ROOT)));
+    writeFile(join(values.site, "floor", "claims", "index.md"), claimsSitePage(readMessaging(REPOSITORY_ROOT), judged, status.commit, decisionStates(REPOSITORY_ROOT)));
     process.stdout.write(`${JSON.stringify({ commit: status.commit, claims: judged.length, retracted: judged.filter((j) => j.verdict === "retracted").map((j) => j.claim.id) })}\n`);
     return 0;
   }
-  throw new InputError(`Usage: brand render ${SURFACES.join("|")} [--out <file>] | build --site <dir> --checks <status.json>`, "input_error");
+  if (command === "sync") {
+    const { values } = parseArgs({ args: rest, options: { write: { type: "boolean" }, check: { type: "boolean" } } });
+    if (values.write === values.check) throw new InputError("brand sync needs exactly one of --write or --check", "input_error");
+    const report = syncFrontDoors(REPOSITORY_ROOT, values.write === true);
+    process.stdout.write(`${JSON.stringify(report)}\n`);
+    return report.allCurrent ? 0 : 1;
+  }
+  throw new InputError(`Usage: brand render ${SURFACES.join("|")} [--out <file>] | build --site <dir> --checks <status.json> | sync --write|--check`, "input_error");
 }
 
 if (isEntryPoint(import.meta.url)) {

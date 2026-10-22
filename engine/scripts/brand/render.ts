@@ -19,7 +19,7 @@
  */
 import { escapeHtml } from "../../../shared/markup.ts";
 import type { Claim, DecisionState } from "./claims.ts";
-import type { Messaging } from "./messaging.ts";
+import type { Messaging } from "../../src/workflow/messaging.ts";
 
 /** One check as the floor's status snapshot (`bridlewise-floor-status/v1`) reports it. */
 export type CheckResult = Readonly<{ id: string; status: string; headSha: string | null; runUrl: string | null }>;
@@ -50,6 +50,7 @@ export function judgeClaims(claims: readonly Claim[], checks: readonly CheckResu
 }
 
 /** Inline code in Markdown. */
+const h = escapeHtml;
 const code = (text: string): string => ["`", text, "`"].join("");
 const md = (text: string): string => text.replace(/([\\`*_[\]|<>])/gu, "\\$1");
 const blob = (m: Messaging, path: string): string => (path.startsWith("https://") ? path : `${m.repositoryUrl}/blob/main/${path}`);
@@ -63,6 +64,8 @@ export function readmeHero(m: Messaging, claims: readonly Claim[], decisions: Re
     `**${md(m.promise)}**`,
     "",
     md(m.summary),
+    "",
+    md(m.repository),
     "",
     "> [!WARNING]",
     `> **${md(m.status)}**`,
@@ -101,6 +104,56 @@ export function orgProfile(m: Messaging, claims: readonly Claim[]): string {
 }
 
 /** The repository's metadata as GitHub takes it. */
+/** The README's front block (written by `harness sync` between {@link FRONT_DOORS}' README markers): the name, then the hero. */
+export function readmeFront(m: Messaging, claims: readonly Claim[], decisions: ReadonlyMap<string, DecisionState>): string {
+  return [`# ${md(m.name)}`, "", readmeHero(m, claims, decisions)].join("\n");
+}
+
+/** The site home's hero (written by `harness sync` between {@link FRONT_DOORS}' site markers), in the site's own components. */
+export function siteFront(m: Messaging): string {
+  return [
+    `<section class="hero">`,
+    `  <p class="eyebrow">${h(m.name)} <span class="dot" aria-hidden="true"></span> ${h(m.license)} <span class="dot" aria-hidden="true"></span> Developer preview</p>`,
+    `  <h1>${h(m.promise)}</h1>`,
+    `  <p class="lede">${h(m.summary)}</p>`,
+    `  <p class="lede">${h(m.repository)}</p>`,
+    `  <div class="actions">`,
+    `    <a class="button primary" href="{{ '/floor/help/' | relative_url }}">Find a way to help</a>`,
+    `    <a class="button" href="{{ '/floor/roadmap/' | relative_url }}">Read the roadmap</a>`,
+    `    <a class="button" href="{{ '/floor/claims/' | relative_url }}">Check every claim</a>`,
+    `    <a class="button" href="${h(m.repositoryUrl)}">Open the repository</a>`,
+    `  </div>`,
+    `  <p class="hero-note">${h(m.status)}</p>`,
+    `</section>`,
+  ].join("\n");
+}
+
+/**
+ * THE FRONT DOORS: each file whose opening block is generated from the two
+ * sources by `harness sync` (`cli.ts sync`) and judged by `harness check`.
+ * The text around a block is hand-written; the block is never edited by hand.
+ */
+export const FRONT_DOORS: readonly Readonly<{ path: string; begin: string; end: string; render: (m: Messaging, claims: readonly Claim[], decisions: ReadonlyMap<string, DecisionState>) => string }>[] = [
+  {
+    path: "README.md",
+    begin: "<!-- BEGIN GENERATED: the front door, from docs/brand/ (harness sync; engine/scripts/brand/cli.ts) -->",
+    end: "<!-- END GENERATED: the front door -->",
+    render: readmeFront,
+  },
+  {
+    path: "docs/index.md",
+    begin: "<!-- BEGIN GENERATED: the site's front door, from docs/brand/ (harness sync; engine/scripts/brand/cli.ts) -->",
+    end: "<!-- END GENERATED: the site's front door -->",
+    render: (m) => siteFront(m),
+  },
+  {
+    path: "docs/index.md",
+    begin: "# BEGIN GENERATED: the site's description, from docs/brand/messaging.json (harness sync)",
+    end: "# END GENERATED: the site's description",
+    render: (m) => `description: ${JSON.stringify(m.description)}`,
+  },
+];
+
 export function repositoryMetadata(m: Messaging): Readonly<{ description: string; homepage: string; topics: readonly string[] }> {
   return { description: m.description, homepage: m.siteUrl, topics: m.topics };
 }
@@ -115,7 +168,6 @@ export function releaseHeader(m: Messaging): string {
   ].join("\n");
 }
 
-const h = escapeHtml;
 
 /** The claims page body (HTML for the one site layout): every claim judged at the published commit. */
 export function claimsPage(m: Messaging, judged: readonly JudgedClaim[], commit: string, decisions: ReadonlyMap<string, DecisionState>): string {

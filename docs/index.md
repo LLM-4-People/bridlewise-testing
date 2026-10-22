@@ -3,21 +3,27 @@ layout: default
 floor_assets: true
 page_class: home
 title: "Build, test, and extend Bridlewise"
-description: "The contributor hub for the Bridlewise development floor: how to help, how to build on the harness, and the milestones ahead."
+# BEGIN GENERATED: the site's description, from docs/brand/messaging.json (harness sync)
+description: "Where Bridlewise, a free, local-first cockpit for AI coding runs, is built and verified. Every public claim links to the check that backs it, and a claim whose check fails is retracted automatically. Developer preview: not production-ready, not for sensitive code."
+# END GENERATED: the site's description
 permalink: /
 ---
 
+<!-- BEGIN GENERATED: the site's front door, from docs/brand/ (harness sync; engine/scripts/brand/cli.ts) -->
 <section class="hero">
-  <p class="eyebrow">Development floor <span class="dot" aria-hidden="true"></span> Contributor hub <span class="dot" aria-hidden="true"></span> AGPL-3.0</p>
-  <h1>Build the harness.<br><span class="beam-text">Break it honestly.</span></h1>
-  <p class="lede">This is the working floor behind Bridlewise, not the product site. It carries the tests, prevention guards, benchmarks, decision records, and verification machinery. The product documentation is mirrored here. The product itself is at <a href="https://llm-4-people.github.io/bridlewise/">llm-4-people.github.io/bridlewise</a>.</p>
+  <p class="eyebrow">Bridlewise <span class="dot" aria-hidden="true"></span> AGPL-3.0 <span class="dot" aria-hidden="true"></span> Developer preview</p>
+  <h1>Every claim comes with a receipt.</h1>
+  <p class="lede">Bridlewise is a free, open-source, local-first cockpit for AI coding runs. Every claim it makes about itself links to the check that backs it, and a claim whose check fails is struck out automatically.</p>
+  <p class="lede">This repository is the development floor: the source of Bridlewise together with every test, prevention guard, benchmark and decision record. The product repository is projected from it.</p>
   <div class="actions">
     <a class="button primary" href="{{ '/floor/help/' | relative_url }}">Find a way to help</a>
     <a class="button" href="{{ '/floor/roadmap/' | relative_url }}">Read the roadmap</a>
+    <a class="button" href="{{ '/floor/claims/' | relative_url }}">Check every claim</a>
     <a class="button" href="https://github.com/LLM-4-People/bridlewise-testing">Open the repository</a>
   </div>
-  <p class="hero-note">Node 24 · Linux first · public gate green · full suite incomplete · not production-ready</p>
+  <p class="hero-note">Developer preview. Not production-ready, not audited, not for sensitive code.</p>
 </section>
+<!-- END GENERATED: the site's front door -->
 
 <div class="callout-warning" role="note">
 <p>Bridlewise is an experimental developer preview. It is not production-ready, and it is not safe for sensitive, proprietary, regulated, or production code. The floor records verification work about Bridlewise. It does not turn Bridlewise into a supported product.</p>

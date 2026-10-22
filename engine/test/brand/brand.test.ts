@@ -7,13 +7,17 @@
  * and every surface renders from the sources alone, escaped and promise-free.
  */
 import assert from "node:assert/strict";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { syncFrontDoors, withFrontBlock } from "../../scripts/brand/cli.ts";
+import { createTempDir } from "../support/temp-dir.ts";
+
 import { InputError } from "../../src/kernel/errors.ts";
 import { claimViolations, decisionStates, readClaims, type Claim } from "../../scripts/brand/claims.ts";
-import { messagingViolations, readMessaging, type Messaging } from "../../scripts/brand/messaging.ts";
-import { claimsSitePage, judgeClaims, orgProfile, readmeHero, releaseHeader, repositoryMetadata } from "../../scripts/brand/render.ts";
+import { messagingViolations, readMessaging, type Messaging } from "../../src/workflow/messaging.ts";
+import { claimsSitePage, FRONT_DOORS, judgeClaims, orgProfile, readmeHero, releaseHeader, repositoryMetadata, siteFront } from "../../scripts/brand/render.ts";
 
 const REPOSITORY_ROOT = join(import.meta.dirname, "..", "..", "..");
 const COMMIT = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00";
@@ -23,7 +27,7 @@ const register = (...claims: unknown[]): unknown => ({ schema: "bridlewise-claim
 
 const MESSAGING: Messaging = {
   name: "Bridlewise", repositoryUrl: "https://github.com/o/r", siteUrl: "https://o.github.io/r/",
-  promise: "Every claim comes with a receipt.", summary: "A cockpit <for> runs.", status: "Developer preview. Not for sensitive code.",
+  promise: "Every claim comes with a receipt.", summary: "A cockpit <for> runs.", repository: "This repository is the floor.", status: "Developer preview. Not for sensitive code.",
   license: "AGPL-3.0", description: "A cockpit. Developer preview.", topics: ["agent-harness"],
   about: { word: "bridle-wise", partOfSpeech: "adjective", definition: "trained to obey the reins", source: "Collins", sourceUrl: "https://example.test/d", line: "The harness holds the reins." },
 };
@@ -108,4 +112,47 @@ test("every surface renders from the sources: escaped, honest, the retraction vi
   assert.match(page, /<a href="https:\/\/example\.test\/run\/1">testing\.ci<\/a> <span class="floor-state" data-status="fail">fail<\/span>/u);
   assert.match(page, /0 hold · 2 retracted · 0 not checked · 1 designed, not built · 1 not claimed/u);
   assert.equal(page, claimsSitePage(MESSAGING, judged, COMMIT, decisions), "deterministic");
+});
+
+test("the front doors: this repository's are current, and harness sync is the only writer", () => {
+  assert.deepEqual(syncFrontDoors(REPOSITORY_ROOT, false), { allCurrent: true, status: "current", changed: [], problems: [] });
+  const text = withFrontBlock("a\n<!-- B -->\nold\n<!-- E -->\nz", "<!-- B -->", "<!-- E -->", "new");
+  assert.equal(text, "a\n<!-- B -->\nnew\n<!-- E -->\nz");
+  assert.equal(withFrontBlock("no markers", "<!-- B -->", "<!-- E -->", "x"), null);
+  assert.equal(withFrontBlock("<!-- B --><!-- E --><!-- B -->", "<!-- B -->", "<!-- E -->", "x"), null, "a second block is refused");
+  assert.match(siteFront(MESSAGING), /<h1>Every claim comes with a receipt\.<\/h1>/u);
+  assert.match(siteFront(MESSAGING), /A cockpit &lt;for&gt; runs\./u);
+});
+
+test("mutation: a broken source, a missing block or a hand edit fails the front-door check", () => {
+  // A copy of the sources, the decision records and the front doors, in a scratch tree.
+  const root = createTempDir("front-doors-");
+  for (const path of ["docs/brand", "docs/decisions", ...new Set(FRONT_DOORS.map((d) => d.path))]) cpSync(join(REPOSITORY_ROOT, path), join(root, path), { recursive: true });
+  const claims = JSON.parse(readFileSync(join(REPOSITORY_ROOT, "docs/brand/claims.json"), "utf8")) as { claims: { evidence?: string | null }[] };
+  for (const c of claims.claims) if (typeof c.evidence === "string" && !c.evidence.startsWith("https://")) {
+    mkdirSync(join(root, c.evidence.replace(/#.*$/u, ""), ".."), { recursive: true });
+    writeFileSync(join(root, c.evidence.replace(/#.*$/u, "")), "");
+  }
+  assert.equal(syncFrontDoors(root, false).status, "current");
+  // A hand edit inside the README block is stale; sync rewrites it.
+  const readme = join(root, "README.md");
+  writeFileSync(readme, readFileSync(readme, "utf8").replace("**Every claim comes with a receipt.**", "**A hand-written promise.**"));
+  assert.deepEqual(syncFrontDoors(root, false), { allCurrent: false, status: "stale", changed: ["README.md"], problems: [] });
+  assert.equal(syncFrontDoors(root, true).status, "regenerated");
+  assert.equal(syncFrontDoors(root, false).status, "current");
+  // A claim citing a proof the tree does not hold is refused (the PR that deletes a cited proof).
+  const proof = claims.claims.find((c) => typeof c.evidence === "string" && !c.evidence.startsWith("https://"))!.evidence!;
+  writeFileSync(join(root, "docs/brand/claims.json"), JSON.stringify({ ...claims, claims: claims.claims.map((c) => (c.evidence === proof ? { ...c, evidence: "tests/deleted.test.ts" } : c)) }));
+  const refused = syncFrontDoors(root, false);
+  assert.equal(refused.status, "refused");
+  assert.match(refused.problems.join("\n"), /claims_register_invalid: .*tests\/deleted\.test\.ts/su);
+  // A messaging source that drops the developer-preview line is refused.
+  writeFileSync(join(root, "docs/brand/claims.json"), JSON.stringify(claims));
+  const messaging = JSON.parse(readFileSync(join(root, "docs/brand/messaging.json"), "utf8")) as Record<string, unknown>;
+  writeFileSync(join(root, "docs/brand/messaging.json"), JSON.stringify({ ...messaging, status: "Production-ready." }));
+  assert.match(syncFrontDoors(root, false).problems.join("\n"), /messaging_source_invalid: .*status must say it is a developer preview/su);
+  // A front door that lost its markers is refused, never skipped.
+  writeFileSync(join(root, "docs/brand/messaging.json"), JSON.stringify(messaging));
+  writeFileSync(readme, "# A README without its block\n");
+  assert.deepEqual(syncFrontDoors(root, false).problems, ["README.md carries no single generated front-door block"]);
 });
