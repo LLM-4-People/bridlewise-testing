@@ -16,6 +16,19 @@
 import { escapeHtml } from "./markup.ts";
 import { THEMES, themeColor, type ThemeName, type TokenOwner } from "./token-reader.ts";
 
+/** A figure's refusal, by code. */
+export class FigureError extends Error {
+  readonly code: "figure_id_invalid";
+  constructor(code: "figure_id_invalid", message: string) {
+    super(`${code}: ${message}`);
+    this.name = "FigureError";
+    this.code = code;
+  }
+}
+
+/** The shape of an inline figure's id prefix: it is spliced into ids and `url(#…)` references, so it is a plain name. */
+const FIGURE_ID = /^[a-z][a-z\d-]*$/u;
+
 /** Each theme as a `<picture>` source names it. */
 export const FIGURE_SCHEMES: Readonly<Record<ThemeName, "light" | "dark">> = Object.freeze({ logbook: "light", carbon: "dark" });
 
@@ -188,6 +201,7 @@ export function boxFigureViolations(value: unknown): readonly string[] {
  * figure's own ids (one page may hold several figures).
  */
 export function boxFigureInline(figure: BoxFigure, id: string): string {
+  if (!FIGURE_ID.test(id)) throw new FigureError("figure_id_invalid", `${JSON.stringify(id)} is not a figure id (lower-case letters, digits and hyphens, starting with a letter)`);
   const t = (cls: string, at: readonly [number, number], text: string, anchor = ""): string =>
     `<text class="${cls}" x="${n(at[0])}" y="${n(at[1])}"${anchor}>${x(text)}</text>`;
   const boxes = figure.boxes.map((box) => [

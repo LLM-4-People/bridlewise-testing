@@ -8,7 +8,9 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { boxFigureInline, boxFigureViolations, figureFiles, figurePicture, partBarFigure, partBarSentence } from "../../shared/figures.ts";
+import { JSDOM } from "jsdom";
+
+import { boxFigureInline, boxFigureViolations, FigureError, figureFiles, figurePicture, partBarFigure, partBarSentence } from "../../shared/figures.ts";
 import { readTokenOwner, themeColor, THEMES } from "../../shared/token-reader.ts";
 import { DECISION_IMPLEMENTATIONS, DECISION_STATUS_FIGURE, decisionStatus } from "../../engine/scripts/verification/tracker-entries.ts";
 
@@ -74,6 +76,53 @@ test("a boxes figure is drawn inline with classes only, its ids prefixed, and ev
   for (const name of new Set([...svg.matchAll(/class="([^"]+)"/gu)].flatMap((match) => match[1].split(" ")))) {
     assert.ok(css.includes(`.${name} `) || css.includes(`.${name},`), `.${name} has a rule in style.css`);
   }
+});
+
+/** Text that tries every way out of an SVG or HTML text node and attribute. */
+const HOSTILE = [
+  '<script>alert(1)</script>',
+  '"/><script>alert(2)</script><x a="',
+  "'/><image href=x onerror=alert(3)>",
+  "]]><!-- & &amp; </text></svg>",
+];
+
+/** The SVG parsed as XML: it must be well formed, hold no script and no element the generator does not draw. */
+function parsedSvg(svg) {
+  const document = new new JSDOM("").window.DOMParser().parseFromString(svg, "image/svg+xml");
+  assert.equal(document.getElementsByTagName("parsererror").length, 0, `well-formed: ${svg.slice(0, 200)}`);
+  for (const tag of ["script", "image", "foreignObject", "x"]) assert.equal(document.getElementsByTagName(tag).length, 0, `no <${tag}> escaped into the figure`);
+  for (const element of document.getElementsByTagName("*")) {
+    for (const attribute of element.attributes) assert.ok(!/^on/iu.test(attribute.name), `no event handler: ${attribute.name}`);
+  }
+  return document;
+}
+
+test("hostile labels stay text: every string a figure carries is escaped where it lands", () => {
+  for (const evil of HOSTILE) {
+    const bar = { title: evil, subtitle: evil, source: evil, parts: [{ label: evil, count: 2, ink: "--accent" }, { label: evil, count: 1, ink: "--ink-2", hatched: true }] };
+    for (const theme of THEMES) {
+      const document = parsedSvg(partBarFigure(bar, OWNER, theme));
+      const texts = [...document.getElementsByTagName("text")].map((node) => node.textContent);
+      assert.ok(texts.filter((text) => text === evil).length >= 4, `the title, subtitle and both labels read as the text itself (${theme})`);
+      assert.equal(document.querySelector("title").textContent, `${evil}, ${evil}`, "the title is the headline and what it divides");
+      assert.equal(document.querySelector("desc").textContent, partBarSentence(bar));
+    }
+    const boxes = { ...figure, title: evil, desc: evil, heading: evil, aside: evil, foot: evil, boxes: figure.boxes.map((box) => ({ ...box, title: evil, lines: box.lines.map(() => evil), ...(box.tag === undefined ? {} : { tag: evil }) })), edges: figure.edges.map((edge) => (edge.label === undefined ? edge : { ...edge, label: evil })) };
+    const inline = parsedSvg(boxFigureInline(boxes, "fig-evil"));
+    assert.equal(inline.querySelector("title").textContent, evil);
+    assert.ok([...inline.getElementsByTagName("text")].every((node) => node.textContent === evil), "every box, line, tag, heading and foot is the text itself");
+    const picture = new JSDOM(figurePicture(evil, evil, evil)).window.document;
+    assert.equal(picture.querySelectorAll("script, image").length, 0, "the picture holds no script");
+    assert.equal(picture.querySelector("img").getAttribute("alt"), evil, "the alt text is the sentence itself");
+    assert.equal(picture.querySelector("img").getAttribute("src"), `${evil}/${figureFiles(evil).logbook}`);
+  }
+});
+
+test("an inline figure's id is a plain name: anything else is refused before it reaches an id or url(#…)", () => {
+  for (const id of ['x" onload="alert(1)', "fig a", "Fig", "1fig", "fig)url(", ""]) {
+    assert.throws(() => boxFigureInline(figure, id), (error) => error instanceof FigureError && error.code === "figure_id_invalid", JSON.stringify(id));
+  }
+  assert.doesNotThrow(() => boxFigureInline(figure, "fig-architecture-2"));
 });
 
 test("a malformed figure is refused, each fault named", () => {
