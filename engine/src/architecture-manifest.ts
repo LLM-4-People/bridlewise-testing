@@ -5569,17 +5569,17 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-gates-catalogue", path: "src/workflow/gates/catalogue.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 20, namesSha256: "941c656a0aacc5be3618d31efcff66d1579cdbc8fc82f22c52b6b29e46e35571" },
+      owner: "verification-workflow", publicApi: { exportCount: 21, namesSha256: "0a9b6297e34bef61186f8b8d70107fccc7b202d902262da024ef9c340fec4c40" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-gates-cli", path: "src/workflow/gates/gates-cli.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 1, namesSha256: "5ca33272c12260227499de5289684edf65e20feacdc73eaa2e19ea3557f23e14" },
-      dependencies: ["guardian/build.ts","node:fs","node:path","node:util","src/git/repository-ownership.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/tree-identity.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/cell-run.ts","src/workflow/gates/key.ts","src/workflow/gates/plan.ts","src/workflow/gates/populations.ts","src/workflow/gates/seal.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["guardian/build.ts","node:fs","node:path","node:util","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/tree-identity.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/github.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/cell-run.ts","src/workflow/gates/key.ts","src/workflow/gates/plan.ts","src/workflow/gates/populations.ts","src/workflow/gates/reuse.ts","src/workflow/gates/seal.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-plan", path: "src/workflow/gates/plan.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 10, namesSha256: "08b192ff3d9acf1a50aa77384361f8e6f774fbdb1118585c950f12268832a6a4" },
+      owner: "verification-workflow", publicApi: { exportCount: 11, namesSha256: "738613d1e19005db0ea1d8183b3ec5e4da8d97b2e6c13190f4b5cced75311f02" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/key.ts"],
     }),
     moduleContract({
@@ -5599,8 +5599,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-gates-workflows", path: "src/workflow/gates/workflows.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 17, namesSha256: "d339f7f93b4e4488e3766343370dd05df022e2bd7d5219a760eb2f233cebe235" },
-      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/text/yaml-emit.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/workflow-scripts.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 16, namesSha256: "359c8e13472e754fc8bf5232d542ffa99872db1af8703d8da839973b2372f1bd" },
+      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/text/yaml-emit.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/reuse.ts","src/workflow/gates/workflow-scripts.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-cell-run", path: "src/workflow/gates/cell-run.ts", realm: "runtime", layer: "infrastructure",
@@ -5695,12 +5695,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-door-door-cli", path: "src/workflow/door/door-cli.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 1, namesSha256: "b74a4a5c8aa607e83e130528b2d2cc738ca8c1f2b5f06dcbd235e68ec27a6668" },
-      dependencies: ["node:fs","node:path","node:util","src/git/repository-ownership.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/command-result.ts","src/workflow/door/door-config.ts","src/workflow/door/door-github.ts","src/workflow/door/judge.ts","src/workflow/door/stream.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/github.ts"],
+      dependencies: ["node:fs","node:path","node:util","src/git/repository-ownership.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/command-result.ts","src/workflow/door/door-config.ts","src/workflow/door/door-github.ts","src/workflow/door/judge.ts","src/workflow/door/stream.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/github.ts","src/workflow/gates/plan.ts","src/workflow/gates/reuse.ts"],
     }),
     moduleContract({
       id: "src-workflow-door-door-git", path: "src/workflow/door/door-git.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 8, namesSha256: "c2b95a68d27da2976270758b5f4250ae372d75a2ae7526d7bc40cd47d88b788e" },
-      dependencies: ["src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "854c48ead5dbbf93ecedea8ad146b2ecd791d168b885a47966107a5d931d7e26" },
+      dependencies: ["src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/gates/reuse.ts"],
     }),
     moduleContract({
       id: "src-workflow-door-door-github", path: "src/workflow/door/door-github.ts", realm: "runtime", layer: "infrastructure",
@@ -5710,11 +5710,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-door-judge", path: "src/workflow/door/judge.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 4, namesSha256: "46b82905e2c648c834cae855d1687631687749ab99f6505098c4a3ca1c45ac23" },
-      dependencies: ["node:fs","node:path","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/workflow/door/door-config.ts","src/workflow/door/door-git.ts","src/workflow/door/door-github.ts","src/workflow/door/ratchet.ts","src/workflow/door/tree-judge.ts","src/workflow/door/verdict.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/key.ts","src/workflow/gates/plan.ts","src/workflow/gates/seal.ts","src/workflow/gates/workflows.ts"],
+      dependencies: ["node:fs","node:path","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/workflow/door/door-config.ts","src/workflow/door/door-git.ts","src/workflow/door/door-github.ts","src/workflow/door/ratchet.ts","src/workflow/door/tree-judge.ts","src/workflow/door/verdict.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/key.ts","src/workflow/gates/plan.ts","src/workflow/gates/reuse.ts","src/workflow/gates/seal.ts","src/workflow/gates/workflows.ts"],
     }),
     moduleContract({
       id: "src-workflow-door-ratchet", path: "src/workflow/door/ratchet.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "08ef3876c67ffca8b7d175c7ea474685dd870fecbb31add627a397c8efd2f1c0" },
+      owner: "verification-workflow", publicApi: { exportCount: 4, namesSha256: "ce15cba85d180000bf96c7d9b786460dac5c8dbbc6653bee89b1005d884f326a" },
       dependencies: ["src/kernel/integrity.ts","src/kernel/verification-paths.ts"],
     }),
     moduleContract({
@@ -5736,6 +5736,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-workflow-gates-key", path: "src/workflow/gates/key.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 9, namesSha256: "c4ea9469fa21dc1993179dfa8290de3a05b16085c62ff68fac49d0dce4202dfa" },
       dependencies: ["node:fs","node:os","node:path","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/gates/catalogue.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-gates-reuse", path: "src/workflow/gates/reuse.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 11, namesSha256: "7dec4cf6270cd7f12e70c75003ece2c162bd9c3a002efa38ced06032d926c748" },
+      dependencies: ["src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/gates/catalogue.ts"],
     }),
     moduleContract({
       id: "src-workflow-door-door-config", path: "src/workflow/door/door-config.ts", realm: "runtime", layer: "infrastructure",

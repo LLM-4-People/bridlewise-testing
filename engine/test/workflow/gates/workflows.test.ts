@@ -30,7 +30,6 @@ import {
   promotionGateWorkflow,
   reusableFailureWorkflow,
   codeqlWorkflow,
-  DOOR_PREDICATE_TYPE,
   doorWorkflow,
   GENERATED_HEADER,
   GENERATED_WORKFLOW_PATHS,
@@ -40,6 +39,7 @@ import {
   syncGeneratedWorkflows,
   workflowText,
 } from "../../../src/workflow/gates/workflows.ts";
+import { DOOR_PREDICATE_TYPE } from "../../../src/workflow/gates/reuse.ts";
 import { Commented } from "../../../src/text/yaml-emit.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
 
@@ -232,8 +232,13 @@ test("door.yml is the trusted judge: main's code on workflow_run, its key only i
   }
   const judge = jobs.judge!.steps as Mutable[];
   const downloads = judge.filter((step) => step.uses instanceof Commented && (step.uses as Commented).value.startsWith("actions/download-artifact@"));
-  assert.equal(downloads.length, 2);
-  assert.ok(downloads.every((step) => (step.with as Mutable)["run-id"] === "${{ github.event.workflow_run.id }}" && step.if === "${{ steps.preflight.outputs.accepted == 'true' }}"), "downloaded by the run id GitHub named, only after the preflight accepted the artifacts");
+  const ofTheRun = downloads.filter((step) => (step.with as Mutable)["run-id"] === "${{ github.event.workflow_run.id }}");
+  assert.equal(ofTheRun.length, 2);
+  assert.ok(ofTheRun.every((step) => step.if === "${{ steps.preflight.outputs.accepted == 'true' }}"), "downloaded by the run id GitHub named, only after the preflight accepted the artifacts");
+  const claimed = downloads.filter((step) => (step.with as Mutable)["run-id"] === "${{ steps.claim.outputs.door-run }}");
+  assert.equal(claimed.length, 1, "a claimed reuse's verdict is downloaded from the door run the door located itself");
+  const locator = judge.find((step) => step.name === "Publish the verdict's locator")!;
+  assert.equal((locator.with as Mutable).name, "door-verdict-${{ steps.judge.outputs.key }}-${{ steps.judge.outputs.verdict }}");
   const attest = judge.find((step) => step.uses instanceof Commented && (step.uses as Commented).value.startsWith("actions/attest@"))!;
   assert.equal((attest.with as Mutable)["subject-path"], "${{ runner.temp }}/door/keydoc.json", "the subject is the key document itself");
   assert.equal((attest.with as Mutable)["predicate-type"], DOOR_PREDICATE_TYPE);

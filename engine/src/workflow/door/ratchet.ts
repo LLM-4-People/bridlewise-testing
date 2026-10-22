@@ -21,8 +21,6 @@ import { deepFreeze } from "../../kernel/integrity.ts";
 import { GENERATED_WORKFLOW_FILES } from "../../kernel/verification-paths.ts";
 import type { Gate } from "../gates/catalogue.ts";
 
-/** The paths that ARE the pipeline's owner: a tree that changes any of them changes CI. */
-export const GENERATOR_SOURCES = deepFreeze(["engine/src/workflow/gates", "engine/src/kernel/verification-paths.ts", "engine/bridlewise.config.json"] as const);
 
 export type RatchetFinding = Readonly<{ rule: "workflow-hand-edit" | "workflow-foreign" | "workflow-missing" | "gate-dropped" | "gate-demoted"; path?: string; gate?: string; detail: string }>;
 
