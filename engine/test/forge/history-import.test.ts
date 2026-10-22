@@ -68,6 +68,10 @@ const CORAL = entryOf(CORAL_KEY);
 const MAKORA = entryOf(MAKORA_KEY);
 const DSN = entryOf(`Pwd=${SHORT_PASSWORD};`);
 
+test("the four planted values belong to four DISTINCT catalogue rows (a merge of two rows would let a location list match the wrong one)", () => {
+  assert.equal(new Set([GITHUB, CORAL, MAKORA, DSN]).size, 4, JSON.stringify([GITHUB, CORAL, MAKORA, DSN]));
+});
+
 const POLICY = ROOT_POLICY.workflow.historyImport;
 /** An oracle that finds nothing (the catalogue's own tests). */
 const NO_ORACLE: OracleRunner = async () => "[]";
@@ -367,6 +371,25 @@ const TIGHT: CpuBounds = { cpuBudgetMs: 400, stallMs: 600, pollMs: 50, killGrace
 const NODE = process.execPath;
 const ENV = { PATH: process.env["PATH"] ?? "" };
 
+/**
+ * A node one-liner that burns `cpuMs` of its OWN CPU, user plus system (never a wall-clock wait), then runs
+ * `after`. Both halves count: the loop's own `cpuUsage()` calls are system time, and a user-only loop
+ * measured several times its intended work.
+ */
+function burn(cpuMs: number, after = ""): string {
+  return `const used = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; }; const until = used() + ${String(cpuMs)}; while (used() < until) {} ${after}`;
+}
+
+/**
+ * Every child these tests start ENDS ON ITS OWN, so a mutated bound fails its test by name instead of hanging the file:
+ * a busy child burns at most `SPIN_CAP_MS` of CPU (ten budgets, then it exits); a quiet one exits after `QUIET_LIFE_MS`
+ * (it only has to outlive a stall window). Neither judges anything: the run's ending and the assertions do.
+ */
+const SPIN_CAP_MS = 4_000;
+const QUIET_LIFE_MS = 30_000;
+const SPIN = burn(SPIN_CAP_MS);
+const QUIET = `setTimeout(() => {}, ${String(QUIET_LIFE_MS)});`;
+
 /** The pid a script prints first (its own), so a test can prove the whole group is gone. */
 async function refusedRun(script: string, bounds: CpuBounds): Promise<Readonly<{ code: string | undefined }>> {
   try {
@@ -380,17 +403,17 @@ async function refusedRun(script: string, bounds: CpuBounds): Promise<Readonly<{
 test("the bounded runner: CPU spent past its budget stops the group; no output and no CPU is a stall; progress is never a stall, however long; no wall clock", async () => {
   // A busy loop: CPU past the budget, stopped through the owned group (with the child it spawned).
   const pidFile = join(createTempDir("bounded-runner-"), "pids");
-  const burner = `require("node:child_process").spawn(process.execPath, ["-e", "for(;;){}"], { stdio: "ignore" }); require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); for(;;){}`;
+  const burner = `require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(SPIN)}], { stdio: "ignore" }); require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); ${SPIN}`;
   assert.equal((await refusedRun(burner, TIGHT)).code, "history_tool_cpu_exhausted");
   const leader = Number(readFileSync(pidFile, "utf8"));
   assert.equal(isProcessAlive(leader), false, "the tool is gone");
   // Asleep: no output and no CPU for the stall window.
-  assert.equal((await refusedRun("setTimeout(() => {}, 60000)", TIGHT)).code, "history_tool_stalled");
+  assert.equal((await refusedRun(QUIET, TIGHT)).code, "history_tool_stalled");
   // Slow but progressing: a line every 200 ms for 2.4 s — four stall windows of wall time, never a stall.
   const progressing = await runBounded("probe", [NODE, "-e", "let n = 0; const t = setInterval(() => { console.log(n); if (++n === 12) clearInterval(t); }, 200)"], { cwd: process.cwd(), env: ENV, bounds: TIGHT });
   assert.equal(progressing.stdout.trim().split("\n").length, 12);
   // Output past its bound, a failing status, and stdin reaching the tool.
-  assert.equal((await refusedRun("for(;;) process.stdout.write('x'.repeat(65536))", { ...TIGHT, cpuBudgetMs: 60_000, outputBytes: 1 << 16 })).code, "history_tool_output_exceeded");
+  assert.equal((await refusedRun("for (let n = 0; n < 1024; n += 1) process.stdout.write('x'.repeat(65536))", { ...TIGHT, cpuBudgetMs: 60_000, outputBytes: 1 << 16 })).code, "history_tool_output_exceeded");
   assert.equal((await refusedRun("process.exit(3)", TIGHT)).code, "history_tool_failed");
   const echoed = await runBounded("probe", [NODE, "-e", "process.stdin.pipe(process.stdout)"], { cwd: process.cwd(), env: ENV, bounds: TIGHT, input: Buffer.from("through stdin") });
   assert.equal(echoed.stdout, "through stdin");
@@ -426,31 +449,22 @@ test("the work-bounded run bounds the whole GROUP: a grandchild holding the pipe
   const dir = createTempDir("bounded-group-");
   // 1. The leader exits at once; the grandchild sleeps holding the pipe: the run lasts, then stalls, and the group dies.
   const sleeper = join(dir, "sleeper");
-  const asleep = await runCpuBounded(NODE, ["-e", leaderWithGrandchild(sleeper, "setTimeout(() => {}, 120000)")], { cwd: dir, env: ENV, bounds: TIGHT });
+  const asleep = await runCpuBounded(NODE, ["-e", leaderWithGrandchild(sleeper, QUIET)], { cwd: dir, env: ENV, bounds: TIGHT });
   assert.equal(asleep.ending, "stalled");
   assert.equal(isProcessAlive(Number(readFileSync(sleeper, "utf8"))), false, "the grandchild was stopped with its group");
   // 2. The grandchild burns CPU after the leader exits: over budget, the group dies.
   const burner = join(dir, "burner");
-  const burning = await runCpuBounded(NODE, ["-e", leaderWithGrandchild(burner, "for(;;){}")], { cwd: dir, env: ENV, bounds: TIGHT });
+  const burning = await runCpuBounded(NODE, ["-e", leaderWithGrandchild(burner, SPIN)], { cwd: dir, env: ENV, bounds: TIGHT });
   assert.equal(burning.ending, "cpu-exhausted");
   assert.equal(isProcessAlive(Number(readFileSync(burner, "utf8"))), false, "the burning grandchild was stopped with its group");
   // 3. The leader burns past the budget, then exits (reaped by this process) while an idle grandchild holds the pipe:
   //    its CPU stays in the total, so the run is over budget, never merely stalled.
   const spent = join(dir, "spent");
-  const leaderSpent = await runCpuBounded(NODE, ["-e", leaderWithGrandchild(spent, "setTimeout(() => {}, 120000)", 700)], { cwd: dir, env: ENV, bounds: { ...TIGHT, stallMs: 5_000 } });
+  const leaderSpent = await runCpuBounded(NODE, ["-e", leaderWithGrandchild(spent, QUIET, 700)], { cwd: dir, env: ENV, bounds: { ...TIGHT, stallMs: 5_000 } });
   assert.equal(leaderSpent.ending, "cpu-exhausted");
   assert.ok((leaderSpent.cpuMs ?? 0) > TIGHT.cpuBudgetMs, `the total kept the exited leader's work (${String(leaderSpent.cpuMs)} ms)`);
   assert.equal(isProcessAlive(Number(readFileSync(spent, "utf8"))), false);
 });
-
-/**
- * A node one-liner that burns `cpuMs` of its OWN CPU, user plus system (never a wall-clock wait), then runs
- * `after`. Both halves count: the loop's own `cpuUsage()` calls are system time, and a user-only loop
- * measured several times its intended work.
- */
-function burn(cpuMs: number, after = ""): string {
-  return `const used = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; }; const until = used() + ${String(cpuMs)}; while (used() < until) {} ${after}`;
-}
 
 test("the work-bounded run's bounds, each pinned by a test a mutation turns red (S1, S2, P1, G1)", async () => {
   const dir = createTempDir("bounded-bounds-");
@@ -462,24 +476,39 @@ test("the work-bounded run's bounds, each pinned by a test a mutation turns red 
       await assert.rejects(runCpuBounded(NODE, ["-e", `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`], { cwd: dir, env: ENV, bounds }), (error: Error & { code?: string }) => error.code === "cpu_bounds_invalid" && error.message.includes(name), `${name}=${String(value)}`);
     }
   }
+  await assert.rejects(runCpuBounded(NODE, ["-e", `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`], { cwd: dir, env: ENV, bounds: { ...TIGHT, pollMs: TIGHT.stallMs } }), (error: Error & { code?: string }) => error.code === "cpu_bounds_invalid" && error.message.includes("pollMs"));
   assert.equal(existsSync(marker), false, "nothing was spawned under an invalid bound");
   // S2: CPU is progress: a child busy for four stall windows of CPU, printing nothing, exits; it is never stalled.
   const busy = await runCpuBounded(NODE, ["-e", burn(1_200)], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 60_000, stallMs: 300 } });
   assert.equal(busy.ending, "exited");
   // P1: a child the leader forks in a group of its OWN (so no member sample ever sees it), which burns CPU, exits and is
   //     reaped by the leader, counts — only through the leader's reaped-child time (proc(5) cutime/cstime).
-  const reaped = await runCpuBounded(NODE, ["-e", `require("node:child_process").spawnSync(process.execPath, ["-e", ${JSON.stringify(burn(700))}], { stdio: "ignore", detached: true }); setTimeout(() => {}, 120000);`], { cwd: dir, env: ENV, bounds: { ...TIGHT, stallMs: 5_000 } });
+  const reaped = await runCpuBounded(NODE, ["-e", `require("node:child_process").spawnSync(process.execPath, ["-e", ${JSON.stringify(burn(700))}], { stdio: "ignore", detached: true }); ${QUIET}`], { cwd: dir, env: ENV, bounds: { ...TIGHT, stallMs: 5_000 } });
   assert.equal(reaped.ending, "cpu-exhausted", "the reaped child's 700 ms passed the 400 ms budget");
   // G1: two live grandchildren each burn under the budget (900 ms of work plus node's start, under 1,500 ms);
   //     their SUM is over it (a maximum per member would never see the budget spent).
   const pids = join(dir, "split");
   const split = await runCpuBounded(NODE, ["-e", [
     `const { spawn } = require("node:child_process");`,
-    `const a = spawn(process.execPath, ["-e", ${JSON.stringify(burn(900, "setTimeout(() => {}, 120000);"))}], { stdio: "inherit" });`,
-    `const b = spawn(process.execPath, ["-e", ${JSON.stringify(burn(900, "setTimeout(() => {}, 120000);"))}], { stdio: "inherit" });`,
+    `const a = spawn(process.execPath, ["-e", ${JSON.stringify(burn(900, QUIET))}], { stdio: "inherit" });`,
+    `const b = spawn(process.execPath, ["-e", ${JSON.stringify(burn(900, QUIET))}], { stdio: "inherit" });`,
     `require("node:fs").writeFileSync(${JSON.stringify(pids)}, a.pid + " " + b.pid);`,
     `process.exit(0);`,
   ].join(" ")], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 1_500, stallMs: 5_000 } });
   assert.equal(split.ending, "cpu-exhausted", "two members' work, each under the 1,500 ms budget, passed it together");
   for (const pid of readFileSync(pids, "utf8").split(" ").map(Number)) assert.equal(isProcessAlive(pid), false, "both grandchildren were stopped with the group");
+  // G1, a VANISHED member: the leader burns 60% of the budget and exits; only then does its grandchild burn another 60%.
+  //     The grandchild learns the leader is gone from its stdin, a pipe only the leader holds, reaching end of file
+  //     (Node caches `process.ppid`, so a reparenting is never seen). The leader's work must stay in the sum after it
+  //     is gone: a maximum per member, or a total of live members only, sees about 60% and passes it.
+  const later = join(dir, "later");
+  const vanished = await runCpuBounded(NODE, ["-e", [
+    `const { spawn } = require("node:child_process");`,
+    burn(900),
+    `const g = spawn(process.execPath, ["-e", ${JSON.stringify(`process.stdin.on("end", () => { ${burn(900, QUIET)} }); process.stdin.resume();`)}], { stdio: ["pipe", "inherit", "inherit"] });`,
+    `require("node:fs").writeFileSync(${JSON.stringify(later)}, String(g.pid));`,
+    `process.exit(0);`,
+  ].join(" ")], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 1_500, stallMs: 5_000 } });
+  assert.equal(vanished.ending, "cpu-exhausted", "the exited leader's 900 ms and its grandchild's later 900 ms passed the 1,500 ms budget together");
+  assert.equal(isProcessAlive(Number(readFileSync(later, "utf8"))), false, "the grandchild was stopped with the group");
 });
