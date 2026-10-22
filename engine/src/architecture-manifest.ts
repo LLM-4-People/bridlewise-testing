@@ -704,7 +704,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "workflow-workspace-contracts", path: "src/workflow/workspace-contracts.ts",
       realm: "shared", layer: "domain", owner: "verification-workflow",
-      publicApi: { exportCount: 38, namesSha256: "223de89ca100349cbe300d82d5e53e76fc9f6587c4b8a281a5b089baa3e2cf05" },
+      publicApi: { exportCount: 42, namesSha256: "c657d32c0bb5abca79df5eb5dfc497d29f50a8f64acfbc07f5a2b5b3f271d3f3" },
       dependencies: ["src/filesystem/path-boundary.ts","src/git/git-port.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/hash-binding-registry.ts","zod"],
       executionBoundary: "pure",
       ports: { requires: [], provides: ["workspace-contracts"] },
@@ -722,8 +722,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "workflow-workspace-manager", path: "src/workflow/workspace-manager.ts",
       realm: "runtime", layer: "application", owner: "verification-workflow",
-      publicApi: { exportCount: 16, namesSha256: "1d49236671cd880fc0f8366a77fb3c321e9245f8942380706d0c920adecf0169" },
-      dependencies: ["node:fs","node:path","src/agents/agent-config.ts","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/git/ignored-copies.ts","src/git/repository-ownership.ts","src/git/working-copy.ts","src/kernel/config-contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/modules/effect-boundary/domain/write-lease.ts","src/shared/budget-verdict.ts","src/shared/debug/debug-system.ts","src/shared/run-history.ts","src/timeline/timeline-store.ts","src/workflow/checkout-setup.ts","src/workflow/failure-owners.ts","src/workflow/hash-binding-registry.ts","src/workflow/record-links.ts","src/workflow/repository-registry.ts","src/workflow/resource-lock.ts","src/workflow/timeline-shard.ts","src/workflow/tree-landing.ts","src/workflow/workflow-config.ts","src/workflow/workspace-contracts.ts","src/workflow/workspace-registry.ts"],
+      publicApi: { exportCount: 18, namesSha256: "c1efa0099b5c06ea87a3747c1c53e575d921596ddc0143fa6528ba1db7a2ad53" },
+      dependencies: ["node:fs","node:path","src/agents/agent-config.ts","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/git/git-port.ts","src/git/ignored-copies.ts","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/working-copy.ts","src/kernel/config-contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/modules/effect-boundary/domain/write-lease.ts","src/shared/budget-verdict.ts","src/shared/debug/debug-system.ts","src/shared/run-history.ts","src/timeline/timeline-store.ts","src/workflow/checkout-setup.ts","src/workflow/failure-owners.ts","src/workflow/hash-binding-registry.ts","src/workflow/record-links.ts","src/workflow/repository-registry.ts","src/workflow/resource-lock.ts","src/workflow/timeline-shard.ts","src/workflow/tree-landing.ts","src/workflow/workflow-config.ts","src/workflow/workspace-contracts.ts","src/workflow/workspace-forge.ts","src/workflow/workspace-registry.ts"],
       executionBoundary: "effect-adapter",
       effects: ["child-process", "filesystem-read", "filesystem-write", "git", "process-status"],
       ports: { requires: ["worktree-port", "resource-locking", "workspace-contracts", "workspace-timeline-shard", "agent-config"], provides: ["workspace-manager"] },
@@ -2269,10 +2269,10 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({ id: "redaction-engine", path: "src/privacy/redaction-engine.ts", realm: "shared", layer: "domain", owner: "privacy-and-redaction", publicApi: { exportCount: 20, namesSha256: "0f24dcea015e97f6a593085e93412137773f7f9bed0b7c41c57ab9b568c6cc33" }, dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/privacy/credential-lexicon.ts","src/privacy/identity-grammars.ts","src/privacy/pii-registry.ts","src/privacy/privacy-policy.ts","src/privacy/secret-intelligence.ts","src/privacy/secret-signals.ts","src/privacy/text-normalize.ts","src/privacy/value-intrinsic.ts","src/shared/best-effort.ts","src/text/utf8-offsets.ts"], executionBoundary: "pure", responsibilities: ["central-secret-and-pii-span-detection-and-in-place-redaction-with-byte-accurate-spans"] }),
     moduleContract({ id: "evidence-handler", path: "src/privacy/evidence-handler.ts", realm: "shared", layer: "domain", owner: "privacy-and-redaction", publicApi: { exportCount: 14, namesSha256: "d7899b843bcb1fac5097513b977469f0e5c7946dfe43e0af091c99bb9487ea85" }, dependencies: ["node:os","src/kernel/integrity.ts","src/privacy/privacy-policy.ts","src/privacy/redaction-engine.ts"], executionBoundary: "pure", responsibilities: ["redact-evidence-before-persistence-display-and-log-with-unparseable-blocking"] }),
     moduleContract({ id: "file-viewer", path: "src/privacy/file-viewer.ts", realm: "shared", layer: "domain", owner: "privacy-and-redaction", publicApi: { exportCount: 9, namesSha256: "affd3dd91b81b915281a7067f709a4fb750779820e80b3e2c544538c1a3d13a3" }, dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/privacy/privacy-policy.ts","src/privacy/redaction-engine.ts","src/privacy/secret-files.ts"], executionBoundary: "pure", responsibilities: ["full-regex-semantic-file-viewing-with-in-place-redaction-and-unparseable-blocking"] }),
-    moduleContract({ id: "git-port", path: "src/git/git-port.ts", realm: "shared", layer: "ports", owner: "workspace-git", publicApi: { exportCount: 88, namesSha256: "4d820c6a78e320367492b3ed3703269bf66e60f46d596ee81de472d6a937f971" }, dependencies: ["src/kernel/integrity.ts","src/kernel/product-identity.ts"], executionBoundary: "pure", ports: { requires: [], provides: ["git-port"] }, responsibilities: ["typed-git-operation-port-for-init-clone-pull-push-commit-branch-tag-checkout-merge-rebase-status-diff-log-and-lifecycle"] }),
+    moduleContract({ id: "git-port", path: "src/git/git-port.ts", realm: "shared", layer: "ports", owner: "workspace-git", publicApi: { exportCount: 90, namesSha256: "7fbdc6d676e6a66e9f248211afb9ea35b1e23111d658e84582fb12feede40cbe" }, dependencies: ["src/kernel/integrity.ts","src/kernel/product-identity.ts"], executionBoundary: "pure", ports: { requires: [], provides: ["git-port"] }, responsibilities: ["typed-git-operation-port-for-init-clone-pull-push-commit-branch-tag-checkout-merge-rebase-status-diff-log-and-lifecycle"] }),
     moduleContract({ id: "git-adapter", path: "src/git/git-adapter.ts", realm: "runtime", layer: "infrastructure", owner: "workspace-git", publicApi: { exportCount: 9, namesSha256: "07c44c8fea1c593fcec2d9f31dd72440fa4a489362b46945e154ce2f10e8467b" }, dependencies: ["node:child_process","node:fs","node:path","src/git/git-config.ts","src/git/git-port.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/process/pinned-process-internal.ts"], executionBoundary: "effect-adapter", ports: { requires: ["git-port"], provides: ["git-adapter"] }, effects: ["child-process","filesystem-read","git","process-status"], responsibilities: ["concrete-git-implementation-via-pinned-process-internal-with-git-optional-locks-zero-and-never-push-enforcement"] }),
     moduleContract({ id: "workspace-lifecycle", path: "src/git/workspace-lifecycle.ts", realm: "runtime", layer: "application", owner: "workspace-git", publicApi: { exportCount: 19, namesSha256: "6471d9c47df6786cddc71959229360653388036794c24c64c315d7b2131f879f" }, dependencies: ["node:fs","node:path","src/git/git-port.ts","src/kernel/errors.ts","src/kernel/integrity.ts"], executionBoundary: "effect-adapter", ports: { requires: ["git-port"], provides: ["workspace-lifecycle"] }, effects: ["filesystem-read","git"], responsibilities: ["workspace-onboarding-remote-management-sync-conflict-detection-branch-tag-checkpoint-promotion-and-rollback"] }),
-    moduleContract({ id: "worktree-port", path: "src/git/worktree-port.ts", realm: "runtime", layer: "infrastructure", owner: "workspace-git", publicApi: { exportCount: 37, namesSha256: "6a20461d215a2d651245c8bde58ef545718f5bc6b38c9c64a98a71091a3dc46c" }, dependencies: ["node:fs","node:path","src/git/git-adapter.ts","src/git/git-config.ts","src/git/git-port.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/process/environment-projection.ts","src/process/pinned-process-internal.ts","src/workflow/workflow-config.ts"], executionBoundary: "effect-adapter", ports: { requires: ["git-adapter"], provides: ["worktree-port"] }, effects: ["filesystem-read"], responsibilities: ["typed-git-worktree-port-for-isolated-agent-workspaces-with-pinned-execution-per-call-timeouts-agent-namespace-enforcement-and-merge-tree-dry-run-parsing"] }),
+    moduleContract({ id: "worktree-port", path: "src/git/worktree-port.ts", realm: "runtime", layer: "infrastructure", owner: "workspace-git", publicApi: { exportCount: 37, namesSha256: "6a20461d215a2d651245c8bde58ef545718f5bc6b38c9c64a98a71091a3dc46c" }, dependencies: ["node:fs","node:path","src/git/git-adapter.ts","src/git/git-config.ts","src/git/git-port.ts","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/process/environment-projection.ts","src/process/pinned-process-internal.ts","src/workflow/workflow-config.ts"], executionBoundary: "effect-adapter", ports: { requires: ["git-adapter"], provides: ["worktree-port"] }, effects: ["filesystem-read"], responsibilities: ["typed-git-worktree-port-for-isolated-agent-workspaces-with-pinned-execution-per-call-timeouts-agent-namespace-enforcement-and-merge-tree-dry-run-parsing"] }),
     moduleContract({ id: "agents-agent-config", path: "src/agents/agent-config.ts", realm: "runtime", layer: "domain", owner: "agents", publicApi: { exportCount: 17, namesSha256: "8aac9999eac1ac0d02b13ed59afc6a57e8dc4f892ae8ff02c14e14fbe13afd1d" }, dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts"], ports: { requires: [], provides: ["agent-config"] } }),
     moduleContract({ id: "agents-agent-runtime", path: "src/agents/agent-runtime.ts", realm: "runtime", layer: "domain", owner: "agents", publicApi: { exportCount: 8, namesSha256: "36e72b3af9bb470a1c58f715ea0a191b904a8d78016526d7168f58cae1288943" }, dependencies: ["src/agents/agents-config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/process/fault-policy.ts","src/runtime/governed-tool-dispatch.ts","src/runtime/response-turn.ts","src/shared/abort-signals.ts","src/shared/best-effort.ts","src/shared/llm/errors.ts","src/shared/llm/responses-disposition.ts","src/shared/llm/responses.ts"], executionBoundary: "effect-adapter", effects: ["cryptography","process-control"], ports: { requires: [], provides: ["agent-runtime"] } }),
     moduleContract({ id: "agents-agent-state", path: "src/agents/agent-state.ts", realm: "runtime", layer: "domain", owner: "agents", publicApi: { exportCount: 16, namesSha256: "93289d9cca9d02f295abeaf3dbcd010de4cc1d337a6432490a106f5f5cf6183d" }, dependencies: ["src/agents/agents-config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/best-effort.ts"], effects: ["cryptography"], ports: { requires: [], provides: ["agent-state"] } }),
@@ -5083,7 +5083,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-git-index-baseline", path: "src/git/index-baseline.ts", realm: "shared", layer: "ports",
       owner: "workspace-git", publicApi: { exportCount: 10, namesSha256: "e55ba2a48a884af629d0b437b53fc1d3c0563592d5e6df2d8d30e859565689c3" },
-      dependencies: ["node:child_process","node:fs","node:path","src/filesystem/private-state.ts","src/git/checkout-state-record.ts","src/git/git-port.ts","src/git/index-entries.ts","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","zod"],
+      dependencies: ["node:child_process","node:fs","node:path","src/filesystem/private-state.ts","src/git/checkout-state-record.ts","src/git/git-port.ts","src/git/index-entries.ts","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","zod"],
     }),
     moduleContract({
       id: "src-shared-exposure-registrations-settings", path: "src/shared/exposure/registrations/settings.ts", realm: "shared", layer: "domain",
@@ -5280,12 +5280,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workspace-registry", path: "src/workflow/workspace-registry.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 3, namesSha256: "2557f9fb4e72b16f5573102ef412e9c41b72d4d998e5274a5f53487e1f9aaac8" },
+      owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "965f15b232e4f3e63068dbde2529fba66a7ecb34d93d6139d2d43cbf27505855" },
       dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/filesystem/file-lock.ts","src/filesystem/private-state.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/repository-registry.ts","src/workflow/workspace-contracts.ts"],
     }),
     moduleContract({
       id: "src-git-tree-reader", path: "src/git/tree-reader.ts", realm: "shared", layer: "ports",
-      owner: "workspace-git", publicApi: { exportCount: 11, namesSha256: "374e6d57eae1c77286d2046a9052d53d690ffcee51df61b73ab9a1d0e8702399" },
+      owner: "workspace-git", publicApi: { exportCount: 14, namesSha256: "d191bda7208c1b334d67bf4caf09c4e943a81594674fd42fb436203e81ff38ec" },
       dependencies: ["node:child_process","node:fs","node:path","src/filesystem/private-state.ts","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts"],
     }),
     moduleContract({
@@ -5371,12 +5371,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-promotion-promotion-run", path: "src/workflow/promotion/promotion-run.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 15, namesSha256: "50c829a83a626f2366deee70eec32a7ddfae63015e859adea8e8c951b4b58ad6" },
-      dependencies: ["node:fs","node:path","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/shared/debug/debug-system.ts","src/workflow/checkout-setup.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/repository-registry.ts","src/workflow/resource-lock.ts","src/workflow/tree-landing.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["node:fs","node:path","src/git/git-port.ts","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/shared/debug/debug-system.ts","src/workflow/checkout-setup.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/repository-registry.ts","src/workflow/resource-lock.ts","src/workflow/tree-landing.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "src-workflow-promotion-publication", path: "src/workflow/promotion/publication.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 12, namesSha256: "334f9ea577b2935c6ab1281e4ca34835c69d5a5c7ff6e68d505175ab49c543c1" },
-      dependencies: ["node:fs","node:os","node:path","src/filesystem/journaled-commit.ts","src/git/index-baseline.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/shared/debug/debug-system.ts","src/workflow/checkout-setup.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/promoter-home.ts","src/workflow/promotion/promotion-run.ts","src/workflow/tree-landing.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["node:fs","node:os","node:path","src/filesystem/journaled-commit.ts","src/git/git-port.ts","src/git/index-baseline.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/shared/debug/debug-system.ts","src/workflow/checkout-setup.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/promoter-home.ts","src/workflow/promotion/promotion-run.ts","src/workflow/tree-landing.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "src-workflow-promotion-rollback", path: "src/workflow/promotion/rollback.ts", realm: "runtime", layer: "infrastructure",
@@ -5396,7 +5396,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-promotion-trigger", path: "src/workflow/promotion/trigger.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "1661a1f614b21eeeb9856dd3542986ff15aef930f26ae7cf38db58f94fd08a5a" },
-      dependencies: ["node:fs","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/process/supervised-run.ts","src/shared/debug/debug-system.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/last-run.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/promote-arguments.ts","src/workflow/promotion/promoter-home.ts","src/workflow/promotion/promotion-run.ts","src/workflow/promotion/trailers.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["node:fs","src/git/git-port.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/process/supervised-run.ts","src/shared/debug/debug-system.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/last-run.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/promote-arguments.ts","src/workflow/promotion/promoter-home.ts","src/workflow/promotion/promotion-run.ts","src/workflow/promotion/trailers.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "scripts-verification-shipped-hooks", path: "scripts/verification/shipped-hooks.ts", realm: "builder", layer: "verification",
@@ -5629,7 +5629,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-forge-repository-reads", path: "src/workflow/forge/repository-reads.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 8, namesSha256: "bb15d13182d32a72deb460804bb6072f12f82a801553ad7756bcd25a7fde1d34" },
+      owner: "verification-workflow", publicApi: { exportCount: 16, namesSha256: "5da5233022f069800cbd06e68f9c57988231bce0848579a8029a2bf3e907fa07" },
       dependencies: ["src/workflow/forge/codes.ts"],
     }),
     moduleContract({
@@ -5681,6 +5681,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-workflow-forge-maintainer-cli", path: "src/workflow/forge/maintainer-cli.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "f40ef49f96e4239f0fb7614ea5cd4a14af205a975d5cd62e0d2d07f5ab86167e" },
       dependencies: ["node:child_process","src/process/environment-projection.ts","src/process/fault-policy.ts","src/process/process-facts.ts","src/workflow/forge/codes.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-workspace-forge", path: "src/workflow/workspace-forge.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 12, namesSha256: "18d1a88c5ad3aa7286c134b6207c6900f1f1284f4d1e7fab0ebfc28e6a95a096" },
+      dependencies: ["src/git/git-port.ts","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts"],
     }),
   ],
 });

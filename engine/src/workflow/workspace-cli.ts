@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { InputError } from "../kernel/errors.ts";
 import { canonicalJson, deepFreeze } from "../kernel/integrity.ts";
 import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
-import { configuredWorktreeGitPort } from "../git/worktree-port.ts";
+import { configuredGitRepository, configuredWorktreeGitPort } from "../git/worktree-port.ts";
 import { configuredGitIdentity } from "../git/repository-ownership.ts";
 import type { WorkingTreeSnapshot } from "../git/working-copy.ts";
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
@@ -22,6 +22,7 @@ import {
 } from "./workspace-manager.ts";
 import { wrapResult, type HarnessCommandResult } from "./command-result.ts";
 import type { ConflictReport, MergeReceipt, ValidationReport, WorkspaceRecord } from "./workspace-contracts.ts";
+import type { PublishedRound } from "./workspace-forge.ts";
 
 /**
  * Workspace CLI — `harness workspace <subcommand>` (root alias:
@@ -32,6 +33,8 @@ import type { ConflictReport, MergeReceipt, ValidationReport, WorkspaceRecord } 
  *   create --agent <name> --read-only [--base <ref>]                               a verifier's checkout
  *   extend <id> --write-set <path…>          widen and renew the lease (admission-checked)
  *   validate <id> [--full]                   the gates; --full adds regenerate, converged and the merge gates
+ *   publish <id>                             a round: the new commits as signed twins on the forge; the draft pull request
+ *   ready <id>                               the pull request leaves draft: its published tree passed validate
  *   merge <id>                               integrate in the workspace, gate, land on the target
  *   recover <id>                             finish or roll back a merge whose integrator died
  *   abort <id> [--quarantine]                remove (or preserve) the worktree and branch
@@ -46,21 +49,24 @@ import type { ConflictReport, MergeReceipt, ValidationReport, WorkspaceRecord } 
  * delegates to the workspace manager (`workspace-manager.ts`, whose header
  * states the flow). The invoking checkout is the one the command runs in; the
  * registry is the repository's (its git common dir), whichever checkout that
- * is. Conflicts are returned as structured fail results carrying the
+ * is. The forge client `publish` and `ready` reach is the forge port's GitHub
+ * adapter, given here once it lands; until then both refuse
+ * `workspace_forge_unavailable` and every local verb works. Conflicts are returned as structured fail results carrying the
  * ConflictReport; every other refusal is typed and reaches the harness CLI's
  * error wrapper. Progress goes to stderr, one JSON line per step.
  */
 
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const SUBCOMMANDS = ["create", "extend", "validate", "merge", "recover", "abort", "snapshot", "list", "status", "sweep"] as const;
+const SUBCOMMANDS = ["create", "extend", "validate", "publish", "ready", "merge", "recover", "abort", "snapshot", "list", "status", "sweep"] as const;
 
 export type WorkspaceCliOutput =
-  | Readonly<{ action: "create" | "extend" | "recover" | "abort" | "status"; record: WorkspaceRecord }>
+  | Readonly<{ action: "create" | "extend" | "ready" | "recover" | "abort" | "status"; record: WorkspaceRecord }>
+  | Readonly<{ action: "publish"; record: WorkspaceRecord; round: PublishedRound }>
   | Readonly<{ action: "validate"; report: ValidationReport }>
   | Readonly<{ action: "merge"; receipt: MergeReceipt }>
   | Readonly<{ action: "snapshot"; snapshot: WorkingTreeSnapshot }>
   | Readonly<{ action: "list"; records: readonly WorkspaceRecord[] }>
-  | Readonly<{ action: "sweep"; swept: readonly string[] }>
+  | Readonly<{ action: "sweep"; swept: readonly string[]; orphaned: readonly string[] }>
   | Readonly<{ conflict: ConflictReport }>;
 
 function progress(line: string): void {
@@ -102,6 +108,7 @@ export async function runWorkspaceCli(
     engineRelative: engineRelativePath(checkoutRoot, ENGINE_ROOT),
     config: isolation,
     git,
+    repository: (checkout: string) => configuredGitRepository(snapshot.document, checkout),
     ...(identity === null ? {} : { identity }),
     commands: { run: (checkout, name, command) => runCheckoutCommand(checkout, name, command, commandRunner()) },
     timeouts,
@@ -142,6 +149,17 @@ async function dispatch(
     const report = await withInstrumentLock(`ws validate ${workspaceId}`, () => manager.validate(workspaceId, { full: flags.includes("--full") }));
     return wrapResult("workspace validate", deepFreeze({ action: "validate", report }), { status: report.status });
   }
+  if (action === "publish") {
+    const workspaceId = requireSingleId(args, "publish");
+    return conflictAware("workspace publish", async () => {
+      const { record, round } = await manager.publish(workspaceId);
+      return deepFreeze({ action: "publish", record, round });
+    });
+  }
+  if (action === "ready") {
+    const workspaceId = requireSingleId(args, "ready");
+    return wrapResult("workspace ready", deepFreeze({ action: "ready", record: await manager.ready(workspaceId) }), { status: "pass" });
+  }
   if (action === "merge") {
     const workspaceId = requireSingleId(args, "merge");
     return conflictAware("workspace merge", async () => deepFreeze({ action: "merge", receipt: await withInstrumentLock(`ws merge ${workspaceId}`, () => manager.merge(workspaceId)) }));
@@ -167,7 +185,7 @@ async function dispatch(
   }
   if (args.length > 0) throw new InputError(`unknown workspace ${action} flag: ${args[0]!}`, "unknown_flag");
   if (action === "list") return wrapResult("workspace list", deepFreeze({ action: "list", records: manager.list() }), { status: "pass" });
-  return wrapResult("workspace sweep", deepFreeze({ action: "sweep", swept: await manager.sweep() }), { status: "pass" });
+  return wrapResult("workspace sweep", deepFreeze({ action: "sweep", ...await manager.sweep() }), { status: "pass" });
 }
 
 function requireSingleId(args: readonly string[], action: string): string {

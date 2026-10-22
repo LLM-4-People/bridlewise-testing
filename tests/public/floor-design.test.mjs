@@ -40,6 +40,27 @@ test("the coverage guard names a missing rule and an unused rule", () => {
   }
 });
 
+test("a released snapshot is judged by its own build, not by today's stylesheets", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-design-"));
+  try {
+    mkdirSync(join(work, "assets/css"), { recursive: true });
+    mkdirSync(join(work, "assets/floor"), { recursive: true });
+    writeFileSync(join(work, "assets/css/style.css"), ".styled { color: red; }\n");
+    writeFileSync(join(work, "assets/floor/floor.css"), "");
+    const page = (cls) => `<!doctype html><html><body><main id="main"><p class="${cls}">x</p></main></body></html>\n`;
+    for (const [path, cls] of [["index.html", "styled"], ["v/0.1.0/index.html", "old-component"], ["v/0.1.0/a/index.html", "old-component"], ["vx/index.html", "stray"], ["v/index.html", "styled"]]) {
+      mkdirSync(join(work, dirname(path)), { recursive: true });
+      writeFileSync(join(work, path), page(cls));
+    }
+    const result = coverage(work, { exclude: ["/v/0.1.0/"] });
+    assert.equal(result.pages, 3, "the snapshot's two pages are excluded; /v/index.html and /vx/ are not");
+    assert.deepEqual([...result.missing.keys()], ["stray"]);
+    assert.deepEqual([...coverage(work).missing.keys()].sort(), ["old-component", "stray"]);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
 test("the built site passes the design coverage guard", (t) => {
   const built = join(ROOT, ".site/_site");
   let exists = true;
@@ -49,7 +70,7 @@ test("the built site passes the design coverage guard", (t) => {
     exists = false;
   }
   if (!exists) {
-    t.skip("run node scripts/assemble-floor-site.mjs and the Jekyll build first");
+    t.skip("run node scripts/build-site.mjs source --out .site --baseurl /bridlewise and the Jekyll build (.site → .site/_site) first");
     return;
   }
   const result = coverage(built);

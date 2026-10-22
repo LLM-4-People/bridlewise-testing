@@ -11,6 +11,7 @@ import {
   makeTestConfig,
   mkWorkspaceTempDir,
   rawGit,
+  trackBranch,
   writeFile,
 } from "./workspace-test-support.ts";
 
@@ -36,6 +37,7 @@ function linkedCheckout(prefix: string): Readonly<{ root: string; linked: string
   commitFile(root, "gone.txt", "gone\n");
   const linked = join(mkWorkspaceTempDir(`${prefix}-linked`), "testing");
   rawGit(root, ["worktree", "add", "-q", "-b", "testing", linked]);
+  trackBranch(root, "testing");
   return { root, linked };
 }
 
@@ -225,6 +227,7 @@ test("the overlay adoption's read-tree switch keeps the config's 0600 (the one s
   commitFile(root, configFile, "{}\n");
   const linked = join(mkWorkspaceTempDir("ws-overlay-mode-linked"), "testing");
   rawGit(root, ["worktree", "add", "-q", "-b", "testing", linked]);
+  trackBranch(root, "testing");
   chmodSync(join(linked, configFile), 0o600);
   writeFileSync(join(linked, "a.txt"), "a, edited\n");
   const { manager } = makeManager(linked, { config: makeTestConfig(mkWorkspaceTempDir("ws-overlay-mode-wt")) });

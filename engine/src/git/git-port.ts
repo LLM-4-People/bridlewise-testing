@@ -37,6 +37,21 @@ export const GIT_PORT_SCHEMA_VERSION = schemaId("git-port", 1);
 export const GIT_OBJECT_NAME_PATTERN = "[0-9a-f]{40}(?:[0-9a-f]{24})?";
 export const GIT_OBJECT_NAME = new RegExp(`^${GIT_OBJECT_NAME_PATTERN}$`, "u");
 
+/**
+ * THE ONE SPELLING of a remote-tracking ref: `refs/remotes/<remote>/<branch>`,
+ * where a fetch of `branch` from `remote` is kept (the worktree port's fetch
+ * writes only these, the promotion's reconcile and the workspace's forge
+ * read them).
+ */
+export function remoteTrackingRef(remote: string, branch: string): string {
+  return `${remoteTrackingPrefix(remote)}${branch}`;
+}
+
+/** The folder of `remote`'s remote-tracking refs (`refs/remotes/<remote>/`). */
+export function remoteTrackingPrefix(remote: string): string {
+  return `refs/remotes/${remote}/`;
+}
+
 export const GIT_TRANSPORTS = deepFreeze(["file", "ssh", "https"] as const);
 export type GitTransport = typeof GIT_TRANSPORTS[number];
 
