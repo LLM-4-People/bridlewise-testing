@@ -188,6 +188,16 @@ const LEGACY_RAW_HANDLE_SITES: ReadonlyArray<Readonly<{
     what: "fork(",
     why: "THE farm owner: farm children are forked from worker-thread isolates, where a registry write would land in an isolate-local module the server's route can never read — the census owns their anatomy (the farm-child argv spec + their process chains); see component-registry.ts's header for the full statement",
   },
+  {
+    file: modulePathMatching("forge/maintainer-cli.ts"),
+    what: "spawn(",
+    why: "the maintainer's `gh` during Session 1 only (`harness forge apps create`, an engine CLI verb the web server never loads; engine cannot import the server registry): one child per call, awaited to its close, ended only by its stall or CPU limit through the one terminator",
+  },
+  {
+    file: modulePathMatching("forge/maintainer-cli.ts"),
+    what: "setInterval(",
+    why: "the same `gh` call's progress watch (the stall and CPU-limit check): cleared when the child closes or fails to spawn, in the engine CLI process, never the web server's",
+  },
 ];
 
 /** The registry-registering owners, DERIVED by scanning — never hand-listed.
@@ -284,7 +294,7 @@ describe("A. source-scan — raw standing handles appear ONLY in registry-regist
 
 describe("B. the legacy list is counted and argued — it cannot grow quietly", () => {
   test("the legacy list holds exactly the declared count", () => {
-    expect(LEGACY_RAW_HANDLE_SITES.length, "a new legacy site must argue for itself HERE, in this count").toBe(12);
+    expect(LEGACY_RAW_HANDLE_SITES.length, "a new legacy site must argue for itself HERE, in this count").toBe(14);
   });
 
   test("every legacy entry carries a real justification (not an empty apology)", () => {
