@@ -102,7 +102,9 @@ test("the generated files: written from their owners, hand edits and strays are 
   assert.deepEqual(syncForgeFiles(top, SETTINGS, false), { status: "current", converged: true, changed: [] });
   assert.deepEqual(JSON.parse(readFileSync(join(top, ".github/forge/apps/door.json"), "utf8")), appManifest("door", SETTINGS));
   // A hand edit in one place and a stray file in another: both named.
-  writeFileSync(join(top, ".github/forge/apps/agent.json"), readFileSync(join(top, ".github/forge/apps/agent.json"), "utf8").replace("\"read\"", "\"write\""));
+  const handEdited = JSON.parse(readFileSync(join(top, ".github/forge/apps/agent.json"), "utf8")) as { default_permissions: Record<string, string> };
+  handEdited.default_permissions.checks = "write";
+  writeFileSync(join(top, ".github/forge/apps/agent.json"), `${JSON.stringify(handEdited, null, 2)}\n`);
   mkdirSync(join(top, ".github/forge/rulesets"), { recursive: true });
   writeFileSync(join(top, ".github/forge/rulesets/hand.json"), "{}\n");
   // Near miss: a file beside the folder is not the forge's.
