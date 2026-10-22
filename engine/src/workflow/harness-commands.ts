@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { cpuBoundedEndingText, runCpuBounded, type CpuBounds } from "../process/supervised-run.ts";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { boundedEnding, cpuLimitedInvocation, SUBPROCESS_BOUNDS, type SubprocessBounds } from "./subprocess-bounds.ts";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
@@ -46,7 +47,7 @@ import { commandExitCode, parseHarnessCommandResult, renderCommandAnswer, takeOu
 // numeric defaults live in `./workflow-config.ts` (the canonical owner for
 // workflow operational defaults — no configurables outside
 // the config owner).
-import { SCRIPT_SUBPROCESS_BOUNDS, DEFAULT_TIMELINE_COMMAND_LIMIT, worktreeOperationTimeouts } from "./workflow-config.ts";
+import { SCRIPT_SUBPROCESS_OUTPUT_BYTES, DEFAULT_TIMELINE_COMMAND_LIMIT, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline } from "../git/index-baseline.ts";
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
 import { syncCommunityFiles } from "./community/health-files.ts";
@@ -389,7 +390,7 @@ export async function harnessCheck(
   steps.push(architecture);
 
   emitProgress(onProgress, options.skipInventory ? "Skipping inventory check..." : "Checking inventory...");
-  const inventory = options.skipInventory ? skipStep("inventory") : await runInventoryCheck(root);
+  const inventory = options.skipInventory ? skipStep("inventory") : runInventoryCheck(root);
   steps.push(inventory);
 
   emitProgress(onProgress, "Checking module registrar...");
@@ -440,7 +441,7 @@ export async function harnessCheck(
   }));
 
   emitProgress(onProgress, "Checking pin authorities...");
-  const pinAuthorities = await regeneratePinAuthorities(root, false);
+  const pinAuthorities = regeneratePinAuthorities(root, false);
   steps.push(deepFreeze({
     step: "pin-authorities",
     status: pinAuthorities.converged ? "pass" : "fail",
@@ -453,10 +454,10 @@ export async function harnessCheck(
   // and every workspace validate runs, and the scans already ran for the
   // stale half (a dead Markdown link is caught before any suite runs).
   emitProgress(onProgress, "Checking the ratchet baselines...");
-  steps.push(ratchetBaselinesStep(await regenerateRatchetBaselines(root, false)));
+  steps.push(ratchetBaselinesStep(regenerateRatchetBaselines(root, false)));
 
   emitProgress(onProgress, "Checking the README consumer blocks...");
-  const readmeConsumers = await regenerateReadmeConsumers(root, false);
+  const readmeConsumers = regenerateReadmeConsumers(root, false);
   steps.push(deepFreeze({
     step: "readme-consumers",
     status: readmeConsumers.converged ? "pass" : "fail",
@@ -467,7 +468,7 @@ export async function harnessCheck(
   }));
 
   emitProgress(onProgress, "Checking the decision index...");
-  const decisionIndex = await regenerateDecisionIndex(root, false);
+  const decisionIndex = regenerateDecisionIndex(root, false);
   steps.push(deepFreeze({
     step: "decision-index",
     status: decisionIndex.converged ? "pass" : "fail",
@@ -490,7 +491,7 @@ export async function harnessCheck(
   steps.push(promotionsStep(root));
 
   emitProgress(onProgress, "Checking the shipped hooks...");
-  const shippedHooks = await regenerateShippedHooks(root, false);
+  const shippedHooks = regenerateShippedHooks(root, false);
   steps.push(deepFreeze({
     step: "shipped-hooks",
     status: shippedHooks.converged ? "pass" : "fail",
@@ -518,7 +519,7 @@ export async function harnessCheck(
   steps.push(frozenRecordsStep(syncFrozenRecords(trackedTop(root), false)));
 
   emitProgress(onProgress, "Checking the guardian spec-schema artifact...");
-  const guardianSpecArtifact = await regenerateGuardianSpecArtifact(root, false);
+  const guardianSpecArtifact = regenerateGuardianSpecArtifact(root, false);
   steps.push(deepFreeze({
     step: "guardian-spec-artifact",
     status: guardianSpecArtifact.status === "current" ? "pass" : "fail",
@@ -532,7 +533,7 @@ export async function harnessCheck(
   steps.push(trackerBoardStep(syncTrackerBoard(trackedTop(root), false)));
 
   emitProgress(onProgress, "Checking the canonical artifact inventory...");
-  const artifactManifest = await regenerateArtifactManifest(root, false);
+  const artifactManifest = regenerateArtifactManifest(root, false);
   steps.push(deepFreeze({
     step: "artifact-manifest",
     status: artifactManifest.status === "absent" ? "skip" : artifactManifest.status === "current" ? "pass" : "fail",
@@ -550,7 +551,7 @@ export async function harnessCheck(
   steps.push(communityFilesStep(regenerateCommunityFiles(root, false)));
 
   emitProgress(onProgress, "Checking the bundle against a rebuild of the source...");
-  steps.push(await bundleFreshnessStep(root));
+  steps.push(bundleFreshnessStep(root));
 
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
@@ -890,10 +891,10 @@ export async function harnessTest(
   return wrapResult("test", output);
 }
 
-export async function harnessRegenerate(
+export function harnessRegenerate(
   root: string,
   options: Readonly<{ write?: boolean; prune?: readonly string[] }> = {},
-): Promise<HarnessCommandResult<HarnessRegenerateOutput>> {
+): HarnessCommandResult<HarnessRegenerateOutput> {
   const write = options.write ?? false;
   // Recompute the dispositions manifest integrity hash FIRST: when entries
   // are added or edited manually the `integrityHash` field goes stale, and
@@ -907,11 +908,11 @@ export async function harnessRegenerate(
   // builder-layer test-surface modules out of the runtime import graph —
   // the same pattern as regenerateTestInventory below. Read-only mode never
   // mutates the manifest, so the step is skipped there.
-  const dispositionAutoAdd = await autoAddDispositionEntries(root, write, options.prune ?? []);
+  const dispositionAutoAdd = autoAddDispositionEntries(root, write, options.prune ?? []);
   // The guardian spec-schema artifact, BEFORE the first binding repair: its
   // published bytes are what `selfProtection.specSchemaArtifactSha256` pins,
   // so refreshing the artifact and re-pinning it must happen in that order.
-  const guardianSpecArtifact = await regenerateGuardianSpecArtifact(root, write);
+  const guardianSpecArtifact = regenerateGuardianSpecArtifact(root, write);
   // Repair hash bindings so the disposition binding is current before the
   // test-inventory generation validates it. Then regenerate the test
   // inventory (which atomically writes the inventory file AND updates the
@@ -919,7 +920,7 @@ export async function harnessRegenerate(
   // consistency after the inventory write. This makes `harness regenerate`
   // the single command that updates ALL artifacts.
   repairAllBindings(root, { write });
-  const testInventory = await regenerateTestInventory(root, write);
+  const testInventory = regenerateTestInventory(root, write);
   const hashBindings = repairAllBindings(root, { write });
   // The registrar write runs BEFORE the auto-generator snapshot so the report
   // reflects the final on-disk state. The auto-generator sources its binding
@@ -946,19 +947,19 @@ export async function harnessRegenerate(
   // separate script by hand — the hand-maintained-pin defect. Runs as a
   // subprocess so the builder-layer driver (and the test-realm planned-node
   // authority) stays out of the runtime import graph.
-  const pinAuthorities = await regeneratePinAuthorities(root, write);
+  const pinAuthorities = regeneratePinAuthorities(root, write);
   // The ratchet arm: every shrink-only baseline pruned against its guard's
   // scan, so a debt that fell leaves its list without a hand edit (a2b-design H2).
-  const ratchetBaselines = await regenerateRatchetBaselines(root, write);
+  const ratchetBaselines = regenerateRatchetBaselines(root, write);
   // The README consumer arm, last: its blocks project the import graph of
   // the tree every arm above has finished writing.
-  const readmeConsumers = await regenerateReadmeConsumers(root, write);
+  const readmeConsumers = regenerateReadmeConsumers(root, write);
   // The decision index: rebuilt from the decision files' front matter.
-  const decisionIndex = await regenerateDecisionIndex(root, write);
+  const decisionIndex = regenerateDecisionIndex(root, write);
   // The task board: rendered from the structured tracker items.
   const trackerBoard = syncTrackerBoard(trackedTop(root), write);
   // The shipped hooks: each canonical hook's text, from its owner.
-  const shippedHooks = await regenerateShippedHooks(root, write);
+  const shippedHooks = regenerateShippedHooks(root, write);
   // The evidence ignore rule: derived from the tracked evidence manifests.
   const evidenceIgnore = regenerateEvidenceIgnore(root, write);
   // The forge's generated files: the App manifests and their index, from the registry and the `forge` section.
@@ -970,7 +971,7 @@ export async function harnessRegenerate(
   // The canonical artifact inventory, LAST: every governed file the arms above
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
-  const artifactManifest = await regenerateArtifactManifest(root, write);
+  const artifactManifest = regenerateArtifactManifest(root, write);
   const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
@@ -1027,14 +1028,14 @@ export function pruneArguments(prune: readonly string[]): readonly string[] {
   return prune.flatMap((path) => ["--prune", path]);
 }
 
-async function autoAddDispositionEntries(root: string, write: boolean, prune: readonly string[]): Promise<DispositionAutoAddResult> {
+function autoAddDispositionEntries(root: string, write: boolean, prune: readonly string[]): DispositionAutoAddResult {
   if (!write) {
     return deepFreeze({ status: "skipped", addedCount: 0, addedPaths: deepFreeze([]), prunedCount: 0, prunedPaths: deepFreeze([]) });
   }
   if (!testSurfacePresent(root)) {
     return deepFreeze({ status: "skipped", addedCount: 0, addedPaths: deepFreeze([]), prunedCount: 0, prunedPaths: deepFreeze([]) });
   }
-  const stdout = await runScriptSubprocess(root, "scripts/tooling/run-tests.ts", ["--auto-add-dispositions", ...pruneArguments(prune)]);
+  const stdout = runScriptSubprocess(root, "scripts/tooling/run-tests.ts", ["--auto-add-dispositions", ...pruneArguments(prune)]);
   const parsed = JSON.parse(stdout) as { status: string; addedCount: number; addedPaths: string[]; prunedCount: number; prunedPaths: string[] };
   return deepFreeze({
     status: parsed.status === "added" || (parsed.prunedCount ?? 0) > 0 ? "added" : "current",
@@ -1095,11 +1096,11 @@ function recomputeDispositionManifestIntegrityHash(
   return deepFreeze({ status: "regenerated", integrityHash: resigned.integrityHash });
 }
 
-async function regenerateTestInventory(root: string, write: boolean): Promise<Readonly<{
+function regenerateTestInventory(root: string, write: boolean): Readonly<{
   status: "current" | "regenerated" | "skipped";
   testCount: number;
   inventoryHash: string | null;
-}>> {
+}> {
   // Invoke scripts/test-inventory.ts as a subprocess to keep the builder-layer
   // test-inventory generator (and its @babel/parser dependency) out of the
   // runtime import graph. Runtime modules must not depend on builder modules.
@@ -1108,7 +1109,7 @@ async function regenerateTestInventory(root: string, write: boolean): Promise<Re
   if (!testSurfacePresent(root)) {
     return { status: "skipped", testCount: 0, inventoryHash: null };
   }
-  const stdout = await runScriptSubprocess(root, "scripts/test-inventory.ts", [write ? "--write" : "--check"]);
+  const stdout = runScriptSubprocess(root, "scripts/test-inventory.ts", [write ? "--write" : "--check"]);
   const parsed = JSON.parse(stdout) as {
     inventoryHash: string;
     testCount: number;
@@ -1148,8 +1149,8 @@ async function regenerateTestInventory(root: string, write: boolean): Promise<Re
  * (`buildGuardianSpecSchemaArtifact`) lives there. A tree without the script
  * (a product-only package?) still reports a named error rather than passing.
  */
-async function regenerateGuardianSpecArtifact(root: string, write: boolean): Promise<HarnessRegenerateOutput["guardianSpecArtifact"]> {
-  const report = await generatorReport<"current" | "stale" | "written">(
+function regenerateGuardianSpecArtifact(root: string, write: boolean): HarnessRegenerateOutput["guardianSpecArtifact"] {
+  const report = generatorReport<"current" | "stale" | "written">(
     root,
     "scripts/verification/guardian-spec-artifact.ts",
     [write ? "--write" : "--check"],
@@ -1180,13 +1181,13 @@ async function regenerateGuardianSpecArtifact(root: string, write: boolean): Pro
  */
 const ARTIFACT_MANIFEST_GENERATOR = "scripts/tooling/artifact-manifest.ts";
 
-async function regenerateArtifactManifest(root: string, write: boolean): Promise<HarnessRegenerateOutput["artifactManifest"]> {
+function regenerateArtifactManifest(root: string, write: boolean): HarnessRegenerateOutput["artifactManifest"] {
   if (!existsSync(resolve(root, ARTIFACT_MANIFEST_GENERATOR))) {
     return deepFreeze({ status: "absent" as const, entries: 0, policyHash: "", integrityHash: "", message: "" });
   }
-  let report: Awaited<ReturnType<typeof generatorReport<"current" | "stale" | "missing" | "written">>>;
+  let report: ReturnType<typeof generatorReport<"current" | "stale" | "missing" | "written">>;
   try {
-    report = await generatorReport<"current" | "stale" | "missing" | "written">(
+    report = generatorReport<"current" | "stale" | "missing" | "written">(
       root,
       ARTIFACT_MANIFEST_GENERATOR,
       [write ? "--write" : "--check"],
@@ -1214,11 +1215,11 @@ async function regenerateArtifactManifest(root: string, write: boolean): Promise
   });
 }
 
-async function regeneratePinAuthorities(root: string, write: boolean): Promise<Readonly<{
+function regeneratePinAuthorities(root: string, write: boolean): Readonly<{
   status: "current" | "regenerated";
   converged: boolean;
-}>> {
-  const stdout = await runScriptSubprocess(
+}> {
+  const stdout = runScriptSubprocess(
     root,
     "scripts/pin-authority-regeneration.ts",
     [write ? "--write" : "--check"],
@@ -1237,8 +1238,8 @@ async function regeneratePinAuthorities(root: string, write: boolean): Promise<R
  * A key is never added (a new site fails its guard; growth fails the commit
  * guard against HEAD).
  */
-async function regenerateRatchetBaselines(root: string, write: boolean): Promise<RatchetBaselinesArm> {
-  const stdout = await runScriptSubprocess(root, "scripts/verification/ratchet-baselines.ts", [write ? "--write" : "--check"]);
+function regenerateRatchetBaselines(root: string, write: boolean): RatchetBaselinesArm {
+  const stdout = runScriptSubprocess(root, "scripts/verification/ratchet-baselines.ts", [write ? "--write" : "--check"]);
   const parsed = JSON.parse(stdout) as { allCurrent: boolean; results: RatchetBaselinesArm["results"] };
   return deepFreeze({
     status: parsed.results.some((result) => result.status === "pruned") ? "regenerated" : "current",
@@ -1319,9 +1320,9 @@ export function frozenRecordsStep(frozenRecords: FrozenRecordsReport): CheckStep
  * the generator (a product-only tree) or without the decisions folder is
  * converged by absence.
  */
-async function regenerateDecisionIndex(root: string, write: boolean): Promise<DecisionIndexArm> {
+function regenerateDecisionIndex(root: string, write: boolean): DecisionIndexArm {
   if (!existsSync(resolve(root, DECISION_INDEX.generator))) return deepFreeze({ status: "absent" as const, converged: true, changed: [] });
-  const report = await generatorReport<DecisionIndexArm["status"]>(root, DECISION_INDEX.generator, [write ? "--write" : "--check"], "the decision index generator", "decision_index_no_result");
+  const report = generatorReport<DecisionIndexArm["status"]>(root, DECISION_INDEX.generator, [write ? "--write" : "--check"], "the decision index generator", "decision_index_no_result");
   return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed });
 }
 
@@ -1338,9 +1339,9 @@ function regenerateForgeFiles(root: string, write: boolean): DecisionIndexArm {
   return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
 }
 
-async function regenerateShippedHooks(root: string, write: boolean): Promise<DecisionIndexArm> {
+function regenerateShippedHooks(root: string, write: boolean): DecisionIndexArm {
   if (!existsSync(resolve(root, SHIPPED_HOOK_FILES.generator))) return deepFreeze({ status: "absent" as const, converged: true, changed: [] });
-  const report = await generatorReport<DecisionIndexArm["status"]>(root, SHIPPED_HOOK_FILES.generator, [write ? "--write" : "--check"], "the shipped hooks generator", "shipped_hooks_no_result");
+  const report = generatorReport<DecisionIndexArm["status"]>(root, SHIPPED_HOOK_FILES.generator, [write ? "--write" : "--check"], "the shipped hooks generator", "shipped_hooks_no_result");
   return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed });
 }
 
@@ -1353,8 +1354,8 @@ async function regenerateShippedHooks(root: string, write: boolean): Promise<Dec
  * another shape, judged nothing: typed `code`, never a silent "current" and
  * never an untyped SyntaxError (wf-del2-correctness NEW-11).
  */
-async function generatorReport<Status extends string>(root: string, generator: string, args: readonly string[], label: string, code: string): Promise<Readonly<{ allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>>> {
-  const last = await runScriptSubprocess(root, generator, args);
+function generatorReport<Status extends string>(root: string, generator: string, args: readonly string[], label: string, code: string): Readonly<{ allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>> {
+  const last = runScriptSubprocess(root, generator, args);
   let parsed: { allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>;
   try {
     parsed = JSON.parse(last) as typeof parsed;
@@ -1378,7 +1379,7 @@ async function generatorReport<Status extends string>(root: string, generator: s
  * surface; its READMEs are byte-locked to the testing tree, where this arm
  * runs — or outside a work tree is converged by absence.
  */
-export async function regenerateReadmeConsumers(root: string, write: boolean): Promise<ReadmeConsumersArm> {
+export function regenerateReadmeConsumers(root: string, write: boolean): ReadmeConsumersArm {
   const absent = deepFreeze({ status: "absent" as const, converged: true, readmes: 0, changed: [] });
   const repositoryRoot = repositoryToplevel(root, "directory");
   if (repositoryRoot === undefined) return absent;
@@ -1398,7 +1399,7 @@ export async function regenerateReadmeConsumers(root: string, write: boolean): P
       changed: [`${README_CONSUMER_BLOCK.generator} (missing; ${String(readmes.length)} marked README(s) still need it)`],
     });
   }
-  const report = await generatorReport<"current" | "regenerated" | "stale">(root, generator, [write ? "--write" : "--check", `--root=${repositoryRoot}`], "the README consumer generator", "readme_consumers_no_result");
+  const report = generatorReport<"current" | "regenerated" | "stale">(root, generator, [write ? "--write" : "--check", `--root=${repositoryRoot}`], "the README consumer generator", "readme_consumers_no_result");
   return deepFreeze({ status: report.status, converged: report.allCurrent, readmes: typeof report["readmes"] === "number" ? report["readmes"] : 0, changed: report.changed });
 }
 
@@ -1558,13 +1559,13 @@ export async function harnessSync(
 }
 
 /** The bundle's freshness verdict (`scripts/build-bundle.ts --check`, the builder layer, as a subprocess): an in-memory rebuild compared with `dist/bundle.js`. */
-async function readBundleFreshness(root: string): Promise<Readonly<{ fresh?: unknown; status?: unknown; path?: unknown }>> {
-  return JSON.parse(await runScriptSubprocess(root, "scripts/build-bundle.ts", ["--check"])) as { fresh?: unknown; status?: unknown; path?: unknown };
+function readBundleFreshness(root: string): Readonly<{ fresh?: unknown; status?: unknown; path?: unknown }> {
+  return JSON.parse(runScriptSubprocess(root, "scripts/build-bundle.ts", ["--check"])) as { fresh?: unknown; status?: unknown; path?: unknown };
 }
 
 /** Whether `dist/bundle.js` is exactly a rebuild of the current source (absent is not fresh). */
-async function bundleIsFresh(root: string): Promise<boolean> {
-  return (await readBundleFreshness(root)).fresh === true;
+function bundleIsFresh(root: string): boolean {
+  return readBundleFreshness(root).fresh === true;
 }
 
 /**
@@ -1575,9 +1576,9 @@ async function bundleIsFresh(root: string): Promise<boolean> {
  * refuses a stale or hand-edited bundle; an absent one is unbuilt and named
  * with the command that builds it.
  */
-async function bundleFreshnessStep(root: string): Promise<CheckStepResult> {
+function bundleFreshnessStep(root: string): CheckStepResult {
   try {
-    const answer = await readBundleFreshness(root);
+    const answer = readBundleFreshness(root);
     const fresh = answer.fresh === true;
     return deepFreeze({
       step: "bundle",
@@ -1616,12 +1617,12 @@ async function syncPass(
   let regenerateInitial: HarnessCommandResult | undefined;
   stepIndex += 1;
   emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness register --write (fix module drift)...`);
-  const register = await runSyncStep(root, "register", ["--write"]);
+  const register = runSyncStep(root, "register", ["--write"]);
   stepIndex += 1;
   emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness regenerate (fix hash bindings + inventory)...`);
-  regenerateInitial = await runSyncStep(root, "regenerate", prune);
+  regenerateInitial = runSyncStep(root, "regenerate", prune);
   let regenerate = regenerateInitial;
-  const rebuild = options.withBundle === true || !(await bundleIsFresh(root));
+  const rebuild = options.withBundle === true || !bundleIsFresh(root);
   if (rebuild && options.withBundle !== true) {
     totalSteps = 5;
     emitProgress(options.onProgress, "the bundle is not a rebuild of the source the regenerate left: rebuilding it");
@@ -1629,14 +1630,14 @@ async function syncPass(
   if (rebuild) {
     stepIndex += 1;
     emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: build production bundle (scripts/build-bundle.ts)...`);
-    bundleBuild = await runBundleBuildStep(root);
+    bundleBuild = runBundleBuildStep(root);
     stepIndex += 1;
     emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness regenerate (re-derive what the build wrote)...`);
-    regenerate = await runSyncStep(root, "regenerate", prune);
+    regenerate = runSyncStep(root, "regenerate", prune);
   }
   stepIndex += 1;
   emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness check --skip-typecheck (verify)...`);
-  const check = await runSyncStep(root, "check", ["--skip-typecheck"]);
+  const check = runSyncStep(root, "check", ["--skip-typecheck"]);
   const steps: HarnessSyncStepSummary[] = [];
   steps.push(deepFreeze({ step: "register", status: register.status }));
   steps.push(deepFreeze({ step: "regenerate", status: regenerateInitial.status }));
@@ -1691,11 +1692,11 @@ export function syncPassVerdict(steps: readonly HarnessSyncStepSummary[], withBu
  * test-suite contention low (the full sync is verified by the cached
  * `syncOnce` test; this isolates the new bundle-build step).
  */
-export async function runBundleBuildStep(root: string): Promise<HarnessCommandResult> {
+export function runBundleBuildStep(root: string): HarnessCommandResult {
   try {
     // The bundle build emits pretty-printed multi-line JSON, so capture the
     // full stdout (not just the final line) and parse the whole document.
-    const stdout = await runScriptSubprocess(root, "scripts/build-bundle.ts", [], { fullOutput: true });
+    const stdout = runScriptSubprocess(root, "scripts/build-bundle.ts", [], { fullOutput: true });
     const summary = JSON.parse(stdout) as unknown;
     return wrapResult("bundle-build", summary, { status: "pass" });
   } catch (error) {
@@ -1710,12 +1711,12 @@ export async function runBundleBuildStep(root: string): Promise<HarnessCommandRe
  * payload on stdout, so it is parsed like a success; only a missing/invalid
  * payload is an orchestration error.
  */
-async function runSyncStep(
+function runSyncStep(
   root: string,
   step: "register" | "regenerate" | "check",
   args: readonly string[],
-): Promise<HarnessCommandResult> {
-  const stdout = await runScriptSubprocess(root, "src/cli.ts", ["harness", step, ...args]);
+): HarnessCommandResult {
+  const stdout = runScriptSubprocess(root, "src/cli.ts", ["harness", step, ...args]);
   const parsed = parseHarnessCommandResult(JSON.parse(stdout));
   if (parsed.command !== step) {
     throw new InputError(`sync step '${step}' returned a result for command '${parsed.command}'`, "input_error");
@@ -1770,18 +1771,26 @@ function subprocessFailureSummary(lines: readonly string[]): string | undefined 
   return meaningful?.trim();
 }
 
-/** This process's environment as a run's own (the variables that are set). */
-function inheritedEnvironment(): Readonly<Record<string, string>> {
-  return Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+/** One synchronous run of `command args…` under `bounds` (src/workflow/subprocess-bounds.ts): the CPU limit, then the hang backstop. */
+function runBoundedSync(command: string, args: readonly string[], cwd: string, bounds: SubprocessBounds): SpawnSyncReturns<string> {
+  const invocation = cpuLimitedInvocation(command, args, bounds);
+  return spawnSync(invocation.command, [...invocation.args], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: bounds.hangBackstopMs,
+    killSignal: "SIGKILL",
+    maxBuffer: SCRIPT_SUBPROCESS_OUTPUT_BYTES,
+  });
 }
 
-export async function runScriptSubprocess(
+export function runScriptSubprocess(
   root: string,
   scriptRelativePath: string,
   args: readonly string[],
-  options: Readonly<{ fullOutput?: boolean; bounds?: CpuBounds }> = {},
-): Promise<string> {
-  const bounds = options.bounds ?? SCRIPT_SUBPROCESS_BOUNDS;
+  options: Readonly<{ fullOutput?: boolean; bounds?: SubprocessBounds }> = {},
+): string {
+  const bounds = options.bounds ?? SUBPROCESS_BOUNDS;
   const scriptPath = resolve(root, scriptRelativePath);
   // A MISSING SCRIPT IS ITS OWN CAUSE. The subprocess's failure mode would
   // otherwise be Node's module loader: a MODULE_NOT_FOUND stack whose last
@@ -1794,13 +1803,13 @@ export async function runScriptSubprocess(
       "input_error",
     );
   }
-  // NO-LOAD-BLOCK L2 (audit A-18): bounded by its WORK through the one work-bounded run (its process group's
-  // CPU, a stall of no output and no CPU, the output bound, the kernel backstop), never by a wall clock a
-  // loaded host runs out (src/process/supervised-run.ts runCpuBounded).
-  const run = await runCpuBounded(process.execPath, [scriptPath, ...args], { cwd: root, env: inheritedEnvironment(), bounds });
-  let stdout = run.stdout.toString("utf8");
-  // A run a bound stopped is never a payload, whatever it printed before it was stopped.
-  if (run.ending !== "exited" || (run.status !== 0 && stdout.trim().length === 0)) {
+  // NO-LOAD-BLOCK L2 (audit A-18): bounded in CPU WORK, never by a wall
+  // clock a loaded host runs out (src/workflow/subprocess-bounds.ts).
+  const result = runBoundedSync(process.execPath, [scriptPath, ...args], root, bounds);
+  const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  const succeeded = result.error === undefined && result.status === 0;
+  let stdout = typeof result.stdout === "string" ? result.stdout : "";
+  if (!succeeded && stdout.trim().length === 0) {
     // No payload on stdout — a genuine subprocess failure. The scripts
     // report a failure as ONE typed JSON line (`{"error": <code>,
     // "message": …}`) on stderr; that record is the error channel, and it
@@ -1808,19 +1817,20 @@ export async function runScriptSubprocess(
     // assumed to be the last line: a runtime warning printed after it
     // (a Node deprecation notice) used to replace the typed refusal with
     // "failed without a status payload: (node:123) Warning: …".
-    const lines = run.stderr.toString("utf8").trim().split("\n").filter((line) => line.trim().length > 0);
+    const lines = typeof result.stderr === "string" ? result.stderr.trim().split("\n").filter((line) => line.trim().length > 0) : [];
     const typed = typedFailureRecord(lines);
-    if (typed !== undefined && run.ending === "exited" && run.signal === null) {
+    if (typed !== undefined && errorCode === undefined && result.signal === null) {
       // The STEP is named as a step, never as a location: `src/cli.ts: <a
       // syntax error in another file>` sent the operator to the wrong file
       // (wf1a-correctness). A location, when there is one, is the
       // refusal's own (e.g. `source_syntax_invalid` names the source file).
       throw new HarnessError(`the ${scriptRelativePath} step failed: ${typed.message}`, typed.code);
     }
+    const ending = boundedEnding({ status: result.status, signal: result.signal, ...(errorCode !== undefined ? { errorCode } : {}) }, bounds);
     const said = subprocessFailureSummary(lines);
     throw new InputError(
-      `subprocess ${scriptRelativePath} ended without a status payload: ${cpuBoundedEndingText(run, bounds)}${said === undefined ? " (it printed nothing on stderr)" : `; its stderr says: ${said}`}`,
-      run.ending === "stalled" ? "script_subprocess_hung" : "input_error",
+      `subprocess ${scriptRelativePath} ended without a status payload: ${ending}${said === undefined ? " (it printed nothing on stderr)" : `; its stderr says: ${said}`}`,
+      errorCode === "ETIMEDOUT" ? "script_subprocess_hung" : "input_error",
     );
   }
   stdout = stdout.trim();
@@ -1887,16 +1897,18 @@ function resolveLockOptions(owner: string): AcquireLockOptions {
 
 /**
  * The whole-tree typecheck, bounded like every harness subprocess: by its
- * work (runCpuBounded under SCRIPT_SUBPROCESS_BOUNDS), never by a wall limit (it was 120 s,
+ * CPU work and the one hang backstop, never by a wall limit (it was 120 s,
  * and a loaded host failed `harness check` with it; NO-LOAD-BLOCK A-17).
  */
-export async function runTypecheck(root: string, bounds: CpuBounds = SCRIPT_SUBPROCESS_BOUNDS): Promise<CheckStepResult> {
-  const run = await runCpuBounded(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc"), "--noEmit"], { cwd: root, env: inheritedEnvironment(), bounds });
-  if (run.ending === "exited" && run.status === 0) {
+export async function runTypecheck(root: string, bounds: SubprocessBounds = SUBPROCESS_BOUNDS): Promise<CheckStepResult> {
+  const result = runBoundedSync(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc"), "--noEmit"], root, bounds);
+  const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  if (result.error === undefined && result.status === 0) {
     return deepFreeze({ step: "typecheck", status: "pass", message: "typecheck passed", details: null });
   }
-  const said = `${run.stdout.toString("utf8")}${run.stderr.toString("utf8")}`.trim();
-  return deepFreeze({ step: "typecheck", status: "fail", message: `typecheck failed: ${cpuBoundedEndingText(run, bounds)}${said.length === 0 ? "" : `\n${said}`}`, details: null });
+  const ending = boundedEnding({ status: result.status, signal: result.signal, ...(errorCode !== undefined ? { errorCode } : {}) }, bounds);
+  const said = `${typeof result.stdout === "string" ? result.stdout : ""}${typeof result.stderr === "string" ? result.stderr : ""}`.trim();
+  return deepFreeze({ step: "typecheck", status: "fail", message: `typecheck failed: ${ending}${said.length === 0 ? "" : `\n${said}`}`, details: null });
 }
 
 /** The registrar's verdict: every module registered, none drifted, the composition-root lists derived. */
@@ -2016,10 +2028,10 @@ export function runArchitectureCheck(root: string): CheckStepResult {
  * refuse. A product-only tree carries no test surface and answers with the
  * guided skip.
  */
-export async function runInventoryCheck(root: string): Promise<CheckStepResult> {
+export function runInventoryCheck(root: string): CheckStepResult {
   if (!testSurfacePresent(root)) return skipStep("inventory");
   try {
-    const stdout = await runScriptSubprocess(root, "scripts/test-inventory.ts", ["--check"]);
+    const stdout = runScriptSubprocess(root, "scripts/test-inventory.ts", ["--check"]);
     const parsed = JSON.parse(stdout) as {
       inventoryHash: string;
       status: string;
@@ -2182,7 +2194,7 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
       answer = { result: harnessRegister(root, parseRegisterOptions(rest)) };
     } else if (subcommand === "regenerate") {
       const { prune } = parsePruneOptions("regenerate", rest, false);
-      answer = { result: await harnessRegenerate(root, { write: true, prune }) };
+      answer = { result: harnessRegenerate(root, { write: true, prune }) };
     } else if (subcommand === "sync") {
       const { prune, withBundle } = parsePruneOptions("sync", rest, true);
       answer = { result: await harnessSync(root, { withBundle, prune, onProgress }) };

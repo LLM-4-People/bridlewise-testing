@@ -30,7 +30,7 @@ import { basename, join } from "node:path";
 
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { ROOT_POLICY } from "../../kernel/root-policy.ts";
-import { cpuBoundedEndingText, runCpuBounded, type CpuBounds, type CpuBoundedEnding } from "../../process/supervised-run.ts";
+import { runCpuBounded, type CpuBounds, type CpuBoundedEnding } from "../../process/supervised-run.ts";
 import { ForgeError, type ForgeCode } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
 
@@ -147,13 +147,12 @@ function policyBounds(): CpuBounds {
   return { cpuBudgetMs: policy.toolCpuBudgetMs, stallMs: policy.toolStallMs, pollMs: policy.toolPollMs, killGraceMs: policy.toolKillGraceMs, outputBytes: ROOT_POLICY.runtime.limits.maximumGitOutputBytes };
 }
 
-/** The forge's code for each way the one supervisor stops a run (`src/process/supervised-run.ts`); its words are the supervisor's own. */
-const STOPPED: Readonly<Record<Exclude<CpuBoundedEnding, "exited" | "unstarted">, ForgeCode>> = {
-  "cpu-exhausted": "history_tool_cpu_exhausted",
-  "cpu-rlimit": "history_tool_cpu_exhausted",
-  stalled: "history_tool_stalled",
-  "output-exceeded": "history_tool_output_exceeded",
-  unmeasurable: "history_tool_unmeasurable",
+/** The forge's answer for each way the one supervisor stops a run (`src/process/supervised-run.ts`). */
+const STOPPED: Readonly<Record<Exclude<CpuBoundedEnding, "exited" | "unstarted">, Readonly<{ code: ForgeCode; reason: (bounds: CpuBounds) => string }>>> = {
+  "cpu-exhausted": { code: "history_tool_cpu_exhausted", reason: (bounds) => `it spent its CPU budget of ${String(bounds.cpuBudgetMs)} ms` },
+  stalled: { code: "history_tool_stalled", reason: (bounds) => `it produced no output and no CPU time for ${String(bounds.stallMs)} ms` },
+  "output-exceeded": { code: "history_tool_output_exceeded", reason: (bounds) => `its output passed ${String(bounds.outputBytes)} bytes` },
+  unmeasurable: { code: "history_tool_unmeasurable", reason: () => "procfs cannot measure its process group's CPU time, so its budget cannot be judged" },
 };
 
 /**
@@ -177,12 +176,13 @@ export async function runBounded(
   const run = await runCpuBounded(argv[0]!, argv.slice(1), { cwd: options.cwd, env: options.env, bounds, ...(options.input === undefined ? {} : { input: options.input }) });
   const err = run.stderr.toString("utf8");
   if (run.ending !== "exited" && run.ending !== "unstarted") {
-    throw new ForgeError(STOPPED[run.ending], `${label} was stopped: ${cpuBoundedEndingText(run, bounds)}`, { tool: label });
+    const stopped = STOPPED[run.ending];
+    throw new ForgeError(stopped.code, `${label} was stopped: ${stopped.reason(bounds)}`, { tool: label });
   }
   if (run.status === null || !(options.allowed ?? [0]).includes(run.status)) {
-    const reason = run.ending === "exited" && run.signal === null
-      ? `${cpuBoundedEndingText(run, bounds)}: ${err.trim().split("\n").slice(-5).join(" | ")}`
-      : cpuBoundedEndingText(run, bounds);
+    const reason = run.ending === "unstarted"
+      ? `it did not run (${run.startError ?? "unknown"})`
+      : run.signal !== null ? `it ended by ${run.signal}` : `it exited ${String(run.status)}: ${err.trim().split("\n").slice(-5).join(" | ")}`;
     throw new ForgeError("history_tool_failed", `${label} failed: ${reason}`, { tool: label });
   }
   return deepFreeze({ status: run.status, stdout: run.stdout.toString("utf8"), stderr: err });
