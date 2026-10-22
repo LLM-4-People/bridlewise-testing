@@ -70,11 +70,6 @@ export type ForgeCode = keyof typeof FORGE_CODES;
 /** Facts a forge refusal may carry: plain values only, never a credential. */
 export type ForgeFacts = Readonly<Record<string, string | number | boolean | readonly string[]>>;
 
-/** The class of `code`. */
-export function forgeClass(code: ForgeCode): ForgeClass {
-  return FORGE_CODES[code].class;
-}
-
 /** One typed refusal of the forge: a code from {@link FORGE_CODES}, its remedy, and the facts that name what was refused. */
 export class ForgeError extends HarnessError {
   readonly forgeCode: ForgeCode;

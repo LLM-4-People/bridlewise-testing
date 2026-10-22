@@ -51,6 +51,7 @@ import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexB
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
 import { syncCommunityFiles } from "./community/health-files.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
+import { configuredForgeSection } from "./forge/configured-forge.ts";
 import { forgeFileSources, syncForgeFiles } from "./forge/generated-files.ts";
 import { acceptFrozenRecords, frozenRecordsMessage, syncFrozenRecords, type FrozenRecordsReport } from "./record-links.ts";
 import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
@@ -1333,7 +1334,7 @@ function regenerateEvidenceIgnore(root: string, write: boolean): DecisionIndexAr
 /** The forge-files arm (in process): `.github/forge/` from the App registry and the `forge` configuration section. */
 function regenerateForgeFiles(root: string, write: boolean): DecisionIndexArm {
   const top = trackedTop(root);
-  const settings = loadPinnedConfigSnapshot().document.forge;
+  const settings = configuredForgeSection();
   const report = syncForgeFiles(top, settings === undefined ? undefined : forgeFileSources(top, settings), write);
   return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
 }

@@ -24,7 +24,7 @@
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { debugLog } from "../../shared/debug/debug-system.ts";
 import { FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
-import { ForgeError, forgeClass, isForgeError, type ForgeCode } from "./codes.ts";
+import { ForgeError, isForgeError, type ForgeCode } from "./codes.ts";
 import { differences, referenceKey, referencesOf, resolveReferences, scopeName, writableBody, type ForgeObject, type ForgeObjectKind, type ForgeReference, type ForgeScope } from "./forge-state.ts";
 import { FORGE_LOG_CATEGORY } from "./github.ts";
 import { afterWrite, EXCLUSIVE_KINDS, KIND_ADAPTERS, type LiveContext, type LiveObject } from "./live-state.ts";
@@ -99,7 +99,7 @@ async function resolveAll(context: LiveContext, objects: readonly ForgeObject[])
 /** A refusal that belongs to one object (its own permission, plan or validation), never one that stops the run. */
 function objectRefusal(error: unknown): ForgeError | undefined {
   if (!isForgeError(error)) return undefined;
-  const kind = forgeClass(error.forgeCode);
+  const kind = error.forgeClass;
   return kind === "refused" || kind === "input" ? error : undefined;
 }
 
