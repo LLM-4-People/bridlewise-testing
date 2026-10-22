@@ -9,6 +9,9 @@ import { buildAtlas } from "../../scripts/floor/atlas.mjs";
 import { assembleFloorSite } from "../../scripts/floor/site.mjs";
 import { buildStatus } from "../../scripts/floor/status.mjs";
 import { buildPromotionReceipt, verdictOutput } from "../../scripts/promotion-gate.mjs";
+import { memoryCredential } from "../../engine/src/workflow/forge/credentials.ts";
+import { githubClient } from "../../engine/src/workflow/forge/github.ts";
+import { fakeGithub } from "../../engine/test/forge/fake-github.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -142,121 +145,21 @@ test("the floor status never turns missing API data into a pass", async () => {
   assert.equal(status.promotion.lastRun, null);
 });
 
-test("the promotion gate asks GitHub for runs at the requested commit", async () => {
-  const sha = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
+/**
+ * A fake GitHub on the loopback upstream (the forge's own test double), so the
+ * gate drives the real forge client and outbound door. `answer(request)`
+ * returns `{ body, link? }` for every GET; a `link` names pages by their API
+ * path (`/repos/...?page=2`) and is served as GitHub serves it.
+ */
+function gateClient(answer) {
+  const fake = fakeGithub();
   const requested = [];
-  const workflowRuns = ["CI", "CodeQL", "Docs links", "Secret scan"].map((name, index) => ({
-    id: index + 1,
-    name,
-    path: `.github/workflows/${name.toLowerCase().replaceAll(" ", "-")}.yml`,
-    event: "push",
-    status: "completed",
-    conclusion: "success",
-    head_sha: sha,
-    head_branch: "main",
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:01:00Z",
-    html_url: `https://github.com/LLM-4-People/bridlewise/actions/runs/${index + 1}`,
-  }));
-  const response = (body) => ({
-    ok: true,
-    status: 200,
-    json: async () => body,
-    text: async () => "",
+  fake.route("GET", /^\/repos\//u, (request) => {
+    requested.push(`${request.path}?${request.query.toString()}`);
+    const { body, link = null } = answer(request);
+    return { status: 200, body, headers: link === null ? {} : { link: link.replaceAll("<", `<${fake.apiUrl}`) } };
   });
-  const fetchImpl = async (url) => {
-    requested.push(String(url));
-    if (String(url).includes("/actions/runs")) {
-      return response({ workflow_runs: workflowRuns });
-    }
-    return response([]);
-  };
-
-  const receipt = await buildPromotionReceipt({
-    product: "LLM-4-People/bridlewise",
-    sha,
-    tag: "dry-run",
-    token: "test-token",
-    fetchImpl,
-    now: new Date("2026-01-01T00:02:00.000Z"),
-  });
-
-  assert.equal(receipt.verdict, "pass");
-  assert.deepEqual(receipt.blockers, []);
-  assert.ok(
-    requested.some((url) => url.includes("/actions/runs?head_sha=") && url.includes(sha)),
-    "the run lookup must include the requested commit",
-  );
-});
-
-test("the promotion gate waits for a run that is still in progress", async () => {
-  const sha = "0123456789abcdef0123456789abcdef01234567";
-  let runCalls = 0;
-  let sleeps = 0;
-  const response = (body) => ({
-    ok: true,
-    status: 200,
-    json: async () => body,
-    text: async () => "",
-  });
-  const run = (status, conclusion) => ({
-    id: 1,
-    name: "CI",
-    path: ".github/workflows/ci.yml",
-    event: "push",
-    status,
-    conclusion,
-    head_sha: sha,
-    head_branch: "main",
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:01:00Z",
-    html_url: "https://github.com/LLM-4-People/bridlewise/actions/runs/1",
-  });
-  const names = ["CI", "CodeQL", "Docs links", "Secret scan"];
-  const fetchImpl = async (url) => {
-    if (String(url).includes("/actions/runs")) {
-      runCalls += 1;
-      if (runCalls === 1) {
-        return response({
-          workflow_runs: names.map((name) =>
-            name === "CI" ? { ...run("in_progress", null), name } : { ...run("completed", "success"), name },
-          ),
-        });
-      }
-      return response({
-        workflow_runs: names.map((name) => ({ ...run("completed", "success"), name })),
-      });
-    }
-    return response([]);
-  };
-
-  const receipt = await buildPromotionReceipt({
-    product: "LLM-4-People/bridlewise",
-    sha,
-    tag: "dry-run",
-    token: "test-token",
-    fetchImpl,
-    now: new Date("2026-01-01T00:02:00.000Z"),
-    waitSeconds: 5,
-    sleepImpl: async () => {
-      sleeps += 1;
-    },
-  });
-
-  assert.equal(receipt.verdict, "pass");
-  assert.equal(runCalls, 2);
-  assert.equal(sleeps, 1);
-});
-
-/** A response with an optional `Link` header (the alert endpoints' only completeness marker). */
-function apiResponse(body, link = null) {
-  return {
-    ok: true,
-    status: 200,
-    json: async () => body,
-    text: async () => "",
-    headers: { get: (name) => (String(name).toLowerCase() === "link" ? link : null) },
-  };
+  return { requested, client: githubClient(fake.endpoint(), memoryCredential("test", fake.userToken("test"))) };
 }
 
 function successfulWorkflowRuns(sha) {
@@ -277,29 +180,48 @@ function successfulWorkflowRuns(sha) {
 
 const lowAlert = (number) => ({ number, state: "open", rule: { security_severity_level: "low" } });
 
+test("the promotion gate asks GitHub for runs at the requested commit", async () => {
+  const sha = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
+  const { requested, client } = gateClient((request) => (request.path.endsWith("/actions/runs") ? { body: { workflow_runs: successfulWorkflowRuns(sha) } } : { body: [] }));
+  const receipt = await buildPromotionReceipt({ product: "LLM-4-People/bridlewise", sha, tag: "dry-run", client, now: new Date("2026-01-01T00:02:00.000Z") });
+  assert.equal(receipt.verdict, "pass");
+  assert.deepEqual(receipt.blockers, []);
+  assert.ok(requested.some((url) => url.includes("/actions/runs?") && url.includes(`head_sha=${sha}`)), "the run lookup must include the requested commit");
+});
+
+test("the promotion gate waits for a run that is still in progress", async () => {
+  const sha = "0123456789abcdef0123456789abcdef01234567";
+  let runCalls = 0;
+  let sleeps = 0;
+  const names = ["CI", "CodeQL", "Docs links", "Secret scan"];
+  const run = (name, status, conclusion) => ({ ...successfulWorkflowRuns(sha)[0], name, status, conclusion });
+  const { client } = gateClient((request) => {
+    if (!request.path.endsWith("/actions/runs")) return { body: [] };
+    runCalls += 1;
+    return { body: { workflow_runs: names.map((name) => (runCalls === 1 && name === "CI" ? run(name, "in_progress", null) : run(name, "completed", "success"))) } };
+  });
+  const receipt = await buildPromotionReceipt({
+    product: "LLM-4-People/bridlewise", sha, tag: "dry-run", client, now: new Date("2026-01-01T00:02:00.000Z"), waitSeconds: 5,
+    sleepImpl: async () => { sleeps += 1; },
+  });
+  assert.equal(receipt.verdict, "pass");
+  assert.equal(runCalls, 2);
+  assert.equal(sleeps, 1);
+});
+
 test("the promotion gate refuses a truncated alert population", async () => {
   const sha = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
-  const fetchImpl = async (url) => {
-    const requested = String(url);
-    if (requested.includes("/actions/runs")) return apiResponse({ workflow_runs: successfulWorkflowRuns(sha) });
-    if (requested.includes("/code-scanning/alerts")) {
+  const { client } = gateClient((request) => {
+    if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: successfulWorkflowRuns(sha) } };
+    if (request.path.endsWith("/code-scanning/alerts")) {
       // The probe declares ONE open alert; the list page returns 100. The
       // page's declared total and the number judged disagree, so nothing may
       // certify the population.
-      return new URL(requested).searchParams.get("per_page") === "1"
-        ? apiResponse([lowAlert(0)])
-        : apiResponse(Array.from({ length: 100 }, (_, index) => lowAlert(index)));
+      return request.query.get("per_page") === "1" ? { body: [lowAlert(0)] } : { body: Array.from({ length: 100 }, (_, index) => lowAlert(index)) };
     }
-    return apiResponse([]);
-  };
-  const receipt = await buildPromotionReceipt({
-    product: "LLM-4-People/bridlewise",
-    sha,
-    tag: "dry-run",
-    token: "test-token",
-    fetchImpl,
-    now: new Date("2026-01-01T00:02:00.000Z"),
+    return { body: [] };
   });
+  const receipt = await buildPromotionReceipt({ product: "LLM-4-People/bridlewise", sha, tag: "dry-run", client, now: new Date("2026-01-01T00:02:00.000Z") });
   assert.equal(receipt.verdict, "blocked");
   assert.deepEqual(receipt.blockers, ["product.code_scanning:unknown"]);
   const check = receipt.checks.find((entry) => entry.id === "product.code_scanning");
@@ -313,22 +235,14 @@ test("the promotion gate refuses a truncated alert population", async () => {
 
 test("the promotion gate refuses an alert population with no completeness marker", async () => {
   const sha = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
-  const fetchImpl = async (url) => {
-    const requested = String(url);
-    if (requested.includes("/actions/runs")) return apiResponse({ workflow_runs: successfulWorkflowRuns(sha) });
+  const { client } = gateClient((request) => {
+    if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: successfulWorkflowRuns(sha) } };
     // A server that ignores `per_page=1` and returns several alerts with no
     // Link header has declared no population: the total cannot be established.
-    if (requested.includes("/code-scanning/alerts")) return apiResponse([lowAlert(1), lowAlert(2)]);
-    return apiResponse([]);
-  };
-  const receipt = await buildPromotionReceipt({
-    product: "LLM-4-People/bridlewise",
-    sha,
-    tag: "dry-run",
-    token: "test-token",
-    fetchImpl,
-    now: new Date("2026-01-01T00:02:00.000Z"),
+    if (request.path.endsWith("/code-scanning/alerts")) return { body: [lowAlert(1), lowAlert(2)] };
+    return { body: [] };
   });
+  const receipt = await buildPromotionReceipt({ product: "LLM-4-People/bridlewise", sha, tag: "dry-run", client, now: new Date("2026-01-01T00:02:00.000Z") });
   assert.equal(receipt.verdict, "blocked");
   const check = receipt.checks.find((entry) => entry.id === "product.code_scanning");
   assert.equal(check.complete, false);
@@ -338,29 +252,20 @@ test("the promotion gate refuses an alert population with no completeness marker
 
 test("the promotion gate follows pagination and accepts a complete declared population", async () => {
   const sha = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
-  const link = (rel, page) => `<https://api.github.com/repos/x/y/code-scanning/alerts?state=open&per_page=100&page=${page}>; rel="${rel}"`;
-  const fetchImpl = async (url) => {
-    const requested = String(url);
-    if (requested.includes("/actions/runs")) return apiResponse({ workflow_runs: successfulWorkflowRuns(sha) });
-    if (!requested.includes("code-scanning/alerts")) return apiResponse([]);
-    const params = new URL(requested).searchParams;
-    if (params.get("per_page") === "1") {
-      // 201 open alerts: the rel="last" page of a one-per-page probe is the
-      // declared total.
-      return apiResponse([lowAlert(0)], `<https://api.github.com/repos/x/y/code-scanning/alerts?state=open&per_page=1&page=201>; rel="last"`);
+  const link = (rel, page) => `</repos/LLM-4-People/bridlewise/code-scanning/alerts?state=open&per_page=100&page=${page}>; rel="${rel}"`;
+  const { client } = gateClient((request) => {
+    if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: successfulWorkflowRuns(sha) } };
+    if (!request.path.endsWith("/code-scanning/alerts")) return { body: [] };
+    if (request.query.get("per_page") === "1") {
+      // 201 open alerts: the rel="last" page of a one-per-page probe is the declared total.
+      return { body: [lowAlert(0)], link: `</repos/LLM-4-People/bridlewise/code-scanning/alerts?state=open&per_page=1&page=201>; rel="last"` };
     }
-    if (params.get("page") === "1") return apiResponse(Array.from({ length: 100 }, (_, index) => lowAlert(index)), `${link("next", 2)}, ${link("last", 3)}`);
-    if (params.get("page") === "2") return apiResponse(Array.from({ length: 100 }, (_, index) => lowAlert(100 + index)), `${link("next", 3)}, ${link("last", 3)}`);
-    return apiResponse([lowAlert(200)]);
-  };
-  const receipt = await buildPromotionReceipt({
-    product: "LLM-4-People/bridlewise",
-    sha,
-    tag: "dry-run",
-    token: "test-token",
-    fetchImpl,
-    now: new Date("2026-01-01T00:02:00.000Z"),
+    const page = request.query.get("page");
+    if (page === "1") return { body: Array.from({ length: 100 }, (_, index) => lowAlert(index)), link: `${link("next", 2)}, ${link("last", 3)}` };
+    if (page === "2") return { body: Array.from({ length: 100 }, (_, index) => lowAlert(100 + index)), link: `${link("next", 3)}, ${link("last", 3)}` };
+    return { body: [lowAlert(200)] };
   });
+  const receipt = await buildPromotionReceipt({ product: "LLM-4-People/bridlewise", sha, tag: "dry-run", client, now: new Date("2026-01-01T00:02:00.000Z") });
   assert.equal(receipt.verdict, "pass");
   assert.deepEqual(receipt.blockers, []);
   const check = receipt.checks.find((entry) => entry.id === "product.code_scanning");

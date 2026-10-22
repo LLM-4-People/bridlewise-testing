@@ -35,7 +35,8 @@
  *     to wherever the `Location` points — a reproduced leak of an MCP api-key
  *     to another host (SEC-V-1). The fetch runs with `redirect: "manual"` and
  *     ANY 3xx answer is the typed refusal `outbound_redirect_refused`, with
- *     no second request.
+ *     no second request — except 304 Not Modified, a conditional request's
+ *     answer, which points nowhere (the forge's ETag cache relies on it).
  *   - TLS IS VERIFIED. The platform fetch verifies certificates; the one way
  *     to switch that off process-wide (`NODE_TLS_REJECT_UNAUTHORIZED=0`) makes
  *     every `https:` request here the refusal
@@ -387,7 +388,7 @@ function outboundHeaders(
 
 export type OutboundHttpRequest = Readonly<{
   url: string;
-  method: "GET" | "POST" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** Headers the protocol owns (content negotiation, auth, sessions). */
   protocolHeaders: Readonly<Record<string, string>>;
   /** Headers the operator configured; validated, and never override protocol headers. */
@@ -399,8 +400,9 @@ export type OutboundHttpRequest = Readonly<{
   allowPrivateAddress: boolean;
 }> & OutboundUrlCheck;
 
+/** A 3xx that points elsewhere; 304 Not Modified (a conditional request's answer) is not one. */
 function isRedirect(response: Response): boolean {
-  return response.status >= 300 && response.status < 400;
+  return response.status >= 300 && response.status < 400 && response.status !== 304;
 }
 
 function redirectTarget(response: Response, base: URL): string {
