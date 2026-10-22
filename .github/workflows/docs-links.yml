@@ -33,3 +33,7 @@ jobs:
 
       - name: Check relative links
         run: node scripts/check-docs-links.mjs
+
+      - name: End this job's own processes
+        if: always()
+        run: node scripts/end-job-processes.mjs

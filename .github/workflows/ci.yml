@@ -104,6 +104,10 @@ jobs:
         working-directory: engine
         run: node --experimental-strip-types --test test/prevention/no-unhandled-errors.test.ts
 
+      - name: End this job's own processes
+        if: always()
+        run: node scripts/end-job-processes.mjs
+
   # Generated values are never edited by hand: hashes, pins, inventories,
   # manifests and README consumer blocks come from `harness sync`. This job
   # runs the generators (with the bundle, so the self-protection pin
@@ -156,6 +160,10 @@ jobs:
             echo "::error::a generated value is stale; run 'cd engine && node src/cli.ts harness sync --with-bundle' and commit its output"
             exit 1
           fi
+
+      - name: End this job's own processes
+        if: always()
+        run: node scripts/end-job-processes.mjs
 
   shards:
     name: Full suite shards
@@ -240,3 +248,7 @@ jobs:
             process.stdout.write(text);
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
           '
+
+      - name: End this job's own processes
+        if: always()
+        run: node scripts/end-job-processes.mjs

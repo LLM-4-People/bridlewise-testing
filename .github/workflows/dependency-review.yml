@@ -26,3 +26,7 @@ jobs:
         with:
           fail-on-severity: high
           comment-summary-in-pr: always
+
+      - name: End this job's own processes
+        if: always()
+        run: node scripts/end-job-processes.mjs

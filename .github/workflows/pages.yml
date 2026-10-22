@@ -94,6 +94,10 @@ jobs:
           path: ./_site
           include-hidden-files: true
 
+      - name: End this job's own processes
+        if: always()
+        run: node scripts/end-job-processes.mjs
+
   # A recorded override of a refused deploy order (scripts/floor/deploy-order.mjs)
   # waits for the pages-override environment's reviewer.
   approve-override:
@@ -169,3 +173,7 @@ jobs:
         id: deployment
         if: steps.order.outputs.deploy == 'true'
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
+
+      - name: End this job's own processes
+        if: always()
+        run: node scripts/end-job-processes.mjs

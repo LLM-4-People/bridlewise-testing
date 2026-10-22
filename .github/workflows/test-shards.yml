@@ -104,6 +104,10 @@ jobs:
           path: ${{ runner.temp }}/shard-plan
           if-no-files-found: error
 
+      - name: End this job's own processes
+        if: always()
+        run: node scripts/end-job-processes.mjs
+
   shard:
     name: Shard ${{ matrix.shard }}
     needs: prepare
@@ -213,6 +217,10 @@ jobs:
           path: ${{ runner.temp }}/shard-reports/shard-${{ matrix.shard }}.json
           if-no-files-found: error
 
+      - name: End this job's own processes
+        if: always()
+        run: node scripts/end-job-processes.mjs
+
   merge:
     name: Merge one qualification receipt
     needs: [prepare, shard]
@@ -319,3 +327,7 @@ jobs:
           name: test-shard-receipt
           path: ${{ runner.temp }}/test-shard-receipt.json
           if-no-files-found: error
+
+      - name: End this job's own processes
+        if: always()
+        run: node scripts/end-job-processes.mjs
