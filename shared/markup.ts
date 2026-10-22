@@ -68,6 +68,18 @@ export function decodeHtmlEntities(text: string): string {
   });
 }
 
+/**
+ * Plain text placed in Markdown prose (a list item, a heading): nothing in it
+ * is read as syntax. In ONE pass, the HTML specials become entities (no tag,
+ * no comment, no entity forms) and every ASCII punctuation character Markdown
+ * can read as syntax is backslash-escaped (no link, image, emphasis, code
+ * span, heading or list marker forms); a line break becomes a space, so the
+ * text stays in its one block.
+ */
+export function escapeMarkdownText(text: string): string {
+  return text.replace(/[&<>"']|[\\`*_{}[\]()#+\-.!|~:]|\r\n|[\r\n]/gu, (match) => HTML_ESCAPES[match] ?? (match.endsWith("\n") || match === "\r" ? " " : `\\${match}`));
+}
+
 /** One Markdown table cell: a backslash and a pipe are escaped, in one pass. */
 export function escapeMarkdownTableCell(text: string): string {
   return text.replace(/[\\|]/gu, (character) => `\\${character}`);
