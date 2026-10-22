@@ -7,12 +7,13 @@ body:
     attributes:
       value: |-
         > [!WARNING]
-        > Bridlewise is an experimental developer preview. Do not paste credentials, private source, personal data, absolute home paths or database contents. Paste logs as text; the forms accept no file uploads.
+        > Bridlewise is an experimental developer preview. Do not paste credentials, private source, personal data, absolute home paths or database contents. Every text field here is plain text and takes no file attachment: paste logs as text, redacted first.
   - type: textarea
     id: summary
     attributes:
       label: Summary
       description: One paragraph describing the failure.
+      render: text
     validations:
       required: true
   - type: textarea
@@ -24,12 +25,14 @@ body:
         1. npm ci
         2. node scripts/sd.mjs start
         3. ...
+      render: text
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
       label: Expected behavior
+      render: text
     validations:
       required: true
   - type: textarea
@@ -37,6 +40,7 @@ body:
     attributes:
       label: Actual behavior
       description: Include the typed error or refusal text, not a screenshot of a stack trace.
+      render: text
     validations:
       required: true
   - type: input
