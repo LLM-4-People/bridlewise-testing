@@ -19,7 +19,7 @@ import test from "node:test";
 import { GATE_CATALOGUE } from "../../../src/workflow/gates/catalogue.ts";
 import { planGates, type GatePlan } from "../../../src/workflow/gates/plan.ts";
 import type { CheckoutCommand, CheckoutStep } from "../../../src/workflow/checkout-setup.ts";
-import { registryCommand, runLightGate, runShard, type GateResult, type RunEnvironment } from "../../../src/workflow/gates/cell-run.ts";
+import { engineFailureReport, registryCommand, runLightGate, runShard, type GateResult, type RunEnvironment } from "../../../src/workflow/gates/cell-run.ts";
 import { parseJobOutcomes, readResults, renderReceipt, sealReceipt } from "../../../src/workflow/gates/seal.ts";
 import { judgeVitestReport } from "../../../src/workflow/gates/vitest-report.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
@@ -227,6 +227,12 @@ test("an engine cell lists its sources for the runner's --cell and passes only o
   assert.equal(passed.status, "passed", passed.refusal);
   assert.equal(passed.suite?.tests, 40, "the cell's own passed tests (the withheld rest is the other cells')");
   assert.equal((await run({ status: "failed", testCount: 10_000, passCount: 39, failCount: 1 })).status, "failed");
+  // A red cell tells each failure with the message the summary recorded, and says when it recorded none (#149).
+  assert.deepEqual(engineFailureReport({ failures: ["test/a.test.ts::refuses", "test/b.test.ts::counts"], failureMessages: { "test/a.test.ts::refuses": "AssertionError: expected 1\nto equal 2" }, reasons: ["test_failed"] }), [
+    "FAILED test/a.test.ts::refuses", "    AssertionError: expected 1", "    to equal 2",
+    "FAILED test/b.test.ts::counts", "    (the runner recorded no message for this failure)",
+    "reason: test_failed",
+  ]);
   assert.equal((await run({ status: "passed", testCount: 10_000, passCount: 40, failCount: 1 })).status, "failed");
   assert.equal((await run({ status: "passed", testCount: 10_000, passCount: 0, failCount: 0 })).status, "failed");
   assert.equal((await run({ status: "passed", testCount: 10_000, passCount: 40, failCount: 0 }, 1)).status, "failed");

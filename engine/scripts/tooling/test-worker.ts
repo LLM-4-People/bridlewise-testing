@@ -1,4 +1,4 @@
-import { readFileSync, writeSync } from "node:fs";
+import { writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -7,7 +7,7 @@ import {
   refreshCandidateTestIdentityExcluding,
 } from "./candidate-manifest.ts";
 import { enableSharedCompileCache } from "./compile-cache.ts";
-import { executeInventoryTestRun } from "./inventory-test-run.ts";
+import { executeInventoryTestRun, readCellSources } from "./inventory-test-run.ts";
 import { loadTestInventoryWithSnapshot } from "../test-inventory.ts";
 import { createTestReceipt, createTestResultReceipt, type TestResultReceipt } from "./test-receipt.ts";
 import { verifyS1Repository, type S1Verification } from "./s1-verification.ts";
@@ -164,8 +164,7 @@ function parseRequest(argv: readonly string[]): WorkerRequest {
   if ((argv.length !== 2 && argv.length !== 4) || argv[0] !== "--mode" || (argv[1] !== "test" && argv[1] !== "check")) return usage();
   if (argv.length === 2) return { mode: argv[1] };
   if (argv[2] !== "--cell" || argv[1] !== "test") return usage();
-  const sources = readFileSync(argv[3]!, "utf8").split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
-  return { mode: "test", cellSourceIds: new Set(sources) };
+  return { mode: "test", cellSourceIds: readCellSources(argv[3]!) };
 }
 
 if (isEntryPoint(import.meta.url)) {

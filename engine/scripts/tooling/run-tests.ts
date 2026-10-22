@@ -17,8 +17,9 @@ import {
   type ExecutionAuthority,
   type ExecutionOperation,
 } from "./test-execution.ts";
-import { cellReceiptPassing, computeTestResultReceiptDeterministicHash, testResultLedgerRows, type TestResultReceipt } from "./test-receipt.ts";
+import { cellReceiptPassing, computeTestResultReceiptDeterministicHash, testFailureMessages, testResultLedgerRows, type TestResultReceipt } from "./test-receipt.ts";
 import { asLockDoor, enforceTestRunLock } from "./test-run-lock.ts";
+import { readCellSources } from "./inventory-test-run.ts";
 import { InputError, HarnessError, extractErrorMessage } from "../../src/kernel/errors.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
@@ -174,7 +175,7 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     // THE HOST'S ONE INSTRUMENT LOCK: the whole suite is heavy, so the door
     // waits here while another heavy run holds the lock (saying who), and the
     // run's measurement records that it held it (the handle's stamp).
-    const cellSize = cellList === undefined ? undefined : readFileSync(cellList, "utf8").split("\n").filter((line) => line.trim().length > 0).length;
+    const cellSize = cellList === undefined ? undefined : readCellSources(cellList).size;
     const instrumentLock = await enforceTestRunLock(cellList === undefined ? "engine npm test" : "engine cell", { testFileCount: cellSize ?? inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
     releaseInstrumentLock = instrumentLock.release;
     // BEFORE THE RUN, AND AFTER THE SUB-CLI ABOVE: the corpora git cannot
@@ -320,6 +321,7 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
           status: cellList === undefined ? receipt.result.status : cellPassed(execution) ? "passed" : "failed",
           exitCode: execution.exitCode,
           failures: receipt.result.diagnostic === null ? [] : receipt.result.diagnostic.failures,
+          failureMessages: testFailureMessages(receipt),
           reasons: receipt.result.diagnostic === null ? [] : receipt.result.diagnostic.reasons,
           testCount: receipt.testReceipt.counts.discovered,
           passCount: receipt.testReceipt.counts.passed,

@@ -197,16 +197,34 @@ export async function runLightGate(plan: GatePlan, gateId: string, environment: 
 /** The engine summary the engine runner writes, repository-relative. */
 export const ENGINE_SUMMARY_PATH = "engine/.bridlewise/state/test-results/latest-summary.json";
 
-function engineFinish(repositoryRoot: string, outDirectory: string, cell: ShardCell, population: string): (outcome: Readonly<{ ok: boolean }>) => Readonly<{ refusal?: string; suite?: SuiteOutcome }> {
+/**
+ * WHAT A RED ENGINE CELL SAID, from the runner's one summary: each failing
+ * test with its first error (the summary records it, redacted), then the
+ * runner's reasons. A hosted-runner red is read here, never re-run (#149).
+ */
+export function engineFailureReport(summary: Readonly<Record<string, unknown>>): readonly string[] {
+  const failures = Array.isArray(summary.failures) ? summary.failures.filter((entry): entry is string => typeof entry === "string") : [];
+  const messages = typeof summary.failureMessages === "object" && summary.failureMessages !== null ? summary.failureMessages as Readonly<Record<string, unknown>> : {};
+  const reasons = Array.isArray(summary.reasons) ? summary.reasons.filter((entry): entry is string => typeof entry === "string") : [];
+  return [
+    ...failures.flatMap((identity) => {
+      const message = messages[identity];
+      return [`FAILED ${identity}`, ...(typeof message === "string" ? message.split("\n").map((line) => `    ${line}`) : ["    (the runner recorded no message for this failure)"])];
+    }),
+    ...reasons.map((reason) => `reason: ${reason}`),
+  ];
+}
+
+function engineFinish(repositoryRoot: string, outDirectory: string, cell: ShardCell, population: string, tell: (line: string) => void): (outcome: Readonly<{ ok: boolean }>) => Readonly<{ refusal?: string; suite?: SuiteOutcome }> {
   return ({ ok }) => {
-    // The runner's summary travels with the result, passed or failed: it names each failure (the log
-    // withholds a diagnostic line too long to redact whole).
-    const summaryPath = join(repositoryRoot, ENGINE_SUMMARY_PATH);
-    if (existsSync(summaryPath)) copyFileSync(summaryPath, join(outDirectory, `${cell.cell}.engine-summary.json`));
-    if (!ok) return {};
     const path = join(repositoryRoot, ENGINE_SUMMARY_PATH);
-    if (!existsSync(path)) return { refusal: `the engine runner exited 0 but wrote no summary at ${ENGINE_SUMMARY_PATH}` };
+    if (!existsSync(path)) return ok ? { refusal: `the engine runner exited 0 but wrote no summary at ${ENGINE_SUMMARY_PATH}` } : {};
+    // The runner's summary travels with the result, passed or failed, and its failures are told with their
+    // messages (the log withholds a diagnostic line too long to redact whole; the summary keeps it, redacted).
+    copyFileSync(path, join(outDirectory, `${cell.cell}.engine-summary.json`));
     const summary = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    for (const line of engineFailureReport(summary)) tell(`${cell.cell}: ${line}`);
+    if (!ok) return {};
     // A cell's summary: its own rule's status (the runner's cell judgement), the whole inventory discovered,
     // and the cell's dispatched tests passed (the withheld rest is counted skipped, by design).
     if (summary.status !== "passed") return { refusal: `the engine summary says ${String(summary.status)}` };
@@ -243,5 +261,5 @@ export async function runShard(plan: GatePlan, cellId: string, environment: RunE
   mkdirSync(environment.outDirectory, { recursive: true });
   const listPath = join(environment.outDirectory, `${cell.cell}.cell`);
   writeFileSync(listPath, `${cell.files.map((path) => path.replace(/^engine\//u, "")).join("\n")}\n`);
-  return runCell(plan, { gate, cell: cell.cell, commands: [{ name, extra: () => [listPath] }], finish: engineFinish(environment.repositoryRoot, environment.outDirectory, cell, population) }, environment);
+  return runCell(plan, { gate, cell: cell.cell, commands: [{ name, extra: () => [listPath] }], finish: engineFinish(environment.repositoryRoot, environment.outDirectory, cell, population, environment.tell ?? (() => undefined)) }, environment);
 }
