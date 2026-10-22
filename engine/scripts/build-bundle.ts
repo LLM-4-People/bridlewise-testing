@@ -17,27 +17,22 @@
  * Usage: `node scripts/build-bundle.ts` (Node 24 strips types natively).
  *
  * Determinability: `sourcesContent: false` + esbuild's deterministic output
- * + no sourcemap, and the published bundle is SEALED ({@link publishBundle}):
- * it embeds its own pin, so the pin is the digest with that one literal
- * normalised out and the published text carries it. Bundle bytes and pin are
- * a pure function of the source tree + esbuild version, never of the bundle
- * that was on disk before. After any `src/` change, run
- * `node src/cli.ts harness sync --with-bundle` — it rebuilds the bundle,
- * re-pins `ROOT_POLICY.selfProtection.bundleSha256`, and verifies in one
- * pass (the hash binding in `src/workflow/hash-binding-registry.ts` verifies
- * it). This script is the lower-level build step for the rare case where the
- * bundle alone is needed without the re-pin/verify.
+ * + no sourcemap, so the bundle's bytes are a pure function of the source
+ * tree + esbuild version. No digest of it is committed (#221): a build
+ * output's identity is the build's to report, never a value the tree holds,
+ * and the bundle-staleness guard proves the bundle on disk is a fresh build.
+ * `node src/cli.ts harness sync --with-bundle` builds it with the rest of the
+ * generated values; this script is the lower-level build step.
  */
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
 
 import { atomicWriteFile } from "../src/filesystem/atomic-write.ts";
-import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
-import { sealSelfPinnedSource } from "../src/workflow/hash-binding-registry.ts";
+import { sha256 } from "../src/kernel/integrity.ts";
 import { buildGuardianSpecSchemaArtifact } from "./verification/slice-projections.ts";
 import { bootstrapProcess, isEntryPoint } from "../src/runtime/cli-debug.ts";
 
@@ -73,6 +68,10 @@ export function getBundleBuildOptions(): Parameters<typeof build>[0] {
     outfile: bundlePath,
     sourcemap: false,
     sourcesContent: false,
+    // A dependency is named by the path it is reached by, never its real path: a checkout whose node_modules is a
+    // link (a worktree, the commit guard's staged tree) builds the same bytes as one that holds the folder, so the
+    // bundle is a function of the tree and the lockfile, never of where the dependencies happen to sit (#221).
+    preserveSymlinks: true,
     write: false,
     logLevel: "warning",
     external: ["onnxruntime-node", "sharp", "@xenova/transformers"],
@@ -107,25 +106,18 @@ function writeArtifactIfChanged(path: string, text: string, label: string): void
 }
 
 /**
- * Publish the bundle SEALED: its pin is the digest of the bundle with that
- * pin normalised out (the registry's `self-pinned-sha256` binding), and the
- * published text carries that digest as its own pin — the exact bytes a
- * rebuild produces once `root-policy.ts` is re-pinned. So the bytes and the
- * pin are a pure function of the sources: two fresh checkouts of one tree
- * publish the same bundle and pin, whatever bundle (if any) was on disk
- * before (FR-15; the former "keep the previous same-source bundle" branch is
- * gone with its reason).
+ * Publish the bundle: the built text, written when it differs, and its
+ * digest (reported, never committed). Two fresh checkouts of one tree publish
+ * the same bytes, whatever bundle (if any) was on disk before (FR-15).
  */
 export function publishBundle(bundleText: string, destination: string): Readonly<{
   bundleSha256: string;
   bundleBytes: number;
 }> {
-  const sealed = sealSelfPinnedSource(ROOT_POLICY.selfProtection.bundleRelativePath, bundleText);
-  writeArtifactIfChanged(destination, sealed.text, "bundle");
-  // No `bundle.js.sha256` sidecar: nothing read it, the pin lives in the
-  // root policy (`bundleSha256`), and copy-back left it stale beside a new
-  // bundle (wf1a-design L6).
-  return { bundleSha256: sealed.digest, bundleBytes: Buffer.byteLength(sealed.text) };
+  writeArtifactIfChanged(destination, bundleText, "bundle");
+  // No `bundle.js.sha256` sidecar: nothing read it, and copy-back left it
+  // stale beside a new bundle (wf1a-design L6).
+  return { bundleSha256: sha256(bundleText), bundleBytes: Buffer.byteLength(bundleText) };
 }
 
 async function buildBundle(): Promise<BuildSummary> {
@@ -155,8 +147,30 @@ async function buildBundle(): Promise<BuildSummary> {
   };
 }
 
+/**
+ * THE BUNDLE'S FRESHNESS, with no committed digest (#221): a rebuild in memory
+ * from the current source, compared byte for byte with `dist/bundle.js`. A
+ * stale, tampered or absent bundle is `fresh: false`, naming which; nothing is
+ * written. `harness check` runs this (`--check`), so a hand-edited bundle is
+ * refused by the check that refuses every other drift.
+ */
+export async function bundleFreshness(onDisk: string = bundlePath): Promise<Readonly<{ fresh: boolean; status: "current" | "stale" | "absent"; path: string }>> {
+  const result = await build(getBundleBuildOptions());
+  const rebuilt = result.outputFiles?.[0]?.text;
+  if (rebuilt === undefined) throw new Error("esbuild produced no output files");
+  const status = !existsSync(onDisk) ? "absent" : readFileSync(onDisk, "utf8") === rebuilt ? "current" : "stale";
+  return { fresh: status === "current", status, path: relative(harnessRoot, onDisk) };
+}
+
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
+  const argv = process.argv.slice(2);
+  if (argv.length > 1 || (argv.length === 1 && argv[0] !== "--check")) throw new Error("Usage: build-bundle [--check]");
+  if (argv[0] === "--check") {
+    const freshness = await bundleFreshness();
+    process.stdout.write(`${JSON.stringify(freshness)}\n`);
+    process.exit(freshness.fresh ? 0 : 1);
+  }
   const summary = await buildBundle();
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   process.exit(0);

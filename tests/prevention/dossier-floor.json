@@ -5,11 +5,11 @@
     {
       "path": "engine/test/prevention/bundle-staleness.test.ts",
       "lines": [
-        "GUARD SUBJECT: the shipped bundle is rebuilt from current source — a stale bundle that still matches the root-policy pin is refused",
-        "GUARD OWNS: scripts/build-bundle.ts + the root-policy bundleSha256 pin — the sealed-rebuild comparison",
-        "GUARD PLANT: edit a non-self-referential source module that the bundle DOES tree-shake in (a tree-shaken export is the inert first plant — it changes no bundle bytes) without rebuilding; the sealed rebuilt bytes must differ from the on-disk bytes",
-        "GUARD DRIVEN: rebuild the bundle in memory from the live source tree, seal it, and compare it byte for byte with the on-disk bundle — the same build path `harness sync` runs",
-        "GUARD LIVENESS: the on-disk bundle is asserted to exist and to match the root-policy pin FIRST — a verdict read against a missing or unpinned bundle is not a staleness measurement"
+        "GUARD SUBJECT: the shipped bundle is rebuilt from current source — a stale bundle is refused",
+        "GUARD OWNS: scripts/build-bundle.ts — the rebuild comparison",
+        "GUARD PLANT: edit a source module that the bundle DOES tree-shake in (a tree-shaken export is the inert first plant — it changes no bundle bytes) without rebuilding; the rebuilt bytes must differ from the on-disk bytes",
+        "GUARD DRIVEN: rebuild the bundle in memory from the live source tree and compare it byte for byte with the on-disk bundle — the same build path `harness sync` runs",
+        "GUARD LIVENESS: the on-disk bundle is asserted to exist FIRST — a verdict read against a missing bundle is not a staleness measurement"
       ]
     },
     {
