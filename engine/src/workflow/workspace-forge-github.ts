@@ -27,7 +27,8 @@
  *   used: it does not enqueue on ruleset queues.
  */
 import { HarnessError } from "../kernel/errors.ts";
-import { harnessAppKeyCustody, type AppKeyCustody } from "./forge/app-keys.ts";
+import { admitHarnessKeyHome } from "../filesystem/self-protection/key-home.ts";
+import { keyHomeCustody, type AppKeyCustody } from "./forge/app-keys.ts";
 import type { ForgeAppRole } from "./forge/app-registry.ts";
 import { ForgeError, isForgeError } from "./forge/codes.ts";
 import { configuredForge, configuredForgeClient } from "./forge/configured-forge.ts";
@@ -229,8 +230,8 @@ export function githubWorkspaceForgeFactory(landTargets: readonly string[]): Wor
     // The key home is admitted on the first signature, not here: a workspace that never reaches the forge needs no App key.
     let admitted: AppKeyCustody | undefined;
     const custody: AppKeyCustody = Object.freeze({
-      identity: (role: ForgeAppRole) => (admitted ??= harnessAppKeyCustody()).identity(role),
-      signRs256: (role: ForgeAppRole, data: Uint8Array) => (admitted ??= harnessAppKeyCustody()).signRs256(role, data),
+      identity: (role: ForgeAppRole) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).identity(role),
+      signRs256: (role: ForgeAppRole, data: Uint8Array) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).signRs256(role, data),
     });
     const credential = appInstallationCredential(forgeEndpoint(settings), custody, { role: "agent", owner: settings.organization, repository: trunk.name, renewBeforeMs: settings.tokenRenewBeforeMs });
     return githubWorkspaceForge(configuredForgeClient(credential), { owner: settings.organization, name: trunk.name });
