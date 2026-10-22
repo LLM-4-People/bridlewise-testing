@@ -81,6 +81,12 @@ test("the guard parses: each violation is found in any case, in a rule and in a 
     ["@property --x { syntax: '<number>'; inherits: false; initial-value: 0; }", /@property/u],
     ["@page { margin: 0; }", /not an at-rule/u],
     [".k { color: var(--ink-1);", /never closed/u],
+    [".l { color: \\63 rimson; }", /colour literal: \\63 rimson/u],
+    [".l { background: \\72 gb(1, 2, 3); }", /colour literal: \\72 gb\(\)/u],
+    [".l { transition: opacity 120m\\73; }", /duration literal: 120m\\73/u],
+    ["@\\69 mport \"x.css\";", /@import: a sheet is linked by the layout/u],
+    [".m { background-image: image-set(\"https://cdn.example/x.png\" 1x); }", /a string leaves the site: https:\/\/cdn\.example/u],
+    [".m { background-image: image-set(\"//cdn.example/x.png\" 1x); }", /a string leaves the site/u],
   ];
   for (const [css, expected] of planted) {
     const findings = judge(css);
@@ -97,7 +103,8 @@ test("the guard parses: each violation is found in any case, in a rule and in a 
     ".g { content: \"#1 red 120ms {\"; grid-template-columns: repeat(2, 1fr); }",
     ".h { font-family: var(--face-mono); }",
     ".h { font: inherit; }",
-    ".i { background: url(../img/local.png); }",
+    ".i { background: url(../img/local.png); background-image: image-set(\"../img/local.png\" 1x); }",
+    ".j::before { content: \"https://example.org\"; }",
   ];
   for (const css of nearMisses) assert.deepEqual(judge(css), [], `near-miss: ${css}`);
 });
@@ -111,11 +118,13 @@ test("the file set is the build input: a Sass source anywhere is refused; the to
     put("assets/css/style.css", ".a { color: var(--ink-1); }\n");
     put("assets/css/main.scss", "---\n---\n$ink: #101216;\n.a { color: $ink; }\n");
     put("_sass/partial.scss", ".b { color: red; }\n");
+    put("assets/css/LOUD.CSS", ".c { color: red; }\n");
     put("assets/css/tokens.css", ":root { --ink-1: #101216; }\n");
     const { sheets, findings } = judgeSiteStyles({ root: ROOT, sourceRoot: source });
     assert.ok(!sheets.includes("assets/css/tokens.css"), "the generated token sheet is not judged here");
-    assert.deepEqual(findings.map((finding) => finding.split(":")[0]), ["_sass/partial.scss", "assets/css/main.scss"]);
-    assert.ok(findings.every((finding) => /a Sass source/u.test(finding)));
+    assert.deepEqual(findings.map((finding) => finding.split(":")[0]), ["_sass/partial.scss", "assets/css/LOUD.CSS", "assets/css/main.scss"]);
+    assert.ok(findings.filter((finding) => !finding.startsWith("assets/css/LOUD.CSS")).every((finding) => /a Sass source/u.test(finding)));
+    assert.ok(findings.some((finding) => /^assets\/css\/LOUD\.CSS:1:\d+ color: colour literal: red$/u.test(finding)), "an upper-case extension is still a stylesheet");
   });
 });
 

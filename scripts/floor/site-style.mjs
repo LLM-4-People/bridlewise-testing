@@ -2,6 +2,9 @@
  * THE SITE'S STYLE GUARD: every stylesheet the site build consumes reads the
  * one design system (`src/cockpit/tokens.css`) and declares none of its own.
  *
+ * This is the fast static half. The rendered pages are judged by the shared
+ * rendered-site checker (computed styles, faces and requests; #409).
+ *
  * `siteStylesheets` lists what the build consumes: every stylesheet in the
  * Jekyll source the builder assembled (`site.mjs` `buildSiteSource`), which
  * Jekyll either copies (`.css`) or compiles (`.scss`, `.sass`, including the
@@ -9,7 +12,8 @@
  * is the owner's own projection and is judged by its generator.
  *
  * `siteStyleViolations` parses a sheet with a real CSS parser (css-tree) and
- * refuses, by node, never by pattern:
+ * refuses, by node, never by pattern, every name read as CSS reads it
+ * (escapes decoded, case folded):
  *
  * - a parse error, or braces that do not balance (a sheet the parser cannot
  *   read whole cannot be judged);
@@ -30,7 +34,8 @@
  *   fallback (a fallback is a literal the token was meant to replace);
  * - a `font-family` that is not one `--face-*` token, and the `font`
  *   shorthand except a CSS-wide keyword: the faces are the owner's;
- * - a `url()` that leaves the site (a scheme or `//`);
+ * - a `url()` or a string that leaves the site (a scheme or `//`; the text
+ *   of `content` and `quotes` is not an address);
  * - text set in the faint inks (`--ink-3`, `--ink-4`), which fail AA;
  * - a Sass source: the site's sheets are plain CSS, so one parser judges all
  *   of them (Sass variables and functions can produce any literal, which a
@@ -65,6 +70,10 @@ const NO_PALETTE = new Set(["transparent", "currentcolor"]);
 const WIDE_KEYWORDS = new Set(["inherit", "initial", "unset", "revert", "revert-layer"]);
 const FAINT_INKS = new Set(["--ink-3", "--ink-4"]);
 const THEME_ATTRIBUTES = new Set(["data-theme", "data-cockpit-theme"]);
+/** An address with a scheme or a protocol-relative one: it leaves the site. */
+const REMOTE = /^\s*(?:[a-z][a-z\d+.-]*:|\/\/)/iu;
+/** Properties whose strings are text the page shows, not addresses. */
+const TEXT_PROPERTIES = new Set(["content", "quotes"]);
 
 const COLOUR_KEYWORDS = (() => {
   const words = new Set();
@@ -76,10 +85,13 @@ const COLOUR_KEYWORDS = (() => {
   return words;
 })();
 
+/** A name as CSS reads it: escapes decoded (`\\63 rimson` is crimson), case folded. */
+const plain = (name) => csstree.ident.decode(name).toLowerCase();
+
 const takesColourMemo = new Map();
 /** Whether a property's grammar accepts a colour (an unknown property is assumed to). */
 function takesColour(property) {
-  const name = property.toLowerCase();
+  const name = plain(property);
   if (takesColourMemo.has(name)) return takesColourMemo.get(name);
   const definition = csstree.lexer.getProperty(name);
   const result = definition === null || definition === undefined || syntaxTakesColour(definition.syntax, new Set());
@@ -116,14 +128,14 @@ export function declaredTokens(owner) {
 function valueViolations(property, value, tokens) {
   const findings = [];
   const colourContext = takesColour(property);
-  const tokenOnly = (node) => node.type === "Function" && node.name.toLowerCase() === "var";
+  const tokenOnly = (node) => node.type === "Function" && plain(node.name) === "var";
   csstree.walk(value, (node) => {
     switch (node.type) {
       case "Hash":
         findings.push(`colour literal: #${node.value}`);
         break;
       case "Function": {
-        const name = node.name.toLowerCase();
+        const name = plain(node.name);
         if (COLOUR_FUNCTIONS.has(name)) findings.push(`colour literal: ${node.name}()`);
         if (name === "var") {
           const parts = node.children.toArray();
@@ -135,21 +147,24 @@ function valueViolations(property, value, tokens) {
         break;
       }
       case "Identifier":
-        if (colourContext && COLOUR_KEYWORDS.has(node.name.toLowerCase()) && !NO_PALETTE.has(node.name.toLowerCase())) findings.push(`colour literal: ${node.name}`);
+        if (colourContext && COLOUR_KEYWORDS.has(plain(node.name)) && !NO_PALETTE.has(plain(node.name))) findings.push(`colour literal: ${node.name}`);
         break;
       case "Dimension":
-        if (["s", "ms"].includes(node.unit.toLowerCase())) findings.push(`duration literal: ${node.value}${node.unit}`);
+        if (["s", "ms"].includes(plain(node.unit))) findings.push(`duration literal: ${node.value}${node.unit}`);
+        break;
+      case "String":
+        if (!TEXT_PROPERTIES.has(plain(property)) && REMOTE.test(node.value)) findings.push(`a string leaves the site: ${node.value}`);
         break;
       case "Url":
-        if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/iu.test(node.value)) findings.push(`url() leaves the site: ${node.value}`);
+        if (REMOTE.test(node.value)) findings.push(`url() leaves the site: ${node.value}`);
         break;
       default:
         break;
     }
   });
-  const lower = property.toLowerCase();
+  const lower = plain(property);
   const parts = value.type === "Value" ? value.children.toArray() : [];
-  const wide = parts.length === 1 && parts[0].type === "Identifier" && WIDE_KEYWORDS.has(parts[0].name.toLowerCase());
+  const wide = parts.length === 1 && parts[0].type === "Identifier" && WIDE_KEYWORDS.has(plain(parts[0].name));
   if (lower === "font-family" && !wide) {
     const face = parts.length === 1 && tokenOnly(parts[0]) && parts[0].children.first?.type === "Identifier" && parts[0].children.first.name.startsWith("--face-");
     if (!face) findings.push(`not one --face-* token: ${csstree.generate(value)}`);
@@ -191,18 +206,18 @@ export function siteStyleViolations(css, { tokens }) {
       if (node.type === "Rule" && node.prelude.type === "SelectorList") {
         let theme = false;
         csstree.walk(node.prelude, (part) => {
-          if (part.type === "PseudoClassSelector" && part.name.toLowerCase() === "root") theme = true;
-          if (part.type === "AttributeSelector" && THEME_ATTRIBUTES.has(part.name.name.toLowerCase())) theme = true;
+          if (part.type === "PseudoClassSelector" && plain(part.name) === "root") theme = true;
+          if (part.type === "AttributeSelector" && THEME_ATTRIBUTES.has(plain(part.name.name))) theme = true;
         });
         if (theme) findings.push(`${at(node)}theme block: ${csstree.generate(node.prelude)}`);
       } else if (node.type === "Atrule") {
-        const name = node.name.toLowerCase();
+        const name = plain(node.name);
         if (name === "import") findings.push(`${at(node)}@import: a sheet is linked by the layout, never chained`);
         else if (name === "font-face") findings.push(`${at(node)}@font-face: the faces are declared once, in the owner`);
         else if (name === "property") findings.push(`${at(node)}@property: a token is declared once, in the owner`);
         else if (!AT_RULES.has(name)) findings.push(`${at(node)}@${node.name}: not an at-rule the site's sheets hold`);
       } else if (node.type === "Declaration") {
-        if (node.property.startsWith("--")) {
+        if (plain(node.property).startsWith("--")) {
           findings.push(`${at(node)}custom property declared: ${node.property}`);
           return csstree.walk.skip;
         }
@@ -220,7 +235,7 @@ export function siteStyleViolations(css, { tokens }) {
 export function siteStylesheets(sourceRoot) {
   return readdirSync(sourceRoot, { recursive: true })
     .map((path) => String(path).split(sep).join("/"))
-    .filter((path) => STYLE_EXTENSIONS.some((extension) => path.endsWith(extension)) && statSync(join(sourceRoot, path)).isFile())
+    .filter((path) => STYLE_EXTENSIONS.some((extension) => path.toLowerCase().endsWith(extension)) && statSync(join(sourceRoot, path)).isFile())
     .filter((path) => path !== SITE_TOKEN_SHEET)
     .sort();
 }
@@ -237,7 +252,7 @@ export function judgeSiteStyles({ root, sourceRoot }) {
   const findings = [];
   for (const path of sheets) {
     if (STYLE_BURN_DOWN.has(path)) continue;
-    if (!path.endsWith(".css")) {
+    if (!path.toLowerCase().endsWith(".css")) {
       findings.push(`${path}: a Sass source: the site's stylesheets are plain CSS, judged by one parser`);
       continue;
     }
