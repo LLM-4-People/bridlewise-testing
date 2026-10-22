@@ -19,7 +19,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "../engine/src/runtime/entry-point.ts";
 import {
   PLAN_SCHEMA,
   SHARD_REPORT_SCHEMA,
@@ -473,7 +473,7 @@ function parseArgs(argv) {
   return options;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   try {
     const options = parseArgs(process.argv.slice(2));
     const receipt = mergeShardReports(options);
