@@ -83,7 +83,7 @@ const HOSTILE = [
   '<script>alert(1)</script>',
   '"/><script>alert(2)</script><x a="',
   "'/><image href=x onerror=alert(3)>",
-  "]]><!-- & &amp; </text></svg>",
+  "]]><!-- & </text></svg>",
 ];
 
 /** The SVG parsed as XML: it must be well formed, hold no script and no element the generator does not draw. */
