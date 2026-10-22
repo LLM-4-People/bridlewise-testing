@@ -757,7 +757,8 @@
       "significance": 0.01,
       "deterministicShims": [
         "engine/test/support/flake-shim-hold-requests.ts",
-        "engine/test/support/flake-shim-routing-rss.ts"
+        "engine/test/support/flake-shim-routing-rss.ts",
+        "engine/test/forge/flake-shim-token-ends-zero.ts"
       ]
     },
     "webSuiteWatchdog": {
@@ -1161,7 +1162,24 @@
         "visibility": "public",
         "provingGround": true
       }
-    ]
+    ],
+    "maintainerCli": {
+      "stallMs": 120000,
+      "cpuLimitMs": 30000,
+      "killGraceMs": 2000
+    },
+    "appsPage": {
+      "port": 47811,
+      "legacyApps": [
+        {
+          "slug": "claude",
+          "repositories": [
+            "bridlewise-testing",
+            "bridlewise-coordination"
+          ]
+        }
+      ]
+    }
   },
   "codeIntelligence": {
     "autoIndexOnProjectAdd": true,

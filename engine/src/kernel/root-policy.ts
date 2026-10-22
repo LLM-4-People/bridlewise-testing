@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "a6b5f80b18975f200fe6d6fd0161aea7347f024628df2073330d0582ea117fe5",
+      sourceSha256: "0987e6bbc97c0da22b584fc3f441818387f18546cb1027d29c7639ba11e925af",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -1413,13 +1413,14 @@ const ROOT_POLICY_VALUE = {
      * the repository root, say — this name would silently land on the web's
      * `src/` and stop protecting the harness's, because both exist and the
      * subtree set is a `Set` that would simply de-duplicate. It cannot ship
-     * that way: `binaryRelativePath` and `bundleRelativePath` are resolved
-     * against the SAME root, the guardian's build stamp is recomputed from
-     * that root's sealed sources and the bundle is pinned by sha256 here, so
-     * a root that is not the harness produces `binary_missing` /
+     * that way: `binaryRelativePath` is resolved against that root and the
+     * guardian's build stamp is recomputed from that root's sealed sources,
+     * so a root that is not the harness produces `binary_missing` /
      * `binary_hash_mismatch` and self-protection refuses to run rather than
-     * running over the wrong tree. Those bindings are what make the root
-     * unambiguous; this comment says so, and
+     * running over the wrong tree. That binding is what makes the root
+     * unambiguous (the bundle is a build output nothing pins: a committed
+     * digest of it was never checked at runtime and conflicted on every
+     * merge, #221); this comment says so, and
      * `tests/prevention/subprocess-confinement-owner.test.ts` drives it.
      */
     minimumProtectedSubtrees: ["src"],
