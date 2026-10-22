@@ -150,7 +150,7 @@ function uploadLogsStep(name: string): Step {
     name: "Upload the gate logs",
     if: "${{ always() }}",
     uses: uses("upload-artifact"),
-    with: { name, path: "${{ runner.temp }}/tmp/**/*.log", "if-no-files-found": "ignore", "retention-days": 30 },
+    with: { name, path: "${{ env.TMPDIR }}/**/*.log", "if-no-files-found": "ignore", "retention-days": 30 },
   };
 }
 
