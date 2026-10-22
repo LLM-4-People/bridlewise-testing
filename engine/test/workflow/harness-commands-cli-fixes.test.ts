@@ -523,7 +523,7 @@ test("BOUND 1, the CPU-time limit: a step past it is ended by SIGXCPU and says s
 test("BOUND 1 is BINDING: the hard limit is set too, so no child can raise its CPU limit", () => {
   const { dir, script } = boundedFixture("limits", 'import { execFileSync } from "node:child_process";\nconst read = (flag: string) => execFileSync("/bin/sh", ["-c", `ulimit ${flag} -t`], { encoding: "utf8" }).trim();\nlet raised = "refused";\ntry { execFileSync("/bin/sh", ["-c", "ulimit -H -t unlimited"], { stdio: "ignore" }); raised = "raised"; } catch {}\nprocess.stdout.write(JSON.stringify({ soft: read("-S"), hard: read("-H"), raised }));\n');
   try {
-    const answer = JSON.parse(runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 7, cpuKillGraceSeconds: 3, hangBackstopMs: 120_000 } })) as { soft: string; hard: string; raised: string };
+    const answer = JSON.parse(runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 7, cpuKillGraceSeconds: 3, hangBackstopMs: 120_000 } }).payload) as { soft: string; hard: string; raised: string };
     assert.deepEqual(answer, { soft: "7", hard: "10", raised: "refused" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -586,29 +586,64 @@ test("FAIL-CLOSED: a step that printed a PASS and was then killed, or ran past i
   }
 });
 
-test("FAIL-CLOSED, end to end: a `harness sync` whose check step prints a pass and is KILLED fails the whole sync, naming the step and the signal", async () => {
-  const dir = createTempDir("harness-sync-killed-step-");
+test("FAIL-CLOSED: a step that printed a PASS and then exited non-zero, or crashed, did not exit clean; its payload is never its verdict", () => {
+  const exited = boundedFixture("pass-then-exit-1", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nprocess.exitCode = 1;\n');
+  const crashed = boundedFixture("pass-then-crash", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nthrow new Error("the step crashed after printing");\n');
+  const clean = boundedFixture("pass-clean", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\n');
+  try {
+    assert.deepEqual(runScriptSubprocess(exited.dir, exited.script, []), { payload: '{"fresh":true,"status":"pass"}', exitedClean: false });
+    assert.deepEqual(runScriptSubprocess(crashed.dir, crashed.script, []), { payload: '{"fresh":true,"status":"pass"}', exitedClean: false });
+    assert.deepEqual(runScriptSubprocess(clean.dir, clean.script, []), { payload: '{"fresh":true,"status":"pass"}', exitedClean: true });
+  } finally {
+    for (const one of [exited, crashed, clean]) rmSync(one.dir, { recursive: true, force: true });
+  }
+});
+
+/** A stand-in engine: a CLI whose every step answers a signed pass, `check` then ending as `checkEnding` says, and a bundle check answering fresh with `bundleExit`. */
+async function syncOverStandIn(checkEnding: string, bundleExit = 0): Promise<Awaited<ReturnType<typeof harnessSync>>> {
+  const dir = createTempDir("harness-sync-stand-in-");
   try {
     const engine = join(dir, "engine");
     mkdirSync(join(engine, "src"), { recursive: true });
     mkdirSync(join(engine, "scripts"), { recursive: true });
     execFileSync("git", ["init", "-q", dir]);
     const resultOwner = pathToFileURL(resolve("src", "workflow", "command-result.ts")).href;
-    // A stand-in CLI: every step answers a signed pass, and `check` prints its pass and is then killed.
     writeFileSync(join(engine, "src", "cli.ts"), [
       `const { wrapResult } = await import(${JSON.stringify(resultOwner)});`,
       "const step = process.argv[3];",
       "process.stdout.write(JSON.stringify(wrapResult(step, { ok: true }, { status: \"pass\" })) + \"\\n\");",
-      "if (step === \"check\") { process.kill(process.pid, \"SIGTERM\"); setTimeout(() => {}, 10_000); }",
+      `if (step === "check") { ${checkEnding} }`,
     ].join("\n"));
-    writeFileSync(join(engine, "scripts", "build-bundle.ts"), 'process.stdout.write(JSON.stringify({ fresh: true, status: "fresh", path: "dist/bundle.js" }) + "\\n");\n');
-    const result = await harnessSync(engine);
-    assert.equal(result.status, "fail", "a killed step can never leave the sync passing");
-    assert.equal(result.result.allPassed, false);
-    const check = result.result.steps.find((step) => step.step === "check");
-    assert.equal(check?.status, "fail");
-    assert.match(JSON.stringify(result.result.check.result), /harness sync step 'check' did not answer with a verdict: .*it was ended by signal SIGTERM/u);
+    writeFileSync(join(engine, "scripts", "build-bundle.ts"), [
+      'if (process.argv.includes("--check")) process.stdout.write(JSON.stringify({ fresh: true, status: "fresh", path: "dist/bundle.js" }) + "\\n");',
+      'else process.stdout.write(JSON.stringify({ built: true }) + "\\n");',
+      `process.exitCode = ${String(bundleExit)};`,
+    ].join("\n"));
+    return await harnessSync(engine);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+test("FAIL-CLOSED, end to end: a `harness sync` whose check step prints a pass and is then KILLED, exits non-zero or crashes fails the whole sync, naming the step", async () => {
+  for (const [ending, said] of [
+    ['process.kill(process.pid, "SIGTERM"); setTimeout(() => {}, 10_000);', /it was ended by signal SIGTERM/u],
+    ["process.exitCode = 1;", /exited non-zero after printing a pass/u],
+    ['throw new Error("the check crashed after printing");', /exited non-zero after printing a pass/u],
+  ] as const) {
+    const result = await syncOverStandIn(ending);
+    assert.equal(result.status, "fail", `a check that ends with ${ending} can never leave the sync passing`);
+    assert.equal(result.result.allPassed, false);
+    assert.equal(result.result.steps.find((step) => step.step === "check")?.status, "fail");
+    const told = JSON.stringify(result.result.check.result);
+    assert.match(told, /harness sync step 'check' /u);
+    assert.match(told, said);
+  }
+  // The control: the same stand-in with a clean check passes, so the arms above fail for their ending alone.
+  assert.equal((await syncOverStandIn("")).status, "pass");
+  // A bundle check that printed "fresh" and exited non-zero is NOT fresh: the sync rebuilds the bundle.
+  const unclean = await syncOverStandIn("", 1);
+  assert.notEqual(unclean.result.bundleBuild, undefined, "an unclean freshness answer never skips the rebuild");
+  assert.equal(unclean.result.bundleBuild?.status, "fail", "and a build that exited non-zero failed, whatever it printed");
+  assert.equal(unclean.status, "fail");
 });

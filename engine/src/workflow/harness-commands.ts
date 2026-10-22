@@ -1035,8 +1035,9 @@ function autoAddDispositionEntries(root: string, write: boolean, prune: readonly
   if (!testSurfacePresent(root)) {
     return deepFreeze({ status: "skipped", addedCount: 0, addedPaths: deepFreeze([]), prunedCount: 0, prunedPaths: deepFreeze([]) });
   }
-  const stdout = runScriptSubprocess(root, "scripts/tooling/run-tests.ts", ["--auto-add-dispositions", ...pruneArguments(prune)]);
-  const parsed = JSON.parse(stdout) as { status: string; addedCount: number; addedPaths: string[]; prunedCount: number; prunedPaths: string[] };
+  const answer = runScriptSubprocess(root, "scripts/tooling/run-tests.ts", ["--auto-add-dispositions", ...pruneArguments(prune)]);
+  if (!answer.exitedClean) throw new HarnessError(`the disposition auto-add (scripts/tooling/run-tests.ts --auto-add-dispositions) exited non-zero: ${answer.payload}`, "disposition_auto_add_failed");
+  const parsed = JSON.parse(answer.payload) as { status: string; addedCount: number; addedPaths: string[]; prunedCount: number; prunedPaths: string[] };
   return deepFreeze({
     status: parsed.status === "added" || (parsed.prunedCount ?? 0) > 0 ? "added" : "current",
     addedCount: parsed.addedCount,
@@ -1109,12 +1110,15 @@ function regenerateTestInventory(root: string, write: boolean): Readonly<{
   if (!testSurfacePresent(root)) {
     return { status: "skipped", testCount: 0, inventoryHash: null };
   }
-  const stdout = runScriptSubprocess(root, "scripts/test-inventory.ts", [write ? "--write" : "--check"]);
-  const parsed = JSON.parse(stdout) as {
+  const answer = runScriptSubprocess(root, "scripts/test-inventory.ts", [write ? "--write" : "--check"]);
+  if (write && !answer.exitedClean) throw new HarnessError(`the test inventory's --write exited non-zero: ${answer.payload}`, "test_inventory_write_failed");
+  const parsed = JSON.parse(answer.payload) as {
     inventoryHash: string;
     testCount: number;
     status: string;
   };
+  // A --check that exited non-zero is never "current", whatever its payload says.
+  if (!answer.exitedClean && parsed.status === "current") parsed.status = "unclean-exit";
   if (write) {
     return {
       status: parsed.status === "written" ? "regenerated" : "current",
@@ -1219,15 +1223,16 @@ function regeneratePinAuthorities(root: string, write: boolean): Readonly<{
   status: "current" | "regenerated";
   converged: boolean;
 }> {
-  const stdout = runScriptSubprocess(
+  const answer = runScriptSubprocess(
     root,
     "scripts/pin-authority-regeneration.ts",
     [write ? "--write" : "--check"],
   );
-  const parsed = JSON.parse(stdout) as { allCurrent: boolean; results: ReadonlyArray<{ status: string }> };
+  const parsed = JSON.parse(answer.payload) as { allCurrent: boolean; results: ReadonlyArray<{ status: string }> };
   return deepFreeze({
     status: parsed.results.some((r) => r.status === "regenerated") ? "regenerated" : "current",
-    converged: parsed.allCurrent,
+    // Converged only from a clean exit: a non-zero exit is drift or a failure, whatever its payload says.
+    converged: parsed.allCurrent && answer.exitedClean,
   });
 }
 
@@ -1239,11 +1244,11 @@ function regeneratePinAuthorities(root: string, write: boolean): Readonly<{
  * guard against HEAD).
  */
 function regenerateRatchetBaselines(root: string, write: boolean): RatchetBaselinesArm {
-  const stdout = runScriptSubprocess(root, "scripts/verification/ratchet-baselines.ts", [write ? "--write" : "--check"]);
-  const parsed = JSON.parse(stdout) as { allCurrent: boolean; results: RatchetBaselinesArm["results"] };
+  const answer = runScriptSubprocess(root, "scripts/verification/ratchet-baselines.ts", [write ? "--write" : "--check"]);
+  const parsed = JSON.parse(answer.payload) as { allCurrent: boolean; results: RatchetBaselinesArm["results"] };
   return deepFreeze({
     status: parsed.results.some((result) => result.status === "pruned") ? "regenerated" : "current",
-    converged: parsed.allCurrent,
+    converged: parsed.allCurrent && answer.exitedClean,
     results: parsed.results.map(({ id, path, status, stale, unbaselined }) => ({ id, path, status, stale, unbaselined })),
   });
 }
@@ -1355,17 +1360,18 @@ function regenerateShippedHooks(root: string, write: boolean): DecisionIndexArm 
  * never an untyped SyntaxError (wf-del2-correctness NEW-11).
  */
 function generatorReport<Status extends string>(root: string, generator: string, args: readonly string[], label: string, code: string): Readonly<{ allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>> {
-  const last = runScriptSubprocess(root, generator, args);
+  const answer = runScriptSubprocess(root, generator, args);
   let parsed: { allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>;
   try {
-    parsed = JSON.parse(last) as typeof parsed;
+    parsed = JSON.parse(answer.payload) as typeof parsed;
   } catch {
     throw new HarnessError(`${label} ${generator} printed no result line (its last line is not the JSON result)`, code);
   }
   if (typeof parsed !== "object" || parsed === null || typeof parsed.allCurrent !== "boolean" || !Array.isArray(parsed.changed)) {
     throw new HarnessError(`${label} ${generator} printed a result of another shape (no allCurrent flag or changed list)`, code);
   }
-  return parsed;
+  // Current only from a clean exit: a generator that exited non-zero is never all-current, whatever it printed.
+  return answer.exitedClean ? parsed : { ...parsed, allCurrent: false };
 }
 
 /**
@@ -1560,7 +1566,10 @@ export async function harnessSync(
 
 /** The bundle's freshness verdict (`scripts/build-bundle.ts --check`, the builder layer, as a subprocess): an in-memory rebuild compared with `dist/bundle.js`. */
 function readBundleFreshness(root: string): Readonly<{ fresh?: unknown; status?: unknown; path?: unknown }> {
-  return JSON.parse(runScriptSubprocess(root, "scripts/build-bundle.ts", ["--check"])) as { fresh?: unknown; status?: unknown; path?: unknown };
+  const answer = runScriptSubprocess(root, "scripts/build-bundle.ts", ["--check"]);
+  const parsed = JSON.parse(answer.payload) as { fresh?: unknown; status?: unknown; path?: unknown };
+  // Fresh only from a clean exit: a check that exited non-zero is never a pass, whatever it printed.
+  return answer.exitedClean ? parsed : { ...parsed, fresh: false, status: `exited non-zero (${String(parsed.status)})` };
 }
 
 /**
@@ -1705,9 +1714,10 @@ export function runBundleBuildStep(root: string): HarnessCommandResult {
   try {
     // The bundle build emits pretty-printed multi-line JSON, so capture the
     // full stdout (not just the final line) and parse the whole document.
-    const stdout = runScriptSubprocess(root, "scripts/build-bundle.ts", [], { fullOutput: true });
-    const summary = JSON.parse(stdout) as unknown;
-    return wrapResult("bundle-build", summary, { status: "pass" });
+    const answer = runScriptSubprocess(root, "scripts/build-bundle.ts", [], { fullOutput: true });
+    const summary = JSON.parse(answer.payload) as unknown;
+    // A pass only from a clean exit: a build that exited non-zero failed, whatever summary it printed.
+    return wrapResult("bundle-build", summary, { status: answer.exitedClean ? "pass" : "fail" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "bundle build failed";
     return wrapResult("bundle-build", deepFreeze({ error: message }), { status: "fail" });
@@ -1726,8 +1736,11 @@ function runSyncStep(
   args: readonly string[],
 ): HarnessCommandResult {
   let parsed: HarnessCommandResult;
+  let exitedClean: boolean;
   try {
-    parsed = parseHarnessCommandResult(JSON.parse(runScriptSubprocess(root, "src/cli.ts", ["harness", step, ...args])));
+    const answer = runScriptSubprocess(root, "src/cli.ts", ["harness", step, ...args]);
+    exitedClean = answer.exitedClean;
+    parsed = parseHarnessCommandResult(JSON.parse(answer.payload));
   } catch (error) {
     // A step that ended without answering — a signal, a bound, a refusal with
     // no payload — is a FAILED step, named, and fails the whole sync; never
@@ -1738,17 +1751,29 @@ function runSyncStep(
   if (parsed.command !== step) {
     throw new InputError(`sync step '${step}' returned a result for command '${parsed.command}'`, "input_error");
   }
+  // A verdict counts only from a clean exit: a step that exited non-zero FAILED, whatever its payload claims.
+  if (!exitedClean && parsed.status === "pass") {
+    return wrapResult(step, deepFreeze({ error: `harness sync step '${step}' exited non-zero after printing a pass: a non-zero exit is a failure, whatever was printed`, printed: parsed.result }), { status: "fail" });
+  }
   return parsed;
 }
 
 /**
+ * What a script subprocess answered: its stdout payload (the final non-empty
+ * line, or the whole of it with `fullOutput`), and whether it EXITED CLEAN
+ * (status 0). A verdict counts only from a clean exit: a non-zero exit is a
+ * failure whatever it printed — `--check`-style commands exit 1 on drift
+ * with a payload that says why, which a caller may read for its message,
+ * never as a pass. Every caller has to name what an unclean exit means.
+ */
+export type ScriptAnswer = Readonly<{ payload: string; exitedClean: boolean }>;
+
+/**
  * Invoke a repository script (`src/cli.ts`, `scripts/test-inventory.ts`,
- * `scripts/run-tests.ts`,...) as a subprocess and return stdout's final
- * non-empty line (the JSON status payload). Non-zero exits that still emitted
- * a payload are NOT errors here — `--check`-style commands exit 1 on drift
- * while carrying the payload on stdout; the caller interprets the payload's
- * own status field. A non-zero exit without any stdout payload is a genuine
- * failure and is re-thrown.
+ * `scripts/run-tests.ts`,...) as a subprocess and return its
+ * {@link ScriptAnswer}. A run that did not finish (a signal, a bound, a
+ * spawn error) or left no payload has no answer at all and is thrown, naming
+ * how it ended.
  *
  * When `fullOutput` is true, the full stdout (trimmed) is returned instead of
  * just the final non-empty line — for scripts that emit multi-line /
@@ -1806,7 +1831,7 @@ export function runScriptSubprocess(
   scriptRelativePath: string,
   args: readonly string[],
   options: Readonly<{ fullOutput?: boolean; bounds?: SubprocessBounds }> = {},
-): string {
+): ScriptAnswer {
   const bounds = options.bounds ?? SUBPROCESS_BOUNDS;
   const scriptPath = resolve(root, scriptRelativePath);
   // A MISSING SCRIPT IS ITS OWN CAUSE. The subprocess's failure mode would
@@ -1869,8 +1894,8 @@ export function runScriptSubprocess(
     );
   }
   stdout = stdout.trim();
-  if (options.fullOutput) return stdout;
-  return stdout.split("\n").filter((line) => line.trim().length > 0).at(-1) ?? "";
+  const payload = options.fullOutput ? stdout : stdout.split("\n").filter((line) => line.trim().length > 0).at(-1) ?? "";
+  return deepFreeze({ payload, exitedClean: succeeded });
 }
 
 /** The last stderr line that is a typed failure record (`{"error": <code>, "message": <text>}`), if any. */
@@ -2066,14 +2091,15 @@ export function runArchitectureCheck(root: string): CheckStepResult {
 export function runInventoryCheck(root: string): CheckStepResult {
   if (!testSurfacePresent(root)) return skipStep("inventory");
   try {
-    const stdout = runScriptSubprocess(root, "scripts/test-inventory.ts", ["--check"]);
-    const parsed = JSON.parse(stdout) as {
+    const answer = runScriptSubprocess(root, "scripts/test-inventory.ts", ["--check"]);
+    const parsed = JSON.parse(answer.payload) as {
       inventoryHash: string;
       status: string;
       testCount: number;
       transactionPresent: boolean;
     };
-    const current = parsed.status === "current" && parsed.transactionPresent === false;
+    // Current only from a clean exit: a --check that exited non-zero is never a pass, whatever it printed.
+    const current = answer.exitedClean && parsed.status === "current" && parsed.transactionPresent === false;
     return deepFreeze({
       step: "inventory",
       status: current ? "pass" : "fail",
