@@ -107,7 +107,7 @@ function namedCollection<T extends Record<string, unknown>>(options: Readonly<{
   };
 }
 
-type Environment = Readonly<{ deployment_branch_policy?: unknown; can_admins_bypass?: unknown; protection_rules?: readonly Readonly<{ type?: string; reviewers?: readonly Readonly<{ type?: string; reviewer?: { id?: number } }>[] }>[] }>;
+type Environment = Readonly<{ deployment_branch_policy?: unknown; can_admins_bypass?: unknown; protection_rules?: readonly Readonly<{ type?: string; prevent_self_review?: unknown; reviewers?: readonly Readonly<{ type?: string; reviewer?: { id?: number } }>[] }>[] }>;
 
 const environment: KindAdapter = {
   read: async (context, object) => {
@@ -115,8 +115,12 @@ const environment: KindAdapter = {
     const found = await getOrAbsent<Environment>(context, path);
     if (found === undefined) return undefined;
     const policies = await list<{ name: string }>(context, `${path}/deployment-branch-policies`, (data) => (data as { branch_policies?: { name: string }[] }).branch_policies ?? []);
-    const reviewers = (found.protection_rules ?? []).filter((rule) => rule.type === "required_reviewers").flatMap((rule) => rule.reviewers ?? []).map((entry) => ({ type: entry.type, id: entry.reviewer?.id }));
-    return { live: { deployment_branch_policy: found.deployment_branch_policy, can_admins_bypass: found.can_admins_bypass, branch_policies: policies.map((policy) => policy.name).sort(), ...(reviewers.length === 0 ? {} : { reviewers }) } };
+    const reviewerRules = (found.protection_rules ?? []).filter((rule) => rule.type === "required_reviewers");
+    const reviewers = reviewerRules.flatMap((rule) => rule.reviewers ?? []).map((entry) => ({ type: entry.type, id: entry.reviewer?.id }));
+    return { live: {
+      deployment_branch_policy: found.deployment_branch_policy, can_admins_bypass: found.can_admins_bypass, branch_policies: policies.map((policy) => policy.name).sort(),
+      ...(reviewers.length === 0 ? {} : { reviewers, prevent_self_review: reviewerRules.some((rule) => rule.prevent_self_review === true) }),
+    } };
   },
   create: async (context, object, body) => environment.update(context, object, body, { live: { branch_policies: [] } }),
   update: async (context, object, body, found) => {

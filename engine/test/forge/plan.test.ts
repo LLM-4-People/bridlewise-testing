@@ -183,7 +183,7 @@ function wholeGithub(): FakeGithub {
   fake.route("PUT", /^\/repos\/[^/]+\/[^/]+\/environments\/([^/]+)$/u, (request, match) => {
     const body = request.body as { reviewers?: { type: string; id: number }[] } & Record<string, unknown>;
     const stored = { name: match[1]!, deployment_branch_policy: body.deployment_branch_policy, can_admins_bypass: body.can_admins_bypass,
-      protection_rules: body.reviewers === undefined ? [] : [{ type: "required_reviewers", reviewers: body.reviewers.map((reviewer) => ({ type: reviewer.type, reviewer: { id: reviewer.id } })) }] };
+      protection_rules: body.reviewers === undefined ? [] : [{ type: "required_reviewers", prevent_self_review: body.prevent_self_review === true, reviewers: body.reviewers.map((reviewer) => ({ type: reviewer.type, reviewer: { id: reviewer.id } })) }] };
     fake.objects.set(request.path, stored);
     return { status: 200, body: stored };
   });

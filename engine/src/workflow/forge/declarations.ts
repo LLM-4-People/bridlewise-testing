@@ -114,11 +114,41 @@ function requiredChecksRule(settings: ForgeSettings): unknown {
   return { type: "required_status_checks", parameters: { strict_required_status_checks_policy: false, do_not_enforce_on_create: false, required_status_checks: checks } };
 }
 
+/** The merge queue rule (github-only §3.2, R1): MERGE, every entry judged, the generated bounds of `forge.mergeQueue`. */
+function mergeQueueRule(settings: ForgeSettings): unknown {
+  const queue = settings.mergeQueue;
+  return { type: "merge_queue", parameters: {
+    merge_method: "MERGE", grouping_strategy: "ALLGREEN", max_entries_to_build: queue.maxEntriesToBuild,
+    min_entries_to_merge: queue.minEntriesToMerge, max_entries_to_merge: queue.maxEntriesToMerge,
+    min_entries_to_merge_wait_minutes: queue.minEntriesToMergeWaitMinutes, check_response_timeout_minutes: queue.checkResponseTimeoutMinutes,
+  } };
+}
+
+/**
+ * THE PROVING GROUND'S `main` (runbook P1.11; GH-3 proves V-6, V-14 and
+ * V-15 on real GitHub there). Its `main` carries the trunk's merge queue
+ * and signed commits, and merged branches are deleted. It is the shape a
+ * workspace lands into, without the org baseline's checks, which the
+ * proving ground never runs.
+ */
+function provingGrounds(settings: ForgeSettings): readonly ForgeObject[] {
+  return settings.repositories.filter((repository) => repository.provingGround === true).flatMap((repository) => {
+    const scope: ForgeScope = { kind: "repo", repository: repository.name };
+    return [
+      object("repository-settings", scope, repository.name, { delete_branch_on_merge: true }),
+      object("ruleset", scope, "proving-main", {
+        name: "proving-main", target: "branch", enforcement: "active", bypass_actors: [],
+        conditions: rulesetConditions(["~DEFAULT_BRANCH"]),
+        rules: [mergeQueueRule(settings), { type: "required_signatures" }],
+      }),
+    ];
+  });
+}
+
 /** The rulesets (github-only §3.2): the org baseline, R1 trunk, R2 product, R3 ledger, R4 release tags, R5 agent branches. */
 function rulesets(settings: ForgeSettings): readonly ForgeObject[] {
   const trunk = trunkRepository(settings).name;
   const door = settings.stage === "door";
-  const queue = settings.mergeQueue;
   const publisherBypass = [{ actor_id: app("publisher"), actor_type: "Integration", bypass_mode: "always" }];
   const protectedBranch = (name: string): unknown => ({
     name, target: "branch", enforcement: "active", bypass_actors: publisherBypass,
@@ -143,11 +173,7 @@ function rulesets(settings: ForgeSettings): readonly ForgeObject[] {
       name: "trunk", target: "branch", enforcement: "active", bypass_actors: [],
       conditions: rulesetConditions(["~DEFAULT_BRANCH"]),
       rules: [
-        { type: "merge_queue", parameters: {
-          merge_method: "MERGE", grouping_strategy: "ALLGREEN", max_entries_to_build: queue.maxEntriesToBuild,
-          min_entries_to_merge: queue.minEntriesToMerge, max_entries_to_merge: queue.maxEntriesToMerge,
-          min_entries_to_merge_wait_minutes: queue.minEntriesToMergeWaitMinutes, check_response_timeout_minutes: queue.checkResponseTimeoutMinutes,
-        } },
+        mergeQueueRule(settings),
         { type: "code_scanning", parameters: { code_scanning_tools: [{ tool: "CodeQL", alerts_threshold: "errors", security_alerts_threshold: "high_or_higher" }] } },
       ],
     }),
@@ -223,6 +249,9 @@ function environments(settings: ForgeSettings): readonly ForgeObject[] {
     object("environment", scope, "publish", base),
     object("environment", scope, "release", base),
     object("environment", scope, "rotation", { ...base, reviewers: [{ type: "User", id: { $ref: "user", name: settings.maintainer } }] }),
+    // The Pages override (GH-5, #62): a reviewed dispatch only, from main. Its sole reviewer is the account that
+    // dispatches today, so self-review stays allowed until dispatches come from an App (#310, P3.9).
+    object("environment", scope, "pages-override", { ...base, reviewers: [{ type: "User", id: { $ref: "user", name: settings.maintainer } }], prevent_self_review: false }),
   ];
 }
 
@@ -299,6 +328,7 @@ export function forgeDeclarations(sources: DeclarationSources): readonly ForgeOb
     ...repositorySettings(settings, allowedActionPatterns(sources.workflowActions)),
     ...environments(settings),
     ...rulesets(settings),
+    ...provingGrounds(settings),
     ...vocabulary(settings, sources.intake),
   ];
   const files = objects.map((entry) => entry.file);
