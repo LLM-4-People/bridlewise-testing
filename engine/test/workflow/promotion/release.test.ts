@@ -16,7 +16,10 @@ import test from "node:test";
 import type { ConfigDocument } from "../../../src/kernel/config-contracts.ts";
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
 import { assembleRelease, releaseAssetNames } from "../../../src/workflow/promotion/release-assets.ts";
-import { parseReleaseArguments, readReleaseRecords, runReleaseCli } from "../../../src/workflow/promotion/release-cli.ts";
+import { parseReleaseArguments, readReleaseRecords, releaseRecordsText, runReleaseCli, writeReleaseRecords } from "../../../src/workflow/promotion/release-cli.ts";
+import { memoryCredential } from "../../../src/workflow/forge/credentials.ts";
+import { githubClient } from "../../../src/workflow/forge/github.ts";
+import { fakeGithub } from "../../forge/fake-github.ts";
 import { creditedName, creditedPeople, decisionChanges, landedPullRequests, renderReleaseNotes } from "../../../src/workflow/promotion/release-notes.ts";
 import { planRelease, type ReleasePlan, type ReleaseRecord, type ReleaseSettings } from "../../../src/workflow/promotion/release-train.ts";
 import { escapeMarkdownText } from "../../../../shared/markup.ts";
@@ -254,6 +257,28 @@ test("the release records file: one forge record per line, any other shape refus
   assert.throws(() => readReleaseRecords(join(directory, "absent.jsonl")), (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_release_usage");
 });
 
+test("records: every release of the trunk, read page by page through the forge as the publisher, written as the file the other verbs read", async () => {
+  const fake = fakeGithub();
+  const releases = Array.from({ length: 150 }, (_, index) => ({ tag_name: `v0.${String(149 - index)}.0`, draft: index === 0, published_at: index === 0 ? null : new Date(Date.UTC(2026, 0, 1) + (149 - index) * HOUR).toISOString(), name: null, prerelease: false, html_url: `https://forge.example/o/r/releases/${String(index)}` }));
+  fake.objects.set("/repos/o/r/releases", releases);
+  const forge = { client: githubClient(fake.endpoint(), memoryCredential("app:bridlewise-publisher", fake.userToken("publisher"))), repository: "o/r" };
+  const out = join(createTempDir("release-records-forge-"), "records.jsonl");
+  const written = await writeReleaseRecords({ forge, maxPages: 5, out });
+  assert.equal(written.code, "promotion_release_records_written");
+  assert.equal((written.data as { records: number }).records, 150);
+  assert.deepEqual(fake.requests.filter((request) => request.path === "/repos/o/r/releases").map((request) => [request.query.get("per_page"), request.query.get("page")]), [["100", null], ["100", "2"]], "every page, 100 at a time");
+  const read = readReleaseRecords(out);
+  assert.deepEqual(read, releases.map((release) => ({ tag: release.tag_name, draft: release.draft, publishedAt: release.published_at })), "the forge's records, in its order, read back exactly");
+  assert.equal(releaseRecordsText(read), readFileSync(out, "utf8"), "one writer of the format");
+  // A list longer than the bound is refused, never truncated; a forge failure keeps its class; neither leaves a file.
+  const bounded = join(createTempDir("release-records-bounded-"), "records.jsonl");
+  const refusedAs = (code: string) => (error: unknown): boolean => error instanceof PromotionError && error.promotionCode === code;
+  await assert.rejects(() => writeReleaseRecords({ forge, maxPages: 1, out: bounded }), refusedAs("promotion_forge_refused"));
+  fake.refuseNext({ method: "GET", path: /\/releases$/u }, { status: 503, message: "unavailable" });
+  await assert.rejects(() => writeReleaseRecords({ forge, maxPages: 5, out: bounded }), refusedAs("promotion_forge_errored"));
+  assert.throws(() => readFileSync(bounded), "nothing was written");
+});
+
 test("a credited value never publishes an address", () => {
   const cases: ReadonlyArray<readonly [string, string | null]> = [
     ["Ada Writer <ada@example.invalid>", "Ada Writer"],
@@ -295,7 +320,7 @@ test("the assets: every input required, canonical names, the source archive of t
 });
 
 test("the door: its grammar refuses typed, and a due plan writes the notes while a waiting one builds nothing", async () => {
-  for (const argv of [[], ["publish"], ["plan", "--out", "x"], ["notes", "--out", "x"], ["notes", "--releases", "r", "--repository", "owner/name", "--out", "x"], ["notes", "--releases", "r", "--repository", "http://forge.example/owner/name", "--out", "x"], ["plan", "--releases", "r", "--now", "yesterday"], ["assemble", "--out", "x"], ["plan", "--now"]]) {
+  for (const argv of [["records"], ["records", "--releases", "r", "--out", "x"], [], ["publish"], ["plan", "--out", "x"], ["notes", "--out", "x"], ["notes", "--releases", "r", "--repository", "owner/name", "--out", "x"], ["notes", "--releases", "r", "--repository", "http://forge.example/owner/name", "--out", "x"], ["plan", "--releases", "r", "--now", "yesterday"], ["assemble", "--out", "x"], ["plan", "--now"]]) {
     assert.throws(() => parseReleaseArguments(argv), (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_release_usage", argv.join(" "));
   }
   assert.equal(parseReleaseArguments(["plan", "--releases", "r.jsonl", "--manual", "--now", "2026-10-21T00:00:00Z"]).manual, true);
