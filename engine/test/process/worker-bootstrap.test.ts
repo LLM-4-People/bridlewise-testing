@@ -31,7 +31,9 @@ function fromEvalParent(parentOptions: readonly string[], body: string): Readonl
       worker.on("error", (error) => process.stdout.write("ERROR " + error.message + "\\n"));
       worker.on("exit", (code) => process.stdout.write("EXIT " + code + "\\n"));
     })();`;
-  const run = spawnSync(process.execPath, [...parentOptions, "-e", script], { encoding: "utf8", timeout: 60_000, killSignal: "SIGKILL" });
+  // No wall timeout of its own (the no-load rule): a thread that never answers is caught by the suite's one hang
+  // backstop (no output and no CPU progress), never by a wall clock that host load can trip.
+  const run = spawnSync(process.execPath, [...parentOptions, "-e", script], { encoding: "utf8" });
   return { status: run.status, stdout: run.stdout, stderr: run.stderr };
 }
 
