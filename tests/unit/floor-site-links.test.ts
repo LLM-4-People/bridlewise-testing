@@ -155,6 +155,14 @@ function repository(extra: Readonly<Record<string, string>> = {}): string {
     "package.json": JSON.stringify({ name: "fixture", repository: { type: "git", url: "https://github.com/Example-Org/site-repo.git" } }),
     "engine/x.ts": "export {};\n",
     "shared/markup.ts": readFileSync(join(REAL_ROOT, "shared/markup.ts"), "utf8"),
+    // The design system the builder generates the site's design assets from
+    // (scripts/floor/site-design.mjs): the real token owner, the files its
+    // @font-face blocks name, and the shell's two stylesheets.
+    "src/cockpit/tokens.css": readFileSync(join(REAL_ROOT, "src/cockpit/tokens.css"), "utf8"),
+    ...Object.fromEntries([...readFileSync(join(REAL_ROOT, "src/cockpit/tokens.css"), "utf8").matchAll(/url\("\/(fonts\/[^"]+)"\)/gu)].map((match) => [`public/${match[1]}`, "woff2"])),
+    "public/fonts/OFL.txt": "licence\n",
+    "docs/assets/css/style.css": "body { color: var(--ink-1); background: var(--ground-0); }\n",
+    "docs/assets/floor/floor.css": "",
     "docs/_config.yml": "title: Fixture\nplugins:\n  - jekyll-sitemap\n",
     "docs/_layouts/default.html": "<html><body>{{ content }}</body></html>\n",
     "docs/index.md": "---\ntitle: Home\npermalink: /\n---\n\n# Home\n\n[Roadmap](floor/roadmap.md) · [Engine](../engine/x.ts)\n",
@@ -248,6 +256,15 @@ describe("D. the source step", () => {
     expect(tasks).toContain("{% raw %}\n# Tasks");
     expect(tasks.trimEnd().endsWith("{% endraw %}")).toBe(true);
     expect(readFileSync(join(out, "floor/roadmap.md"), "utf8")).toMatch(/^---\ntitle: Roadmap\npermalink: \/floor\/roadmap\/\n---/u);
+    // The design system's generated half: the sheet holds exactly what the
+    // shell reads (and what that reads), Logbook leads, the faces are served.
+    const sheet = readFileSync(join(out, "assets/css/tokens.css"), "utf8");
+    expect(sheet).toMatch(/^\/\* GENERATED from src\/cockpit\/tokens\.css/u);
+    expect(sheet).toMatch(/:root \{\n {2}color-scheme: light;\n {2}--ground-0: #f6f4ef;/u);
+    expect(sheet).not.toContain("--cat-turn");
+    expect(readFileSync(join(out, "_includes/design-head.html"), "utf8")).toContain('<meta name="theme-color" content="#f6f4ef">');
+    expect(readFileSync(join(out, "_includes/brand-mark.svg"), "utf8")).toMatch(/^<svg class="brand-mark"/u);
+    expect(readFileSync(join(out, "assets/fonts/OFL.txt"), "utf8")).toBe("licence\n");
     const config = readFileSync(join(out, "_config.yml"), "utf8");
     // Every coordinate comes from package.json and the deployment's base path.
     expect(parse(config)).toMatchObject({
