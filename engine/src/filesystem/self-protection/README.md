@@ -118,7 +118,7 @@ The folder lives at `engine/src/filesystem/self-protection/`.
 - `guardian-build-stamp.ts` is consumed by `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/workflow/hash-binding-registry.ts`.
 - `index.ts` is consumed by `server/kernel/canonical.ts`.
 - `keep-out.ts` is consumed by `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/temporary-root.ts`, `engine/src/process/instrument-lock.ts`.
-- `key-home.ts` is consumed by `engine/src/filesystem/persisted-key.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/keep-out.ts`.
+- `key-home.ts` is consumed by `engine/src/filesystem/persisted-key.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/keep-out.ts`, `engine/src/workflow/forge/app-keys.ts`.
 - `self-protection-config.ts` is consumed by `engine/src/cli.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/keep-out.ts`, `engine/src/filesystem/self-protection/key-home.ts`, `engine/src/kernel/config-contracts.ts` and 1 more.
 - `self-protection-contracts.ts` is consumed by `engine/scripts/verification/slice-projections.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/self-protection-config.ts`, `engine/src/kernel/root-policy.ts`.
 
