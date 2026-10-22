@@ -21,8 +21,7 @@ Use GitHub's **private vulnerability reporting**:
 <https://github.com/LLM-4-People/bridlewise-testing/security/advisories/new>
 
 Include the affected revision, a minimal reproduction, the impact and any
-suggested fix. A confirmed report becomes a private security advisory; the fix
-lands through the usual review, and the advisory is published with it.
+suggested fix. A confirmed report is handled in a private security advisory.
 
 There is no incident-response team and no disclosure SLA. Reports are handled
 on a best-effort basis.

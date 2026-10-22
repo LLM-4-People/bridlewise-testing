@@ -11,7 +11,7 @@ import test from "node:test";
 import { executeAction, getSignal, readSignal } from "../../../src/shared/exposure/index.ts";
 import { installPromotionSource, registerPromotionExposure, resetPromotionRegistration } from "../../../src/shared/exposure/registrations/promotion.ts";
 
-const SIGNALS = ["profiles", "state", "lastResult", "lastPromoted", "pending", "held", "targetCheckout", "targetEdits", "advisories", "lastRunDurationMs"] as const;
+const SIGNALS = ["profiles", "state", "lastResult", "lastPromoted", "pending", "held", "targetCheckout", "targetEdits", "advisories", "lastRunDurationMs", "releaseTrain"] as const;
 
 test("T-E2: every signal reads unmeasured and every action refuses typed until a host installs the source; then each answers through it", async () => {
   resetPromotionRegistration();
@@ -27,7 +27,7 @@ test("T-E2: every signal reads unmeasured and every action refuses typed until a
   const line = (name: string) => () => `${name}: answered`;
   installPromotionSource({
     profiles: line("profiles"), state: line("state"), lastResult: line("lastResult"), lastPromoted: line("lastPromoted"), pending: line("pending"),
-    held: line("held"), targetCheckout: line("targetCheckout"), targetEdits: line("targetEdits"), advisories: line("advisories"), lastRunDurationMs: line("lastRunDurationMs"),
+    held: line("held"), targetCheckout: line("targetCheckout"), targetEdits: line("targetEdits"), advisories: line("advisories"), lastRunDurationMs: line("lastRunDurationMs"), releaseTrain: line("releaseTrain"),
     status: async (profile, source) => { calls.push(["status", profile, source]); return { ok: true }; },
     plan: async (profile, source) => { calls.push(["plan", profile, source]); return { ok: true }; },
     explain: async (paths, profile, source) => { calls.push(["explain", paths, profile, source]); return { ok: true }; },

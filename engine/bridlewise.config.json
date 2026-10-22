@@ -757,7 +757,8 @@
       "significance": 0.01,
       "deterministicShims": [
         "engine/test/support/flake-shim-hold-requests.ts",
-        "engine/test/support/flake-shim-routing-rss.ts"
+        "engine/test/support/flake-shim-routing-rss.ts",
+        "engine/test/forge/flake-shim-token-ends-zero.ts"
       ]
     },
     "webSuiteWatchdog": {
@@ -1061,6 +1062,17 @@
           "--cell"
         ],
         "timeoutMs": 3600000
+      },
+      "tree-unchanged": {
+        "cwd": "engine",
+        "argv": [
+          "node",
+          "src/cli.ts",
+          "harness",
+          "gates",
+          "unchanged"
+        ],
+        "timeoutMs": 900000
       }
     },
     "phases": {
@@ -1090,7 +1102,15 @@
     }
   },
   "promotion": {
-    "profileDirectory": "promotion"
+    "profileDirectory": "promotion",
+    "release": {
+      "profile": "main-to-product",
+      "train": "auto",
+      "minIntervalHours": 24,
+      "tagPrefix": "v",
+      "discussionCategory": "Releases",
+      "priorReleasesUrl": "https://github.com/LLM-4-People/bridlewise-preview/releases"
+    }
   },
   "forge": {
     "organization": "LLM-4-People",
@@ -1143,6 +1163,11 @@
         "provingGround": true
       }
     ],
+    "maintainerCli": {
+      "stallMs": 120000,
+      "cpuLimitMs": 30000,
+      "killGraceMs": 2000
+    },
     "appsPage": {
       "port": 47811,
       "legacyApps": [

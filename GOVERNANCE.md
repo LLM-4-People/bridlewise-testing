@@ -11,14 +11,14 @@ is not a promise of support, a release schedule or production fitness.
 Everyone starts as a contributor. Each step up the ladder is proposed in a pull
 request to the role table (`docs/community/roles.json`) that states how the
 criteria are met, and is approved by a maintainer. The role table is the one
-source: it generates this page, the GitHub teams and who may use each bot
-command.
+source this page is generated from; the GitHub teams it will also generate are
+[planned](SUPPORT.md#planned).
 
 | Role | GitHub access | Approval counts as verification | Earned by |
 |---|---|---|---|
 | Contributor | none (a fork) | no | a landed pull request, an accepted intake issue or an answered question |
-| Triager | team `triagers`, the Triage role | no | sustained help with intake issues and questions |
-| Reviewer | team `reviewers`, the Write role | yes, on pull requests they did not author | landed pull requests plus reviews that held up |
+| Triager | the Triage role | no | sustained help with intake issues and questions |
+| Reviewer | the Write role | yes, on pull requests they did not author | landed pull requests plus reviews that held up |
 | Maintainer | Admin; the only role that changes repository settings | yes, on pull requests they did not author | the project owner's appointment |
 
 A role grants access, never an exemption: the rules on `main` bind everyone,
@@ -30,10 +30,10 @@ The maintainers today:
 
 ## Independent verification
 
-Every change is verified by someone other than its author before it lands. A
-reviewer's or a maintainer's approval counts, on pull requests they did not
-author; so does the project's verifier agent. Who verified is recorded with the
-land.
+Every change is verified by someone other than its author before it lands
+([UR-09](docs/decisions/UR-09-independent-verification-before-commit.md)).
+Today the project's independent verifier reviews each pull request and posts
+its verdict on it.
 
 ## How decisions are recorded
 
@@ -42,8 +42,9 @@ land.
   or a compatibility claim needs a record before the merge, not after it.
 - A refusal is a decision too: if the harness will not do something, the reason
   and the remedy belong in the record.
-- Anyone can propose a decision as an RFC in Discussions. An accepted RFC
-  becomes a decision-record pull request that lands like any other change.
+- Anyone can propose a decision in the Ideas category of Discussions. An
+  accepted proposal becomes a decision-record pull request that lands like any
+  other change.
 - Polls are signals, never decisions.
 
 ## Releases

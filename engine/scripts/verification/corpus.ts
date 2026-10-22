@@ -50,7 +50,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+
+import { ownedSiblingTemporaryName } from "../../src/filesystem/private-state.ts";
+import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 
 /** Repository-relative path the tests resolve the corpus at. */
 export const CORPUS_ROOT = "engine/large-codebases";
@@ -428,8 +431,9 @@ export function fetchCorpus(manifest: CorpusManifest, options: { cacheDir?: stri
     }
     refuse("corpus_cache_exists", `cache ${cacheDir} exists but does not verify (${problems[0]!.path}: ${problems[0]!.reason}); remove it yourself or pass --cache`);
   }
-  const staging = `${cacheDir}.tmp-${process.pid}`;
-  rmSync(staging, { recursive: true, force: true });
+  // An owned sibling name (pid, start time and a nonce): an abandoned
+  // staging tree of a dead run is never mistaken for this run's.
+  const staging = join(dirname(cacheDir), ownedSiblingTemporaryName(basename(cacheDir), "corpus-staging"));
   mkdirSync(staging, { recursive: true });
   try {
     for (const member of manifest.members) {
@@ -637,6 +641,7 @@ export function main(argv: readonly string[]): number {
   }
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(import.meta.filename)) {
+if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   process.exitCode = main(process.argv.slice(2));
 }

@@ -41,7 +41,7 @@ export function appJwt(custody: AppKeyCustody, role: ForgeAppRole, nowMs: number
 }
 
 /** The App itself (`role`), for `/app/…` endpoints. */
-export function appJwtCredential(custody: AppKeyCustody, role: ForgeAppRole): ForgeCredential {
+function appJwtCredential(custody: AppKeyCustody, role: ForgeAppRole): ForgeCredential {
   return Object.freeze({
     principal: `app:${FORGE_APPS[role].name}`,
     authorization: async () => `Bearer ${appJwt(custody, role, Date.now())}`,

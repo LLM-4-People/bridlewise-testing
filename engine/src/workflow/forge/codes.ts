@@ -28,7 +28,7 @@ export type ForgeClass = typeof FORGE_CLASSES[number];
 type CodeEntry = Readonly<{ class: ForgeClass; remedy: string }>;
 
 /** Every code the forge answers with (see the header). */
-export const FORGE_CODES = deepFreeze({
+const FORGE_CODES = deepFreeze({
   forge_not_configured: { class: "input", remedy: "Declare the `forge` section in engine/bridlewise.config.json (its schema is `forge-config.ts`)." },
   forge_usage: { class: "input", remedy: "Run `harness forge apps manifests [--check]` or `harness forge apps create`." },
   forge_request_invalid: { class: "input", remedy: "Fix the request: the path must be an API path starting with `/`, with no scheme, host, `..` or fragment, and a query of plain values." },
@@ -39,6 +39,9 @@ export const FORGE_CODES = deepFreeze({
   forge_token_unavailable: { class: "refused", remedy: "Provide the token the way the credential names (an environment variable set by the workflow, or the maintainer's prompt); it is never read from a file." },
   forge_token_scope_mismatch: { class: "integrity", remedy: "GitHub minted a token with permissions or repositories other than those asked: compare the App's installed permissions with the registry (`harness forge audit`) and stop until they agree." },
   forge_maintainer_cli_failed: { class: "refused", remedy: "Install `gh` and log in as the maintainer (`gh auth login`) for this one session; the forge uses it only to write environment secrets and variables while the owner credential is on the host." },
+  forge_maintainer_cli_stalled: { class: "errored", remedy: "gh made no progress (no output and no CPU work) within its stall window, or passed its CPU limit (`forge.maintainerCli`): check its network and login, then run the step again; a held key is resumed, never lost." },
+  forge_app_conversion_mismatch: { class: "integrity", remedy: "GitHub created an App that is not the declared one (its owner, name, permissions or events differ from the generated manifest); nothing was stored. Delete that App in the organisation's settings (Developer settings → GitHub Apps → the App → Advanced → Delete), then create it again from the page." },
+  forge_app_name_taken: { class: "refused", remedy: "An App with this name already exists, but no key for it is stored here (a half-finished attempt): delete it in the organisation's settings (Developer settings → GitHub Apps → the App → Advanced → Delete), then reload the page and create it again." },
   forge_environment_missing: { class: "refused", remedy: "Create the environment first (runbook P1.4: `door`, `publish`, `release`, `rotation`, each limited to `main`); the door and publisher keys are written into them." },
   forge_apps_page_refused: { class: "input", remedy: "Open the page at the address `harness forge apps create` printed (127.0.0.1 only), and use its own buttons: a request from another origin, or with an unknown or used state, is refused." },
   forge_apps_page_unavailable: { class: "errored", remedy: "The page's port is in use or cannot be bound: free it, or set `forge.appsPage.port` (the App manifests' callback follows it after `harness sync`)." },
@@ -61,11 +64,6 @@ export type ForgeCode = keyof typeof FORGE_CODES;
 
 /** Facts a forge refusal may carry: plain values only, never a credential. */
 export type ForgeFacts = Readonly<Record<string, string | number | boolean | readonly string[]>>;
-
-/** The class of `code`. */
-export function forgeClass(code: ForgeCode): ForgeClass {
-  return FORGE_CODES[code].class;
-}
 
 /** One typed refusal of the forge: a code from {@link FORGE_CODES}, its remedy, and the facts that name what was refused. */
 export class ForgeError extends HarnessError {

@@ -25,6 +25,10 @@ import { catalogueCommandNames, GATE_CATALOGUE } from "../../../src/workflow/gat
 import {
   auditWorkflow,
   ciWorkflow,
+  failureIssueWorkflow,
+  forkSafetyViolations,
+  promotionGateWorkflow,
+  reusableFailureWorkflow,
   codeqlWorkflow,
   DOOR_PREDICATE_TYPE,
   doorWorkflow,
@@ -235,4 +239,40 @@ test("door.yml is the trusted judge: main's code on workflow_run, its key only i
   assert.equal((attest.with as Mutable)["predicate-type"], DOOR_PREDICATE_TYPE);
   const checkout = judge[0]!;
   assert.deepEqual(checkout.with, { "persist-credentials": false, "fetch-depth": 0, filter: "blob:none" }, "a partial clone of main: the judged commits are fetched without their blobs");
+});
+
+test("the failure reporter watches every generated workflow by name, and the promotion gate splices no input into its script (#67 takes over main's hand-written ones)", () => {
+  const issue = failureIssueWorkflow() as Mutable;
+  const watched = ((issue.on as Mutable).workflow_run as Mutable).workflows as string[];
+  assert.deepEqual(watched, [ciWorkflow(), codeqlWorkflow(), publishWorkflow(), auditWorkflow()].map((workflow) => (workflow as Mutable).name), "derived from the generated set, never a hand list");
+  assert.equal(((issue.jobs as Mutable).report as Mutable).uses, "./.github/workflows/reusable-workflow-failure.yml");
+  const reporter = reusableFailureWorkflow() as Mutable;
+  assert.deepEqual(Object.keys(reporter.on as Mutable), ["workflow_call"]);
+  assert.equal(reporter.concurrency, undefined, "a reusable workflow runs in its caller's group");
+  const gate = promotionGateWorkflow() as Mutable;
+  const steps = ((gate.jobs as Mutable).gate as Mutable).steps as Mutable[];
+  const evaluate = steps.find((step) => step.id === "gate")!;
+  assert.doesNotMatch(String(evaluate.run), /\$\{\{/u, "the caller's inputs reach the script as environment data");
+  assert.equal((evaluate.env as Mutable).PRODUCT_SHA, "${{ inputs.product_sha }}");
+  for (const [name, build] of [["workflow-failure-issue.yml", failureIssueWorkflow], ["reusable-workflow-failure.yml", reusableFailureWorkflow], ["promotion-gate.yml", promotionGateWorkflow]] as const) {
+    assert.doesNotThrow(() => lintWorkflow(name, build()), name);
+  }
+});
+
+test("fork safety (main's policy, owned by the generator): a privileged run names no pull-request value outside the declared data-only job", () => {
+  const set = { "workflow-failure-issue.yml": failureIssueWorkflow(), "reusable-workflow-failure.yml": reusableFailureWorkflow(), "ci.yml": ciWorkflow() };
+  assert.deepEqual(forkSafetyViolations(set), [], "the generated set is fork-safe");
+  // A checkout of the run's head in the reporter (privileged through its workflow_run caller) is refused.
+  const checkoutHead = structuredClone(set["reusable-workflow-failure.yml"]) as Mutable;
+  (((checkoutHead.jobs as Mutable).report as Mutable).steps as Mutable[]).unshift({ name: "x", uses: new Commented("actions/checkout@0", "v0"), with: { ref: "${{ github.event.workflow_run.head_sha }}" } });
+  assert.ok(forkSafetyViolations({ ...set, "reusable-workflow-failure.yml": checkoutHead as never }).length > 0, "a head checkout in a privileged run");
+  // The data-only exception holds only for its declared variables: another env value naming a head is refused.
+  const extraEnv = structuredClone(set["reusable-workflow-failure.yml"]) as Mutable;
+  ((extraEnv.jobs as Mutable).report as Mutable).env = { ...(((extraEnv.jobs as Mutable).report as Mutable).env as Mutable), OTHER: "${{ github.head_ref }}" };
+  assert.ok(forkSafetyViolations({ ...set, "reusable-workflow-failure.yml": extraEnv as never }).some((violation) => violation.includes("OTHER")));
+  // A scheduled workflow (privileged) that reads a fork's head is refused; an uncalled reusable one is judged privileged.
+  const scheduled = structuredClone(set["ci.yml"]) as Mutable;
+  (scheduled.jobs as Mutable).probe = { "runs-on": "x", permissions: {}, steps: [{ name: "fetch", run: "git fetch origin refs/pull/1/head" }] };
+  assert.ok(forkSafetyViolations({ "ci.yml": scheduled as never }).length > 0);
+  assert.ok(forkSafetyViolations({ "reusable-workflow-failure.yml": extraEnv as never }).length > 0, "uncalled, the reusable reporter is judged privileged");
 });
