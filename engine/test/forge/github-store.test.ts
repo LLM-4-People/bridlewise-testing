@@ -59,8 +59,10 @@ const ITEMS = [
 ];
 const project = (items = ITEMS): Projection => computeProjection(input(items), CONFINEMENT).projection;
 
-function github(options: FakeIssuesOptions = {}, maxPages = 10) {
+function github(options: FakeIssuesOptions = {}, maxPages = 10, before: (fake: ReturnType<typeof fakeGithub>) => void = () => {}) {
   const fake = fakeGithub();
+  // A route of the test's own answers before the installed issues' routes.
+  before(fake);
   const issues = installIssues(fake, REPOSITORY, options);
   const client = githubClient(fake.endpoint(), memoryCredential(PROJECTOR, fake.userToken(PROJECTOR)));
   const store = githubProjectionStore(client, { repository: REPOSITORY, maxPages });
@@ -209,4 +211,16 @@ test("the store's edges: a list past maxPages is refused typed, a pull request i
   assert.deepEqual(fake.requests.slice(sent).map((request) => `${request.method} ${request.path}`), [], "the parent and the dependency are already so");
   await assert.rejects(store.write({ phase: "create", kind: "update", class: "issue", key: "T-B", fields: { bogus: 1 } }), (error: HarnessError) => error.code === "projection_store_field_unknown");
   assert.equal(first.verified, true);
+});
+
+test("the GraphQL relations read is bounded by maxPages: a repository whose relation pages outrun the bound is refused typed, never read without end", async () => {
+  // A GitHub whose relations query keeps answering "there is a next page", for six pages: past a two-page bound.
+  let served = 0;
+  const { store } = github({}, 2, (fake) => fake.route("POST", /^\/graphql$/u, (request) => {
+    if (!String((request.body as { query?: string }).query).includes("issues(first:")) return undefined;
+    served += 1;
+    return { status: 200, body: { data: { repository: { issues: { pageInfo: { hasNextPage: served < 6, endCursor: String(served) }, nodes: [] } } } } };
+  }));
+  await assert.rejects(store.read(PROJECTION_CLASSES), (error: HarnessError) => error.code === "projection_store_too_many_issues");
+  assert.equal(served, 2, "the read stopped at its bound: no third page was asked for");
 });
