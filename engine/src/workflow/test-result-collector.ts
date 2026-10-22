@@ -1172,7 +1172,11 @@ async function discoverTestFiles(root: string): Promise<string[]> {
     const absDir = join(root, dir);
     try {
       statSync(absDir);
-    } catch (e) {handleError(e, { module: "workflow-test-result-collector", operation: "catch" });
+    } catch (e) {
+      // A declared root this project does not have (a fixture with `test/`
+      // and no `verification/`) is the expected state, not an error: it
+      // holds no test files. Any other failure to read it is reported.
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") handleError(e, { module: "workflow-test-result-collector", operation: "catch" });
       continue;
     }
     walk(absDir);
