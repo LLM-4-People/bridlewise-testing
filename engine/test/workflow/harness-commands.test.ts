@@ -472,30 +472,22 @@ test("HarnessCommands: harnessCheck inventory step checks inventory hash", async
   assert.ok(["pass", "fail", "skip"].includes(result.result.inventory.status));
 });
 
-test("HarnessCommands: the inventory check asks the owning generator — an emptied inventory with its hash preserved is refused", () => {
+test("HarnessCommands: the inventory check judges the tree, not its cache — the cache is the owner's to rewrite (#221)", () => {
   const copy = createRepositoryWorkingCopy("inventory-owner-check-", { include: engineGeneratorPopulation });
   const engine = copy.engineRoot;
   try {
     const inventoryPath = join(engine, VERIFICATION_PATHS.testInventory);
-    const original = readFileSync(inventoryPath, "utf8");
-    const parsed = JSON.parse(original) as { inventoryHash: string; tests: unknown[] };
-    assert.ok(parsed.tests.length > 0, "the fixture inventory must carry tests for the emptied arm to mean anything");
-    // The copy starts from whatever the checked-in inventory says; converge it
-    // through its owner first, so this test is about the emptied arm and not
-    // about the checkout's own freshness.
+    // The inventory is not committed: a fresh copy has none until its owner writes it.
+    assert.equal(existsSync(inventoryPath), false, "the copy carries no committed inventory");
+    assert.equal(runInventoryCheck(engine).status, "pass", "an absent cache is no drift of the tree");
     execFileSync(process.execPath, [join(engine, "scripts", "test-inventory.ts"), "--write"], { cwd: engine, stdio: "pipe" });
-    assert.equal(runInventoryCheck(engine).status, "pass", "the copy's own inventory is current after its generator ran");
-    // THE DEFECT'S EXACT SHAPE: empty the entries, keep the self-declared hash.
-    // The old step compared that hash with the root-policy pin — the same value
-    // — and passed. The owner refuses an inventory with no entries.
-    writeFileSync(inventoryPath, `${JSON.stringify({ ...parsed, tests: [] })}\n`);
-    const refused = runInventoryCheck(engine);
-    assert.equal(refused.status, "fail", "an emptied inventory must be refused by the commit gate");
-    assert.match(refused.message, /test inventory|Too small|invalid/iu, `the refusal names the owner's reason: ${refused.message}`);
-    // A malformed entry is refused too, not just the empty array.
-    writeFileSync(inventoryPath, `${JSON.stringify({ ...parsed, tests: [{ bogus: true }] })}\n`);
-    assert.equal(runInventoryCheck(engine).status, "fail", "a malformed entry is refused by the owner");
-    writeFileSync(inventoryPath, original);
+    const written = JSON.parse(readFileSync(inventoryPath, "utf8")) as { tests: unknown[] };
+    assert.ok(written.tests.length > 0, "the owner writes the tree's inventory");
+    // An emptied cache is no drift of the tree either, and the owner restores it on its next write.
+    writeFileSync(inventoryPath, `${JSON.stringify({ ...written, tests: [] })}\n`);
+    assert.equal(runInventoryCheck(engine).status, "pass");
+    execFileSync(process.execPath, [join(engine, "scripts", "test-inventory.ts"), "--write"], { cwd: engine, stdio: "pipe" });
+    assert.equal((JSON.parse(readFileSync(inventoryPath, "utf8")) as { tests: unknown[] }).tests.length, written.tests.length, "the owner rewrote the cache");
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
   }

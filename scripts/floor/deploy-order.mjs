@@ -41,7 +41,7 @@ import { appendFileSync } from "node:fs";
 import { configuredForgeClient } from "../../engine/src/workflow/forge/configured-forge.ts";
 import { environmentCredential } from "../../engine/src/workflow/forge/credentials.ts";
 import { compareCommits, deploymentStatuses, deployments } from "../../engine/src/workflow/forge/repository-reads.ts";
-import { isEntryPoint } from "../../engine/src/runtime/entry-point.ts";
+import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { REPOSITORY } from "./repository.mjs";
 
 export const PAGES_ENVIRONMENT = "github-pages";
@@ -120,6 +120,7 @@ export async function checkDeployOrder({ sha, client, repository = REPOSITORY, s
 }
 
 if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   const value = (flag) => {
     const index = process.argv.indexOf(flag);
     return index === -1 ? null : process.argv[index + 1] ?? "";

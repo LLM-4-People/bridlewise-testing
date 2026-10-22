@@ -6,15 +6,14 @@
  *     declared globs (`TEST_INCLUDE`, `tests/test-include.ts` — the one binding
  *     `vitest.config.ts` spreads into `include`), less the catalogue's declared
  *     exclusions;
- *   - `engine-tests`: every source the engine's test inventory
- *     (`VERIFICATION_PATHS.testInventory` under the engine folder, regenerated
- *     by `harness sync`) runs.
+ *   - `engine-tests`: every source the engine's test inventory runs, asked of
+ *     its owner (`engine/scripts/test-inventory.ts`) for this tree: the
+ *     inventory file is a cache, never committed (#221).
  *
  * An exclusion that names a file the globs no longer match is a refusal: a
  * stale exclusion is a false statement about the population, and the seal
  * prints every exclusion on every receipt.
  */
-import { readFileSync } from "node:fs";
 import { matchesGlob } from "node:path";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -22,13 +21,13 @@ import { pathToFileURL } from "node:url";
 import { InputError } from "../../kernel/errors.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { ownedFiles } from "../../git/repository-ownership.ts";
-import { VERIFICATION_PATHS } from "../../kernel/verification-paths.ts";
+import { buildTestInventory } from "../../../scripts/test-inventory.ts";
 import { ENGINE_FOLDER, POPULATION_EXCLUSIONS, type Population } from "./catalogue.ts";
 
 /** Where each population's source of truth lives, repository-relative. */
 const POPULATION_SOURCES = deepFreeze({
   "web-tests": "tests/test-include.ts",
-  "engine-tests": `${ENGINE_FOLDER}/${VERIFICATION_PATHS.testInventory}`,
+  "engine-tests": `${ENGINE_FOLDER}/scripts/test-inventory.ts`,
 } as const satisfies Readonly<Record<Population, string>>);
 
 export type PopulationListing = Readonly<{
@@ -48,26 +47,11 @@ async function webIncludeGlobs(repositoryRoot: string): Promise<readonly string[
   return globs as readonly string[];
 }
 
-/** The engine inventory's test sources (engine-relative there), repository-relative here, sorted and unique. */
+/** The engine inventory's test sources for this tree (engine-relative there), repository-relative here, sorted and unique. */
 function engineInventorySources(repositoryRoot: string): readonly string[] {
-  const path = POPULATION_SOURCES["engine-tests"];
-  let document: unknown;
-  try {
-    document = JSON.parse(readFileSync(join(repositoryRoot, path), "utf8"));
-  } catch (error) {
-    throw new InputError(`${path} is not readable JSON (${(error as Error).message})`, "gate_population_unreadable");
-  }
-  const tests = (document as { tests?: unknown }).tests;
-  if (!Array.isArray(tests) || tests.length === 0) throw new InputError(`${path} lists no tests`, "gate_population_unreadable");
-  const sources = new Set<string>();
-  for (const entry of tests) {
-    const sourceId = (entry as { sourceId?: unknown }).sourceId;
-    if (typeof sourceId !== "string" || sourceId.length === 0 || sourceId.startsWith("/") || sourceId.split("/").includes("..")) {
-      throw new InputError(`${path} has a test without a repository-relative sourceId`, "gate_population_unreadable");
-    }
-    sources.add(`${ENGINE_FOLDER}/${sourceId}`);
-  }
-  return [...sources].toSorted();
+  const tests = buildTestInventory(join(repositoryRoot, ENGINE_FOLDER)).tests;
+  if (tests.length === 0) throw new InputError(`${POPULATION_SOURCES["engine-tests"]} finds no tests`, "gate_population_unreadable");
+  return [...new Set(tests.map((entry) => `${ENGINE_FOLDER}/${entry.sourceId}`))].toSorted();
 }
 
 /** The listing of `population` from the files it `selected`, less its declared exclusions (a stale exclusion is a refusal). */

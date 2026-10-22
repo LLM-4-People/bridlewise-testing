@@ -162,6 +162,21 @@ function profileViolations(
 }
 
 /**
+ * The paths a profile names that the working tree it is checked in does not
+ * track: an `include` or `entryPoints` file that is not a tracked path, or a
+ * prefix (`a/b/`) no tracked path starts with. A profile naming a deleted file
+ * ships nothing under that name and says it does (#279: the uncommitted test
+ * inventory). Judged by `harness check` on the source checkout, where every
+ * shipped path is tracked; a promotion's converge may generate more in its
+ * own candidate, which is why this is not part of parsing.
+ */
+export function profileTreeViolations(profile: PromotionProfile, present: ReadonlySet<string>): readonly (readonly [string, string])[] {
+  const held = (value: string): boolean => (value.endsWith("/") ? [...present].some((path) => path.startsWith(value)) : present.has(value));
+  return (["entryPoints", "include"] as const).flatMap((list) => profile.boundary[list].flatMap((value, index) =>
+    held(value) ? [] : [[`/boundary/${list}/${String(index)}`, `${value} is not a ${value.endsWith("/") ? "folder" : "file"} of the source tree`] as const]));
+}
+
+/**
  * Parses and validates one profile's text, or refuses
  * (`promotion_profile_invalid`, with the JSON pointer of each violation):
  * unknown or missing keys, a value of the wrong shape, a duplicated key, a
@@ -169,7 +184,7 @@ function profileViolations(
  * a profile directory the boundary does not exclude, a path both excluded and
  * included (or derived), an overlay folder the boundary does not exclude or
  * that overlaps the profile directory, a duplicate, two transforms of one path, a lockfile
- * whose manifest no transform derives, and a command the registry does not
+ * whose manifest no transform derives, a command the registry does not
  * declare.
  */
 export function parsePromotionProfile(

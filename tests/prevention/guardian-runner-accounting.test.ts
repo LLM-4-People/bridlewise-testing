@@ -89,7 +89,7 @@ function unguardedPipelinesIn(text: string, name: string): readonly string[] {
       inRun = false;
       continue;
     }
-    if (/set -o pipefail|PIPESTATUS/u.test(line)) guarded = true;
+    if (/\bset -[A-Za-z]*o pipefail\b|PIPESTATUS/u.test(line)) guarded = true;
     if (/\s\|\s/u.test(line) && !/^\s*#/u.test(line) && !guarded) offenders.push(`${name}: ${line.trim()}`);
   }
   return offenders;
@@ -200,6 +200,8 @@ describe("the workflows cannot mask a failure behind a pipeline", () => {
     const header = "jobs:\n  gate:\n    steps:\n      - name: planted\n        run: |\n";
     expect(unguardedPipelinesIn(`${header}          false | tee -a out\n`, "planted.yml")).toHaveLength(1);
     expect(unguardedPipelinesIn(`${header}          set -o pipefail\n          false | tee -a out\n`, "planted.yml")).toEqual([]);
+    // The combined spelling (`set -euo pipefail`) sets it too.
+    expect(unguardedPipelinesIn(`${header}          set -euo pipefail\n          false | tee -a out\n`, "planted.yml")).toEqual([]);
   });
 
   test("every shell pipeline in the generated workflows runs under pipefail", () => {

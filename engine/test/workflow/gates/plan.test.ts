@@ -13,16 +13,18 @@
  *     are refusals; the engine population is the inventory's sources.
  */
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { VERIFICATION_PATHS } from "../../../src/kernel/verification-paths.ts";
-import { ENGINE_FOLDER, GATE_CATALOGUE, MAX_SHARDS, POPULATION_EXCLUSIONS } from "../../../src/workflow/gates/catalogue.ts";
+import { GATE_CATALOGUE, MAX_SHARDS, POPULATION_EXCLUSIONS } from "../../../src/workflow/gates/catalogue.ts";
 import { allocateShards, catalogueDigest, matrixCells, packShards, parsePlan, planGates } from "../../../src/workflow/gates/plan.ts";
 import { listPopulation, webPopulation, type PopulationListing } from "../../../src/workflow/gates/populations.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
+
+/** The repository root. */
+const REPOSITORY_ROOT = resolve(import.meta.dirname, "../../../..");
 
 const HEAD = "a".repeat(40);
 const TREE = "b".repeat(40);
@@ -132,15 +134,16 @@ test("an exclusion the globs no longer select is refused, and so is an empty pop
   assert.throws(() => webPopulation(empty, GLOBS), refusedWith("gate_population_empty"));
 });
 
-test("the CLI reads the runner's own globs from the tree; the engine population is the inventory's sources", async () => {
+test("the CLI reads the runner's own globs from the tree; the engine population is the inventory owner's sources for the tree", async () => {
   const root = scratchRepository([...EXCLUDED, "tests/unit/a.test.ts"]);
   writeFileSync(join(root, "tests/test-include.ts"), `export const TEST_INCLUDE = ${JSON.stringify(GLOBS)};\n`);
   assert.deepEqual((await listPopulation(root, "web-tests")).files, ["tests/unit/a.test.ts"]);
-  mkdirSync(join(root, "engine/traceability"), { recursive: true });
-  writeFileSync(join(root, ENGINE_FOLDER, VERIFICATION_PATHS.testInventory), JSON.stringify({ tests: [{ sourceId: "test/b.test.ts" }, { sourceId: "test/a.test.ts" }, { sourceId: "test/a.test.ts" }] }));
-  assert.deepEqual((await listPopulation(root, "engine-tests")).files, ["engine/test/a.test.ts", "engine/test/b.test.ts"]);
-  writeFileSync(join(root, ENGINE_FOLDER, VERIFICATION_PATHS.testInventory), JSON.stringify({ tests: [{ sourceId: "../escape.test.ts" }] }));
-  await assert.rejects(listPopulation(root, "engine-tests"), refusedWith("gate_population_unreadable"));
+  // The engine's inventory is a cache, never committed (#221): the population asks its owner for this tree's, so a
+  // checkout without the cache (every CI job) lists the same files.
+  const engine = (await listPopulation(REPOSITORY_ROOT, "engine-tests")).files;
+  assert.ok(engine.includes("engine/test/workflow/gates/plan.test.ts"), "this test is in the engine population (liveness)");
+  assert.deepEqual(engine, [...new Set(engine)].toSorted(), "sorted and unique");
+  assert.ok(engine.every((path) => existsSync(join(REPOSITORY_ROOT, path))), "every listed source exists in the tree");
   // A tree whose runner declares no glob is refused (a fresh tree: the module loader keeps the first one it read).
   const noGlobs = scratchRepository(["tests/unit/a.test.ts"]);
   writeFileSync(join(noGlobs, "tests/test-include.ts"), "export const TEST_INCLUDE = [];\n");

@@ -9,7 +9,7 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { REQUIREMENTS_REGISTRY_IDENTITY_HASH, REQUIREMENTS_REGISTRY_SOURCE_PATH } from "../kernel/requirements.ts";
 import { FORENSIC_SCHEMA_BUNDLE_HASH } from "../forensics/forensic-contracts.ts";
 import { S3_OFFLINE_FORENSIC_HASH } from "../forensics/offline-forensics.ts";
-import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, GENERATED_WORKFLOW_FILES, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, TRACKER_BOARD, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, GENERATED_WORKFLOW_FILES, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, TRACKER_BOARD } from "../kernel/verification-paths.ts";
 import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
 import { ownedFiles } from "../git/repository-ownership.ts";
 import { ARCHITECTURE_EXTERNAL_COMMANDS } from "../kernel/architecture-external-commands.ts";
@@ -419,14 +419,11 @@ export function listAllBindings(): readonly HashBinding[] {
 export function suiteRegeneratedPaths(): ReadonlySet<string> {
   return new Set([
     ...listAllBindings().map((binding) => `engine/${binding.targetPath}`),
-    GENERATED_TEST_INVENTORY,
     `engine/${ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath}`,
     GENERATED_CONFIG_SCHEMA_ARTIFACT,
   ]);
 }
 
-/** The test inventory, repository-relative: regenerated wholesale from the test files (and pin-bearing). */
-const GENERATED_TEST_INVENTORY = `engine/${VERIFICATION_PATHS.testInventory}`;
 /** The architecture manifest, repository-relative: the registrar rewrites it wholesale; it carries no pin. */
 const GENERATED_ARCHITECTURE_MANIFEST = `engine/${ROOT_POLICY.universalPolicyArchitecture.moduleArchitecture.manifest}`;
 /** The config-contract schema artifact, repository-relative: one canonical-JSON blob of the contract. */
@@ -451,7 +448,6 @@ const GENERATED_ARTIFACT_MANIFEST = `engine/${ROOT_POLICY.artifactGovernance.can
  */
 export function wholesaleGeneratedPaths(): ReadonlySet<string> {
   return new Set([
-    GENERATED_TEST_INVENTORY,
     GENERATED_ARCHITECTURE_MANIFEST,
     GENERATED_CONFIG_SCHEMA_ARTIFACT,
     GENERATED_SPEC_SCHEMA_ARTIFACT,
