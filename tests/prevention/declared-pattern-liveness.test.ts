@@ -192,8 +192,11 @@ function publicRunnerFiles(root: string): ReadonlySet<string> {
   const script = manifest.scripts?.["test:public"] ?? "";
   const words = script.split(/\s+/u);
   if (words[0] !== "node" || !words.includes("--test")) return new Set();
+  // CI runs it as the generated workflow's `public-tests` gate: the gate's registry command must be this script.
   const ci = readFileSync(join(root, ".github/workflows/ci.yml"), "utf8");
-  if (!/^\s*run: npm run test:public\s*$/mu.test(ci)) return new Set();
+  if (!/\bharness gates run public-tests\b/u.test(ci)) return new Set();
+  const config = JSON.parse(readFileSync(join(root, "engine/bridlewise.config.json"), "utf8")) as { workspaceIsolation?: { commands?: Record<string, { argv?: readonly string[] }> } };
+  if (JSON.stringify(config.workspaceIsolation?.commands?.["public-tests"]?.argv) !== JSON.stringify(["npm", "run", "test:public"])) return new Set();
   const globs = words.slice(words.indexOf("--test") + 1).filter((word) => !word.startsWith("-"));
   return new Set(globs.flatMap((pattern) => globSync(pattern, { cwd: root })));
 }
