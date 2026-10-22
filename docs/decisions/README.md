@@ -32,6 +32,13 @@ check` reports it stale): change a decision's file, never its row.
 
 <!-- BEGIN GENERATED: the decision index, from each file's front matter (harness sync; engine/scripts/verification/decision-index.ts) -->
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/generated/decision-status-dark.svg">
+  <img alt="174 decision records, by how far each is built: 13 built; 21 partly built; 96 designed, not built; 38 standing rules; 6 superseded. Source: generated from docs/decisions/*.md front matter." src="../assets/generated/decision-status-light.svg" width="760">
+</picture>
+
+174 decision records, by how far each is built: 13 built; 21 partly built; 96 designed, not built; 38 standing rules; 6 superseded. Source: generated from docs/decisions/*.md front matter.
+
 ## User rules (standing)
 
 | Id | Decision | By | State |

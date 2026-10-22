@@ -60,6 +60,11 @@ two cannot drift.
   themes, follows `var()`, makes a colour concrete (hex, `rgb[a]`, `oklch`,
   `color-mix` in sRGB) and writes a surface's token sheet; an undeclared name
   is a typed refusal.
+- `figures.ts` — THE GENERATED FIGURES: SVG drawn in the design system for
+  surfaces that strip stylesheets (a README on GitHub) as a light/dark pair
+  with concrete token colours and a `<picture>` to choose between them, and
+  for the site as inline SVG whose `fig-*` classes the stylesheet inks. Every
+  figure carries a title and a description stating its whole content.
 
 ## Where it lives and what consumes it
 
@@ -73,6 +78,7 @@ The folder lives at `shared/`.
 - `dev-ports.ts` is consumed by `server/kernel/config.ts`.
 - `errors.ts` is consumed by `server/blocks/define.ts`, `server/kernel/errors.ts`, `server/router/sse.ts`, `server/routes/projects.ts`, `server/run/run-executor.ts`, `src/client.ts` and 3 more.
 - `event-types.ts` is consumed by `server/db/schema.ts`, `server/run/run-executor.ts`, `server/safety/safety-bridge.ts`, `src/client.ts`, `src/cockpit/flow/ingest.ts`, `src/cockpit/flow/types.ts` and 2 more.
+- `figures.ts` is consumed by `engine/scripts/verification/decision-index.ts`, `engine/scripts/verification/tracker-entries.ts`.
 - `html-preview.ts` is consumed by `src/state/web-ui-config.ts`.
 - `input-schemas.ts` is consumed by `server/routes/auto-checks.ts`, `server/routes/chats.ts`, `server/routes/projects.ts`, `src/state/auto-checks.ts`, `src/state/chats.ts`, `src/state/projects.ts`.
 - `markdown.ts` is consumed by `engine/src/workflow/markdown-links.ts`, `engine/src/workflow/record-links.ts`, `engine/src/workflow/site-prose.ts`, `src/cockpit/render/MdBlocks.svelte`, `src/cockpit/render/MdInline.svelte`, `src/cockpit/render/Prose.svelte` and 1 more.
@@ -81,7 +87,7 @@ The folder lives at `shared/`.
 - `provenance.ts` is consumed by `server/blocks/provenance.ts`, `src/cockpit/lens/LensCallout.svelte`, `src/cockpit/lens/lens-callout-data.ts`, `src/data/broker.ts`, `src/data/ledger.ts`, `src/state/lens.ts`.
 - `routes.ts` is consumed by `server/tools/ui-control.ts`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/shell/RightMenuHost.svelte`, `src/cockpit/shell/right-menu.ts`, `src/cockpit/shell/view-request.ts` and 3 more.
 - `site-page.ts` is consumed by nothing yet.
-- `token-reader.ts` is consumed by nothing yet.
+- `token-reader.ts` is consumed by `engine/scripts/verification/decision-index.ts`.
 - `types.ts` is consumed by `src/client.ts`, `src/cockpit/desk/TripScope.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/run-stream.ts`, `src/state/chat-messages.ts`, `src/state/config-snapshot.ts` and 6 more.
 - `ui-schema.ts` is consumed by `server/schema/ui-declarations.ts`, `server/schema/ui-schema.ts`, `src/client.ts`, `src/cockpit/lens/lens-callout-data.ts`, `src/cockpit/rooms/InstrumentCell.svelte`, `src/cockpit/rooms/InstrumentsRoom.svelte` and 5 more.
 - `web-ui-defaults.ts` is consumed by `server/kernel/harness-config.ts`, `src/state/web-ui-config.ts`.

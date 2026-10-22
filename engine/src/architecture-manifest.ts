@@ -5260,8 +5260,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-verification-tracker-entries", path: "scripts/verification/tracker-entries.ts", realm: "builder", layer: "verification",
-      owner: "verification-foundation", publicApi: { exportCount: 13, namesSha256: "0c21e286597da6922196763f78078b70a0dbe1f9345bb2ebe1b97d4cb20b7f14" },
-      dependencies: ["node:path","src/kernel/verification-paths.ts","src/workflow/failure-owners.ts"],
+      owner: "verification-foundation", publicApi: { exportCount: 15, namesSha256: "53a87324ee4a8b40df4e926f7b611341914fd4da4886709912406fa714182048" },
+      dependencies: ["../shared/figures.ts","node:path","src/kernel/verification-paths.ts","src/workflow/failure-owners.ts"],
     }),
     moduleContract({
       id: "src-process-supervised-run", path: "src/process/supervised-run.ts", realm: "shared", layer: "infrastructure",
@@ -5271,7 +5271,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "scripts-verification-decision-index", path: "scripts/verification/decision-index.ts", realm: "builder", layer: "verification",
       owner: "verification-foundation", publicApi: { exportCount: 2, namesSha256: "60f1053204d66cf72b30be323581344becee7213358e7b12ae5cfd6b786c7aa5" },
-      dependencies: ["node:fs","node:path","node:url","node:util","scripts/verification/tracker-entries.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/verification-paths.ts","src/runtime/cli-debug.ts","src/workflow/failure-owners.ts"],
+      dependencies: ["../shared/figures.ts","../shared/token-reader.ts","node:fs","node:path","node:url","node:util","scripts/verification/tracker-entries.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/verification-paths.ts","src/runtime/cli-debug.ts","src/workflow/failure-owners.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
     }),
     moduleContract({
