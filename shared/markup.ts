@@ -1,6 +1,17 @@
 /**
- * THE ONE MARKUP OWNER for the floor scripts: every HTML or Markdown escape,
- * entity decode and markup removal they do goes through this file.
+ * THE ONE MARKUP OWNER: every HTML or Markdown escape, entity decode, tag
+ * strip and markup removal in the tree goes through this file
+ * (`tests/public/markup-owner.test.mjs` refuses a hand-rolled copy).
+ *
+ * ── THE BOUNDARY WITH THE SOURCE VIEW ─────────────────────────────────────
+ *
+ * This file owns HTML TEXT: a built page, a rendered string, a table cell.
+ * It does not own SOURCE FILES. Which spans of a `.ts` or `.svelte` file are
+ * comments, strings or markup comments is a lexing question about program
+ * text, and `engine/scripts/verification/source-view.ts` is its one owner
+ * (the source-scan views, `stripHtmlComments` included, render its spans). A
+ * markup helper here must never be used to read source, and the source view
+ * is never used to rewrite HTML.
  *
  * Each copy these replace was a per-file regex chain, and each had the hole
  * CodeQL names for that shape:
