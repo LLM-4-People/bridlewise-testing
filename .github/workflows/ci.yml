@@ -103,7 +103,7 @@ jobs:
   # Generated values are never edited by hand: hashes, pins, inventories,
   # manifests and README consumer blocks come from `harness sync`. This job
   # runs the generators (with the bundle, so the self-protection pin
-  # converges) and requires that they change NO tracked file, then relies on
+  # converges) and requires that they change NO file, tracked or untracked, then relies on
   # the sync's own final `harness check` for every other gate. A stale pin
   # used to reach main unseen (Issue #55): only the commit hook ran the
   # check, and only when an engine file was staged. The gate job above owns
@@ -141,9 +141,14 @@ jobs:
         working-directory: engine
         run: node src/cli.ts harness sync --with-bundle
 
-      - name: Require that the generators changed no tracked file
+      # Tracked AND untracked: a generator that writes a new file nobody
+      # committed (and no ignore rule covers) is as stale as a changed one.
+      - name: Require that the generators changed no file
         run: |
-          if ! git diff --exit-code --stat; then
+          changed="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$changed" ]; then
+            printf '%s\n' "$changed"
+            git diff --stat
             echo "::error::a generated value is stale; run 'cd engine && node src/cli.ts harness sync --with-bundle' and commit its output"
             exit 1
           fi

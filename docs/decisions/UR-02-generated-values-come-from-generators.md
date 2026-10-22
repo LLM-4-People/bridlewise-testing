@@ -18,5 +18,6 @@ regenerates it and `harness check` detects its drift.
 staged, and the CI job "Generated values and harness check"
 (`.github/workflows/ci.yml`, job `generated`) runs `harness sync
 --with-bundle` on every pull request, merge group and main push. It fails
-when the generators change any tracked file or the check fails. It is a
-required check on `main`, so a stale value cannot land.
+when the generators change any file, tracked or untracked, or when the check
+fails. Once the job lands, it is added to the `main` ruleset's required
+checks, so a stale value cannot land.
