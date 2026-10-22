@@ -1,0 +1,35 @@
+{
+  "schema": "bridlewise-messaging/v1",
+  "name": "Bridlewise",
+  "promise": "Every claim comes with a receipt.",
+  "summary": "Bridlewise is a free, open-source, local-first cockpit for AI coding runs. Every claim it makes about itself links to the check that backs it, and a claim whose check fails is struck out automatically.",
+  "repository": "This repository is the development floor: the source of Bridlewise together with every test, prevention guard, benchmark and decision record. The product repository is projected from it.",
+  "status": "Developer preview. Not production-ready, not audited, not for sensitive code.",
+  "license": "AGPL-3.0",
+  "description": "Where Bridlewise, a free, local-first cockpit for AI coding runs, is built and verified. Every public claim links to the check that backs it, and a claim whose check fails is retracted automatically. Developer preview: not production-ready, not for sensitive code.",
+  "topics": [
+    "ai-coding",
+    "coding-agents",
+    "agent-harness",
+    "local-first",
+    "developer-tools",
+    "governance",
+    "audit-trail",
+    "verification",
+    "typescript",
+    "nodejs",
+    "svelte",
+    "sqlite",
+    "landlock",
+    "llm",
+    "agpl"
+  ],
+  "about": {
+    "word": "bridle-wise",
+    "partOfSpeech": "adjective",
+    "definition": "trained to obey the pressure of the reins on the neck instead of the pull on the bit",
+    "source": "Collins English Dictionary",
+    "sourceUrl": "https://www.collinsdictionary.com/dictionary/english/bridle-wise",
+    "line": "The model brings the strength. The harness holds the reins."
+  }
+}
