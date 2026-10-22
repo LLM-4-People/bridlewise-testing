@@ -1105,6 +1105,22 @@ describe("L. DSN, Oracle and URL-query connection strings are credentials too", 
 
   afterEach(() => resetDebugSystem());
 
+  // #70: an expression in a code assignment (a spaced `=`) is not a password;
+  // a DSN value holding `.`, `[` or `(` (no space before it) still is.
+  const CODE_EXPRESSIONS = [
+    "password = request.headers['apikey']",
+    "const password = readPassword(promptForTheUser);",
+    "password = config.password;",
+    "pwd = cfg.items[0]",
+    "PASSWORD = process.env.DB_PASS",
+  ] as const;
+  const STILL_PASSWORDS = ["Pwd=Pa55[word];", "Password=my.pass;", "password=readPassword(x)", "password = Hunter2!", "Password = Hunter2!(x)"] as const;
+
+  test("a call, an index or a member chain after a spaced `=` is code, not a password; the same characters in a DSN value are still a credential", () => {
+    for (const code of CODE_EXPRESSIONS) expect(secretTextSignalIds(code, "admission"), code).not.toContain("dsn-credential");
+    for (const value of STILL_PASSWORDS) expect(secretTextSignalIds(value, "admission"), value).toContain("dsn-credential");
+  });
+
   test("each shape carries its catalog signal", () => {
     for (const [shape, signal] of CASES) {
       expect(secretTextSignalIds(shape, "admission"), shape).toContain(signal);

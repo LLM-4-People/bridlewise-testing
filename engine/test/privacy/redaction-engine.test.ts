@@ -120,6 +120,8 @@ test("detectSensitiveSpans: does not detect function-call assignments", () => {
     "authorization = load_bound_json_object(root, snapshot)",
     "secret = get_secret_key()",
     "password = request.headers['apikey']",
+    "const password = readPassword(promptForTheUser);",
+    "password = config.password;",
   ];
   for (const text of safe) {
     const spans = detectSensitiveSpans(text, policy);

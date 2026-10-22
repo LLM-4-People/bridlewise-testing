@@ -169,11 +169,23 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     // The value is matched without its key so the key and separators stay
     // readable after redaction, and a keep mark or an existing mask is not
     // re-read as a value (the write-back contract again).
+    //
+    // ── AN EXPRESSION IN A CODE ASSIGNMENT IS NOT A PASSWORD (#70) ──
+    //
+    // `password = request.headers['apikey']` read `request.headers[` as the
+    // password, and `password = readPassword(prompt)` read the call. Code
+    // writes an assignment with a SPACED `=`; a connection string writes
+    // `Password=…` with none. So the veto needs both: the value follows
+    // whitespace, AND it is a call or an index (an identifier chain straight
+    // into `(` or `[`) or a member chain (`config.password`). A DSN password
+    // holding `.`, `[` or `(` (`Pwd=Pa55[word]`) has no space before it and
+    // is still a credential; a spaced dotted value (`Password = my.pass`) is
+    // the one shape the veto gives up, and only in code-assignment form.
     id: "dsn-credential",
     category: "credential",
     description: "connection-string credential",
-    admission: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)[^\s;&"'`]+/iu,
-    classification: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)[^\s;&"'`]+/iu,
+    admission: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)(?!(?<=\s)[A-Za-z_$][\w$]*(?:(?:\.[A-Za-z_$][\w$]*)*[(\[]|(?:\.[A-Za-z_$][\w$]*)+(?=[\s;&"'`),]|$)))[^\s;&"'`]+/iu,
+    classification: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)(?!(?<=\s)[A-Za-z_$][\w$]*(?:(?:\.[A-Za-z_$][\w$]*)*[(\[]|(?:\.[A-Za-z_$][\w$]*)+(?=[\s;&"'`),]|$)))[^\s;&"'`]+/iu,
   },
   {
     // Oracle EZConnect: `[jdbc:]oracle:(thin|oci):user/pass@host`. There is
