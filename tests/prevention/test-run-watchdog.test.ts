@@ -87,7 +87,7 @@ describe("0. the supervisor's OWN death never leaves the run hanging or its desc
       expect((run as Awaited<typeof running>).exitCode).toBe(1);
       for (let i = 0; i < 50 && isProcessAlive(grandchild); i += 1) await new Promise((r) => setTimeout(r, 100));
       expect(isProcessAlive(grandchild), "a descendant outlived its dead supervisor").toBe(false);
-    }, 30_000);
+    });
   }
 });
 

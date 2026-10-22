@@ -9,8 +9,9 @@
  * the load-independence this whole change exists for. The web door's wiring
  * is read from the config the runner loads.
  */
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -130,5 +131,70 @@ describe("the web door installs it", () => {
       .find((one) => one.name === "the declared classes and the backstop are read from the config, and every class file exists");
     expect(typeof previous?.meta.cpuMs).toBe("number");
     expect(typeof previous?.meta.wallMs).toBe("number");
+  });
+});
+
+const ts = createRequire(import.meta.url)("typescript5") as typeof import("typescript5");
+
+/** The runner calls a per-test timeout can ride on. */
+const TIMED_CALLS = new Set(["test", "it", "describe", "beforeAll", "afterAll", "beforeEach", "afterEach"]);
+
+/**
+ * Every per-test WALL timeout a source declares: a trailing argument after
+ * the test or hook function (`test(name, fn, 30_000)`), or a `timeout` in its
+ * options (`test(name, { timeout: 30_000 }, fn)`). Read from the TypeScript
+ * AST, so a timeout spelled across lines or through a constant is found.
+ */
+function declaredWallTimeouts(file: string, text: string): readonly string[] {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const found: string[] = [];
+  const root = (expression: import("typescript5").Expression): string | undefined => {
+    if (ts.isIdentifier(expression)) return expression.text;
+    if (ts.isPropertyAccessExpression(expression)) return root(expression.expression);
+    if (ts.isCallExpression(expression)) return root(expression.expression);
+    return undefined;
+  };
+  const visit = (node: import("typescript5").Node): void => {
+    if (ts.isCallExpression(node) && TIMED_CALLS.has(root(node.expression) ?? "")) {
+      const at = `${file}:${String(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1)}`;
+      const body = node.arguments.findIndex((argument) => ts.isArrowFunction(argument) || ts.isFunctionExpression(argument));
+      if (body >= 0 && node.arguments.length > body + 1) found.push(`${at} ${node.arguments[body + 1]!.getText(source)}`);
+      for (const argument of node.arguments) {
+        if (ts.isObjectLiteralExpression(argument) && argument.properties.some((property) => property.name?.getText(source) === "timeout")) {
+          found.push(`${at} ${argument.getText(source)}`);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
+describe("no web test declares its own wall timeout", () => {
+  test("every tracked web test leaves its bound to the one hang backstop", () => {
+    const files = execFileSync("git", ["ls-files", "-z", "--", "tests/*.test.ts"], { cwd: REPOSITORY_ROOT, encoding: "utf8" })
+      .split("\0").filter((file) => file.length > 0);
+    expect(files.length, "the index yielded no web test file").toBeGreaterThan(300);
+    const declared = files.flatMap((file) => declaredWallTimeouts(file, readFileSync(join(REPOSITORY_ROOT, file), "utf8")));
+    expect(
+      declared,
+      "a per-test timeout is a WALL judgement (TEST-CPU-CLASSES): a test is judged by its CPU work against its file's class, " +
+        "and only the hang backstop (testExecution.testHangBackstopMs) ends it. Remove the timeout, or declare the file in a class",
+    ).toEqual([]);
+  });
+
+  test("PLANT: each spelling of a per-test timeout is found", () => {
+    const planted = [
+      'test("a", () => {}, 30_000);',
+      'it("b", async () => {}, LIMIT);',
+      'test("c", { timeout: 5000 }, () => {});',
+      'beforeAll(() => {}, 60_000);',
+      'describe.each([1])("d", () => {}, 1000);',
+      'test("e", () => {});',
+    ].join("\n");
+    expect(declaredWallTimeouts("planted.test.ts", planted).map((line) => line.split(" ")[0])).toEqual([
+      "planted.test.ts:1", "planted.test.ts:2", "planted.test.ts:3", "planted.test.ts:4", "planted.test.ts:5",
+    ]);
   });
 });

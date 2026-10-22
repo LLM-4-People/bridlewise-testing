@@ -251,7 +251,7 @@ describe("the bridge: a streamed leak yields a clean transcript and a recorded s
     };
     expect(payload.text).toBe(INCIDENT_CLEAN);
     expect(payload.templateTokensStripped).toEqual(["<|channel>thought\n<channel|>"]);
-  }, 20_000);
+  });
 
   test("user text crosses the same seam VERBATIM — the strip is for model output only", async () => {
     resetStubLlmProvider();
@@ -277,7 +277,7 @@ describe("the bridge: a streamed leak yields a clean transcript and a recorded s
     );
     // And the model's own output was still filtered on the way back.
     expect(wire).not.toContain("\"ok<|");
-  }, 20_000);
+  });
 });
 
 // ══ 4. The run chain — persist purity + context purity across turns ════════
@@ -320,7 +320,7 @@ describe("the run: a leaked marker never persists, and never re-enters the next 
     seamDb = db;
     seamCookie = `${user.cookie}; ${SESSION_COOKIE}`;
     seamUserId = user.userId;
-  }, 60_000);
+  });
 
   afterAll(async () => {
     if (server !== undefined) await new Promise<void>((r) => server.close(() => r()));
@@ -430,5 +430,5 @@ describe("the run: a leaked marker never persists, and never re-enters the next 
     expect(wire2, "the healed history must not teach the model its own corruption").not.toContain("<|channel");
     expect(wire2).not.toContain("channel|>");
     expect(wire2, "the clean answer text does survive into context").toContain(INCIDENT_CLEAN.replace(/\n/g, "\\n").slice(0, 20));
-  }, 60_000);
+  });
 });

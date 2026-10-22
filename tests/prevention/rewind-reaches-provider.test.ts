@@ -73,7 +73,7 @@ describe("the defect, exhibited: re-sending without a rewind", () => {
     // Stated as its own sentence so a regression reads as the user's report.
     expect(second.filter((m) => m.content === "name three fruits")).toHaveLength(2);
     expect(second.some((m) => m.content === "cars, boats, planes")).toBe(true);
-  }, 20000);
+  });
 });
 
 describe("retry: rewind to the causing prompt, then re-run", () => {
@@ -98,7 +98,7 @@ describe("retry: rewind to the causing prompt, then re-run", () => {
     expect(pairs(retried)).toEqual(["user: name three fruits"]);
     expect(retried.filter((m) => m.content === "name three fruits")).toHaveLength(1);
     expect(retried.some((m) => m.content === "cars, boats, planes")).toBe(false);
-  }, 20000);
+  });
 
   test("the doubling does not survive into later turns — the whole point of the context half", async () => {
     const ids = await newConversation("retry-then-continue");
@@ -118,7 +118,7 @@ describe("retry: rewind to the causing prompt, then re-run", () => {
       "user: step two",
     ]);
     expect(third.some((m) => m.content === "WRONG")).toBe(false);
-  }, 30000);
+  });
 
   test("a rewind does not swallow the turns that replace it", async () => {
     // A rewind recorded as a PREDICATE ("everything at or after message M")
@@ -141,7 +141,7 @@ describe("retry: rewind to the causing prompt, then re-run", () => {
       "assistant: beta answer",
       "user: gamma",
     ]);
-  }, 40000);
+  });
 });
 
 describe("edit & resend: the correction is what the model sees", () => {
@@ -167,7 +167,7 @@ describe("edit & resend: the correction is what the model sees", () => {
     // the reason they edited.
     expect(resent.some((m) => m.content.includes("databse"))).toBe(false);
     expect(resent.some((m) => m.content.includes("I could not find"))).toBe(false);
-  }, 20000);
+  });
 });
 
 describe("rewind here: the same door, without the re-run", () => {
@@ -189,7 +189,7 @@ describe("rewind here: the same door, without the re-run", () => {
       "assistant: kept",
       "user: what did I say",
     ]);
-  }, 30000);
+  });
 });
 
 describe("the withdrawn answer must not come back through the memory channel", () => {
@@ -233,7 +233,7 @@ describe("the withdrawn answer must not come back through the memory channel", (
     // The rejected answer is gone from the SYSTEM PROMPT too, which is where
     // it was still arriving.
     expect(systemOf(retried)).not.toContain(REJECTED);
-  }, 30000);
+  });
 
   test("a memory from a run that still has live turns is NOT withdrawn", async () => {
     // The mirror. Withdrawing every memory that shares a chat would pass the
@@ -253,7 +253,7 @@ describe("the withdrawn answer must not come back through the memory channel", (
     // The first run is untouched, so its memory is still true of this
     // conversation and still recalled.
     expect(systemOf(next)).toContain(KEEP);
-  }, 30000);
+  });
 });
 
 describe("the two lane prefixes are disjoint", () => {

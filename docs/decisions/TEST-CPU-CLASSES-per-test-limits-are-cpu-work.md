@@ -46,6 +46,8 @@ carries out [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md)
   hung test is named before its run is killed. A nested runner launch's bound
   derives from it (`tests/test-budget.ts`).
 - **A per-test timeout written in a test file is a wall judgement** and
-  leaves the tree: the web suite's are removed in the follow-up, after which
-  a guard refuses new ones; the engine suite's per-test kill timeout
-  (`runtimeBudgetMs`) becomes the same backstop with the same classes.
+  leaves the tree. The web suite's 225 (in 35 files) are removed, and
+  `tests/prevention/test-cpu-class.test.ts` refuses any new one, read from
+  the TypeScript AST (a trailing argument after a test or hook function, or
+  a `timeout` option). The engine suite's per-test kill timeout
+  (`runtimeBudgetMs`) and its 33 overrides follow with the engine door.
