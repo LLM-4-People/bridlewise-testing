@@ -6,6 +6,7 @@ group: prompt-cache
 status: superseded
 superseded_by: U2
 implementation: standing
+amended_by: [U2]
 ---
 # A stable tool superset with a gate refusal
 

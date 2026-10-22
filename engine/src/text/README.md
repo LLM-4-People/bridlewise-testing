@@ -16,6 +16,6 @@ The folder lives at `engine/src/text/`.
 
 - `json-repair.ts` is consumed by `server/llm/llm-bridge.ts`.
 - `utf8-offsets.ts` is consumed by `engine/scripts/verification/authority/occurrence-selectors.ts`, `engine/src/editor/edit-operations.ts`, `engine/src/privacy/redaction-engine.ts`.
-- `yaml-emit.ts` is consumed by `engine/src/workflow/gates/workflows.ts`.
+- `yaml-emit.ts` is consumed by `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/gates/workflows.ts`.
 
 <!-- /consumers:generated -->
