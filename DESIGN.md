@@ -114,7 +114,7 @@ slip with dotted leaders and a mono stamp. A refusal pairs the model's call
 never the fill). A claim's state is a word in its state ink. Kickers are
 sentence case, never tracked capitals. Text is ink-1 or ink-2 only (ink-3 and
 ink-4 fail AA on paper). A page computes only token values: the few mixed
-inks a page needs (a link's underline, a limit's edge, a button's hover, the
+inks a page needs (a link's underline, a button's hover, the
 search scrim) are tokens in the owner's public-page block, never a mix in a
 site sheet.
 
