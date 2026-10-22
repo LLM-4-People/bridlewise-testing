@@ -22,7 +22,8 @@ const REPOSITORY = join(fileURLToPath(new URL("../../..", import.meta.url)));
 
 /** The tests' entry points among `files`: every test file of the engine and root suites. */
 function testEntries(files: readonly string[]): readonly string[] {
-  return files.filter((path) => /^(engine\/test|engine\/live|tests)\/.*\.test\.(ts|mts|mjs|js)$/u.test(path));
+  const roots = ["engine/test/", "engine/live/", "tests/"];
+  return files.filter((path) => roots.some((root) => path.startsWith(root)) && /\.test\.(ts|mts|mjs|js)$/u.test(path));
 }
 
 /** The walk from `entries` over `files`, the proving folder excluded. */
