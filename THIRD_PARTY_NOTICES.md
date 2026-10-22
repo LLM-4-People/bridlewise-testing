@@ -28,7 +28,9 @@ The development floor includes npm dependencies, vendored protocol/specification
 
 ### Test-only
 
-Playwright, Vitest, and their transitive dependencies are installed from npm under their upstream licenses. They are not vendored.
+- `yaml` — ISC (the YAML reader the workflow policy test parses workflows with)
+
+Playwright, Vitest, `yaml`, and their transitive dependencies are installed from npm under their upstream licenses. They are not vendored.
 
 ## Vendored material in `engine/traceability/sources/`
 

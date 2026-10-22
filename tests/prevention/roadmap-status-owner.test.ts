@@ -15,7 +15,7 @@
  *
  *   - `docs/trackers/TASKS.md` open rows own open work. They are read through
  *     the one task-row parser (`engine/src/workflow/failure-owners.ts`
- *     `taskRows`), never a private list.
+ *     `boardRows`), never a private list.
  *   - the page's own `ROADMAP-PLAN` block owns the workstreams, exit criteria,
  *     milestone focus, not-planned statements, and the state rule for each
  *     tracker section;
@@ -45,7 +45,8 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { openTaskRows } from "../../engine/src/workflow/failure-owners.ts";
+import { TRACKER_BOARD } from "../../engine/src/kernel/verification-paths.ts";
+import { openBoardRows } from "../../engine/src/workflow/failure-owners.ts";
 import {
   EVIDENCE_PATH,
   ROADMAP_BLOCKS,
@@ -66,7 +67,7 @@ const sources = { trackerText, evidenceText };
 
 describe("docs/floor/roadmap.md status is generated from its owners", () => {
   test("the page is the renderer's output, and every owner row is present", () => {
-    const openRows = openTaskRows(trackerText);
+    const openRows = openBoardRows(trackerText);
     expect(openRows.length, "TASKS.md holds no open row — the completeness population is empty").toBeGreaterThan(0);
     const nonProofs = extractEvidenceNonProofs(evidenceText);
     expect(nonProofs.length, "the evidence page names no non-proof — the completeness population is empty").toBeGreaterThan(0);
@@ -107,7 +108,8 @@ describe("docs/floor/roadmap.md status is generated from its owners", () => {
   });
 
   test("a new open TASKS.md row with no section rule is refused (planted)", () => {
-    const plantedTracker = `${trackerText}\n\n## A new lane\n\n- [ ] **PLANTED-OPEN-ROW** — a new open row with no state rule.\n`;
+    const plantedTracker = trackerText.replace(TRACKER_BOARD.end, `## A new lane\n\n- [ ] **PLANTED-OPEN-ROW** — a new open row with no state rule.\n\n${TRACKER_BOARD.end}`);
+    expect(plantedTracker, "the planted row did not land inside the board block").not.toBe(trackerText);
     const report = roadmapDrift(page, { trackerText: plantedTracker, evidenceText }, ROOT);
     const observed = report.violations.join("\n");
     expect(observed, `the planted row was not observed:\n${observed}`).toContain("PLANTED-OPEN-ROW");

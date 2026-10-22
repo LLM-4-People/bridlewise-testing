@@ -23,7 +23,7 @@ import { createTimelineStore } from "../timeline/timeline-store.ts";
 import type { EventLedgerStoragePort } from "../timeline/timeline-types.ts";
 import { auditEvent } from "../shared/debug/debug-system.ts";
 import { currentQualificationOutcome, qualificationTerminal, runForInvocation, diffRunFailures, failureIdentityFile, importJudgedRuns, latestRunOfTree, readRunHistory, runsOfTree, suiteLedgerPaths, type SuiteLedgerName } from "../shared/run-history.ts";
-import { openTaskRows, ownersOf } from "./failure-owners.ts";
+import { openBoardRows, ownersOf } from "./failure-owners.ts";
 import { finiteNumber, type JudgedRunRecord, type RunQualificationTerminal } from "../shared/budget-verdict.ts";
 import { acquireLock } from "./resource-lock.ts";
 import { generatedOutputPaths, isGenerationOnlyChange } from "./hash-binding-registry.ts";
@@ -606,7 +606,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     } catch (error) {
       return builtinGate(name, "fail", `the failure owners' tracker ${trackerPath} is unreadable (${(error as NodeJS.ErrnoException).code ?? "unknown"}), so no persisting failure can be judged owned`, outcome.details);
     }
-    const rows = openTaskRows(tracker);
+    const rows = openBoardRows(tracker);
     const repositoryPath = (identity: string): string | null => {
       const file = failureIdentityFile(identity);
       return file === null ? null : ledger === "engine" ? `${options.engineRelative}/${file}` : file;
@@ -733,7 +733,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
         throw error;
       }
     })();
-    const taskRows = openTaskRows(trackerText);
+    const taskRows = trackerText === "" ? [] : openBoardRows(trackerText);
     const budgetFields = (ledger: SuiteLedgerName): readonly string[] => Object.values(ROOT_POLICY.workflow.failureOwners.budgets[ledger] as Readonly<Record<string, Readonly<{ budget: string; field: string }>>>)
       .filter((spec) => ownersOf(taskRows, spec.budget).length > 0).map((spec) => spec.field);
     const missing = wanted.filter((ledger) => !measuredBaselines.has(baselineKey(targetTip, ledger)) &&
