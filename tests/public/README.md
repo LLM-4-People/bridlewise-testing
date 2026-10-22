@@ -7,7 +7,7 @@ These tests cover the surfaces that a public clone can actually verify without t
 - the secret/privacy scanner, including its failure modes;
 - the required safety warning and documentation set;
 - the licence and community files;
-- the workflow policy: no workflow can cancel a `main` run.
+- the workflow policy: no workflow can cancel a `main` run, and every pull-request check also runs in the merge queue.
 
 Run them with:
 
@@ -15,4 +15,4 @@ Run them with:
 npm run test:public
 ```
 
-They use Node's built-in test runner and have no third-party dependencies. The larger prevention, cockpit, and engine suites live in the separate `bridlewise-testing` repository and have additional prerequisites.
+They use Node's built-in test runner. Their one third-party dependency is the `yaml` package, the repository's YAML reader, which the workflow policy parses each workflow with. The larger prevention, cockpit, and engine suites live in the separate `bridlewise-testing` repository and have additional prerequisites.
