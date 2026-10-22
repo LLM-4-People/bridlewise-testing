@@ -24,12 +24,14 @@
  *    names DERIVED from the transaction (a journal naming any other file is
  *    unreadable), and the transaction id is the hash of the plan (a garbled
  *    digest no longer matches it). State `pending`.
- * 3. Each file's PREVIOUS bytes (when it exists) and NEXT bytes are staged
- *    beside it (same directory, so the rename is atomic), fsynced, verified.
+ * 3. Each file's PREVIOUS bytes (when it exists) are staged beside the
+ *    journal, outside the tree, and its NEXT bytes beside it (same directory,
+ *    so the rename is atomic); each is fsynced and verified.
  * 4. The next copies are renamed over the targets, in order.
  * 5. The bytes are verified, then the caller's `verify` runs (the copy-back's
- *    `harness check`) — the backups are still on disk. A failure rolls every
- *    file back to its base and rethrows.
+ *    `harness check`) over the tree as committed — the backups are still on
+ *    disk, beside the journal. A failure rolls every file back to its base
+ *    and rethrows.
  * 6. The journal is marked `verified` (atomically AND durably: a failed
  *    fsync is a failed commit), then the staged copies and the journal are
  *    removed.
@@ -200,8 +202,20 @@ function digestOf(path: string): string | null {
   }
 }
 
+/**
+ * Where a file's staged copy lives, repository-relative. The NEXT copy sits
+ * beside its target (same directory: the rename over it is atomic) and is
+ * gone once renamed, before the verify. The PREVIOUS copy (the base, kept
+ * until the transaction is verified) lives beside the journal, OUTSIDE the
+ * tree being verified: a backup beside its target was in the tree the
+ * caller's `verify` judged — the copy-back's `harness check` saw
+ * `.<name>.<id>.previous` as a new governed artifact and refused every
+ * copy-back that rewrote one (#148). A rollback restores from it by writing
+ * the bytes, so it need not share the target's directory.
+ */
 function stagedName(path: string, transactionId: string, kind: "previous" | "next"): string {
-  return join(dirname(path), `.${basename(path)}.${transactionId}.${kind}`).split(sep).join("/");
+  if (kind === "previous") return `${statePath("state", "journals")}/${transactionId}.${sha256(path).slice(0, 16)}.previous`;
+  return join(dirname(path), `.${basename(path)}.${transactionId}.next`).split(sep).join("/");
 }
 
 /**
@@ -353,7 +367,7 @@ export function commitJournaled(root: string, journal: string, files: readonly J
       if (entry.previousPath !== null) {
         const base = readFileSync(target);
         if (sha256(base) !== entry.baseSha256) throw failure(`${file.path} changed after the transaction was planned`);
-        writeExclusiveDurably(absoluteIn(canonicalRoot, entry.previousPath), base, entry.baseMode!);
+        writeExclusiveDurably(absoluteIn(canonicalRoot, entry.previousPath), base, PRIVATE_FILE_MODE);
       }
       writeExclusiveDurably(absoluteIn(canonicalRoot, entry.nextPath), file.bytes, file.mode);
       if (digestOf(absoluteIn(canonicalRoot, entry.nextPath)) !== entry.nextSha256) throw failure(`the staged copy of ${file.path} did not verify`);

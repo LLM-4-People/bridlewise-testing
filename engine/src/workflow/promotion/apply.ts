@@ -137,7 +137,7 @@ function promotionMessage(context: PromotionContext, plan: PromotionPlan, regene
     ...listed,
     ...(more > 0 ? [`… and ${String(more)} more`] : []),
     "",
-    `${trailers.promotedFrom}: ${context.source}`,
+    `${trailers.projectedFrom}: ${context.source}`,
     `${trailers.profile}: ${profile.name}@${context.loaded.blob ?? "working-tree"}`,
     ...(accepted === null || accepted.length === 0 ? [] : [`${trailers.acceptedTargetEdits}: ${accepted.join(", ")}`]),
   ].join("\n");
@@ -168,7 +168,7 @@ type Pending = Readonly<{ commit: string; published: boolean }>;
 
 /**
  * RECONCILES the pending ref (see the header): the commit when it was built
- * for this S on this T (its first parent is T, its `Promoted-From` is S) or is
+ * for this S on this T (its first parent is T, its `Projected-From` is S) or is
  * already T (published), else `null` after dropping it and its receipt with a
  * compare-and-swap (logged once). A rollback's pending commit is reconciled by
  * `rollback.ts`.
@@ -404,11 +404,11 @@ export async function applyPromotion(context: PromotionContext, request: ApplyRe
   }, !request.auto);
 }
 
-/** Whether `commit` is a promotion of S by this profile (its `Promoted-From` is S and it restores nothing). */
+/** Whether `commit` is a promotion of S by this profile (its `Projected-From` is S and it restores nothing). */
 function isPromotionOfSource(context: PromotionContext): (commit: string) => boolean {
   return (commit) => {
     const trailers = promotionTrailersOf(context.repository, commit);
-    return trailers.promotedFrom === context.source && trailers.restores === null;
+    return trailers.projectedFrom === context.source && trailers.restores === null;
   };
 }
 
@@ -499,5 +499,42 @@ async function lockedApply(initial: PromotionContext, request: ApplyRequest, run
       installed: finished.installed,
       ...(built === null ? {} : { hookOutput: built.hookOutput, regenerated: built.settled.regenerated, steps: built.settled.steps.map(receiptStep), advisories: built.advisories }),
     });
+  }
+}
+
+/**
+ * RECOMPUTES the projection of the plan's source S onto its target T from
+ * nothing but S and the profile: a fresh candidate holding the plan's tree P,
+ * settled by the profile's own phases (setup, converge to the fixed point,
+ * verify) exactly as a build settles it, and removed again. Answers the
+ * settled tree F — `project(S, profile)`, every generated output its
+ * generator's. The publisher compares a built commit with it (no path is
+ * special: equal trees, or a refusal). The candidate is this recompute's own
+ * (named from the plan id, swept like any other).
+ */
+export async function recomputeProjection(context: PromotionContext, run: ApplyRun, plan: PromotionPlan): Promise<string> {
+  const { git } = run;
+  const timeouts = worktreeOperationTimeouts(context.document);
+  const folder = promotionFolder(context);
+  const candidate = candidatePath(context, sha256(`recompute:${plan.planId}`));
+  const isThis = (name: string): boolean => join(folder, name) === candidate;
+  assertWorkRoot(context, candidate);
+  sweepCandidates(git, context.top, folder, isThis, false, timeouts.worktreeMs);
+  const identity = committerOf(context, context.source);
+  try {
+    await runLandingPhase("candidate", { recompute: true }, () => createCandidate({
+      git, repoRoot: context.top, path: candidate, target: context.target!, source: context.source, tree: plan.projection.tree,
+      message: "recompute", identity, timeoutMs: timeouts.worktreeMs,
+    }));
+    const settled = await runLandingPhase("settle", { recompute: true }, () => settleCandidate({
+      git, root: candidate, sourceRoot: context.top, engineRelative: run.engineRelative,
+      isolation: context.isolation, phases: context.loaded.profile.phases, run: checkoutCommandRunner(candidate, run.runner),
+      generatedOutputs: run.generatedOutputs, baseTree: plan.projection.tree, timeoutMs: timeouts.worktreeMs,
+    }));
+    return settled.tree;
+  } catch (error) {
+    throw promotionErrorOf(error, { candidate, recompute: true });
+  } finally {
+    sweepCandidates(git, context.top, folder, isThis, false, timeouts.worktreeMs);
   }
 }

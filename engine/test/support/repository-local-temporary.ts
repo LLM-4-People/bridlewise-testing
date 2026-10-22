@@ -18,7 +18,8 @@ import {
 } from "../../scripts/verification/safe-repository-reader.ts";
 import { createWorkingCopy } from "../../src/git/working-copy.ts";
 import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, removeOwnedTemporaryDirectory } from "../../src/filesystem/private-state.ts";
-import { pinnedBuildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
+import { buildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
+import { applyCheckoutFiles, installedDependencyLinks } from "../../src/workflow/checkout-setup.ts";
 
 export const TEST_REPOSITORY_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const REPOSITORY_LOCAL_TEMPORARY_ROOT = join(
@@ -126,10 +127,16 @@ export function createRepositoryWorkingCopy(
     sourceRoot: TEST_REPOSITORY_ROOT,
     targetRoot: root,
     git: "mirror",
-    carry: pinnedBuildOutputPaths(),
+    carry: buildOutputPaths(),
     ...(options.include === undefined ? {} : { include: options.include }),
   });
-  return Object.freeze({ root: copy.root, engineRoot: join(copy.root, engineRelativePath(copy.sourceRoot)) });
+  // The installed dependencies, linked at their own places (the commit guard's staged tree does the same): every
+  // command in the copy, the bundle rebuild `harness check` compares with included, resolves what the checkout does.
+  const engineRelative = engineRelativePath(copy.sourceRoot);
+  const linked = applyCheckoutFiles(copy.root, copy.sourceRoot, engineRelative, { links: installedDependencyLinks(copy.sourceRoot) });
+  const failed = linked.filter((step) => step.status === "fail");
+  if (failed.length > 0) throw new Error(`the working copy's dependencies could not be linked: ${failed.map((step) => step.message).join("; ")}`);
+  return Object.freeze({ root: copy.root, engineRoot: join(copy.root, engineRelative) });
 }
 
 /**

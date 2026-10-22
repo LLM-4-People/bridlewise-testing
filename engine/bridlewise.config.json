@@ -729,7 +729,7 @@
       "phase": "accumulation",
       "minimumJudgedRuns": 12,
       "maxPopulationDriftFraction": 0.03,
-      "derivedAtTestFileCount": 534,
+      "derivedAtTestFileCount": 535,
       "calibrationDriftMaxFraction": 0.15,
       "validThroughLoad5PerCpu": 1.7,
       "legacy": {
@@ -757,7 +757,9 @@
       "significance": 0.01,
       "deterministicShims": [
         "engine/test/support/flake-shim-hold-requests.ts",
-        "engine/test/support/flake-shim-routing-rss.ts"
+        "engine/test/support/flake-shim-routing-rss.ts",
+        "engine/test/forge/flake-shim-token-ends-zero.ts",
+        "tests/helpers/flake-shim-orchestration-run-id.ts"
       ]
     },
     "webSuiteWatchdog": {
@@ -772,7 +774,6 @@
     }
   },
   "harness": {
-    "typecheckTimeoutMs": 120000,
     "commandErroredRetries": 2,
     "commandRetryBackoffMs": 60000
   },
@@ -794,8 +795,12 @@
       "staleMs": 300000
     },
     "landTargets": [
-      "testing"
+      "main"
     ],
+    "landing": {
+      "pollIntervalMs": 20000,
+      "timeoutMs": 1800000
+    },
     "killGraceMs": 3000,
     "links": [
       "engine/large-codebases"
@@ -1027,7 +1032,15 @@
     }
   },
   "promotion": {
-    "profileDirectory": "promotion"
+    "profileDirectory": "promotion",
+    "release": {
+      "profile": "main-to-product",
+      "train": "auto",
+      "minIntervalHours": 24,
+      "tagPrefix": "v",
+      "discussionCategory": "Releases",
+      "priorReleasesUrl": "https://github.com/LLM-4-People/bridlewise-preview/releases"
+    }
   },
   "forge": {
     "organization": "LLM-4-People",
@@ -1079,7 +1092,24 @@
         "visibility": "public",
         "provingGround": true
       }
-    ]
+    ],
+    "maintainerCli": {
+      "stallMs": 120000,
+      "cpuLimitMs": 30000,
+      "killGraceMs": 2000
+    },
+    "appsPage": {
+      "port": 47811,
+      "legacyApps": [
+        {
+          "slug": "claude",
+          "repositories": [
+            "bridlewise-testing",
+            "bridlewise-coordination"
+          ]
+        }
+      ]
+    }
   },
   "codeIntelligence": {
     "autoIndexOnProjectAdd": true,
@@ -1243,7 +1273,7 @@
         {
           "id": "code-only",
           "label": "Code only",
-          "instruction": "Respond with code only \u2014 no prose."
+          "instruction": "Respond with code only — no prose."
         },
         {
           "id": "explanation-plus-code",

@@ -10,7 +10,7 @@
  *    declares (the profile lives on the source, so no machine setting and no
  *    second list) whose source is `refs/heads/<branch>`, whose remote is
  *    `<remote>` and whose trigger is `on-source-publish`.
- * 3. Each one not already carrying that commit (its last `Promoted-From`)
+ * 3. Each one not already carrying that commit (its last `Projected-From`)
  *    starts ONE unattended `apply --profile <p> --source <commit> --auto` in
  *    the background ({@link launchUnattendedApply}). A hold is never decided
  *    here: the local hold ref is only a mirror, so the run itself reads the
@@ -41,6 +41,7 @@ import { ROOT_POLICY } from "../../kernel/root-policy.ts";
 import { resolveRevision } from "../../git/tree-reader.ts";
 import { startDetached } from "../../process/supervised-run.ts";
 import type { WorktreeGitPort } from "../../git/worktree-port.ts";
+import { remoteTrackingRef } from "../../git/git-port.ts";
 import { auditEvent, debugLog } from "../../shared/debug/debug-system.ts";
 import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { PromotionError, answer, answerWith, type PromotionAnswer, type PromotionCode } from "./codes.ts";
@@ -123,7 +124,7 @@ export function autoPromotion(
         notices.push(`promotion ${profile.name}: ${promotionState(last)} — ${last.result.code} (${last.result.message.split("\n")[0]!}); run: ${ROOT_POLICY.protocol.harnessCommand} promote status --profile ${profile.name}`);
       }
       const target = targetTip(context.repository, profile);
-      const reason = target !== null && profileHistory(context.repository, target, profile.name)[0]?.trailers.promotedFrom === commit ? "up to date" : null;
+      const reason = target !== null && profileHistory(context.repository, target, profile.name)[0]?.trailers.projectedFrom === commit ? "up to date" : null;
       if (reason !== null) {
         skipped.push({ profile: profile.name, source: commit, reason });
         auditEvent("promotion.trigger", { profile: profile.name, kind: "skipped", source: commit, reason });
@@ -161,7 +162,7 @@ function chainUnattended(
 ): PromotionAnswer | null {
   const { profile } = context.loaded;
   if (profile.remote === null || UNCHAINED.has(ended)) return null;
-  const tracking = `refs/remotes/${profile.remote}/${branchOf(profile.source.ref)}`;
+  const tracking = remoteTrackingRef(profile.remote, branchOf(profile.source.ref));
   try {
     const fetched = git.fetchRefs(context.top, profile.remote, [`+${profile.source.ref}:${tracking}`], worktreeOperationTimeouts(context.document).fetchMs);
     if (fetched.refusal !== null) {

@@ -111,7 +111,7 @@ import { assertIndexAtBaseline, recordIndexBaseline } from "../../src/git/index-
 import { assertSameFilesystem, checkoutCommandRunner, configuredCheckoutCommandRunner, engineRelativePath, owedSetup, prepareCheckout, rerunChangedSetup, type CheckoutCommandRunner, type CheckoutStep, type ConvergenceReport } from "../../src/workflow/checkout-setup.ts";
 import { pruneArguments } from "../../src/workflow/harness-commands.ts";
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
-import { generatedOutputPaths, pinnedBuildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
+import { generatedOutputPaths, buildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { importJudgedRuns, suiteLedgerPaths, withdrawImportedRuns } from "../../src/shared/run-history.ts";
 
@@ -181,7 +181,7 @@ function git(cwd: string, argv: readonly string[]): string {
  * Refresh never overwrites them; copy-back writes only them.
  */
 function candidateAuthoredPaths(target: string): readonly string[] {
-  return [...generatedOutputPaths(target), ...pinnedBuildOutputPaths()];
+  return [...generatedOutputPaths(target), ...buildOutputPaths()];
 }
 
 /** Where the candidate records the source's authored bytes it last saw (in its own git dir). */
@@ -448,7 +448,7 @@ function copyBack(source: string, target: string, engineRelative: string): Reado
         if (check.status !== 0) {
           throw new HarnessError(
             `copy-back of ${files.map(({ path }) => path).join(", ")} was rolled back: harness check fails in the source: ` +
-              `${`${check.stdout}${check.stderr}`.trim().split("\n").slice(-8).join("\n")}`,
+              failedCheckSteps(check.stdout, check.stderr),
             "candidate_copy_back_unverified",
           );
         }
@@ -459,6 +459,26 @@ function copyBack(source: string, target: string, engineRelative: string): Reado
   // the next copy-back does not mistake its own writes for another writer's.
   recordBase(source, target, false);
   return { written: files.map(({ path }) => path), check: files.length > 0 ? "pass" : "nothing-to-write", ledgers: importLedgers(source, target, engineRelative) };
+}
+
+/**
+ * What a failed `harness check` refused, by step: its JSON result (the last
+ * JSON line of stdout) names each failing step and its message. The progress
+ * lines on stderr say only which step was running, so they are quoted only
+ * when the check produced no result at all (it died before reporting).
+ */
+function failedCheckSteps(stdout: string, stderr: string): string {
+  const line = stdout.trim().split("\n").reverse().find((entry) => entry.startsWith("{"));
+  if (line !== undefined) {
+    const parsed = JSON.parse(line) as { result?: Record<string, unknown> };
+    const failed = Object.values(parsed.result ?? {}).flatMap((value) => {
+      if (typeof value !== "object" || value === null) return [];
+      const step = value as { step?: unknown; status?: unknown; message?: unknown };
+      return step.status === "fail" ? [`${String(step.step)}: ${String(step.message)}`] : [];
+    });
+    if (failed.length > 0) return failed.join(" | ");
+  }
+  return `no step result was reported: ${`${stdout}${stderr}`.trim().split("\n").slice(-8).join("\n")}`;
 }
 
 /**

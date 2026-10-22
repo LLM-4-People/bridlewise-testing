@@ -11,7 +11,6 @@
         "src/performance/benchmark-cli.ts",
         "src/performance/diagnostic-cli.ts",
         "src/kernel/root-policy.ts",
-        "src/workflow/auto-generator.ts",
         "src/workflow/harness-commands.ts",
         "src/workflow/hash-binding-registry.ts",
         "src/workflow/module-registrar.ts",

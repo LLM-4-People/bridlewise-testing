@@ -271,9 +271,9 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     const unrelatedInventoryPath = join(unrelatedInventoryRoot, ROOT_POLICY.sourcePath);
     const unrelatedInventorySource = mutateTextExact(
       rootPolicySource,
-      `testInventoryHash: ${JSON.stringify(ROOT_POLICY.verification.testInventoryHash)}`,
-      `testInventoryHash: "${"0".repeat(64)}"`,
-      "B12 unrelated inventory-hash mutant",
+      `specSchemaArtifactSha256: ${JSON.stringify(ROOT_POLICY.selfProtection.specSchemaArtifactSha256)}`,
+      `specSchemaArtifactSha256: "${"0".repeat(64)}"`,
+      "B12 unrelated pin mutant",
     );
     writeFileSync(unrelatedInventoryPath, unrelatedInventorySource);
     assert.equal(verifyS1Structure(unrelatedInventoryRoot).violations.some((violation) =>

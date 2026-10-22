@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { execFileSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { boundedEnding, cpuLimitedInvocation, SUBPROCESS_BOUNDS, type SubprocessBounds } from "./subprocess-bounds.ts";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
@@ -44,16 +45,18 @@ import { commandExitCode, parseHarnessCommandResult, renderCommandAnswer, takeOu
 // config section is absent. These are named constants — not inline literals —
 // so the fallback values are discoverable and auditable. The canonical owner
 // of these values is the central config contract (`workspaceGit.timeouts` for
-// git operations, `harness.typecheckTimeoutMs` for the typecheck step); the
+// git operations); the
 // constants here are only the fallback when config is unavailable. The
 // numeric defaults live in `./workflow-config.ts` (the canonical owner for
 // workflow operational defaults — no configurables outside
 // the config owner).
-import { DEFAULT_TYPECHECK_TIMEOUT_MS, DEFAULT_DISPOSITION_AUTO_ADD_TIMEOUT_MS, DEFAULT_SYNC_REGISTER_TIMEOUT_MS, DEFAULT_SYNC_REGENERATE_TIMEOUT_MS, DEFAULT_SYNC_CHECK_TIMEOUT_MS, DEFAULT_SYNC_BUNDLE_TIMEOUT_MS, DEFAULT_TIMELINE_COMMAND_LIMIT, worktreeOperationTimeouts } from "./workflow-config.ts";
+import { SCRIPT_SUBPROCESS_OUTPUT_BYTES, DEFAULT_TIMELINE_COMMAND_LIMIT, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline } from "../git/index-baseline.ts";
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
 import { syncCommunityFiles } from "./community/health-files.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
+import { configuredForgeSection } from "./forge/configured-forge.ts";
+import { syncForgeFiles } from "./forge/generated-files.ts";
 import { acceptFrozenRecords, frozenRecordsMessage, syncFrozenRecords, type FrozenRecordsReport } from "./record-links.ts";
 import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
 import { engineAndCheckoutRoots, repositoryToplevel } from "../git/repository-ownership.ts";
@@ -62,7 +65,7 @@ import { configuredGitRepository, configuredWorktreeGitPort } from "../git/workt
 import { repositoryRegistryArea, resolveRepositoryRegistry } from "./repository-registry.ts";
 import { convergeBound, convergeUntilStable, unconsumedCommands, type ConvergenceReport } from "./checkout-setup.ts";
 import { PromotionError } from "./promotion/codes.ts";
-import { loadPromotionProfiles, profileCommandNames, type LoadedPromotionProfile } from "./promotion/profile.ts";
+import { loadPromotionProfiles, profileCommandNames, profileTreeViolations, type LoadedPromotionProfile } from "./promotion/profile.ts";
 import { journalsUnder } from "../filesystem/journaled-commit.ts";
 import { bootstrapProcess, isEntryPoint } from "../runtime/cli-debug.ts";
 
@@ -82,20 +85,11 @@ import { bootstrapProcess, isEntryPoint } from "../runtime/cli-debug.ts";
  * where the operator stood, not which tree the harness lives in.
  */
 export const HARNESS_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-export { DEFAULT_TYPECHECK_TIMEOUT_MS } from "./workflow-config.ts";
 // Sync orchestration bounds. Each sync step runs as its own CLI subprocess so
 // it observes file truth (a step's writes must be visible to the next step's
 // fresh module imports). The regenerate bound must exceed the sum of the
 // inner subprocess budgets (auto-add + test-inventory + registrar scans).
 
-// The defaults below apply only to a key the document leaves undeclared; a
-// refused document propagates (kernel/config.ts, config-refusal-propagates).
-export function resolveTypecheckTimeoutMs(): number {
-  const harnessConfig = loadPinnedConfigSnapshot().document.harness;
-  return typeof harnessConfig?.typecheckTimeoutMs === "number"
-    ? harnessConfig.typecheckTimeoutMs
-    : DEFAULT_TYPECHECK_TIMEOUT_MS;
-}
 
 export type HarnessCheckOptions = Readonly<{
   skipTypecheck?: boolean;
@@ -149,6 +143,8 @@ export type HarnessCheckOutput = Readonly<{
   shippedHooks: CheckStepResult;
   /** Would `harness regenerate` rewrite the ignore file's generated evidence block (a manifest was added, moved or removed)? */
   evidenceIgnore: CheckStepResult;
+  /** Would `harness regenerate` rewrite a generated forge file under `.github/forge/` (src/workflow/forge/generated-files.ts)? */
+  forgeFiles: CheckStepResult;
   /** Does every file under a frozen record root hold the content its pinned manifest records (src/workflow/record-links.ts)? */
   frozenRecords: CheckStepResult;
   /** Does the published guardian spec-schema artifact equal a fresh projection of GUARDIAN_SPEC_SCHEMA (scripts/verification/guardian-spec-artifact.ts)? */
@@ -157,6 +153,8 @@ export type HarnessCheckOutput = Readonly<{
   artifactManifest: CheckStepResult;
   /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
   communityFiles: CheckStepResult;
+  /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
+  bundle: CheckStepResult;
   allPassed: boolean;
 }>;
 
@@ -180,12 +178,14 @@ export type HarnessRegenerateOutput = Readonly<{
   testInventory: Readonly<{
     status: "current" | "regenerated" | "skipped";
     testCount: number;
-    inventoryHash: string;
+    /** The inventory's own identity; null on a product-only tree, which carries no test surface. */
+    inventoryHash: string | null;
   }>;
   dispositionAutoAdd: DispositionAutoAddResult;
   dispositionManifest: Readonly<{
-    status: "current" | "regenerated";
-    integrityHash: string;
+    status: "current" | "regenerated" | "absent";
+    /** The manifest's own identity; null when the tree carries no test surface (`absent`). */
+    integrityHash: string | null;
   }>;
   /**
    * Config-document schema artifact regeneration (EXP468 finding fix).
@@ -247,6 +247,12 @@ export type HarnessRegenerateOutput = Readonly<{
    * so the folder materialize writes into is ignored by construction.
    */
   evidenceIgnore: DecisionIndexArm;
+  /**
+   * The forge's generated files (`.github/forge/`: the App manifests and
+   * their index), from the App registry and the `forge` configuration
+   * section (src/workflow/forge/generated-files.ts).
+   */
+  forgeFiles: DecisionIndexArm;
   /** The frozen record roots' pinned content (`ROOT_POLICY.verification.frozenRecordManifest`, src/workflow/record-links.ts). */
   frozenRecords: DecisionIndexArm;
   /**
@@ -501,6 +507,17 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the evidence ignore rule...");
   steps.push(evidenceIgnoreStep(regenerateEvidenceIgnore(root, false)));
 
+  emitProgress(onProgress, "Checking the generated forge files...");
+  const forgeFiles = regenerateForgeFiles(root, false);
+  steps.push(deepFreeze({
+    step: "forge-files",
+    status: forgeFiles.converged ? "pass" : "fail",
+    message: forgeFiles.converged
+      ? "every generated forge file under .github/forge/ is its owner's bytes"
+      : `generated forge files differ from their owners (run harness sync): ${forgeFiles.changed.join(", ")}`,
+    details: forgeFiles,
+  }));
+
   emitProgress(onProgress, "Checking the frozen record roots' pinned content...");
   steps.push(frozenRecordsStep(syncFrozenRecords(trackedTop(root), false)));
 
@@ -536,6 +553,9 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the community health files and forms...");
   steps.push(communityFilesStep(regenerateCommunityFiles(root, false)));
 
+  emitProgress(onProgress, "Checking the bundle against a rebuild of the source...");
+  steps.push(bundleFreshnessStep(root));
+
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
     typecheck: steps[0]!,
@@ -555,11 +575,13 @@ export async function harnessCheck(
     promotions: steps[14]!,
     shippedHooks: steps[15]!,
     evidenceIgnore: steps[16]!,
-    frozenRecords: steps[17]!,
-    guardianSpecArtifact: steps[18]!,
-    trackerBoard: steps[19]!,
-    artifactManifest: steps[20]!,
-    communityFiles: steps[21]!,
+    forgeFiles: steps[17]!,
+    frozenRecords: steps[18]!,
+    guardianSpecArtifact: steps[19]!,
+    trackerBoard: steps[20]!,
+    artifactManifest: steps[21]!,
+    communityFiles: steps[22]!,
+    bundle: steps[23]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -764,6 +786,10 @@ function deadCommandsStep(root: string): CheckStepResult {
       return deepFreeze({ step: "dead-commands", status: "fail", message: `${error.promotionCode}: ${error.message}`, details: error.facts });
     }
     if (profiles.length === 0) return deepFreeze({ step: "dead-commands", status: "pass", message: `not judged: ${directory}/ holds no promotion profile here, so not every consumer of the registry is visible`, details: null });
+    // Every path a profile names is one this checkout tracks (a deleted file is never shipped under its old name, #279).
+    const tracked = new Set(workingTreeReader(top).paths());
+    const absent = profiles.flatMap((loaded) => profileTreeViolations(loaded.profile, tracked).map(([pointer, message]) => `${loaded.path}${pointer}: ${message}`));
+    if (absent.length > 0) return deepFreeze({ step: "dead-commands", status: "fail", message: `promotion_profile_invalid: a profile names paths this checkout does not track: ${absent.join("; ")}`, details: { absent } });
     consumers = profiles.flatMap((loaded) => profileCommandNames(loaded.profile));
   }
   const dead = unconsumedCommands(isolation, consumers);
@@ -905,7 +931,7 @@ export function harnessRegenerate(
   // above are visible to it even though ROOT_POLICY was imported at process
   // start.
   const moduleRegistrar = generateModuleRegistrarReport(root, { write });
-  const autoGenerator = generateAutoGeneratorReport(root, { write: false });
+  const autoGenerator = generateAutoGeneratorReport(root);
   // Regenerate the config-document schema artifact (`traceability/config-
   // document-schema.json`). When `src/kernel/config-contracts.ts` changes, the
   // artifact drifts from the on-disk JSON file; it is rebuilt from the on-disk
@@ -939,6 +965,8 @@ export function harnessRegenerate(
   const shippedHooks = regenerateShippedHooks(root, write);
   // The evidence ignore rule: derived from the tracked evidence manifests.
   const evidenceIgnore = regenerateEvidenceIgnore(root, write);
+  // The forge's generated files: the App manifests and their index, from the registry and the `forge` section.
+  const forgeFiles = regenerateForgeFiles(root, write);
   // The frozen roots' pinned content: a change there is a manifest change the diff shows.
   const frozenRecords = syncFrozenRecords(trackedTop(root), write);
   // The community health files and forms, from their sources (before the inventory digests them).
@@ -947,7 +975,7 @@ export function harnessRegenerate(
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -963,7 +991,7 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged && communityFiles.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1010,7 +1038,7 @@ function autoAddDispositionEntries(root: string, write: boolean, prune: readonly
   if (!testSurfacePresent(root)) {
     return deepFreeze({ status: "skipped", addedCount: 0, addedPaths: deepFreeze([]), prunedCount: 0, prunedPaths: deepFreeze([]) });
   }
-  const stdout = runScriptSubprocess(root, "scripts/tooling/run-tests.ts", ["--auto-add-dispositions", ...pruneArguments(prune)], DEFAULT_DISPOSITION_AUTO_ADD_TIMEOUT_MS);
+  const stdout = runScriptSubprocess(root, "scripts/tooling/run-tests.ts", ["--auto-add-dispositions", ...pruneArguments(prune)]);
   const parsed = JSON.parse(stdout) as { status: string; addedCount: number; addedPaths: string[]; prunedCount: number; prunedPaths: string[] };
   return deepFreeze({
     status: parsed.status === "added" || (parsed.prunedCount ?? 0) > 0 ? "added" : "current",
@@ -1048,15 +1076,14 @@ function recomputeDispositionManifestIntegrityHash(
   root: string,
   write: boolean,
 ): Readonly<{
-  status: "current" | "regenerated";
-  integrityHash: string;
+  status: "current" | "regenerated" | "absent";
+  integrityHash: string | null;
 }> {
   const manifestPath = resolve(root, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath);
   if (!existsSync(manifestPath)) {
     if (!testSurfacePresent(root)) {
-      // A product-only tree carries no test surface to recompute against;
-      // report current rather than refuse — the manifest's subject is absent.
-      return deepFreeze({ status: "current", integrityHash: ROOT_POLICY.verification.testSurfaceDispositionBinding.identityHash });
+      // A product-only tree carries no test surface to recompute against: the manifest's subject is absent.
+      return deepFreeze({ status: "absent", integrityHash: null });
     }
     throw new InputError("test-surface disposition manifest file not found", "input_error");
   }
@@ -1075,7 +1102,7 @@ function recomputeDispositionManifestIntegrityHash(
 function regenerateTestInventory(root: string, write: boolean): Readonly<{
   status: "current" | "regenerated" | "skipped";
   testCount: number;
-  inventoryHash: string;
+  inventoryHash: string | null;
 }> {
   // Invoke scripts/test-inventory.ts as a subprocess to keep the builder-layer
   // test-inventory generator (and its @babel/parser dependency) out of the
@@ -1083,9 +1110,9 @@ function regenerateTestInventory(root: string, write: boolean): Readonly<{
   // On a product-only tree the test surface is absent: report the guided skip
   // rather than spawn a runner that is not there.
   if (!testSurfacePresent(root)) {
-    return { status: "skipped", testCount: 0, inventoryHash: ROOT_POLICY.verification.testInventoryHash };
+    return { status: "skipped", testCount: 0, inventoryHash: null };
   }
-  const stdout = runScriptSubprocess(root, "scripts/test-inventory.ts", [write ? "--write" : "--check"], 180_000);
+  const stdout = runScriptSubprocess(root, "scripts/test-inventory.ts", [write ? "--write" : "--check"]);
   const parsed = JSON.parse(stdout) as {
     inventoryHash: string;
     testCount: number;
@@ -1199,7 +1226,6 @@ function regeneratePinAuthorities(root: string, write: boolean): Readonly<{
     root,
     "scripts/pin-authority-regeneration.ts",
     [write ? "--write" : "--check"],
-    DEFAULT_SYNC_REGENERATE_TIMEOUT_MS,
   );
   const parsed = JSON.parse(stdout) as { allCurrent: boolean; results: ReadonlyArray<{ status: string }> };
   return deepFreeze({
@@ -1216,7 +1242,7 @@ function regeneratePinAuthorities(root: string, write: boolean): Readonly<{
  * guard against HEAD).
  */
 function regenerateRatchetBaselines(root: string, write: boolean): RatchetBaselinesArm {
-  const stdout = runScriptSubprocess(root, "scripts/verification/ratchet-baselines.ts", [write ? "--write" : "--check"], DEFAULT_SYNC_REGENERATE_TIMEOUT_MS);
+  const stdout = runScriptSubprocess(root, "scripts/verification/ratchet-baselines.ts", [write ? "--write" : "--check"]);
   const parsed = JSON.parse(stdout) as { allCurrent: boolean; results: RatchetBaselinesArm["results"] };
   return deepFreeze({
     status: parsed.results.some((result) => result.status === "pruned") ? "regenerated" : "current",
@@ -1310,6 +1336,12 @@ function regenerateEvidenceIgnore(root: string, write: boolean): DecisionIndexAr
   return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
 }
 
+/** The forge-files arm (in process): `.github/forge/` from the App registry and the `forge` configuration section. */
+function regenerateForgeFiles(root: string, write: boolean): DecisionIndexArm {
+  const report = syncForgeFiles(trackedTop(root), configuredForgeSection(), write);
+  return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
+}
+
 function regenerateShippedHooks(root: string, write: boolean): DecisionIndexArm {
   if (!existsSync(resolve(root, SHIPPED_HOOK_FILES.generator))) return deepFreeze({ status: "absent" as const, converged: true, changed: [] });
   const report = generatorReport<DecisionIndexArm["status"]>(root, SHIPPED_HOOK_FILES.generator, [write ? "--write" : "--check"], "the shipped hooks generator", "shipped_hooks_no_result");
@@ -1326,7 +1358,7 @@ function regenerateShippedHooks(root: string, write: boolean): DecisionIndexArm 
  * never an untyped SyntaxError (wf-del2-correctness NEW-11).
  */
 function generatorReport<Status extends string>(root: string, generator: string, args: readonly string[], label: string, code: string): Readonly<{ allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>> {
-  const last = runScriptSubprocess(root, generator, args, DEFAULT_SYNC_REGENERATE_TIMEOUT_MS);
+  const last = runScriptSubprocess(root, generator, args);
   let parsed: { allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>;
   try {
     parsed = JSON.parse(last) as typeof parsed;
@@ -1464,22 +1496,19 @@ export function harnessRegister(
  *
  * With `--with-bundle`, runs:
  * 1. `harness register --write` (fix module drift)
- * 2. `harness regenerate` (stabilize the non-bundle hash bindings — manifest
- *    hash, config-contracts sha256, disposition identity, etc.)
+ * 2. `harness regenerate` (stabilize the hash bindings — config-contracts
+ *    sha256, the spec-schema pins, etc.)
  * 3. `node scripts/build-bundle.ts` (rebuild the production bundle from the
- *    STABILIZED root-policy so the bundle embeds the correct non-bundle pins)
- * 4. `harness regenerate` (re-pin the fresh bundle sha256 into root-policy)
- * 5. `harness check --skip-typecheck` (verify every gate passes)
+ *    STABILIZED root-policy, which the bundle compiles in, and write the
+ *    guardian spec-schema artifact the build owns)
+ * 4. `harness regenerate` (re-derive what the build wrote: the spec-schema
+ *    artifact's pin)
+ * 5. `harness check --skip-typecheck` (verify every gate passes, the bundle
+ *    against an in-memory rebuild included)
  *
- * The bundle includes root-policy.ts, which pins the bundle sha256 AND the
- * non-bundle hash bindings. Building the bundle before the non-bundle pins
- * are stabilized leaves the bundle stale (the staleness test rebuilds from
- * the updated root-policy and detects the non-self-referential pin drift).
- * Building the bundle after the initial regenerate, then re-pinning with a
- * final regenerate, makes the bundle + the pin converge in a single
- * invocation — eliminating the two-round manual chore (build-bundle ->
- * regenerate -> build-bundle -> regenerate) that was the #1 agent time-waste
- * when touching config/root-policy/workflow-config files.
+ * No digest of the bundle is committed (#221): its freshness is the check's
+ * rebuild comparison. Building after the first regenerate means the bundle
+ * compiles the stabilized policy, so one invocation converges.
  *
  * Each step runs as its OWN CLI subprocess. This is the correctness crux:
  * every step reads file truth through fresh module imports. Running the steps
@@ -1532,6 +1561,43 @@ export async function harnessSync(
   return wrapResult("sync", deepFreeze({ ...output, convergence }), { status: output.allPassed ? "pass" : "fail" });
 }
 
+/** The bundle's freshness verdict (`scripts/build-bundle.ts --check`, the builder layer, as a subprocess): an in-memory rebuild compared with `dist/bundle.js`. */
+function readBundleFreshness(root: string): Readonly<{ fresh?: unknown; status?: unknown; path?: unknown }> {
+  return JSON.parse(runScriptSubprocess(root, "scripts/build-bundle.ts", ["--check"])) as { fresh?: unknown; status?: unknown; path?: unknown };
+}
+
+/** Whether `dist/bundle.js` is exactly a rebuild of the current source (absent is not fresh). */
+function bundleIsFresh(root: string): boolean {
+  return readBundleFreshness(root).fresh === true;
+}
+
+/**
+ * `harness check`'s bundle step: a rebuild in memory from the current source
+ * (`scripts/build-bundle.ts --check`, the builder layer, as a subprocess like
+ * every builder arm), compared byte for byte with `dist/bundle.js`. The tree
+ * commits no digest of its build output (#221), so this comparison is what
+ * refuses a stale or hand-edited bundle; an absent one is unbuilt and named
+ * with the command that builds it.
+ */
+function bundleFreshnessStep(root: string): CheckStepResult {
+  try {
+    const answer = readBundleFreshness(root);
+    const fresh = answer.fresh === true;
+    return deepFreeze({
+      step: "bundle",
+      status: fresh ? "pass" : "fail",
+      message: fresh
+        ? `${String(answer.path)} is exactly a rebuild of the current source`
+        : answer.status === "absent"
+          ? `${String(answer.path)} has not been built: run \`node src/cli.ts harness sync --with-bundle\``
+          : `${String(answer.path)} is not a rebuild of the current source (stale or edited by hand): run \`node src/cli.ts harness sync --with-bundle\``,
+      details: answer,
+    });
+  } catch (error) {
+    return deepFreeze({ step: "bundle", status: "fail", message: error instanceof Error ? error.message : "the bundle check failed", details: null });
+  }
+}
+
 /** One pass of `harness sync` (see {@link harnessSync}): the steps, each a CLI subprocess. */
 async function syncPass(
   root: string,
@@ -1539,46 +1605,49 @@ async function syncPass(
 ): Promise<Omit<HarnessSyncOutput, "convergence">> {
   const prune = pruneArguments(options.prune ?? []);
   // Without --with-bundle: register -> regenerate -> check (3 steps).
-  // With --with-bundle: register -> regenerate (stabilize non-bundle pins) ->
-  //   build-bundle (build from the stabilized root-policy) -> regenerate (pin
-  //   the fresh bundle sha256) -> check (5 steps).
-  // The bundle includes root-policy.ts, which pins the bundle sha256 AND the
-  // non-bundle hash bindings (manifest hash, config-contracts sha256, etc.).
-  // Building the bundle BEFORE the non-bundle pins are stabilized leaves the
-  // bundle stale (the staleness test rebuilds from the updated root-policy
-  // and detects the non-self-referential pin drift). Building the bundle
-  // AFTER the initial regenerate, then re-pinning with a final regenerate,
-  // makes the bundle + the pin converge in a single `harness sync
-  // --with-bundle` invocation — eliminating the two-round manual chore.
-  const totalSteps = options.withBundle ? 5 : 3;
+  // With --with-bundle: register -> regenerate (stabilize the pins) ->
+  //   build-bundle (build from the stabilized root-policy; writes the spec-schema
+  //   artifact) -> regenerate (re-derive what the build wrote) -> check (5 steps).
+  // The bundle compiles root-policy.ts in, so it is built after the pins
+  // settle; no digest of it is committed (#221), and the check compares it
+  // with an in-memory rebuild. A PLAIN sync rebuilds it too whenever the
+  // first regenerate left it stale (a pin it compiles in moved, #308): a sync
+  // that leaves its own check red cannot converge, so the bundle is one of
+  // the generated outputs sync owns, and `--with-bundle` only forces it.
+  let totalSteps = options.withBundle ? 5 : 3;
   let stepIndex = 0;
   let bundleBuild: HarnessCommandResult | undefined;
   let regenerateInitial: HarnessCommandResult | undefined;
   stepIndex += 1;
   emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness register --write (fix module drift)...`);
-  const register = runSyncStep(root, "register", ["--write"], DEFAULT_SYNC_REGISTER_TIMEOUT_MS);
+  const register = runSyncStep(root, "register", ["--write"]);
   stepIndex += 1;
   emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness regenerate (fix hash bindings + inventory)...`);
-  regenerateInitial = runSyncStep(root, "regenerate", prune, DEFAULT_SYNC_REGENERATE_TIMEOUT_MS);
+  regenerateInitial = runSyncStep(root, "regenerate", prune);
   let regenerate = regenerateInitial;
-  if (options.withBundle) {
+  const rebuild = options.withBundle === true || !bundleIsFresh(root);
+  if (rebuild && options.withBundle !== true) {
+    totalSteps = 5;
+    emitProgress(options.onProgress, "the bundle is not a rebuild of the source the regenerate left: rebuilding it");
+  }
+  if (rebuild) {
     stepIndex += 1;
     emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: build production bundle (scripts/build-bundle.ts)...`);
     bundleBuild = runBundleBuildStep(root);
     stepIndex += 1;
-    emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness regenerate (pin fresh bundle sha256)...`);
-    regenerate = runSyncStep(root, "regenerate", prune, DEFAULT_SYNC_REGENERATE_TIMEOUT_MS);
+    emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness regenerate (re-derive what the build wrote)...`);
+    regenerate = runSyncStep(root, "regenerate", prune);
   }
   stepIndex += 1;
   emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness check --skip-typecheck (verify)...`);
-  const check = runSyncStep(root, "check", ["--skip-typecheck"], DEFAULT_SYNC_CHECK_TIMEOUT_MS);
+  const check = runSyncStep(root, "check", ["--skip-typecheck"]);
   const steps: HarnessSyncStepSummary[] = [];
   steps.push(deepFreeze({ step: "register", status: register.status }));
   steps.push(deepFreeze({ step: "regenerate", status: regenerateInitial.status }));
   if (bundleBuild !== undefined) steps.push(deepFreeze({ step: "bundle-build", status: bundleBuild.status }));
-  if (options.withBundle) steps.push(deepFreeze({ step: "regenerate", status: regenerate.status }));
+  if (rebuild) steps.push(deepFreeze({ step: "regenerate", status: regenerate.status }));
   steps.push(deepFreeze({ step: "check", status: check.status }));
-  const allPassed = syncPassVerdict(steps, options.withBundle === true);
+  const allPassed = syncPassVerdict(steps, rebuild);
   return deepFreeze({
     steps: deepFreeze(steps),
     ...(bundleBuild !== undefined ? { bundleBuild } : {}),
@@ -1614,8 +1683,8 @@ export function syncPassVerdict(steps: readonly HarnessSyncStepSummary[], withBu
  * Run the production bundle build (`scripts/build-bundle.ts`) as a subprocess
  * and wrap its BuildSummary into a HarnessCommandResult. In `harness sync
  * --with-bundle`, this runs AFTER the initial regenerate (which stabilizes
- * the non-bundle hash bindings) so the bundle embeds the correct pins, then
- * a final regenerate pins the fresh bundle sha256. A build failure (esbuild
+ * the hash bindings) so the bundle compiles the settled pins, then a final
+ * regenerate re-derives what the build wrote. A build failure (esbuild
  * error, missing entry) surfaces as status "fail" with the stderr diagnostic;
  * it does NOT abort the remaining sync steps (the full picture is more useful
  * than a hard abort).
@@ -1630,7 +1699,7 @@ export function runBundleBuildStep(root: string): HarnessCommandResult {
   try {
     // The bundle build emits pretty-printed multi-line JSON, so capture the
     // full stdout (not just the final line) and parse the whole document.
-    const stdout = runScriptSubprocess(root, "scripts/build-bundle.ts", [], DEFAULT_SYNC_BUNDLE_TIMEOUT_MS, { fullOutput: true });
+    const stdout = runScriptSubprocess(root, "scripts/build-bundle.ts", [], { fullOutput: true });
     const summary = JSON.parse(stdout) as unknown;
     return wrapResult("bundle-build", summary, { status: "pass" });
   } catch (error) {
@@ -1649,9 +1718,8 @@ function runSyncStep(
   root: string,
   step: "register" | "regenerate" | "check",
   args: readonly string[],
-  timeoutMs: number,
 ): HarnessCommandResult {
-  const stdout = runScriptSubprocess(root, "src/cli.ts", ["harness", step, ...args], timeoutMs);
+  const stdout = runScriptSubprocess(root, "src/cli.ts", ["harness", step, ...args]);
   const parsed = parseHarnessCommandResult(JSON.parse(stdout));
   if (parsed.command !== step) {
     throw new InputError(`sync step '${step}' returned a result for command '${parsed.command}'`, "input_error");
@@ -1706,13 +1774,26 @@ function subprocessFailureSummary(lines: readonly string[]): string | undefined 
   return meaningful?.trim();
 }
 
+/** One synchronous run of `command args…` under `bounds` (src/workflow/subprocess-bounds.ts): the CPU limit, then the hang backstop. */
+function runBoundedSync(command: string, args: readonly string[], cwd: string, bounds: SubprocessBounds): SpawnSyncReturns<string> {
+  const invocation = cpuLimitedInvocation(command, args, bounds);
+  return spawnSync(invocation.command, [...invocation.args], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: bounds.hangBackstopMs,
+    killSignal: "SIGKILL",
+    maxBuffer: SCRIPT_SUBPROCESS_OUTPUT_BYTES,
+  });
+}
+
 export function runScriptSubprocess(
   root: string,
   scriptRelativePath: string,
   args: readonly string[],
-  timeoutMs: number,
-  options: Readonly<{ fullOutput?: boolean }> = {},
+  options: Readonly<{ fullOutput?: boolean; bounds?: SubprocessBounds }> = {},
 ): string {
+  const bounds = options.bounds ?? SUBPROCESS_BOUNDS;
   const scriptPath = resolve(root, scriptRelativePath);
   // A MISSING SCRIPT IS ITS OWN CAUSE. The subprocess's failure mode would
   // otherwise be Node's module loader: a MODULE_NOT_FOUND stack whose last
@@ -1725,45 +1806,39 @@ export function runScriptSubprocess(
       "input_error",
     );
   }
-  let stdout: string;
-  try {
-    stdout = execFileSync(process.execPath, [scriptPath, ...args], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: timeoutMs,
-    });
-  } catch (error) {
-    const stdoutValue = (error as { stdout?: unknown } | null)?.stdout;
-    if (typeof stdoutValue === "string" && stdoutValue.trim().length > 0) {
-      stdout = stdoutValue;
-    } else {
-      // No payload on stdout — a genuine subprocess failure. The scripts
-      // report a failure as ONE typed JSON line (`{"error": <code>,
-      // "message": …}`) on stderr; that record is the error channel, and it
-      // is passed through with its own code and message. It is FOUND, not
-      // assumed to be the last line: a runtime warning printed after it
-      // (a Node deprecation notice) used to replace the typed refusal with
-      // "failed without a status payload: (node:123) Warning: …".
-      const stderrValue = (error as { stderr?: unknown } | null)?.stderr;
-      const lines = typeof stderrValue === "string" ? stderrValue.trim().split("\n").filter((line) => line.trim().length > 0) : [];
-      const typed = typedFailureRecord(lines);
-      if (typed !== undefined) {
-        // The STEP is named as a step, never as a location: `src/cli.ts: <a
-        // syntax error in another file>` sent the operator to the wrong file
-        // (wf1a-correctness). A location, when there is one, is the
-        // refusal's own (e.g. `source_syntax_invalid` names the source file).
-        throw new HarnessError(`the ${scriptRelativePath} step failed: ${typed.message}`, typed.code);
-      }
-      const baseMessage = error instanceof Error ? error.message : "subprocess failed";
-      throw new InputError(
-        `subprocess ${scriptRelativePath} failed without a status payload: ${subprocessFailureSummary(lines) ?? baseMessage}`,
-        "input_error",
-      );
+  // NO-LOAD-BLOCK L2 (audit A-18): bounded in CPU WORK, never by a wall
+  // clock a loaded host runs out (src/workflow/subprocess-bounds.ts).
+  const result = runBoundedSync(process.execPath, [scriptPath, ...args], root, bounds);
+  const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  const succeeded = result.error === undefined && result.status === 0;
+  let stdout = typeof result.stdout === "string" ? result.stdout : "";
+  if (!succeeded && stdout.trim().length === 0) {
+    // No payload on stdout — a genuine subprocess failure. The scripts
+    // report a failure as ONE typed JSON line (`{"error": <code>,
+    // "message": …}`) on stderr; that record is the error channel, and it
+    // is passed through with its own code and message. It is FOUND, not
+    // assumed to be the last line: a runtime warning printed after it
+    // (a Node deprecation notice) used to replace the typed refusal with
+    // "failed without a status payload: (node:123) Warning: …".
+    const lines = typeof result.stderr === "string" ? result.stderr.trim().split("\n").filter((line) => line.trim().length > 0) : [];
+    const typed = typedFailureRecord(lines);
+    if (typed !== undefined && errorCode === undefined && result.signal === null) {
+      // The STEP is named as a step, never as a location: `src/cli.ts: <a
+      // syntax error in another file>` sent the operator to the wrong file
+      // (wf1a-correctness). A location, when there is one, is the
+      // refusal's own (e.g. `source_syntax_invalid` names the source file).
+      throw new HarnessError(`the ${scriptRelativePath} step failed: ${typed.message}`, typed.code);
     }
+    const ending = boundedEnding({ status: result.status, signal: result.signal, ...(errorCode !== undefined ? { errorCode } : {}) }, bounds);
+    const said = subprocessFailureSummary(lines);
+    throw new InputError(
+      `subprocess ${scriptRelativePath} ended without a status payload: ${ending}${said === undefined ? " (it printed nothing on stderr)" : `; its stderr says: ${said}`}`,
+      errorCode === "ETIMEDOUT" ? "script_subprocess_hung" : "input_error",
+    );
   }
-  if (options.fullOutput) return stdout.trim();
-  return stdout.trim().split("\n").filter((line) => line.trim().length > 0).at(-1) ?? "";
+  stdout = stdout.trim();
+  if (options.fullOutput) return stdout;
+  return stdout.split("\n").filter((line) => line.trim().length > 0).at(-1) ?? "";
 }
 
 /** The last stderr line that is a typed failure record (`{"error": <code>, "message": <text>}`), if any. */
@@ -1823,14 +1898,20 @@ function resolveLockOptions(owner: string): AcquireLockOptions {
 }
 
 
-async function runTypecheck(root: string): Promise<CheckStepResult> {
-  try {
-    execFileSync(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc"), "--noEmit"], { cwd: root, encoding: "utf8", stdio: "pipe", timeout: resolveTypecheckTimeoutMs() });
+/**
+ * The whole-tree typecheck, bounded like every harness subprocess: by its
+ * CPU work and the one hang backstop, never by a wall limit (it was 120 s,
+ * and a loaded host failed `harness check` with it; NO-LOAD-BLOCK A-17).
+ */
+export async function runTypecheck(root: string, bounds: SubprocessBounds = SUBPROCESS_BOUNDS): Promise<CheckStepResult> {
+  const result = runBoundedSync(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc"), "--noEmit"], root, bounds);
+  const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  if (result.error === undefined && result.status === 0) {
     return deepFreeze({ step: "typecheck", status: "pass", message: "typecheck passed", details: null });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "typecheck failed";
-    return deepFreeze({ step: "typecheck", status: "fail", message, details: null });
   }
+  const ending = boundedEnding({ status: result.status, signal: result.signal, ...(errorCode !== undefined ? { errorCode } : {}) }, bounds);
+  const said = `${typeof result.stdout === "string" ? result.stdout : ""}${typeof result.stderr === "string" ? result.stderr : ""}`.trim();
+  return deepFreeze({ step: "typecheck", status: "fail", message: `typecheck failed: ${ending}${said.length === 0 ? "" : `\n${said}`}`, details: null });
 }
 
 /** The registrar's verdict: every module registered, none drifted, the composition-root lists derived. */
@@ -1923,9 +2004,9 @@ export function runArchitectureCheck(root: string): CheckStepResult {
  * ── IT ASKS THE OWNER, NOT THE INVENTORY ABOUT ITSELF ─────────────────────
  *
  * This step used to parse only the inventory's top-level `inventoryHash` and
- * compare it with `ROOT_POLICY.verification.testInventoryHash`. Both sides are
- * the same value by construction (the inventory generator writes the policy
- * pin), so the step compared a value to itself: an inventory emptied to zero
+ * compare it with the root policy's copy of it (a copy since removed, #221).
+ * Both sides were the same value by construction (the inventory generator
+ * wrote the policy pin), so the step compared a value to itself: an inventory emptied to zero
  * tests with its hash preserved passed the commit gate, while the owner
  * (`node scripts/test-inventory.ts --check`) refused it. The same shape hid a
  * stale source hash in the checked-in inventory.
@@ -1941,7 +2022,7 @@ export function runArchitectureCheck(root: string): CheckStepResult {
 export function runInventoryCheck(root: string): CheckStepResult {
   if (!testSurfacePresent(root)) return skipStep("inventory");
   try {
-    const stdout = runScriptSubprocess(root, "scripts/test-inventory.ts", ["--check"], 180_000);
+    const stdout = runScriptSubprocess(root, "scripts/test-inventory.ts", ["--check"]);
     const parsed = JSON.parse(stdout) as {
       inventoryHash: string;
       status: string;
@@ -1986,7 +2067,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 export const HARNESS_SUBCOMMANDS = deepFreeze([
   "check", "test", "register", "regenerate", "sync", "new-module", "eval",
   "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "slot", "flake", "frozen",
+  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge",
 ] as const);
 
 export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
@@ -2124,6 +2205,10 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
     } else if (subcommand === "slot") {
       const { runSlotCli } = await import("./slot-cli.ts");
       answer = await runSlotCli(rest);
+    } else if (subcommand === "forge") {
+      // GitHub, the one forge (src/workflow/forge/): its own answers and codes.
+      const { runForgeCli } = await import("./forge/cli.ts");
+      answer = await runForgeCli(root, rest, onProgress);
     } else if (subcommand === "flake") {
       const { runFlakeCli } = await import("./flake-cli.ts");
       answer = await runFlakeCli(rest);
@@ -2134,6 +2219,10 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
       // Exit code: the class of the answer's code (src/workflow/promotion/codes.ts); its own report.
       const { runPromoteCli } = await import("./promotion/promote-cli.ts");
       answer = await runPromoteCli(root, rest);
+    } else if (subcommand === "release") {
+      // The product's release train (src/workflow/promotion/release-cli.ts): the promotion envelope and exit codes.
+      const { runReleaseCli } = await import("./promotion/release-cli.ts");
+      answer = await runReleaseCli(root, rest);
     } else if (subcommand === "format") {
       const write = !rest.includes("--check");
       const unknown = rest.filter((a) => a !== "--check");

@@ -41,11 +41,11 @@ import { qualificationEvidence, diffRunFailures, latestRunOfTree, readRunHistory
 import { COMMAND_ENVIRONMENT, projectEnvironment } from "../../process/environment-projection.ts";
 import type { JudgedRunRecord } from "../../shared/budget-verdict.ts";
 import { commandsRun, configuredCheckoutCommandRunner, type CheckoutCommandRunner } from "../checkout-setup.ts";
-import { generatedOutputPaths, pinnedBuildOutputPaths } from "../hash-binding-registry.ts";
+import { generatedOutputPaths, buildOutputPaths } from "../hash-binding-registry.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry, type RepositoryRegistry } from "../repository-registry.ts";
 import { PromotionError, answer, type PromotionAnswer } from "./codes.ts";
-import { applyPromotion } from "./apply.ts";
-import { promotionErrorOf, promotionFolder, promotionRefs, targetTip, type ApplyRun } from "./promotion-run.ts";
+import { applyPromotion, recomputeProjection } from "./apply.ts";
+import { dropPending, promotionErrorOf, promotionFolder, promotionRefs, targetTip, type ApplyRun } from "./promotion-run.ts";
 import { promotionState, readLastRun, type LastRun } from "./last-run.ts";
 import { localHold } from "./publication.ts";
 import { holdPromotion, releaseHold, rollbackPromotion } from "./rollback.ts";
@@ -54,7 +54,10 @@ import type { PromotionRequest } from "./promote-arguments.ts";
 import { engineRelativeIn, promoterPlacement, runInPromoterHome, type PromoterPlacement } from "./promoter-home.ts";
 import { branchOf, loadPromotionProfiles, parsePromotionProfile, profileCommandNames, selectPromotionProfile, type LoadedPromotionProfile } from "./profile.ts";
 import { classifyTree, explainPaths, planPromotion, projectSource, type PromotionPlan } from "./projection.ts";
-import { profileHistory, profileOfTrailer, trailerHistory } from "./trailers.ts";
+import { configuredProductForge, forgePublishVerb, type ProductForge } from "../forge/publish/product.ts";
+import { worktreeOperationTimeouts } from "../workflow-config.ts";
+import { planRelease } from "./release-train.ts";
+import { profileHistory, profileOfTrailer, promotionTrailersOf, trailerHistory } from "./trailers.ts";
 
 /** The configuration a promotion reads: the command registry, the profile directory, the git it runs, the runner's retry policy and the lock wait. */
 export type PromotionDocument = Pick<ConfigDocument, "workspaceIsolation" | "promotion" | "workspaceGit" | "harness" | "resourceLock">;
@@ -85,7 +88,7 @@ export type PromotionContext = RepositoryContext & Readonly<{
 }>;
 
 /** The repository context of the checkout at `root` (see the header); `document` defaults to the pinned configuration. */
-function resolveRepositoryContext(root: string, document: PromotionDocument = loadPinnedConfigSnapshot().document): RepositoryContext {
+export function resolveRepositoryContext(root: string, document: PromotionDocument = loadPinnedConfigSnapshot().document): RepositoryContext {
   const isolation = document.workspaceIsolation;
   const profileDirectory = document.promotion?.profileDirectory;
   if (isolation === undefined || profileDirectory === undefined) {
@@ -200,7 +203,8 @@ function productChanged(context: PromotionContext): boolean | null {
   const projection = projectSource(context.repository, context.loaded, context.source, context.target);
   if (projection.lastPromoted.source === null) return true;
   const changed = gitOutput(context.repository, ["diff", "--name-only", "-z", "--no-renames", projection.lastPromoted.source, context.source, "--"]).stdout.toString("utf8").split("\0").filter((path) => path.length > 0);
-  return changed.some((path) => projection.classification.projected.has(path) || projection.classification.notProjected.get(path)?.rule === undefined);
+  const overlaySources = new Set(projection.classification.overlaid.values());
+  return changed.some((path) => projection.classification.projected.has(path) || overlaySources.has(path) || projection.classification.notProjected.get(path)?.rule === undefined);
 }
 
 /** The work folder's facts a promotion needs: on the repository's filesystem, and its free bytes. */
@@ -316,7 +320,7 @@ function applyRun(context: PromotionContext, git: WorktreeGitPort, runner: Check
     git,
     runner,
     generatedOutputs: generatedOutputPaths,
-    buildOutputs: pinnedBuildOutputPaths,
+    buildOutputs: buildOutputPaths,
     engineRelative,
     toolchain: profileToolchain(context),
     plan: (reconciled: PromotionContext) => promotionPlan(reconciled),
@@ -330,7 +334,7 @@ function applyRun(context: PromotionContext, git: WorktreeGitPort, runner: Check
  * (`trigger.ts` `withUnattendedChain`: latest wins — the top-level process's,
  * never the home's child), once every lock it took is released.
  */
-async function promotionBuild(context: PromotionContext, request: PromotionRequest, contextOf: (profile: string, source: string) => PromotionContext, launch: UnattendedLaunch): Promise<PromotionAnswer> {
+async function promotionBuild(context: PromotionContext, request: PromotionRequest, contextOf: (profile: string, source: string) => PromotionContext, launch: UnattendedLaunch, chain = request.verb === "apply"): Promise<PromotionAnswer> {
   const git = configuredWorktreeGitPort(context.document);
   const build = async (): Promise<PromotionAnswer> => {
     const runner = await commandRunner(context);
@@ -354,7 +358,76 @@ async function promotionBuild(context: PromotionContext, request: PromotionReque
       auto: request.auto === true,
     }, run);
   };
-  return request.verb === "apply" ? withUnattendedChain(context, git, build, contextOf, launch) : build();
+  return chain ? withUnattendedChain(context, git, build, contextOf, launch) : build();
+}
+
+/**
+ * `harness promote forge-publish`: the publisher's one verb (decision
+ * PROMO-GH), run by S's own promoter in a checkout clean at S (the publish
+ * job's): {@link forgePublishWith} over this engine's build.
+ */
+export async function promotionForgePublish(repository: RepositoryContext, request: PromotionRequest, forge: ProductForge): Promise<PromotionAnswer> {
+  const context = contextFor(repository, request.profile, request.source);
+  const git = configuredWorktreeGitPort(context.document);
+  const placement = promoterPlacement(context, git);
+  if (placement.kind === "home") {
+    throw new PromotionError("promotion_forge_not_at_source", `forge-publish runs in a checkout clean at the source ${context.source}, so the build and its recompute are S's own code (${placement.reason})`, { source: context.source, reason: placement.reason });
+  }
+  return forgePublishWith(context, request, forge, applyRun(context, git, await commandRunner(context), placement.engineRelative));
+}
+
+/**
+ * THE PUBLICATION, over a build run: any pending commit is dropped (nothing
+ * built elsewhere is ever carried), the promotion is built in this process
+ * (`applyPromotion`, `--no-publish`, the reasoned overrides a first promotion
+ * needs passing through), checked against the projection recomputed from S
+ * ({@link verifyBuiltProjection}), and only then published to the forge as the
+ * publisher App (`forge/publish/product.ts`).
+ */
+export async function forgePublishWith(context: PromotionContext, request: PromotionRequest, forge: ProductForge, run: ApplyRun): Promise<PromotionAnswer> {
+  const stale = resolveRevision(context.repository, promotionRefs(context.loaded.profile.name).pending);
+  if (stale !== null) dropPending(context, run.git, stale, worktreeOperationTimeouts(context.document).inspectMs);
+  const built = await applyPromotion(context, {
+    acceptTargetEdits: request.acceptTargetEdits ?? null,
+    allowDeletions: request.allowDeletions === true,
+    releaseHold: false,
+    reason: request.reason ?? null,
+    noPublish: true,
+    noPush: false,
+    auto: false,
+  }, run);
+  if (built.code !== "promotion_committed") return built;
+  const commit = (built.data as { commit: string }).commit;
+  await verifyBuiltProjection(context, run, commit);
+  return forgePublishVerb({ local: context.repository, branch: branchOf(context.loaded.profile.target.ref), commit, out: request.out!, forge });
+}
+
+/**
+ * THE PUBLISHER'S CHECK of a built promotion commit: its `Promotion-Profile`
+ * names the profile and the blob read from S and its `Projected-From` names S
+ * (`promotion_forge_profile_mismatch`), and its tree EQUALS the projection
+ * recomputed from S alone (`recomputeProjection`: the plan's tree P settled
+ * by the profile's own phases in a fresh candidate) — no path is special: any
+ * difference is `promotion_forge_projection_mismatch`, naming each path. A
+ * source the plan refuses cannot be recomputed, and refuses too.
+ */
+export async function verifyBuiltProjection(context: PromotionContext, run: ApplyRun, commit: string): Promise<void> {
+  const trailers = promotionTrailersOf(context.repository, commit);
+  const profile = `${context.loaded.profile.name}@${context.loaded.blob ?? "working tree"}`;
+  if (trailers.profile !== profile || trailers.projectedFrom !== context.source) {
+    throw new PromotionError("promotion_forge_profile_mismatch", `${commit} names the profile ${String(trailers.profile)} and the source ${String(trailers.projectedFrom)}; the projection is ${profile} of ${context.source}`, { commit, profile: trailers.profile, expectedProfile: profile, source: trailers.projectedFrom, expectedSource: context.source });
+  }
+  const plan = await run.plan(context);
+  const sourceRefusals = plan.refusals.filter((entry) => !["promotion_target_edits", "promotion_deletion_budget"].includes(entry.code));
+  if (sourceRefusals.length > 0 || plan.projection.underived.length > 0) {
+    throw new PromotionError("promotion_forge_projection_mismatch", `the projection of ${context.source} cannot be recomputed (${[...sourceRefusals.map((entry) => entry.code), ...plan.projection.underived.map((path) => `underived ${path}`)].join(", ")})`, { commit, refusals: sourceRefusals.map((entry) => entry.code), underived: plan.projection.underived });
+  }
+  const recomputed = await recomputeProjection(context, run, plan);
+  const built = resolveRevision(context.repository, commit, "tree")!;
+  if (built !== recomputed) {
+    const paths = gitOutput(context.repository, ["diff-tree", "-r", "-z", "--no-renames", "--name-only", recomputed, built]).stdout.toString("utf8").split("\0").filter((path) => path.length > 0);
+    throw new PromotionError("promotion_forge_projection_mismatch", `${commit} departs from the projection recomputed from ${context.source} at ${paths.join(", ")}: only the recomputed projection is published`, { commit, paths, recomputed, built });
+  }
 }
 
 /** `harness promote auto --refs <refs>` over the checkout at `root` (see `trigger.ts`); `launch` starts each unattended run (production: in the background). */
@@ -366,6 +439,7 @@ export function promotionAuto(root: string, refs: string, document: PromotionDoc
 async function verbAnswer(root: string, request: PromotionRequest, document: PromotionDocument | undefined, launch: UnattendedLaunch): Promise<PromotionAnswer> {
   if (request.verb === "auto") return promotionAuto(root, request.refs ?? "", document, launch);
   const repository = resolveRepositoryContext(root, document);
+  if (request.verb === "forge-publish") return promotionForgePublish(repository, request, configuredProductForge());
   const context = contextFor(repository, request.profile, request.source);
   if (request.verb === "status") return promotionStatus(context);
   if (request.verb === "apply" || request.verb === "rollback") return promotionBuild(context, request, (profile, source) => contextFor(repository, profile, source), launch);
@@ -456,7 +530,7 @@ export function enginePromotionSource(root: string, document?: PromotionDocument
       const last = context.target === null ? undefined : profileHistory(context.repository, context.target, context.loaded.profile.name)[0];
       if (last === undefined) return `${context.loaded.profile.name}: never promoted`;
       const at = gitOutput(context.repository, ["log", "-1", "--format=%cI", last.commit]).stdout.toString("utf8").trim();
-      return `${context.loaded.profile.name}: ${last.commit} ${last.trailers.restores === null ? `carries ${last.trailers.promotedFrom ?? "?"}` : `restores ${last.trailers.restores}`} (${at})`;
+      return `${context.loaded.profile.name}: ${last.commit} ${last.trailers.restores === null ? `carries ${last.trailers.projectedFrom ?? "?"}` : `restores ${last.trailers.restores}`} (${at})`;
     }),
     pending: () => perProfile(root, document, (context) => {
       const facts = pendingFacts(context);
@@ -476,6 +550,18 @@ export function enginePromotionSource(root: string, document?: PromotionDocument
       return [...byKind].map(([kind, count]) => `${String(count)} ${kind}`).join(", ");
     }),
     lastRunDurationMs: cached((record) => String(Object.values(record.durations).reduce((sum, ms) => sum + ms, 0))),
+    releaseTrain: () => {
+      try {
+        const context = resolveRepositoryContext(root, document);
+        const settings = context.document.promotion?.release;
+        if (settings === undefined) return "no release train declared (promotion.release)";
+        const plan = planRelease({ repository: context.repository, settings, profileDirectory: context.profileDirectory, commandNames: context.commandNames, now: new Date(), manual: false, releases: null });
+        return plan.due ? `${plan.tag} due (${plan.mode})` : `${plan.tag} waits: ${plan.reasons.join(", ")}`;
+      } catch (error) {
+        if (error instanceof PromotionError) return `${error.promotionCode}: ${error.message}`;
+        throw error;
+      }
+    },
     status: (profile, source) => verb({ verb: "status", ...named(profile), ...(source === undefined ? {} : { source }) }),
     plan: (profile, source) => verb({ verb: "plan", ...named(profile), ...(source === undefined ? {} : { source }) }),
     explain: (paths, profile, source) => verb({ verb: "explain", paths, ...named(profile), ...(source === undefined ? {} : { source }) }),

@@ -21,6 +21,16 @@
  * certified clean. Node >= 24 strips the types natively, so the scanner
  * imports the owner instead of copying it.
  *
+ * ── ONE CATALOGUE FOR "IS THIS TEXT A SECRET, OR PRIVATE?" ──
+ *
+ * The credential shapes and the publication-privacy rules are owned by the
+ * engine's catalogue (`engine/src/privacy/secret-signals.ts`): the rows
+ * whose `treeScan` is `true`, plus `PUBLICATION_PRIVACY_SIGNALS`. This
+ * script used to keep its own content-rule regex list, its own home-path
+ * and internal-host list, and a `.gitleaks.toml` was a third copy; they had drifted
+ * (no GitHub token but `ghp_`, no installation token at all). A finding names
+ * the catalogue row id, never the matched value.
+ *
  * ── CONTENT, NOT EXTENSIONS ──
  *
  * A tracked blob is read as bytes and decoded as text whatever its name says:
@@ -49,6 +59,7 @@ import { createInterface } from "node:readline";
 // The canonical owner of the secret-file vocabulary. See the module comment:
 // the import is the point, not a convenience.
 import { isSecretFile } from "../engine/src/privacy/secret-files.ts";
+import { publicationPrivacyFindings, treeScannedSignals } from "../engine/src/privacy/secret-signals.ts";
 
 const ROOT = resolve(process.cwd());
 // At or below this size a file is read in one pass. Above it, it is streamed
@@ -60,79 +71,22 @@ const STREAM_THRESHOLD_BYTES = 2 * 1024 * 1024;
 // reported, because "we did not look" must never print "clean".
 const MAX_SCAN_BYTES = 64 * 1024 * 1024;
 
-// Documented placeholders for a user's home directory. The path rule below
-// matches `/home/<name>` BARE or followed by a segment, so prose that cites
-// the checkout root is covered without naming a real account. A placeholder
-// must be a whole segment: a documented name followed by a sentence period is
-// still the placeholder; a dotted account (`jane.doe`) or a name merely
-// BEGINNING with a placeholder (`example123`) is not.
-const HOME_PATH_PLACEHOLDERS = [
-  "example", "user", "runner", "bridlewise", "ubuntu", "node", "app",
-  "workspace", "demo", "x", "u", "me", "alice", "bob", "jane", "jdoe",
-  "username", "test", "foo", "bar", "baz",
-];
-const HOME_PLACEHOLDER_GUARD = `(?!(?:${HOME_PATH_PLACEHOLDERS.join("|")})(?![A-Za-z0-9_-])(?!\\.[A-Za-z0-9]))`;
-
-const FORBIDDEN_PATH = [
-  [new RegExp(`\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u"), "absolute home path"],
-  [/git\.localserver\.ca\b/, "internal Git host"],
-  [/api\.neuralwatt\.com\b/, "internal provider host"],
-  [/\/tmp\/opencode\b/, "internal scratch path"],
-  [/\bcode-harness\.fresh-evidence\b/, "local evidence state directory"],
-];
-
-// A database or SQLite state file is not a credential file, but it is a local
-// data blob that must not be published either. The secret-file vocabulary
-// itself comes from the engine owner above.
-const DATABASE_STATE = [/(^|\/)\.(db|sqlite|sqlite3)(-|$)/i, "database state"];
-
-const CONTENT_RULES = [
-  {
-    // Valid PKCS#8 may say ENCRYPTED and a PGP key ends with ` BLOCK`; the
-    // engine's own private-key signal already accepts the whole
-    // `[A-Z0-9 ]*` vocabulary, and the scanner had drifted narrower.
-    id: "private-key-block",
-    pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/u,
-    detail: "private key header",
-  },
-  {
-    id: "provider-token-shape",
-    pattern: /\b(?:sk|rk|pk|ghp|github_pat)[_-][A-Za-z0-9_-]{20,}\b/u,
-    detail: "provider-token shape",
-  },
-  {
-    id: "aws-access-key-shape",
-    pattern: /\bAKIA[0-9A-Z]{16}\b/u,
-    detail: "AWS access-key shape",
-  },
-];
-
-// The ONLY content allowlist is a set of EXACT placeholder values. A keyword
-// anywhere on the line ("EXAMPLE", "PLANT", "placeholder") is not evidence
-// that a token is synthetic: a real key pasted beside the word that was meant
-// to excuse it must still fail.
-const PLACEHOLDER_TOKENS = new Set([
-  "AKIAIOSFODNN7EXAMPLE",
-  "sk-...",
-  "sk-AAAAAAAAAAAAAAAAAAAAAAAA",
-  "ghp_AAAAAAAAAAAAAAAAAAAAAAAA",
-  "sk_abcdefghijklmnopqrstuvwx",
-  "ghp_abcdefghijklmnopqrstuvwx",
-  "sk-abcdefghijklmnopqrstuvwxyz123456",
-]);
-
 // `String#matchAll` needs a global pattern; the catalogue stays non-global so
 // the same entry can be used for a plain `test` elsewhere.
-const CONTENT_MATCHERS = CONTENT_RULES.map((rule) => ({
-  ...rule,
-  pattern: new RegExp(rule.pattern.source, rule.pattern.flags.includes("g") ? rule.pattern.flags : `${rule.pattern.flags}g`),
+function globalOf(pattern) {
+  return new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+}
+
+const CONTENT_MATCHERS = treeScannedSignals().map((signal) => ({
+  id: signal.id,
+  detail: signal.description,
+  pattern: globalOf(signal.admission),
 }));
 
+
 // Test and benchmark fixtures may plant credentials; shipped source and
-// documentation may not. `.gitleaks.toml` is SHIPPED CONFIGURATION, not a
-// fixture: a real key pasted there is published like one pasted anywhere
-// else. Its legitimate content is covered value-exactly by
-// PLACEHOLDER_TOKENS, so it needs no path entry.
+// documentation may not, and no value is excused for its spelling: a
+// placeholder-looking key outside these trees is a finding like any other.
 const SAFE_FIXTURE_PATHS = [
   /^engine\/test\//,
   /^tests\//,
@@ -190,12 +144,6 @@ function report(path, line, rule, detail, fixture) {
   findings.push({ path, line, rule, detail, fixture });
 }
 
-/** The line a literal spelling appears on, or 0 when the text was escaped. */
-function lineOf(text, needle) {
-  const index = text.indexOf(needle);
-  return index === -1 ? 0 : text.slice(0, index).split("\n").length;
-}
-
 /** Every string value in a parsed JSON document, keys included. */
 function jsonStrings(value, out = []) {
   if (typeof value === "string") {
@@ -223,11 +171,18 @@ function scanJsonDocument(path, text, fixture) {
   } catch {
     return;
   }
+  // A string spelled with no escape was already covered by the raw line pass;
+  // only an ESCAPED string (whose decoded value no raw line contains) needs
+  // this decoded pass. Reporting both was a duplicate finding for one path.
+  // The literal spellings are read in ONE linear pass over the raw string
+  // tokens: searching the whole text once per value (the old `lineOf`, which
+  // also split the prefix into lines) was quadratic in a large document (#301).
+  const literal = new Set();
+  for (const token of text.matchAll(/"((?:[^"\\\n]|\\.)*)"/gu)) {
+    if (!token[1].includes("\\")) literal.add(token[1]);
+  }
   for (const value of jsonStrings(parsed)) {
-    // A value that appears literally in the file was already covered by the
-    // raw line pass; only an ESCAPED value (which no raw line contains) needs
-    // this decoded pass. Reporting both was a duplicate finding for one path.
-    if (lineOf(text, value) !== 0) continue;
+    if (literal.has(value)) continue;
     scanText(path, 0, value, fixture);
   }
 }
@@ -235,16 +190,12 @@ function scanJsonDocument(path, text, fixture) {
 /** Run the path rules and the content rules over one line of text. */
 function scanText(path, lineNumber, line, fixture) {
   const normalizedLine = normalizePathText(line);
-  for (const [re, detail] of FORBIDDEN_PATH) {
-    re.lastIndex = 0;
-    if (re.test(normalizedLine)) report(path, lineNumber, "forbidden-path", detail, fixture);
+  for (const signal of publicationPrivacyFindings(normalizedLine, "text")) {
+    report(path, lineNumber, signal.id, signal.description, fixture);
   }
   for (const rule of CONTENT_MATCHERS) {
     rule.pattern.lastIndex = 0;
-    for (const match of line.matchAll(rule.pattern)) {
-      // Value-exact allowlisting: only the placeholder spelling above is
-      // synthetic, never a line that happens to contain a keyword.
-      if (PLACEHOLDER_TOKENS.has(match[0])) continue;
+    for (const _match of line.matchAll(rule.pattern)) {
       report(path, lineNumber, rule.id, rule.detail, fixture);
     }
   }
@@ -257,15 +208,13 @@ function scanText(path, lineNumber, line, fixture) {
  */
 function scanPath(path, fixture) {
   const normalized = normalizePathText(path.split("\\").join("/"));
-  for (const [re, detail] of FORBIDDEN_PATH) {
-    re.lastIndex = 0;
-    if (re.test(normalized)) report(normalized, 0, "forbidden-path", detail, fixture);
+  for (const signal of publicationPrivacyFindings(normalized, "text")) {
+    report(normalized, 0, signal.id, `${signal.description} in a file path`, fixture);
   }
   for (const rule of CONTENT_MATCHERS) {
     rule.pattern.lastIndex = 0;
-    for (const match of normalized.matchAll(rule.pattern)) {
-      if (PLACEHOLDER_TOKENS.has(match[0])) continue;
-      report(normalized, 0, "path-content", `${rule.detail} in a file path`, fixture);
+    for (const _match of normalized.matchAll(rule.pattern)) {
+      report(normalized, 0, rule.id, `${rule.detail} in a file path`, fixture);
     }
   }
   // A file whose NAME says it holds credentials is a finding even when its
@@ -275,8 +224,9 @@ function scanPath(path, fixture) {
     report(normalized, 0, "forbidden-file", "secret file", false);
     return;
   }
-  if (DATABASE_STATE[0].test(normalized)) {
-    report(normalized, 0, "forbidden-file", DATABASE_STATE[1], false);
+  const name = normalized.slice(normalized.lastIndexOf("/") + 1);
+  for (const signal of publicationPrivacyFindings(name, "file-name")) {
+    report(normalized, 0, "forbidden-file", signal.description, false);
   }
 }
 

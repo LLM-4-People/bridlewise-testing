@@ -80,7 +80,10 @@ export const FORGE_APPS: Readonly<Record<ForgeAppRole, ForgeAppDeclaration>> = d
     name: "bridlewise-door",
     description: "Bridlewise door: judges every land and posts the one required check, bridlewise/door. Its key exists only in the `door` environment.",
     owner: "engine/src/workflow/gates/ (the judge)",
-    permissions: { checks: "write", statuses: "write", pull_requests: "read", contents: "read", actions: "read", attestations: "write", metadata: "read" },
+    // github-only §4.1 amendment (2026-10-21, issue #71), one line each:
+    // actions: write — the door cancels a destroyed merge group's runs and dispatches the "Re-run cold" run (§5.3);
+    // secret_scanning_alerts: read — the tree judge refuses a PR with any open or bypassed alert on its commits (§3.1, V-4).
+    permissions: { checks: "write", statuses: "write", pull_requests: "read", contents: "read", actions: "write", attestations: "write", secret_scanning_alerts: "read", metadata: "read" },
     custody: { kind: "environment", environment: "door", keySecret: "DOOR_APP_KEY", clientIdVariable: "DOOR_APP_CLIENT_ID" },
     installedOn: ["trunk", "notes", "evidence", "meta"],
   },
