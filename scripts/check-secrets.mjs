@@ -60,6 +60,10 @@ import { createInterface } from "node:readline";
 // the import is the point, not a convenience.
 import { isSecretFile } from "../engine/src/privacy/secret-files.ts";
 import { publicationPrivacyFindings, treeScannedSignals } from "../engine/src/privacy/secret-signals.ts";
+// The licence boundary over the tree (no GPL-licensed bytes committed): the
+// same walk asks it about every line, and its reviewed allowlist is the only
+// admission.
+import { gplMarkers, REVIEWED_GPL_TEXT, staleReviewedEntries } from "../engine/scripts/verification/licence-boundary.ts";
 
 const ROOT = resolve(process.cwd());
 // At or below this size a file is read in one pass. Above it, it is streamed
@@ -187,8 +191,16 @@ function scanJsonDocument(path, text, fixture) {
   }
 }
 
+/** Paths whose text carried a GPL-licence marker (for the allowlist's staleness check). */
+const gplCarriers = new Set();
+
 /** Run the path rules and the content rules over one line of text. */
 function scanText(path, lineNumber, line, fixture) {
+  for (const marker of gplMarkers(line)) {
+    gplCarriers.add(path);
+    // Never a fixture exemption: a test tree may not carry GPL text either.
+    if (!REVIEWED_GPL_TEXT.has(path)) report(path, lineNumber, "gpl-licence-text", `GPL-licensed text (${marker.marker}: ${marker.text}); this AGPL tree carries no GPL bytes — fetch it for testing (the corpus) or add a reviewed entry to engine/scripts/verification/licence-boundary.ts`, false);
+  }
   const normalizedLine = normalizePathText(line);
   for (const signal of publicationPrivacyFindings(normalizedLine, "text")) {
     report(path, lineNumber, signal.id, signal.description, fixture);
@@ -337,6 +349,10 @@ for (const path of trackedFiles()) {
   } else {
     report(normalized, 0, "unreadable-file", "not a regular file; it is not certified clean", false);
   }
+}
+
+for (const path of staleReviewedEntries(gplCarriers)) {
+  report(path, 0, "gpl-allowlist-stale", "a reviewed GPL-text entry whose file carries no GPL-licence text: remove the entry", false);
 }
 
 if (findings.length === 0) {

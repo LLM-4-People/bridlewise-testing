@@ -92,6 +92,7 @@ The folder lives at `engine/scripts/verification/`.
 - `guardian-spec-artifact.ts` is consumed by nothing yet.
 - `hermetic-skips.ts` is consumed by nothing yet.
 - `lesson-trailers.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/post-commit.ts`.
+- `licence-boundary.ts` is consumed by nothing yet.
 - `measurement-contract.ts` is consumed by nothing yet.
 - `official-fragment-manifest.ts` is consumed by `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/verification/slice-traces.ts`, `engine/scripts/verification/slice-projection-inputs.ts`.
 - `pattern-liveness.ts` is consumed by `engine/scripts/verification/test-surface.ts`, `engine/scripts/verification/tsconfig-include-liveness.ts`.

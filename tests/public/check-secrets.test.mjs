@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
 const { readRunCpu } = await import("../../engine/src/shared/run-cpu.ts");
+const { REVIEWED_GPL_TEXT, staleReviewedEntries } = await import("../../engine/scripts/verification/licence-boundary.ts");
 const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, createPrivacyMatcher, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
@@ -574,4 +575,49 @@ test("a large JSON document costs the scanner about what its raw lines do: no pe
   const asText = childCpu({ "data/values.txt": `#${text}` });
   const asJson = childCpu({ "data/values.json": text });
   assert.ok(asJson <= 2.5 * asText, `the JSON scan used ${String(asJson)} ms CPU against ${String(asText)} ms for the same bytes as text`);
+});
+
+// ── THE LICENCE BOUNDARY: no GPL-licensed bytes in the tree ────────────────
+// The GPL spellings are assembled at runtime, so this file carries none.
+const GPL_SPDX = "SPDX-License-" + "Identifier: GPL-2.0-only";
+const LGPL_TITLE = "GNU LESSER GENERAL " + "PUBLIC LICENSE";
+const GPL_NOTICE = " * it under the terms of the GNU General " + "Public License as published by\n * the Free Software Foundation.";
+
+test("GPL-licensed text is refused in every tree, by its SPDX id, licence title or notice", () => {
+  const dir = repoWith({
+    "engine/test/fixtures/vendored.c": `/* ${GPL_SPDX} */\nint main(void) { return 0; }\n`,
+    "docs/notices/lgpl.txt": `${LGPL_TITLE}\n`,
+    "src/lib/notice.ts": `/*\n${GPL_NOTICE}\n */\nexport {};\n`,
+  });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /engine\/test\/fixtures\/vendored\.c:1: gpl-licence-text: GPL-licensed text \(spdx: GPL-2\.0-only\)/u, "a test tree is not exempt");
+    assert.match(result.stderr, /docs\/notices\/lgpl\.txt:1: gpl-licence-text: GPL-licensed text \(title: /u);
+    assert.match(result.stderr, /src\/lib\/notice\.ts:2: gpl-licence-text: GPL-licensed text \(notice: /u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the project's own AGPL text and prose naming a GPL licence pass", () => {
+  const dir = repoWith({
+    "LICENSE": "                    GNU AFFERO GENERAL " + "PUBLIC LICENSE\n under the terms of the GNU Affero General Public License as published by\n",
+    "src/own.ts": "// SPDX-License-" + "Identifier: AGPL-3.0-only\nexport {};\n",
+    "docs/corpus.md": "git's path.c is GPL-2.0-only, fetched for testing and never vendored.\n",
+    "data/manifest.json": "{ \"spdx\": \"GPL-2.0-only\" }\n",
+  });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the reviewed GPL-text allowlist is explicit, and an entry with no GPL text is stale", () => {
+  assert.equal(REVIEWED_GPL_TEXT.size, 0, "the tree carries no reviewed GPL text; an entry needs a reason and a review");
+  const reviewed = new Map([["vendor/a.c", "reviewed: a reason"], ["vendor/b.c", "reviewed: another"]]);
+  assert.deepEqual(staleReviewedEntries(new Set(["vendor/a.c"]), reviewed), ["vendor/b.c"]);
+  assert.deepEqual(staleReviewedEntries(new Set(["vendor/a.c", "vendor/b.c"]), reviewed), []);
 });
