@@ -1511,22 +1511,30 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     // WHOLE retained ledger, and a red suspect stays red until it is explained
     // or owned by a burn-down entry — nothing ages out of a window, design
     // NH-E; src/workflow/flaky-burn-down.ts `judgeFlakyMemory`.)
-    // THE HOST'S ONE INSTRUMENT LOCK (src/process/instrument-lock.ts): the
-    // lock file, relative to the host user's cache folder (`.cache` under the
-    // password database's home: $HOME and $XDG_CACHE_HOME never move it; never
-    // in a checkout, never in the keep-out floor), and what a
-    // heavy run is — this many test files or more; fewer is a light, targeted
-    // run that takes nothing — and which WHOLE INSTRUMENTS are heavy by kind,
-    // whatever files they name (a browser run, the coverage run, the profile,
-    // a slot run, a reproduction: one definition of heavy). REQUIRED:
-    // a heavy run with no declared lock does not start. Every instrument door
-    // takes it; a second one waits.
+    // HEAVY-RUN ADMISSION (src/process/instrument-lock.ts): the run
+    // registry's place, beside this path relative to the host user's cache
+    // folder (`.cache` under the password database's home: $HOME and
+    // $XDG_CACHE_HOME never move it; never in a checkout, never in the
+    // keep-out floor), and what a heavy run is — this many test files or
+    // more; fewer is a light, targeted run that records nothing — and which
+    // WHOLE INSTRUMENTS are heavy by kind, whatever files they name (a browser
+    // run, the coverage run, the profile, a slot run, a reproduction: one
+    // definition of heavy). REQUIRED: a heavy run with no declaration does
+    // not start. Every heavy run is admitted AT ONCE under its caps; none
+    // waits for another (NO-LOAD-BLOCK).
     instrumentLock: z.strictObject({
       cacheRelativeLockPath: z.string().min(1),
       minimumTestFiles: z.number().int().min(2),
       wholeInstruments: z.array(z.enum(WHOLE_INSTRUMENT_KINDS)).min(1).refine((kinds) => new Set(kinds).size === kinds.length, "each instrument once"),
-      // How often a waiting run looks at the lock again.
-      pollIntervalMs: z.number().int().min(10).max(60_000),
+      // Each admitted run's caps (NO-LOAD-BLOCK: runs proceed concurrently,
+      // never waiting for each other): every supervisor a run starts goes
+      // into a cgroup v2 scope of its own with this memory ceiling (a share
+      // of the host's memory) and CPU weight (1-10000; 100 is the default
+      // share). A host that cannot make the scope refuses the run.
+      perRun: z.strictObject({
+        memoryMaxPercent: z.number().int().min(1).max(100),
+        cpuWeight: z.number().int().min(1).max(10_000),
+      }),
     }),
     // THE FLAKY-CAUSE REPRODUCTION DOOR (`harness flake reproduce`,
     // src/workflow/flake-cli.ts; the FLAKE-REPRO decision). A cause that needs
@@ -1581,7 +1589,7 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // that merely FAILED (any other non-zero exit) is never retried.
   // (`typecheckTimeoutMs`, the typecheck's 120 s WALL limit, is gone: a
   // typecheck is bounded by its CPU work and one hang backstop like every
-  // harness subprocess, src/workflow/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
+  // harness subprocess, src/process/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
   const harnessConfigSchema = z.strictObject({
     commandErroredRetries: z.number().int().min(0).max(10).optional(),
     commandRetryBackoffMs: z.number().int().min(0).max(3_600_000).optional(),

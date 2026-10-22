@@ -14,24 +14,16 @@
  * - one very large WALL backstop, the only wall bound left: a run still going
  *   at it is HUNG, never slow.
  *
+
+ * The harness's values are `SUBPROCESS_BOUNDS` (src/workflow/workflow-config.ts);
+ * this module is the mechanism, so the process layer (the supervised door's
+ * per-run caps) and the workflow layer share it.
+ *
  * {@link boundedEnding} says how a run that left no answer ended: its exit
  * status, the signal, and which bound fired. Never just "failed".
  */
-import {
-  SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS,
-  SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS,
-  SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS,
-} from "./workflow-config.ts";
-
 /** How a subprocess is bounded: its CPU per process, and the one hang backstop. */
 export type SubprocessBounds = Readonly<{ cpuLimitSeconds: number; cpuKillGraceSeconds: number; hangBackstopMs: number }>;
-
-/** The harness's bounds (workflow-config.ts); a test hands smaller ones to drive each bound. */
-export const SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
-  cpuLimitSeconds: SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS,
-  cpuKillGraceSeconds: SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS,
-  hangBackstopMs: SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS,
-});
 
 /**
  * `command args…` under the CPU limit: the soft limit first (it may not
@@ -40,11 +32,14 @@ export const SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
  * shell exits non-zero before the command starts), never a run unbounded.
  */
 export function cpuLimitedInvocation(command: string, args: readonly string[], bounds: SubprocessBounds): Readonly<{ command: string; args: readonly string[] }> {
-  return {
-    command: "/bin/sh",
-    args: ["-c", 'ulimit -S -t "$1" && ulimit -H -t "$2" && shift 2 && exec "$@"', "sh",
-      String(bounds.cpuLimitSeconds), String(bounds.cpuLimitSeconds + bounds.cpuKillGraceSeconds), command, ...args],
-  };
+  const [shell, ...prefix] = cpuLimitPrefix(bounds);
+  return { command: shell!, args: [...prefix, command, ...args] };
+}
+
+/** The argv that runs whatever follows it under `bounds`' CPU limit (the shell, its script, the soft and hard limits). */
+export function cpuLimitPrefix(bounds: SubprocessBounds): readonly string[] {
+  return ["/bin/sh", "-c", 'ulimit -S -t "$1" && ulimit -H -t "$2" && shift 2 && exec "$@"', "sh",
+    String(bounds.cpuLimitSeconds), String(bounds.cpuLimitSeconds + bounds.cpuKillGraceSeconds)];
 }
 
 /** How a bounded run ended, in words: its status, the signal, and which bound fired. */

@@ -731,7 +731,7 @@ test("DRIVEN: a compile leg still running at its hang backstop is KILLED and REF
   const to = source.indexOf(BOUNDED_LEG_END);
   assert.ok(from !== -1 && to > from, "the guard carries the bounded typecheck leg block this test drives");
   // The door bounds both legs with the harness's one subprocess bound (CPU
-  // work + one hang backstop, src/workflow/subprocess-bounds.ts) and refuses
+  // work + one hang backstop, src/process/subprocess-bounds.ts) and refuses
   // the killed outcome by name — not merely print its output.
   assert.match(source, /runTypecheckLeg\(stagedTree, "web", SUBPROCESS_BOUNDS\)/u);
   assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", SUBPROCESS_BOUNDS\)/u);
@@ -747,7 +747,7 @@ test("DRIVEN: a compile leg still running at its hang backstop is KILLED and REF
   const block = source.slice(from + BOUNDED_LEG_START.length, to);
   const leg = join(root, "typecheck-leg.ts");
   const processFacts = pathToFileURL(join(INTEGRATION_ROOT, "src/process/process-facts.ts")).href;
-  const subprocessBounds = pathToFileURL(join(INTEGRATION_ROOT, "src/workflow/subprocess-bounds.ts")).href;
+  const subprocessBounds = pathToFileURL(join(INTEGRATION_ROOT, "src/process/subprocess-bounds.ts")).href;
   writeFileSync(leg, `import { spawn } from "node:child_process";\nimport { ownedChild, terminate } from ${JSON.stringify(processFacts)};\nimport { boundedEnding, cpuLimitedInvocation, type SubprocessBounds } from ${JSON.stringify(subprocessBounds)};\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
   const tree = join(root, "tree");
   writeFile(root, "tree/package.json", `${JSON.stringify({ name: "bounded-leg-fixture", private: true, scripts: { typecheck: 'node -e "setTimeout(() => {}, 60000)"' } })}\n`);

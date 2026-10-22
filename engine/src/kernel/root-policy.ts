@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "9544a20e0d3a5d4e08884bb4d5a24d078f76e0d120ce0934a5bdc462105e0fd4",
+      sourceSha256: "34b5a1100afecad800fdb7f4f9a9b9ded798de26fee61931504216ecb51b57ea",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),

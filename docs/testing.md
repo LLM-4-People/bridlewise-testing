@@ -126,8 +126,9 @@ performance-regression gate (`tests/performance/regression.test.ts`) judges. A p
 measurement, not a smoke test, so the conditions under which it is taken are part of the
 result:
 
-- **One profile at a time.** The step takes the host's one instrument lock. A second run
-  waits, and a run that did not hold the lock records no measurement.
+- **Admitted, never queued.** The step is admitted at once as a heavy run under its per-run
+  caps (a cgroup scope and a CPU-time limit); it never waits for another run, and a run that
+  was not admitted records no measurement.
 - **The host is otherwise idle.** No other suite, build, container, or browser runs on the
   same cores. The budgets judge worker CPU time, so contention inflates the measurement
   rather than the budget.

@@ -99,10 +99,10 @@ check` reports it stale): change a decision's file, never its row.
 | [D-W5](D-W5-mock-free-test-files-share-a-process.md) | Mock-free test files share a process | coordinator | pending (WEB-EFFICIENCY) |
 | [EVD-STORE](EVD-STORE-raw-evidence-in-a-content-addressed-store.md) | Code and small records in git; raw evidence in a content-addressed store | user | partial (EVIDENCE-DURABILITY) |
 | [FLAKE-REPRO](FLAKE-REPRO-a-flake-cause-needs-a-recorded-reproduction.md) | A flake cause needs a recorded reproduction | coordinator | partial (FLAKE-REPRO-REDECLARE), amended by NO-LOAD-BLOCK |
-| [INSTRUMENT-LOCK](INSTRUMENT-LOCK-the-host-has-one-instrument-lock.md) | The host has one instrument lock | coordinator | done, amended by NO-LOAD-BLOCK |
+| [INSTRUMENT-LOCK](INSTRUMENT-LOCK-the-host-has-one-instrument-lock.md) | The host has one instrument lock | coordinator | superseded by NO-LOAD-BLOCK, amended by NO-LOAD-BLOCK |
 | [KILL-OWNED-ONLY](KILL-OWNED-ONLY-signal-only-what-you-started.md) | Signal only what you started | coordinator | done |
 | [LIVE-SUITE](LIVE-SUITE-one-live-suite-no-hermetic-skips.md) | One live suite; the hermetic suites have no skips | coordinator | done |
-| [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md) | Nothing is ever blocked by CPU load | user | pending (TEST-10X) |
+| [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md) | Nothing is ever blocked by CPU load | user | partial (TEST-10X) |
 | [Q-TX1](Q-TX1-reuse-a-proven-deterministic-result.md) | A deterministic test file's result may be reused | user | pending (TEST-10X) |
 | [Q-TX2](Q-TX2-budgets-count-cpu-work.md) | Test budgets count CPU work, not wall time | user | partial (TEST-10X) |
 | [Q-TX4](Q-TX4-per-file-test-budgets.md) | Every test file has its own budget | user | pending (TEST-10X) |

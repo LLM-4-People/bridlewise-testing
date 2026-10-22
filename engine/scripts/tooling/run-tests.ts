@@ -18,7 +18,7 @@ import {
   type ExecutionOperation,
 } from "./test-execution.ts";
 import { computeTestResultReceiptDeterministicHash, testResultLedgerRows, type TestResultReceipt } from "./test-receipt.ts";
-import { asLockDoor, enforceTestRunLock } from "./test-run-lock.ts";
+import { enforceTestRunLock } from "./test-run-lock.ts";
 import { HarnessError, extractErrorMessage } from "../../src/kernel/errors.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
@@ -168,7 +168,7 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     // THE HOST'S ONE INSTRUMENT LOCK: the whole suite is heavy, so the door
     // waits here while another heavy run holds the lock (saying who), and the
     // run's measurement records that it held it (the handle's stamp).
-    const instrumentLock = await enforceTestRunLock("engine npm test", { testFileCount: inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
+    const instrumentLock = enforceTestRunLock("engine npm test", { testFileCount: inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
     releaseInstrumentLock = instrumentLock.release;
     // BEFORE THE RUN, AND AFTER THE SUB-CLI ABOVE: the corpora git cannot
     // report missing. See scripts/verification/required-fixture-roots.ts — an
@@ -992,7 +992,7 @@ if (isEntryPoint(import.meta.url)) {
   const tree = readMeasuredTree(root);
   let execution: CompletedExecution | undefined;
   let result: TestCommandResult | undefined;
-  await asLockDoor(async () => { result = await runCli(invocationId, (observed) => { execution = observed; }); });
+  result = await runCli(invocationId, (observed) => { execution = observed; });
   if (result === undefined) throw new Error("the engine runner answered nothing");
   process.exitCode = result.exitCode;
   process.stderr.write(`${sweepEndedRunTemporaries("run-tests")}\n`);

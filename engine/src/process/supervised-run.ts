@@ -34,7 +34,7 @@ import type { Readable } from "node:stream";
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { isProcessGroupAlive, ownedAnnouncement, terminate, type ProcessIdentity } from "./process-facts.ts";
-import { adoptIntoOwnedInstrumentLock } from "./instrument-lock-adoption.ts";
+import { adoptIntoOwnedInstrumentLock, ownedRunLaunchPrefix } from "./instrument-lock-adoption.ts";
 import { guarded } from "./fault-policy.ts";
 
 /** The signal a receipt's negative status names (`-15` → `SIGTERM`), or null for an exit status. */
@@ -203,7 +203,12 @@ export function superviseCommand(options: SupervisedCommandOptions): Promise<Sup
   // reached the supervisor, the forwarded stop would be its second, which
   // kills at once and skips the grace (wf-1b3a-correctness L3). If this
   // process dies instead, the supervisor's parent-death signal stops it.
-  const child: ChildProcess = spawn(options.supervisor, args, {
+  // Inside an admitted heavy run this process OWNS, the supervisor goes under
+  // the run's caps (its cgroup scope and CPU-time limit; the prefix `exec`s,
+  // so the pid is the supervisor's): src/process/instrument-lock.ts.
+  const prefix = ownedRunLaunchPrefix() ?? [];
+  const [launcher, ...launcherArgs] = [...prefix, options.supervisor, ...args];
+  const child: ChildProcess = spawn(launcher!, launcherArgs, {
     detached: true,
     stdio: ["ignore", "pipe", "pipe", "pipe", ...(passFd ? ["pipe" as const] : [])],
     ...(options.env === undefined ? {} : { env: options.env }),

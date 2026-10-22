@@ -56,7 +56,7 @@ import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, PRIVATE_STA
 import { flakeCauseContentKeys, judgeCauseChange, parseFlakeCause } from "../git/flake-cause-fixes.ts";
 import { gitOutput, type GitRepository } from "../git/tree-reader.ts";
 import { configuredGitRepository, configuredWorktreeGitPort } from "../git/worktree-port.ts";
-import { worktreeOperationTimeouts } from "./workflow-config.ts";
+import { SUBPROCESS_BOUNDS, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { resolveRepositoryRegistry, workspaceRootOf } from "./repository-registry.ts";
 import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
@@ -512,9 +512,9 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
   const preloadFile = request.preload === null ? null : join(top, request.preload);
   const preloadSha256 = preloadFile === null ? null : sha256(readFileSync(preloadFile));
   // A whole instrument (it runs suites at two revisions), heavy by kind.
-  const lock = await holdInstrumentLock({
+  const lock = holdInstrumentLock({
     config: declaredLock, harnessRoot: ENGINE_ROOT, runner: `flake reproduce (${String(request.tests.length)} test(s))`,
-    testFileCount: wholeInstrumentTestFileCount(declaredLock, "flake-reproduction"), onWait: (line) => process.stderr.write(`${line}\n`),
+    testFileCount: wholeInstrumentTestFileCount(declaredLock, "flake-reproduction"), cpu: SUBPROCESS_BOUNDS,
   });
   const supervisor = testProcessSupervisorBinary();
   const commandRunner = configuredCheckoutCommandRunner(snapshot.document, isolation, supervisor,

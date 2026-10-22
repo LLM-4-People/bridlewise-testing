@@ -43,7 +43,7 @@ import { testProcessSupervisorBinary } from "../../guardian/build.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
-import { asLockDoor, enforceTestRunLock, testFileCountOfArgs, type TestRunLock } from "./test-run-lock.ts";
+import { enforceTestRunLock, testFileCountOfArgs, type TestRunLock } from "./test-run-lock.ts";
 import { armTestKeyHome } from "../../test/support/test-key-home.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 
@@ -68,7 +68,7 @@ export async function main(): Promise<void> {
   // THE ONE INSTRUMENT LOCK: a run of the configured number of test files or
   // more (the guards: a few hundred) waits for it, saying who holds it; a
   // targeted run of fewer takes nothing.
-  const lock: TestRunLock = await enforceTestRunLock(runner, { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
+  const lock: TestRunLock = enforceTestRunLock(runner, { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
   armTestKeyHome();
   // UNDER THE NATIVE SUPERVISOR (adopted into the lock this door holds): a
   // door killed outright leaves its `node --test` stopped with every process
@@ -95,5 +95,5 @@ export async function main(): Promise<void> {
 
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  await asLockDoor(main);
+  await main();
 }
