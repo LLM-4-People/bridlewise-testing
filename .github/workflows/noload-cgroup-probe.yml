@@ -1,0 +1,57 @@
+# DIAGNOSTIC ONLY (lane noload, never to be merged): does a hosted
+# ubuntu-24.04 runner offer a per-run cgroup v2 scope (memory cap + CPU
+# weight) to the runner user? Answers #355 ruling (1).
+name: noload cgroup probe
+on:
+  pull_request:
+    paths: [".github/workflows/noload-cgroup-probe.yml"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Host facts
+        run: |
+          set -x
+          id; nproc; free -m
+          stat -fc %T /sys/fs/cgroup
+          cat /sys/fs/cgroup/cgroup.controllers
+          cat /proc/self/cgroup
+          systemctl --version | head -1
+          systemctl is-system-running || true
+          loginctl list-users || true
+          echo "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-unset}"
+      - name: A — user manager scope (no sudo)
+        continue-on-error: true
+        run: |
+          set -x
+          systemd-run --user --scope -q -p MemoryMax=64M -p CPUWeight=50 sh -c 'cat /proc/self/cgroup; cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.max'
+      - name: B — enable lingering, then the user manager scope
+        continue-on-error: true
+        run: |
+          set -x
+          sudo loginctl enable-linger "$(id -un)"
+          sleep 2
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          ls -la "$XDG_RUNTIME_DIR" || true
+          systemctl --user is-system-running || true
+          systemd-run --user --scope -q -p MemoryMax=64M -p CPUWeight=50 sh -c 'cat /proc/self/cgroup; cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.max; cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/cpu.weight'
+      - name: C — system scope through sudo, running as the runner user
+        continue-on-error: true
+        run: |
+          set -x
+          sudo systemd-run --scope -q --uid="$(id -u)" --gid="$(id -g)" --setenv=HOME="$HOME" -p MemoryMax=64M -p CPUWeight=50 \
+            sh -c 'id; cat /proc/self/cgroup; cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.max; cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/cpu.weight; pwd'
+      - name: D — the memory cap is enforced (an allocation past it is OOM-killed)
+        continue-on-error: true
+        run: |
+          set -x
+          sudo systemd-run --scope -q --uid="$(id -u)" --gid="$(id -g)" -p MemoryMax=64M -p MemorySwapMax=0 \
+            node -e 'const a=[];for(let i=0;i<64;i++)a.push(Buffer.alloc(8*1024*1024,1));console.log("allocated 512 MiB: NOT capped")'; echo "exit=$?"
+      - name: E — two scopes at once (concurrent admission) and the caller's env
+        continue-on-error: true
+        run: |
+          set -x
+          for i in 1 2; do sudo systemd-run --scope -q --uid="$(id -u)" --gid="$(id -g)" --setenv=PROBE=$i -p MemoryMax=256M -p CPUWeight=100 sh -c 'echo "scope $PROBE $(cut -d: -f3 /proc/self/cgroup)"; sleep 2' & done; wait
