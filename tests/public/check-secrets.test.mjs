@@ -381,6 +381,21 @@ test("each publication-privacy row is reported by its id; database state by file
   // A NAME row never spells its name (this repository is public), so it
   // cannot be planted here; the one matcher it runs through is driven with a
   // synthetic row below. The SHAPE rows are planted end to end.
+  // THE EXACT SET of privacy rows, ids and pins: removing a row, or changing
+  // a name row's digest, reds here (the per-kind checks below iterate whatever
+  // rows exist, so they cannot see one disappear).
+  assert.deepEqual(PUBLICATION_PRIVACY_SIGNALS.map((signal) => signal.id).sort(),
+    ["database-state", "home-path", "internal-git-host", "internal-provider-host", "internal-scratch-path", "local-evidence-state"]);
+  const NAME_ROWS = {
+    "internal-git-host": { names: "dotted", digests: [{ length: 18, sha256: "64228b8af389331cee6e7dba27c81450a7181c1f719e7a133e37128c6a4309e5" }] },
+    "internal-provider-host": { names: "dotted", digests: [{ length: 18, sha256: "c565b621df0b9302f8b7e6881dd58353a803981a9fe69ef0542009f1ad9c76d1" }] },
+    "internal-scratch-path": { names: "scratch-path", digests: [{ length: 13, sha256: "736a4cae0826a534c3de9b47542cbe9dd50ec8b8714e1d42aa45f4afc0799c0d" }] },
+    "local-evidence-state": { names: "dotted", digests: [{ length: 27, sha256: "3bcb2fbbb43fef9d40e18b6e1858d5ca761166d8710552ae03d89b3ae9e6de8b" }] },
+  };
+  assert.deepEqual(
+    Object.fromEntries(PUBLICATION_PRIVACY_SIGNALS.filter((row) => !("pattern" in row)).map((row) => [row.id, { names: row.names, digests: row.digests }])),
+    NAME_ROWS,
+  );
   const shapeRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => "pattern" in signal).map((signal) => signal.id);
   assert.deepEqual([...shapeRows].sort(), ["database-state", "home-path"],
     "a new pattern row must not spell a protected name: give it `names` and `digests` instead");
