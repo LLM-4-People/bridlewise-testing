@@ -302,6 +302,8 @@ export function fontFindings(path: string, text: string, declared: ReadonlySet<s
     if (/\bdocument\s*\.\s*fonts\s*\.\s*add\s*\(/u.test(bare)) findings.push(`${where}: document.fonts.add (a runtime font source)`);
     if (/\bWebFont\s*\.\s*load\s*\(/u.test(bare)) findings.push(`${where}: WebFont.load (a font loader)`);
     if (/\.\s*fontFamily\s*=(?!=)/u.test(bare)) findings.push(`${where}: sets style.fontFamily (a family named outside the owner)`);
+    // A canvas names its family in `ctx.font` (and a style in `style.font`): a family outside the owner either way.
+    if (/\.\s*font\s*=(?!=)/u.test(bare)) findings.push(`${where}: sets .font (a canvas or style font names a family outside the owner)`);
     for (const str of strings) {
       if (/^(?:@fontsource(?:-variable)?\/|typeface-|webfontloader$|@ibm\/plex)/u.test(str)) findings.push(`${where}: imports the font package ${str}`);
       else if (isRemote(str) && (FONT_FILE.test(str) || STYLESHEET_FILE.test(str))) findings.push(`${where}: names the remote ${str}`);
@@ -526,6 +528,9 @@ describe("fonts: one declaration, pinned files, no other source", () => {
     expect(fontFindings("src/c.svelte", '<p style="font-family: Inter">x</p>', declared)).toHaveLength(1);
     expect(fontFindings("src/c.svelte", '<p style:font-family="Inter">x</p>', declared)).toHaveLength(1);
     expect(fontFindings("src/d.ts", 'node.style.fontFamily = "Inter";', declared)).toHaveLength(1);
+    expect(fontFindings("src/d.ts", 'ctx.font = "12px Georgia";', declared), "a canvas font").toHaveLength(1);
+    expect(fontFindings("src/d.ts", "node.style.font = `600 1rem ${family}`;", declared), "a style shorthand set from script").toHaveLength(1);
+    expect(fontFindings("src/d.ts", "if (ctx.font === previous) redraw();", declared), "a comparison is not an assignment").toEqual([]);
     expect(fontFindings("src/d.ts", 'const css = ".x { font-family: Inter; }";', declared)).toHaveLength(1);
     // Near-misses: every reading of the token, a CSS-wide keyword, and a font shorthand ending in the token.
     expect(fontFindings("src/b.css", ".a { font-family: var(--face-mono); } .b { font: var(--f-ui-size) var(--face-sans); } .c { font-family: inherit; }", declared)).toEqual([]);
