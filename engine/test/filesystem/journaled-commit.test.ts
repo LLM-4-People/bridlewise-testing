@@ -52,6 +52,22 @@ test("the files land together, with their exact modes, and nothing is left behin
   assert.deepEqual(names(root), ["a.txt", "sub/b.txt"], "no staged copy or journal survives");
 });
 
+test("the verify judges the tree as committed: no backup sits beside a target, the base is kept beside the journal (#148)", () => {
+  const { root, journal } = fixture();
+  let seen: readonly string[] = [];
+  let besideJournal: readonly string[] = [];
+  assert.throws(() => commitJournaled(root, JOURNAL, FILES, { verify: () => {
+    seen = names(root).filter((name) => !name.startsWith(".bridlewise/"));
+    besideJournal = readdirSync(join(journal, "..")).filter((name) => name.endsWith(".previous"));
+    throw new Error("check failed");
+  } }), /check failed/u);
+  // A `.a.txt.<id>.previous` beside its target was in the tree a verifier
+  // walks (the copy-back's harness check read it as a new governed artifact).
+  assert.deepEqual(seen, ["a.txt", "sub/b.txt"], "the verifier saw a staged copy in the tree");
+  assert.equal(besideJournal.length, 1, "the existing file's base is not kept beside the journal");
+  assert.equal(readFileSync(join(root, "a.txt"), "utf8"), "base a\n", "the rollback restored from the moved backup");
+});
+
 test("a failing verify rolls every file back — the created one removed — and rethrows", () => {
   const { root, journal, existing, created } = fixture();
   assert.throws(() => commitJournaled(root, JOURNAL, FILES, { verify: () => { throw new Error("check failed"); } }), /check failed/u);

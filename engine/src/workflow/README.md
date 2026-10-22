@@ -10,12 +10,14 @@ Run these commands from the engine package root of the development checkout.
 
 ```bash
 node src/cli.ts harness workspace create --agent <name> --write-set <path…> [--target <branch>] [--base <ref>]
+node src/cli.ts harness workspace create --agent <name> --write-set <path…> --stack-on <id>
 node src/cli.ts harness workspace create --agent <name> --overlay [--write-set <path…>]
 node src/cli.ts harness workspace create --agent <name> --read-only [--base <ref>]
 node src/cli.ts harness workspace extend <id> --write-set <path…>
 node src/cli.ts harness workspace validate <id> [--full]
 node src/cli.ts harness workspace publish <id>
 node src/cli.ts harness workspace ready <id>
+node src/cli.ts harness workspace land <id>
 node src/cli.ts harness workspace merge <id>
 node src/cli.ts harness workspace recover <id>
 node src/cli.ts harness workspace abort <id> [--quarantine]
@@ -24,10 +26,11 @@ node src/cli.ts harness workspace list | status <id> | sweep
 ```
 
 Every command prints one JSON result (`{"result":{…}}`: the record, the
-validation report, the merge receipt) and its progress on stderr. The flow is
-stated once, in `workspace-manager.ts`'s header; the refusals and the land are
-in
-[MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land).
+validation report, the merge or land receipt) and its progress on stderr. The
+flow is stated once, in `workspace-manager.ts`'s header; the refusals and the
+land are in
+[MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land)
+and [§1c](../../../docs/process/MERGE-GUIDE.md#1c-feature--main-on-the-forge-ws-land).
 
 - **The forge** (`workspace-forge.ts`): a feature workspace lands through a
   pull request against its target's UPSTREAM (`branch.<target>.remote` and
@@ -41,22 +44,27 @@ in
   twins (the same tree); the first round opens the DRAFT pull request, every
   round regenerates its body, and a round that publishes a new head returns a
   ready pull request to draft. `ready` takes it out of draft once its
-  published tree passed `validate`. The forge client is this lane's GitHub
-  implementation of the port, on the forge client of
-  `engine/src/workflow/forge/`; until the CLI is given one, both refuse
-  `workspace_forge_unavailable`.
+  published tree passed `validate`. `land` puts the published, ready head in
+  the forge's MERGE QUEUE with that head as the expected one, waits, and
+  follows and receipts only a merge of exactly that head (MERGE-GUIDE §1c).
+  The port's GitHub implementation is `workspace-forge-github.ts`: typed
+  operations on the forge client of `engine/src/workflow/forge/`, as the
+  `agent` App, for the configured trunk repository only (the CLI's factory
+  refuses any other remote, `workspace_forge_remote_unknown`).
+- **Stacks** (`create --stack-on <id>`, MERGE-GUIDE §1d): an ordered chain
+  of workspaces, each landed through the same `ws land`. A child starts at
+  its parent's published head and is judged from it while the parent is
+  open. Its pull request targets the trunk, never the parent's branch,
+  which the forge deletes on merge. It lands only after its parent
+  (`workspace_stack_parent_unlanded`).
 - **Records** use PER-VERSION STORAGE (`workspace-registry.ts`): this code
-  writes only the current store (`workspaces-v3/`); the store before the
-  forge (`workspaces/`, v2), which older code still uses, is read and migrated
-  IN MEMORY (`migrateWorkspaceRecord`) and never written. A v2-only workspace
-  is READ-ONLY to this code until the recorded P7 cutover: every saving or
-  destructive verb (and the store's save) refuses it
-  (`workspace_owned_by_v2_checkout`, naming its record and worktree) before
-  touching anything, no v3 twin is ever made of it, and `sweep` never ends
-  it. `sweep` reports a live record whose worktree is gone (`orphaned`),
-  leaving it to its owner.
+  writes only the current store (`workspaces-v5/`) and reads the older ones
+  through the one in-memory chain (`migrateWorkspaceRecord`), under the rule of
+  [WS-RECORDS](../../../docs/decisions/WS-RECORDS-older-workspace-records-are-read-only.md).
+  `sweep` reports a live record whose worktree is gone (`orphaned`), leaving it
+  to its owner.
 - **Registry**: `<git common dir>/bridlewise/` (`repository-registry.ts`, the one derivation; the records in `workspace-registry.ts`):
-  `workspaces/<id>.json`, `locks/` (the admission and merge locks),
+  `workspaces-v5/<id>.json` (and the older stores), `locks/` (the admission and merge locks),
   `timeline/` (the shards and the integrator's ledger) — one per repository,
   the same from every worktree. The `workspaceGit.workspaces` signal reads it;
   the `workspaceGit.sweepWorkspaces` action sweeps it (and recovers a dead
@@ -65,8 +73,10 @@ in
 - **Configuration**: `workspaceIsolation` (`engine/bridlewise.config.json`):
   `workspaceRoot` (relative to the repository home), `branchNamespace`,
   `baseStalenessCommits`, `preserveOnFailure`, `quarantineTtlMs`,
-  `leaseTtlMs`, `admissionLock`, `mergeLock`, `landTargets` (the only
-  branches a workspace lands on; not writable over HTTP), `killGraceMs`,
+  `leaseTtlMs`, `admissionLock`, `mergeLock`, `landTargets` (the forge's
+  trunks a workspace lands on — its target's upstream, never a local branch
+  name; not writable over HTTP), `landing` (`pollIntervalMs`, `timeoutMs`:
+  the land's wait on the merge queue), `killGraceMs`,
   `links`, `commands` (`cwd`, `argv`, `timeoutMs`, setup `inputs`, gate
   `changed`, gate `ledger`: the suite (`engine`|`web`, its path owned by
   `suiteLedgerPaths`) whose run is judged against the target tip's clean
@@ -238,14 +248,15 @@ pull-request template and the issue and Discussion forms from them.
 - `test-result-collector.ts` — the test-result-collector module.
 - `timeline-shard.ts` — a workspace's timeline shard and its bounded import into the integrator's ledger.
 - `workflow-config.ts` — Workflow operational defaults — the single source of truth for all; also the readers `commandRetryPolicy` and `worktreeOperationTimeouts` (the git ceilings of a worktree's owner: the workspace CLI and the promotion).
-- `slot-cli.ts` — `harness slot run -- <command>`: the shell's door to heavy-run admission (src/process/instrument-lock.ts): the run is admitted at once under its per-run caps, and the command runs under the native supervisor, adopted into the run's record.
+- `slot-cli.ts` — `harness slot run -- <command>`: the shell's door to the host's one instrument lock (src/process/instrument-lock.ts); the command runs under the native supervisor, adopted into the hold.
 - `failure-owners.ts` — THE TRACKER'S ONE PARSER: the structured tracker items (`docs/trackers/items/<id>.md`, `bridlewise-tracker-item/v1`: `trackerItems`, `trackerItemViolations`, `readTrackerItems`, `trackerItemsOf` — a commit's items, through a tree reader), the one front-matter reader the lessons and decisions also use (`parseFrontMatter`, `entryViolations`, `readEntries`), the task board rendered from the items into `TASKS.md`'s generated block (`renderTrackerBoard`, `syncTrackerBoard`: `harness sync` writes it, `harness check`'s `tracker-board` step judges it and refuses a row typed outside the block), and the rows every failure-owner guard reads, only from inside the block (`boardRows`, `openBoardRows`, `ownersOf`).
 - `flaky-burn-down.ts` — THE FLAKY MEMORY'S SHRINK-ONLY BURN-DOWN LIST (UR-19): a red suspect passes the guard only as an entry owned by an open task row naming its test and the guard, added by the commit that added that row; a new suspect, a closed or mis-naming owner, or an entry added without its row fails; nothing ages out.
 - `flake-cli.ts` — `harness flake`: THE ONE DOOR that records what explains a flaky suspect (FLAKE-REPRO). `reproduce` refuses a fix that changed no declared cause's meaning, then runs the tests at the fix's parent and at the fix in a private worktree set up by `prepareCheckout`, inside the instrument lock, every run under one set of conditions (environment, setup, a command alongside, a preloaded shim, an order seed), once per side or N times (`--statistical`, the configured N), and records each test that failed on the parent and passed every run on the fix. `move` records a test's move to the live suite after reading the test inventories.
-- `workspace-cli.ts` — `harness workspace <subcommand>`: the composition root (the pinned git port, the supervised command runner, the registry's timeline).
-- `workspace-contracts.ts` — the closed, versioned records: the lease (feature, overlay, read-only), the validation report, the conflict report, the hashed merge receipt; the state machine; the derived never-leasable set.
-- `workspace-manager.ts` — the lifecycle and the integrator: land targets, admission, create (+ overlay, read-only), extend, validate (`--full`), the like-for-like ledger baseline, merge in the workspace, the land (fast-forward, compare-and-swap, overlay adoption), recover (a dead integrator), abort, sweep, snapshot.
-- `workspace-registry.ts` — the workspace records (the registry's `workspaces/` area) and their store; `workspaceRegistrySummary` for the signal.
+- `workspace-cli.ts` — `harness workspace <subcommand>`: the composition root (the pinned git port, the supervised command runner, the registry's timeline, the GitHub forge).
+- `workspace-forge-github.ts` — the workspace forge port's GitHub implementation on the forge client (the Git Data API, the compare-and-swap branch move, the pull request and its one GraphQL read, the merge-queue enqueue) and the CLI's factory, which refuses a remote that is not the configured trunk repository.
+- `workspace-contracts.ts` — the closed, versioned records: the lease (feature, overlay, read-only), the validation report, the conflict report, the hashed merge and land receipts, the forge state; the state machine; the one migration chain of older records; the derived never-leasable set.
+- `workspace-manager.ts` — the lifecycle and the integrator: land targets, admission, create (+ overlay, read-only), extend, validate (`--full`), the like-for-like ledger baseline, merge in the workspace, the land (fast-forward, compare-and-swap, overlay adoption), recover (a dead integrator), publish, ready, the forge land (`land`: the merge queue, the wait, the local follow), abort, sweep, snapshot.
+- `workspace-registry.ts` — the workspace records (the registry's current area and each older version's, read-only) and their store; `workspaceRegistrySummary` for the signal.
 - `repository-registry.ts` — THE REPOSITORY REGISTRY: one home per repository for the state every checkout shares, `<git common dir>/<product name>/` (`repositoryRegistry`, `resolveRepositoryRegistry` asked through the pinned port), and its areas (`workspaces/`, `locks/`, `timeline/`, `promotion/`: `repositoryRegistryArea`); `workspaceRootOf`, where the worktrees live (workspaces, a promotion's candidates and its promoter home). Runs no process.
 - `reachability.ts` — the reachability walk (moved from the testing floor's census; the census calls it): which files entry points (and `seeds`: modules shipped without an edge) reach through import, `require`, URL, glob (arrays, `{a,b}`, `**` at any depth), stylesheet, symbolic-link and declared spawn edges, read from tokens (`src/intelligence/js-tokenizer.ts`), batched by rounds; what it cannot follow is reported (unresolved, into an excluded path, missing entries, packages, and OPAQUE edges: a computed `import()`/`require()`/glob/spawn argument, a glob matching nothing); tsconfig path aliases; `reachabilityChain` for an explanation; `isWalkableModule`.
 - `checkout-setup.ts` — the ONE owner of what a private checkout runs: the checkout files (`links`, the config mode: `applyCheckoutFiles`, also the commit guard's), the ONE supervised command runner (`runCheckoutCommand`: `{changed}`, the ceiling; a failed step's class, `errored` — the environment ended it, or a line of its output REPORTS an environmental error (`ROOT_POLICY.workflow.commandRunner.environmentalErrorCodes`: npm's `code`/`errno` line, an uncaught `Error: <code>`) — or `failed`; an errored run retried by the runner's own policy with a doubling backoff; every attempt logged once), its ONE construction `configuredCheckoutCommandRunner` (the supervisor, the kill grace, the gate tail and `commandRetryPolicy(document)`: `harness.commandErroredRetries` / `commandRetryBackoffMs` — used by the workspace CLI, the candidate checkout and the promotion, so every phase, gate and lockfile derivation rides out an errored run alike), the dead-command rule (`unconsumedCommands`: run by no phase and no promotion profile; judged by `harness check`'s `dead-commands` step), fail-fast sequences of declared commands (`runDeclaredCommands`, the one sequencer: a workspace phase `runCheckoutPhase`, a promotion profile's phases), the setup (`prepareCheckout`) and its re-run on changed `inputs` (`rerunChangedSetup`, optionally narrowed: the promoter home runs the engine's own), and where a private checkout may live (`assertSameFilesystem`: the candidate checkout, the workspace root, a promotion's candidate and home); used by `harness workspace`, the candidate checkout and the promotion. It owns the ONE fixed-point loop (`convergeUntilStable`, its bound `convergeBound`, `NotConvergedError`, the convergence report) the candidate's settle and `harness sync` both run, and each step's evidence (argv, cwd, attempts, duration, the load it met).
@@ -280,10 +291,11 @@ The folder lives at `engine/src/workflow/`.
 - `test-result-collector.ts` is consumed by `engine/scripts/tooling/flake-reproduction-reporter.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-guards.ts`, `engine/scripts/tooling/test-receipt.ts`, `engine/scripts/tooling/test-run-lock.ts` and 6 more.
 - `timeline-shard.ts` is consumed by `engine/src/workflow/workspace-manager.ts`.
 - `tree-landing.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/workspace-manager.ts`.
-- `workflow-config.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-run-lock.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts` and 21 more.
+- `workflow-config.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-run-lock.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts` and 22 more.
 - `workspace-cli.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
 - `workspace-contracts.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`, `engine/src/workflow/workspace-registry.ts`.
-- `workspace-forge.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`.
+- `workspace-forge-github.ts` is consumed by `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/workspace-cli.ts`.
+- `workspace-forge.ts` is consumed by `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-forge-github.ts`, `engine/src/workflow/workspace-manager.ts`.
 - `workspace-manager.ts` is consumed by `engine/src/workflow/workspace-cli.ts`.
 - `workspace-registry.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/workspace-manager.ts`.
 

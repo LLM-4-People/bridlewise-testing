@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
+const { readRunCpu } = await import("../../engine/src/shared/run-cpu.ts");
 const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, createPrivacyMatcher, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
@@ -542,4 +543,35 @@ test("every required row is present, scanned over the tree, and projected to Git
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("a large JSON document costs the scanner about what its raw lines do: no per-value search of the whole text (#301)", () => {
+  // CPU WORK of the scanner child (procfs, the engine's one CPU reader), never
+  // wall time. The same document is scanned as valid JSON (raw lines plus the
+  // decoded-string pass, which any file that parses as JSON gets) and with one
+  // leading byte that stops it parsing (raw lines only); the decoded pass used
+  // to search the whole document once per string value (`lineOf`, which also
+  // split the prefix into lines), which made the JSON scan quadratic.
+  const values = Array.from({ length: 8_000 }, (_, index) => ({ id: `entry-${index}`, path: `docs/section-${index}/page.md`, note: `plain value ${index}` }));
+  const text = `${JSON.stringify(values, null, 1)}\n`;
+  const childCpu = (files) => {
+    const dir = repoWith(files);
+    try {
+      let best = Number.POSITIVE_INFINITY;
+      for (let round = 0; round < 2; round += 1) {
+        const before = readRunCpu();
+        const result = scan(dir);
+        const after = readRunCpu();
+        assert.equal(result.status, 0, result.stderr);
+        assert.ok(before !== null && after !== null, "this host cannot measure child CPU (no procfs)");
+        best = Math.min(best, after.childCpuMs - before.childCpuMs);
+      }
+      return best;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const asText = childCpu({ "data/values.txt": `#${text}` });
+  const asJson = childCpu({ "data/values.json": text });
+  assert.ok(asJson <= 2.5 * asText, `the JSON scan used ${String(asJson)} ms CPU against ${String(asText)} ms for the same bytes as text`);
 });

@@ -90,6 +90,7 @@ import { isMap, isScalar, isSeq, parseDocument, type Document } from "yaml";
 // The site builder is plain Node ESM with no declaration file; the test reads the values it exports.
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { BUILDER_OWNED_CONFIG_KEYS } from "../../scripts/floor/site-pages.mjs";
+import { networkInstalls } from "../helpers/network-install.ts";
 
 const ROOT = process.cwd();
 const REGISTRY_PATH = "tests/prevention/external-surface-registry.json";
@@ -1077,34 +1078,44 @@ function audit(tree: Tree): Finding[] {
     command.replace(/\\\s*$/u, "").trim().replace(/\s+/gu, " ").replace(/^sudo\s+/u, "");
   const declaredPackages = new Set<string>();
   const declaredInstalls = new Map<string, string>();
+  // A package the runner image ships is PROBED (`pinned.probe`), never
+  // installed: a network install only ever waited on a mirror (#333). Its
+  // call sites are the files that carry the probe, and an apt line that
+  // installs it anyway is refused as drift from its declaration.
+  const declaredProbes = new Map<string, string>();
   for (const surface of ofKind("system-package")) {
     const name = surface.pinned["package"];
     const install = surface.pinned["install"];
+    const probe = surface.pinned["probe"];
     if (typeof name === "string") {
       declaredPackages.add(name);
       if (typeof install === "string" && install.trim().length > 0) declaredInstalls.set(name, normalizeInstall(install));
-      else findings.push({ rule: "registry-schema", detail: `${surface.id} needs the install command it declares` });
+      else if (typeof probe === "string" && probe.trim().length > 0) declaredProbes.set(name, probe.trim());
+      else findings.push({ rule: "registry-schema", detail: `${surface.id} needs the install command or the probe it declares` });
     } else findings.push({ rule: "registry-schema", detail: `${surface.id} needs a package name` });
   }
   const actualPackageFiles = new Map<string, Set<string>>();
   for (const { path, text } of universeTexts) {
-    for (const match of text.matchAll(/apt-get\s+install\s+([^;&|\n]+)/g)) {
-      const captured = match[1] ?? "";
-      for (const rawToken of captured.split(/\s+/)) {
-        const token = rawToken.replace(/\\$/, "").replace(/^["']|["']$/g, "");
-        if (token.length === 0 || token.startsWith("-")) continue;
+    for (const install of networkInstalls(text).filter((entry) => entry.subcommand === "install" || entry.subcommand === "add")) {
+      const at = lineOf(text, install.manager);
+      for (const token of install.packages) {
         if (!declaredPackages.has(token)) {
           findings.push({
             rule: "system-package-undeclared",
-            detail: `${path}:${lineOf(text, match[0])} installs ${token}, which the registry does not declare`,
+            detail: `${path}:${at} installs ${token}, which the registry does not declare`,
           });
         } else {
-          const actualInstall = normalizeInstall(`apt-get install ${captured}`);
+          const actualInstall = normalizeInstall(install.command);
           const declared = declaredInstalls.get(token);
-          if (declared !== undefined && declared !== actualInstall) {
+          if (declaredProbes.has(token)) {
             findings.push({
               rule: "system-package-install-drift",
-              detail: `${path}:${lineOf(text, match[0])} installs with ${JSON.stringify(actualInstall)}, but ${token} declares ${JSON.stringify(declared)}`,
+              detail: `${path}:${at} installs ${token} from the network, but ${token} is declared probed from the runner image (${declaredProbes.get(token)!})`,
+            });
+          } else if (declared !== undefined && declared !== actualInstall) {
+            findings.push({
+              rule: "system-package-install-drift",
+              detail: `${path}:${at} installs with ${JSON.stringify(actualInstall)}, but ${token} declares ${JSON.stringify(declared)}`,
             });
           }
           const set = actualPackageFiles.get(token) ?? new Set<string>();
@@ -1112,6 +1123,14 @@ function audit(tree: Tree): Finding[] {
           actualPackageFiles.set(token, set);
         }
       }
+    }
+  }
+  for (const [name, probe] of declaredProbes) {
+    for (const { path, text } of universeTexts) {
+      if (!text.includes(probe)) continue;
+      const set = actualPackageFiles.get(name) ?? new Set<string>();
+      set.add(path);
+      actualPackageFiles.set(name, set);
     }
   }
   for (const surface of ofKind("system-package")) {
@@ -1281,11 +1300,22 @@ describe("external surfaces — plants fail for the defect they name", () => {
     expectRule(planted({ ".github/workflows/ci.yml": changed }), "node-range", "spells node-version");
   });
 
-  test("an apt install line that drifted from its declaration is refused", () => {
+  test("a network install of the probed compiler is refused, and so is a lost probe", () => {
     const original = LIVE.read(".github/workflows/ci.yml");
-    const changed = original.replace("sudo apt-get install -y gcc-14", "sudo apt-get install -y --no-install-recommends gcc-14");
-    expect(changed).not.toBe(original);
-    expectRule(planted({ ".github/workflows/ci.yml": changed }), "system-package-install-drift", "gcc-14");
+    for (const install of [
+      "sudo apt-get install -y gcc-14",
+      // Options before the subcommand, a continued line, a prefixed environment (review of #335).
+      "sudo apt-get -o Acquire::Retries=3 install -y gcc-14",
+      "sudo apt-get \\\n            install -y gcc-14",
+      "env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-14",
+    ]) {
+      const installed = original.replace("command -v gcc-14 >/dev/null ||", `${install} && command -v gcc-14 >/dev/null ||`);
+      expect(installed).not.toBe(original);
+      expectRule(planted({ ".github/workflows/ci.yml": installed }), "system-package-install-drift", "gcc-14");
+    }
+    const unprobed = original.replaceAll("command -v gcc-14", "which gcc-14");
+    expect(unprobed).not.toBe(original);
+    expectRule(planted({ ".github/workflows/ci.yml": unprobed }), "system-package-usedin-mismatch", "gcc-14");
   });
 
   test("a half-upgraded CodeQL release is refused", () => {

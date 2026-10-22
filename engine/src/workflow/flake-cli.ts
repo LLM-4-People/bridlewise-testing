@@ -437,7 +437,7 @@ export type CommitInventory = Readonly<{ hermetic: ReadonlySet<string>; liveFile
 
 /**
  * THE INVENTORY OF A COMMIT, computed (the inventory is a cache of the tree and
- * not committed, #221): the commit's text of `traceability/s1-test-inventory.json`
+ * not committed, #221): the commit's text of the test inventory (`VERIFICATION_PATHS.testInventory`)
  * as THAT commit's own generator writes it in a private checkout.
  */
 export type InventoryAt = (commit: string) => Promise<string>;
