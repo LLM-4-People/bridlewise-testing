@@ -4093,6 +4093,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/tracker-items.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/tree-landing.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4213,5 +4221,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "464c83832c6ec535dfeb414293ed2480d2487031537db75c38a82b9d8cfa68b1"
+  "integrityHash": "0ee342aa9e7186450106c414990bd4c3e08339b7d18b0d03c2ec010a03fb4bda"
 }
