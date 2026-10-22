@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import {
   harnessMetrics,
   harnessRollback,
   harnessExtensionList,
+  harnessSync,
   HARNESS_ROOT,
   HARNESS_SUBCOMMANDS,
   promotionsStep,
@@ -549,6 +551,63 @@ test("a typed refusal printed by a step that was then KILLED is reported as the 
       assert.notEqual((error as { code?: unknown }).code, "some_refusal");
       return true;
     });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A STEP THAT DID NOT FINISH HAS NO VERDICT (fail-closed). A `build-bundle
+// --check` that printed `{"fresh":true}` and then hung was killed, and the
+// fragment it had printed was read as its answer: `harness sync` reported
+// allPassed. A step ended by a signal or a bound, or with no payload, fails.
+// ---------------------------------------------------------------------------
+
+test("FAIL-CLOSED: a step that printed a PASS and was then killed, or ran past its CPU bound, is a failure naming how it ended; a step that answered nothing is one too", () => {
+  const killed = boundedFixture("pass-then-killed", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nprocess.kill(process.pid, "SIGTERM");\nsetTimeout(() => {}, 10_000);\n');
+  const spun = boundedFixture("pass-then-spun", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nfor (;;) {}\n');
+  const silent = boundedFixture("silent-zero", "process.exit(0);\n");
+  try {
+    assert.throws(() => runScriptSubprocess(killed.dir, killed.script, []), (error: unknown) => {
+      assert.match((error as Error).message, /ended without a status payload: it was ended by signal SIGTERM \(the \d+ characters it printed on stdout before it ended are not a verdict\)/u);
+      assert.equal((error as { code?: unknown }).code, "script_subprocess_unfinished");
+      return true;
+    });
+    assert.throws(() => runScriptSubprocess(spun.dir, spun.script, [], { bounds: { cpuLimitSeconds: 1, cpuKillGraceSeconds: 5, hangBackstopMs: 120_000 } }), (error: unknown) => {
+      assert.match((error as Error).message, /spent its CPU-time limit of 1 s of CPU work \(RLIMIT_CPU\) and was ended by SIGXCPU \(the \d+ characters/u);
+      return true;
+    });
+    assert.throws(() => runScriptSubprocess(silent.dir, silent.script, []), (error: unknown) => {
+      assert.match((error as Error).message, /ended without a status payload: it exited with status 0 \(it printed nothing on stderr\)/u);
+      return true;
+    });
+  } finally {
+    for (const one of [killed, spun, silent]) rmSync(one.dir, { recursive: true, force: true });
+  }
+});
+
+test("FAIL-CLOSED, end to end: a `harness sync` whose check step prints a pass and is KILLED fails the whole sync, naming the step and the signal", async () => {
+  const dir = createTempDir("harness-sync-killed-step-");
+  try {
+    const engine = join(dir, "engine");
+    mkdirSync(join(engine, "src"), { recursive: true });
+    mkdirSync(join(engine, "scripts"), { recursive: true });
+    execFileSync("git", ["init", "-q", dir]);
+    const resultOwner = pathToFileURL(resolve("src", "workflow", "command-result.ts")).href;
+    // A stand-in CLI: every step answers a signed pass, and `check` prints its pass and is then killed.
+    writeFileSync(join(engine, "src", "cli.ts"), [
+      `const { wrapResult } = await import(${JSON.stringify(resultOwner)});`,
+      "const step = process.argv[3];",
+      "process.stdout.write(JSON.stringify(wrapResult(step, { ok: true }, { status: \"pass\" })) + \"\\n\");",
+      "if (step === \"check\") { process.kill(process.pid, \"SIGTERM\"); setTimeout(() => {}, 10_000); }",
+    ].join("\n"));
+    writeFileSync(join(engine, "scripts", "build-bundle.ts"), 'process.stdout.write(JSON.stringify({ fresh: true, status: "fresh", path: "dist/bundle.js" }) + "\\n");\n');
+    const result = await harnessSync(engine);
+    assert.equal(result.status, "fail", "a killed step can never leave the sync passing");
+    assert.equal(result.result.allPassed, false);
+    const check = result.result.steps.find((step) => step.step === "check");
+    assert.equal(check?.status, "fail");
+    assert.match(JSON.stringify(result.result.check.result), /harness sync step 'check' did not answer with a verdict: .*it was ended by signal SIGTERM/u);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -1563,9 +1563,18 @@ function readBundleFreshness(root: string): Readonly<{ fresh?: unknown; status?:
   return JSON.parse(runScriptSubprocess(root, "scripts/build-bundle.ts", ["--check"])) as { fresh?: unknown; status?: unknown; path?: unknown };
 }
 
-/** Whether `dist/bundle.js` is exactly a rebuild of the current source (absent is not fresh). */
+/**
+ * Whether `dist/bundle.js` is exactly a rebuild of the current source (absent
+ * is not fresh, and so is a check that did not answer: sync then rebuilds,
+ * and its own `check` judges the result).
+ */
 function bundleIsFresh(root: string): boolean {
-  return readBundleFreshness(root).fresh === true;
+  try {
+    return readBundleFreshness(root).fresh === true;
+  } catch (error) {
+    if (!(error instanceof InputError) && !(error instanceof HarnessError) && !(error instanceof SyntaxError)) throw error;
+    return false;
+  }
 }
 
 /**
@@ -1716,8 +1725,16 @@ function runSyncStep(
   step: "register" | "regenerate" | "check",
   args: readonly string[],
 ): HarnessCommandResult {
-  const stdout = runScriptSubprocess(root, "src/cli.ts", ["harness", step, ...args]);
-  const parsed = parseHarnessCommandResult(JSON.parse(stdout));
+  let parsed: HarnessCommandResult;
+  try {
+    parsed = parseHarnessCommandResult(JSON.parse(runScriptSubprocess(root, "src/cli.ts", ["harness", step, ...args])));
+  } catch (error) {
+    // A step that ended without answering — a signal, a bound, a refusal with
+    // no payload — is a FAILED step, named, and fails the whole sync; never
+    // a pass, and never an unnamed abort.
+    const why = error instanceof Error ? error.message : String(error);
+    return wrapResult(step, deepFreeze({ error: `harness sync step '${step}' did not answer with a verdict: ${why}` }), { status: "fail" });
+  }
   if (parsed.command !== step) {
     throw new InputError(`sync step '${step}' returned a result for command '${parsed.command}'`, "input_error");
   }
@@ -1809,7 +1826,25 @@ export function runScriptSubprocess(
   const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
   const succeeded = result.error === undefined && result.status === 0;
   let stdout = typeof result.stdout === "string" ? result.stdout : "";
-  if (!succeeded && stdout.trim().length === 0) {
+  // A STEP THAT DID NOT FINISH HAS NO VERDICT, WHATEVER IT PRINTED FIRST.
+  // Ended by a signal, by a bound (the CPU limit's SIGXCPU/SIGKILL, the hang
+  // backstop), or by a spawn error, its stdout is a fragment of a run that
+  // never answered: a `{"fresh":true}` printed before a hang the backstop (or
+  // a person) ended once read as a pass, and `harness sync` reported
+  // allPassed. Fail closed, naming how it ended.
+  if (result.error !== undefined || result.signal !== null) {
+    const lines = typeof result.stderr === "string" ? result.stderr.trim().split("\n").filter((line) => line.trim().length > 0) : [];
+    const ending = boundedEnding({ status: result.status, signal: result.signal, ...(errorCode !== undefined ? { errorCode } : {}) }, bounds);
+    const said = subprocessFailureSummary(lines);
+    const printed = stdout.trim().length;
+    throw new InputError(
+      `subprocess ${scriptRelativePath} ended without a status payload: ${ending}` +
+        `${printed === 0 ? "" : ` (the ${String(printed)} characters it printed on stdout before it ended are not a verdict)`}` +
+        `${said === undefined ? "" : `; its stderr says: ${said}`}`,
+      errorCode === "ETIMEDOUT" ? "script_subprocess_hung" : "script_subprocess_unfinished",
+    );
+  }
+  if (stdout.trim().length === 0) {
     // No payload on stdout — a genuine subprocess failure. The scripts
     // report a failure as ONE typed JSON line (`{"error": <code>,
     // "message": …}`) on stderr; that record is the error channel, and it
@@ -1819,7 +1854,7 @@ export function runScriptSubprocess(
     // "failed without a status payload: (node:123) Warning: …".
     const lines = typeof result.stderr === "string" ? result.stderr.trim().split("\n").filter((line) => line.trim().length > 0) : [];
     const typed = typedFailureRecord(lines);
-    if (typed !== undefined && errorCode === undefined && result.signal === null) {
+    if (typed !== undefined && !succeeded) {
       // The STEP is named as a step, never as a location: `src/cli.ts: <a
       // syntax error in another file>` sent the operator to the wrong file
       // (wf1a-correctness). A location, when there is one, is the
@@ -1830,7 +1865,7 @@ export function runScriptSubprocess(
     const said = subprocessFailureSummary(lines);
     throw new InputError(
       `subprocess ${scriptRelativePath} ended without a status payload: ${ending}${said === undefined ? " (it printed nothing on stderr)" : `; its stderr says: ${said}`}`,
-      errorCode === "ETIMEDOUT" ? "script_subprocess_hung" : "input_error",
+      "input_error",
     );
   }
   stdout = stdout.trim();
