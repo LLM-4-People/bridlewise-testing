@@ -448,7 +448,7 @@ function copyBack(source: string, target: string, engineRelative: string): Reado
         if (check.status !== 0) {
           throw new HarnessError(
             `copy-back of ${files.map(({ path }) => path).join(", ")} was rolled back: harness check fails in the source: ` +
-              `${`${check.stdout}${check.stderr}`.trim().split("\n").slice(-8).join("\n")}`,
+              failedCheckSteps(check.stdout, check.stderr),
             "candidate_copy_back_unverified",
           );
         }
@@ -459,6 +459,26 @@ function copyBack(source: string, target: string, engineRelative: string): Reado
   // the next copy-back does not mistake its own writes for another writer's.
   recordBase(source, target, false);
   return { written: files.map(({ path }) => path), check: files.length > 0 ? "pass" : "nothing-to-write", ledgers: importLedgers(source, target, engineRelative) };
+}
+
+/**
+ * What a failed `harness check` refused, by step: its JSON result (the last
+ * JSON line of stdout) names each failing step and its message. The progress
+ * lines on stderr say only which step was running, so they are quoted only
+ * when the check produced no result at all (it died before reporting).
+ */
+function failedCheckSteps(stdout: string, stderr: string): string {
+  const line = stdout.trim().split("\n").reverse().find((entry) => entry.startsWith("{"));
+  if (line !== undefined) {
+    const parsed = JSON.parse(line) as { result?: Record<string, unknown> };
+    const failed = Object.values(parsed.result ?? {}).flatMap((value) => {
+      if (typeof value !== "object" || value === null) return [];
+      const step = value as { step?: unknown; status?: unknown; message?: unknown };
+      return step.status === "fail" ? [`${String(step.step)}: ${String(step.message)}`] : [];
+    });
+    if (failed.length > 0) return failed.join(" | ");
+  }
+  return `no step result was reported: ${`${stdout}${stderr}`.trim().split("\n").slice(-8).join("\n")}`;
 }
 
 /**

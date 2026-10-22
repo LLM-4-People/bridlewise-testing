@@ -166,6 +166,10 @@ test("candidate CLI: create makes missing parents; refresh keeps regenerated out
     const unverified = cli(source.engineRoot, ["copy-back", "--target", target]);
     assert.equal(unverified.status, 1);
     assert.equal(unverified.json["error"], "candidate_copy_back_unverified", JSON.stringify(unverified.json));
+    // The refusal names the failing check step and its reason, not the
+    // progress lines that only say which step was running (#148).
+    assert.match(String(unverified.json["message"]), /harness check fails in the source: [a-z][a-z-]*: \S/u, String(unverified.json["message"]));
+    assert.doesNotMatch(String(unverified.json["message"]), /Checking the /u);
     assert.equal(ownedFingerprint(source.root), before, "a copy-back that failed its check left its writes in the source");
     assert.equal(existsSync(journal), false);
     writeFileSync(inCandidate, original);
