@@ -34,10 +34,10 @@ check` reports it stale): change a decision's file, never its row.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../assets/generated/decision-status-dark.svg">
-  <img alt="172 decision records, by how far each is built: 12 built; 20 partly built; 96 designed, not built; 38 standing rules; 6 superseded. Source: generated from docs/decisions/*.md front matter." src="../assets/generated/decision-status-light.svg" width="760">
+  <img alt="174 decision records, by how far each is built: 13 built; 21 partly built; 96 designed, not built; 38 standing rules; 6 superseded. Source: generated from docs/decisions/*.md front matter." src="../assets/generated/decision-status-light.svg" width="760">
 </picture>
 
-172 decision records, by how far each is built: 12 built; 20 partly built; 96 designed, not built; 38 standing rules; 6 superseded. Source: generated from docs/decisions/*.md front matter.
+174 decision records, by how far each is built: 13 built; 21 partly built; 96 designed, not built; 38 standing rules; 6 superseded. Source: generated from docs/decisions/*.md front matter.
 
 ## User rules (standing)
 
@@ -114,6 +114,7 @@ check` reports it stale): change a decision's file, never its row.
 | [Q-TX2](Q-TX2-budgets-count-cpu-work.md) | Test budgets count CPU work, not wall time | user | partial (TEST-10X) |
 | [Q-TX4](Q-TX4-per-file-test-budgets.md) | Every test file has its own budget | user | pending (TEST-10X) |
 | [REQUIRES](REQUIRES-a-gate-runs-after-what-it-judges.md) | A gate runs after the steps that produce what it judges | coordinator | done |
+| [TEST-CPU-CLASSES](TEST-CPU-CLASSES-per-test-limits-are-cpu-work.md) | Per-test limits are CPU-work classes plus one hang backstop | coordinator | partial (NOLOAD (engine suite next; the web suite's per-test overrides next)) |
 | [TEST-EFF](TEST-EFF-the-test-efficiency-decisions.md) | The test-efficiency decisions (covers Q-TXL1, Q-TXL2, Q-TXL3, Q-TXL4) | user | pending (TEST-10X) |
 | [UD-AUDIT-NO-FORGIVENESS](UD-AUDIT-NO-FORGIVENESS-no-rerun-forgiveness-no-ambient-allowance.md) | No rerun forgiveness, no ambient-load allowance | user | partial (AMBIENT-ALLOWANCE-REMOVE) |
 | [UD-CORE-NO-BYPASS](UD-CORE-NO-BYPASS-a-module-cannot-bypass-core.md) | A module cannot bypass core | user | pending (CORE-NO-BYPASS) |
@@ -263,6 +264,7 @@ check` reports it stale): change a decision's file, never its row.
 | [GITHUB-300](GITHUB-300-the-full-github-feature-catalogue.md) | GitHub as an active part of the harness: the full feature catalogue (covers GITHUB-500) | user | partial (P3.1) |
 | [GITHUB-COMMUNITY](GITHUB-COMMUNITY-people-can-collaborate.md) | People can collaborate, help and interact | user | partial (P5.4) |
 | [GITHUB-ONLY](GITHUB-ONLY-github-is-the-only-host.md) | GitHub is the only host | user | partial (P2.1) |
+| [WS-RECORDS](WS-RECORDS-older-workspace-records-are-read-only.md) | Older workspace records are read-only, upcast in memory, and never written | coordinator | done |
 
 ## Brand and public messaging
 

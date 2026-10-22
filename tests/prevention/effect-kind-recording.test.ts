@@ -1248,13 +1248,14 @@ describe("engine effects — the hub decoration is the choke point", () => {
   });
 
   test("argument VALUES never reach the engine span's documents — shapes only, even for values other lanes would keep", async () => {
-    // A header value redactHeaders itself would PASS THROUGH untouched is the
+    // A header value redactHeaders itself would PASS THROUGH untouched (an
+    // allowlisted, credential-free name) is the
     // sharpest canary: if that VALUE appears anywhere on the engine event,
     // the shape discipline is broken — not the redaction layer, the capture.
     const CANARY = "canary-header-value-9f8e7d6c";
     const actorId = await attributed("engine-canary", () => {
-      const redacted = canonicalHub.redactHeaders({ "x-probe": CANARY });
-      expect(redacted["x-probe"]).toBe(CANARY);
+      const redacted = canonicalHub.redactHeaders({ accept: CANARY });
+      expect(redacted["accept"]).toBe(CANARY);
     });
     const events = eventsFor("engine", actorId);
     expect(events.length).toBe(1);
@@ -1264,7 +1265,7 @@ describe("engine effects — the hub decoration is the choke point", () => {
     expect(
       args!.args[0]!.keys,
       "the key NAME is schema and stays while the value never appears",
-    ).toContain("x-probe");
+    ).toContain("accept");
   });
 
   test("a decorated hub call that throws records failed with the typed error's real code", async () => {
