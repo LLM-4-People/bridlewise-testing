@@ -62,7 +62,13 @@ import { isProcessAlive } from "../../src/process/process-facts.ts";
 import { runCpuBounded, type CpuBounds } from "../../src/process/supervised-run.ts";
 import { armTestKeyHome } from "../support/test-key-home.ts";
 import { createTempDir } from "../support/temp-dir.ts";
-import { CORAL_KEY, GIT, git, GITHUB_TOKEN, MAKORA_KEY, pemLine, plantedRepository, repository, write } from "./history-fixture.ts";
+import { CORAL_KEY, entryOf, GIT, git, GITHUB_TOKEN, MAKORA_KEY, pemLine, plantedRepository, repository, SHORT_PASSWORD, write } from "./history-fixture.ts";
+
+/** The catalogue's own row for each planted value (never a spelling the catalogue may rename). */
+const GITHUB = entryOf(GITHUB_TOKEN);
+const CORAL = entryOf(CORAL_KEY);
+const MAKORA = entryOf(MAKORA_KEY);
+const DSN = entryOf(`Pwd=${SHORT_PASSWORD};`);
 
 const POLICY = ROOT_POLICY.workflow.historyImport;
 /** An oracle that finds nothing (the catalogue's own tests). */
@@ -84,7 +90,7 @@ test("enumerate + catalogue scan: every planted place is found with its entry, a
   const inventory = enumerateHistory(repository(root));
   assert.deepEqual(Object.keys(inventory.refs), ["refs/heads/main", "refs/notes/commits", "refs/pull/1/head", "refs/tags/v1"]);
   const scan = (await scanHistory(repository(root), inventory, NO_ORACLE)).catalogue;
-  assert.deepEqual(ENTRIES(scan.hits), ["blob:coralbricks-key", "blob:dsn-credential", "blob:token-prefix", "commit:makora-key", "tag:token-prefix"]);
+  assert.deepEqual(ENTRIES(scan.hits), [`blob:${CORAL}`, `blob:${DSN}`, `blob:${GITHUB}`, `commit:${MAKORA}`, `tag:${GITHUB}`].sort());
   assert.deepEqual(scan.nameHits, []);
   // The near-misses: nothing in src/callback.ts, and the `risk-…` line is not a token.
   const callback = inventory.paths.find((entry) => entry.path === "src/callback.ts")!.oid;
@@ -92,13 +98,13 @@ test("enumerate + catalogue scan: every planted place is found with its entry, a
   assert.ok(!scan.hits.some((hit) => hit.value.startsWith("risk")));
   // The binary blob and the note: both blobs, the binary one marked.
   const binary = scan.hits.filter((hit) => hit.binary);
-  assert.deepEqual(binary.map((hit) => hit.entry), ["coralbricks-key"]);
-  assert.equal(scan.hits.filter((hit) => hit.entry === "coralbricks-key" && !hit.binary).length, 1, "the note's blob is text");
+  assert.deepEqual(binary.map((hit) => hit.entry), [CORAL]);
+  assert.equal(scan.hits.filter((hit) => hit.entry === CORAL && !hit.binary).length, 1, "the note's blob is text");
   // The short DSN value carries its line window; the long tokens do not.
   for (const hit of scan.hits) assert.equal(hit.anchor === null, hit.value.length >= 12, `${hit.entry} anchoring`);
-  const dsn = scan.hits.filter((hit) => hit.entry === "dsn-credential");
+  const dsn = scan.hits.filter((hit) => hit.entry === DSN);
   assert.equal(dsn.length, 2, "both lines of db.txt are hits");
-  assert.ok(dsn.every((hit) => hit.anchor !== null && hit.anchor.replacement.includes(removedMarker("dsn-credential")) && !hit.anchor.replacement.includes("s3cr")));
+  assert.ok(dsn.every((hit) => hit.anchor !== null && hit.anchor.replacement.includes(removedMarker(DSN)) && !hit.anchor.replacement.includes("s3cr")));
   assert.ok(scan.scanned.bytes > 0 && scan.scanned.objects === inventory.objects.filter((object) => object.type !== "tree").length);
 });
 
@@ -134,7 +140,7 @@ test("catalogue scan: a secret in a path or a ref name is a name hit (refused, n
   git(root, "commit", "-q", "-m", "a file named after a token");
   git(root, "update-ref", `refs/heads/leak-${MAKORA_KEY}`, "HEAD");
   const scan = (await scanHistory(repository(root), enumerateHistory(repository(root)), NO_ORACLE)).catalogue;
-  assert.deepEqual(scan.nameHits.map((hit) => `${hit.kind}:${hit.entry}`).sort(), ["path:token-prefix", "ref:makora-key"]);
+  assert.deepEqual(scan.nameHits.map((hit) => `${hit.kind}:${hit.entry}`).sort(), [`path:${GITHUB}`, `ref:${MAKORA}`].sort());
 });
 
 test("purge plan: deterministic, anchored short values, longest-first values, binary blobs stripped", async () => {
@@ -146,7 +152,7 @@ test("purge plan: deterministic, anchored short values, longest-first values, bi
   assert.equal(lines.length, plan.expressionCount);
   assert.ok(lines.every((line) => line.startsWith("literal:") && line.includes("==>")));
   // The two anchored windows (one per db.txt line) come first, then the values alone, longest first.
-  const anchoredCount = lines.filter((line) => line.includes(removedMarker("dsn-credential"))).length;
+  const anchoredCount = lines.filter((line) => line.includes(removedMarker(DSN))).length;
   assert.equal(anchoredCount, 2);
   assert.ok(lines.slice(0, 2).every((line) => line.includes("Pwd=")));
   const alone = lines.slice(2).map((line) => line.slice("literal:".length, line.lastIndexOf("==>")));
@@ -234,7 +240,7 @@ test("encodings: a token is found in UTF-16LE (with and without a BOM), UTF-16BE
   for (const [path] of Object.entries(planted)) {
     const oid = inventory.paths.find((entry) => entry.path === path)!.oid;
     const hits = scan.catalogue.hits.filter((hit) => hit.oid === oid);
-    assert.deepEqual(hits.map((hit) => hit.entry), ["token-prefix"], `${path}: the token is found`);
+    assert.deepEqual(hits.map((hit) => hit.entry), [GITHUB], `${path}: the token is found`);
     assert.equal(hits[0]!.binary, path !== "utf8-bom.txt", `${path}: only UTF-8 bytes are rewritten in place; any other encoding strips the blob`);
     assert.ok(scan.oracle.some((finding) => finding.location === `blob ${oid}`), `${path}: the oracle read it decoded`);
   }
@@ -259,7 +265,7 @@ test("encodings: a UTF-16 token anywhere in the blob is found — after 8 KiB of
   for (const path of Object.keys(planted)) {
     const oid = inventory.paths.find((entry) => entry.path === path)!.oid;
     const hits = scan.hits.filter((hit) => hit.oid === oid);
-    assert.deepEqual(hits.map((hit) => [hit.entry, hit.value, hit.binary]), [["token-prefix", GITHUB_TOKEN, true]], path);
+    assert.deepEqual(hits.map((hit) => [hit.entry, hit.value, hit.binary]), [[GITHUB, GITHUB_TOKEN, true]], path);
   }
 });
 
@@ -274,7 +280,7 @@ test("encodings: an object nothing decodes is undecodable (listed for review), y
   const image = inventory.paths.find((entry) => entry.path === "image.png")!.oid;
   const scan = (await scanHistory(repository(root), inventory, NO_ORACLE)).catalogue;
   assert.deepEqual(scan.undecodable, [image]);
-  assert.deepEqual(scan.hits.filter((hit) => hit.oid === image).map((hit) => [hit.entry, hit.binary]), [["coralbricks-key", true]]);
+  assert.deepEqual(scan.hits.filter((hit) => hit.oid === image).map((hit) => [hit.entry, hit.binary]), [[CORAL, true]]);
   assert.equal(decodedTexts(Buffer.from("plain\n")).undecodable, false);
   assert.equal(decodedTexts(Buffer.from([0x61, 0xff, 0x62])).undecodable, true, "an invalid UTF-8 byte with no NUL pattern is undecodable, never a lossy guess");
 });
@@ -286,15 +292,15 @@ function rescanOf(parts: Partial<Readonly<{ hits: readonly CatalogueHit[]; nameH
 
 test("re-scan to zero: a catalogue hit, a name hit or an undisposed oracle finding is residue; a disposed finding is not", () => {
   const none = { dispositions: [], binaries: new Set<string>(), sha256: null };
-  const hit: CatalogueHit = { entry: "token-prefix", value: GITHUB_TOKEN, oid: "c".repeat(40), type: "blob", binary: false, anchor: null };
+  const hit: CatalogueHit = { entry: GITHUB, value: GITHUB_TOKEN, oid: "c".repeat(40), type: "blob", binary: false, anchor: null };
   assert.deepEqual(purgeResidue(rescanOf({}), none), { left: {}, disposed: {} });
-  assert.deepEqual(purgeResidue(rescanOf({ hits: [hit, hit] }), none).left, { "token-prefix": 2 });
-  assert.deepEqual(purgeResidue(rescanOf({ nameHits: [{ entry: "makora-key", kind: "path", oid: "d".repeat(40) }] }), none).left, { "makora-key (in a name)": 1 });
+  assert.deepEqual(purgeResidue(rescanOf({ hits: [hit, hit] }), none).left, { [GITHUB]: 2 });
+  assert.deepEqual(purgeResidue(rescanOf({ nameHits: [{ entry: MAKORA, kind: "path", oid: "d".repeat(40) }] }), none).left, { [`${MAKORA} (in a name)`]: 1 });
   const finding = { rule: "generic-api-key", secret: "Zx81Lq0Vb7Nm3Kp2", location: "blob e" };
   assert.deepEqual(purgeResidue(rescanOf({ oracle: [finding] }), none).left, { "generic-api-key (oracle)": 1 });
   const reviewed = { dispositions: [{ rule: "generic-api-key", secretSha256: sha256("Zx81Lq0Vb7Nm3Kp2"), reason: "reviewed" }], binaries: new Set<string>(), sha256: null };
   assert.deepEqual(purgeResidue(rescanOf({ oracle: [finding] }), reviewed), { left: {}, disposed: { "generic-api-key": 1 } });
-  assert.deepEqual(purgeResidue(rescanOf({ hits: [hit], oracle: [finding] }), reviewed).left, { "token-prefix": 1 }, "a disposition never excuses a catalogue hit");
+  assert.deepEqual(purgeResidue(rescanOf({ hits: [hit], oracle: [finding] }), reviewed).left, { [GITHUB]: 1 }, "a disposition never excuses a catalogue hit");
 });
 
 test("the receipt: locations are recorded without a path, and a receipt with an absolute or home path or a catalogue hit is refused", () => {
@@ -307,7 +313,7 @@ test("the receipt: locations are recorded without a path, and a receipt with an 
   for (const [field, value] of [["source", "/home/someone/src"], ["target", "~/archive.git"], ["source", "D:\\repos\\x"], ["source", "file:///x"], ["note", "copied from /home/someone/x"]] as const) {
     assert.match(receiptRefusal({ ...clean, [field]: value }) ?? "", new RegExp(`\\$\\.${field} is an absolute or home path`), `${field}: ${value}`);
   }
-  assert.match(receiptRefusal({ ...clean, note: `token = ${GITHUB_TOKEN}` }) ?? "", /catalogue hit \(token-prefix\)/u);
+  assert.ok((receiptRefusal({ ...clean, note: `token = ${GITHUB_TOKEN}` }) ?? "").includes(`catalogue hit (${GITHUB})`));
 });
 
 test("refs: kept namespaces keep their names, others move under the imported prefix, collisions are refused", () => {
