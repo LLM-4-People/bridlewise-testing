@@ -4229,6 +4229,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workspaces/workspace-stack.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workspaces/worktree-port.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4277,5 +4285,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "42c5d8ac8da904ed7006a7a3452e73988f188e78ff5a11de7183f365910b7a63"
+  "integrityHash": "3f34c7a0e7863239e0fca7722c57612c2814e56a2d2028ef6b4b13e89d5061bd"
 }
