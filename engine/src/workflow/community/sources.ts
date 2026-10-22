@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { InputError } from "../../kernel/errors.ts";
+import { schemaId } from "../../kernel/product-identity.ts";
 
 /** The community sources' folder, repository-relative. */
 export const COMMUNITY_DIRECTORY = "docs/community";
@@ -57,7 +58,7 @@ const ROLE = z.strictObject({
 });
 
 const ROLES = z.strictObject({
-  schema: z.literal("bridlewise-community-roles/v1"),
+  schema: z.literal(schemaId("community-roles", 1)),
   roles: z.array(ROLE).min(1),
   members: z.array(z.strictObject({ login: z.string().regex(/^[A-Za-z0-9-]+$/u), role: z.string() })),
   conduct: z.strictObject({ contact: z.string().min(1) }),
@@ -118,7 +119,7 @@ const CONTACT_LINK = z.strictObject({
 });
 
 const INTAKE = z.strictObject({
-  schema: z.literal("bridlewise-community-intake/v1"),
+  schema: z.literal(schemaId("community-intake", 1)),
   warning: z.string().min(1),
   issueForms: z.array(ISSUE_FORM).min(1),
   confirmations: z.array(z.string().min(1)),
@@ -134,7 +135,7 @@ const FEATURE = z.strictObject({
 });
 
 const FEATURES = z.strictObject({
-  schema: z.literal("bridlewise-community-features/v1"),
+  schema: z.literal(schemaId("community-features", 1)),
   features: z.array(FEATURE),
 });
 
