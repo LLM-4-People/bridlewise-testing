@@ -1,4 +1,5 @@
-import { posix } from "node:path";
+import { lstatSync } from "node:fs";
+import { join, posix } from "node:path";
 
 import { astChildren, astNode, astNodeArray, parseSourceModule, type AstNode } from "../../src/quality-packs/prevention/ast-helpers.ts";
 
@@ -11,7 +12,12 @@ import {
   type ArchitectureRealm,
 } from "../../src/architecture-manifest.ts";
 import { canonicalHash, deepFreeze, sha256 } from "../../src/kernel/integrity.ts";
-import { publishedExternalCommandPopulationHash } from "../../src/kernel/architecture-external-commands.ts";
+import {
+  externalCommandSourceFinding,
+  publishedExternalCommandPopulationHash,
+} from "../../src/kernel/architecture-external-commands.ts";
+import { readSafeRepositoryFile } from "./safe-repository-reader.ts";
+import { extractErrorMessage, HarnessError } from "../../src/kernel/errors.ts";
 import { isPlainObject } from "../../src/shared/type-guards.ts";
 import { sameOrderedValues } from "../../src/kernel/ordered.ts";
 import { repositoryScanExclusionFor } from "../../src/shared/source-scan.ts";
@@ -1291,6 +1297,35 @@ function verifyInternalImportBoundaries(
 }
 
 /**
+ * THE ONE READER of the inventory's sources from a tree (the S1 verification
+ * and `harness check`'s architecture step both read through it). A source that
+ * does not exist is simply not returned — what that absence means is decided
+ * by `externalCommandSourceFinding`, never here; any other failure (unsafe
+ * path, too large, not UTF-8) is refused by name in `violations`.
+ */
+export function readExternalCommandSources(
+  root: string,
+  manifest: ArchitectureManifest,
+  violations: string[],
+): readonly ArchitectureSource[] {
+  const entries: ArchitectureSource[] = [];
+  for (const command of manifest.externalCommands) {
+    // Absence is a FACT here (`lstat`, so a dangling link is present and refused
+    // by the safe read); the safe reader cannot tell a missing ancestor
+    // directory from an unsafe one, so it is asked only about entries that exist.
+    if (lstatSync(join(root, command.path), { throwIfNoEntry: false }) === undefined) continue;
+    try {
+      const { bytes } = readSafeRepositoryFile(root, command.path, manifest.analysisLimits.maximumSourceBytes);
+      entries.push({ path: command.path, source: new TextDecoder("utf-8", { fatal: true }).decode(bytes) });
+    } catch (error) {
+      const reason = error instanceof HarnessError ? error.code : extractErrorMessage(error);
+      violations.push(`architecture-external-command-source-unreadable:${command.path}:${reason}`);
+    }
+  }
+  return deepFreeze(entries);
+}
+
+/**
  * The external-command arm, on its own so a caller that does not want the
  * whole module-registration verification (the harness check's architecture
  * step) can still gate the inventory: each declared source hash, the
@@ -1341,20 +1376,9 @@ export function verifyExternalCommands(
       violations.push(`architecture-external-command-effects-invalid:${command.path}`);
     }
     if (verifyContent) {
-      const source = sourceByPath.get(command.path);
-      if (command.publication === "not-published") {
-        // A DECLARED BOUNDARY, NOT A SKIP. The public snapshot does not carry
-        // this source, and the verifier still refuses: absence is named as
-        // not-published, while an unexpected source at the path is refused as
-        // a boundary breach rather than quietly hash-checked or ignored.
-        violations.push(source === undefined
-          ? `architecture-external-command-source-not-published:${command.path}`
-          : `architecture-external-command-source-unexpectedly-published:${command.path}`);
-      } else if (source === undefined) {
-        violations.push(`architecture-external-command-source-missing:${command.path}`);
-      } else if (sha256(source) !== command.sourceSha256) {
-        violations.push(`architecture-external-command-source-hash-drift:${command.path}`);
-      }
+      // The one publication rule (a declared absence is still named).
+      const finding = externalCommandSourceFinding(command, sourceByPath.get(command.path));
+      if (finding.kind !== "current") violations.push(finding.violation);
     }
   }
 }

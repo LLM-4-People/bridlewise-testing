@@ -97,7 +97,7 @@ The folder lives at `engine/scripts/verification/`.
 - `ratchet-baselines.ts` is consumed by nothing yet.
 - `ratchet.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/verification/ratchet-baselines.ts`.
 - `required-fixture-roots.ts` is consumed by `engine/scripts/tooling/run-tests.ts`.
-- `safe-repository-reader.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/artifact-manifest.ts`, `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/artifact-admission.ts` and 2 more.
+- `safe-repository-reader.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/artifact-manifest.ts`, `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/artifact-admission.ts` and 3 more.
 - `shipped-hooks.ts` is consumed by nothing yet.
 - `slice-declarations.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`.
 - `slice-projection-captured-values.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/scripts/verification/slice-projections.ts`.

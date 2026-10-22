@@ -1101,8 +1101,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "architecture-verification", path: "scripts/verification/architecture.ts", realm: "builder",
-      layer: "verification", owner: "verification", publicApi: { exportCount: 8, namesSha256: "74f5b124c6874f4f67144fbcb59e72a131c0f8cb2256964668868fc441592440" },
-      dependencies: ["node:path","scripts/verification/effect-surface.ts","scripts/verification/filesystem-cache.ts","scripts/verification/static-source.ts","src/architecture-manifest.ts","src/kernel/architecture-external-commands.ts","src/kernel/integrity.ts","src/kernel/ordered.ts","src/quality-packs/prevention/ast-helpers.ts","src/shared/source-scan.ts","src/shared/type-guards.ts","src/workflow/workflow-config.ts"],
+      layer: "verification", owner: "verification", publicApi: { exportCount: 9, namesSha256: "93cc5bbe8f227986f9b27c62fb3a07732eaee656856e7d7eae877cd842dd3e7c" },
+      dependencies: ["node:fs","node:path","scripts/verification/effect-surface.ts","scripts/verification/filesystem-cache.ts","scripts/verification/safe-repository-reader.ts","scripts/verification/static-source.ts","src/architecture-manifest.ts","src/kernel/architecture-external-commands.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/ordered.ts","src/quality-packs/prevention/ast-helpers.ts","src/shared/source-scan.ts","src/shared/type-guards.ts","src/workflow/workflow-config.ts"],
       executionBoundary: "verification", ports: { requires: [], provides: ["architecture-analysis"] },
       responsibilities: ["module-graph-and-ownership-analysis"],
     }),
@@ -1110,7 +1110,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "command-effect-inventory-verification", path: "scripts/tooling/verification/command-effect-inventory.ts",
       realm: "builder", layer: "verification", owner: "verification-foundation",
       publicApi: { exportCount: 7, namesSha256: "cee58bbcb9367e8a8d09bf64aa96bbfa1b1e6b8351f9eee4ead5bd2e3838df47" },
-      dependencies: ["node:child_process","node:path","scripts/verification/architecture.ts","scripts/verification/effect-surface.ts","src/architecture-manifest.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/shared/source-extensions.ts"],
+      dependencies: ["node:child_process","node:path","scripts/verification/architecture.ts","scripts/verification/effect-surface.ts","src/architecture-manifest.ts","src/kernel/architecture-external-commands.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/shared/source-extensions.ts"],
       executionBoundary: "verification", effects: ["child-process"],
       configPaths: ["verification.commandEffectInventory"],
       responsibilities: [
@@ -5559,7 +5559,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-kernel-architecture-external-commands", path: "src/kernel/architecture-external-commands.ts", realm: "shared", layer: "trusted-kernel",
-      owner: "architecture", publicApi: { exportCount: 3, namesSha256: "33144408ec1b3460841106c20afc8072cee1a1763576557d42bca695887a3ca7" },
+      owner: "architecture", publicApi: { exportCount: 5, namesSha256: "3e7a70c7099531bcfa33219ad33c076b231012115f8b082b4a626c2423480555" },
       dependencies: ["src/kernel/integrity.ts"],
     }),
     moduleContract({
