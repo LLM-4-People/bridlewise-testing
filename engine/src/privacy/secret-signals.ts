@@ -1,3 +1,4 @@
+import { HarnessError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 
 export type SecretSignalProfile = "admission" | "classification";
@@ -332,7 +333,7 @@ export type SecretTextSignalId = SecretTextSignal["id"];
 export function signalFixture(id: SecretTextSignalId, index = 0): string {
   const signal = SECRET_TEXT_SIGNAL_CATALOG.find((entry) => entry.id === id);
   const parts = signal?.fixtures.positive[index];
-  if (parts === undefined) throw new RangeError(`the secret signal ${id} has no positive fixture ${String(index)}`);
+  if (parts === undefined) throw new HarnessError(`the secret signal ${id} has no positive fixture ${String(index)}`, "secret_signal_fixture_missing");
   return parts.join("");
 }
 
