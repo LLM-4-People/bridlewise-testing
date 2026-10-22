@@ -66,7 +66,8 @@ ships into the client bundle or the server runtime.
   states what it guarantees.
 - `rendered/` — the rendered judgement: what the browser actually shows,
   judged by ONE rule table (`rules.ts`: the brand mark's computed paint and
-  visibility, the families text renders in, no request leaving the origin).
+  visibility, the families text renders in, the Content-Security-Policy meta
+  tag and no violation of it, no request leaving the origin).
   `judge.ts` runs the table on a page and over every page of a built site
   (`judge.ts site`); the capture walk calls it on every cockpit view
   (`capture/cockpit.ts --judge-only`); `proof.ts` proves each rule on planted

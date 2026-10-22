@@ -33,17 +33,27 @@ class RenderedRefusal extends Error {
 const pageRules = (surface: Surface): readonly PageRule[] => RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && r.surfaces.includes(surface));
 const requestRules = (surface: Surface): readonly RequestRule[] => RENDERED_RULES.filter((r): r is RequestRule => r.kind === "request" && r.surfaces.includes(surface));
 
-/** Every page rule of `surface`, judged on the view `page` shows now; each finding names its rule. */
-export async function judgePage(page: Page, surface: Surface): Promise<readonly string[]> {
+/** Every page rule of `surface` (or exactly `rules`, for the proof), judged on the view `page` shows now; each finding names its rule. */
+export async function judgePage(page: Page, surface: Surface, rules: readonly PageRule[] = pageRules(surface)): Promise<readonly string[]> {
   const findings: string[] = [];
-  for (const rule of pageRules(surface)) {
+  for (const rule of rules) {
     for (const finding of await page.evaluate(rule.judge, { input: rule.input() as never, surface })) findings.push(`[${rule.id}] ${finding}`);
   }
   return findings;
 }
 
-/** Every request rule of `surface`, on every request `context` makes; attached once, before any page opens. */
-export function watchRequests(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void): void {
+/**
+ * Instruments `context` for the table, once, before any page opens: every
+ * request rule of `surface` sees every request, and every page records its
+ * Content-Security-Policy violations from the first byte (the csp-violations
+ * row reads them).
+ */
+export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void): Promise<void> {
+  await context.addInitScript(() => {
+    const seen: { directive: string; blocked: string }[] = [];
+    (window as unknown as { __renderedCspViolations: typeof seen }).__renderedCspViolations = seen;
+    document.addEventListener("securitypolicyviolation", (event) => { seen.push({ directive: event.violatedDirective, blocked: event.blockedURI }); });
+  });
   const rules = requestRules(surface);
   context.on("request", (request) => {
     for (const rule of rules) {
@@ -106,7 +116,7 @@ async function judgeSite(siteRoot: string, baseurl: string): Promise<readonly st
     for (const scheme of ["light", "dark"] as const) {
       const context = await browser.newContext({ colorScheme: scheme, serviceWorkers: "block", viewport: { width: 1280, height: 900 } });
       let current = "";
-      watchRequests(context, "site", origin, (finding) => findings.add(`${current} (${scheme}): ${finding}`));
+      await instrumentContext(context, "site", origin, (finding) => findings.add(`${current} (${scheme}): ${finding}`));
       const page = await context.newPage();
       for (const path of pages) {
         current = path;

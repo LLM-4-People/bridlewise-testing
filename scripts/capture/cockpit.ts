@@ -80,7 +80,7 @@ import {
   type ViewportId,
 } from "./cockpit-plan.ts";
 import { decodePngRgb, encodeGif } from "./gif.ts";
-import { judgePage, watchRequests } from "../rendered/judge.ts";
+import { instrumentContext, judgePage } from "../rendered/judge.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -409,7 +409,7 @@ async function newSurface(browser: Browser, theme: Theme, viewport: ViewportId, 
     ...(video !== undefined ? { recordVideo: { dir: video, size: { width: spec.width, height: spec.height } } } : {}),
   });
   await context.clock.setFixedTime(new Date(FIXED_INSTANT_ISO));
-  watchRequests(context, "cockpit", APP_ORIGIN, (finding) => offOrigin.add(`[${theme}/${viewport}] ${finding}`));
+  await instrumentContext(context, "cockpit", APP_ORIGIN, (finding) => offOrigin.add(`[${theme}/${viewport}] ${finding}`));
   const config: LayerConfig = { css: STILLNESS_CSS, theme, themeKey: THEME_STORAGE_KEY, textMasks: TEXT_MASKS, regionMasks: REGION_MASKS, badge };
   await context.addInitScript(captureLayer, config);
   const page = await context.newPage();

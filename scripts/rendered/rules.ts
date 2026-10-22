@@ -153,6 +153,31 @@ function judgeFonts(args: { input: { faceTokens: readonly string[] }; surface: S
   return findings;
 }
 
+/**
+ * THE CONTENT SECURITY POLICY every page carries as its meta tag, exactly:
+ * the browser itself then refuses any font, stylesheet, script or image from
+ * elsewhere, and any inline script or style. The page's owner writes it into
+ * the page; this is the one statement of what it must say.
+ */
+export const CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'none'";
+
+/** The page carries exactly one CSP meta tag, and it says exactly the policy. */
+function judgeCspMeta(args: { input: { policy: string }; surface: Surface }): string[] {
+  const metas = [...document.querySelectorAll("meta")].filter((m) => (m.getAttribute("http-equiv") ?? "").toLowerCase() === "content-security-policy");
+  if (metas.length !== 1) return [`the page carries ${metas.length} Content-Security-Policy meta tags, not one`];
+  const normal = (policy: string): string => policy.split(";").map((d) => d.trim().replace(/\s+/gu, " ")).filter((d) => d.length > 0).join("; ");
+  const content = normal(metas[0]!.getAttribute("content") ?? "");
+  return content === normal(args.input.policy) ? [] : [`the Content-Security-Policy is "${content}", not "${normal(args.input.policy)}"`];
+}
+
+/** No Content-Security-Policy violation happened on the page (recorded from the first byte by judge.ts's context instrument). */
+function judgeCspViolations(args: { input: Record<string, never>; surface: Surface }): string[] {
+  void args;
+  const seen = (window as unknown as { __renderedCspViolations?: { directive: string; blocked: string }[] }).__renderedCspViolations;
+  if (seen === undefined) return ["the page was not instrumented for Content-Security-Policy violations"];
+  return seen.map((v) => `a Content-Security-Policy violation: ${v.directive} blocked ${v.blocked || "an inline resource"}`);
+}
+
 /** A request that leaves the page's origin (data:, blob: and about: URLs are the page's own). */
 function judgeOrigin(url: string, resourceType: string, origin: string): string | null {
   if (/^(?:data|blob|about):/u.test(url)) return null;
@@ -184,6 +209,26 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
     pending: { site: "the site declares its own --sans/--mono stacks until it wears the token owner (DESIGN, #201); DESIGN adds \"site\" here when it does" },
     input: () => ({ faceTokens: FACE_TOKENS }),
     judge: judgeFonts as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "csp-meta",
+    holds: `Every page carries exactly one Content-Security-Policy meta tag, saying exactly "${CONTENT_SECURITY_POLICY}".`,
+    surfaces: [],
+    pending: {
+      site: "DESIGN adds the meta tag to the site's one layout (#201); DESIGN adds \"site\" here when it does",
+      cockpit: "the cockpit sends no Content-Security-Policy yet (#319); its owner adds \"cockpit\" here when it does",
+    },
+    input: () => ({ policy: CONTENT_SECURITY_POLICY }),
+    judge: judgeCspMeta as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "csp-violations",
+    holds: "No Content-Security-Policy violation happens while the page loads and runs.",
+    surfaces: ["cockpit", "site"],
+    input: () => ({}),
+    judge: judgeCspViolations as PageRule["judge"],
   },
   {
     kind: "request",
