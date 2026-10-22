@@ -1366,7 +1366,7 @@ const ROOT_POLICY_VALUE = {
      */
     binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
     bundleRelativePath: "dist/bundle.js",
-    bundleSha256: "95f58b0822b0942219f9b793e44255ff06b9d1d79b50318579d3675c5d0b34f8",
+    bundleSha256: "b258af84e3a5fd908c5fb777ad4adef05d6ba34375ad50764d00cf96695ff264",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
     specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
     /**
@@ -2254,7 +2254,7 @@ const ROOT_POLICY_VALUE = {
       },
     },
     testInventorySchema: "bridlewise-test-inventory/v4",
-    testInventoryHash: "f47565e350ffb1951dc94a0494fbbaad1fe977b798dabbd0102a7495a3941a4c",
+    testInventoryHash: "0760003202c84a15e7ba2ee7613cb1c22142963c2fc290ad9bff052f44830f6b",
     testSurfaceDispositionBinding: {
       fileSha256: "038f2277724de16964846ee5301e87e1a70fdfacd78caee29ab96c37ddd68856",
       identityHash: "4b3dca4a2e7971636944ab2e775a46665b0cd07fdfd19a34fca72c4ed610625b",
