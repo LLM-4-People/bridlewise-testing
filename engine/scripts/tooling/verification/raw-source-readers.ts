@@ -433,6 +433,7 @@ export type LegitimateRawReader =
   | "web:scripts/floor/design-coverage.mjs"
   | "integration:scripts/verification/consumer-plants.ts"
   | "integration:src/git/working-copy.ts"
+  | "integration:src/workflow/community/health-files.ts"
   | "integration:test/git/flake-reproduction.test.ts"
   | "integration:test/timeline/timeline-recorder.test.ts"
   | "integration:test/prevention/no-unconfined-recursive-removal.test.ts"
@@ -447,7 +448,8 @@ export type LegitimateRawReader =
   | "web:scripts/floor/site.mjs"
   | "web:scripts/floor/site-pages.mjs"
   | "web:scripts/floor/site-links.mjs"
-  | "web:tests/prevention/agent-docs-liveness.test.ts";
+  | "web:tests/prevention/agent-docs-liveness.test.ts"
+  | "web:tests/cockpit/brand-mark-owner.test.ts";
 
 /**
  * The readers that must have bytes, each with the reason WRITTEN DOWN.
@@ -457,6 +459,14 @@ export type LegitimateRawReader =
  * a reader who disagrees has something specific to disagree with.
  */
 export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
+  "integration:src/workflow/community/health-files.ts": {
+    why:
+      "The subject is a generated community file (Markdown or YAML that GitHub shows "
+      + "a contributor), never program text: the generator compares each file's bytes "
+      + "with the bytes it renders, and reads a file in a health-file location for its "
+      + "own generated notice to tell its stale output (deleted) from a person's file "
+      + "(refused). A code view would blank the very notice and prose it must compare.",
+  },
   "web:scripts/floor/site-pages.mjs": {
     why:
       "The subject is the assembled Markdown and its front matter, which is prose "
@@ -478,6 +488,15 @@ export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
       + "load — not repository source. Class coverage is a property of the literal "
       + "class attributes and CSS selectors as emitted, so the comparison needs those "
       + "bytes; a parsed source view cannot answer it.",
+  },
+  "web:tests/cockpit/brand-mark-owner.test.ts": {
+    why:
+      "The subject is a hand copy of the brand mark's geometry in ANY tracked "
+      + "file: SVG, Markdown, HTML and CSS as well as program text. Those are "
+      + "documents, not program source, and a program-text view lexes them "
+      + "wrongly (the `//` of a URL in Markdown opens a comment and blinds the "
+      + "rest of the line). A copy left inside a comment is still a copy, so "
+      + "counting it is the safe direction; the raw bytes are the input.",
   },
   "web:tests/prevention/agent-docs-liveness.test.ts": {
     why:

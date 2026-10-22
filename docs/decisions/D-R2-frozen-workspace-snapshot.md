@@ -6,6 +6,7 @@ group: prompt-cache
 status: superseded
 superseded_by: U1
 implementation: standing
+amended_by: [U1]
 ---
 # The workspace snapshot is frozen per chat
 
