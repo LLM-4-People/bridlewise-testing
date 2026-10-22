@@ -63,6 +63,12 @@ jobs:
             --out .site \
             --baseurl "${{ steps.pages.outputs.base_path }}"
 
+      - name: Install the engine (the floor reads GitHub through the forge port)
+        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
       - name: Generate floor data
         env:
           GH_TOKEN: ${{ github.token }}
