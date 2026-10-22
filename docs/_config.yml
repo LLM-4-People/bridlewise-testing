@@ -1,0 +1,40 @@
+title: Bridlewise
+tagline: "Every run, recorded. Every tool, governed."
+description: "An experimental, local-first coding cockpit. Runs are recorded as causal streams; tools are governed, checked, and confined on Linux. Developer preview — not for sensitive code."
+lang: en
+license: "AGPL-3.0"
+
+plugins:
+  - jekyll-sitemap
+
+markdown: kramdown
+highlighter: rouge
+permalink: pretty
+timezone: UTC
+
+kramdown:
+  input: GFM
+  hard_wrap: false
+  syntax_highlighter: rouge
+  auto_ids: true
+  toc_levels: 1..3
+
+defaults:
+  - scope:
+      path: ""
+      type: pages
+    values:
+      layout: default
+      image: /assets/social-preview.png
+
+include:
+  - .well-known
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - node_modules
+  - .jekyll-cache
+  - _site
+  - "*.gemspec"
