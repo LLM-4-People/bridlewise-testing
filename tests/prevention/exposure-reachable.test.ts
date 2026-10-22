@@ -1333,8 +1333,6 @@ describe("exposure is declared and reachable", () => {
       ["testExecution.webSuiteCpuPopulation", "testExecution.webUiSuiteCpuBudget.derivedAtTestFileCount"],
       ["testExecution.webSuitePopulationDriftTolerance", "testExecution.webUiSuiteCpuBudget.maxPopulationDriftFraction"],
       ["testExecution.webSuiteNoiseSpread", "testExecution.webUiSuiteCpuBudget.sameTreeSpreadFraction"],
-      ["testExecution.webSuiteAmbientInflationSlope", "testExecution.webUiSuiteCpuBudget.ambientInflationSlopePerCpu"],
-      ["testExecution.webSuiteAmbientInflationCap", "testExecution.webUiSuiteCpuBudget.ambientInflationCapFraction"],
       ["testExecution.webTestFileCostShareMax", "testExecution.webUiTestFileCostShareMax"],
       ["testExecution.integrationSuiteBudgetPhase", "testExecution.integrationSuiteCpuBudget"],
       ["testExecution.webSuiteStallTimeout", "testExecution.webSuiteWatchdog.stallTimeoutMs"],
@@ -1397,8 +1395,6 @@ describe("exposure is declared and reachable", () => {
         maxPopulationDriftFraction: 0.031,
         sameTreeSpreadFraction: 0.027,
         baselineWindowRuns: 13,
-        ambientInflationSlopePerCpu: 0.055,
-        ambientInflationCapFraction: 0.13,
       },
       webUiTestFileCostShareMax: 0.06,
       integrationSuiteCpuBudget: { phase: "accumulation", minimumJudgedRuns: 6, maxPopulationDriftFraction: 0.031 },
@@ -1428,11 +1424,9 @@ describe("exposure is declared and reachable", () => {
     expectSignal("testExecution.webSuiteNoiseSpread", "2.7% same-tree spread decides which runs feed the baseline");
     // No streak count is exposed: one judged run over the cap fails (UR-24-BUDGETS).
     expect(signalsByModule.has("testExecution.webSuiteOverCapStreak")).toBe(false);
-    expectSignal(
-      "testExecution.webSuiteAmbientInflationSlope",
-      "the gate pays 5.5% more allowance per unit of recorded 5-minute ambient load per CPU",
-    );
-    expectSignal("testExecution.webSuiteAmbientInflationCap", "the ambient allowance is capped at 13.0% of the baseline");
+    // No ambient allowance is exposed: a cap never moves with host load (NO-LOAD-BLOCK, audit A-08).
+    expect(signalsByModule.has("testExecution.webSuiteAmbientInflationSlope")).toBe(false);
+    expect(signalsByModule.has("testExecution.webSuiteAmbientInflationCap")).toBe(false);
     expectSignal("testExecution.webTestFileCostShareMax", "one test file may take at most 6% of the pool's worker time");
     expectSignal("testExecution.integrationSuiteBudgetPhase", "accumulation — at least 6 judged runs before the cap is derived");
     expectSignal("testExecution.webSuiteStallTimeout", "a run that prints nothing for 240 s is killed");
@@ -1451,8 +1445,6 @@ describe("exposure is declared and reachable", () => {
         unitsPerTestFile: 1500,
         derivedAtTestFileCount: 480,
         maxPopulationDriftFraction: 0.03,
-        ambientInflationSlopePerCpu: 0,
-        ambientInflationCapFraction: 0,
       },
     });
     expectSignal("testExecution.integrationSuiteBudgetPhase", "derived — 1500 calibration units of work per test file over 480 files");

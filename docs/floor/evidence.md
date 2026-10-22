@@ -231,7 +231,7 @@ npm run perf:profile
 ./node_modules/.bin/vitest run tests/performance/regression.test.ts
 ```
 
-Result: the profile passed 3 of 3 tests and the regression gate passed 36 of 36. The report carried `instrumentLock: "held"` and `treeIdentity.headSha` `2caada8f8272c987378e3f7484cb76fb21349577` with `dirty: false`, generated at 11:25:03Z. The report and its run record are gitignored and were not published. The conditions are the idle-host contract in [the test map](../testing.md#the-performance-profile-idle-host-contract).
+Result: the profile passed 3 of 3 tests and the regression gate passed 36 of 36. The report carried `instrumentLock: "held"` and `treeIdentity.headSha` `2caada8f8272c987378e3f7484cb76fb21349577` with `dirty: false`, generated at 11:25:03Z. The report and its run record are gitignored and were not published. The conditions are the idle-host contract in [the test map](../testing.md#the-performance-profile-any-host-contract).
 
 Measured against the configured budgets: page LCP 2144ms (1500), worst long task 199ms (100), tab switches 81.6 to 148.2ms (200), chat-input typing 23.49ms mean (60), isolated API maximum 2032ms on `GET /api/schema/ui/values` (250), long-chat (1000 messages) render 5100ms (2000), long-session DOM growth 549 nodes (1500), viewport LCP 852 to 1220ms (2000). The LCP, worst-long-task, API and long-chat budgets are red. The supported shard set does not judge them, and this page does not call the profile a pass.
 

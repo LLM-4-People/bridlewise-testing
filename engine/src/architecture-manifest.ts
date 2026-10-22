@@ -4431,7 +4431,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-shared-budget-verdict", path: "src/shared/budget-verdict.ts", realm: "shared", layer: "domain",
-      owner: "shared-abort-signals", publicApi: { exportCount: 36, namesSha256: "310d02bf545af1b9a8bda85d6d84ce1af44cf4f04d1cc1eeed53a22c9aa43ef7" },
+      owner: "shared-abort-signals", publicApi: { exportCount: 34, namesSha256: "c7eba694bab932223789862e818ac1cd26a1a10c4b0cbd9a3dab56700f7c8b78" },
       dependencies: [],
     }),
     moduleContract({
@@ -4510,7 +4510,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-test-run-lock", path: "scripts/tooling/test-run-lock.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 8, namesSha256: "6c419a2653b4377da6fde37e1b162f92b43481c35ae80a7849559ca37eca1eea" },
+      owner: "verification", publicApi: { exportCount: 7, namesSha256: "d9420e01f7730574ef3233d771832a0b4190b066b09f45340e58b8a98b9b1318" },
       dependencies: ["node:fs","node:path","node:url","src/filesystem/private-state.ts","src/kernel/test-surface-manifest.ts","src/process/instrument-lock.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
@@ -5471,7 +5471,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-process-instrument-lock", path: "src/process/instrument-lock.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 15, namesSha256: "1f95e60fefa070c81871da39894c29de13c62f17fff5381b3b2abe29254ad16c" },
+      owner: "process-infrastructure", publicApi: { exportCount: 12, namesSha256: "3bf053297e6a49b86a5b18544749b4c11322c93c64f0d591edcdf68ff45df43d" },
       dependencies: ["node:child_process","node:fs","node:path","src/filesystem/file-lock.ts","src/filesystem/path-identity.ts","src/filesystem/self-protection/keep-out.ts","src/filesystem/user-folders.ts","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/process/instrument-lock-adoption.ts","src/process/process-facts.ts","src/process/subprocess-bounds.ts"],
     }),
     moduleContract({
@@ -5511,7 +5511,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-kernel-web-performance-budgets", path: "src/kernel/web-performance-budgets.ts", realm: "shared", layer: "trusted-kernel",
-      owner: "architecture", publicApi: { exportCount: 3, namesSha256: "420b51dd6d29bbc97c77a370994d411c602a2b702125936e76854baa4057ff19" },
+      owner: "architecture", publicApi: { exportCount: 4, namesSha256: "8f2713e75b12eec024a955af9b0063dbcb71f355dad1f7426c9417f394d92322" },
       dependencies: [],
     }),
     moduleContract({

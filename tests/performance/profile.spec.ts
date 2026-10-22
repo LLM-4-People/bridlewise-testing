@@ -58,7 +58,6 @@
  */
 import { test, expect, type Response } from "@playwright/test";
 import { readdirSync, openSync, writeFileSync, closeSync } from "node:fs";
-import { currentInstrumentLockStamp } from "../../engine/scripts/tooling/test-run-lock.ts";
 import { resolve } from "node:path";
 
 import { readMeasuredSurfaceHash, readRepositoryHeadSha, readWorkingTreeDirty } from "../../engine/src/shared/tree-identity.ts";
@@ -937,7 +936,7 @@ test("profile the cockpit end to end", async ({ page, browserName }, testInfo) =
   });
   // Whether this profile ran inside the host's one instrument lock (taken by the
   // perf config's global setup): the regression gate judges only a held one.
-  await writeReport(REPORT_PATH, { ...report, instrumentLock: currentInstrumentLockStamp() });
+  await writeReport(REPORT_PATH, report);
   await testInfo.attach("profile-page-diagnostics", { body: JSON.stringify({ pageEvidence, failedResponses, pendingApi: [...pendingApi], pendingAll: [...pendingAll] }), contentType: "application/json" });
 
   // ── Inline safety assertions (coarse; precise gates in the regression test) ──

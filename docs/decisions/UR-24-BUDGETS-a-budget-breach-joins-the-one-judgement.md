@@ -4,9 +4,8 @@ date: 2026-10-07
 by: coordinator
 group: process
 status: in-force
-implementation: partial
-route: AMBIENT-ALLOWANCE-REMOVE
-acted_in: [engine/src/workflow/workspace-manager.ts, engine/src/workflow/failure-owners.ts, engine/src/kernel/root-policy.ts, engine/src/shared/budget-verdict.ts, scripts/testing/performance-measurements.ts]
+implementation: done
+acted_in: [engine/src/workflow/workspace-manager.ts, engine/src/workflow/failure-owners.ts, engine/src/kernel/root-policy.ts, engine/src/shared/budget-verdict.ts, scripts/testing/performance-measurements.ts, engine/src/kernel/web-performance-budgets.ts]
 ---
 # A budget breach joins the one judgement
 
@@ -27,48 +26,42 @@ the user's decision #2 of 2026-10-08 (round 12). It adds no second rule.
   - an open task row declares the budget, by its config key, for example
     `testExecution.webUiSuiteCpuBudget`, matched as a whole token
     (engine/src/workflow/failure-owners.ts);
-  - this change's value, measured inside the host's one instrument lock, is no
-    higher than the LOWEST value the target's tree recorded inside that lock.
-- **Only slotted rows count, on both sides.** An unslotted row may have shared
-  the cores with another heavy run, so it says nothing about the tree: only a
-  row stamped `heavySlot: "held"` feeds the rolling baseline or the measuring
-  tool's window (round 12), and a legacy row with no stamp feeds nothing.
-- **A target with no slotted run is measured first.** The workspace measures
-  the target in the lock (`ensureTargetBaselines`) and then judges strictly.
-  A target whose slotted runs carry no value of a budget an open row owns is
-  measured too, through the one sequencer (its suite's producers first: the
-  web suite's perf profile). There is no allowance and no re-run.
+  - this change's value is no higher than the LOWEST value the target's tree
+    recorded.
+- **Every recorded row counts, on both sides
+  ([NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md), built
+  2026-10-22).** A judged value is CPU work, valid whatever else ran on the
+  host, so no row is refused for having shared the cores: the `heavySlot`
+  stamp and its "unslotted" refusal and filters are deleted, and a legacy
+  row's stamp is ignored.
+- **A target with no run is measured first.** The workspace measures the
+  target (`ensureTargetBaselines`) and then judges strictly. A target whose
+  runs carry no value of a budget an open row owns is measured too, through
+  the one sequencer (its suite's producers first: the web suite's perf
+  profile). There is no allowance and no re-run.
 - **The web-UI performance budgets are judged here, and only here**
   (coordinator, LAND-OC-FIX round 9; UR-16). Their names and kinds are one
   list (`ROOT_POLICY.workflow.webPerformanceBudgets`). The web reporter reads
   the profile report's measurements (scripts/testing/performance-measurements.ts),
   records them in the run's row and fails a breach by its gate
   (`performance:<name>`); the regression gate's arms judge only the report's
-  integrity, never a budget. A report that cannot be judged — absent,
-  measured outside the lock, or of other code (`judgeableProfileReport`, the
-  one predicate) — FAILS the run (`performance-report`): an unmeasured budget
-  is never a pass, and the workspace judge counts any non-pass outcome of a
-  budget gate as a breach (round 12).
+  integrity, never a budget. A report that cannot be judged — absent or of
+  other code (`judgeableProfileReport`, the one predicate) — FAILS the run
+  (`performance-report`): an unmeasured budget is never a pass, and the
+  workspace judge counts any non-pass outcome of a budget gate as a breach
+  (round 12). A WALL-TIME budget (`WEB_PERFORMANCE_WALL_SIGNALS`: LCP, long
+  tasks, switch, typing, response and render times) is a recorded signal,
+  never a verdict (NO-LOAD-BLOCK, ruling of 2026-10-22): its outcome says its
+  value beside its budget and never fails a run.
 - **What fails.** All of the following fail:
-  - a breach with no slotted value on either side;
+  - a breach with no value on either side;
   - a worse value;
-  - an unslotted measurement;
   - an unowned breach;
   - any budget gate that `ROOT_POLICY.workflow.failureOwners.budgets` does not
     name.
 - **A read-only validation passes no breach.** It has no target to own one
   against.
-- **The ambient-load allowance still in code is said, numerically, in every
-  verdict.** The user removed it on 2026-10-07 (UD-AUDIT-NO-FORGIVENESS). It
-  is removed ATOMICALLY in the web writer's rebased workspace right after the
-  engine merge, as its FIRST item (AMBIENT-ALLOWANCE-REMOVE: the removal,
-  regenerated in round 13 with the floor re-derived from raw readings by the
-  measuring tool, checked on every run to still apply
-  (engine/test/workflow/parked-patches.test.ts), and kept in the repository at
-  docs/trackers/patches/AMBIENT-ALLOWANCE-REMOVE.patch, across engine/src/shared/budget-verdict.ts and the web writer's
-  tests/helpers/budget-config.ts). Until then every budget verdict, and every
-  report quoting one, states the allowance in force — +5.0% per unit of
-  5-minute load per CPU, capped at +12.0% — and what it added to that
-  verdict, so no pass reads as a strict one. "No allowance" in this decision
-  means no allowance BEYOND that one, stated; this decision is `partial`
-  until it is gone.
+- **No ambient-load allowance.** The user removed it on 2026-10-07
+  (UD-AUDIT-NO-FORGIVENESS); it is deleted from code and configuration
+  (2026-10-22). No cap moves with host load; the load legs are printed beside
+  every verdict as recorded signals.

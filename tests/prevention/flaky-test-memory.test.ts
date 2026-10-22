@@ -237,7 +237,7 @@ describe("flaky-test memory — the web suite's consumption of the shared verdic
     expect(containing?.offset, "the freshness arm must render directly inside its declared suite, not a neighboring or nested suite").toBe(suite.offset);
   });
 
-  test("the exclusion's data is the report's OWN recorded regeneration instant, for the gate suite's arms the ledger names — a touch moves nothing; an unreadable report, one measured outside the lock or one of other code proves nothing (design F6)", () => {
+  test("the exclusion's data is the report's OWN recorded regeneration instant, for the gate suite's arms the ledger names — a touch moves nothing; an unreadable report or one of other code proves nothing (design F6)", () => {
     // Derived from the artifact itself, never asserted by the operator: a
     // judgeable report contributes each gate-suite arm the ledger names (and
     // no other row) + the `generatedAt` the profile step wrote into it; any
@@ -249,7 +249,7 @@ describe("flaky-test memory — the web suite's consumption of the shared verdic
     const report = join(dir, "report.json");
     const regeneratedAt = new Date("2026-09-03T10:30:00.000Z");
     const planted = (fields: Readonly<Record<string, unknown>>): void => writeFileSync(report, JSON.stringify({
-      generatedAt: regeneratedAt.toISOString(), instrumentLock: "held", treeIdentity: { measuredSurfaceHash: readMeasuredSurfaceHash(process.cwd()) }, ...fields,
+      generatedAt: regeneratedAt.toISOString(), treeIdentity: { measuredSurfaceHash: readMeasuredSurfaceHash(process.cwd()) }, ...fields,
     }));
     planted({});
     // A touch long after: the file's time is not the report's.
@@ -262,8 +262,6 @@ describe("flaky-test memory — the web suite's consumption of the shared verdic
       { identity: presentArm, regeneratedAtMs: regeneratedAt.getTime() },
     ]);
     expect(reportRegeneration(rows, join(dir, "absent-report.json"))).toEqual([]);
-    planted({ instrumentLock: "unslotted" });
-    expect(reportRegeneration(rows, report), "measured outside the lock").toEqual([]);
     planted({ treeIdentity: { measuredSurfaceHash: "0".repeat(64) } });
     expect(reportRegeneration(rows, report), "of other code").toEqual([]);
   });

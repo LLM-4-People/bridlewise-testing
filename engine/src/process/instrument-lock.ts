@@ -28,10 +28,11 @@
  * record and makes no scope of its own (a nested scope would leave the
  * outer cap).
  *
- * THE STAMP every measurement carries ({@link instrumentLockStamp}): "held"
- * when this process runs inside an admitted run AND carries that run's own
- * token (`HARNESS_INSTRUMENT_LOCK_TOKEN`, the record's nonce), else
- * "unslotted". Retiring the stamp is the measurement half (audit A-04, A-07).
+ * NO MEASUREMENT STAMP. A reading used to count only when taken "held"
+ * (inside the one global lock) and was refused "unslotted" otherwise. Every
+ * judged cost is CPU work, valid beside other runs (NO-LOAD-BLOCK, audit
+ * A-04, A-05, A-07, A-12), so a run's admission says nothing about its
+ * measurement and nothing reads it.
  */
 import { dirname, isAbsolute, join } from "node:path";
 
@@ -41,7 +42,7 @@ import { readdirSync } from "node:fs";
 import { HarnessError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { identityOverlapIndex, resolveLocation } from "../filesystem/path-identity.ts";
-import { liveFileLockHolder, ownsFileLockHold, printableHolderLabel, tryAcquireFileLock, type FileLockContent } from "../filesystem/file-lock.ts";
+import { liveFileLockHolder, printableHolderLabel, tryAcquireFileLock, type FileLockContent } from "../filesystem/file-lock.ts";
 import { randomUuid } from "../kernel/integrity.ts";
 import { cpuLimitPrefix, type SubprocessBounds } from "./subprocess-bounds.ts";
 import { floorKeepOutVerdict } from "../filesystem/self-protection/keep-out.ts";
@@ -65,19 +66,11 @@ export type InstrumentLockConfig = Readonly<{
 /** One admitted run's cgroup caps (`systemd-run --user --scope -p MemoryMax=…% -p CPUWeight=…`). */
 export type PerRunCaps = Readonly<{ memoryMaxPercent: number; cpuWeight: number }>;
 
-/** Whether a measurement ran inside a live hold of the one instrument lock. */
-export type InstrumentLockStamp = "held" | "unslotted";
-
-/** The variable an owner exports its acquisition token (the record's nonce) in, for the stamp of everything it starts. */
-export const INSTRUMENT_LOCK_TOKEN_VARIABLE = "HARNESS_INSTRUMENT_LOCK_TOKEN";
-
 export type InstrumentHold = Readonly<{
   /** This process took the lock (a borrowed or light hold owns nothing). */
   owns: boolean;
   runner: string;
   path: string;
-  /** The measurement's stamp for the run this hold covers. */
-  stamp: InstrumentLockStamp;
   /** Frees an owned hold (idempotent; a borrowed or light hold frees nothing). */
   release: () => void;
 }>;
@@ -168,24 +161,12 @@ function enclosingRun(lockPath: string): Readonly<{ path: string; holder: FileLo
 }
 
 /**
- * "held" when this process runs inside an admitted run (see the header): its
- * OWN run, by the admission this process made (`ownsFileLockHold`); or an
- * ancestor's, by the run's token the owner exported to what it starts.
- */
-export function instrumentLockStamp(lockPath: string): InstrumentLockStamp {
-  const run = enclosingRun(lockPath);
-  if (run === undefined) return "unslotted";
-  if (run.holder.pid === process.pid) return ownsFileLockHold(run.path, run.holder.nonce) ? "held" : "unslotted";
-  return process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] === run.holder.nonce ? "held" : "unslotted";
-}
-
-/**
  * The run this process runs inside, BORROWED (it owns nothing and frees
  * nothing), or `undefined` when no admitted run covers it — never a take.
  */
 export function borrowInstrumentLock(lockPath: string, runner: string): InstrumentHold | undefined {
   if (enclosingRun(lockPath) === undefined) return undefined;
-  return deepFreeze({ owns: false, runner: printableHolderLabel(runner), path: lockPath, stamp: instrumentLockStamp(lockPath), release: () => undefined });
+  return deepFreeze({ owns: false, runner: printableHolderLabel(runner), path: lockPath, release: () => undefined });
 }
 
 /** The live admitted runs of the host, for a person: who, since when, how many adopted processes. Never waited on. */
@@ -240,18 +221,10 @@ export function admitInstrumentRun(lockPath: string, runner: string, caps: PerRu
   // Every supervisor this run starts goes under its caps: its own cgroup
   // scope (memory, CPU weight), then the CPU-time limit, then the supervisor.
   setOwnedInstrumentHold(answer.handle, ["systemd-run", ...perRunScopeArguments(caps), ...cpuLimitPrefix(cpu)]);
-  // The run's token, for the stamp of everything this process starts
-  // (its own stamp reads its admission); a token it inherited comes back on release.
-  const inherited = process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
-  process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = answer.handle.nonce;
   return deepFreeze({
-    owns: true, runner: label, path: lockPath, stamp: "held",
+    owns: true, runner: label, path: lockPath,
     release: () => {
       if (ownedInstrumentHold() === answer.handle) setOwnedInstrumentHold(undefined, undefined);
-      if (process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] === answer.handle.nonce) {
-        if (inherited === undefined) delete process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
-        else process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = inherited;
-      }
       answer.handle.release();
     },
   });
@@ -260,7 +233,7 @@ export function admitInstrumentRun(lockPath: string, runner: string, caps: PerRu
 /**
  * The hold for a run of `testFileCount` test files: an ADMITTED run when the
  * run is heavy ({@link admitInstrumentRun}), else a LIGHT hold that owns
- * nothing (its stamp still says whether it runs inside an admitted run). A
+ * nothing. A
  * heavy run with no declared registry is refused (`instrument_lock_undeclared`).
  */
 export function holdInstrumentLock(options: Readonly<{
@@ -276,7 +249,7 @@ export function holdInstrumentLock(options: Readonly<{
   }
   const lockPath = instrumentLockPath(options.config, options.harnessRoot);
   if (!isHeavyRun(options.config, options.testFileCount)) {
-    return deepFreeze({ owns: false, runner: options.runner, path: lockPath, stamp: instrumentLockStamp(lockPath), release: () => undefined });
+    return deepFreeze({ owns: false, runner: options.runner, path: lockPath, release: () => undefined });
   }
   return admitInstrumentRun(lockPath, options.runner, options.config.perRun, options.cpu);
 }
