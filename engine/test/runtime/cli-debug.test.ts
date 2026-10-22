@@ -141,7 +141,8 @@ test("the import-graph reader follows every import form, through the one specifi
 
 test("a dependency-free utility reaches no package: its whole import graph is node built-ins and the leaf entry-point module", () => {
   const utilities = Object.entries(NOT_BOOTSTRAPPED).filter(([, reason]) => reason.startsWith("a dependency-free CI utility")).map(([path]) => path);
-  assert.ok(utilities.length >= 4, "the dependency-free utilities are no longer declared");
+  // Two since the shard manifest and merge left with the hand-written shard workflow (#67): the generator's gates run through the harness.
+  assert.ok(utilities.length >= 2, "the dependency-free utilities are no longer declared");
   for (const path of utilities) assert.deepEqual(reachedPackages(path), [], `${path} is declared dependency-free but reaches a package`);
   // The reader is not vacuous: an entry point that runs the bootstrap reaches packages through it.
   assert.ok(reachedPackages("engine/scripts/verification/corpus.ts").length > 0, "the import-graph reader saw no package behind the bootstrap");
