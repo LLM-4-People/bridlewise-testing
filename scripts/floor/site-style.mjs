@@ -50,6 +50,10 @@
  *   `<script src>` or an element that loads media from another origin (a
  *   scheme or `//`): no font, sheet or script comes from elsewhere; and a
  *   fetching `<link>` to a `data:` resource (a second, hand-drawn mark).
+ * - a `<meta http-equiv="refresh">` or a `<base>`.
+ * This parse is fast feedback. The boundary is the Content-Security-Policy
+ * every page carries (`site-design.mjs` `sitePolicy`), which the browser
+ * enforces whatever spelling produced the markup.
  * Markdown pages are judged where they render, by the rendered-site checker
  * (#409): a parse of their source would read the prose's code spans as tags.
  *
@@ -263,6 +267,8 @@ export function siteMarkupViolations(html) {
       const attributes = new Map(node.attrs.map((attribute) => [attribute.name.toLowerCase(), attribute.value]));
       if (tag === "style") findings.push(`${at}<style>: the styles live in the token-reading stylesheets`);
       if (attributes.has("style")) findings.push(`${at}<${tag} style=…>: the styles live in the token-reading stylesheets`);
+      if (tag === "meta" && (attributes.get("http-equiv") ?? "").trim().toLowerCase() === "refresh") findings.push(`${at}<meta http-equiv="refresh">: a moved page names its place (data-moved-to), and the site's script follows it`);
+      if (tag === "base") findings.push(`${at}<base>: every address is the page's own (the policy's base-uri is 'none')`);
       if (tag === "link") {
         const rels = (attributes.get("rel") ?? "").toLowerCase().split(/\s+/u).filter(Boolean);
         const href = attributes.get("href") ?? "";

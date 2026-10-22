@@ -222,8 +222,9 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
     writeFileSync(
       join(directory, "index.html"),
       frontMatter({ layout: "default", page_class: "article", title: `Moved: ${name}` })
-        + `<div class="callout-warning" role="status">\n  <p>This page moved to <a href="${escapeHtml(target)}">${escapeHtml(target)}</a>.</p>\n</div>\n`
-        + `<script>location.replace(${JSON.stringify(target)});</script>\n`,
+        // The site's script follows `data-moved-to` (assets/js/site.js): the
+        // page's Content-Security-Policy runs no inline script.
+        + `<div class="callout-warning" role="status" data-moved-to="${escapeHtml(target)}">\n  <p>This page moved to <a href="${escapeHtml(target)}">${escapeHtml(target)}</a>.</p>\n</div>\n`,
     );
     redirectedPaths += 1;
   }

@@ -14,9 +14,9 @@ import { parse } from "yaml";
 
 import { SHARED_CSS } from "../../scripts/floor/design-coverage.mjs";
 import { buildSiteSource } from "../../scripts/floor/site.mjs";
-import { markInclude } from "../../scripts/floor/site-design.mjs";
+import { MARKDOWN_STYLE_ATTRIBUTES, markInclude, sitePolicy } from "../../scripts/floor/site-design.mjs";
 import { sitePlan } from "../../scripts/floor/site-pages.mjs";
-import { declaredTokens, judgeSiteStyles, siteMarkupViolations, siteStyleViolations, STYLE_BURN_DOWN } from "../../scripts/floor/site-style.mjs";
+import { declaredTokens, judgeSiteStyles, siteMarkupFiles, siteMarkupViolations, siteStyleViolations, STYLE_BURN_DOWN } from "../../scripts/floor/site-style.mjs";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
 import { readNames, readTokenOwner, themeColor, THEMES, tokenSheet } from "../../shared/token-reader.ts";
 
@@ -26,6 +26,8 @@ const OWNER = readTokenOwner(read("src/cockpit/tokens.css"));
 const TOKENS = declaredTokens(OWNER);
 const HEX = /#[0-9a-fA-F]{3,8}\b/u;
 const judge = (css) => siteStyleViolations(css, { tokens: TOKENS });
+/** The HTML pages under `directory` the build hands Jekyll, repository-relative. */
+const walkHtml = (directory) => siteMarkupFiles(join(ROOT, directory)).filter((path) => /\.html$/iu.test(path)).map((path) => `${directory}/${path}`);
 
 /** A scratch directory under the run's TMPDIR, removed afterwards. */
 function scratch(run) {
@@ -123,6 +125,8 @@ test("the layouts, includes and HTML pages hold no style of their own and load n
     ['<script src="https://cdn.example/x.js"></script>', /<script src> loads from elsewhere/u],
     ['<img alt="" srcset="a.png 1x, https://cdn.example/b.png 2x">', /<img srcset> loads from elsewhere/u],
     ['<link rel="icon" href="data:image/svg+xml,%3Csvg%3E">', /inlines a data: resource/u],
+    ['<meta http-equiv="Refresh" content="0; url=https://example.org/">', /<meta http-equiv="refresh">/u],
+    ['<base href="https://cdn.example/">', /<base>/u],
   ];
   for (const [html, expected] of planted) {
     const findings = siteMarkupViolations(html);
@@ -136,6 +140,29 @@ test("the layouts, includes and HTML pages hold no style of their own and load n
     "<p>The word style, a style sheet and a <code>style</code> attribute named in prose.</p>",
   ];
   for (const html of nearMisses) assert.deepEqual(siteMarkupViolations(html), [], `near-miss: ${html}`);
+});
+
+test("every page carries the one Content-Security-Policy first: only the site's own files load, no inline script or style", () => {
+  const policy = new Map(sitePolicy().split("; ").map((directive) => {
+    const [name, ...values] = directive.split(" ");
+    return [name, values];
+  }));
+  for (const name of ["default-src", "script-src", "style-src", "font-src", "img-src", "connect-src", "form-action"]) assert.deepEqual(policy.get(name), ["'self'"], `${name} is 'self' only`);
+  for (const name of ["object-src", "base-uri"]) assert.deepEqual(policy.get(name), ["'none'"], `${name} is 'none'`);
+  assert.ok(!sitePolicy().includes("unsafe-inline") && !sitePolicy().includes("unsafe-eval"), "no inline script or style, no eval");
+  const [unsafeHashes, ...hashes] = policy.get("style-src-attr");
+  assert.equal(unsafeHashes, "'unsafe-hashes'");
+  assert.equal(hashes.length, MARKDOWN_STYLE_ATTRIBUTES.length, "only the Markdown table alignments, by hash");
+  assert.deepEqual(MARKDOWN_STYLE_ATTRIBUTES, ["text-align: left", "text-align: center", "text-align: right"]);
+  // The base layout and every HTML page include it right after the charset,
+  // before anything that loads.
+  const pages = ["docs/_layouts/default.html", ...walkHtml("docs")];
+  for (const path of pages) {
+    const text = read(path);
+    if (!/<head>/iu.test(text)) continue;
+    assert.match(text, /<meta charset="utf-8">\n {2}\{% include csp\.html %\}\n/u, `${path} includes the policy right after its charset`);
+    assert.doesNotMatch(text, /<script>|<script type="module">/u, `${path} holds no inline script`);
+  }
 });
 
 test("the file set is the build input: a Sass source anywhere is refused; the token sheet is the generator's", () => {
