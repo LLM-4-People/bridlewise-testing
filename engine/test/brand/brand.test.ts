@@ -7,11 +7,14 @@
  * and every surface renders from the sources alone, escaped and promise-free.
  */
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { InputError } from "../../src/kernel/errors.ts";
 import { claimViolations, decisionStates, readClaims, type Claim } from "../../scripts/brand/claims.ts";
+import { readStatus } from "../../scripts/brand/cli.ts";
 import { messagingViolations, readMessaging, type Messaging } from "../../scripts/brand/messaging.ts";
 import { brandSite, judgeClaims, orgProfile, readmeHero, releaseHeader, repositoryMetadata, VERDICT_WORDS } from "../../scripts/brand/render.ts";
 
@@ -121,4 +124,15 @@ test("every surface renders from the sources: escaped, honest, the retraction vi
   assert.deepEqual(site.claims[2]!.proof, { label: "UR-17", href: "https://github.com/o/r/blob/main/docs/decisions/UR-17-no-fallbacks.md", implementation: "standing" });
   assert.equal(site.claims[3]!.reason, "None exists.");
   assert.deepEqual(brandSite(MESSAGING, judged, COMMIT, decisions), site, "deterministic");
+});
+
+test("the status snapshot is read whole: its commit, its time and its checks, or refused", () => {
+  const dir = mkdtempSync(join(tmpdir(), "brand-status-"));
+  const write = (document: unknown): string => { const path = join(dir, `${String(Math.random()).slice(2)}.json`); writeFileSync(path, JSON.stringify(document)); return path; };
+  const good = { schemaVersion: "bridlewise-floor-status/v1", generatedAt: "2026-10-22T12:00:00.000Z", source: { commit: COMMIT }, checks: [{ id: "testing.ci", status: "pass", headSha: COMMIT, runUrl: null }] };
+  assert.deepEqual(readStatus(write(good)), { commit: COMMIT, generatedAt: good.generatedAt, checks: good.checks });
+  for (const broken of [{ ...good, generatedAt: undefined }, { ...good, generatedAt: "yesterday" }, { ...good, source: {} }, { ...good, checks: null }, { ...good, schemaVersion: "x" }]) {
+    assert.throws(() => readStatus(write(broken)), (error: unknown) => error instanceof InputError && error.code === "claims_status_invalid");
+  }
+  rmSync(dir, { recursive: true, force: true });
 });
