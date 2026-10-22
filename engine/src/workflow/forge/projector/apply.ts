@@ -50,7 +50,7 @@ import { HarnessError } from "../../../kernel/errors.ts";
 import { canonicalHash, canonicalJson, deepFreeze } from "../../../kernel/integrity.ts";
 import { schemaId } from "../../../kernel/product-identity.ts";
 import { auditEvent, debugLog } from "../../../shared/debug/debug-system.ts";
-import { BORN_FIELDS, FIELD_PHASES, PROJECTION_CLASSES, WRITE_PHASES, type Fields, type Json, type ProjectedObject, type Projection, type ProjectionClass } from "./model.ts";
+import { BORN_FIELDS, FIELD_PHASES, PROJECTION_CLASSES, PROJECTOR_OWNED_FIELDS, WRITE_PHASES, type Fields, type Json, type ProjectedObject, type Projection, type ProjectionClass } from "./model.ts";
 import type { LiveObject, ProjectionStore, ProjectionWrite } from "./store.ts";
 
 const PROJECTION_RECEIPT_SCHEMA = schemaId("projection-receipt", 1);
@@ -213,10 +213,18 @@ export async function applyProjection(projection: Projection, store: ProjectionS
       return recorded !== undefined && valueDigest(current.fields[field]) !== recorded;
     }).sort();
     if (edited.length === 0) continue;
-    foreignEdits.push({ class: object.class, key: object.key, change: "edited", fields: edited, mode: options.foreignEdit, action });
-    if (options.foreignEdit === "approval") proposals.push({ class: object.class, key: object.key, change: "edited", fields: Object.fromEntries(edited.map((field) => [field, current.fields[field] ?? null])) });
-    if (options.foreignEdit !== "auto") heldFields.set(id(object), new Set(edited));
-    auditEvent("forge.projection.drift", { class: object.class, key: object.key, change: "edited", fields: edited, mode: options.foreignEdit, action });
+    // A field no record holds never flows back as a record change: it is re-projected in every mode.
+    const projected = edited.filter((field) => PROJECTOR_OWNED_FIELDS[object.class].includes(field));
+    if (projected.length > 0) {
+      foreignEdits.push({ class: object.class, key: object.key, change: "edited", fields: projected, mode: options.foreignEdit, action: "restored" });
+      auditEvent("forge.projection.drift", { class: object.class, key: object.key, change: "edited", fields: projected, mode: options.foreignEdit, action: "restored" });
+    }
+    const recorded = edited.filter((field) => !projected.includes(field));
+    if (recorded.length === 0) continue;
+    foreignEdits.push({ class: object.class, key: object.key, change: "edited", fields: recorded, mode: options.foreignEdit, action });
+    if (options.foreignEdit === "approval") proposals.push({ class: object.class, key: object.key, change: "edited", fields: Object.fromEntries(recorded.map((field) => [field, current.fields[field] ?? null])) });
+    if (options.foreignEdit !== "auto") heldFields.set(id(object), new Set(recorded));
+    auditEvent("forge.projection.drift", { class: object.class, key: object.key, change: "edited", fields: recorded, mode: options.foreignEdit, action });
   }
   const planned = planProjection(projection, live);
   // A held field is dropped from its write, a held object's writes all; everything else is written.
