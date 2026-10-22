@@ -30,6 +30,17 @@ test("every credential-bearing header, in any case, is sensitive", () => {
   for (const name of CREDENTIAL_BEARING) for (const spelling of spellings(name)) assert.equal(isSensitiveHeaderName(spelling), true, spelling);
 });
 
+test("a header whose value is a URL is sensitive: a redirect to a signed download carries its token in the query string", () => {
+  const signed = "https://objects.example.net/release-asset/123?X-Amz-Signature=0123abcd&X-Amz-Credential=AKIDEXAMPLE&token=t0k3n#frag";
+  const link = `<${signed}>; rel="next"`;
+  for (const name of ["Location", "Link", "Content-Location", "Refresh"]) for (const spelling of spellings(name)) assert.equal(isSensitiveHeaderName(spelling), true, spelling);
+  const redacted = redactHeaders({ Location: signed, Link: link, "Content-Type": "application/octet-stream" });
+  assert.equal(redacted["Location"], `<redacted:${signed.length}>`);
+  assert.equal(redacted["Link"], `<redacted:${link.length}>`);
+  assert.equal(redacted["Content-Type"], "application/octet-stream");
+  assert.ok(!JSON.stringify(redacted).includes("0123abcd") && !JSON.stringify(redacted).includes("t0k3n"), "no part of the signed URL survives");
+});
+
 test("a header nobody has named is sensitive BY DEFAULT", () => {
   for (let index = 0; index < 32; index += 1) {
     const unknown = `X-${randomBytes(6).toString("hex")}`;

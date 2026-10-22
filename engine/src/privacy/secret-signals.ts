@@ -514,13 +514,14 @@ export function isSensitiveKeyName(key: string): boolean {
  * without anyone having to think of it. A name joins this list only when its value is never a credential:
  * content negotiation and framing, caching and conditional requests, and the GitHub request-id and
  * rate-limit headers the forge reads. A session id (`Mcp-Session-Id`, `Session-Id`) is a bearer of access
- * and never belongs here.
+ * and never belongs here; neither does a header whose value is a URL (`Location`, `Link`, `Content-Location`,
+ * `Refresh`): a redirect to a signed download carries its token in the query string.
  */
 export const NON_CREDENTIAL_HEADER_NAMES: ReadonlySet<string> = new Set([
   "accept", "accept-charset", "accept-encoding", "accept-language",
   "cache-control", "connection", "content-encoding", "content-language", "content-length", "content-type",
-  "date", "etag", "if-match", "if-modified-since", "if-none-match", "keep-alive", "last-modified", "link",
-  "location", "mcp-protocol-version", "pragma", "retry-after", "transfer-encoding", "user-agent", "vary",
+  "date", "etag", "if-match", "if-modified-since", "if-none-match", "keep-alive", "last-modified",
+  "mcp-protocol-version", "pragma", "retry-after", "transfer-encoding", "user-agent", "vary",
   "x-github-api-version", "x-github-media-type", "x-github-request-id",
   "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "x-ratelimit-resource", "x-ratelimit-used",
 ]);
