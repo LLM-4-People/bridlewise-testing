@@ -29,7 +29,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { InputError } from "../../kernel/errors.ts";
+import { INPUT_ERROR_CODE, InputError } from "../../kernel/errors.ts";
 import { canonicalJson, deepFreeze } from "../../kernel/integrity.ts";
 import { repositoryToplevel } from "../../git/repository-ownership.ts";
 import { readMeasuredTree, readRepositoryHeadSha } from "../../shared/tree-identity.ts";
@@ -51,6 +51,19 @@ import { loadPinnedConfigSnapshot } from "../../kernel/config.ts";
 import { checkoutCommandRunner, configuredCheckoutCommandRunner, runDeclaredCommands } from "../checkout-setup.ts";
 import { registryCommand, runLightGate, runShard, type RunEnvironment } from "./cell-run.ts";
 import { parseJobOutcomes, readResults, renderReceipt, sealReceipt } from "./seal.ts";
+
+/**
+ * What CI hands a gates verb through the environment (GitHub's own variables,
+ * the plan step's fork and cold flags, and the seal step's `needs` outcomes):
+ * read by name, never as configuration.
+ */
+const CI_EVENT_VARIABLE = "GITHUB_EVENT_NAME";
+const JOB_RESULTS_VARIABLE = "JOB_RESULTS";
+const STEP_SUMMARY_VARIABLE = "GITHUB_STEP_SUMMARY";
+const REPOSITORY_VARIABLE = "GITHUB_REPOSITORY";
+const FORK_VARIABLE = "FORK";
+const COLD_VARIABLE = "COLD";
+const COMMIT_VARIABLE = "GITHUB_SHA";
 
 const VERBS = ["list", "population", "plan", "reuse", "main-integrity", "setup", "run", "shard", "seal"] as const;
 
@@ -82,20 +95,20 @@ function options(verb: string, argv: readonly string[], declared: Readonly<Recor
   try {
     parsed = parseArgs({ args: [...argv], options: Object.fromEntries(Object.keys(declared).map((name) => [name, { type: "string" as const }])), allowPositionals: true, strict: true });
   } catch (error) {
-    throw new InputError(`gates ${verb}: ${(error as Error).message}`, "input_error");
+    throw new InputError(`gates ${verb}: ${(error as Error).message}`, INPUT_ERROR_CODE);
   }
-  if (parsed.positionals.length !== positionals) throw new InputError(`gates ${verb} takes ${positionals} positional argument(s)`, "input_error");
+  if (parsed.positionals.length !== positionals) throw new InputError(`gates ${verb} takes ${positionals} positional argument(s)`, INPUT_ERROR_CODE);
   return { values: parsed.values as Record<string, string | undefined>, positionals: parsed.positionals };
 }
 
 function required(verb: string, values: Readonly<Record<string, string | undefined>>, name: string): string {
   const value = values[name];
-  if (value === undefined || value === "") throw new InputError(`gates ${verb} requires --${name}`, "input_error");
+  if (value === undefined || value === "") throw new InputError(`gates ${verb} requires --${name}`, INPUT_ERROR_CODE);
   return value;
 }
 
 /** Plans the working tree of the repository holding `engineRoot`. */
-export async function planWorkingTree(repositoryRoot: string): Promise<GatePlan> {
+async function planWorkingTree(repositoryRoot: string): Promise<GatePlan> {
   const headSha = readRepositoryHeadSha(repositoryRoot);
   const treeId = readMeasuredTree(repositoryRoot);
   if (headSha === null || treeId === null) throw new InputError(`cannot read the head commit and tree of ${repositoryRoot}`, "gate_repository_unknown");
@@ -106,18 +119,18 @@ export async function planWorkingTree(repositoryRoot: string): Promise<GatePlan>
 }
 
 /** The registry and the one runner, as the configuration declares them (the native supervisor built first). */
-function configuredRunner(repositoryRoot: string): Pick<RunEnvironment, "registry" | "run" | "tell"> {
+function configuredRunner(repositoryRoot: string, tell: (line: string) => void): Pick<RunEnvironment, "registry" | "run" | "tell"> {
   const { document } = loadPinnedConfigSnapshot();
   const isolation = document.workspaceIsolation;
   if (isolation === undefined) throw new InputError("the configuration declares no workspaceIsolation section: the command registry the gates run is absent", "gate_registry_absent");
   const runner = configuredCheckoutCommandRunner(document, isolation, testProcessSupervisorBinary());
-  return { registry: isolation.commands, run: checkoutCommandRunner(repositoryRoot, runner), tell: (line) => process.stderr.write(`${line}\n`) };
+  return { registry: isolation.commands, run: checkoutCommandRunner(repositoryRoot, runner), tell };
 }
 
-export async function runGatesCli(engineRoot: string, argv: readonly string[]): Promise<CommandAnswer> {
+export async function runGatesCli(engineRoot: string, argv: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer> {
   const [verb, ...rest] = argv;
   if (verb === undefined || !(VERBS as readonly string[]).includes(verb)) {
-    throw new InputError(`harness gates <${VERBS.join("|")}> (got ${JSON.stringify(verb ?? "")})`, "input_error");
+    throw new InputError(`harness gates <${VERBS.join("|")}> (got ${JSON.stringify(verb ?? "")})`, INPUT_ERROR_CODE);
   }
   const repositoryRoot = repositoryRootOf(engineRoot);
   if (verb === "list") {
@@ -127,7 +140,7 @@ export async function runGatesCli(engineRoot: string, argv: readonly string[]): 
   if (verb === "population") {
     const { positionals } = options(verb, rest, {}, 1);
     const name = positionals[0]!;
-    if (name !== "web-tests" && name !== "engine-tests") throw new InputError(`gates population: unknown population ${JSON.stringify(name)} (web-tests, engine-tests)`, "input_error");
+    if (name !== "web-tests" && name !== "engine-tests") throw new InputError(`gates population: unknown population ${JSON.stringify(name)} (web-tests, engine-tests)`, INPUT_ERROR_CODE);
     const listing = await listPopulation(repositoryRoot, name);
     return {
       result: wrapResult("gates", deepFreeze({ population: listing.population, source: listing.source, files: listing.files, excluded: listing.excluded }), { status: "pass" }),
@@ -147,12 +160,12 @@ export async function runGatesCli(engineRoot: string, argv: readonly string[]): 
     let reuseRun = "";
     if (reuseLookup) {
       const client = githubClient(forgeEndpoint(configuredForge()), environmentCredential("ci", "GH_TOKEN"));
-      const repository = repositoryOf(process.env.GITHUB_REPOSITORY);
+      const repository = repositoryOf(process.env[REPOSITORY_VARIABLE]);
       const git = configuredGitRepository(loadPinnedConfigSnapshot().document, repositoryRoot);
       const base = resolveRevision(git, "HEAD^1", "commit");
       const eligibility = reuseEligibility({
-        fork: process.env.FORK === "true",
-        cold: process.env.COLD === "true" || process.env.GITHUB_EVENT_NAME === "schedule",
+        fork: process.env[FORK_VARIABLE] === "true",
+        cold: process.env[COLD_VARIABLE] === "true" || process.env[CI_EVENT_VARIABLE] === "schedule",
         generatorChanged: base === null || pipelineChanged(git, "HEAD", base),
         failedBefore: (await findVerdictLocator(client, repository, plan.keyDigest, "failure")) !== null,
       });
@@ -166,10 +179,10 @@ export async function runGatesCli(engineRoot: string, argv: readonly string[]): 
   if (verb === "main-integrity") {
     // THE POST-LAND SEAL: this main commit must be a tree the door judged (main-integrity.ts).
     const [mode, ...flagsAfter] = rest;
-    const sha = process.env.GITHUB_SHA ?? "";
+    const sha = process.env[COMMIT_VARIABLE] ?? "";
     if (!/^[0-9a-f]{40}$/u.test(sha)) throw new InputError("gates main-integrity runs on a push to main: GITHUB_SHA names no commit", "main_integrity_unreadable");
     const client = githubClient(forgeEndpoint(configuredForge()), environmentCredential("ci", "GH_TOKEN"));
-    const repository = repositoryOf(process.env.GITHUB_REPOSITORY);
+    const repository = repositoryOf(process.env[REPOSITORY_VARIABLE]);
     const check = await doorCheckOn(client, repository, sha);
     if (mode === "locate") {
       const { values } = options("main-integrity locate", flagsAfter, { "github-output": "string" }, 0);
@@ -177,7 +190,7 @@ export async function runGatesCli(engineRoot: string, argv: readonly string[]): 
       if (values["github-output"] !== undefined) appendFileSync(values["github-output"], `key=${check?.key ?? ""}\ndoor-run=${locator === null ? "" : String(locator.runId)}\n`);
       return { result: wrapResult("gates", deepFreeze({ check: check !== null, located: locator !== null }), { status: "pass" }) };
     }
-    if (mode !== "judge") throw new InputError("gates main-integrity <locate|judge>", "input_error");
+    if (mode !== "judge") throw new InputError("gates main-integrity <locate|judge>", INPUT_ERROR_CODE);
     const { values } = options("main-integrity judge", flagsAfter, { keydoc: "string", proof: "string" }, 0);
     const keydocPath = values.keydoc;
     const proofPath = values.proof;
@@ -198,15 +211,15 @@ export async function runGatesCli(engineRoot: string, argv: readonly string[]): 
     const plan = readPlanFile(planPath);
     const proof = judgeReuseProof(plan.keyDigest, readFileSync(required(verb, values, "keydoc")), JSON.parse(readFileSync(required(verb, values, "proof"), "utf8")));
     const doorRun = Number(required(verb, values, "door-run"));
-    if (!Number.isSafeInteger(doorRun) || doorRun <= 0) throw new InputError("gates reuse: --door-run is not a run id", "input_error");
+    if (!Number.isSafeInteger(doorRun) || doorRun <= 0) throw new InputError("gates reuse: --door-run is not a run id", INPUT_ERROR_CODE);
     const reused = reusedPlan(plan, { key: proof.key, doorRun, predicate: proof.predicate });
     writeFileSync(planPath, `${canonicalJson(reused)}\n`);
     if (values["github-output"] !== undefined) appendFileSync(values["github-output"], "cells=[]\nreuse=true\n");
     return { result: wrapResult("gates", deepFreeze({ reused: proof.key, doorRun }), { status: "pass" }) };
   }
   if (verb === "setup") {
-    if (rest.length === 0 || rest.some((name) => name.startsWith("-"))) throw new InputError("gates setup takes the registry setup commands to run", "input_error");
-    const configured = configuredRunner(repositoryRoot);
+    if (rest.length === 0 || rest.some((name) => name.startsWith("-"))) throw new InputError("gates setup takes the registry setup commands to run", INPUT_ERROR_CODE);
+    const configured = configuredRunner(repositoryRoot, onProgress);
     for (const name of rest) registryCommand(configured.registry, name);
     const steps = await runDeclaredCommands({ commands: configured.registry }, "gate setup", rest, async (name, command) => {
       const step = await configured.run(name, command);
@@ -219,19 +232,19 @@ export async function runGatesCli(engineRoot: string, argv: readonly string[]): 
   if (verb === "run" || verb === "shard") {
     const { values, positionals } = options(verb, rest, { plan: "string", out: "string" }, 1);
     const plan = readPlanFile(required(verb, values, "plan"));
-    const environment: RunEnvironment = { repositoryRoot, outDirectory: resolve(required(verb, values, "out")), ...configuredRunner(repositoryRoot) };
+    const environment: RunEnvironment = { repositoryRoot, outDirectory: resolve(required(verb, values, "out")), ...configuredRunner(repositoryRoot, onProgress) };
     const result = verb === "run" ? await runLightGate(plan, positionals[0]!, environment) : await runShard(plan, positionals[0]!, environment);
     return { result: wrapResult("gates", deepFreeze({ cell: result.cell, status: result.status, ...(result.refusal === undefined ? {} : { refusal: result.refusal }) }), { status: result.status === "passed" ? "pass" : "fail" }) };
   }
   const { values } = options(verb, rest, { plan: "string", results: "string", out: "string", event: "string" }, 0);
   const plan = readPlanFile(required(verb, values, "plan"));
-  const event = values.event ?? process.env.GITHUB_EVENT_NAME;
-  if (event === undefined || event === "") throw new InputError("gates seal needs the event (--event, or GITHUB_EVENT_NAME in CI)", "input_error");
-  const receipt = sealReceipt({ plan, results: readResults(resolve(required(verb, values, "results"))), jobs: parseJobOutcomes(process.env.JOB_RESULTS), event });
+  const event = values.event ?? process.env[CI_EVENT_VARIABLE];
+  if (event === undefined || event === "") throw new InputError("gates seal needs the event (--event, or GITHUB_EVENT_NAME in CI)", INPUT_ERROR_CODE);
+  const receipt = sealReceipt({ plan, results: readResults(resolve(required(verb, values, "results"))), jobs: parseJobOutcomes(process.env[JOB_RESULTS_VARIABLE]), event });
   const out = resolve(required(verb, values, "out"));
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, "receipt.json"), `${canonicalJson(receipt)}\n`);
-  const summary = process.env.GITHUB_STEP_SUMMARY;
+  const summary = process.env[STEP_SUMMARY_VARIABLE];
   if (summary !== undefined && summary !== "") appendFileSync(summary, renderReceipt(receipt));
   return {
     result: wrapResult("gates", deepFreeze({ verdict: receipt.verdict, refusals: receipt.refusals, failed: receipt.gates.filter((gate) => gate.status === "failed").map((gate) => gate.id) }), { status: receipt.verdict === "passed" ? "pass" : "fail" }),

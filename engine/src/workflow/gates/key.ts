@@ -22,14 +22,14 @@ import { cpus } from "node:os";
 import { join } from "node:path";
 
 import { InputError } from "../../kernel/errors.ts";
-import { canonicalHash, canonicalJson, deepFreeze, sha256 } from "../../kernel/integrity.ts";
+import { canonicalHash, deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 import { GATE_CATALOGUE_VERSION, GATE_RUNNER } from "./catalogue.ts";
 
-export const GATE_KEY_SCHEMA = schemaId("gate-key", 1);
+const GATE_KEY_SCHEMA = schemaId("gate-key", 1);
 
 /** The files the toolchain part of K digests, repository-relative. */
-export const KEY_INPUT_FILES = deepFreeze({
+const KEY_INPUT_FILES = deepFreeze({
   nodeVersion: ".nvmrc",
   webLockfile: "package-lock.json",
   engineLockfile: "engine/package-lock.json",
@@ -81,7 +81,7 @@ function readable(path: string): string | null {
 }
 
 /** The capability probes of THIS machine (each a read of what the kernel exposes, never an assumption). */
-export function probeRunner(): RunnerProbes {
+function probeRunner(): RunnerProbes {
   const lsm = readable("/sys/kernel/security/lsm") ?? "";
   const maxNamespaces = Number.parseInt(readable("/proc/sys/user/max_user_namespaces") ?? "0", 10);
   return deepFreeze({
@@ -121,11 +121,6 @@ export function gateKeyDocument(inputs: KeyInputs): GateKeyDocument {
     config: tree.config,
     runner: { class: inputs.runnerClass ?? GATE_RUNNER, probes: inputs.probes },
   });
-}
-
-/** The key document's bytes: canonical JSON, the attestation's subject. */
-export function keyDocumentBytes(document: GateKeyDocument): string {
-  return canonicalJson(document);
 }
 
 /** K: the sha256 of the key document's canonical bytes. */

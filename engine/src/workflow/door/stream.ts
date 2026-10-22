@@ -21,10 +21,10 @@ import { InputError } from "../../kernel/errors.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import type { ForgeClient } from "../forge/port.ts";
 import { branchTip, cancelWorkflowRun, dispatchWorkflow, getWorkflowRun, listRunArtifacts, listRunJobs, refExists, writeCheckRun, findCheckRun, type ArtifactFacts, type Repository } from "./door-github.ts";
-import { DOOR_READ_PAGES } from "./judge.ts";
+import { DOOR_LIMITS } from "./door-config.ts";
 
 /** The artifacts the generated pipeline uploads, with each kind's size bound. */
-export const ARTIFACT_POLICY = deepFreeze({
+const ARTIFACT_POLICY = deepFreeze({
   kinds: [
     { pattern: /^gate-plan$/u, maxBytes: 8 * 1024 * 1024 },
     { pattern: /^gate-results-[a-z0-9-]{1,80}$/u, maxBytes: 64 * 1024 * 1024 },
@@ -56,7 +56,7 @@ export function judgeArtifacts(artifacts: readonly ArtifactFacts[]): readonly Pr
 }
 
 export async function preflightArtifacts(client: ForgeClient, repository: Repository, runId: number): Promise<readonly PreflightFinding[]> {
-  return judgeArtifacts(await listRunArtifacts(client, repository, runId, DOOR_READ_PAGES));
+  return judgeArtifacts(await listRunArtifacts(client, repository, runId, DOOR_LIMITS.readPages));
 }
 
 export type StreamOptions = Readonly<{
@@ -83,13 +83,13 @@ export async function streamProgress(client: ForgeClient, repository: Repository
       await writeCheckRun(client, repository, run.headSha, { status: "completed", conclusion: "cancelled", title: "Dequeued: the merge group was destroyed", summary: `The queue dropped this group (its ref ${run.headBranch} is gone), so its CI run was cancelled to free the job slots.` }, checkId);
       return "dequeued";
     }
-    const jobs = await listRunJobs(client, repository, run.id, DOOR_READ_PAGES);
+    const jobs = await listRunJobs(client, repository, run.id, DOOR_LIMITS.readPages);
     const done = jobs.filter((job) => job.status === "completed").length;
     const failed = jobs.filter((job) => job.conclusion === "failure").map((job) => job.name);
     const table = ["| Job | State |", "|---|---|", ...jobs.map((job) => `| ${job.name} | ${job.conclusion ?? job.status} |`)].join("\n");
     checkId = await writeCheckRun(client, repository, run.headSha, {
       status: "in_progress",
-      title: `${String(done)} of ${String(jobs.length)} jobs done${failed.length === 0 ? "" : `; failing so far: ${failed.slice(0, 5).join(", ")}`}`,
+      title: `${String(done)} of ${String(jobs.length)} jobs done${failed.length === 0 ? "" : `; failing so far: ${failed.slice(0, DOOR_LIMITS.failingJobsNamed).join(", ")}`}`,
       summary: `Live progress of [the CI run](https://github.com/${repository.owner}/${repository.name}/actions/runs/${String(run.id)}) (display only: the verdict comes from the completed run).\n\n${table}`,
     }, checkId);
     if (now() + options.intervalMs > options.deadline) return "deadline";

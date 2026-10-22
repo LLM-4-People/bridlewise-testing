@@ -68,7 +68,7 @@ export function judgeVitestReport(report: unknown, repositoryRoot: string, plann
       const path = reportPath(repositoryRoot, result.name, planned);
       if (result.status !== "passed") refuse(`${path} records a ${String(result.status)} test suite (the summary claimed green)`);
       if (result.message !== undefined && result.message !== null && String(result.message).length > 0) {
-        refuse(`${path} records a passed suite carrying a failure message: ${String(result.message).slice(0, 200)}`);
+        refuse(`${path} records a passed suite carrying a failure message: ${String(result.message)}`);
       }
       const assertions = result.assertionResults;
       if (!Array.isArray(assertions)) refuse(`${path} has no assertionResults; its test-level result cannot be judged`);
@@ -79,7 +79,7 @@ export function judgeVitestReport(report: unknown, repositoryRoot: string, plann
         if (assertion.status !== "passed") refuse(`${path} records a ${String(assertion.status)} test (the summary claimed green)`);
         const messages = assertion.failureMessages;
         const recorded = Array.isArray(messages) ? messages.map(String).join("\n") : messages === undefined || messages === null ? "" : String(messages);
-        if (recorded.length > 0) refuse(`${path} records a passed test carrying failure messages: ${recorded.slice(0, 200)}`);
+        if (recorded.length > 0) refuse(`${path} records a passed test carrying failure messages: ${recorded}`);
       }
       return { path, tests: (assertions as unknown[]).length };
     });

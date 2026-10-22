@@ -1,5 +1,4 @@
 import { once } from "node:events";
-import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { Transform } from "node:stream";
 import { finished } from "node:stream/promises";
@@ -977,14 +976,4 @@ function uniqueObservedIds(expectedIds: readonly string[], observedIds: readonly
   const frequencies = new Map<string, number>();
   for (const id of observedIds) frequencies.set(id, (frequencies.get(id) ?? 0) + 1);
   return expectedIds.filter((id) => frequencies.get(id) === 1);
-}
-
-/**
- * THE ONE READER OF AN ENGINE CELL FILE (`run-tests --cell <file>`, the gate
- * catalogue's engine cells): one engine-relative test source per line, blank
- * lines ignored. The worker dispatches these sources (`cellSourceIds`) and the
- * runner sizes its instrument-lock request by them.
- */
-export function readCellSources(path: string): ReadonlySet<string> {
-  return new Set(readFileSync(path, "utf8").split("\n").map((line) => line.trim()).filter((line) => line.length > 0));
 }

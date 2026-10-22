@@ -37,7 +37,8 @@ import { canonicalJson, deepFreeze } from "../../kernel/integrity.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 import { readMeasuredTree, readRepositoryHeadSha } from "../../shared/tree-identity.ts";
 import type { CheckoutCommand, CheckoutStep } from "../checkout-setup.ts";
-import { GATE_CATALOGUE, gateById, type Gate } from "./catalogue.ts";
+import { TEST_RUN_SUMMARY_PATH } from "../test-result-collector.ts";
+import { ENGINE_FOLDER, GATE_CATALOGUE, gateById, type Gate } from "./catalogue.ts";
 import type { GatePlan, ShardCell } from "./plan.ts";
 import { judgeVitestReport } from "./vitest-report.ts";
 
@@ -143,7 +144,8 @@ async function runCell(plan: GatePlan, cellRun: CellRun, environment: RunEnviron
   }
   const steps: StepOutcome[] = [];
   const logs = new Map<string, string>();
-  let ok = true;
+  // The cell stops at its first step that did not pass; it passed when no step failed.
+  let failedStep: string | undefined;
   for (const entry of cellRun.commands) {
     const declared = registryCommand(environment.registry, entry.name);
     const extra = entry.extra(logs);
@@ -154,10 +156,11 @@ async function runCell(plan: GatePlan, cellRun: CellRun, environment: RunEnviron
     steps.push(outcomeOf(step));
     if (step.evidence?.logPath !== undefined) logs.set(entry.name, step.evidence.logPath);
     if (step.status !== "pass") {
-      ok = false;
+      failedStep = entry.name;
       break;
     }
   }
+  const ok = failedStep === undefined;
   const finished = cellRun.finish?.({ ok }) ?? {};
   const status = ok && finished.refusal === undefined ? "passed" : "failed";
   const result: GateResult = deepFreeze({
@@ -194,8 +197,8 @@ export async function runLightGate(plan: GatePlan, gateId: string, environment: 
   }, environment);
 }
 
-/** The engine summary the engine runner writes, repository-relative. */
-export const ENGINE_SUMMARY_PATH = "engine/.bridlewise/state/test-results/latest-summary.json";
+/** The summary the engine runner writes (its own owner names it), repository-relative. */
+const ENGINE_SUMMARY_PATH = `${ENGINE_FOLDER}/${TEST_RUN_SUMMARY_PATH}`;
 
 /**
  * WHAT A RED ENGINE CELL SAID, from the runner's one summary: each failing
@@ -260,6 +263,6 @@ export async function runShard(plan: GatePlan, cellId: string, environment: RunE
   // The engine cell: its sources (engine-relative, as the inventory names them) listed for the runner's `--cell`.
   mkdirSync(environment.outDirectory, { recursive: true });
   const listPath = join(environment.outDirectory, `${cell.cell}.cell`);
-  writeFileSync(listPath, `${cell.files.map((path) => path.replace(/^engine\//u, "")).join("\n")}\n`);
+  writeFileSync(listPath, `${cell.files.map((path) => path.slice(ENGINE_FOLDER.length + 1)).join("\n")}\n`);
   return runCell(plan, { gate, cell: cell.cell, commands: [{ name, extra: () => [listPath] }], finish: engineFinish(environment.repositoryRoot, environment.outDirectory, cell, population, environment.tell ?? (() => undefined)) }, environment);
 }

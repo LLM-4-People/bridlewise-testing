@@ -33,6 +33,7 @@ import { GENERATED_WORKFLOW_FILES } from "../../kernel/verification-paths.ts";
 import { gitOutput, type GitRepository } from "../../git/tree-reader.ts";
 import type { ForgeClient } from "../forge/port.ts";
 import { GATE_CATALOGUE } from "../gates/catalogue.ts";
+import { DOOR_LIMITS } from "./door-config.ts";
 import { gateKey, treeKeyInputs } from "../gates/key.ts";
 import { catalogueDigest, parsePlan, type GatePlan } from "../gates/plan.ts";
 import { readResults, sealReceipt, type GateReceipt, type JobOutcome } from "../gates/seal.ts";
@@ -44,9 +45,6 @@ import { judgeRatchet } from "./ratchet.ts";
 import { judgeTree, TREE_POLICY, type ChangedFile, type CommitRecord } from "./tree-judge.ts";
 import { failedTestFiles, judgeAttempts, judgeRun, verdictCheckRun, type AttemptFinding, type DoorVerdict, type IdentityFinding, type QueueFinding } from "./verdict.ts";
 import type { CheckRunWrite } from "./door-github.ts";
-
-/** How much the door reads before it judges (pages of API lists). */
-export const DOOR_READ_PAGES = 20;
 
 export type JudgeContext = Readonly<{
   client: ForgeClient;
@@ -173,7 +171,7 @@ export async function judgeCompletedRun(context: JudgeContext): Promise<Judgemen
   const identity = await judgeIdentity(context, run, plan);
   const generatorChanged = pipelineChanged(context.git, plan.headSha, context.mainSha);
   const keyFindings = judgeKey(context, plan, generatorChanged);
-  const jobs = await listRunJobs(context.client, context.repository, run.id, DOOR_READ_PAGES);
+  const jobs = await listRunJobs(context.client, context.repository, run.id, DOOR_LIMITS.readPages);
   const outcomes: Record<string, { result: JobOutcome }> = {};
   for (const job of jobs) {
     const conclusion = job.conclusion;
@@ -208,7 +206,7 @@ export async function judgeCompletedRun(context: JudgeContext): Promise<Judgemen
       sizeBytes: entry.sizeBytes,
       text: entry.blob === null || entry.sizeBytes > TREE_POLICY.maxFileBytes ? null : blobText(context.git, entry.blob),
     }));
-    tree = judgeTree(files, pullCommitRecords(context.git, context.mainSha, identity.base, identity.head), await openAlertCommits(context.client, context.repository, DOOR_READ_PAGES));
+    tree = judgeTree(files, pullCommitRecords(context.git, context.mainSha, identity.base, identity.head), await openAlertCommits(context.client, context.repository, DOOR_LIMITS.readPages));
   }
   const planFiles = new Set(plan.cells.flatMap((cell) => cell.files));
   const failedTests = plan.cells.flatMap((cell) => {

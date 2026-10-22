@@ -17,9 +17,8 @@ import {
   type ExecutionAuthority,
   type ExecutionOperation,
 } from "./test-execution.ts";
-import { cellReceiptPassing, computeTestResultReceiptDeterministicHash, testFailureMessages, testResultLedgerRows, type TestResultReceipt } from "./test-receipt.ts";
+import { cellReceiptPassing, computeTestResultReceiptDeterministicHash, readCellSources, testFailureMessages, testResultLedgerRows, type TestResultReceipt } from "./test-receipt.ts";
 import { asLockDoor, enforceTestRunLock } from "./test-run-lock.ts";
-import { readCellSources } from "./inventory-test-run.ts";
 import { InputError, HarnessError, extractErrorMessage } from "../../src/kernel/errors.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
@@ -176,7 +175,7 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     // waits here while another heavy run holds the lock (saying who), and the
     // run's measurement records that it held it (the handle's stamp).
     const cellSize = cellList === undefined ? undefined : readCellSources(cellList).size;
-    const instrumentLock = await enforceTestRunLock(cellList === undefined ? "engine npm test" : "engine cell", { testFileCount: cellSize ?? inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
+    const instrumentLock = await enforceTestRunLock("engine npm test", { testFileCount: cellSize ?? inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
     releaseInstrumentLock = instrumentLock.release;
     // BEFORE THE RUN, AND AFTER THE SUB-CLI ABOVE: the corpora git cannot
     // report missing. See scripts/verification/required-fixture-roots.ts — an
