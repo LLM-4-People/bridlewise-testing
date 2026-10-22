@@ -40,6 +40,7 @@ import { ensurePrivateStateDirectory, ownedTemporaryName, PRIVATE_STATE_DIRECTOR
 import { statePath } from "../src/kernel/product-identity.ts";
 import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
 import { bootstrapProcess } from "../src/runtime/cli-debug.ts";
+import { ownedChild, terminate } from "../src/process/process-facts.ts";
 import { loadPinnedConfigSnapshotIfPresent } from "../src/kernel/config.ts";
 import { applyCheckoutFiles, engineRelativePath } from "../src/workflow/checkout-setup.ts";
 import { pinnedBuildOutputPaths } from "../src/workflow/hash-binding-registry.ts";
@@ -415,6 +416,10 @@ function runTypecheckLeg(directory: string, label: string, timeoutMs: number): P
     // Its own process group: killing `npm` alone leaves the compiler it started
     // running, and the pipes then never close (the hang this bound closes).
     const child = spawn("npm", ["run", "typecheck"], { cwd: directory, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    // Taken as this run's own at once, so the bound can stop the whole group
+    // through the one terminator; a spawn that failed has no process, and its
+    // `error` event finishes the leg.
+    const owned = child.pid === undefined ? null : ownedChild(child);
     const finish = (status: number | null, suffix = ""): void => {
       if (settled) return;
       settled = true;
@@ -424,12 +429,7 @@ function runTypecheckLeg(directory: string, label: string, timeoutMs: number): P
     timer = setTimeout(() => {
       timedOut = true;
       chunks.push(Buffer.from(`\n[commit-guard] ${label} typecheck exceeded its ${String(timeoutMs)}ms bound; killing it.\n`));
-      try {
-        if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
-        else child.kill("SIGKILL");
-      } catch {
-        child.kill("SIGKILL");
-      }
+      if (owned !== null) void terminate({ group: owned }, { graceMs: 0 });
     }, timeoutMs);
     child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => chunks.push(chunk));

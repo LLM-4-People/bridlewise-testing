@@ -27,7 +27,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { globSync, mkdirSync, writeFileSync } from "node:fs";
+import { globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -181,6 +181,23 @@ function trackedTestFiles(root: string): readonly string[] {
  * names. That is the witness (§36) — a run whose every passing name is the
  * file it ran proves nothing ran.
  */
+/**
+ * The files `npm run test:public` executes: the globs its script hands to
+ * `node --test`, read from package.json (the script is the declaration), and
+ * only while the CI gate actually runs that script, so a runner nobody calls
+ * selects nothing.
+ */
+function publicRunnerFiles(root: string): ReadonlySet<string> {
+  const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { scripts?: Record<string, string> };
+  const script = manifest.scripts?.["test:public"] ?? "";
+  const words = script.split(/\s+/u);
+  if (words[0] !== "node" || !words.includes("--test")) return new Set();
+  const ci = readFileSync(join(root, ".github/workflows/ci.yml"), "utf8");
+  if (!/^\s*run: npm run test:public\s*$/mu.test(ci)) return new Set();
+  const globs = words.slice(words.indexOf("--test") + 1).filter((word) => !word.startsWith("-"));
+  return new Set(globs.flatMap((pattern) => globSync(pattern, { cwd: root })));
+}
+
 function nodeTestRun(
   root: string,
   file: string,
@@ -267,8 +284,14 @@ describe("every test file this repository holds is executed by something", () =>
     expect(tests.length, "the index yielded no test file at all").toBeGreaterThan(300);
     const selected = new Set(TEST_INCLUDE.flatMap((pattern) => globSync(pattern, { cwd: WEB_ROOT })));
     expect(selected.size, "the runner globs selected nothing").toBeGreaterThan(300);
+    // THE OTHER DECLARED RUNNER: `npm run test:public` (node:test over the
+    // globs its script names), which the CI gate runs. Its files are executed
+    // there; driving them again here ran every public test twice, inside one
+    // vitest timeout that the growing public suite outgrew.
+    const publicRun = publicRunnerFiles(WEB_ROOT);
+    expect(publicRun.size, "the test:public script selects nothing").toBeGreaterThan(5);
 
-    const orphans = tests.filter((file) => !selected.has(file));
+    const orphans = tests.filter((file) => !selected.has(file) && !publicRun.has(file));
     // EVERY ORPHAN IS DRIVEN HERE, which is what makes this an execution
     // guarantee rather than a census. An orphan that cannot be run this way is
     // a red, and the message says the two ways out.

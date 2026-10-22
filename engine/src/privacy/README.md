@@ -46,7 +46,7 @@ The folder lives at `engine/src/privacy/`.
 - `benign-grammars.ts` is consumed by `engine/src/privacy/secret-intelligence.ts`, `engine/src/privacy/value-intrinsic.ts`, `server/llm/redaction.ts`.
 - `classification-catalog.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/src/kernel/config-contracts.ts`, `engine/src/kernel/root-policy.ts`, `engine/src/privacy/data-policy.ts`, `engine/src/privacy/privacy-config-section.ts`, `engine/src/privacy/privacy-config.ts` and 2 more.
 - `credential-lexicon.ts` is consumed by `engine/src/privacy/benign-grammars.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/secret-intelligence.ts`, `engine/src/shared/exposure/registrations/privacy.ts`.
-- `data-policy.ts` is consumed by `engine/src/kernel/preflight.ts`, `engine/src/privacy/secret-parts.ts`, `engine/src/workflow/record-links.ts`.
+- `data-policy.ts` is consumed by `engine/src/kernel/preflight.ts`, `engine/src/privacy/secret-parts.ts`, `engine/src/workflow/forge/github.ts`, `engine/src/workflow/record-links.ts`.
 - `detection-span.ts` is consumed by `engine/src/privacy/identity-grammars.ts`, `engine/src/privacy/pii-registry.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/secret-intelligence.ts`, `engine/src/privacy/value-intrinsic.ts`.
 - `encrypted-field.ts` is consumed by `engine/src/privacy/operational-redaction.ts`, `server/kernel/canonical.ts`.
 - `evidence-handler.ts` is consumed by `engine/src/workflow/checkout-setup.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/test-result-collector.ts`.
