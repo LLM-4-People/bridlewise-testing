@@ -294,8 +294,8 @@ The folder lives at `engine/src/workflow/`.
 - `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/git/worktree-port.ts` and 20 more.
 - `workspace-cli.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
 - `workspace-contracts.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`, `engine/src/workflow/workspace-registry.ts`.
-- `workspace-forge-github.ts` is consumed by `engine/src/workflow/workspace-cli.ts`.
-- `workspace-forge.ts` is consumed by `engine/src/workflow/forge/publish/git-data.ts`, `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-forge-github.ts`, `engine/src/workflow/workspace-manager.ts`.
+- `workspace-forge-github.ts` is consumed by `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/workspace-cli.ts`.
+- `workspace-forge.ts` is consumed by `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-forge-github.ts`, `engine/src/workflow/workspace-manager.ts`.
 - `workspace-manager.ts` is consumed by `engine/src/workflow/workspace-cli.ts`.
 - `workspace-registry.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/workspace-manager.ts`.
 

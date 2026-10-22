@@ -107,7 +107,7 @@ test("a later round publishes only what is new, regenerates the same pull reques
   const second = (await manager.publish(record.workspaceId)).round;
   assert.equal(second.commits.length, 1);
   assert.equal(forge.calls.filter((call) => call.op === "createBlob").length, 1, "only the new blob is uploaded");
-  assert.deepEqual(forge.calls.find((call) => call.op === "setBranch")?.request, { branch: record.lease.branch, sha: second.head, previous: first.head });
+  assert.deepEqual(forge.calls.find((call) => call.op === "setBranch")?.request, { branch: record.lease.branch, sha: second.head, previous: first.head, forwardOnly: false });
   assert.equal(forgeRev(bare, `${second.head}^`), first.head);
   assert.equal(forge.pulls.size, 1, "no second pull request");
   assert.ok(forge.pulls.get(1)!.body.includes("Second round"), "the body is regenerated");

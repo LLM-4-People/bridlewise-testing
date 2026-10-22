@@ -4,7 +4,8 @@
  * answered by a REAL bare repository — blobs (`hash-object`), trees (a
  * private index over `base_tree`), commits (`commit-tree`, the forge's own
  * identity) and branch refs (create while absent; GraphQL `updateRefs` with a
- * `beforeOid` compare-and-swap and a fast-forward check unless `force`; a
+ * `beforeOid` compare-and-swap and a fast-forward check unless `force`, as the
+ * one GitHub adapter (`githubWorkspaceForge`) sends it; a
  * REST `PATCH` of a ref is refused, since it has no compare-and-swap). So "the
  * forge built the same tree" is git's answer, not the fake's. Knobs plant the
  * forge misbehaving: an unsigned commit, a wrong tree, a wrong blob id, a ref
@@ -70,7 +71,6 @@ export function gitForge(prefix: string, repository: string): GitForge {
     return { status: 201, body: { sha, tree: { sha: body.tree }, verification: knobs.unverified ? { verified: false, reason: "unsigned" } : { verified: true, reason: "valid" } } };
   });
   // The compare-and-swap the port uses: create while absent, move while at `beforeOid` (GraphQL updateRefs).
-  fake.route("GET", new RegExp(`^/repos/${repository}$`, "u"), () => ({ status: 200, body: { full_name: repository, node_id: "R_forge" } }));
   fake.route("POST", new RegExp(`^${base}/refs$`, "u"), (request) => {
     const body = request.body as { ref: string; sha: string };
     const branch = body.ref.replace(/^refs\/heads\//u, "");
@@ -79,16 +79,17 @@ export function gitForge(prefix: string, repository: string): GitForge {
     return { status: 201, body: { ref: body.ref, object: { sha: body.sha } } };
   });
   fake.route("POST", /^\/graphql$/u, (request) => {
-    const body = request.body as { query: string; variables: { input: { repositoryId: string; refUpdates: { name: string; beforeOid: string; afterOid: string; force: boolean }[] } } };
+    const body = request.body as { query: string; variables: { repositoryId?: string; name: string; before: string; after: string; force: boolean } };
+    if (body.query.includes("{ repository(owner: $owner, name: $name) { id } }")) return { status: 200, body: { data: { repository: { id: "R_forge" } } } };
     if (!body.query.includes("updateRefs")) return undefined;
-    for (const update of body.variables.input.refUpdates) {
-      const current = refOf(update.name.replace(/^refs\/heads\//u, ""));
-      if (current !== update.beforeOid) return { status: 200, body: { data: null, errors: [{ type: "UNPROCESSABLE", message: `the ref ${update.name} is at ${String(current)}, not ${update.beforeOid}` }] } };
-      let fastForward = true;
-      try { git(["merge-base", "--is-ancestor", current, update.afterOid]); } catch { fastForward = false; }
-      if (!fastForward && update.force !== true) return { status: 200, body: { data: null, errors: [{ type: "UNPROCESSABLE", message: "not a fast forward" }] } };
-    }
-    if (!knobs.ignoreRefUpdate) for (const update of body.variables.input.refUpdates) git(["update-ref", update.name, update.afterOid]);
+    const update = body.variables;
+    if (update.repositoryId !== "R_forge") return { status: 200, body: { data: null, errors: [{ type: "NOT_FOUND", message: `no repository ${String(update.repositoryId)}` }] } };
+    const current = refOf(update.name.replace(/^refs\/heads\//u, ""));
+    if (current !== update.before) return { status: 200, body: { data: null, errors: [{ type: "UNPROCESSABLE", message: `the ref ${update.name} is at ${String(current)}, not ${update.before}` }] } };
+    let fastForward = true;
+    try { git(["merge-base", "--is-ancestor", current, update.after]); } catch { fastForward = false; }
+    if (!fastForward && update.force !== true) return { status: 200, body: { data: null, errors: [{ type: "UNPROCESSABLE", message: "not a fast forward" }] } };
+    if (!knobs.ignoreRefUpdate) git(["update-ref", update.name, update.after]);
     return { status: 200, body: { data: { updateRefs: { clientMutationId: null } } } };
   });
   fake.route("PATCH", /\/git\/refs\//u, () => ({ status: 500, body: { message: "this forge refuses PATCH /git/refs: it has no compare-and-swap" } }));

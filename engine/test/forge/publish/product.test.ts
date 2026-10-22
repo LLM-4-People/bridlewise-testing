@@ -18,7 +18,8 @@ import test from "node:test";
 
 import type { GitRepository } from "../../../src/git/tree-reader.ts";
 import { VERIFICATION_PATHS } from "../../../src/kernel/verification-paths.ts";
-import { githubGitData } from "../../../src/workflow/forge/publish/git-data.ts";
+import { githubWorkspaceForge } from "../../../src/workflow/workspace-forge-github.ts";
+import { isForgeError } from "../../../src/workflow/forge/codes.ts";
 import { remakeCommit } from "../../../src/workflow/workspace-forge.ts";
 import { publishProduct, receiptBytes, type ProjectionReceipt } from "../../../src/workflow/forge/publish/product.ts";
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
@@ -77,6 +78,7 @@ async function refusedWith(code: string, run: () => Promise<unknown>): Promise<P
 }
 
 
+const adapter = (w: World) => githubWorkspaceForge(w.forge.forge.client, { owner: REPOSITORY.split("/")[0]!, name: REPOSITORY.split("/")[1]! });
 const head = (w: World): string => w.forge.git(["rev-parse", `refs/heads/${BRANCH}`]);
 const publish = (w: World, commit = w.commit): Promise<ProjectionReceipt> => publishProduct({ client: w.forge.forge.client, repository: REPOSITORY, branch: BRANCH, local: w.local, commit });
 
@@ -91,6 +93,8 @@ test("the built promotion is re-made on the forge as a signed commit holding the
   assert.match(w.forge.git(["log", "-1", "--format=%B", published]), new RegExp(`Projected-From: ${w.source}`, "u"));
   assert.deepEqual({ ...receipt }, { schema: "bridlewise-product-projection/v1", repository: REPOSITORY, branch: BRANCH, commit: published, built: w.commit, tree: receipt.tree, source: w.source, profile: "main-to-product@0123456", target: w.target });
   assert.equal(w.forge.count("blobs"), w.git(["diff-tree", "-r", "--no-renames", "--diff-filter=AM", "--name-only", w.target, w.commit]).split("\n").filter((line) => line.length > 0).length, "only the changed blobs are uploaded");
+  const moves = w.forge.fake.requests.filter((request) => request.path === "/graphql" && String((request.body as { query: string }).query).includes("updateRefs")).map((request) => (request.body as { variables: { before: string; after: string; force: boolean } }).variables);
+  assert.deepEqual(moves.map((move) => [move.before, move.after, move.force]), [[w.target, published, false]], "the product moves forward only, from T: never forced");
 });
 
 test("a product branch that moved since the build is refused, and nothing is written", async () => {
@@ -119,11 +123,11 @@ test("BARRIER the compare-and-swap: a branch that no longer names the expected h
   w.git(["push", "-q", w.forge.bare, `${moved}:refs/heads/${BRANCH}`]);
   const onTop = w.git(["commit-tree", w.git(["rev-parse", `${w.target}^{tree}`]), "-p", moved, "-m", "a descendant of the moved head"]);
   w.git(["push", "-q", w.forge.bare, `${onTop}:refs/heads/scratch`]);
-  const set = await githubGitData(w.forge.forge.client, REPOSITORY).setBranch({ branch: BRANCH, sha: onTop, previous: w.target });
+  const set = await adapter(w).setBranch({ branch: BRANCH, sha: onTop, previous: w.target, forwardOnly: true });
   assert.deepEqual(set, { applied: false }, "a move from a head the branch no longer names is refused, even a fast-forward");
   assert.equal(head(w), moved);
-  const sent = w.forge.fake.requests.filter((request) => request.path === "/graphql").map((request) => (request.body as { variables: { input: { refUpdates: { beforeOid: string; force: boolean }[] } } }).variables.input.refUpdates[0]!);
-  assert.deepEqual(sent.map((update) => [update.beforeOid, update.force]), [[w.target, false]], "the move names its expected head and never forces");
+  const sent = w.forge.fake.requests.filter((request) => request.path === "/graphql" && String((request.body as { query: string }).query).includes("updateRefs")).map((request) => (request.body as { variables: { before: string; force: boolean } }).variables);
+  assert.deepEqual(sent.map((update) => [update.before, update.force]), [[w.target, false]], "the move names its expected head and never forces");
   assert.equal(w.forge.fake.requests.some((request) => request.method === "PATCH"), false, "REST PATCH (no compare-and-swap) is never used");
 });
 
@@ -131,7 +135,7 @@ test("BARRIER only forward: a move to a commit that does not descend from the he
   const w = world("publish-forward");
   const unrelated = w.git(["commit-tree", w.git(["rev-parse", `${w.source}^{tree}`]), "-m", "no common history"]);
   w.git(["push", "-q", w.forge.bare, `${unrelated}:refs/heads/scratch`]);
-  assert.deepEqual(await githubGitData(w.forge.forge.client, REPOSITORY).setBranch({ branch: BRANCH, sha: unrelated, previous: w.target }), { applied: false });
+  await assert.rejects(() => adapter(w).setBranch({ branch: BRANCH, sha: unrelated, previous: w.target, forwardOnly: true }), (error: unknown) => isForgeError(error, "github_validation_failed"), "GitHub refuses a move that is not a fast-forward");
   assert.equal(head(w), w.target, "a forced move would now name the unrelated commit");
 });
 
@@ -163,7 +167,7 @@ test("the forge's refusals keep their class: a failure is errored, a permission 
 
 test("remakeCommit carries a commit whose parents the forge already holds, with the local message, and never an author", async () => {
   const w = world("publish-remake");
-  const made = await remakeCommit(githubGitData(w.forge.forge.client, REPOSITORY), w.local, w.commit, (parent) => parent, new Set());
+  const made = await remakeCommit(adapter(w), w.local, w.commit, (parent) => parent, new Set());
   assert.equal(made.verified, true);
   for (const request of w.forge.fake.requests.filter((entry) => entry.path.endsWith("/git/commits"))) {
     const body = request.body as Record<string, unknown>;

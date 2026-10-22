@@ -108,10 +108,14 @@ export type WorkspaceForge = Readonly<{
    * A COMPARE-AND-SWAP of the branch: created at `sha` only while absent
    * (`previous: null`: `POST /git/refs`), else moved to `sha` only while it is
    * at `previous` (GraphQL `updateRefs` with `beforeOid` — REST `PATCH
-   * /git/refs` has no compare-and-swap and is never used). Answers whether it
-   * applied; a branch found elsewhere is `applied: false`, never an overwrite.
+   * /git/refs` has no compare-and-swap and is never used). `forwardOnly`
+   * also refuses a move to a commit that does not descend from `previous`
+   * (`force: false`): the product branch only ever moves forward, while a
+   * workspace's twin head may be rebased. Answers whether it applied; a branch
+   * found elsewhere is `applied: false`, never an overwrite. The caller reads
+   * the branch back: an answer is not a move.
    */
-  setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null }>): Promise<Readonly<{ applied: boolean }>>;
+  setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null; forwardOnly: boolean }>): Promise<Readonly<{ applied: boolean }>>;
   /** The open pull request whose head is `branch`, or null. */
   findPullRequest(branch: string): Promise<ForgePullRequest | null>;
   /** Opens a DRAFT pull request `head` → `base`. */
@@ -137,8 +141,8 @@ export type WorkspaceForge = Readonly<{
 /**
  * The Git Data part of the port: what re-making a commit on the forge and
  * moving a branch need. The workspace's publication and the product's
- * (`forge/publish/product.ts`) both take it; the GitHub adapter is
- * `forge/publish/git-data.ts`.
+ * (`forge/publish/product.ts`) both take it; its one GitHub adapter is
+ * `githubWorkspaceForge` (`workspace-forge-github.ts`).
  */
 export type GitDataForge = Pick<WorkspaceForge, "createBlob" | "createTree" | "createCommit" | "branchHead" | "setBranch">;
 
@@ -355,7 +359,7 @@ export async function publishBranch(request: PublishRequest): Promise<PublishedR
     published.push({ local: sha, twin: made.sha });
   }
   const twinHead = twins.get(head)!;
-  const set = await forge.setBranch({ branch, sha: twinHead, previous: remoteHead });
+  const set = await forge.setBranch({ branch, sha: twinHead, previous: remoteHead, forwardOnly: false });
   if (!set.applied) return moved(await forge.branchHead(branch));
   // Read back: the forge's own answer, then the fetched ref.
   const readBack = await forge.branchHead(branch);
