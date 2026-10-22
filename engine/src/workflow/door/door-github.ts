@@ -15,10 +15,11 @@ import { InputError } from "../../kernel/errors.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { isForgeError } from "../forge/codes.ts";
 import type { ForgeClient } from "../forge/port.ts";
+import { DOOR_LIMITS } from "./door-config.ts";
 
 export type Repository = Readonly<{ owner: string; name: string }>;
 
-export const DOOR_CHECK_NAME = "bridlewise/door";
+const DOOR_CHECK_NAME = "bridlewise/door";
 
 function refuse(what: string): never {
   throw new InputError(`GitHub answered an unexpected shape: ${what}`, "door_github_answer_invalid");
@@ -138,41 +139,6 @@ export async function listRunArtifacts(client: ForgeClient, repository: Reposito
   }));
 }
 
-export type PullFacts = Readonly<{ number: number; headSha: string; baseSha: string; baseRef: string; headRef: string; headRepositoryId: number; mergeCommitSha: string | null; draft: boolean }>;
-
-export async function getPullRequest(client: ForgeClient, repository: Repository, number: number): Promise<PullFacts> {
-  const pull = record((await client.rest({ method: "GET", path: `${base(repository)}/pulls/${number}` })).data, "a pull request");
-  const head = record(pull.head, "a pull head");
-  const baseSide = record(pull.base, "a pull base");
-  return deepFreeze({
-    number: integer(pull.number, "a pull number"),
-    headSha: sha(head.sha, "the pull head sha"),
-    baseSha: sha(baseSide.sha, "the pull base sha"),
-    baseRef: text(baseSide.ref, "the pull base ref"),
-    headRef: text(head.ref, "the pull head ref"),
-    headRepositoryId: integer(record(head.repo, "the pull head repository").id, "the pull head repository id"),
-    mergeCommitSha: typeof pull.merge_commit_sha === "string" && SHA.test(pull.merge_commit_sha) ? pull.merge_commit_sha : null,
-    draft: pull.draft === true,
-  });
-}
-
-export type CommitFacts = Readonly<{ sha: string; message: string; authorEmail: string; committerEmail: string }>;
-
-/** The commits of a pull request, oldest first (GitHub lists at most 250). */
-export async function listPullCommits(client: ForgeClient, repository: Repository, number: number, maxPages: number): Promise<readonly CommitFacts[]> {
-  const commits = await client.paginate<unknown>({ path: `${base(repository)}/pulls/${number}/commits` }, { maxPages, perPage: 100 });
-  return deepFreeze(commits.map((entry) => {
-    const item = record(entry, "a pull commit");
-    const commit = record(item.commit, "a commit body");
-    return {
-      sha: sha(item.sha, "a pull commit sha"),
-      message: typeof commit.message === "string" ? commit.message : refuse("a commit message"),
-      authorEmail: typeof record(commit.author, "a commit author").email === "string" ? (record(commit.author, "a commit author").email as string) : "",
-      committerEmail: typeof record(commit.committer, "a commit committer").email === "string" ? (record(commit.committer, "a commit committer").email as string) : "",
-    };
-  }));
-}
-
 /** A commit's tree and parents (the Git Data API). */
 export async function getGitCommit(client: ForgeClient, repository: Repository, commitSha: string): Promise<Readonly<{ sha: string; tree: string; parents: readonly string[] }>> {
   const commit = record((await client.rest({ method: "GET", path: `${base(repository)}/git/commits/${commitSha}` })).data, "a git commit");
@@ -248,9 +214,6 @@ export type CheckRunWrite = Readonly<{
   actions?: readonly Readonly<{ label: string; description: string; identifier: string }>[];
 }>;
 
-/** GitHub takes at most 50 annotations per request; the rest are appended by later updates. */
-export const ANNOTATIONS_PER_REQUEST = 50;
-
 function checkBody(write: CheckRunWrite, annotations: readonly CheckAnnotation[]): Readonly<Record<string, unknown>> {
   return {
     status: write.status,
@@ -268,7 +231,7 @@ function checkBody(write: CheckRunWrite, annotations: readonly CheckAnnotation[]
  */
 export async function writeCheckRun(client: ForgeClient, repository: Repository, headSha: string, write: CheckRunWrite, existing: number | null): Promise<number> {
   const annotations = write.annotations ?? [];
-  const first = annotations.slice(0, ANNOTATIONS_PER_REQUEST);
+  const first = annotations.slice(0, DOOR_LIMITS.annotationsPerRequest);
   let id = existing;
   if (id === null) {
     const created = record((await client.rest({ method: "POST", path: `${base(repository)}/check-runs`, body: { name: DOOR_CHECK_NAME, head_sha: headSha, ...checkBody(write, first) } })).data, "a created check run");
@@ -276,8 +239,8 @@ export async function writeCheckRun(client: ForgeClient, repository: Repository,
   } else {
     await client.rest({ method: "PATCH", path: `${base(repository)}/check-runs/${id}`, body: checkBody(write, first) });
   }
-  for (let offset = ANNOTATIONS_PER_REQUEST; offset < annotations.length; offset += ANNOTATIONS_PER_REQUEST) {
-    await client.rest({ method: "PATCH", path: `${base(repository)}/check-runs/${id}`, body: { output: { title: write.title, summary: write.summary, annotations: annotations.slice(offset, offset + ANNOTATIONS_PER_REQUEST) } } });
+  for (let offset = DOOR_LIMITS.annotationsPerRequest; offset < annotations.length; offset += DOOR_LIMITS.annotationsPerRequest) {
+    await client.rest({ method: "PATCH", path: `${base(repository)}/check-runs/${id}`, body: { output: { title: write.title, summary: write.summary, annotations: annotations.slice(offset, offset + DOOR_LIMITS.annotationsPerRequest) } } });
   }
   return id;
 }

@@ -22,7 +22,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { HarnessError, InputError } from "../../kernel/errors.ts";
+import { HarnessError, INPUT_ERROR_CODE, InputError } from "../../kernel/errors.ts";
 import { canonicalHash, canonicalJson, deepFreeze } from "../../kernel/integrity.ts";
 import { loadPinnedConfigSnapshot } from "../../kernel/config.ts";
 import { configuredGitRepository } from "../../git/worktree-port.ts";
@@ -33,18 +33,19 @@ import { environmentCredential } from "../forge/credentials.ts";
 import { forgeEndpoint } from "../forge/forge-config.ts";
 import { githubClient } from "../forge/github.ts";
 import type { ForgeClient } from "../forge/port.ts";
+import { DOOR_LIMITS } from "./door-config.ts";
 import { findCheckRun, getWorkflowRun, writeCheckRun, type Repository } from "./door-github.ts";
 import { judgeCompletedRun } from "./judge.ts";
 import { preflightArtifacts, rerunCold, streamProgress } from "./stream.ts";
 
 const VERBS = ["preflight", "stream", "judge", "action"] as const;
 
-/** The streamer's cadence and its bound (display only; the job's own ceiling is 15 minutes). */
-const STREAM_INTERVAL_MS = 20_000;
-const STREAM_BUDGET_MS = 12 * 60_000;
+/** What the door workflow hands a door verb through the environment (GitHub's own variables), read by name. */
+const REPOSITORY_VARIABLE = "GITHUB_REPOSITORY";
+const COMMIT_VARIABLE = "GITHUB_SHA";
 
 function repositoryFromEnvironment(): Repository {
-  const value = process.env.GITHUB_REPOSITORY ?? "";
+  const value = process.env[REPOSITORY_VARIABLE] ?? "";
   const [owner, name, ...rest] = value.split("/");
   if (owner === undefined || owner === "" || name === undefined || name === "" || rest.length > 0) {
     throw new InputError("harness door runs inside the door workflow: GITHUB_REPOSITORY names no owner/name", "door_environment_missing");
@@ -60,19 +61,19 @@ function flags(verb: string, argv: readonly string[], names: readonly string[]):
   try {
     return parseArgs({ args: [...argv], options: Object.fromEntries(names.map((name) => [name, { type: "string" as const }])), strict: true }).values as Record<string, string | undefined>;
   } catch (error) {
-    throw new InputError(`door ${verb}: ${(error as Error).message}`, "input_error");
+    throw new InputError(`door ${verb}: ${(error as Error).message}`, INPUT_ERROR_CODE);
   }
 }
 
 function required(verb: string, values: Readonly<Record<string, string | undefined>>, name: string): string {
   const value = values[name];
-  if (value === undefined || value === "") throw new InputError(`door ${verb} requires --${name}`, "input_error");
+  if (value === undefined || value === "") throw new InputError(`door ${verb} requires --${name}`, INPUT_ERROR_CODE);
   return value;
 }
 
 function runId(verb: string, values: Readonly<Record<string, string | undefined>>): number {
   const id = Number(required(verb, values, "run"));
-  if (!Number.isSafeInteger(id) || id <= 0) throw new InputError(`door ${verb}: --run is not a run id`, "input_error");
+  if (!Number.isSafeInteger(id) || id <= 0) throw new InputError(`door ${verb}: --run is not a run id`, INPUT_ERROR_CODE);
   return id;
 }
 
@@ -94,7 +95,7 @@ async function refuseRun(client: ForgeClient, repository: Repository, id: number
 
 export async function runDoorCli(engineRoot: string, argv: readonly string[]): Promise<CommandAnswer> {
   const [verb, ...rest] = argv;
-  if (verb === undefined || !(VERBS as readonly string[]).includes(verb)) throw new InputError(`harness door <${VERBS.join("|")}> (got ${JSON.stringify(verb ?? "")})`, "input_error");
+  if (verb === undefined || !(VERBS as readonly string[]).includes(verb)) throw new InputError(`harness door <${VERBS.join("|")}> (got ${JSON.stringify(verb ?? "")})`, INPUT_ERROR_CODE);
   const repository = repositoryFromEnvironment();
   const client = doorClient();
   if (verb === "preflight") {
@@ -107,7 +108,7 @@ export async function runDoorCli(engineRoot: string, argv: readonly string[]): P
   }
   if (verb === "stream") {
     const id = runId(verb, flags(verb, rest, ["run"]));
-    const ending = await streamProgress(client, repository, id, { intervalMs: STREAM_INTERVAL_MS, deadline: Date.now() + STREAM_BUDGET_MS });
+    const ending = await streamProgress(client, repository, id, { intervalMs: DOOR_LIMITS.streamIntervalMs, deadline: Date.now() + DOOR_LIMITS.streamBudgetMs });
     return { result: wrapResult("door", deepFreeze({ ending }), { status: "pass" }) };
   }
   if (verb === "judge") {
@@ -116,7 +117,7 @@ export async function runDoorCli(engineRoot: string, argv: readonly string[]): P
     const out = resolve(required(verb, values, "out"));
     const top = repositoryToplevel(engineRoot, "directory");
     if (top === undefined) throw new InputError("the door runs in its own checkout of main", "door_environment_missing");
-    const mainSha = process.env.GITHUB_SHA ?? "";
+    const mainSha = process.env[COMMIT_VARIABLE] ?? "";
     let judged;
     try {
       judged = await judgeCompletedRun({
