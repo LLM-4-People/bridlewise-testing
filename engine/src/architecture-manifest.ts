@@ -5655,7 +5655,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-promotion-release-notes", path: "src/workflow/promotion/release-notes.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "566f89510164deefb7afe3e790f0b2535ed529ca2700c61a3b3235fe110bcde6" },
-      dependencies: ["src/git/tree-reader.ts"],
+      dependencies: ["../shared/markup.ts","src/git/tree-reader.ts"],
     }),
     moduleContract({
       id: "src-workflow-promotion-release-train", path: "src/workflow/promotion/release-train.ts", realm: "runtime", layer: "infrastructure",

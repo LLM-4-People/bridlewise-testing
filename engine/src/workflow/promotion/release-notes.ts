@@ -3,7 +3,9 @@
  * last release's source and this one's (github-only §9.4): the pull requests
  * that landed on `main`, the tracker items closed, the decision records added or changed, and the
  * people the commits credit (`Signed-off-by` and `Co-authored-by` names; an
- * address is never published). The UI's "Generate release notes" is not a
+ * address is never published). Every text a record carries (a title, a
+ * name) is placed through the one markup owner (`escapeMarkdownText`), so
+ * nothing in it is read as Markdown or HTML. The UI's "Generate release notes" is not a
  * second source (`.github/release.yml` excludes everything).
  *
  * Pure over the repository and the plan: the same plan gives the same text
@@ -11,6 +13,7 @@
  * the two sources are listed by type; module version entries join here when
  * per-module versioning exists (#101).
  */
+import { escapeMarkdownText } from "../../../../shared/markup.ts";
 import { commitTreeReader, gitOutput, type GitRepository } from "../../git/tree-reader.ts";
 import type { ReleasePlan, ReleaseSettings } from "./release-train.ts";
 
@@ -121,16 +124,16 @@ export function renderReleaseNotes(repository: GitRepository, plan: ReleasePlan,
   } else {
     lines.push(`Changes since [${plan.previous.tag}](${url}/releases/tag/${plan.previous.tag}): [compare](${url}/compare/${plan.previous.tag}...${plan.tag}).`, "");
     const landed = landedPullRequests(repository, from, to);
-    if (landed.length > 0) lines.push("## Landed", "", ...landed.map((pull) => `- ${pull.title} (#${String(pull.number)})`), "");
+    if (landed.length > 0) lines.push("## Landed", "", ...landed.map((pull) => `- ${escapeMarkdownText(pull.title)} (#${String(pull.number)})`), "");
     const closed = plan.closedRecords ?? [];
     if (closed.length > 0) {
       const types = [...new Set(closed.map((record) => record.type))].sort();
-      lines.push("## Closed", "", ...types.flatMap((type) => closed.filter((record) => record.type === type).map((record) => `- ${type}: ${record.title} (\`${record.id}\`${record.resolution === null || record.resolution === "completed" ? "" : `, ${record.resolution}`})`)), "");
+      lines.push("## Closed", "", ...types.flatMap((type) => closed.filter((record) => record.type === type).map((record) => `- ${type}: ${escapeMarkdownText(record.title)} (\`${record.id}\`${record.resolution === null || record.resolution === "completed" ? "" : `, ${record.resolution}`})`)), "");
     }
     const decisions = decisionChanges(repository, from, to);
-    if (decisions.length > 0) lines.push("## Decisions", "", ...decisions.map((change) => `- ${change.status}: [${change.title}](${url}/blob/${to}/${change.path})`), "");
+    if (decisions.length > 0) lines.push("## Decisions", "", ...decisions.map((change) => `- ${change.status}: [${escapeMarkdownText(change.title)}](${url}/blob/${to}/${change.path})`), "");
     const people = creditedPeople(repository, from, to);
-    if (people.length > 0) lines.push("## Credited", "", people.join(", "), "");
+    if (people.length > 0) lines.push("## Credited", "", people.map(escapeMarkdownText).join(", "), "");
   }
   lines.push(
     "## Verify",

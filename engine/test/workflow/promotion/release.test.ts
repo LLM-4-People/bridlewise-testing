@@ -19,6 +19,7 @@ import { assembleRelease, releaseAssetNames } from "../../../src/workflow/promot
 import { parseReleaseArguments, readReleaseRecords, runReleaseCli } from "../../../src/workflow/promotion/release-cli.ts";
 import { creditedName, creditedPeople, decisionChanges, landedPullRequests, renderReleaseNotes } from "../../../src/workflow/promotion/release-notes.ts";
 import { planRelease, type ReleasePlan, type ReleaseRecord, type ReleaseSettings } from "../../../src/workflow/promotion/release-train.ts";
+import { escapeMarkdownText } from "../../../../shared/markup.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
 import { PROFILE_DIRECTORY, PROFILE_NAME, SOURCE, TARGET, json, promotionFixture, type PromotionFixture } from "./promotion-fixture.ts";
 
@@ -169,7 +170,7 @@ test("the notes: landed pull requests, decision records and credited names betwe
   assert.deepEqual(decisionChanges(fixture.repository, from, next.product.source), [{ status: "added", path: "docs/decisions/D-90-a-decision.md", title: "Decide the thing" }]);
   assert.deepEqual(creditedPeople(fixture.repository, from, next.product.source), ["@octo-cat", "Ada Writer", "Bo Pair", "Cy Third", "Dee Plain", "Paren Name"], "a name, or a private address's login; a bare address credits nobody");
   const notes = renderReleaseNotes(fixture.repository, next, SETTINGS, "https://forge.example/owner/name");
-  for (const expected of ["- Add a decision (#8)", "- Ship the topic (#9)", "added: [Decide the thing]", "@octo-cat, Ada Writer, Bo Pair, Cy Third, Dee Plain, Paren Name", "gh release verify v1.1.0 --repo owner/name", "compare/v1.0.0...v1.1.0"]) assert.ok(notes.includes(expected), `${expected}\n${notes}`);
+  for (const expected of ["- Add a decision (#8)", "- Ship the topic (#9)", "added: [Decide the thing]", "@octo\\-cat, Ada Writer, Bo Pair, Cy Third, Dee Plain, Paren Name", "gh release verify v1.1.0 --repo owner/name", "compare/v1.0.0...v1.1.0"]) assert.ok(notes.includes(expected), `${expected}\n${notes}`);
   assert.doesNotMatch(notes, /@[A-Za-z0-9.-]+\.[a-z]{2,}|noreply/u, "no address is published, in any form a trailer can take");
   assert.equal(renderReleaseNotes(fixture.repository, next, SETTINGS, "https://forge.example/owner/name"), notes, "the same plan gives the same notes");
 });
@@ -211,7 +212,20 @@ test("a public record must have closed since the last release: open, reopened an
   const due = plan(fixture, { releases: records });
   assert.deepEqual([due.due, due.closedRecords?.map((entry) => entry.id)], [true, ["A-FLAKE", "STILL-OPEN"]]);
   const notes = renderReleaseNotes(fixture.repository, due, SETTINGS, "https://forge.example/owner/name");
-  assert.ok(notes.includes("## Closed\n\n- Flake: The a-flake record (`A-FLAKE`)\n- Task: The still-open record (`STILL-OPEN`)\n"), notes);
+  assert.ok(notes.includes("## Closed\n\n- Flake: The a\\-flake record (`A-FLAKE`)\n- Task: The still\\-open record (`STILL-OPEN`)\n"), notes);
+});
+
+test("every text a record carries reaches the notes through the markup owner: a planted title, pull request title and name cannot inject Markdown or HTML", () => {
+  const fixture = promotionFixture("release-markup");
+  const first = project(fixture, { "package.json": manifest(fixture, "1.0.0") });
+  releaseTag(fixture, "v1.0.0", first);
+  const evil = "<script>alert(1)</script> [x](javascript:alert(1)) _b_";
+  fixture.commit(SOURCE, { "docs/trackers/items/EVIL.md": `---\nschema: bridlewise-tracker-item/v1\nid: EVIL\ntype: Task\ntitle: ${evil}\nstate: closed\nresolution: completed\nlane: floor\nopened: 2026-10-20\nclosed: 2026-10-21\n---\n\nA planted title.\n` }, `${evil} **bold** (#7)\n\nSigned-off-by: <img src=x onerror=alert(1)> Name`);
+  project(fixture, { "package.json": manifest(fixture, "1.1.0") });
+  const notes = renderReleaseNotes(fixture.repository, plan(fixture, { releases: [published("v1.0.0", Date.now() - 48 * HOUR)] }), SETTINGS, "https://forge.example/owner/name");
+  for (const raw of ["<script>", "](javascript", "_b_", "**bold**", "<img"]) assert.ok(!notes.includes(raw), `${raw} reached the notes raw:\n${notes}`);
+  assert.ok(notes.includes(`- Task: ${escapeMarkdownText(evil)} (\`EVIL\`)`), `the closed record's title went through the owner:\n${notes}`);
+  assert.ok(notes.includes(`- ${escapeMarkdownText(`${evil} **bold**`)} (#7)`), `the pull request title went through the owner:\n${notes}`);
 });
 
 test("a lightweight release tag on the product's line is refused, whatever its age; one on a main commit is no release", () => {
