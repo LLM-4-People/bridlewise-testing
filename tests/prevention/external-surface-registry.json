@@ -9,7 +9,6 @@
       ".github/workflows/dependency-review.yml",
       ".github/workflows/docs-links.yml",
       ".github/workflows/pages.yml",
-      ".github/workflows/promotion-gate.yml",
       ".github/workflows/reusable-workflow-failure.yml",
       ".github/workflows/scorecard.yml",
       ".github/workflows/secret-scan.yml",
@@ -28,7 +27,7 @@
       "engine/package-lock.json",
       ".node-version",
       ".nvmrc",
-      "scripts/assemble-floor-site.mjs",
+      "scripts/build-site.mjs",
       "scripts/floor/site.mjs"
     ]
   },
@@ -46,7 +45,6 @@
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
-        ".github/workflows/promotion-gate.yml",
         ".github/workflows/scorecard.yml",
         ".github/workflows/secret-scan.yml",
         ".github/workflows/test-shards.yml"
@@ -64,7 +62,6 @@
         ".github/workflows/ci.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
-        ".github/workflows/promotion-gate.yml",
         ".github/workflows/secret-scan.yml",
         ".github/workflows/test-shards.yml"
       ],
@@ -78,7 +75,6 @@
         "version": "v7"
       },
       "usedIn": [
-        ".github/workflows/promotion-gate.yml",
         ".github/workflows/scorecard.yml",
         ".github/workflows/test-shards.yml"
       ],
@@ -240,7 +236,6 @@
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
-        ".github/workflows/promotion-gate.yml",
         ".github/workflows/reusable-workflow-failure.yml",
         ".github/workflows/scorecard.yml",
         ".github/workflows/secret-scan.yml",
@@ -277,7 +272,6 @@
         ".github/workflows/ci.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
-        ".github/workflows/promotion-gate.yml",
         ".github/workflows/secret-scan.yml",
         ".github/workflows/test-shards.yml"
       ],
@@ -308,7 +302,6 @@
       "usedIn": [
         ".github/workflows/ci.yml",
         ".github/workflows/test-shards.yml",
-        ".github/workflows/promotion-gate.yml",
         ".devcontainer/devcontainer.json",
         "Makefile"
       ],
@@ -327,7 +320,6 @@
       "usedIn": [
         ".github/workflows/ci.yml",
         ".github/workflows/test-shards.yml",
-        ".github/workflows/promotion-gate.yml",
         ".devcontainer/devcontainer.json",
         "Makefile"
       ],
@@ -409,29 +401,20 @@
       "kind": "build-path",
       "pinned": {
         "workflow": ".github/workflows/pages.yml",
-        "assembler": "scripts/assemble-floor-site.mjs",
-        "configSource": "product/docs/_config.yml, checked out at run time; not tracked in this repository",
-        "builder": "actions/jekyll-build-pages, pinned by SHA in the github-action surface"
+        "builder": "scripts/build-site.mjs",
+        "config": "docs/_config.yml",
+        "plugins": [
+          "jekyll-sitemap"
+        ],
+        "builderAction": "actions/jekyll-build-pages, pinned by SHA in the github-action surface"
       },
       "usedIn": [
         ".github/workflows/pages.yml",
-        "scripts/assemble-floor-site.mjs",
+        "docs/_config.yml",
+        "scripts/build-site.mjs",
         "scripts/floor/site.mjs"
       ],
-      "drift": "The Jekyll builder is the SHA-pinned actions/jekyll-build-pages action. The site config and plugin set are product-owned and resolved at run time, so the assembler is forbidden from adding plugins:, gems: or remote_theme:. The guard checks that prohibition and the declared build_revision handoff; a new plugin path is refused until this declaration says how it is pinned."
-    },
-    {
-      "id": "pages:product-docs-ref",
-      "kind": "product-docs-ref",
-      "pinned": {
-        "ref": "main",
-        "floating": true,
-        "resolvedCommitRecorded": true
-      },
-      "usedIn": [
-        ".github/workflows/pages.yml"
-      ],
-      "drift": "Not pinned by SHA: the site mirrors the product docs, so the default ref follows main and the resolved commit is passed to Jekyll as build_revision. The guard requires this one declared expression and refuses any other literal branch ref. This is a declared content input, never a code-execution input; it is listed in knownExceptions."
+      "drift": "The Jekyll builder is the SHA-pinned actions/jekyll-build-pages action, and the site's only source is this repository's docs/ (no other repository is read). The tracked docs/_config.yml may load only the plugins declared here, which ship inside that pinned action; the builder may not add plugins:, gems: or remote_theme:. The workflow hands the built commit (github.sha) to Jekyll as build_revision. A new plugin path is refused until this declaration says how it is pinned."
     },
     {
       "id": "apt:gcc-14",
@@ -482,11 +465,6 @@
     }
   ],
   "knownExceptions": [
-    {
-      "surface": "pages:product-docs-ref",
-      "reason": "The docs site mirrors the product documentation, so the ref follows main by design; the resolved commit is recorded as the Jekyll build revision. It is a content input, not a code-execution input.",
-      "owner": ".github/workflows/pages.yml"
-    },
     {
       "surface": "apt:gcc-14",
       "reason": "An exact apt version string is runner-image-specific and would drift on the provider's archive; the runner label plus the declared package name is the reproducible pin available to this tree.",

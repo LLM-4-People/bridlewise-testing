@@ -6,57 +6,108 @@ import { canonicalJson, deepFreeze } from "../kernel/integrity.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { withFileLock } from "../filesystem/file-lock.ts";
 import { ensurePrivateStateDirectory } from "../filesystem/private-state.ts";
-import { assertWorkspaceId, isTerminalWorkspaceState, parseWorkspaceRecord, type WorkspaceRecord } from "./workspace-contracts.ts";
+import { assertWorkspaceId, isTerminalWorkspaceState, migrateWorkspaceRecord, parseWorkspaceRecord, type WorkspaceRecord } from "./workspace-contracts.ts";
 import { repositoryRegistryArea, type RepositoryRegistry } from "./repository-registry.ts";
 
 /**
- * THE WORKSPACE RECORDS — the `workspaces/` area of the repository registry
+ * THE WORKSPACE RECORDS — PER-VERSION STORAGE in the repository registry
  * (`repository-registry.ts`: `<git common dir>/<product name>/`), so every
  * worktree of the repository reads the same records:
- * `workspaces/<id>.json` ({@link createWorkspaceRecordStore}). The registry's
- * `locks/` area holds the admission and merge locks and its `timeline/` area
- * the per-workspace shards and the integrator's ledger (`workspace-manager.ts`).
  *
- * Kept apart from the manager so a reader of the registry (the
- * `workspaceGit.workspaces` signal: {@link workspaceRegistrySummary}) loads
- * the records' contract and the filesystem, and nothing that runs a process.
+ * - the CURRENT store (`workspaces-v3/<id>.json`): every record this code
+ *   writes, of the current version;
+ * - the LEGACY store (`workspaces/<id>.json`): the records of the version
+ *   before the forge (v2), which older code (another checkout of the same
+ *   repository, another lane) still reads and writes. A legacy record is
+ *   migrated IN MEMORY on every read (`migrateWorkspaceRecord`) and is
+ *   READ-ONLY to this code: a v2-only workspace belongs to the checkout of the
+ *   version that made it, so every save of one is refused
+ *   (`workspace_owned_by_v2_checkout`) and no current twin is ever made of
+ *   it. The legacy store is left exactly as it is until Gitea's retirement
+ *   (runbook P7), whose recorded cutover archives it.
+ *
+ * The registry's `locks/` area holds the admission and merge locks and its
+ * `timeline/` area the per-workspace shards and the integrator's ledger
+ * (`workspace-manager.ts`). Kept apart from the manager so a reader of the
+ * registry (the `workspaceGit.workspaces` signal:
+ * {@link workspaceRegistrySummary}) loads the records' contract and the
+ * filesystem, and nothing that runs a process.
  */
 
 export type WorkspaceRecordStore = Readonly<{
   /**
    * THE ONE RECORD WRITER, a compare-and-swap: `record` is written only when
-   * the stored record's revision is `record.revision` (no stored record for
-   * revision 0), as revision + 1, which it returns; otherwise it refuses
-   * (`workspace_record_changed`) and writes nothing. The read, the compare and
-   * the write are one step under the record's file lock.
+   * the current store's revision of it (0 when it has none) is
+   * `record.revision`, as revision + 1, which it returns; otherwise it refuses
+   * (`workspace_record_changed`) and writes nothing. A v2-only workspace is
+   * never written (`workspace_owned_by_v2_checkout`). The read, the compare
+   * and the write are one step under the record's file lock.
    */
   save(record: WorkspaceRecord): WorkspaceRecord;
   load(workspaceId: string): WorkspaceRecord | null;
   list(): readonly WorkspaceRecord[];
+  /** The legacy record's path when the workspace is known ONLY to the legacy store (older code's: read-only here), else null. */
+  legacyRecordPath(workspaceId: string): string | null;
 }>;
 
-export function createWorkspaceRecordStore(directory: string): WorkspaceRecordStore {
-  ensurePrivateStateDirectory(directory);
-  const read = (path: string, workspaceId: string): WorkspaceRecord => {
+/** The two stores' folders. */
+export type WorkspaceRecordStores = Readonly<{ current: string; legacy: string }>;
+
+/** The record stores of `registry`: its current and its legacy area. */
+export function workspaceRecordStores(registry: RepositoryRegistry): WorkspaceRecordStores {
+  return deepFreeze({ current: repositoryRegistryArea(registry, "workspaces"), legacy: repositoryRegistryArea(registry, "legacyWorkspaces") });
+}
+
+/**
+ * THE REFUSAL of a change to a v2-only workspace: it belongs to the checkout
+ * of the version that made it (its record in the legacy store, its worktree
+ * where that checkout made it); v3 code reads it and never changes it before
+ * the recorded P7 cutover.
+ */
+export function refuseOwnedByV2(workspaceId: string, legacyRecord: string, worktreePath: string): never {
+  throw new HarnessError(
+    `workspace ${workspaceId} belongs to the v2 code that made it (its record ${legacyRecord}, its worktree ${worktreePath}): this version reads it and never changes it before the recorded P7 cutover — act on it from that checkout`,
+    "workspace_owned_by_v2_checkout",
+    false,
+    { workspaceId },
+  );
+}
+
+export function createWorkspaceRecordStore(stores: WorkspaceRecordStores): WorkspaceRecordStore {
+  ensurePrivateStateDirectory(stores.current);
+  const busy = (workspaceId: string) => (message: string): HarnessError => new HarnessError(`workspace record ${workspaceId} is being written (${message}); try again`, "workspace_record_busy", true, { workspaceId });
+  const parseFile = (path: string, workspaceId: string): Readonly<{ record: WorkspaceRecord; migrated: boolean }> => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(readFileSync(path, "utf8"));
     } catch {
       throw new HarnessError(`workspace record ${workspaceId} is not valid JSON`, "workspace_record_corrupt", false, { workspaceId });
     }
-    return parseWorkspaceRecord(parsed);
+    return migrateWorkspaceRecord(parsed);
   };
+  const currentPath = (workspaceId: string): string => join(stores.current, `${workspaceId}.json`);
+  const legacyPath = (workspaceId: string): string => join(stores.legacy, `${workspaceId}.json`);
+  // A current-store record must BE current: a migrated one there was written by no version of this code.
+  const readCurrent = (workspaceId: string): WorkspaceRecord => {
+    const parsed = parseFile(currentPath(workspaceId), workspaceId);
+    if (parsed.migrated) throw new HarnessError(`workspace record ${workspaceId} in the current store is not of the current version`, "workspace_record_invalid", false, { workspaceId });
+    return parsed.record;
+  };
+  // THE ONE RECORD READER: the current store's record, else the legacy one migrated in memory (never written back).
   const load = (workspaceId: string): WorkspaceRecord | null => {
     assertWorkspaceId(workspaceId);
-    const path = join(directory, `${workspaceId}.json`);
-    return existsSync(path) ? read(path, workspaceId) : null;
+    if (existsSync(currentPath(workspaceId))) return readCurrent(workspaceId);
+    return existsSync(legacyPath(workspaceId)) ? parseFile(legacyPath(workspaceId), workspaceId).record : null;
   };
+  const ids = (directory: string): readonly string[] => (existsSync(directory)
+    ? readdirSync(directory).filter((entry) => entry.endsWith(".json")).map((entry) => entry.slice(0, -".json".length))
+    : []);
   return deepFreeze({
     save(record: WorkspaceRecord): WorkspaceRecord {
-      const path = join(directory, `${record.workspaceId}.json`);
-      const busy = (message: string): HarnessError => new HarnessError(`workspace record ${record.workspaceId} is being written (${message}); try again`, "workspace_record_busy", true, { workspaceId: record.workspaceId });
-      return withFileLock(`${path}.lock`, busy, () => {
-        const stored = load(record.workspaceId)?.revision ?? 0;
+      const path = currentPath(record.workspaceId);
+      return withFileLock(`${path}.lock`, busy(record.workspaceId), () => {
+        if (!existsSync(path) && existsSync(legacyPath(record.workspaceId))) refuseOwnedByV2(record.workspaceId, legacyPath(record.workspaceId), record.lease.worktreePath);
+        const stored = existsSync(path) ? readCurrent(record.workspaceId).revision : 0;
         if (stored !== record.revision) {
           throw new HarnessError(
             `workspace record ${record.workspaceId} changed since it was read (revision ${String(record.revision)}, now ${String(stored)}): another command (an extend, an abort, a sweep) wrote it meanwhile — read its status and run the command again`,
@@ -73,9 +124,10 @@ export function createWorkspaceRecordStore(directory: string): WorkspaceRecordSt
     },
     load,
     list(): readonly WorkspaceRecord[] {
-      return deepFreeze(readdirSync(directory).toSorted()
-        .filter((entry) => entry.endsWith(".json"))
-        .map((entry) => read(join(directory, entry), entry.slice(0, -".json".length))));
+      return deepFreeze([...new Set([...ids(stores.current), ...ids(stores.legacy)])].toSorted().map((workspaceId) => load(workspaceId)!));
+    },
+    legacyRecordPath(workspaceId: string): string | null {
+      return !existsSync(currentPath(workspaceId)) && existsSync(legacyPath(workspaceId)) ? legacyPath(workspaceId) : null;
     },
   });
 }
@@ -86,9 +138,9 @@ export function createWorkspaceRecordStore(directory: string): WorkspaceRecordSt
  * with its id. Never writes.
  */
 export function workspaceRegistrySummary(registry: RepositoryRegistry): string {
-  const directory = repositoryRegistryArea(registry, "workspaces");
-  if (!existsSync(directory)) return "none";
-  const live = createWorkspaceRecordStore(directory).list().filter((record) => !isTerminalWorkspaceState(record.state) || record.state === "quarantined");
+  const stores = workspaceRecordStores(registry);
+  if (!existsSync(stores.current) && !existsSync(stores.legacy)) return "none";
+  const live = createWorkspaceRecordStore(stores).list().filter((record) => !isTerminalWorkspaceState(record.state) || record.state === "quarantined");
   if (live.length === 0) return "none";
   const byState = new Map<string, string[]>();
   for (const record of live) byState.set(record.state, [...(byState.get(record.state) ?? []), record.workspaceId]);
