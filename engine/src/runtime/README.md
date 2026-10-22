@@ -8,6 +8,7 @@ The engine's runtime: the bootstrap, the provider and tool adapters, capability 
 - `agent-tools.ts` — the agent-tools module.
 - `capability-negotiation.ts` — the capability-negotiation module.
 - `cli-debug.ts` — `bootstrapProcess({ role })`, the ONE process bootstrap every process entry point runs first (the main guard of every CLI and tool, the commit guard, the farm child, the long-task unit): it installs the process fault policy for the role FIRST (`src/process/fault-policy.ts`: a `cli` or `worker` fails closed, exit 70, on a lost rejection or a guarded callback fault — SCALE-CR1-FIX H1/H2), then central logging — the debug system configured from the config document's `debug` section, read as DATA through `inspectConfigDocument` so the bootstrap never throws (an unreadable document is the tool's own typed refusal; logging then runs on the declared defaults: audit on, redaction on, the console sink), so an audit event (a sweep, a journal rollback or recovery) reaches stderr in CLI processes too; idempotent, a host that configured already (the web server) keeps its own. `engine/test/runtime/cli-debug.test.ts` derives the entry points by scanning.
+- `entry-point.ts` — `isEntryPoint(import.meta.url)`, THE ONE MAIN-NESS TEST (by real path), in a leaf module of node built-ins only, so the dependency-free CI utilities (the docs-link check, the built-site crawler, the shard toolchain) ask it too; `cli-debug.ts` re-exports it beside the bootstrap.
 - `event-state.ts` — the event-state module.
 - `extension-tools.ts` — the extension-tools module.
 - `git-tools.ts` — the git-tools module.
@@ -34,7 +35,8 @@ The folder lives at `engine/src/runtime/`.
 - `admitted-node-runtime.ts` is consumed by `engine/scripts/tooling/run-tests.ts`, `engine/src/filesystem/durable-filesystem-internal.ts`, `engine/src/workflow/evidence-store.ts`.
 - `agent-tools.ts` is consumed by `server/kernel/canonical.ts`.
 - `capability-negotiation.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/offline-contracts.ts`.
-- `cli-debug.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/commit-guard.ts`, `engine/scripts/exp409/sweep.mjs`, `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/post-commit.ts` and 27 more.
+- `cli-debug.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/commit-guard.ts`, `engine/scripts/exp409/sweep.mjs`, `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/post-commit.ts` and 28 more.
+- `entry-point.ts` is consumed by `engine/src/runtime/cli-debug.ts`.
 - `event-state.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/offline-contracts.ts`.
 - `extension-tools.ts` is consumed by nothing yet.
 - `git-tools.ts` is consumed by nothing yet.

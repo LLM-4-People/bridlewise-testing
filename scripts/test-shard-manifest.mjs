@@ -23,7 +23,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "../engine/src/runtime/entry-point.ts";
 
 export const MANIFEST_SCHEMA = "bridlewise-test-shard-manifest/v1";
 export const PLAN_SCHEMA = "bridlewise-test-shard-plan/v1";
@@ -197,7 +197,13 @@ export function treeFingerprint(root = process.cwd()) {
   if (resolve(top.stdout.trim()) !== repositoryRoot) {
     fail(`tree identity: ${repositoryRoot} is not the repository root (${top.stdout.trim()})`);
   }
-  const listed = spawnSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+  // The repository-ownership owner's rule set (engine/src/git/
+  // repository-ownership.ts, VERSIONED_IGNORE_RULES): tracked plus untracked
+  // under the VERSIONED ignore rules only, so a machine's own excludes never
+  // change the identity. Spelled here because this toolchain runs in the
+  // shard merge job, which installs no package; the ownership guard ties the
+  // spelling to the owner's constant.
+  const listed = spawnSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-per-directory=.gitignore"], {
     cwd: repositoryRoot,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
@@ -632,7 +638,7 @@ function parseArgs(argv) {
   return options;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   try {
     const options = parseArgs(process.argv.slice(2));
     if (options.command === "list") {
