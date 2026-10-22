@@ -329,4 +329,15 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_git_errored` | errored | 4 | None: a git step of the landing was ended by the environment (its ceiling, a signal, a full disk); run it again later (`workspaceGit.timeouts` bounds each step). |
 | `promotion_git_failed` | integrity | 6 | Stop and keep the evidence: a git step of the landing refused (its operation and words are named, the candidate is kept); report it, never publish it. |
 | `promotion_pending_conflict` | integrity | 6 | Stop and keep the evidence: another run pinned the pending ref while this one held the target's lock; report it, never publish either commit. |
+| `promotion_release_due` | ok | 0 | The train departs: build the assets from the product commit, assemble and attest them, and publish the release immutable. |
+| `promotion_release_not_due` | ok | 0 | Nothing to do now: each reason names what the next release waits for. |
+| `promotion_release_notes_written` | ok | 0 | The notes are the release's body: publish them with the release, unedited. |
+| `promotion_release_assembled` | ok | 0 | Attest each asset (its digest is listed), then publish the release immutable. |
+| `promotion_release_usage` | input | 2 | Run `harness release <plan|notes|assemble> --releases <records.jsonl>` (plan: `[--now <iso time>] [--manual]`; notes: `--repository <forge>/<owner>/<name> --out <file> [--now <iso time>] [--manual]`; assemble: `--out <empty folder> --bundle <file> --guardian <file> --sbom <file> --docs-site <file> [--now <iso time>] [--manual]`). |
+| `promotion_release_settings_missing` | input | 2 | Declare `promotion.release` in the configuration (the product's profile, the train mode, the minimum interval, the tag prefix, the Discussions category, the prior releases' address). |
+| `promotion_release_product_missing` | input | 2 | Promote first (the product ref is the target of the release profile), or fetch the product branch. |
+| `promotion_release_source_unproven` | integrity | 6 | Stop and keep the evidence: the product tip carries no Projected-From trailer, so something other than the publisher wrote it; inspect the product branch, never release it. |
+| `promotion_release_tag_lightweight` | integrity | 6 | Stop and keep the evidence: a release tag on the product's line is lightweight, so the train did not make it (it creates annotated, immutable tags only; the tags ruleset requires them); find who made it, never release over it. |
+| `promotion_release_version_invalid` | precondition | 3 | Fix on main: the root package.json declares the product's semantic version, and a release version never goes back. |
+| `promotion_release_assets_incomplete` | failed | 5 | Build every named input (the engine bundle, the guardian, the SBOM, the documentation site) and assemble again: a release never ships without one. |
 | `promotion_unexpected` | integrity | 6 | Stop and keep the evidence: the landing ended on an error no code names (its message is given, the candidate is kept); report it. |

@@ -62,6 +62,8 @@ export type PromotionSource = Readonly<{
   advisories: () => string;
   /** How long each profile's last run took. */
   lastRunDurationMs: () => string;
+  /** The release train now: the tag the product's declared version names, due or what it waits for. */
+  releaseTrain: () => string;
   /** `harness promote status` (`--profile`, `--source` optional). */
   status: (profile: string | undefined, source: string | undefined) => Promise<unknown>;
   /** `harness promote plan`. */
@@ -104,7 +106,9 @@ const PROMOTION_SIGNALS: readonly Readonly<{ id: string; name: string; descripti
   { id: "promotion.targetEdits", name: "Direct edits of the target", description: "The paths each profile's last plan found edited on the target since its last promotion (land the written patch on the source, or accept the exact list once).", read: (source) => source.targetEdits() },
   { id: "promotion.advisories", name: "What the projection advises", description: "The advisories of each profile's last plan (never failures): new source files nothing ships, documents naming scripts the shipped manifest lacks, build recipes naming files that do not ship, stale generated outputs, the source's suite evidence.", read: (source) => source.advisories() },
   { id: "promotion.lastRunDurationMs", name: "How long the last promotion run took", description: "Each profile's last run's duration, in milliseconds.", read: (source) => source.lastRunDurationMs() },
+  { id: "promotion.releaseTrain", name: "The next release", description: "The release the product's declared version names: due (the product changed, the version is not yet released, the minimum interval has passed and the mode allows it), or each condition it waits for.", read: (source) => source.releaseTrain() },
 ];
+
 
 let promotionRegistered = false;
 export function registerPromotionExposure(): void {

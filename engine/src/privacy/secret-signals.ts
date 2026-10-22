@@ -169,6 +169,17 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     // The value is matched without its key so the key and separators stay
     // readable after redaction, and a keep mark or an existing mask is not
     // re-read as a value (the write-back contract again).
+    //
+    // ── NO CODE-EXPRESSION VETO, DELIBERATELY (#70, reviewed 2026-10-22) ──
+    //
+    // `password = request.headers['apikey']` matches (`request.headers[`).
+    // The catalogue reads TEXT, never a file type, and that line is a valid
+    // INI / my.cnf / ADO.NET value as written; a veto keyed on its shape
+    // (a spaced `=`, a dotted or bracketed value) was measured to miss real
+    // passwords (`password = my.secret.value`, `Password = x.y`, a tab before
+    // the value, a value holding `[` or `(`) that nothing else catches. A
+    // missed credential is never acceptable, so the row over-matches a code
+    // expression; the reviewed over-match is declared where it is tested.
     id: "dsn-credential",
     category: "credential",
     description: "connection-string credential",

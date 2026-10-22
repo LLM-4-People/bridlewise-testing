@@ -159,6 +159,10 @@ export const GIT_COMMIT_TIMEOUT_MAX_MS = 3_600_000;
  * declaration that names a path of the repository (the workspace commands and
  * links, a promotion profile's boundary).
  */
+/** How the product's release train departs (`promotion.release.train`): by itself after a land, only when a person dispatches it, or by itself through an approving reviewer. */
+export const RELEASE_TRAIN_MODES = ["auto", "manual", "approval"] as const;
+export type ReleaseTrainMode = typeof RELEASE_TRAIN_MODES[number];
+
 export const REPOSITORY_RELATIVE_PATH_SCHEMA = z.string().min(1).max(1024)
   .refine((path) => path === "." || relativePathViolationKinds(path).length === 0, "must be a repository-relative path");
 
@@ -1583,8 +1587,23 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // Promotion (src/workflow/promotion/): `profileDirectory` is the
   // repository-relative directory that holds the promotion profiles on the
   // SOURCE branch (`<directory>/<name>.json`, read from the source commit).
+  // `release` is the product's release train (src/workflow/promotion/
+  // release-train.ts): the profile whose target is the product, the mode
+  // (`auto` departs by itself after a land, `manual` only when a person
+  // dispatches it, `approval` by itself through an approving reviewer), the
+  // minimum hours between two releases, the tag prefix, the Discussions
+  // category of the announcement, and where the releases before this
+  // repository's first one are kept (`null`: none).
   const promotionConfigSchema = z.strictObject({
     profileDirectory: repositoryRelativePath,
+    release: z.strictObject({
+      profile: z.string().regex(/^[a-z][a-z0-9-]{0,62}$/u),
+      train: z.enum(RELEASE_TRAIN_MODES),
+      minIntervalHours: z.number().int().min(0).max(8760),
+      tagPrefix: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,31}$/u),
+      discussionCategory: z.string().min(1).max(64),
+      priorReleasesUrl: z.string().regex(/^https:\/\/\S+$/u).nullable(),
+    }).optional(),
   }).optional();
   // Code-intelligence config (auto-indexing, retrieval ranking, auto-heal).
   // Mirrors the web-UI `codeIntelligence` consumer shape
@@ -1878,8 +1897,8 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     workspaceIsolation: workspaceIsolationConfigSchema,
     promotion: promotionConfigSchema,
     // The forge (src/workflow/forge/): GitHub, the one forge — the
-    // organisation, origins, request bounds and the repository topology
-    // (`forge-config.ts` declares the section beside its owner).
+    // organisation, origins, request bounds, the repository topology and the
+    // local Apps page (`forge-config.ts` declares the section beside its owner).
     forge: FORGE_CONFIG_SCHEMA.optional(),
     evaluation: evaluationConfigSchema.optional(),
     migrationAuthority: migrationAuthorityConfigSchema,

@@ -28,6 +28,6 @@ The folder lives at `engine/src/extensions/`.
 - `extensions-config.ts` is consumed by `engine/src/extensions/extension-manifest.ts`.
 - `index.ts` is consumed by `server/kernel/canonical.ts`.
 - `self-modification-tools.ts` is consumed by `engine/src/extensions/index.ts`.
-- `semver.ts` is consumed by `engine/src/extensions/compatibility-checker.ts`, `engine/src/extensions/extension-lifecycle.ts`, `engine/src/extensions/extension-manifest.ts`, `engine/src/extensions/index.ts`.
+- `semver.ts` is consumed by `engine/src/extensions/compatibility-checker.ts`, `engine/src/extensions/extension-lifecycle.ts`, `engine/src/extensions/extension-manifest.ts`, `engine/src/extensions/index.ts`, `engine/src/workflow/promotion/release-train.ts`.
 
 <!-- /consumers:generated -->
