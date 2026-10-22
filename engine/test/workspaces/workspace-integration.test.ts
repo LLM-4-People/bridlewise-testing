@@ -27,6 +27,7 @@ import type { WorkspaceRecord } from "../../src/workflow/workspace-contracts.ts"
 import {
   commitFailureOwners,
   commitFile,
+  commitTrackerBoard,
   failGate,
   initTempRepo,
   makeFakeCommands,
@@ -67,6 +68,13 @@ const PIN_C = "c".repeat(64);
 /** A pin-bearing generated output (a hash-binding target) and a wholly generated one, repository-relative. */
 const PIN_BEARING = "engine/src/kernel/root-policy.ts";
 const WHOLESALE = "engine/src/architecture-manifest.ts";
+/**
+ * The pin-bearing file's text: a REAL binding's pin (the config contract's
+ * `sourceSha256`, located by its registry `findRegex`) and an authored body.
+ */
+function pinned(pin: string, body: string): string {
+  return `export const POLICY = {\n  configuration: { contract: {\n    sourcePath: "${ROOT_POLICY.configuration.contract.sourcePath}",\n    sourceSha256: "${pin}",\n  } },\n  body: "${body}",\n};\n`;
+}
 
 test("happy path: create -> commit -> validate -> merge lands by fast-forward in the checkout holding the target, then tears down", async () => {
   const { root } = initTempRepo("ws-happy");
@@ -301,7 +309,6 @@ test("not converged: a merge gate that rewrites a tracked file refuses the land 
 test("generated-output conflicts: a pin-only change and a wholly generated file resolve to the target; an authored change is reported", async () => {
   const { root } = initTempRepo("ws-pins");
   const workspaceRoot = mkWorkspaceTempDir("ws-pins-wt");
-  const pinned = (pin: string, body: string): string => `export const POLICY = {\n  pin: "${pin}",\n  body: "${body}",\n};\n`;
   commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
   commitFile(root, WHOLESALE, "export const MANIFEST = [\"base\"];\n");
   const base = rawGit(root, ["rev-parse", "HEAD"]);
@@ -342,7 +349,6 @@ test("generated-output conflicts: a pin-only change and a wholly generated file 
 test("the lease exempts a regeneration, never a path: an authored edit of a pin-bearing file or a README's prose needs a lease, a pin or consumer-block change does not, and another workspace's lease on it holds", async () => {
   const { root } = initTempRepo("ws-genonly");
   const workspaceRoot = mkWorkspaceTempDir("ws-genonly-wt");
-  const pinned = (pin: string, body: string): string => `export const POLICY = {\n  pin: "${pin}",\n  body: "${body}",\n};\n`;
   const readme = (prose: string, block: string): string => `# Module\n\n${prose}\n\n${README_CONSUMER_BLOCK.begin}\n${block}\n${README_CONSUMER_BLOCK.end}\n`;
   commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
   commitFile(root, "src/mod/README.md", readme("Hand-written prose.", "- consumer a"));
@@ -1177,8 +1183,7 @@ for (const ledgerName of ["engine", "web"] as const satisfies readonly SuiteLedg
     const owned = `${file("owned.test.ts")}::a base failure a task owns`;
     const unowned = `${file("unowned.test.ts")}::a base failure no task owns`;
     const planted = `${file("owned.test.ts")}::a planted new failure`;
-    commitFile(root, ROOT_POLICY.workflow.failureOwners.tracker, [
-      "# Tasks", "",
+    commitTrackerBoard(root, [
       `- [ ] **OWNER-1** fixes the inherited red`,
       `  in ${repositoryPath("owned.test.ts")}:12 (continuation line of the open row; a line suffix is still the path).`,
       `- [x] **DONE-1** once named ${repositoryPath("unowned.test.ts")}; closed rows own nothing.`,
@@ -1186,8 +1191,7 @@ for (const ledgerName of ["engine", "web"] as const satisfies readonly SuiteLedg
       `- [ ] **NEAR-MISS** names ${repositoryPath("unowned.test.ts")}x and \`${repositoryPath("unowned.test.ts")}.bak\`.`,
       // The runner-relative spelling of an engine file is not its repository path.
       ...(ledgerName === "engine" ? [`- [ ] **WRONG-PATH** names ${file("unowned.test.ts")} without the engine prefix.`] : []),
-      "",
-    ].join("\n"));
+    ]);
     const target = rawGit(root, ["rev-parse", "HEAD"]);
     const digests = { [owned]: "aaaaaaaaaaaaaaaa", [unowned]: "bbbbbbbbbbbbbbbb", [planted]: "cccccccccccccccc" };
     const row = (failures: readonly string[], treeId: string) => ({ timestamp: new Date().toISOString(), headSha: target, treeId,
@@ -1239,7 +1243,7 @@ for (const ledgerName of ["engine", "web"] as const satisfies readonly SuiteLedg
 test("a budget breach joins the ONE judgement (UR-24): only SLOTTED target rows recorded before the run count; not worse and owned passes; worse, unowned, unslotted or a fragment-named owner fails", async () => {
   const { root } = initTempRepo("ws-budget");
   const ledger = WEB_RUN_HISTORY_PATH;
-  commitFile(root, ROOT_POLICY.workflow.failureOwners.tracker, "# Tasks\n\n- [ ] **BUDGET-OWNER** re-derives `testExecution.webUiSuiteCpuBudget`.\n");
+  commitTrackerBoard(root, ["- [ ] **BUDGET-OWNER** re-derives `testExecution.webUiSuiteCpuBudget`."]);
   const target = rawGit(root, ["rev-parse", "HEAD"]);
   const targetTree = rawGit(root, ["rev-parse", "HEAD^{tree}"]);
   // The target's runs of its tree: two UNSLOTTED (2204, 2137: they judge nothing), one slotted (2150), and a slotted
@@ -1288,7 +1292,7 @@ test("a budget breach joins the ONE judgement (UR-24): only SLOTTED target rows 
   assert.match(unslotted.details.join("\n"), /did not hold the instrument lock: refused, not judged/u);
 
   slot = "held";
-  commitFile(workspace.lease.worktreePath, ROOT_POLICY.workflow.failureOwners.tracker, "# Tasks\n\n- [ ] **NEAR-MISS** re-derives testExecution.webUiSuiteCpuBudgetHistory.\n- [x] **BUDGET-OWNER** re-derived testExecution.webUiSuiteCpuBudget.\n");
+  commitTrackerBoard(workspace.lease.worktreePath, ["- [ ] **NEAR-MISS** re-derives testExecution.webUiSuiteCpuBudgetHistory.", "- [x] **BUDGET-OWNER** re-derived testExecution.webUiSuiteCpuBudget."]);
   const unowned = await judge();
   assert.equal(unowned.status, "fail", "a closed row owns nothing, and a longer name is not the budget's");
   assert.match(unowned.details.join("\n"), /no open task row of docs\/trackers\/TASKS\.md declares testExecution\.webUiSuiteCpuBudget/u);
@@ -1298,7 +1302,7 @@ test("a PERFORMANCE budget's breach is judged in the same ONE judgement: owned a
   const { root } = initTempRepo("ws-perf-budget");
   const ledger = WEB_RUN_HISTORY_PATH;
   const gate = `${ROOT_POLICY.workflow.webPerformanceBudgets.gatePrefix}apiResponseMaxMs`;
-  commitFile(root, ROOT_POLICY.workflow.failureOwners.tracker, "# Tasks\n\n- [ ] **PERF-OWNER** makes the routes fast: `webUi.performance.apiResponseMaxMs`.\n");
+  commitTrackerBoard(root, ["- [ ] **PERF-OWNER** makes the routes fast: `webUi.performance.apiResponseMaxMs`."]);
   const target = rawGit(root, ["rev-parse", "HEAD"]);
   const targetTree = rawGit(root, ["rev-parse", "HEAD^{tree}"]);
   // The target's one slotted run carries no performance value: it is measured in the lock (750).
@@ -1349,7 +1353,7 @@ test("a PERFORMANCE budget's breach is judged in the same ONE judgement: owned a
 test("a target with NO slotted run is measured in the lock first, then judged strictly: its slotted value is the bar", async () => {
   const { root } = initTempRepo("ws-budget-measure");
   const ledger = WEB_RUN_HISTORY_PATH;
-  commitFile(root, ROOT_POLICY.workflow.failureOwners.tracker, "# Tasks\n\n- [ ] **BUDGET-OWNER** `testExecution.webUiSuiteCpuBudget`\n");
+  commitTrackerBoard(root, ["- [ ] **BUDGET-OWNER** `testExecution.webUiSuiteCpuBudget`"]);
   const target = rawGit(root, ["rev-parse", "HEAD"]);
   const targetTree = rawGit(root, ["rev-parse", "HEAD^{tree}"]);
   writeFile(root, ledger, `${JSON.stringify({ runs: [{ timestamp: "2026-10-02T04:49:08.852Z", headSha: target, treeId: targetTree, wallClockMs: 0, cpuMsPerTestFile: 3000, testModuleCount: 1, failures: [], heavySlot: "unslotted" }] })}\n`);
