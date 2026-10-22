@@ -147,7 +147,11 @@ describe("the web door installs it", () => {
  * planted test's state and first error, by name. The planted files sit in a
  * temporary folder; the run's own wall bound is the nested-runner backstop.
  */
-function plantedRun(files: Readonly<Record<string, string>>): Map<string, Readonly<{ state: string; error: string }>> {
+function plantedRun(files: Readonly<Record<string, string>>): Readonly<{
+  tests: Map<string, Readonly<{ state: string; error: string }>>;
+  /** Each planted FILE's own result, by file name: a hook that fails outside every test (afterAll) fails its file. */
+  files: Map<string, Readonly<{ state: string; message: string }>>;
+}> {
   const directory = createTempDir("wall-bound-plants-");
   symlinkSync(resolve("node_modules"), join(directory, "node_modules"), "dir");
   for (const [name, text] of Object.entries(files)) writeFileSync(join(directory, name), text);
@@ -162,14 +166,17 @@ export default {...base,test:{...base.test,include:[],globalSetup:[],reporters:[
   const run = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, [resolve("node_modules/vitest/vitest.mjs"), "run", "--config", configuration],
     { timeoutMs: NESTED_RUNNER_LAUNCH_MS, killGraceMs: webSuiteKillGraceMs() });
   expect(run.error, run.stderr).toBeUndefined();
-  const parsed = JSON.parse(readFileSync(report, "utf8")) as { testResults: { assertionResults: { title: string; status: string; failureMessages: string[] }[] }[] };
-  return new Map(parsed.testResults.flatMap((file) => file.assertionResults).map((result) => [result.title, { state: result.status, error: result.failureMessages[0] ?? "" }]));
+  const parsed = JSON.parse(readFileSync(report, "utf8")) as { testResults: { name: string; status: string; message: string; assertionResults: { title: string; status: string; failureMessages: string[] }[] }[] };
+  return {
+    tests: new Map(parsed.testResults.flatMap((file) => file.assertionResults).map((result) => [result.title, { state: result.status, error: result.failureMessages[0] ?? "" }])),
+    files: new Map(parsed.testResults.map((file) => [file.name.split("/").at(-1)!, { state: file.status, message: file.message }])),
+  };
 }
 
 describe("no web test declares its own wall bound: the runtime check", () => {
   test("PLANT: every spelling the review found fails the run naming its test, and the clean tests pass", () => {
     const LIMIT = "5_000";
-    const results = plantedRun({
+    const { tests: results, files } = plantedRun({
       "helpers.ts": `import { test } from "vitest";
 export const slowTest = (name: string, fn: () => void) => test(name, fn, ${LIMIT});
 export const importedOptions = { timeout: ${LIMIT} };
@@ -185,6 +192,7 @@ test("imported options", importedOptions, () => {});\ntest("options built by a c
 describe("a bounded hook", () => { afterEach(() => {}, ${LIMIT}); test("under a bounded afterEach", () => {}); });
 describe("an unbounded hook", () => { afterEach(() => {}, 0); test("under an afterEach with no bound", () => {}); });`,
       "no-bound.test.ts": `import { test } from "vitest";\ntest("a test with no bound at all", () => {}, 0);`,
+      "after-all-bound.test.ts": `import { afterAll, test } from "vitest";\nafterAll(() => {}, 9_020);\ntest("under a bounded afterAll", () => {});`,
       "dom-aliased.test.ts": `// @vitest-environment jsdom\nimport { test as check } from "vitest";\ncheck("an aliased import in the DOM pool", () => {}, ${LIMIT});`,
       "clean.test.ts": `import { afterEach, test } from "vitest";\nafterEach(() => {});\ntest("clean", () => {});\ntest("clean options", { retry: 0 }, () => {});`,
     });
@@ -197,8 +205,12 @@ describe("an unbounded hook", () => { afterEach(() => {}, 0); test("under an aft
       expect(results.get(title)?.state, `${title}: ${JSON.stringify(results.get(title))}`).toBe("failed");
       expect(results.get(title)?.error, title).toMatch(/a per-test or per-hook wall timeout is not allowed: the only wall bound is the hang backstop/u);
     }
+    // An afterAll runs after every test of its file: its bound fails the FILE, naming the bound.
+    expect(files.get("after-all-bound.test.ts")?.state, JSON.stringify(files.get("after-all-bound.test.ts"))).toBe("failed");
+    expect(files.get("after-all-bound.test.ts")?.message).toMatch(/bounded by a 9020 ms wall timeout; a per-test or per-hook wall timeout is not allowed/u);
     expect(results.get("clean")?.state).toBe("passed");
     expect(results.get("clean options")?.state).toBe("passed");
+    expect(files.get("clean.test.ts")?.state).toBe("passed");
   });
 
 });
