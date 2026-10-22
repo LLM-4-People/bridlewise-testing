@@ -286,11 +286,12 @@ The folder lives at `engine/src/workflow/`.
 - `repository-registry.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/workspace-cli.ts` and 2 more.
 - `resource-lock.ts` is consumed by `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/workspace-manager.ts`.
 - `slot-cli.ts` is consumed by `engine/scripts/tooling/coverage.ts`, `engine/src/workflow/harness-commands.ts`.
+- `subprocess-bounds.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/workflow/harness-commands.ts`.
 - `test-inventory-binding.ts` is consumed by `engine/src/workflow/test-result-collector.ts`.
 - `test-result-collector.ts` is consumed by `engine/scripts/tooling/flake-reproduction-reporter.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-guards.ts`, `engine/scripts/tooling/test-receipt.ts`, `engine/scripts/tooling/test-run-lock.ts` and 6 more.
 - `timeline-shard.ts` is consumed by `engine/src/workflow/workspace-manager.ts`.
 - `tree-landing.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/workspace-manager.ts`.
-- `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/git/worktree-port.ts` and 18 more.
+- `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/git/worktree-port.ts` and 19 more.
 - `workspace-cli.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
 - `workspace-contracts.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`, `engine/src/workflow/workspace-registry.ts`.
 - `workspace-forge-github.ts` is consumed by `engine/src/workflow/workspace-cli.ts`.

@@ -1588,8 +1588,10 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // environmental marker (no space, an npm cache miss, a network reset) — and
   // how long it waits before the first retry (doubled each time). A command
   // that merely FAILED (any other non-zero exit) is never retried.
+  // (`typecheckTimeoutMs`, the typecheck's 120 s WALL limit, is gone: a
+  // typecheck is bounded by its CPU work and one hang backstop like every
+  // harness subprocess, src/workflow/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
   const harnessConfigSchema = z.strictObject({
-    typecheckTimeoutMs: z.number().int().positive().max(600000),
     commandErroredRetries: z.number().int().min(0).max(10).optional(),
     commandRetryBackoffMs: z.number().int().min(0).max(3_600_000).optional(),
   }).optional();
