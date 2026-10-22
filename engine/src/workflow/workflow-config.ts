@@ -361,3 +361,7 @@ export const DEFAULT_GIT_RUNTIME_MAXIMUM_BYTES = 268_435_456 as const;
 export const DEFAULT_MAX_REPORTED_VIOLATIONS = 20 as const;
 /** test-result-collector assertion value truncation length. */
 export const DEFAULT_ASSERTION_VALUE_MAX_LENGTH = 160 as const;
+/** The grace a CI job's leftover process gets between SIGTERM and SIGKILL from the job's own reaper (#421). */
+export const DEFAULT_JOB_REAPER_GRACE_MS = 5_000 as const;
+/** How many times the job reaper looks again after ending what it found: a process can start another while it is being ended (#421). */
+export const DEFAULT_JOB_REAPER_ROUNDS = 3 as const;

@@ -194,6 +194,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       "scripts/tooling/candidate-manifest.ts",
       "scripts/tooling/check.ts",
       "scripts/tooling/coverage.ts",
+      "scripts/tooling/end-job-processes.ts",
       "scripts/tooling/foundation.ts",
       "scripts/tooling/lessons.ts",
       "scripts/tooling/migration-write-authority-genesis.ts",
@@ -4251,7 +4252,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workflow-config", path: "src/workflow/workflow-config.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 42, namesSha256: "84d20922332dc866f539041af75216ff1c7b775cbdde4887d9e919ede2913275" },
+      owner: "verification-workflow", publicApi: { exportCount: 44, namesSha256: "4518af5e8cbfb9824f28a6a3fe8039f7862c7169650cbf0345341dd96ecd8867" },
       dependencies: ["src/kernel/errors.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
@@ -5062,7 +5063,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-process-process-facts", path: "src/process/process-facts.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 42, namesSha256: "43dc2f6bb89192d45abb16c6a378cfa933b31809adea11415280cf989ef22fe2" },
+      owner: "process-infrastructure", publicApi: { exportCount: 45, namesSha256: "5b6183ba4c8aeb3d1647af5e671860c202ced5e043e37787bcd820fb6fe11bae" },
       dependencies: ["node:fs","node:path","src/kernel/errors.ts","src/kernel/root-policy.ts","src/shared/debug/debug-system.ts"],
     }),
     moduleContract({
@@ -5701,6 +5702,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-workflow-forge-publish-product", path: "src/workflow/forge/publish/product.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "75c02b8795850659a69def29abfde5d295d3eca00db506f7291d1ac2143c8e52" },
       dependencies: ["src/filesystem/atomic-write.ts","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/forge/app-registry.ts","src/workflow/forge/codes.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/trailers.ts","src/workflow/workspace-forge-github.ts","src/workflow/workspace-forge.ts"],
+    }),
+    moduleContract({
+      id: "scripts-tooling-end-job-processes", path: "scripts/tooling/end-job-processes.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 1, namesSha256: "0a5c864aeb1be73d5d5cc71935ece102bc9da1d4d224e12a612fae4836241ab5" },
+      dependencies: ["src/process/process-facts.ts","src/runtime/cli-debug.ts","src/workflow/workflow-config.ts"],
+      executionBoundary: "composition-root", compositionRoot: true,
     }),
   ],
 });
