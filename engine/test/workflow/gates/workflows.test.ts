@@ -246,6 +246,31 @@ test("door.yml is the trusted judge: main's code on workflow_run, its key only i
   assert.deepEqual(checkout.with, { "persist-credentials": false, "fetch-depth": 0, filter: "blob:none" }, "a partial clone of main: the judged commits are fetched without their blobs");
 });
 
+test("the post-land seal is generated only with the door enforced: a push to main runs main-integrity alone", () => {
+  const off = ciWorkflow(GATE_CATALOGUE, false) as Mutable;
+  assert.equal((off.on as Mutable).push, undefined, "before the flip, main pushes run no CI");
+  assert.equal((off.jobs as Mutable)["main-integrity"], undefined);
+  const on = ciWorkflow(GATE_CATALOGUE, true) as Mutable;
+  assert.doesNotThrow(() => lintWorkflow("ci.yml", on as never));
+  assert.deepEqual((on.on as Mutable).push, { branches: ["main"] });
+  const jobs = on.jobs as Record<string, Mutable>;
+  const seal = jobs["main-integrity"]!;
+  assert.equal(seal.name, "bridlewise/main-integrity");
+  assert.equal(seal.if, "${{ github.event_name == 'push' }}");
+  assert.equal(jobs.plan!.if, "${{ github.event_name != 'push' }}", "no gate runs on a push: every cell needs the plan");
+  assert.equal(jobs.seal!.if, "${{ always() && github.event_name != 'push' }}");
+  for (const [id, job] of Object.entries(jobs)) {
+    if (id === "plan" || id === "seal" || id === "main-integrity") continue;
+    const needsPlan = Array.isArray(job.needs) && (job.needs as string[]).includes("plan");
+    const eventBound = typeof job.if === "string" && !(job.if as string).includes("push") && (job.if as string).includes("github.event_name ==");
+    assert.ok(needsPlan || eventBound, `${id} cannot run on a push`);
+  }
+  const steps = seal.steps as Mutable[];
+  assert.ok(steps.some((step) => typeof step.run === "string" && (step.run as string).includes("gates main-integrity locate")));
+  assert.ok(steps.some((step) => typeof step.run === "string" && (step.run as string).includes("gh attestation verify")), "the verdict is proven like every verdict");
+  assert.match(steps.at(-1)!.run as string, /gates main-integrity judge --keydoc/u, "the judge runs last, unconditionally: a missing proof is its finding");
+});
+
 test("the failure reporter watches every generated workflow by name, and the promotion gate splices no input into its script (#67 takes over main's hand-written ones)", () => {
   const issue = failureIssueWorkflow() as Mutable;
   const watched = ((issue.on as Mutable).workflow_run as Mutable).workflows as string[];

@@ -11,7 +11,10 @@
  *   - a reused plan runs no cell; its seal reuses every light and suite gate,
  *     still judges the action gates, and refuses any result that ran anyway;
  *   - the pipeline's owner is compared by object id between a commit and its
- *     base, on real git history.
+ *     base, on real git history;
+ *   - the post-land seal: a main commit is sealed only by the door App's
+ *     successful check keyed by K and the proven verdict for K naming main's
+ *     own tree; each other case is a finding by name.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -24,6 +27,7 @@ import { githubClient } from "../../../src/workflow/forge/github.ts";
 import { memoryCredential } from "../../../src/workflow/forge/credentials.ts";
 import { GATE_CATALOGUE } from "../../../src/workflow/gates/catalogue.ts";
 import { parsePlan, planGates, reusedPlan } from "../../../src/workflow/gates/plan.ts";
+import { DOOR_CHECK, doorCheckOn, judgeMainIntegrity } from "../../../src/workflow/gates/main-integrity.ts";
 import { DOOR_PREDICATE_TYPE, findVerdictLocator, judgeReuseProof, pipelineChanged, reuseEligibility, verdictLocatorName } from "../../../src/workflow/gates/reuse.ts";
 import { sealReceipt } from "../../../src/workflow/gates/seal.ts";
 import { fakeGithub } from "../../forge/fake-github.ts";
@@ -125,4 +129,42 @@ test("the pipeline's owner is compared by object id against the base, on real hi
   const repository = { root, executable: "git", timeoutMs: 30_000 };
   assert.equal(pipelineChanged(repository, appOnly, base), false);
   assert.equal(pipelineChanged(repository, pipeline, base), true);
+});
+
+// ── the post-land seal ─────────────────────────────────────────────────────
+
+test("the post-land seal: main is sealed only by the door's success for K, proven, naming main's tree", () => {
+  const check = { key: KEY, conclusion: "success", appSlug: DOOR_CHECK.appSlug };
+  const judge = (overrides: Partial<Parameters<typeof judgeMainIntegrity>[0]> = {}) =>
+    judgeMainIntegrity({ treeId: TREE, check, keyDocument: KEY_DOCUMENT, verified: [statement()], ...overrides });
+  assert.deepEqual(judge(), { sealed: true, findings: [] });
+  const cases: readonly (readonly [Partial<Parameters<typeof judgeMainIntegrity>[0]>, RegExp])[] = [
+    [{ check: null }, /carries no bridlewise\/door check/u],
+    [{ check: { ...check, appSlug: "someone-else" } }, /posted by someone-else, not the door App/u],
+    [{ check: { ...check, conclusion: "failure" } }, /concluded failure/u],
+    [{ check: { ...check, key: "" } }, /names no key/u],
+    [{ keyDocument: null }, /could not be located/u],
+    [{ verified: [] }, /./u],
+    [{ treeId: "c".repeat(40) }, new RegExp(`the door judged tree ${TREE}, but main holds c{40}`, "u")],
+  ];
+  for (const [overrides, finding] of cases) {
+    const verdict = judge(overrides);
+    assert.equal(verdict.sealed, false, JSON.stringify(overrides));
+    assert.equal(verdict.findings.length, 1, verdict.findings.join("; "));
+    assert.match(verdict.findings[0]!, finding);
+  }
+});
+
+test("the post-land seal reads the door's latest check on the commit, or none", async () => {
+  const fake = fakeGithub();
+  const sha = "d".repeat(40);
+  fake.route("GET", new RegExp(`^/repos/o/r/commits/${sha}/check-runs$`, "u"), (request) => {
+    assert.equal(request.query.get("check_name"), DOOR_CHECK.name);
+    assert.equal(request.query.get("filter"), "latest");
+    return { status: 200, body: { total_count: 1, check_runs: [{ external_id: KEY, conclusion: "success", app: { slug: DOOR_CHECK.appSlug } }] } };
+  });
+  fake.route("GET", new RegExp(`^/repos/o/r/commits/${"e".repeat(40)}/check-runs$`, "u"), () => ({ status: 200, body: { total_count: 0, check_runs: [] } }));
+  const client = githubClient(fake.endpoint(), memoryCredential("ci", fake.userToken("ci")));
+  assert.deepEqual(await doorCheckOn(client, { owner: "o", name: "r" }, sha), { key: KEY, conclusion: "success", appSlug: DOOR_CHECK.appSlug });
+  assert.equal(await doorCheckOn(client, { owner: "o", name: "r" }, "e".repeat(40)), null);
 });

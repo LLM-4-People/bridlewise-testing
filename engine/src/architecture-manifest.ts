@@ -5569,13 +5569,13 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-gates-catalogue", path: "src/workflow/gates/catalogue.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 21, namesSha256: "0a9b6297e34bef61186f8b8d70107fccc7b202d902262da024ef9c340fec4c40" },
+      owner: "verification-workflow", publicApi: { exportCount: 22, namesSha256: "97db41270cdb0bd40902cf5f44044b558ad40be3c9f72cca1e1538477add748b" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-gates-cli", path: "src/workflow/gates/gates-cli.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 1, namesSha256: "5ca33272c12260227499de5289684edf65e20feacdc73eaa2e19ea3557f23e14" },
-      dependencies: ["guardian/build.ts","node:fs","node:path","node:util","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/tree-identity.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/github.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/cell-run.ts","src/workflow/gates/key.ts","src/workflow/gates/plan.ts","src/workflow/gates/populations.ts","src/workflow/gates/reuse.ts","src/workflow/gates/seal.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["guardian/build.ts","node:fs","node:path","node:util","src/git/repository-ownership.ts","src/git/tree-reader.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/shared/tree-identity.ts","src/workflow/checkout-setup.ts","src/workflow/command-result.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/github.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/cell-run.ts","src/workflow/gates/key.ts","src/workflow/gates/main-integrity.ts","src/workflow/gates/plan.ts","src/workflow/gates/populations.ts","src/workflow/gates/reuse.ts","src/workflow/gates/seal.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "src-workflow-gates-plan", path: "src/workflow/gates/plan.ts", realm: "runtime", layer: "infrastructure",
@@ -5705,7 +5705,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-door-door-github", path: "src/workflow/door/door-github.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 20, namesSha256: "ef74e4d4ab32fe475eaf6eb5aa5689ac1494ebdedc661d938a595b4f26d36132" },
-      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/door/door-config.ts","src/workflow/forge/codes.ts"],
+      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/door/door-config.ts","src/workflow/forge/codes.ts","src/workflow/gates/main-integrity.ts"],
     }),
     moduleContract({
       id: "src-workflow-door-judge", path: "src/workflow/door/judge.ts", realm: "runtime", layer: "infrastructure",
@@ -5741,6 +5741,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-workflow-gates-reuse", path: "src/workflow/gates/reuse.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 11, namesSha256: "7dec4cf6270cd7f12e70c75003ece2c162bd9c3a002efa38ced06032d926c748" },
       dependencies: ["src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/gates/catalogue.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-gates-main-integrity", path: "src/workflow/gates/main-integrity.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "58d90f880aeb3def9e0c95efbae8552991dc33ba220ff36a729483acacd44775" },
+      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/forge/app-registry.ts","src/workflow/gates/reuse.ts"],
     }),
     moduleContract({
       id: "src-workflow-door-door-config", path: "src/workflow/door/door-config.ts", realm: "runtime", layer: "infrastructure",

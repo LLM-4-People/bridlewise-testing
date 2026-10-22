@@ -43,6 +43,7 @@ import { GENERATED_WORKFLOW_FILES } from "../../kernel/verification-paths.ts";
 import {
   ACTION_PINS,
   API_RUNNER,
+  DOOR_ENFORCED,
   GATE_CATALOGUE,
   GATE_RUNNER,
   gatesOfClass,
@@ -85,6 +86,37 @@ function perEventConcurrency(prefix: string): Readonly<Record<string, YamlValue>
 function checkoutStep(): Step {
   return { name: "Check out", uses: uses("checkout"), with: { "persist-credentials": false } };
 }
+
+/**
+ * THE DOOR'S VERDICT FOR A KEY, DOWNLOADED AND PROVEN (the one pair every
+ * consumer of a verdict runs: CI's reuse lookup, the door's reuse claim, the
+ * post-land seal). The locator artifact is found by its exact name in the run
+ * the lookup named, and the attestation proves door.yml on main attested it.
+ * The verify step never fails the job: a proof that does not verify is that
+ * consumer's own decision (`steps.<verifyId>.outcome`, or the judge's).
+ */
+function provenVerdictSteps(found: Readonly<{ key: string; run: string }>, names: Readonly<{ download: string; verify: string }>, verifyId?: string): readonly Step[] {
+  const located = `\${{ ${found.run} != '' }}`;
+  return [
+    {
+      name: names.download,
+      if: located,
+      uses: uses("download-artifact"),
+      with: { name: `door-verdict-\${{ ${found.key} }}-success`, path: "${{ runner.temp }}/reuse", "run-id": `\${{ ${found.run} }}`, "github-token": "${{ github.token }}" },
+    },
+    {
+      name: names.verify,
+      ...(verifyId === undefined ? {} : { id: verifyId }),
+      if: located,
+      "continue-on-error": true,
+      env: { GH_TOKEN: "${{ github.token }}" },
+      run: VERIFY_DOOR_VERDICT,
+    },
+  ];
+}
+
+/** The proof of a downloaded verdict: attested by door.yml on main, with the gate-verdict predicate, never on a self-hosted runner. */
+const VERIFY_DOOR_VERDICT = `gh attestation verify "$RUNNER_TEMP/reuse/keydoc.json" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/door.yml" --source-ref refs/heads/main --predicate-type ${DOOR_PREDICATE_TYPE} --deny-self-hosted-runners --format json > "$RUNNER_TEMP/reuse/verified.json"`;
 
 function setupNodeStep(): Step {
   return {
@@ -166,13 +198,21 @@ function uploadResultsStep(name: string): Step {
 }
 
 /** The CI workflow: plan, light, shards, action gates, seal. */
-export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflow {
+/**
+ * `ci.yml`. With the door ENFORCED (`DOOR_ENFORCED`, flipped with the trunk
+ * ruleset at P3.7), a push to main runs one job only: the post-land seal
+ * `bridlewise/main-integrity` (main-integrity.ts), which fails visibly on a
+ * main commit whose tree the door did not judge. Every gate job stays on the
+ * pull request, merge queue, schedule and dispatch events.
+ */
+export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE, enforced: boolean = DOOR_ENFORCED): Workflow {
   const light = gatesOfClass("light", catalogue);
   const suites = gatesOfClass("suite", catalogue);
   const actions = gatesOfClass("action", catalogue);
   const jobs: Record<string, YamlValue> = {
     plan: {
       name: "plan",
+      ...(enforced ? { if: "${{ github.event_name != 'push' }}" } : {}),
       "runs-on": GATE_RUNNER,
       "timeout-minutes": 10,
       permissions: { contents: "read", actions: "read", attestations: "read" },
@@ -187,21 +227,8 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
           env: { GH_TOKEN: "${{ github.token }}", COLD: "${{ inputs.cold }}" },
           run: `${HARNESS} gates plan --out "$RUNNER_TEMP/gate-plan" --reuse-lookup --github-output "$GITHUB_OUTPUT"`,
         },
-        {
-          name: "Download the door's verdict for the key",
-          if: "${{ steps.plan.outputs.reuse-run != '' }}",
-          uses: uses("download-artifact"),
-          with: { name: "door-verdict-${{ steps.plan.outputs.key }}-success", path: "${{ runner.temp }}/reuse", "run-id": "${{ steps.plan.outputs.reuse-run }}", "github-token": "${{ github.token }}" },
-        },
-        {
-          // A proof that does not verify reuses nothing: the run goes cold (the step's failure is that decision).
-          name: "Verify the door's attestation of that verdict",
-          id: "verify",
-          if: "${{ steps.plan.outputs.reuse-run != '' }}",
-          "continue-on-error": true,
-          env: { GH_TOKEN: "${{ github.token }}" },
-          run: `gh attestation verify "$RUNNER_TEMP/reuse/keydoc.json" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/door.yml" --source-ref refs/heads/main --predicate-type ${DOOR_PREDICATE_TYPE} --deny-self-hosted-runners --format json > "$RUNNER_TEMP/reuse/verified.json"`,
-        },
+        // A proof that does not verify reuses nothing: the run goes cold (the verify step's failure is that decision).
+        ...provenVerdictSteps({ key: "steps.plan.outputs.key", run: "steps.plan.outputs.reuse-run" }, { download: "Download the door's verdict for the key", verify: "Verify the door's attestation of that verdict" }, "verify"),
         {
           name: "Reuse every gate on the proven verdict",
           id: "reuse",
@@ -274,7 +301,7 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
   jobs.seal = {
     name: "seal",
     needs: sealNeeds,
-    if: "${{ always() }}",
+    if: enforced ? "${{ always() && github.event_name != 'push' }}" : "${{ always() }}",
     "runs-on": GATE_RUNNER,
     "timeout-minutes": 10,
     permissions: { contents: "read" },
@@ -290,11 +317,13 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
       { name: "Upload the receipt", if: "${{ always() }}", uses: uses("upload-artifact"), with: { name: "gate-receipt", path: "${{ runner.temp }}/gate-receipt", "if-no-files-found": "error", "retention-days": 90 } },
     ],
   };
+  if (enforced) jobs["main-integrity"] = mainIntegrityJob();
   return {
     name: "CI",
     on: {
       pull_request: {},
       merge_group: {},
+      ...(enforced ? { push: { branches: ["main"] } } : {}),
       schedule: [{ cron: "17 3 * * *" }],
       // The door's "Re-run cold" button dispatches this with `cold` (every gate runs; nothing is reused).
       workflow_dispatch: { inputs: { cold: { description: "Run every gate, reusing nothing", required: false, default: false, type: "boolean" } } },
@@ -302,6 +331,36 @@ export function ciWorkflow(catalogue: readonly Gate[] = GATE_CATALOGUE): Workflo
     permissions: { contents: "read" },
     concurrency: perEventConcurrency("ci"),
     jobs,
+  };
+}
+
+/**
+ * THE POST-LAND SEAL'S JOB (`bridlewise/main-integrity`): the door's check on
+ * this main commit names K, the verdict for K is downloaded and proven like
+ * every verdict, and the judge compares the attested tree with main's. A
+ * missing check, locator or proof is a finding of the judge, never a skip.
+ */
+function mainIntegrityJob(): Readonly<Record<string, YamlValue>> {
+  return {
+    name: "bridlewise/main-integrity",
+    if: "${{ github.event_name == 'push' }}",
+    "runs-on": GATE_RUNNER,
+    "timeout-minutes": 10,
+    permissions: { contents: "read", actions: "read", attestations: "read", checks: "read" },
+    steps: [
+      ...gateJobSetup([], "plan"),
+      {
+        name: "Locate the door's verdict for this commit",
+        id: "locate",
+        env: { GH_TOKEN: "${{ github.token }}" },
+        run: `${HARNESS} gates main-integrity locate --github-output "$GITHUB_OUTPUT"`,
+      },
+      ...provenVerdictSteps({ key: "steps.locate.outputs.key", run: "steps.locate.outputs.door-run" }, { download: "Download the door's verdict", verify: "Verify the door's attestation of that verdict" }),
+      {
+        name: "Judge that main holds the tree the door judged",
+        run: `${HARNESS} gates main-integrity judge --keydoc "$RUNNER_TEMP/reuse/keydoc.json" --proof "$RUNNER_TEMP/reuse/verified.json"`,
+      },
+    ],
   };
 }
 
@@ -431,19 +490,7 @@ export function doorWorkflow(): Workflow {
             env: runEnvironment,
             run: `${HARNESS} door reuse-claim --artifacts "$RUNNER_TEMP/ci" --github-output "$GITHUB_OUTPUT"`,
           },
-          {
-            name: "Download the claimed verdict",
-            if: "${{ steps.claim.outputs.door-run != '' }}",
-            uses: uses("download-artifact"),
-            with: { name: "door-verdict-${{ steps.claim.outputs.key }}-success", path: "${{ runner.temp }}/reuse", "run-id": "${{ steps.claim.outputs.door-run }}", "github-token": "${{ github.token }}" },
-          },
-          {
-            name: "Verify the claimed verdict's attestation",
-            if: "${{ steps.claim.outputs.door-run != '' }}",
-            "continue-on-error": true,
-            env: { GH_TOKEN: "${{ github.token }}" },
-            run: `gh attestation verify "$RUNNER_TEMP/reuse/keydoc.json" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/door.yml" --source-ref refs/heads/main --predicate-type ${DOOR_PREDICATE_TYPE} --deny-self-hosted-runners --format json > "$RUNNER_TEMP/reuse/verified.json"`,
-          },
+          ...provenVerdictSteps({ key: "steps.claim.outputs.key", run: "steps.claim.outputs.door-run" }, { download: "Download the claimed verdict", verify: "Verify the claimed verdict's attestation" }),
           { name: "Judge the run and post the verdict", id: "judge", if: "${{ !cancelled() }}", env: runEnvironment, run: `${HARNESS} door judge --run "$RUN_ID" --artifacts "$RUNNER_TEMP/ci" --reuse "$RUNNER_TEMP/reuse" --out "$RUNNER_TEMP/door" --github-output "$GITHUB_OUTPUT"` },
           {
             name: "Attest the verdict",

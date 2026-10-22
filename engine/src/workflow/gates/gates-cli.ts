@@ -7,6 +7,8 @@
  *   harness gates plan  --out <dir> [--github-output <file>]
  *   harness gates plan  --out <dir> --reuse-lookup --github-output <file>   (CI: GH_TOKEN, COLD, FORK)
  *   harness gates reuse --plan <plan.json> --keydoc <keydoc.json> --proof <verified.json> --door-run <id> --github-output <file>
+ *   harness gates main-integrity locate --github-output <file>                  (CI, push: main; GH_TOKEN)
+ *   harness gates main-integrity judge --keydoc <keydoc.json> --proof <verified.json>
  *   harness gates setup <registry command>…
  *   harness gates run   <gate> --plan <plan.json> --out <dir>
  *   harness gates shard <cell> --plan <plan.json> --out <dir>
@@ -24,7 +26,7 @@
  * receipt table to `$GITHUB_STEP_SUMMARY` when CI provides one, and exits 1
  * unless the verdict is passed.
  */
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -36,6 +38,7 @@ import { wrapResult, type CommandAnswer } from "../command-result.ts";
 import { GATE_CATALOGUE, type Population } from "./catalogue.ts";
 import { workingTreeKey } from "./key.ts";
 import { findVerdictLocator, judgeReuseProof, pipelineChanged, reuseEligibility } from "./reuse.ts";
+import { doorCheckOn, judgeMainIntegrity } from "./main-integrity.ts";
 import { resolveRevision } from "../../git/tree-reader.ts";
 import { configuredGitRepository } from "../../git/worktree-port.ts";
 import { configuredForge } from "../forge/configured-forge.ts";
@@ -75,8 +78,9 @@ function runFromFork(): boolean {
   return event.pull_request?.head?.repo?.fork === true;
 }
 const COLD_VARIABLE = "COLD";
+const COMMIT_VARIABLE = "GITHUB_SHA";
 
-const VERBS = ["list", "population", "plan", "reuse", "setup", "run", "shard", "unchanged", "seal"] as const;
+const VERBS = ["list", "population", "plan", "reuse", "main-integrity", "setup", "run", "shard", "unchanged", "seal"] as const;
 
 /** `owner/name` (GITHUB_REPOSITORY), or the typed refusal. */
 function repositoryOf(value: string | undefined): Readonly<{ owner: string; name: string }> {
@@ -186,6 +190,35 @@ export async function runGatesCli(engineRoot: string, argv: readonly string[], o
     }
     if (values["github-output"] !== undefined) appendFileSync(values["github-output"], `cells=${JSON.stringify(matrixCells(plan))}\nkey=${plan.keyDigest}\nreuse-run=${reuseRun}\n`);
     return { result: wrapResult("gates", deepFreeze({ plan: join(out, "plan.json"), headSha: plan.headSha, treeId: plan.treeId, key: plan.keyDigest, cells: plan.cells.map((cell) => ({ cell: cell.cell, files: cell.files.length, weight: cell.weight })) }), { status: "pass" }) };
+  }
+  if (verb === "main-integrity") {
+    // THE POST-LAND SEAL: this main commit must be a tree the door judged (main-integrity.ts).
+    const [mode, ...flagsAfter] = rest;
+    const sha = process.env[COMMIT_VARIABLE] ?? "";
+    if (!/^[0-9a-f]{40}$/u.test(sha)) throw new InputError("gates main-integrity runs on a push to main: GITHUB_SHA names no commit", "main_integrity_unreadable");
+    const client = githubClient(forgeEndpoint(configuredForge()), environmentCredential("ci", "GH_TOKEN"));
+    const repository = repositoryOf(process.env[REPOSITORY_VARIABLE]);
+    const check = await doorCheckOn(client, repository, sha);
+    if (mode === "locate") {
+      const { values } = options("main-integrity locate", flagsAfter, { "github-output": "string" }, 0);
+      const locator = check === null || !/^[0-9a-f]{64}$/u.test(check.key) ? null : await findVerdictLocator(client, repository, check.key, "success");
+      if (values["github-output"] !== undefined) appendFileSync(values["github-output"], `key=${check?.key ?? ""}\ndoor-run=${locator === null ? "" : String(locator.runId)}\n`);
+      return { result: wrapResult("gates", deepFreeze({ check: check !== null, located: locator !== null }), { status: "pass" }) };
+    }
+    if (mode !== "judge") throw new InputError("gates main-integrity <locate|judge>", INPUT_ERROR_CODE);
+    const { values } = options("main-integrity judge", flagsAfter, { keydoc: "string", proof: "string" }, 0);
+    const keydocPath = values.keydoc;
+    const proofPath = values.proof;
+    const treeId = resolveRevision(configuredGitRepository(loadPinnedConfigSnapshot().document, repositoryRoot), sha, "tree");
+    if (treeId === null) throw new InputError(`cannot read the tree of ${sha}`, "main_integrity_unreadable");
+    const verdict = judgeMainIntegrity({
+      treeId,
+      check,
+      keyDocument: keydocPath !== undefined && existsSync(keydocPath) ? readFileSync(keydocPath) : null,
+      verified: proofPath !== undefined && existsSync(proofPath) ? JSON.parse(readFileSync(proofPath, "utf8")) as unknown : [],
+    });
+    for (const finding of verdict.findings) process.stderr.write(`main-integrity: ${finding}\n`);
+    return { result: wrapResult("gates", deepFreeze({ sealed: verdict.sealed, findings: verdict.findings }), { status: verdict.sealed ? "pass" : "fail" }) };
   }
   if (verb === "reuse") {
     const { values } = options(verb, rest, { plan: "string", keydoc: "string", proof: "string", "door-run": "string", "github-output": "string" }, 0);
