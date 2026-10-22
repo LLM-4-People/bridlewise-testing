@@ -42,7 +42,8 @@ function run(argv: readonly string[]): number {
     process.stdout.write(text);
     return 0;
   }
-  const written = atomicWriteFile(resolve(values.out), text);
+  // A published file (the site serves it as floor/roadmap/data/roadmap.json): world-readable.
+  const written = atomicWriteFile(resolve(values.out), text, { exactMode: 0o644 });
   if (!written.success) throw new HarnessError(`Failed to write ${values.out}: ${written.reason ?? "unknown error"}`, "roadmap_feed_write_failed");
   return 0;
 }
