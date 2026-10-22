@@ -3,8 +3,11 @@ import { writeFileSync } from "node:fs";
 import {
   countOpenAlerts,
   latestByWorkflow,
-  listRuns,
-} from "./floor/github.mjs";
+  readFailureCode,
+  workflowRuns,
+} from "../engine/src/workflow/forge/repository-reads.ts";
+import { configuredForgeClient } from "../engine/src/workflow/forge/configured-forge.ts";
+import { environmentCredential } from "../engine/src/workflow/forge/credentials.ts";
 import { stableJson } from "./floor/files.mjs";
 
 const REQUIRED_WORKFLOWS = [
@@ -21,7 +24,6 @@ function parseArgs(argv) {
     tag: null,
     out: "promotion-receipt.json",
     verdictOut: null,
-    token: process.env.GH_TOKEN || null,
     waitSeconds: 0,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -31,12 +33,12 @@ function parseArgs(argv) {
     else if (arg === "--tag") out.tag = argv[++index];
     else if (arg === "--out") out.out = argv[++index];
     else if (arg === "--verdict-out") out.verdictOut = argv[++index];
-    else if (arg === "--token") out.token = argv[++index];
     else if (arg === "--wait-seconds") out.waitSeconds = Number(argv[++index]);
     else throw new Error(`Unknown argument: ${arg}`);
   }
   if (!out.sha) throw new Error("--sha is required");
-  if (!out.token) throw new Error("GH_TOKEN or --token is required");
+  // The credential is GH_TOKEN, read at call time by the forge client; never an argument.
+  if (!process.env.GH_TOKEN) throw new Error("GH_TOKEN is required");
   if (!Number.isFinite(out.waitSeconds) || out.waitSeconds < 0) {
     throw new Error("--wait-seconds must be a non-negative number");
   }
@@ -88,9 +90,9 @@ function checkFromRun(definition, run, sha) {
   };
 }
 
-async function alerts(repository, kind, token, fetchImpl) {
+async function alerts(repository, kind, client) {
   try {
-    const value = await countOpenAlerts(repository, kind, token, { fetchImpl });
+    const value = await countOpenAlerts(client, repository, kind);
     if (!value.complete) {
       return {
         status: "unknown",
@@ -116,7 +118,7 @@ async function alerts(repository, kind, token, fetchImpl) {
       critical: null,
       complete: false,
       truncated: true,
-      note: `The alert API did not answer: ${error.status ?? "network"}.`,
+      note: `The alert API did not answer: ${readFailureCode(error)}.`,
     };
   }
 }
@@ -138,13 +140,12 @@ function defaultSleep(milliseconds) {
 async function runsAtCommit({
   product,
   sha,
-  token,
-  fetchImpl,
+  client,
   waitSeconds,
   sleepImpl,
 }) {
   const deadline = Date.now() + waitSeconds * 1000;
-  let runs = await listRuns(product, token, { fetchImpl, headSha: sha });
+  let runs = await workflowRuns(client, product, sha);
   while (true) {
     const latest = latestByWorkflow(runs);
     const pending = REQUIRED_WORKFLOWS.some((definition) => {
@@ -153,16 +154,16 @@ async function runsAtCommit({
     });
     if (!pending || Date.now() >= deadline) return runs;
     await sleepImpl(15000);
-    runs = await listRuns(product, token, { fetchImpl, headSha: sha });
+    runs = await workflowRuns(client, product, sha);
   }
 }
 
+/** The promotion receipt of `product` at `sha`, read through the forge port (`client`). */
 export async function buildPromotionReceipt({
   product,
   sha,
   tag,
-  token,
-  fetchImpl = fetch,
+  client,
   now = new Date(),
   waitSeconds = 0,
   sleepImpl = defaultSleep,
@@ -170,8 +171,7 @@ export async function buildPromotionReceipt({
   const runs = await runsAtCommit({
     product,
     sha,
-    token,
-    fetchImpl,
+    client,
     waitSeconds,
     sleepImpl,
   });
@@ -179,8 +179,8 @@ export async function buildPromotionReceipt({
   const checks = REQUIRED_WORKFLOWS.map((definition) =>
     checkFromRun(definition, latest.get(definition.workflow), sha),
   );
-  const codeScanning = await alerts(product, "code-scanning", token, fetchImpl);
-  const dependabot = await alerts(product, "dependabot", token, fetchImpl);
+  const codeScanning = await alerts(product, "code-scanning", client);
+  const dependabot = await alerts(product, "dependabot", client);
   const blockers = [
     ...checks.filter((check) => check.status !== "pass").map((check) => `${check.id}:${check.status}`),
     ...(codeScanning.status === "pass" ? [] : [`product.code_scanning:${codeScanning.status}`]),
@@ -207,7 +207,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   let receipt;
   try {
-    receipt = await buildPromotionReceipt(args);
+    receipt = await buildPromotionReceipt({ ...args, client: configuredForgeClient(environmentCredential("promotion-gate:GH_TOKEN", "GH_TOKEN")) });
   } catch (error) {
     // The workflow pre-seeds its verdict file; this overwrites it with a
     // reason when the gate itself could not finish, so a blocked gate never

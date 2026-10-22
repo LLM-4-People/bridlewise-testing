@@ -203,6 +203,12 @@ included (`landingGitFailure`, over both git doors: the machine's — a ceiling,
 a signal, an environmental error in git's words, by the command runner's own
 rule — is `git_errored`, git's refusal `git_failed`).
 
+The community surface — the files GitHub shows a contributor and the bots that
+answer them — lives in `community/` (its README): the role table and the intake
+registry under `docs/community/` are its single sources, and `harness sync`
+writes CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, SUPPORT, GOVERNANCE, the
+pull-request template and the issue and Discussion forms from them.
+
 ## What each file does
 
 - `auto-generator.ts` — the auto-generator module; `currentConfigContractArtifact`

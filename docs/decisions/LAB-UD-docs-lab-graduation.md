@@ -7,6 +7,7 @@ status: in-force
 covers: [LAB-D1, LAB-D2, LAB-D3, LAB-D4, LAB-D5]
 implementation: pending
 route: LAB-6
+amended_by: [BL-U2]
 ---
 # The docs-writer lab's decisions
 
