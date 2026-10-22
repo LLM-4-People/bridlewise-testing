@@ -76,6 +76,7 @@
       "engine/.gitignore",
       ".githooks/",
       "engine/README.md",
+      "engine/docs/registration-procedure.md",
       "scripts/trace.ts"
     ],
     "exclude": [
