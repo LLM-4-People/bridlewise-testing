@@ -555,8 +555,27 @@ test("repository command effects are exhaustively architecture-registered while 
       .map((entry) => entry.path),
     expectedFixtureExclusions.toSorted(),
   );
-  for (const command of ARCHITECTURE_MANIFEST.externalCommands) {
+  for (const command of ARCHITECTURE_MANIFEST.externalCommands.filter((entry) => entry.publication === "published")) {
     assert.equal(inventory.entries.find((entry) => entry.path === command.path)?.disposition, "blocked-unqualified");
+  }
+  // A NOT-PUBLISHED command is the declared boundary: this tree carries no
+  // source for it, so it has no inventory entry and its absence is no
+  // violation; a source that appears for it is one (planted below).
+  const notPublished = ARCHITECTURE_MANIFEST.externalCommands.filter((entry) => entry.publication === "not-published");
+  for (const command of notPublished) {
+    assert.equal(scannedPaths.has(command.path), false, `${command.path} is declared not-published but the tree carries it`);
+  }
+  if (notPublished.length > 0) {
+    const planted = verifyCommandEffectInventory({
+      architectureCompositionRoots: [],
+      architectureExternalCommands: [notPublished[0]!],
+      registrations: [],
+      sources: [{ path: notPublished[0]!.path, source: "print('present')\n" }],
+    });
+    assert.ok(
+      planted.violations.includes(`command-effect-external-source-not-published-present:${notPublished[0]!.path}`),
+      "a not-published command whose source appears is not refused",
+    );
   }
   for (const registration of qualified) {
     assert.equal(inventory.entries.find((entry) => entry.path === registration.path)?.disposition, "qualified-contract");

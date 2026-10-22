@@ -305,6 +305,13 @@ export function verifyCommandEffectInventory(input: CommandEffectInventoryInput)
   }
   for (const command of externalCommands.values()) {
     const source = sourceByPath.get(command.path);
+    // A NOT-PUBLISHED command declares the boundary (src/kernel/architecture-
+    // external-commands.ts): this tree deliberately carries no source, so an
+    // absent source is the declared state, and a present one breaks it.
+    if (command.publication === "not-published") {
+      if (source !== undefined) violations.push(`command-effect-external-source-not-published-present:${command.path}`);
+      continue;
+    }
     if (source === undefined) {
       violations.push(`command-effect-external-source-missing:${command.path}`);
     } else if (sha256(source) !== command.sourceSha256) {
