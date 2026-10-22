@@ -49,6 +49,7 @@ import { commandExitCode, parseHarnessCommandResult, renderCommandAnswer, takeOu
 import { DEFAULT_TYPECHECK_TIMEOUT_MS, DEFAULT_DISPOSITION_AUTO_ADD_TIMEOUT_MS, DEFAULT_SYNC_REGISTER_TIMEOUT_MS, DEFAULT_SYNC_REGENERATE_TIMEOUT_MS, DEFAULT_SYNC_CHECK_TIMEOUT_MS, DEFAULT_SYNC_BUNDLE_TIMEOUT_MS, DEFAULT_TIMELINE_COMMAND_LIMIT, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline } from "../git/index-baseline.ts";
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
+import { syncCommunityFiles } from "./community/health-files.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
 import { acceptFrozenRecords, frozenRecordsMessage, syncFrozenRecords, type FrozenRecordsReport } from "./record-links.ts";
 import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
@@ -151,6 +152,8 @@ export type HarnessCheckOutput = Readonly<{
   guardianSpecArtifact: CheckStepResult;
   /** Does the canonical artifact inventory equal a fresh build over the governed roots (scripts/tooling/artifact-manifest.ts)? */
   artifactManifest: CheckStepResult;
+  /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
+  communityFiles: CheckStepResult;
   allPassed: boolean;
 }>;
 
@@ -244,6 +247,13 @@ export type HarnessRegenerateOutput = Readonly<{
   /** The frozen record roots' pinned content (`ROOT_POLICY.verification.frozenRecordManifest`, src/workflow/record-links.ts). */
   frozenRecords: DecisionIndexArm;
   /**
+   * The community health files and forms (CONTRIBUTING, CODE_OF_CONDUCT,
+   * SECURITY, SUPPORT, GOVERNANCE, the pull-request template, the issue and
+   * Discussion forms), generated from `docs/community/` and their facts' owners
+   * (src/workflow/community/health-files.ts), never edited by hand.
+   */
+  communityFiles: CommunityFilesArm;
+  /**
    * The guardian spec-schema artifact, rebuilt from the live Zod schema
    * (`scripts/verification/guardian-spec-artifact.ts`) BEFORE the binding
    * repair re-pins its sha256, so a schema edit converges in one pass.
@@ -273,6 +283,15 @@ export type DecisionIndexArm = Readonly<{
   status: "current" | "regenerated" | "stale" | "absent";
   converged: boolean;
   changed: readonly string[];
+}>;
+
+/** What the community-files arm did: a generator arm, or `refused` with the typed refusal's code and message (a missing or invalid source, a hand-made shadow file). */
+export type CommunityFilesArm = Readonly<{
+  status: "current" | "regenerated" | "stale" | "absent" | "refused";
+  converged: boolean;
+  changed: readonly string[];
+  /** The refusal's `code: message`, empty otherwise. */
+  refusal: string;
 }>;
 
 /** What the README consumer arm did: `changed` is what a write rewrote, or what a check found stale. */
@@ -511,6 +530,9 @@ export async function harnessCheck(
     details: artifactManifest,
   }));
 
+  emitProgress(onProgress, "Checking the community health files and forms...");
+  steps.push(communityFilesStep(regenerateCommunityFiles(root, false)));
+
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
     typecheck: steps[0]!,
@@ -534,6 +556,7 @@ export async function harnessCheck(
     guardianSpecArtifact: steps[18]!,
     trackerBoard: steps[19]!,
     artifactManifest: steps[20]!,
+    communityFiles: steps[21]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -915,11 +938,13 @@ export function harnessRegenerate(
   const evidenceIgnore = regenerateEvidenceIgnore(root, write);
   // The frozen roots' pinned content: a change there is a manifest change the diff shows.
   const frozenRecords = syncFrozenRecords(trackedTop(root), write);
+  // The community health files and forms, from their sources (before the inventory digests them).
+  const communityFiles = regenerateCommunityFiles(root, write);
   // The canonical artifact inventory, LAST: every governed file the arms above
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, frozenRecords, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -935,7 +960,7 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged && communityFiles.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1207,6 +1232,35 @@ export function evidenceIgnoreStep(evidenceIgnore: DecisionIndexArm): CheckStepR
       : `the ignore file's evidence block is stale against the tracked evidence manifests (run harness sync): ${evidenceIgnore.changed.join(", ")}`,
     details: evidenceIgnore,
   });
+}
+
+/** `harness check`'s community-files step: a stale generated health file or form FAILS the check, naming each path. */
+export function communityFilesStep(communityFiles: CommunityFilesArm): CheckStepResult {
+  return deepFreeze({
+    step: "community-files",
+    status: communityFiles.converged ? "pass" : "fail",
+    message: communityFiles.status === "refused"
+      ? `the community files cannot be generated: ${communityFiles.refusal}`
+      : communityFiles.converged
+        ? `the community health files and forms match their sources${communityFiles.status === "absent" ? " (this tree carries no community surface at all)" : ""}`
+        : `community files are stale against docs/community/, or a file GitHub reads as one was not generated (run harness sync): ${communityFiles.changed.join(", ")}`,
+    details: communityFiles,
+  });
+}
+
+/**
+ * The community-files arm (in process: the community sources are a runtime
+ * module the IssueOps commands read too). A typed refusal is the arm's
+ * `refused` answer, so `harness check` names it as a failing step.
+ */
+export function regenerateCommunityFiles(root: string, write: boolean): CommunityFilesArm {
+  try {
+    const report = syncCommunityFiles(trackedTop(root), write);
+    return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed, refusal: "" });
+  } catch (error) {
+    if (!(error instanceof HarnessError) || !/^(?:community_|yaml_)/u.test(error.code)) throw error;
+    return deepFreeze({ status: "refused" as const, converged: false, changed: [], refusal: `${error.code}: ${error.message}` });
+  }
 }
 
 /** `harness check`'s task-board step: a board that differs from its items' render, or one that cannot be judged (a hand row outside its block, a missing block or items folder), FAILS the check. */

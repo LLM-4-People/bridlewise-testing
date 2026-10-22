@@ -38,7 +38,13 @@ describe("docs/decisions", () => {
     const base = "id: D-09\ndate: 2026-09-28\nby: user\ngroup: process\nstatus: in-force\nimplementation: standing";
     const other = entry("U2-other.md", "id: U2\ndate: 2026-09-28\nby: user\ngroup: prompt-cache\nstatus: in-force\nimplementation: done\nacted_in: [engine/src/a.ts]\ncovers: [UD-C1, X3b]");
     expect(decisionViolations([entry("D-09-x.md", base), other], tracked)).toEqual([]);
-    expect(decisionViolations([entry("D-09-x.md", `${base}\noverrides: [U2, UD-C1]`), other], tracked)).toEqual([]);
+    const amendedOther = entry("U2-other.md", "id: U2\ndate: 2026-09-28\nby: user\ngroup: prompt-cache\nstatus: in-force\nimplementation: done\nacted_in: [engine/src/a.ts]\ncovers: [UD-C1, X3b]\namended_by: [D-09]");
+    expect(decisionViolations([entry("D-09-x.md", `${base}\noverrides: [U2, UD-C1]`), amendedOther], tracked)).toEqual([]);
+    // An amendment is recorded on both ends: an override the amended decision does not name, or an amended_by no override backs, is refused.
+    expect(decisionViolations([entry("D-09-x.md", `${base}\noverrides: [U2]`), other], tracked)).toEqual(["U2-other.md: D-09 overrides it, so its amended_by must name D-09"]);
+    expect(decisionViolations([entry("D-09-x.md", `${base}\noverrides: [UD-C1]`), other], tracked), "through a covered alias").toEqual(["U2-other.md: D-09 overrides it, so its amended_by must name D-09"]);
+    expect(decisionViolations([entry("D-09-x.md", base), amendedOther], tracked)).toEqual(["U2-other.md: amended_by D-09 does not override this decision (its overrides must name U2)"]);
+    expect(renderDecisionIndex([entry("D-09-x.md", `${base}\noverrides: [U2]`), amendedOther])).toContain("| [U2](U2-other.md) | Title (covers UD-C1, X3b) | user | done, amended by D-09 |");
     expect(decisionViolations([entry("D-09-x.md", base.replace("in-force", "superseded") + "\nsuperseded_by: U2"), other], tracked)).toEqual([]);
     const broken: Record<string, string> = {
       "no date": base.replace("date: 2026-09-28\n", ""),

@@ -36,7 +36,24 @@ check` reports it stale): change a decision's file, never its row.
 
 | Id | Decision | By | State |
 |---|---|---|---|
+| [BE-PROACTIVE](BE-PROACTIVE-apply-principles-broadly.md) | Be proactive: apply principles broadly | user | standing |
+| [BUILD-ITERATE-REUSE](BUILD-ITERATE-REUSE-extend-the-existing-owner.md) | Build, iterate, reuse and improve | user | standing |
+| [DESIGN-SYSTEM](DESIGN-SYSTEM-one-design-system.md) | One design system across the harness | user | pending (DESIGN-SYSTEM) |
+| [EXEC-MODES](EXEC-MODES-blocking-non-blocking-or-auto.md) | Everything is blocking, non-blocking or auto | user | pending (MODES) |
+| [EXPOSE-MODES](EXPOSE-MODES-modes-for-every-choice.md) | Expose everything; modes for every choice | user | pending (MODES) |
+| [FEW-TOOLS](FEW-TOOLS-each-tool-backed-by-one-owner.md) | Few tools, each backed by one harness owner | user | pending (TOOLS-FEW) |
+| [HARNESS-DRIVES](HARNESS-DRIVES-the-harness-drives-the-model-creates.md) | The harness drives; the model is the passenger | user | pending (GIT-AUTO) |
+| [LANGUAGES](LANGUAGES-typescript-and-rust-only.md) | TypeScript and Rust only; port by measurement | user | pending (NATIVE-ONE) |
+| [MIN-DEPS](MIN-DEPS-minimal-external-dependencies.md) | Minimal external dependencies | user | standing |
+| [NO-BRANDED-NAMES](NO-BRANDED-NAMES-modules-named-by-what-they-do.md) | No branded module names; no needless packages | user | standing |
+| [NO-OVER-ENGINEER](NO-OVER-ENGINEER-smallest-reliable-design.md) | Don't over-engineer; novelty is not a goal | user | standing |
+| [ONE-IMPL-PROBE](ONE-IMPL-PROBE-one-implementation-every-platform.md) | One implementation for every platform: probe, don't branch | user | standing |
+| [PARTIAL-FAILURE](PARTIAL-FAILURE-tools-merge-partial-corrections.md) | Partial failure in every tool | user | pending (TOOLS-FEW) |
+| [QUALITY-PRINCIPLES](QUALITY-PRINCIPLES-the-universal-quality-principles.md) | The universal quality principles | user | standing |
 | [REC-DIR](REC-DIR-useful-recovery-records-live-in-the-repository.md) | Useful work lives in the repository | user | done |
+| [RULES-ENFORCED](RULES-ENFORCED-rules-are-mechanically-enforced.md) | Rules are mechanically enforced whenever possible | user | standing |
+| [SANDBOX-ALWAYS](SANDBOX-ALWAYS-every-project-runs-in-the-sandbox.md) | Everything runs in the sandbox | user | pending (ST-1) |
+| [TESTS-TEST-THEMSELVES](TESTS-TEST-THEMSELVES-a-test-must-fail-on-the-old-code.md) | Tests test themselves | user | pending (TTT) |
 | [UR-01](UR-01-dry-kiss-yagni-one-owner.md) | Shared owners, one source of truth | user | standing |
 | [UR-02](UR-02-generated-values-come-from-generators.md) | Generated values come from generators | user | standing |
 | [UR-03](UR-03-caching-never-sacrifices-a-harness-function.md) | Caching never sacrifices a harness function | user | standing |
@@ -46,7 +63,7 @@ check` reports it stale): change a decision's file, never its row.
 | [UR-07](UR-07-secrets-from-the-environment-only.md) | Secrets from the environment only | coordinator | superseded by D-09 |
 | [UR-08](UR-08-central-logging-at-the-lowest-choke-point.md) | Everything goes through central logging | user | partial (RC-06) |
 | [UR-09](UR-09-independent-verification-before-commit.md) | Independent verification before every commit and push | user | standing |
-| [UR-10](UR-10-one-writer-per-repository.md) | One writer per repository | user | standing |
+| [UR-10](UR-10-one-writer-per-repository.md) | One writer per repository | user | standing, amended by UR-23 |
 | [UR-11](UR-11-research-when-not-certain.md) | Research whenever you are not certain | user | standing |
 | [UR-12](UR-12-master-changes-only-through-the-promotion-door.md) | The product branch changes only through the promotion door | user | standing |
 | [UR-13](UR-13-provider-deviations-live-in-a-provider-profile.md) | Provider deviations live in a versioned provider profile | user | pending (RC-08) |
@@ -71,7 +88,7 @@ check` reports it stale): change a decision's file, never its row.
 | [D-11](D-11-isolation-tooling.md) | Isolation tooling: one workspace tool | coordinator | partial (A5-CANDIDATE-RETIRE) |
 | [D-12](D-12-authenticated-timeline.md) | The timeline drops HMAC signing; encryption at rest stays open | coordinator | partial (REQ-025) |
 | [D-13](D-13-inherited-web-reds.md) | Inherited web reds: the choices | coordinator | partial (PROMO-0) |
-| [D-14](D-14-detector-families-and-context-budget.md) | Test-drive fixes: detector families and the context budget | coordinator | pending (RC-04) |
+| [D-14](D-14-detector-families-and-context-budget.md) | Test-drive fixes: detector families and the context budget | coordinator | pending (RC-04), amended by U3 |
 | [D-15](D-15-database-key-outside-the-state-root.md) | The database key lives outside the state root; secret files are read redacted | coordinator | done |
 | [D-16](D-16-undici-owns-outbound-transport.md) | undici is the outbound door's one dispatcher | coordinator | done |
 | [D-17](D-17-measured-budgets-come-from-a-tool.md) | Measured budgets come from their measuring tool | coordinator | partial (A4-OWNED-BUDGET) |
@@ -81,14 +98,20 @@ check` reports it stale): change a decision's file, never its row.
 | [D-W4](D-W4-server-scale-items-belong-to-the-web-writer.md) | The server-side scale items belong to the web writer | coordinator | standing |
 | [D-W5](D-W5-mock-free-test-files-share-a-process.md) | Mock-free test files share a process | coordinator | pending (WEB-EFFICIENCY) |
 | [EVD-STORE](EVD-STORE-raw-evidence-in-a-content-addressed-store.md) | Code and small records in git; raw evidence in a content-addressed store | user | partial (EVIDENCE-DURABILITY) |
-| [FLAKE-REPRO](FLAKE-REPRO-a-flake-cause-needs-a-recorded-reproduction.md) | A flake cause needs a recorded reproduction | coordinator | partial (FLAKE-REPRO-REDECLARE) |
-| [INSTRUMENT-LOCK](INSTRUMENT-LOCK-the-host-has-one-instrument-lock.md) | The host has one instrument lock | coordinator | done |
+| [FLAKE-REPRO](FLAKE-REPRO-a-flake-cause-needs-a-recorded-reproduction.md) | A flake cause needs a recorded reproduction | coordinator | partial (FLAKE-REPRO-REDECLARE), amended by NO-LOAD-BLOCK |
+| [INSTRUMENT-LOCK](INSTRUMENT-LOCK-the-host-has-one-instrument-lock.md) | The host has one instrument lock | coordinator | done, amended by NO-LOAD-BLOCK |
 | [KILL-OWNED-ONLY](KILL-OWNED-ONLY-signal-only-what-you-started.md) | Signal only what you started | coordinator | done |
 | [LIVE-SUITE](LIVE-SUITE-one-live-suite-no-hermetic-skips.md) | One live suite; the hermetic suites have no skips | coordinator | done |
+| [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md) | Nothing is ever blocked by CPU load | user | pending (TEST-10X) |
+| [Q-TX1](Q-TX1-reuse-a-proven-deterministic-result.md) | A deterministic test file's result may be reused | user | pending (TEST-10X) |
+| [Q-TX2](Q-TX2-budgets-count-cpu-work.md) | Test budgets count CPU work, not wall time | user | partial (TEST-10X) |
+| [Q-TX4](Q-TX4-per-file-test-budgets.md) | Every test file has its own budget | user | pending (TEST-10X) |
 | [REQUIRES](REQUIRES-a-gate-runs-after-what-it-judges.md) | A gate runs after the steps that produce what it judges | coordinator | done |
+| [TEST-EFF](TEST-EFF-the-test-efficiency-decisions.md) | The test-efficiency decisions (covers Q-TXL1, Q-TXL2, Q-TXL3, Q-TXL4) | user | pending (TEST-10X) |
 | [UD-AUDIT-NO-FORGIVENESS](UD-AUDIT-NO-FORGIVENESS-no-rerun-forgiveness-no-ambient-allowance.md) | No rerun forgiveness, no ambient-load allowance | user | partial (AMBIENT-ALLOWANCE-REMOVE) |
 | [UD-CORE-NO-BYPASS](UD-CORE-NO-BYPASS-a-module-cannot-bypass-core.md) | A module cannot bypass core | user | pending (CORE-NO-BYPASS) |
 | [UD-LOG-NEVER-DISABLED](UD-LOG-NEVER-DISABLED-warn-and-error-always-reported.md) | Logging is never disabled | user | done |
+| [UI-CPU](UI-CPU-browser-gates-judged-in-cpu-work.md) | Browser speed gates are judged in CPU work | user | pending (UI-CPU) |
 | [UR-24-BUDGETS](UR-24-BUDGETS-a-budget-breach-joins-the-one-judgement.md) | A budget breach joins the one judgement | coordinator | partial (AMBIENT-ALLOWANCE-REMOVE) |
 
 ## Earlier engine decisions (coordinator)
@@ -106,8 +129,8 @@ check` reports it stale): change a decision's file, never its row.
 
 | Id | Decision | By | State |
 |---|---|---|---|
-| [D-R1](D-R1-stable-tool-superset.md) | A stable tool superset with a gate refusal | coordinator | superseded by U2 |
-| [D-R2](D-R2-frozen-workspace-snapshot.md) | The workspace snapshot is frozen per chat | coordinator | superseded by U1 |
+| [D-R1](D-R1-stable-tool-superset.md) | A stable tool superset with a gate refusal | coordinator | superseded by U2, amended by U2 |
+| [D-R2](D-R2-frozen-workspace-snapshot.md) | The workspace snapshot is frozen per chat | coordinator | superseded by U1, amended by U1 |
 | [D-R3](D-R3-trim-target.md) | The trim target defaults to 0.5 | coordinator | pending (RC-40) |
 | [D-R4](D-R4-cache-layout.md) | The prompt-cache layout | coordinator | pending (RC-39) |
 | [U-REASONING](U-REASONING-reasoning-replay-mode.md) | Provider profiles declare the reasoning replay mode | user | pending (RC-38) |
@@ -120,7 +143,7 @@ check` reports it stale): change a decision's file, never its row.
 | [U6](U6-memory-tiers.md) | Project-scoped recall plus an opt-in user memory tier | user | pending (MEM-8) |
 | [U7](U7-segment-summaries.md) | Segment summaries with a recent-turn floor | user | pending (RC-40) |
 | [U8](U8-append-the-tail-when-changed.md) | The tail is appended when it changes | user | pending (RC-44) |
-| [U9](U9-context-budget-is-a-ratio.md) | The context budget is a ratio of the model window | user | pending (RC-12) |
+| [U9](U9-context-budget-is-a-ratio.md) | The context budget is a ratio of the model window | user | pending (RC-12), amended by Q11 |
 
 ## Configuration, prompts and credentials
 
@@ -203,6 +226,7 @@ check` reports it stale): change a decision's file, never its row.
 | Id | Decision | By | State |
 |---|---|---|---|
 | [BL-DIR](BL-DIR-finish-the-browser-lab.md) | Finish the browser-integration lab | user | pending (BL-R1) |
+| [BL-GPU](BL-GPU-the-app-runs-without-a-gpu-process.md) | The app runs with no GPU process | user | pending (BL-GPU) |
 | [BL-RES](BL-RES-the-browser-lab-resources.md) | What the browser lab may use: "everything needed" | user | standing |
 | [BL-U1](BL-U1-app-docs-and-server-packages.md) | The app, the docs and the server are separate packages | user | pending (BL-R3) |
 | [BL-U2](BL-U2-the-docs-graduate-as-their-own-package.md) | The docs compiler graduates as the bridlewise-docs package | user | pending (PKG-1) |
@@ -213,8 +237,30 @@ check` reports it stale): change a decision's file, never its row.
 | [D-W3](D-W3-offline-is-read-only.md) | Offline is read-only, with a banner | user | pending (WEB-EFFICIENCY) |
 | [D-W6](D-W6-a-remote-action-shows-a-named-in-flight-row.md) | A remote action shows a named in-flight row | user | pending (WEB-EFFICIENCY) |
 | [INTEL-DIR](INTEL-DIR-integrate-proven-codegraph-improvements.md) | Integrate the proven intelligence-codegraph improvements | user | pending (INTEL-TRANSFER) |
-| [LAB-UD](LAB-UD-docs-lab-graduation.md) | The docs-writer lab's decisions (covers LAB-D1, LAB-D2, LAB-D3, LAB-D4, LAB-D5) | user | pending (LAB-6) |
+| [LAB-UD](LAB-UD-docs-lab-graduation.md) | The docs-writer lab's decisions (covers LAB-D1, LAB-D2, LAB-D3, LAB-D4, LAB-D5) | user | pending (LAB-6), amended by BL-U2 |
+| [PROTO-ONE](PROTO-ONE-one-protocol-local-and-remote.md) | One protocol, local or remote | user | pending (AC-7) |
 | [UD-ONE-PARSER](UD-ONE-PARSER-one-parsing-owner-for-every-consumer.md) | One parsing owner for every consumer | user | pending (INTEL-L0) |
 | [UD-UI-LOCAL-FIRST](UD-UI-LOCAL-FIRST-every-click-within-ten-milliseconds.md) | Every click within ten milliseconds: a local-first UI | user | pending (WEB-EFFICIENCY) |
+
+## GitHub
+
+| Id | Decision | By | State |
+|---|---|---|---|
+| [GH-A](GH-A-public-by-default.md) | Public by default | user | standing |
+| [GH-B](GH-B-agents-act-through-least-privilege-apps.md) | Agents act only through least-privilege GitHub Apps | user | pending (P3.9) |
+| [GH-C](GH-C-all-labs-merge-into-the-one-repository.md) | All labs merge into the one repository | user | pending (P9.1) |
+| [GH-PROJECTION](GH-PROJECTION-github-always-reflects-the-harness.md) | GitHub always reflects the harness | user | partial (P5.2) |
+| [GH-U](GH-U-the-accepted-github-recommendations.md) | The accepted GitHub recommendations (covers GH-U1, GH-U3, GH-U4, GH-U5, GH-U6, GH-U7) | user | pending (P3.2) |
+| [GITHUB-200](GITHUB-200-exploit-github-fully.md) | Use GitHub fully, and make progress public automatically | user | partial (P5.3) |
+| [GITHUB-300](GITHUB-300-the-full-github-feature-catalogue.md) | GitHub as an active part of the harness: the full feature catalogue (covers GITHUB-500) | user | partial (P3.1) |
+| [GITHUB-COMMUNITY](GITHUB-COMMUNITY-people-can-collaborate.md) | People can collaborate, help and interact | user | partial (P5.4) |
+| [GITHUB-ONLY](GITHUB-ONLY-github-is-the-only-host.md) | GitHub is the only host | user | partial (P2.1) |
+
+## Brand and public messaging
+
+| Id | Decision | By | State |
+|---|---|---|---|
+| [MKT-ROADMAP](MKT-ROADMAP-an-easy-generated-roadmap.md) | A roadmap that is easy to follow and generated from the records | user | partial (MKT) |
+| [MKT](MKT-one-source-for-the-public-message.md) | One honest source for everything the project says about itself | user | pending (MKT) |
 
 <!-- END GENERATED: the decision index -->
