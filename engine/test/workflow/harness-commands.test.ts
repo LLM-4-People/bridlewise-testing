@@ -162,7 +162,7 @@ test("M1: harnessCheck judges dead registry commands over the checkout's promoti
   const result = await checkSkipAll();
   assert.equal(result.result.deadCommands.step, "dead-commands");
   assert.equal(result.result.deadCommands.status, "pass", result.result.deadCommands.message);
-  assert.match(result.result.deadCommands.message, /every registry command is run by a workspace phase or a promotion profile/u, "this checkout declares its profiles, so the step judges");
+  assert.match(result.result.deadCommands.message, /every registry command is run by a workspace phase, a promotion profile or a gate/u, "this checkout declares its profiles, so the step judges");
 });
 
 test("#221: harnessCheck judges the bundle against a rebuild of the source (no committed digest)", async () => {

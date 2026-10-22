@@ -1,39 +1,28 @@
 // @vitest-environment node
 /**
- * THE SHARD MANIFEST, READ ONCE — the owner of the two populations a test run
- * can judge.
+ * THE WEB POPULATION, FROM ITS ONE OWNER — the files a full web run judges
+ * and the files it deliberately leaves out.
  *
- * `tests/test-shards.json` declares every live test file as either SUPPORTED
- * (a full run covers it) or EXCLUDED (with the reason it cannot be judged in
- * this snapshot: private artifacts, a WSL host, a generated profile). Two
- * consumers need those facts — the budget's population count and the flaky
- * memory guard — so both read them here instead of parsing the JSON again.
+ * The population is the gate catalogue's (`engine/src/workflow/gates/`):
+ * every file of the tree the runner's own globs (`TEST_INCLUDE`) select, less
+ * the catalogue's declared exclusions, each with its reason (private
+ * artifacts, a WSL host, a generated profile). The CI plan shards exactly
+ * this population, so the budget's population count, the flaky memory guard
+ * and CI can never disagree about it.
  */
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-export const TEST_MANIFEST_PATH = resolve(import.meta.dirname, "..", "test-shards.json");
+import { webPopulation } from "../../engine/src/workflow/gates/populations.ts";
+import { TEST_INCLUDE } from "../test-include.ts";
 
-type TestManifest = Readonly<{
-  files: readonly Readonly<{ path: string }>[];
-  excluded: readonly Readonly<{ path: string; reason: string }>[];
-}>;
-
-function readShardManifest(): TestManifest {
-  const parsed = JSON.parse(readFileSync(TEST_MANIFEST_PATH, "utf8")) as Partial<TestManifest>;
-  if (!Array.isArray(parsed.files) || parsed.files.length === 0) {
-    throw new Error("tests/test-shards.json declares no supported files");
-  }
-  if (!Array.isArray(parsed.excluded)) throw new Error("tests/test-shards.json has no excluded array");
-  return parsed as TestManifest;
-}
+const REPOSITORY_ROOT = resolve(import.meta.dirname, "..", "..");
 
 /** Every file a full run judges. */
 export function supportedTestFiles(): readonly string[] {
-  return readShardManifest().files.map((file) => file.path);
+  return webPopulation(REPOSITORY_ROOT, TEST_INCLUDE).files;
 }
 
 /** Every declared exclusion, keyed by path, with the reason it cannot be judged here. */
 export function excludedTestFiles(): ReadonlyMap<string, string> {
-  return new Map(readShardManifest().excluded.map((file) => [file.path, file.reason]));
+  return new Map(webPopulation(REPOSITORY_ROOT, TEST_INCLUDE).excluded.map((file) => [file.path, file.reason]));
 }

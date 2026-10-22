@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 import type { GateOutcome } from "../../src/shared/budget-verdict.ts";
 import { failureDigest, failureIdentityFile, failureLocation, skippedIdentity } from "../../src/shared/run-history.ts";
@@ -291,6 +292,19 @@ export function deriveTestRunReasons(facts: TestRunReasonFacts): readonly TestRu
 }
 
 /**
+ * WHAT EACH FAILURE SAID: the failing test's identity and its first error
+ * (`<name>: <message>`), as the receipt recorded it. The ledger keeps only a
+ * failure's digest; the run's summary keeps this text (redacted where it is
+ * written) so a red run on a host nobody can reach is diagnosable from its
+ * summary alone (#149). A failure whose error the receipt did not record has
+ * no entry.
+ */
+export function testFailureMessages(receipt: TestResultReceipt): Readonly<Record<string, string>> {
+  return Object.fromEntries((receipt.result.diagnostic?.failureDetails ?? []).flatMap((detail) =>
+    detail.error === null ? [] : [[detail.identity, `${detail.error.name ?? "Error"}: ${detail.error.message}`] as const]));
+}
+
+/**
  * THE LEDGER ROWS OF A RUN: its failures, and its NAMED SKIPS as rows of their
  * own (`<file>::<name> (skipped)`) — a test that did not pass, judged like for
  * like with the target's run beside the failures (a new skip is refused, a
@@ -497,6 +511,36 @@ function expectedTestIdsFromReceipt(receipt: TestReceipt): readonly string[] {
   return inventory.tests.map((entry) => entry.id);
 }
 
+/**
+ * THE CELL'S PASSING RULE (a CI shard of the engine suite: the run dispatched
+ * only its cell and WITHHELD the rest, `cellSourceIds` in
+ * inventory-test-run.ts). The receipt is still judged against the WHOLE
+ * inventory — every entry expected, every withheld one counted skipped — and
+ * the whole-suite rule rejects it for that. A cell passes when the ONLY
+ * difference from a passing whole-suite receipt is exactly the withholding:
+ * something was withheld; every entry that was NOT withheld was discovered
+ * and passed, in order; the skips are exactly the withheld entries (a real
+ * skip in the cell fails it); nothing failed, was todo or cancelled; and no
+ * other reason (an unknown test, a runner summary that disagrees with what was
+ * dispatched, a changed candidate) is present. Whether the cells together
+ * cover the inventory exactly once is the gates' seal's judgement, never a
+ * cell's.
+ */
+export function cellReceiptPassing(result: TestResultReceipt): boolean {
+  const receipt = result.testReceipt;
+  const withheld = new Set(receipt.gatedTestIds);
+  const expected = expectedTestIdsFromReceipt(receipt);
+  const dispatched = expected.filter((id) => !withheld.has(id));
+  const reasons = result.result.diagnostic?.reasons ?? [];
+  const withholdingOnly = reasons.every((reason) => reason === "test-skipped" || reason === "inventory-incomplete-pass");
+  return withheld.size > 0 && dispatched.length > 0 && withholdingOnly &&
+    sameOrderedValues(receipt.discoveredTestIds, expected) &&
+    sameOrderedValues(receipt.passedTestIds, dispatched) &&
+    receipt.counts.discovered === expected.length && receipt.counts.passed === dispatched.length &&
+    receipt.counts.skipped === withheld.size && receipt.counts.failed === 0 && receipt.counts.todo === 0 &&
+    receipt.counts.cancelled === 0;
+}
+
 function testReceiptIsPassing(receipt: TestReceipt): boolean {
   const expectedIds = expectedTestIdsFromReceipt(receipt);
   return sameOrderedValues(receipt.discoveredTestIds, expectedIds) &&
@@ -596,4 +640,14 @@ function assertTestResultConsistency(
     !sameOrderedValues(result.diagnostic.reasons, expectedReasons)) {
     throw new Error("test result accounting is invalid");
   }
+}
+
+/**
+ * THE ONE READER OF AN ENGINE CELL FILE (`run-tests --cell <file>`, the gate
+ * catalogue's engine cells): one engine-relative test source per line, blank
+ * lines ignored. The worker dispatches these sources (`cellSourceIds`) and the
+ * runner sizes its instrument-lock request by them.
+ */
+export function readCellSources(path: string): ReadonlySet<string> {
+  return new Set(readFileSync(path, "utf8").split("\n").map((line) => line.trim()).filter((line) => line.length > 0));
 }

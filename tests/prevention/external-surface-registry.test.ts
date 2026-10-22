@@ -91,6 +91,8 @@ import { isMap, isScalar, isSeq, parseDocument, type Document } from "yaml";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { BUILDER_OWNED_CONFIG_KEYS } from "../../scripts/floor/site-pages.mjs";
 
+import { GENERATED_WORKFLOW_FILES } from "../../engine/src/kernel/verification-paths.ts";
+
 const ROOT = process.cwd();
 const REGISTRY_PATH = "tests/prevention/external-surface-registry.json";
 const REGISTRY_SCHEMA = "bridlewise-external-surface-registry/v1";
@@ -1196,7 +1198,8 @@ describe("external surfaces — the live tree is declared and pinned", () => {
 
   test("liveness: the registry actually declares the populations it judges", () => {
     expect(LIVE_REGISTRY.surfaces.length).toBeGreaterThan(20);
-    expect(LIVE_REGISTRY.universe.workflows.length).toBeGreaterThan(5);
+    // Every workflow is generated: the universe is exactly the generator's file list.
+    expect([...LIVE_REGISTRY.universe.workflows].sort()).toEqual(GENERATED_WORKFLOW_FILES.files.map((file) => `${GENERATED_WORKFLOW_FILES.directory}/${file}`).sort());
     expect(LIVE_REGISTRY.surfaces.filter((surface) => surface.kind === "github-action").length).toBeGreaterThan(5);
     expect(LIVE_REGISTRY.surfaces.filter((surface) => surface.kind === "dependency-tree").length).toBeGreaterThanOrEqual(2);
     expect(LIVE_REGISTRY.surfaces.filter((surface) => surface.kind === "container-image").length).toBeGreaterThanOrEqual(2);

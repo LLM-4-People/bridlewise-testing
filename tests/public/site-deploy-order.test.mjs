@@ -141,11 +141,11 @@ test("the Pages workflow deploys only on the order check's answer", async () => 
   const condition = "        if: steps.order.outputs.deploy == 'true'\n";
   assert.ok(text.includes(condition));
   assert.match(deployWiringViolations(text.replace(condition, "")).join(), /does not wait/u);
-  const check = /      - name: Check the deploy order\n[\s\S]*?run: node scripts\/floor\/deploy-order\.mjs --sha "\$GITHUB_SHA"[^\n]*\n\n/u;
+  const check = /      - name: Check the deploy order\n[\s\S]*?run: node scripts\/floor\/deploy-order\.mjs --sha "\$GITHUB_SHA"[^\n]*\n/u;
   assert.match(text, check);
   assert.match(deployWiringViolations(text.replace(check, "")).join(), /without the order check/u);
   assert.match(deployWiringViolations(text.replace("      queue: max\n", "")).join(), /not serialised/u);
-  assert.match(deployWiringViolations(text.replace("    needs: [build, approve-override]\n", "    needs: build\n")).join(), /without the pages-override approval/u);
+  assert.match(deployWiringViolations(text.replace("    needs:\n      - build\n      - approve-override\n", "    needs:\n      - build\n")).join(), /without the pages-override approval/u);
   assert.match(deployWiringViolations(text.replace("      name: pages-override\n", "      name: github-pages\n")).join(), /without the pages-override approval/u);
   // Near miss: the same wiring in flow style is the same document.
   assert.deepEqual(deployWiringViolations(text.replace(condition, "        if: \"steps.order.outputs.deploy == 'true'\"\n")), []);

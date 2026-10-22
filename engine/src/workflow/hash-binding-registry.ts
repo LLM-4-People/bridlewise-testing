@@ -9,7 +9,7 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { REQUIREMENTS_REGISTRY_IDENTITY_HASH, REQUIREMENTS_REGISTRY_SOURCE_PATH } from "../kernel/requirements.ts";
 import { FORENSIC_SCHEMA_BUNDLE_HASH } from "../forensics/forensic-contracts.ts";
 import { S3_OFFLINE_FORENSIC_HASH } from "../forensics/offline-forensics.ts";
-import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, TRACKER_BOARD } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, GENERATED_WORKFLOW_FILES, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, TRACKER_BOARD } from "../kernel/verification-paths.ts";
 import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
 import { ownedFiles } from "../git/repository-ownership.ts";
 import { ARCHITECTURE_EXTERNAL_COMMANDS } from "../kernel/architecture-external-commands.ts";
@@ -453,8 +453,12 @@ export function wholesaleGeneratedPaths(): ReadonlySet<string> {
     GENERATED_SPEC_SCHEMA_ARTIFACT,
     GENERATED_ARTIFACT_MANIFEST,
     ...SHIPPED_HOOK_PATHS,
+    ...GENERATED_WORKFLOW_PATHS,
   ]);
 }
+
+/** The generated workflows (repository-relative), each written whole from the gate catalogue (`GENERATED_WORKFLOW_FILES.generator`). */
+const GENERATED_WORKFLOW_PATHS: readonly string[] = Object.freeze(GENERATED_WORKFLOW_FILES.files.map((file) => `${GENERATED_WORKFLOW_FILES.directory}/${file}`));
 
 /** The shipped hooks (repository-relative), each written whole by its generator (`SHIPPED_HOOK_FILES.generator`). */
 const SHIPPED_HOOK_PATHS: readonly string[] = Object.freeze([...SHIPPED_HOOK_FILES.guarded, SHIPPED_HOOK_FILES.trigger].map((hook) => `${SHIPPED_HOOK_FILES.directory}/${hook}`));
@@ -516,6 +520,9 @@ function generatedOutputPathsOfReadmes(readmes: readonly string[]): ReadonlySet<
     // The shipped hooks a regenerate pass writes whole from their owners
     // (`SHIPPED_HOOK_FILES.generator`).
     ...SHIPPED_HOOK_PATHS,
+    // The workflows a regenerate pass writes whole from the gate catalogue
+    // (`GENERATED_WORKFLOW_FILES.generator`).
+    ...GENERATED_WORKFLOW_PATHS,
     // The source-authority pins a regenerate pass re-derives
     // (`scripts/pin-authority-regeneration.ts`) and the projection beside one.
     ...Object.values(PIN_AUTHORITY_PATHS).map((path) => `engine/${path}`),

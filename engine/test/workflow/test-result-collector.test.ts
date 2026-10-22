@@ -542,6 +542,7 @@ test("writeTestRunSummary: default path writes to.bridlewise/state/test-results/
       status: "passed",
       exitCode: 0,
       failures: [],
+      failureMessages: {},
       reasons: [],
       testCount: 3,
       passCount: 3,
@@ -552,6 +553,31 @@ test("writeTestRunSummary: default path writes to.bridlewise/state/test-results/
     const parsed = JSON.parse(readFileSync(filePath, "utf8"));
     assert.equal(parsed.schemaVersion, TEST_RUN_SUMMARY_SCHEMA_VERSION);
     assert.equal(parsed.testCount, 3);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("writeTestRunSummary: each failure's message is kept by its identity, redacted as it is written (#149)", () => {
+  const tmpDir = createTempDir("test-run-summary-messages-");
+  try {
+    const identity = "test/a.test.ts::refuses a stale pin";
+    const filePath = writeTestRunSummary(tmpDir, {
+      resultIntegrityHash: "a".repeat(64),
+      deterministicHash: "b".repeat(64),
+      status: "failed",
+      exitCode: 1,
+      failures: [identity],
+      failureMessages: { [identity]: 'AssertionError: expected the pin to refuse\npassword = "sensitive44word"' },
+      reasons: [],
+      testCount: 3,
+      passCount: 2,
+      failCount: 1,
+    });
+    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as { failureMessages: Record<string, string> };
+    const message = parsed.failureMessages[identity]!;
+    assert.match(message, /^AssertionError: expected the pin to refuse/u, "the message is kept, so the red is diagnosable from the summary");
+    assert.doesNotMatch(message, /sensitive44word/u, "a credential in a message never reaches the summary");
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }

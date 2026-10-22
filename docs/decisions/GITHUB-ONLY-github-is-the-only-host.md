@@ -6,7 +6,7 @@ group: github
 status: in-force
 implementation: partial
 route: P2.1
-acted_in: [.github/workflows/ci.yml, .github/workflows/test-shards.yml, .github/workflows/pages.yml]
+acted_in: [.github/workflows/ci.yml, engine/src/workflow/gates/catalogue.ts, .github/workflows/pages.yml]
 ---
 # GitHub is the only host
 
@@ -32,8 +32,8 @@ anything not properly done."
 - Anything not done properly may be redone.
 
 Done so far: this repository is on GitHub, its CI runs on GitHub Actions
-(`.github/workflows/ci.yml`, with the sharded full suite in
-`.github/workflows/test-shards.yml`) and its docs site is published from it
+(`.github/workflows/ci.yml`, generated from the gate catalogue with the
+suites as its shard matrix) and its docs site is published from it
 (`.github/workflows/pages.yml`).
 
 Still missing: the workflow files are written by hand, not generated from the

@@ -5,7 +5,7 @@
  * The runner used to give the static-libc test, when `cc -static` was
  * unavailable, `TOTAL+1; PASS+1; echo "PASS: test 20 SKIP"`, and its summary
  * printed ALL TESTS PASS. A later repair stopped counting a skip as a pass but
- * still returned 0, so `.github/workflows/ci.yml`'s "Test guardian" step was
+ * still returned 0, so CI's "Test guardian" step was
  * green while tests 18/19/20/22/35/36 had not run at all (the environment
  * prerequisite was missing). A skipped security suite certified the commit.
  *
@@ -13,15 +13,19 @@
  * drives it in bash: a skip increments SKIP and never PASS, the summary exits
  * NON-ZERO while a skip exists, and an empty or inconsistent denominator is a
  * failure. The CI-side log check (`require-pass-log.sh`) is driven over real
- * logs beside it, and a source scan requires every shell pipeline in the two
- * workflows to run under `pipefail` — the other green-masking shape
- * (`false | tee -a …` exits 0 under `bash -e` without it).
+ * logs beside it; the catalogue's guardian gate runs that check on its own
+ * captured log after the test step; and a source scan requires every shell
+ * pipeline in the generated workflows to run under `pipefail` — the other
+ * green-masking shape (`false | tee -a …` exits 0 under `bash -e` without it).
  */
 import { spawnSync } from "node:child_process";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createTempDir } from "../helpers/temp-dir.ts";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+
+import { GENERATED_WORKFLOW_FILES } from "../../engine/src/kernel/verification-paths.ts";
+import { gateById } from "../../engine/src/workflow/gates/catalogue.ts";
 
 const SCRIPT_PATH = "engine/guardian/tests/run-tests.sh";
 const PASS_CHECK_PATH = "engine/guardian/tests/require-pass-log.sh";
@@ -32,7 +36,8 @@ const from = SCRIPT.indexOf(START);
 const to = SCRIPT.indexOf(END);
 const HELPERS = SCRIPT.slice(from, to);
 
-const WORKFLOWS = [".github/workflows/ci.yml", ".github/workflows/test-shards.yml"] as const;
+/** Every workflow: all of them are generated from the gate catalogue (engine/src/workflow/gates/). */
+const WORKFLOWS = GENERATED_WORKFLOW_FILES.files.map((file) => `${GENERATED_WORKFLOW_FILES.directory}/${file}`);
 
 function runAgainstHelpers(body: string): { readonly stdout: string; readonly status: number } {
   const program = `set -uo pipefail\nPASS=0; FAIL=0; SKIP=0; TOTAL=0\n${HELPERS}\n${body}\n`;
@@ -84,7 +89,7 @@ function unguardedPipelinesIn(text: string, name: string): readonly string[] {
       inRun = false;
       continue;
     }
-    if (/set -o pipefail|PIPESTATUS/u.test(line)) guarded = true;
+    if (/\bset -[A-Za-z]*o pipefail\b|PIPESTATUS/u.test(line)) guarded = true;
     if (/\s\|\s/u.test(line) && !/^\s*#/u.test(line) && !guarded) offenders.push(`${name}: ${line.trim()}`);
   }
   return offenders;
@@ -195,21 +200,24 @@ describe("the workflows cannot mask a failure behind a pipeline", () => {
     const header = "jobs:\n  gate:\n    steps:\n      - name: planted\n        run: |\n";
     expect(unguardedPipelinesIn(`${header}          false | tee -a out\n`, "planted.yml")).toHaveLength(1);
     expect(unguardedPipelinesIn(`${header}          set -o pipefail\n          false | tee -a out\n`, "planted.yml")).toEqual([]);
+    // The combined spelling (`set -euo pipefail`) sets it too.
+    expect(unguardedPipelinesIn(`${header}          set -euo pipefail\n          false | tee -a out\n`, "planted.yml")).toEqual([]);
   });
 
-  test("every shell pipeline in ci.yml and test-shards.yml runs under pipefail", () => {
+  test("every shell pipeline in the generated workflows runs under pipefail", () => {
     expect(WORKFLOWS.flatMap((workflow) => unguardedPipelines(workflow))).toEqual([]);
   });
 
-  test("the Test guardian step requires a real pass count and zero skips from the log", () => {
-    const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
-    const start = workflow.indexOf("- name: Test guardian");
-    const end = workflow.indexOf("- name: Record the guardian build stamp");
-    expect(start).toBeGreaterThan(-1);
-    expect(end).toBeGreaterThan(start);
-    const step = workflow.slice(start, end);
-    expect(step).toContain("set -o pipefail");
-    expect(step).toContain("make -C engine/guardian test | tee");
-    expect(step).toContain('require-pass-log.sh "$log"');
+  test("the guardian gate requires a real pass count and zero skips from its own log", () => {
+    // The gate runs the registry's `guardian-tests` and then `guardian-pass-log`
+    // on THAT command's full log (the one runner keeps it whole and redacted)
+    // — no shell, so no pipeline can mask the test run's exit, and the check
+    // reads every line the test run printed.
+    const commands = gateById("guardian").commands;
+    const tests = commands.findIndex((entry) => entry.command === "guardian-tests");
+    const check = commands.findIndex((entry) => entry.command === "guardian-pass-log");
+    expect(tests).toBeGreaterThan(-1);
+    expect(check).toBeGreaterThan(tests);
+    expect(commands[check]!.logOf).toBe("guardian-tests");
   });
 });

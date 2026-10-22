@@ -29,7 +29,7 @@ The floor is not the product, a staging environment, a hosted service, or a supp
 
 | Question | Surface | What it shows | What it does not show |
 |---|---|---|---|
-| Did the public gate pass? | [CI]({{ site.repository_url }}/actions/workflows/ci.yml) | Typechecks, secret scan, public smoke tests, cockpit and engine builds, guardian build and tests, the sharded web suite, and the engine suite on the pinned corpus subset (reported, not yet a required check), at one commit | The live provider suite, E2E on every change, or runtime correctness |
+| Did the public gate pass? | [CI]({{ site.repository_url }}/actions/workflows/ci.yml) | Every gate of the generated catalogue: typechecks, `harness check`, the secret scan, docs links, public smoke tests, cockpit and engine builds, guardian build and tests, the web suite in CPU-balanced shards, the engine suite on the pinned corpus subset in CPU-balanced cells (reported, not yet a required check), and the dependency review, at one commit | The live provider suite, E2E on every change, or runtime correctness |
 | Which tests and records exist? | [Test atlas]({{ '/floor/atlas/' | relative_url }}) | Inventory entries, dispositions, prevention guards, and decision records | That any entry ran, passed, or applies to your checkout |
 | What rules govern a change? | [Decision records]({{ '/decisions/' | relative_url }}) | The rule, its state, and the paths where it was carried out | That the implementation is correct or complete |
 | How does code reach the product branch? | [Promotion contract]({{ '/floor/promotion/' | relative_url }}) | The projection boundary, deterministic gates, and the publication step | A security audit or a production release guarantee |

@@ -50,12 +50,17 @@ nothing about either tree).
   does not run for `vitest list`. Measured: `vitest list --filesOnly --json`
   never invokes the global setup, so the listing process takes no lock. A raw
   listing is therefore exempt in fact, whatever this bullet says, and this
-  amendment does not pretend otherwise: the shard path now uses `list` in
-  `scripts/test-shard-manifest.mjs`, which records a content fingerprint of the
-  working tree before and after the listing; `verify` recomputes it and
-  refuses a raw array or a listing from another tree. The listing STILL takes
-  no instrument lock — that is a stated gap, not a silent one — but it is bound
+  amendment does not pretend otherwise: the shard path then used `list` in
+  the shard manifest script, which recorded a content fingerprint of the
+  working tree before and after the listing; `verify` recomputed it and
+  refused a raw array or a listing from another tree. The listing STILL took
+  no instrument lock — a stated gap, not a silent one — but it was bound
   to one tree state, which is what a population claim needs.
+  **Amendment (GH-2, 2026-10-21):** no listing runs any more. The population
+  is the gate catalogue's (`engine/src/workflow/gates/populations.ts`): the
+  tree's own files matched against the runner's `TEST_INCLUDE`, read once by
+  the plan, which binds it to the tree's commit and tree id; each cell
+  refuses to run on another tree.
 - **A second heavy run WAITS**, saying who holds the lock. The wait is
   asynchronous and honours SIGTERM, SIGINT and SIGHUP: a signal ends it with a
   typed exit (128 + the signal's number), and nothing is taken.

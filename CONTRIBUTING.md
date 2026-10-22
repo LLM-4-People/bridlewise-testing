@@ -82,6 +82,10 @@ cd engine && node src/cli.ts harness check
 [docs/testing.md](docs/testing.md) owns the suites, their prerequisites and what
 CI runs.
 
+CI is generated from the gate catalogue (`engine/src/workflow/gates/`): never edit a
+file under `.github/workflows/`; edit the catalogue and run `harness sync`. The same
+`harness gates` verbs CI runs work locally (`plan`, `run <gate>`, `shard <cell>`, `seal`).
+
 ## What makes a good change
 
 The [mandatory engineering rules](docs/process/AGENTS.md#mandatory-engineering-rules)

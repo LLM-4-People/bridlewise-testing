@@ -92,6 +92,19 @@ export const TRACKER_BOARD = deepFreeze({
   end: "<!-- END GENERATED: the task board -->",
 } as const);
 
+/**
+ * THE GENERATED WORKFLOWS (`<directory>/<file>`, repository-relative): every
+ * GitHub Actions workflow is written WHOLE by `generator` (relative to the
+ * engine) from the gate catalogue; `harness sync` writes them and `harness
+ * check` refuses a hand edit, a stale file, or any other file in the folder
+ * (github-only §5.1).
+ */
+export const GENERATED_WORKFLOW_FILES = deepFreeze({
+  directory: ".github/workflows",
+  files: ["audit.yml", "ci.yml", "codeql.yml", "pages.yml", "reusable-workflow-failure.yml", "workflow-failure-issue.yml"],
+  generator: "src/workflow/gates/workflows.ts",
+} as const);
+
 /** Every generated BLOCK a hand-written file can carry (its generator owns the text between `begin` and `end`). */
 export const GENERATED_BLOCKS = deepFreeze([README_CONSUMER_BLOCK, DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD] as const);
 

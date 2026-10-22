@@ -206,16 +206,6 @@ export const MEASUREMENT_FINDINGS: readonly MeasurementFinding[] = Object.freeze
       "ambient-load bound or normalisation exists beyond that precondition.",
   },
   {
-    id: "F-SHARD-WEIGHT-WALL-CLOCK",
-    title: "Shard weights are wall-clock durations with no load bound",
-    detail:
-      "Per-file shard weights are vitest JSON `endTime - startTime`: wall-clock durations that " +
-      "inflate with host contention and cold caches. They are accepted only from a complete " +
-      "green shard report set and are used to BALANCE shards, not to pass or fail a code " +
-      "change; no ambient bound exists. Recorded so a reader does not mistake the balance for " +
-      "a measurement of the tree.",
-  },
-  {
     id: "F-TOTAL-COLLECT-WALL-CLOCK",
     title: "The total collect time is a sum of wall-clock durations",
     detail:
@@ -223,15 +213,6 @@ export const MEASUREMENT_FINDINGS: readonly MeasurementFinding[] = Object.freeze
       "contention and, harder, with a cold transform cache. The worst-collect gate uses a " +
       "SHARE of wall clock, not this total; the total is recorded for diagnosis. It is " +
       "load-sensitive and has no deferral bound of its own.",
-  },
-  {
-    id: "F-CI-DURATION-WALL-CLOCK",
-    title: "CI shard durations are wall-clock and `testPhaseCpuMs` is not CPU time",
-    detail:
-      "The shard receipt's `testPhaseMs` is the critical path across shard start/finish times " +
-      "and `testPhaseCpuMs` is the sum of each shard's `durationMs` — wall-clock durations, " +
-      "despite the CPU in the name. They are comparable only within a declared runner class " +
-      "and carry no ambient-load bound. Recorded as a finding; the field name is not softened.",
   },
   {
     id: "F-AMBIENT-NO-DEFERRAL",
@@ -335,8 +316,6 @@ export const NON_MEASUREMENT_CONSUMERS: Readonly<Record<string, string>> = Objec
   "tests/prevention/web-ui-runtime-budget-verdict.test.ts::readMeasuredSurfaceHash": "feeds a synthetic tree identity into the budget-verdict arms; the test plants identity, it records no measurement",
   "tests/prevention/web-ui-runtime-budget-verdict.test.ts::performanceMeasurements": "drives the measurement reader with planted reports to prove absence/finiteness arms; it records no web budget reading",
   "tests/prevention/performance-exposure-wired.test.ts::getTokenThroughput": "drives the throughput reading's null/non-null exposure arms; the test asserts the producer, it records no rate",
-  "tests/public/test-shard-manifest.test.mjs::mergeShardReports": "builds shard receipts in temp trees to drive the merge guard; the test consumes no CI duration it records as evidence",
-  "tests/public/test-shard-merge.test.mjs::mergeShardReports": "builds shard receipts in temp trees to drive the merge guard; the test consumes no CI duration it records as evidence",
 });
 
 /** The one document that owns the registry's reader-facing contract. */
@@ -523,7 +502,6 @@ const PER_FILE_COLLECT: MetricEntry = {
   family: "per-file.wall-duration",
   distinctFrom: [
     PER_FILE_DURATION_DISTINCTNESS("suite.perFile.occupancyMs", "collect is the import/suite-callback phase alone; occupancy is every phase a worker held the file for"),
-    PER_FILE_DURATION_DISTINCTNESS("shards.file.weightMs", "collect is vitest's module diagnostic during THIS run; the shard weight is the JSON reporter's endTime - startTime used to schedule a DIFFERENT run"),
   ],
   producer: {
     module: "engine/src/shared/test-costs.ts",
@@ -557,7 +535,6 @@ const PER_FILE_OCCUPANCY: MetricEntry = {
   family: "per-file.wall-duration",
   distinctFrom: [
     PER_FILE_DURATION_DISTINCTNESS("suite.perFile.collectMs", "occupancy includes collect plus setup, environment, prepare and test time; collect is one phase of it"),
-    PER_FILE_DURATION_DISTINCTNESS("shards.file.weightMs", "occupancy is the sum of vitest's module diagnostics in this run; the shard weight is the JSON reporter's endTime - startTime for scheduling"),
   ],
   producer: {
     module: "engine/src/shared/test-costs.ts",
@@ -643,108 +620,6 @@ const TOTAL_OCCUPANCY: MetricEntry = {
     reason: "nothing measurable leaves the denominator null; the gate treats a missing denominator as unjudgeable rather than dividing by a zero",
   },
   zero: { kind: "honest", witness: "the measured population summed to 0 ms", reason: "a measured zero denominator is refused by the gate as unjudgeable, never silently divided" },
-};
-
-/** The per-file weight the shard plan is built from. */
-const SHARD_WEIGHT: MetricEntry = {
-  status: "registered",
-  name: "shards.file.weightMs",
-  unit: "milliseconds per test file",
-  family: "per-file.wall-duration",
-  distinctFrom: [
-    PER_FILE_DURATION_DISTINCTNESS("suite.perFile.collectMs", "the shard weight is the JSON reporter's endTime - startTime for a whole file-run and is used to schedule a future run; collect is a diagnostic phase in this run"),
-    PER_FILE_DURATION_DISTINCTNESS("suite.perFile.occupancyMs", "the shard weight comes from the JSON reporter's start/end pair; occupancy is the sum of vitest's module diagnostics"),
-  ],
-  producer: {
-    module: "scripts/test-shard-manifest.mjs",
-    symbol: "measuredFileDurationMs",
-    compute: ["endTime\\s*-\\s*\\w+\\.?startTime"],
-    reads: [],
-    forbids: ["cpuUsage(", "cpuMs", "wallClockMs"],
-  },
-  consumers: [
-    { kind: "record", id: "weightMs", source: "tests/test-shards.json" },
-    { kind: "record", id: "assignShards", source: "scripts/test-shard-manifest.mjs" },
-    { kind: "doc", id: "shard weights", source: MEASUREMENT_DOC_SOURCE, anchor: "shard weights" },
-  ],
-  load: {
-    kind: "sensitive",
-    sensitivity: "a wall-clock per-file duration measured in CI; contention and cold caches inflate it",
-    bound: null,
-    finding: "F-SHARD-WEIGHT-WALL-CLOCK",
-  },
-  absent: {
-    kind: "refusal",
-    reason: "a missing, duplicated, partial, non-green or different-manifest report refuses the measurement; it never writes a zero weight",
-    refusal: "measure: expected",
-  },
-  zero: { kind: "floor", value: 1, reason: "a sub-0.5 ms measurement rounds to 0 and is floored to 1 because the plan needs a positive weight; the floor is declared here, never silent" },
-};
-
-/** The CI receipt's critical path. */
-const CI_TEST_PHASE: MetricEntry = {
-  status: "registered",
-  name: "ci.shard.testPhaseMs",
-  unit: "milliseconds across the shard set",
-  family: "ci.shard.duration",
-  distinctFrom: [
-    { name: "ci.shard.summedShardDurationMs", reason: "this is the critical path across shard timestamps; the sibling is the SUM of every shard's own durationMs" },
-  ],
-  producer: {
-    module: "scripts/test-shard-merge.mjs",
-    symbol: "mergeShardReports",
-    compute: ["testPhaseMs\\s*="],
-    reads: [],
-    forbids: ["cpuUsage(", "loadavg("],
-  },
-  consumers: [
-    { kind: "record", id: "testPhaseMs", source: "scripts/test-shard-merge.mjs" },
-    { kind: "doc", id: "testPhaseMs", source: MEASUREMENT_DOC_SOURCE, anchor: "testPhaseMs" },
-  ],
-  load: {
-    kind: "sensitive",
-    sensitivity: "the critical path from shard start/finish timestamps; it includes queueing and host contention",
-    bound: null,
-    finding: "F-CI-DURATION-WALL-CLOCK",
-  },
-  absent: {
-    kind: "null",
-    reason: "if any shard carries no timing the receipt records null; it never records a zero critical path",
-  },
-  zero: { kind: "honest", witness: "all shard timings were present and identical", reason: "a measured zero critical path is possible and is distinct from missing timing" },
-};
-
-/** The CI receipt's summed shard duration (quoted as `testPhaseCpuMs`). */
-const CI_SUMMED_SHARD: MetricEntry = {
-  status: "registered",
-  name: "ci.shard.summedShardDurationMs",
-  unit: "milliseconds summed over shards",
-  family: "ci.shard.duration",
-  distinctFrom: [
-    { name: "ci.shard.testPhaseMs", reason: "testPhaseMs is the critical path across shards; this is the SUM of every shard's durationMs (and is quoted in the receipt as testPhaseCpuMs)" },
-  ],
-  producer: {
-    module: "scripts/test-shard-merge.mjs",
-    symbol: "mergeShardReports",
-    compute: ["testPhaseCpuMs\\s*="],
-    reads: [],
-    forbids: ["cpuUsage(", "loadavg("],
-  },
-  consumers: [
-    { kind: "record", id: "testPhaseCpuMs", source: "scripts/test-shard-merge.mjs" },
-    { kind: "doc", id: "testPhaseCpuMs", source: MEASUREMENT_DOC_SOURCE, anchor: "testPhaseCpuMs" },
-  ],
-  load: {
-    kind: "sensitive",
-    sensitivity: "a sum of wall-clock shard durations; it inflates with contention and includes queueing",
-    bound: null,
-    finding: "F-CI-DURATION-WALL-CLOCK",
-  },
-  absent: {
-    kind: "null",
-    reason: "missing shard timing leaves the sum null; it is never recorded as a zero",
-  },
-  zero: { kind: "honest", witness: "every shard timing was present and 0 ms", reason: "a measured zero sum is possible and is distinct from missing timing" },
 };
 
 /**
@@ -860,9 +735,6 @@ export const MEASUREMENT_REGISTRY: readonly MetricEntry[] = Object.freeze([
   PER_FILE_OCCUPANCY,
   TOTAL_COLLECT,
   TOTAL_OCCUPANCY,
-  SHARD_WEIGHT,
-  CI_TEST_PHASE,
-  CI_SUMMED_SHARD,
   TOKEN_THROUGHPUT,
   AMBIENT_LOAD,
 ]);

@@ -49,7 +49,7 @@ The folder lives at `engine/src/privacy/`.
 - `data-policy.ts` is consumed by `engine/src/kernel/preflight.ts`, `engine/src/privacy/secret-parts.ts`, `engine/src/workflow/forge/github.ts`, `engine/src/workflow/record-links.ts`.
 - `detection-span.ts` is consumed by `engine/src/privacy/identity-grammars.ts`, `engine/src/privacy/pii-registry.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/secret-intelligence.ts`, `engine/src/privacy/value-intrinsic.ts`.
 - `encrypted-field.ts` is consumed by `engine/src/privacy/operational-redaction.ts`, `server/kernel/canonical.ts`.
-- `evidence-handler.ts` is consumed by `engine/src/workflow/checkout-setup.ts`, `engine/src/workflow/flake-cli.ts`.
+- `evidence-handler.ts` is consumed by `engine/src/workflow/checkout-setup.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/test-result-collector.ts`.
 - `file-viewer.ts` is consumed by `engine/src/runtime/tool-registry.ts`.
 - `held-set.ts` is consumed by `engine/src/privacy/redacted-messages.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/responses-observation.ts`, `engine/src/privacy/responses-redaction.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/failover.ts` and 6 more.
 - `identity-grammars.ts` is consumed by `engine/src/privacy/pii-registry.ts`, `engine/src/privacy/redaction-engine.ts`.

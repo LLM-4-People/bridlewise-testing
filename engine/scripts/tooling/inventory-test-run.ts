@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { Transform } from "node:stream";
 import { finished } from "node:stream/promises";
 import { run } from "node:test";
@@ -31,6 +31,7 @@ import {
 } from "../../src/workflow/test-result-collector.ts";
 import { DEFAULT_ENGINE_SUITE_WATCHDOG, DEFAULT_TEST_RUNTIME_BUDGET_MS, type SuiteWatchdog } from "../../src/workflow/workflow-config.ts";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
+import { InputError } from "../../src/kernel/errors.ts";
 import { networkGuardImport } from "./network-under-test.ts";
 
 type TestEvent = Readonly<{
@@ -199,6 +200,16 @@ export type InventoryTestRunOptions = Readonly<{
    */
   engineSuiteWatchdog?: SuiteWatchdog;
   /**
+   * THE CELL A CI SHARD RUNS (the gate catalogue's engine cells,
+   * `src/workflow/gates/`): only these inventoried sources are dispatched;
+   * every other inventoried source is WITHHELD — still expected, counted
+   * skipped, never subtracted (the accounting's own gatedSourceIds rule) — so
+   * the receipt says exactly what this run did not run, and the gates' seal
+   * proves the cells cover the inventory exactly once. A source the
+   * inventory does not hold is a typed refusal. Absent: the whole inventory.
+   */
+  cellSourceIds?: ReadonlySet<string>;
+  /**
    * Hash-only snapshot captured by `loadTestInventoryWithSnapshot`. When
    * present, the pre/post-run source assertions re-read and re-hash the
    * canonical sources but skip the redundant Babel re-parse (byte-identical
@@ -211,12 +222,12 @@ export type InventoryTestRunOptions = Readonly<{
 export type InventoryTestAccountantOptions = Readonly<{
   expectedSummaryCount?: number;
   /**
-   * Test source IDs (relative paths) withheld from dispatch. No caller passes
-   * one today. It is kept, and honoured, so that a future caller which
-   * reintroduces withholding gets a REFUSAL rather than a free pass: the
-   * entries stay in the expected set and are counted as skipped, which the
-   * passing gate already rejects. A parameter that is merely deleted leaves
-   * nothing to fail when the behaviour comes back.
+   * Test source IDs (relative paths) withheld from dispatch. The one caller
+   * is a CI cell (`cellSourceIds`): the entries stay in the expected set and
+   * are counted as skipped, which the whole-suite passing gate rejects; only
+   * the CELL's rule (`cellReceiptPassing`, test-receipt.ts) accepts them, and
+   * only when they are exactly the withheld ones. A parameter that is merely
+   * deleted leaves nothing to fail when the behaviour comes back.
    */
   gatedSourceIds?: ReadonlySet<string>;
 }>;
@@ -320,7 +331,19 @@ export async function executeInventoryTestRun(
   };
   assertSnapshot();
   const concurrency = options.concurrency ?? false;
-  const allFiles = testFilesFromInventory(root, inventory);
+  const inventorySources = new Set(inventory.tests.map((entry) => entry.sourceId));
+  const cell = options.cellSourceIds;
+  if (cell !== undefined) {
+    const strangers = [...cell].filter((sourceId) => !inventorySources.has(sourceId));
+    if (cell.size === 0 || strangers.length > 0) {
+      throw new InputError(`the engine cell names ${cell.size === 0 ? "no source" : `sources the test inventory does not hold: ${strangers.join(", ")}`}`, "test_cell_invalid");
+    }
+  }
+  // The withheld sources of a cell: expected and counted skipped by the accountant, never dispatched.
+  const withheld = cell === undefined ? undefined : new Set([...inventorySources].filter((sourceId) => !cell.has(sourceId)));
+  const allFiles = cell === undefined
+    ? testFilesFromInventory(root, inventory)
+    : testFilesFromInventory(root, inventory).filter((file) => cell.has(relative(root, file).split(sep).join("/")));
   const coverage = options.coverage ?? false;
   // The default lives here rather than at the callers, because two of the
   // three callers (`scripts/coverage.ts`, `scripts/planned-node-test-evidence.ts`)
@@ -429,6 +452,7 @@ export async function executeInventoryTestRun(
     if (phases.length === 0) {
       const accountant = createInventoryTestAccountant(root, inventory, {
         expectedSummaryCount: 0,
+        ...(withheld === undefined ? {} : { gatedSourceIds: withheld }),
       });
       reporter?.end();
       if (reporterCompletion) await reporterCompletion;
@@ -437,6 +461,7 @@ export async function executeInventoryTestRun(
     }
     const accountant = createInventoryTestAccountant(root, inventory, {
       expectedSummaryCount: phases.length,
+      ...(withheld === undefined ? {} : { gatedSourceIds: withheld }),
     });
     const drain = async (phase: { files: readonly string[]; concurrency: boolean | number; isolation?: "process" }): Promise<void> => {
       const stream = runTestPhase(root, { ...phase, coverage, timeoutMs, watchdog });
@@ -481,7 +506,7 @@ export async function executeInventoryTestRun(
   }
 
   const streamConcurrency: boolean | number = concurrency;
-  const accountant = createInventoryTestAccountant(root, inventory);
+  const accountant = createInventoryTestAccountant(root, inventory, withheld === undefined ? {} : { gatedSourceIds: withheld });
   const stream = runTestPhase(root, { files, concurrency: streamConcurrency, coverage, timeoutMs, watchdog });
   try {
     for await (const value of stream) {

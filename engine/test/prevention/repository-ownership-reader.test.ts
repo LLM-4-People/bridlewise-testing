@@ -33,7 +33,6 @@ import {
   repositoryOwnership,
   trackedFiles,
   trackedIgnoredFiles,
-  VERSIONED_IGNORE_RULES,
 } from "../../src/git/repository-ownership.ts";
 import { sourceViewOf } from "../../scripts/verification/source-view.ts";
 import { walk } from "../../scripts/verification/source-walk.ts";
@@ -48,8 +47,6 @@ const DECLARED_EXCEPTIONS: Readonly<Record<string, string>> = {
     "candidate-format integrity reader: runs the PINNED git executable with configuration overrides and strict UTF-8 refusal codes; uses VERSIONED_IGNORE_RULES",
   "engine/test/prevention/repository-ownership-reader.test.ts":
     "this guard's own planted spellings",
-  "scripts/test-shard-manifest.mjs":
-    "the shard toolchain's tree identity: runs in the shard merge job, which installs no package, so it cannot import the reader; uses VERSIONED_IGNORE_RULES (tied below)",
   "server/intelligence/git-ops-bridge.ts":
     "product git tool over a USER workspace: asks about one named path the user's own git answers, not about this repository",
 };
@@ -127,16 +124,6 @@ test("repository ownership: no source outside the reader asks git for a populati
     const index = paths.indexOf(path);
     assert.ok(index >= 0 && populationQueries(path, readFileSync(files[index]!, "utf8")).length > 0,
       `declared exception ${path} no longer asks for a population; remove it from the list`);
-  }
-});
-
-test("repository ownership: a declared population reader outside the reader spells the owner's versioned rule set, never machine excludes", () => {
-  const readers = ["scripts/test-shard-manifest.mjs"];
-  for (const path of readers) {
-    assert.ok(DECLARED_EXCEPTIONS[path] !== undefined, `${path} is not a declared exception`);
-    const code = sourceViewOf(readFileSync(join(REPOSITORY_ROOT, path), "utf8"), path).codeWithStrings();
-    assert.ok(code.includes(`"${VERSIONED_IGNORE_RULES}"`), `${path} must list with the owner's ${VERSIONED_IGNORE_RULES}`);
-    assert.ok(!code.includes("--exclude-standard"), `${path} lists with machine-local excludes (--exclude-standard)`);
   }
 });
 

@@ -90,9 +90,7 @@ typing, API-response, long-session heap and DOM growth, long-chat,
 many-projects and viewport LCP budgets); and the suite, shard and ambient
 signals the registry records as doc consumers, not budgets: the per-file collect
 and per-file occupancy costs, their total collect and total occupancy
-denominators, the shard weights and their measurement path (`testPhaseMs` and
-`testPhaseCpuMs` on the CI receipt), and the run-start ambient load the CPU
-verdict reads. The server's token throughput (`performance.tokensPerSecond`,
+denominators, and the run-start ambient load the CPU verdict reads. The server's token throughput (`performance.tokensPerSecond`,
 whose non-positive denominator is recorded and served as `null`, never 0) is a
 doc consumer too. The CPU metric itself is a clearly
 marked placeholder while its owner changes `run-cpu.ts` and
@@ -109,7 +107,7 @@ npm run typecheck:includes
 npm test                 # vite/vitest suite through the watchdog
 npm run test:watch
 npm run test:raw         # vitest under the harness slot (every live file)
-npm run test:supported   # the supported population a full run judges (the manifest's files)
+npm run test:supported   # the supported population a full run judges (the gate catalogue's web population)
 npm run test:e2e         # Playwright
 npm run test:all         # root suite + Playwright
 npm run perf:profile     # writes the gitignored report
@@ -119,7 +117,7 @@ node --experimental-strip-types bench/run.ts
 ### The performance profile (idle-host contract)
 
 The web suite's CPU window and the performance profile are measured over the supported population:
-`npm run test:supported` runs exactly the manifest's files. A raw run also includes the excluded
+`npm run test:supported` runs exactly the web population (`harness gates population web-tests`). A raw run also includes the excluded
 files (private artifacts the public snapshot does not publish), so its reds are declared exclusions,
 not a clean run. `npm run perf:profile` writes the gitignored report under `tests/performance`, the artifact the root
 performance-regression gate (`tests/performance/regression.test.ts`) judges. A profile is a
@@ -176,60 +174,31 @@ make -C engine/guardian test_process_supervisor
 
 The guardian tests exercise Landlock itself. An exit code of 3 (`landlock_unavailable`) is a skip, not a pass; the Node-side tests cover the refusal path with a mock. The shell runner is stricter still: a run that skips any test exits non-zero, and CI additionally requires a positive `PASS n/n` with `SKIP 0` from the log, so a skipped security suite cannot certify the gate.
 
-## Sharding
+## Gates and sharding
 
-`tests/test-shards.json` is the supported-suite manifest. Its file list comes from `vitest list --filesOnly --json`, not from a second glob. Its generated `weightSource` is the population record: it names the supported count, the heads the weights were measured at, and which files needed a separate measurement; a self-check test refuses a manifest whose declared count disagrees with its file list, so no page restates the count by hand. The manifest names the exclusions with a reason and evidence: the private cutover graph tool, the private frozen-record population, the generated performance report consumed by the performance regression gate, and the WSL-host keep-out arm that requires a mounted Windows profile. A live file that is neither supported nor excluded fails verification.
-
-`scripts/test-shard-manifest.mjs` owns the manifest hash, the deterministic weighted assignment, the shard report envelope, and the one weight producer. `measure` reads the wrapped shard reports of a complete green run, takes each supported file's `endTime - startTime` from the JSON reporter, and rewrites `weightMs`, `measuredHeadSha`, `measuredAt`, and `weightSource` together; it refuses a partial, duplicated, non-green, or different-manifest population. `scripts/test-shard-merge.mjs` accepts only envelopes that name the same head commit, manifest hash, assignment hash, shard count, and exact file assignment; the plan is required (`--plan`), the measured manifest is required (`--manifest-source`), and a measured timing window is required by default (`--require-timing` is the default), because a receipt without them names a caller's head with nothing binding the reports to it. The merge derives its test counts from the assertion rows and refuses a summary that declares more tests than the rows record, a passed row carrying a failure message, a supported file with no assertions, a plan whose file assignment is not the canonical assignment re-derived from the measured manifest (even when its own hash was recomputed), and a zero-file shard while the manifest is non-empty. It also refuses a missing shard, a duplicate file, a failed or skipped test, a file outside the checkout, and a report from another commit. One receipt records the exact commit, shard count, runner class, manifest hash, assignment hash, per-shard file, test, pass/fail/skipped counts and timings, the excluded files with their reason and evidence anchor, the measured test-phase wall time, and summed shard duration.
-
-The shard gate is `.github/workflows/test-shards.yml`, called as the `shards` job in `.github/workflows/ci.yml` on every push and pull request to `main`. It is also dispatchable with a chosen shard count and runner label. The merge job is the gate: a failed shard, a missing report, a duplicate file, a failed or skipped test, an unexpected file, or a report from another commit refuses the receipt and fails the run. The union of the shard reports must equal the manifest exactly once, so a missing shard cannot look like a smaller green suite. The merge job uploads `test-shard-receipt` (JSON); the artifact names the manifest digest, the shard indexes and timings, the pass/fail counts, and the four exclusions with their evidence anchors. Making the job a required check is a branch-protection setting, not a workflow property.
-
-The ten-shard `ubuntu-24.04` receipt at `f54df4a5` (CI run `39470087124`, artifact `test-shard-receipt`) measured `testPhaseMs` 83438, `testPhaseCpuMs` 658687, 523 files, and 8734 tests. Against the 244017ms single-host supported run that is 2.92x, not 10x (the factor is the single-host wall time divided by the receipt's `testPhaseMs`: 244017/83438 = 2.92; `testPhaseCpuMs` is the summed shard cost and is not the numerator). The first green receipt at `d47909de` measured 2.81x on 521 files. The CI gate uses the same ten-shard `ubuntu-24.04` plan; the 10x exit criterion still needs a documented larger runner class. The receipt records the measured factor rather than inferring it from the number of jobs.
+CI is generated from ONE gate catalogue, `engine/src/workflow/gates/catalogue.ts`. Every file under `.github/workflows/` is that owner's output (`harness sync` writes it; `harness check` refuses a hand edit, a stale file, or any other file in the folder). Each gate declares its id, class (`light`, `suite`, `action`), role (`required` is judged; `signal` is recorded and shown, never judging), the argument vectors it runs (no shell string), its toolchain, its reuse eligibility, and for a suite its population. CI and a local run use the same verbs:
 
 ```bash
-mkdir -p .bridlewise/shard-plan
-npm run test:list -- --out .bridlewise/shard-plan/live-manifest.json
-npm run test:verify-shards -- --manifest tests/test-shards.json --live .bridlewise/shard-plan/live-manifest.json
-node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
+cd engine
+node src/cli.ts harness gates list
+node src/cli.ts harness gates population web-tests --text
+node src/cli.ts harness gates plan --out ../.bridlewise/gates
+node src/cli.ts harness gates run typecheck-web --plan ../.bridlewise/gates/plan.json --out ../.bridlewise/gates/results
+node src/cli.ts harness gates shard web-suite-3 --plan ../.bridlewise/gates/plan.json --out ../.bridlewise/gates/results
+node src/cli.ts harness gates seal --plan ../.bridlewise/gates/plan.json --results ../.bridlewise/gates/results --out ../.bridlewise/gates/receipt --event pull_request
 ```
 
-`vitest list` does not run the vitest global setup, so a raw listing takes neither the host's instrument lock nor a source fingerprint and is not accepted as evidence about a tree. `test:list` records a content fingerprint of the working tree before and after the listing; `test:verify-shards` recomputes that fingerprint itself and refuses a listing from another tree, another checkout, or a tree that moved while the listing ran. An explicit `--tree` is only a cross-check against the recomputed value, never an override: passing the stale fingerprint a listing was written under cannot make that listing certify a tree that changed after it. Verification also RE-RUNS the enumeration: the supplied listing is the subject under judgement, never the evidence about its own population, so a document that omits a file the fresh enumeration selected (or names one it did not) is refused even when its fingerprint is current. The two listings take no instrument lock — that gap is stated rather than hidden; the fingerprint binding plus the set comparison are what keep the population evidence honest.
+**Populations.** The web population is every file of the tree the runner's own globs select (`TEST_INCLUDE`, `tests/test-include.ts`, the binding `vitest.config.ts` spreads into `include`), less the catalogue's named exclusions: the private cutover graph tool, the private frozen-record population, the generated performance report consumed by the performance regression gate, and the WSL-host keep-out arm that requires a mounted Windows profile. Each exclusion carries its reason and evidence, every receipt names them, and an exclusion that names a file the globs no longer select is a refusal. The engine population is the sources its test inventory runs, asked of the inventory's owner (`engine/scripts/test-inventory.ts`) for the tree: the inventory file is a cache, never committed.
 
-A complete green run's wrapped reports are the weight measurement; pass the head so a report from another commit cannot be measured by mistake:
+**The plan.** `plan` reads the tree once (its commit and tree id) and writes `plan.json` (`bridlewise-gate-plan/v1`): the gates, the populations, and the shard cells. Each suite packs its files longest-first into cells of equal weight (ties by path, the lowest cell first). An engine cell runs the engine runner with `--cell <file>`: it dispatches the cell's sources and WITHHOLDS the rest of the inventory — still expected, counted skipped, named on the receipt, never subtracted — and passes by the cell rule (`cellReceiptPassing`: the withheld entries are its only skips and every dispatched test passed); a cell run is never recorded as a suite run. The cell budget is the catalogue's, under the hosted-job cap. Weights are per-file CPU work from the ledger; a tree with no ledger is planned `unmeasured` (every file one unit) and the plan says so, so it never cites a weight nobody measured.
 
-```bash
-args=()
-for index in $(seq 1 10); do
-  args+=(--report ".bridlewise/shard-plan/reports/shard-${index}.json")
-done
-node scripts/test-shard-manifest.mjs measure \
-  --manifest tests/test-shards.json \
-  --head "$(git rev-parse HEAD)" \
-  --runner local \
-  --out tests/test-shards.json \
-  "${args[@]}"
-```
+**A cell.** `run` (a light gate) and `shard` (one suite cell) first require the job's tree to be the planned tree, then run the gate's steps without a shell, forwarding and logging their output, and write one result (`bridlewise-gate-result/v1`) on every ending. A web shard runs `scripts/run-tests.ts` on exactly its files with vitest's JSON reporter and passes only when the rows of that report — not its summary — record every planned file as a passed suite of passed tests (absent counts are refused, never read as zero; a passed row with a failure message, a file with no assertions, a duplicate, an unexpected or a missing file are each refused). The engine cell passes only when the engine runner exits 0 and its own summary says every test passed.
 
-Run each planned shard's files through `scripts/run-tests.ts`, wrap the JSON report with `test-shard-manifest.mjs wrap`, and merge every wrapped report:
+**The seal.** `seal` merges every result into ONE receipt (`bridlewise-gate-receipt/v1`) and refuses a missing, duplicate, unexpected, failed or wrong-commit cell, a shard that ran other files than planned, and shards that do not cover their population exactly once. An action gate (the dependency review) is judged by its job's outcome on the events it runs on. The verdict is `passed` only when every required gate passed and nothing was refused; the receipt table is the job summary.
 
-```bash
-args=()
-for index in $(seq 1 10); do
-  args+=(--shard ".bridlewise/shard-plan/reports/shard-${index}.json")
-done
-node scripts/test-shard-merge.mjs \
-  --manifest .bridlewise/shard-plan/plan/manifest.json \
-  --manifest-source tests/test-shards.json \
-  --plan .bridlewise/shard-plan/plan/plan.json \
-  --expected-shards 10 \
-  --head "$(git rev-parse HEAD)" \
-  --runner local \
-  --require-timing \
-  --out .bridlewise/shard-plan/receipt.json \
-  "${args[@]}"
-```
+A gate cell judges coverage, completion, and exact-commit provenance. It does not judge the full-run runtime budget, which needs a separate full-suite run; do not describe a gate receipt as that budget's verdict.
 
-The merge contract and the manifest contract are covered by the public smoke suite. The local sample in [the evidence page](floor/evidence.md#the-sharded-gate) is a two-shard subset, not a supported-set receipt. A shard run judges coverage, completion, and exact-commit provenance. It does not judge the full-run runtime budget, which needs a separate full-suite run; do not describe a shard receipt as that budget's verdict.
+Earlier shard receipts (from the hand-maintained shard manifest and its wall-clock weights, before the generated pipeline) are recorded on [the evidence page](floor/evidence.md#the-sharded-gate) as history.
 
 ## Test map
 

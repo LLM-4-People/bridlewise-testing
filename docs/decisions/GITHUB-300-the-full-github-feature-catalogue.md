@@ -6,7 +6,7 @@ group: github
 status: in-force
 implementation: partial
 route: P3.1
-acted_in: [.github/workflows/ci.yml, .github/workflows/codeql.yml, .github/workflows/secret-scan.yml, .github/workflows/docs-links.yml]
+acted_in: [.github/workflows/ci.yml, .github/workflows/codeql.yml, engine/src/workflow/gates/catalogue.ts]
 covers: [GITHUB-500]
 ---
 # GitHub as an active part of the harness: the full feature catalogue
@@ -43,9 +43,11 @@ github at 500%".
   (javascript-typescript)` and `Full suite shards / Merge one qualification
   receipt`. Check it yourself:
   `gh api repos/LLM-4-People/bridlewise-testing/rulesets/25593191`.
-- **The checks run in the queue.** `ci.yml`, `codeql.yml`, `secret-scan.yml`
-  and `docs-links.yml` run on `merge_group` (pull request #43, merged as
-  `805c43ea`). `test-shards.yml` runs as the `shards` job of `ci.yml`.
+- **The checks run in the queue.** `ci.yml` and `codeql.yml` run on
+  `merge_group` (pull request #43, merged as `805c43ea`). Both are generated
+  from the gate catalogue, whose lint refuses a gating workflow that skips
+  the queue. The secret scan, the docs links and the suites' shards are gates
+  of `ci.yml` (pull request #67).
 - **Release tags are protected** by the ruleset `protect-release-tags`
   (id 25439901, `active`).
 

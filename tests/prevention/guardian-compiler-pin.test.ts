@@ -25,7 +25,8 @@ import { describe, expect, test } from "vitest";
 
 const MAKEFILE = "engine/guardian/Makefile";
 const BUILD = "engine/guardian/build.ts";
-const WORKFLOWS = [".github/workflows/ci.yml", ".github/workflows/test-shards.yml"] as const;
+/** The generated workflows that build the guardian (the gate catalogue's `gcc-14` toolchain and CodeQL's C/C++ build). */
+const WORKFLOWS = [".github/workflows/ci.yml", ".github/workflows/codeql.yml"] as const;
 const REGISTRY = "tests/prevention/external-surface-registry.json";
 
 function declaredCompiler(): string {
@@ -56,7 +57,9 @@ describe("the guardian compiler pin", () => {
       const text = readFileSync(workflow, "utf8");
       expect(text, `${workflow} must install ${compiler}, the declared pin`).toContain(`sudo apt-get install -y ${compiler}`);
       expect(text, `${workflow} must not pass CC=; the Makefile owns the choice`).not.toMatch(/\bCC=/u);
-      expect(text, `${workflow} must invoke the guardian build owner`).toMatch(/make -C engine\/guardian (?:all|test)/u);
+      // The guardian build owner is its Makefile: CI reaches it through the command registry's `guardian`
+      // command (`harness gates setup guardian`, cwd engine/guardian, `make all`), CodeQL's C build directly.
+      expect(text, `${workflow} must invoke the guardian build owner`).toMatch(/make -C engine\/guardian (?:all|test)|harness gates (?:setup|run) guardian\b/u);
     }
   });
 

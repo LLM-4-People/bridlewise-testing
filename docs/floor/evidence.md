@@ -66,11 +66,10 @@ What it does not prove: that any test passed, that the count is coverage, or tha
 
 ## The supported suite on one host
 
-Run the 521-file supported set in one process; the sharded workflow runs the same set across shards.
+Run the supported set in one process; the generated CI runs the same population across shards.
 
 ```bash
-FILES=$(node -e "process.stdout.write(require('./tests/test-shards.json').files.map(f => f.path).join(' '))")
-./node_modules/.bin/vitest run $FILES
+npm run test:supported
 ```
 
 On 2026-10-20, at `fd7e058f`, the run passed **521/521 files, 8720 tests, 2 expected failures, 0 failed** in 193.2 s wall clock (1137.7 s CPU). The same set at `b4dc6b33` (before two documentation fixes) failed three tests: the two guards that found the docs and the folder README stale, and `test-run-watchdog` C3, which re-ran green alone and in the fixed run (the recorded FLAKY-WATCHDOG-C3 entry).
@@ -122,7 +121,9 @@ What it does not prove: the four excluded suites, a 10x shard claim, an idle-hos
 
 ## The sharded gate
 
-The CI gate is `.github/workflows/test-shards.yml`, called as the `shards` job by `.github/workflows/ci.yml` on every push and pull request to `main`. The manual dispatch path remains. The merge job refuses a failed shard or a union of shard reports that is not the manifest exactly once, then uploads `test-shard-receipt`. The receipt names the manifest digest, the shard indexes and timings, the pass/fail counts, and the four exclusions with their evidence anchors.
+The CI gate is generated from the gate catalogue (`engine/src/workflow/gates/`, [the testing map](../testing.md#gates-and-sharding)): `ci.yml`'s `shard` matrix runs each suite's planned cells and its `seal` job merges every result into one `gate-receipt`, refusing a missing, duplicate, failed or wrong-commit cell and shards that do not cover their population exactly once. The receipt names the four web exclusions with their reasons.
+
+The runs below were taken through the earlier hand-written shard workflow and its hand-maintained manifest; they are kept as history.
 
 On 2026-10-20 the local manifest and plan checks passed at `c3349a33`:
 

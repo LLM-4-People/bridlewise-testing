@@ -3829,6 +3829,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/engine-cell.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/evidence-store.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -3854,6 +3862,30 @@
     },
     {
       "path": "test/workflow/format-command.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/workflow/gates/cells.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/workflow/gates/plan.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/workflow/gates/workflows.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -4269,5 +4301,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "d0a7acfa8e274db2feeb048a0ec870a9acefd6f475df024529bdc126e9b864b6"
+  "integrityHash": "32507a10e64829b4a86560a34f5c9ca2eb658d23e8cd440dd6cf4e7cd2e81195"
 }

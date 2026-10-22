@@ -36,9 +36,7 @@
  *                                 exports a measurement producer a consumer
  *                                 imports;
  *   6. forbidden quantity         a producer whose return type is an object
- *                                 still has its BODY read;
- *   7. the shard weight producer  inserting `cpuUsage(` into the function
- *                                 that subtracts the timestamps is refused.
+ *                                 still has its BODY read.
  *
  * ── LIVENESS ─────────────────────────────────────────────────────────────
  *
@@ -94,7 +92,6 @@ test("the clean tree satisfies every clause, and the guard looked at a populated
   // The findings are the honest load-sensitivity record, not failures.
   const findingIds = report.findings.map((finding) => finding.id);
   expect(findingIds).toContain("F-PERF-LATENCY-NO-BOUND");
-  expect(findingIds).toContain("F-SHARD-WEIGHT-WALL-CLOCK");
   expect(findingIds).toContain("F-AMBIENT-NO-DEFERRAL");
   expect(MEASUREMENT_FINDINGS.every((finding) => finding.detail.length > 100)).toBe(true);
   // The CPU metric is reserved, not guessed: one placeholder, marked, and its
@@ -386,17 +383,6 @@ test("a measurement producer in a new product area cannot slip past the registry
     `${consumer}\nimport { readPlantLatencyMs } from "../../engine/src/process/plant-producer.ts";\nvoid readPlantLatencyMs;\n`,
   );
   expect(failuresWith(planted)).toContain("unregistered-producer");
-});
-
-test("the shard weight producer is the function that subtracts the timestamps", () => {
-  const source = WORLD.sources.get("scripts/test-shard-manifest.mjs");
-  expect(source).toBeDefined();
-  const planted = source!.replace(
-    "return Math.max(1, Math.round(result.endTime - result.startTime));",
-    "const plantCpu = process.cpuUsage(); void plantCpu;\n  return Math.max(1, Math.round(result.endTime - result.startTime));",
-  );
-  expect(planted).not.toBe(source);
-  expect(failuresWith(withSource(WORLD, "scripts/test-shard-manifest.mjs", planted))).toContain("forbidden-quantity");
 });
 
 test("a deleted producer is named, not silently accepted", () => {
