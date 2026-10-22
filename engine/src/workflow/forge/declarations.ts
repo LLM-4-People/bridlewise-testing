@@ -125,6 +125,13 @@ function rulesets(settings: ForgeSettings): readonly ForgeObject[] {
     conditions: rulesetConditions([`refs/heads/${name}`]),
     rules: [{ type: "creation" }, { type: "update", parameters: { update_allows_fetch_and_merge: false } }, { type: "deletion" }, { type: "non_fast_forward" }, { type: "required_signatures" }],
   });
+  // A repository's own branch protection (the notes repository's working branch, live `protect-coordination`).
+  const branchProtections = settings.repositories.filter((repository) => repository.protectedBranch !== undefined).map((repository) =>
+    object("ruleset", { kind: "repo", repository: repository.name }, `protect-${repository.protectedBranch!}`, {
+      name: `protect-${repository.protectedBranch!}`, target: "branch", enforcement: "active", bypass_actors: [],
+      conditions: rulesetConditions([`refs/heads/${repository.protectedBranch!}`]),
+      rules: [{ type: "deletion" }, { type: "non_fast_forward" }],
+    }));
   return [
     object("org-ruleset", { kind: "org" }, "baseline", {
       name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
@@ -157,6 +164,7 @@ function rulesets(settings: ForgeSettings): readonly ForgeObject[] {
       conditions: rulesetConditions(["refs/heads/agent/**"]),
       rules: [{ type: "creation" }, { type: "deletion" }],
     }),
+    ...branchProtections,
   ];
 }
 
@@ -170,7 +178,8 @@ function repositorySettings(settings: ForgeSettings, actionPatterns: readonly st
         allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false,
         merge_commit_title: "PR_TITLE", merge_commit_message: "PR_BODY",
         allow_auto_merge: false, delete_branch_on_merge: true, allow_update_branch: true,
-        web_commit_signoff_required: false, has_wiki: false,
+        // DCO for web commits (U-7): the repository flag, beside the organisation's.
+        web_commit_signoff_required: true, has_wiki: false,
         has_discussions: repository.name === trunk, has_projects: repository.name === trunk,
       }),
       object("actions-permissions", scope, repository.name, { enabled: true, allowed_actions: "selected", sha_pinning_required: true }),

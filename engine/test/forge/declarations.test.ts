@@ -8,9 +8,11 @@ import test from "node:test";
 
 import { allowedActionPatterns, FORGE_ISSUE_TYPES, forgeDeclarations } from "../../src/workflow/forge/declarations.ts";
 import { differences, referencesOf, resolveReferences, writableBody, type ForgeObject } from "../../src/workflow/forge/forge-state.ts";
-import { codeownersFile, dependabotFile, forgeTreeFacts } from "../../src/workflow/forge/repository-files.ts";
+import { codeownersFile, dependabotFile, forgeTreeFacts, workflowUsesOf } from "../../src/workflow/forge/repository-files.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
-import type { TreeReader } from "../../src/git/tree-reader.ts";
+import { workingTreeReader, type TreeReader } from "../../src/git/tree-reader.ts";
+import { join } from "node:path";
+import { trackedTop } from "../../src/workflow/evidence-store.ts";
 import { SETTINGS, SOURCES } from "./forge-settings.ts";
 
 function find(objects: readonly ForgeObject[], kind: string, key: string): ForgeObject {
@@ -123,4 +125,49 @@ test("the comparison: desired values must be in the live object; GitHub's extra 
   assert.deepEqual(differences({ "a/b": 1 }, {}), ["/a~1b"]);
   const resolved = resolveReferences({ bypass: [{ actor_id: { $ref: "app", name: "publisher" } }] }, new Map([["app:publisher", 42]]));
   assert.deepEqual(resolved, { bypass: [{ actor_id: 42 }] });
+});
+
+test("the allowed actions come from parsed `uses:` keys only: text in a run block, a quoted script or a one-line run never widens them", () => {
+  const planted = [
+    "name: planted",
+    "on: push",
+    "jobs:",
+    "  a:",
+    "    runs-on: ubuntu-24.04",
+    "    steps:",
+    "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v7",
+    "      - name: block script",
+    "        run: |",
+    "          echo uses: evil/one@main",
+    "            uses: evil/two@main",
+    "      - name: folded script",
+    "        run: >-",
+    "          uses: evil/three@main",
+    "      - run: echo \"uses: evil/four@main\"",
+    "      - name: quoted multi-line",
+    "        run: \"echo first",
+    "          uses: evil/five@main\"",
+    "      - name: real one after the scripts",
+    "        uses: 'ossf/scorecard-action@0123456789abcdef0123456789abcdef01234567'",
+    "        with:",
+    "          results_file: results.sarif",
+    "  b:",
+    "    uses: ./.github/workflows/reusable.yml",
+  ].join("\n");
+  const uses = workflowUsesOf(planted, ".github/workflows/planted.yml");
+  assert.deepEqual(uses, ["actions/checkout@0123456789abcdef0123456789abcdef01234567", "ossf/scorecard-action@0123456789abcdef0123456789abcdef01234567", "./.github/workflows/reusable.yml"]);
+  assert.deepEqual(allowedActionPatterns(uses), ["ossf/scorecard-action@*"], "no planted evil/* pattern");
+  // Forms the reader does not decide are refused, never guessed.
+  for (const [text, form] of [
+    ["steps:\n  - { uses: evil/flow@main }", "a flow mapping"],
+    ["steps:\n  - uses: *anchor", "an alias"],
+    ["steps:\n  - uses: \"evil/x@main; rm -rf /\"", "a value that is not a reference"],
+  ] as const) {
+    assert.throws(() => workflowUsesOf(text, "w.yml"), (error: unknown) => isForgeError(error, "forge_declaration_invalid"), form);
+  }
+  // The repository's own workflows read without refusal (a near miss across every real form).
+  const tree = workingTreeReader(trackedTop(join(import.meta.dirname, "..", "..")));
+  const facts = forgeTreeFacts(tree, SETTINGS);
+  assert.ok(facts.workflowActions.length > 10);
+  assert.ok(facts.workflowActions.every((reference) => !reference.startsWith("evil/")));
 });

@@ -1061,7 +1061,8 @@
       {
         "name": "bridlewise-coordination",
         "kind": "notes",
-        "visibility": "private"
+        "visibility": "private",
+        "protectedBranch": "coordination"
       },
       {
         "name": "bridlewise-archive",
@@ -1122,6 +1123,10 @@
       },
       {
         "context": "Full suite shards / Merge one qualification receipt",
+        "integrationId": 15368
+      },
+      {
+        "context": "Generated values and harness check",
         "integrationId": 15368
       }
     ],

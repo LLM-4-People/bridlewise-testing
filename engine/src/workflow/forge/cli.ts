@@ -5,7 +5,8 @@
  *   harness forge apps manifests [--check]           write (or check) the generated files from their owners
  *   harness forge apps create                        serve the Apps page (Session 1) until Done
  *   harness forge plan  (--token-env <VAR> | --token-stdin)   what apply would change (read-only)
- *   harness forge apply (--token-env <VAR> | --token-stdin)   send the whole plan, then verify it
+ *   harness forge apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]…
+ *                                                             send the whole plan, tighten first, then verify it
  *   harness forge audit (--token-env <VAR> | --token-stdin)   the plan judged: any drift fails
  *
  * The credential of plan, apply and audit is never an argument or a file:
@@ -39,7 +40,7 @@ import { forgeApply, forgePlan } from "./plan.ts";
 import { maintainerCli } from "./maintainer-cli.ts";
 import type { ForgeCredential } from "./port.ts";
 
-const USAGE = "harness forge takes: apps manifests [--check] | apps create | plan|apply|audit (--token-env <VAR> | --token-stdin)";
+const USAGE = "harness forge takes: apps manifests [--check] | apps create | plan|audit (--token-env <VAR> | --token-stdin) | apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]...";
 
 function usage(): never {
   throw new ForgeError("forge_usage", USAGE, {});
@@ -120,13 +121,19 @@ async function settingsVerb(root: string, verb: "plan" | "apply" | "audit", rest
   if (!files.converged) {
     throw new ForgeError("forge_declaration_invalid", `The generated forge files are stale (run harness sync, then review them): ${files.changed.join(", ")}.`, { changed: files.changed });
   }
-  const credential = await settingsCredential(rest, onProgress);
+  // `--accept-loosening <kind:scope:key>` (apply only, repeatable): an explicit acknowledgement of one weakening the plan lists.
+  const accepted = new Set<string>();
+  const remaining: string[] = [];
+  for (let index = 0; index < rest.length; index += 1) {
+    if (rest[index] === "--accept-loosening" && verb === "apply" && rest[index + 1] !== undefined) { accepted.add(rest[index + 1]!); index += 1; } else remaining.push(rest[index]!);
+  }
+  const credential = await settingsCredential(remaining, onProgress);
   const context = { client: githubClient(forgeEndpoint(settings), credential), organization: settings.organization, maxPages: settings.request.maxPages };
   const objects = forgeDeclarations(sources);
   if (verb === "apply") {
-    const outcome = await forgeApply(context, objects, settings.retired);
+    const outcome = await forgeApply(context, objects, settings.retired, accepted);
     const verified = outcome.verification.drift.length === 0;
-    return { result: wrapResult("forge", deepFreeze({ verb, applied: outcome.applied, verification: outcome.verification }), { status: verified ? "pass" : "fail" }) };
+    return { result: wrapResult("forge", deepFreeze({ verb, applied: outcome.applied, acceptedLoosening: outcome.acceptedLoosening, movedLoosening: outcome.movedLoosening, verification: outcome.verification }), { status: verified ? "pass" : "fail" }) };
   }
   const plan = await forgePlan(context, objects, settings.retired);
   const status = verb === "audit" ? (plan.drift.length === 0 ? "pass" : "fail") : (plan.complete ? "pass" : "fail");

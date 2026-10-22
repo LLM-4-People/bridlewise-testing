@@ -247,6 +247,27 @@ const project: KindAdapter = {
 };
 
 /** Rulesets of one source: a repository's list also holds the organisation's rulesets that apply to it, which are not its own. */
+/**
+ * The allowed-actions list: GitHub answers its read with 409 while the
+ * repository does not allow "selected" actions yet (measured on the live
+ * plan, 2026-10-22). That is "not declared yet", read as absent: the plan
+ * creates it, after `actions-permissions` (declared first) selects it.
+ */
+const selectedActions: KindAdapter = (() => {
+  const base = singleton((context, object) => `${repoPath(context, repositoryOf(object))}/actions/permissions/selected-actions`, "PUT");
+  return {
+    ...base,
+    read: async (context, object) => {
+      try {
+        return await base.read(context, object);
+      } catch (error) {
+        if (isForgeError(error, "github_conflict")) return undefined;
+        throw error;
+      }
+    },
+  };
+})();
+
 const rulesetOf = (base: (context: LiveContext, scope: ForgeScope) => string, sourceType: "Organization" | "Repository"): KindAdapter => namedCollection<Record<string, unknown>>({
   collection: (context, scope) => `${base(context, scope)}/rulesets`,
   items: (data) => (Array.isArray(data) ? data as Record<string, unknown>[] : []).filter((item) => item.source_type === sourceType),
@@ -270,7 +291,7 @@ export const KIND_ADAPTERS: Readonly<Record<ForgeObjectKind, KindAdapter>> = Obj
   "org-ruleset": rulesetOf((context) => orgPath(context), "Organization"),
   "repository-settings": singleton((context, object) => repoPath(context, repositoryOf(object)), "PATCH"),
   "actions-permissions": singleton((context, object) => `${repoPath(context, repositoryOf(object))}/actions/permissions`, "PUT"),
-  "actions-selected": singleton((context, object) => `${repoPath(context, repositoryOf(object))}/actions/permissions/selected-actions`, "PUT"),
+  "actions-selected": selectedActions,
   "actions-workflow": singleton((context, object) => `${repoPath(context, repositoryOf(object))}/actions/permissions/workflow`, "PUT"),
   "actions-fork-approval": singleton((context, object) => `${repoPath(context, repositoryOf(object))}/actions/permissions/fork-pr-contributor-approval`, "PUT"),
   "immutable-releases": immutableReleases,

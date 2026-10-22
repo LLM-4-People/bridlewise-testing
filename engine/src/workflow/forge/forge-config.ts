@@ -56,6 +56,8 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     kind: z.enum(FORGE_REPOSITORY_KINDS),
     visibility: z.enum(["public", "private"]),
     provingGround: z.boolean().optional(),
+    /** A branch the repository protects from deletion and force-pushes by its own ruleset (`protect-<branch>`; the notes repository's working branch). */
+    protectedBranch: z.string().regex(/^[A-Za-z0-9._\/-]{1,100}$/u).optional(),
   })).min(1).superRefine((repositories, context) => {
     const names = repositories.map((repository) => repository.name.toLowerCase());
     if (new Set(names).size !== names.length) context.addIssue({ code: "custom", message: "repository names must be unique" });

@@ -74,6 +74,10 @@
             {
               "context": "Full suite shards / Merge one qualification receipt",
               "integration_id": 15368
+            },
+            {
+              "context": "Generated values and harness check",
+              "integration_id": 15368
             }
           ]
         }

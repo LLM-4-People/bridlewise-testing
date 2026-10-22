@@ -13,7 +13,7 @@ import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import type { ForgeObject } from "../../src/workflow/forge/forge-state.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
-import { forgeApply, forgePlan } from "../../src/workflow/forge/plan.ts";
+import { forgeApply, forgePlan, looseningOf } from "../../src/workflow/forge/plan.ts";
 import { fakeGithub, type FakeGithub } from "./fake-github.ts";
 import { SOURCES } from "./forge-settings.ts";
 
@@ -77,7 +77,12 @@ test("plan, apply, verify: create and update what differs, leave the rest, repor
   assert.equal(fake.requests.filter((request) => request.method !== "GET").length, writesBefore);
   // Once the App exists, the whole plan applies and verifies.
   fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 1, installations: [{ id: 77, app_id: 1234, app_slug: "bridlewise-publisher" }] });
-  const outcome = await forgeApply(context, objects, retired);
+  // Retiring a ruleset weakens protection: refused, nothing written, until it is acknowledged by id.
+  const before = fake.requests.filter((request) => request.method !== "GET").length;
+  await assert.rejects(forgeApply(context, objects, retired), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && /ruleset:bridlewise-testing:protect-release-tags/u.test(error.message));
+  assert.equal(fake.requests.filter((request) => request.method !== "GET").length, before, "nothing was written");
+  const outcome = await forgeApply(context, objects, retired, new Set(["ruleset:bridlewise-testing:protect-release-tags"]));
+  assert.deepEqual(outcome.acceptedLoosening, [{ id: "ruleset:bridlewise-testing:protect-release-tags", loosening: ["deletes the ruleset"] }], "the acknowledgement is in the receipt");
   assert.deepEqual(outcome.applied.map((applied) => `${applied.action} ${applied.kind} ${applied.key}`).sort(), [
     "create label area:engine", "create ruleset product", "retire ruleset protect-release-tags", "update label lane:gh-1", "update repository-settings bridlewise-testing",
   ]);
@@ -97,11 +102,15 @@ test("one object's refusal is that object's (plan, permission); a budget refusal
   ];
   fake.objects.set(`/repos/${ORG}/${REPO}/actions/permissions/workflow`, { default_workflow_permissions: "read" });
   fake.refuseNext({ path: /\/actions\/permissions$/u }, { status: 403, message: "Upgrade to GitHub Pro or make this repository public to enable this feature." });
+  // The allowed-actions list answers 409 until "selected" is on (measured live): it reads as not declared yet, a create.
+  objects.push(object("actions-selected", REPO, { github_owned_allowed: true, verified_allowed: false, patterns_allowed: [] }));
+  fake.refuseNext({ path: /\/actions\/permissions\/selected-actions$/u }, { status: 409, message: "Selected actions are not enabled for this repository." });
   const plan = await forgePlan(contextOf(fake), objects, []);
   assert.equal(entry(plan, "actions-permissions", REPO).action, "refused");
   assert.equal(entry(plan, "actions-permissions", REPO).code, "unavailable_on_plan");
   assert.equal(entry(plan, "actions-workflow", REPO).action, "unchanged");
   assert.equal(entry(plan, "immutable-releases", REPO).action, "update", "absent immutable releases read as disabled");
+  assert.equal(entry(plan, "actions-selected", REPO).action, "create");
   fake.refuseNext({ path: /\/actions\/permissions\/workflow$/u }, { status: 403, message: "API rate limit exceeded", headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) + 600) } });
   await assert.rejects(forgePlan(contextOf(fake), objects, []), (error: unknown) => isForgeError(error, "github_rate_limited") && typeof error.facts.resetAt === "string");
 });
@@ -214,4 +223,73 @@ test("the whole declaration set plans, applies in order and converges: zero drif
   const again = await forgePlan(context, objects, SOURCES.settings.retired);
   assert.deepEqual(again.drift, []);
   assert.equal(fake.requests.filter((request) => request.method !== "GET" && request.path !== "/graphql").length, writes);
+});
+
+/** A trunk whose repository ruleset holds the review rules today, and the declarations that move them into the org baseline. */
+function movingFixture() {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  const checks = [{ context: "CI", integration_id: 15368 }];
+  const review = { type: "pull_request", parameters: { required_approving_review_count: 0, dismiss_stale_reviews_on_push: true, require_code_owner_review: false, require_last_push_approval: false, required_review_thread_resolution: true, allowed_merge_methods: ["merge"] } };
+  const status = { type: "required_status_checks", parameters: { strict_required_status_checks_policy: false, do_not_enforce_on_create: false, required_status_checks: checks } };
+  fake.collection(`/repos/${ORG}/${REPO}/rulesets`, [{ name: "trunk", source_type: "Repository", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "deletion" }, review, status] }], "id", { source_type: "Repository" });
+  fake.collection(`/orgs/${ORG}/rulesets`, [], "id", { source_type: "Organization" });
+  fake.route("GET", /^\/repos\/[^/]+\/[^/]+\/properties\/values$/u, () => ({ status: 200, body: [{ property_name: "kind", value: "trunk" }] }));
+  const objects: ForgeObject[] = [
+    object("custom-property-values", "kind", { kind: "trunk" }),
+    object("org-ruleset", "baseline", { name: "baseline", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "deletion" }, review, status],
+      conditions: { repository_property: { include: [{ name: "kind", property_values: ["trunk"] }], exclude: [] }, ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } } }, { kind: "org" }),
+    object("ruleset", "trunk", { name: "trunk", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "deletion" }] }),
+  ];
+  return { fake, objects };
+}
+
+test("barrier 1, tighten first: the baseline is created and read back BEFORE the repository rules move out; a move needs no acknowledgement", async () => {
+  const { fake, objects } = movingFixture();
+  const context = contextOf(fake);
+  const plan = await forgePlan(context, objects, []);
+  const trunk = entry(plan, "ruleset", "trunk");
+  assert.deepEqual([...trunk.loosening!].sort(), ["removes rule pull_request", "removes rule required_status_checks"]);
+  assert.equal(trunk.moved, true, "every removed rule is carried by the baseline for this repository's kind");
+  const outcome = await forgeApply(context, objects, []);
+  assert.deepEqual(outcome.movedLoosening, ["ruleset:bridlewise-testing:trunk"]);
+  const writes = fake.requests.map((request, index) => ({ request, index })).filter(({ request }) => request.method !== "GET");
+  const baselineWrite = writes.find(({ request }) => request.method === "POST" && request.path === `/orgs/${ORG}/rulesets`)!.index;
+  const trunkWrite = writes.find(({ request }) => request.method === "PUT" && request.path.startsWith(`/repos/${ORG}/${REPO}/rulesets/`))!.index;
+  assert.ok(baselineWrite < trunkWrite, "the baseline is written first");
+  assert.ok(fake.requests.slice(baselineWrite + 1, trunkWrite).some((request) => request.method === "GET" && request.path.startsWith(`/orgs/${ORG}/rulesets`)), "and read back before the trunk is weakened");
+  assert.deepEqual(outcome.verification.drift, []);
+});
+
+test("barrier 2, the read-back: a baseline that does not hold what was declared stops the apply before anything is loosened", async () => {
+  const { fake, objects } = movingFixture();
+  // GitHub stores the baseline without its review rule (a plan limit, an API quirk): the read-back must catch it.
+  fake.route("POST", new RegExp(`^/orgs/${ORG}/rulesets$`, "u"), (request) => {
+    const body = request.body as { rules: { type: string }[] };
+    const stored = { ...body, id: 9001, source_type: "Organization", rules: body.rules.filter((rule) => rule.type !== "pull_request") };
+    (fake.objects.get(`/orgs/${ORG}/rulesets`) as unknown[]).push(stored);
+    fake.objects.set(`/orgs/${ORG}/rulesets/9001`, stored);
+    return { status: 201, body: stored };
+  });
+  await assert.rejects(forgeApply(contextOf(fake), objects, []), (error: unknown) => isForgeError(error, "forge_tighten_unverified"));
+  assert.ok(!fake.requests.some((request) => request.method === "PUT" && request.path.startsWith(`/repos/${ORG}/${REPO}/rulesets/`)), "the trunk kept its rules");
+});
+
+test("barrier 3, acknowledgement: a weakening that is not a move is refused before anything is written, and applies only with its id", async () => {
+  const { fake, objects } = movingFixture();
+  // The trunk also drops `deletion`, which the baseline does carry, and gains a bypass actor, which nothing excuses.
+  const weakened = objects.map((candidate) => candidate.kind === "ruleset" ? { ...candidate, desired: { ...(candidate.desired as object), bypass_actors: [{ actor_id: 5, actor_type: "Integration", bypass_mode: "always" }] } } : candidate);
+  const context = contextOf(fake);
+  const plan = await forgePlan(context, weakened, []);
+  assert.equal(entry(plan, "ruleset", "trunk").moved, false);
+  assert.ok(entry(plan, "ruleset", "trunk").loosening!.some((reason) => reason.startsWith("adds bypass")));
+  await assert.rejects(forgeApply(context, weakened, []), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && /ruleset:bridlewise-testing:trunk/u.test(error.message));
+  assert.ok(!fake.requests.some((request) => request.method !== "GET"), "nothing was written, the baseline included");
+  const outcome = await forgeApply(context, weakened, [], new Set(["ruleset:bridlewise-testing:trunk"]));
+  assert.equal(outcome.acceptedLoosening[0]?.id, "ruleset:bridlewise-testing:trunk");
+  // The classifier, directly: tightening and neutral changes are not loosenings (near misses).
+  assert.deepEqual(looseningOf("ruleset", { enforcement: "active", rules: [{ type: "deletion" }, { type: "creation" }] }, { enforcement: "active", rules: [{ type: "deletion" }] }), []);
+  assert.deepEqual(looseningOf("actions-permissions", { sha_pinning_required: true, allowed_actions: "selected" }, { sha_pinning_required: false, allowed_actions: "all" }), []);
+  assert.deepEqual(looseningOf("actions-permissions", { sha_pinning_required: false, allowed_actions: "all" }, { sha_pinning_required: true, allowed_actions: "selected" }), ["sha pinning off", "allowed actions all"]);
+  assert.deepEqual(looseningOf("security-configuration", { secret_scanning: "disabled" }, { secret_scanning: "enabled" }), ["secret_scanning disabled"]);
 });

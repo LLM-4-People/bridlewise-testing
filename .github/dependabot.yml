@@ -2,7 +2,7 @@
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: "/"
+    directory: /
     schedule:
       interval: weekly
       day: monday
@@ -15,10 +15,13 @@ updates:
     groups:
       web:
         applies-to: version-updates
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
   - package-ecosystem: npm
-    directory: "/engine"
+    directory: /engine
     schedule:
       interval: weekly
       day: monday
@@ -31,10 +34,13 @@ updates:
     groups:
       engine:
         applies-to: version-updates
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
   - package-ecosystem: github-actions
-    directory: "/"
+    directory: /
     schedule:
       interval: weekly
       day: monday
@@ -47,5 +53,8 @@ updates:
     groups:
       actions:
         applies-to: version-updates
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
