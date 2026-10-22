@@ -55,6 +55,7 @@ import { commitJournaled } from "../../filesystem/journaled-commit.ts";
 import { checkIndexBaseline } from "../../git/index-baseline.ts";
 import { gitOutput, resolveRevision, writeBlob } from "../../git/tree-reader.ts";
 import type { WorktreeGitPort } from "../../git/worktree-port.ts";
+import { remoteTrackingRef } from "../../git/git-port.ts";
 import { auditEvent } from "../../shared/debug/debug-system.ts";
 import { settleCheckout } from "../checkout-setup.ts";
 import { engineRelativeIn } from "./promoter-home.ts";
@@ -159,8 +160,8 @@ export function reconcileRemote(context: PromotionContext, git: WorktreeGitPort,
   const remoteTarget = listing.refs.get(profile.target.ref) ?? null;
   const remoteSource = mode.promotesSource ? listing.refs.get(profile.source.ref) ?? null : null;
   const refspecs = [
-    ...(remoteTarget === null ? [] : [`+${profile.target.ref}:refs/remotes/${remote}/${branchOf(profile.target.ref)}`]),
-    ...(remoteSource === null ? [] : [`+${profile.source.ref}:refs/remotes/${remote}/${branchOf(profile.source.ref)}`]),
+    ...(remoteTarget === null ? [] : [`+${profile.target.ref}:${remoteTrackingRef(remote, branchOf(profile.target.ref))}`]),
+    ...(remoteSource === null ? [] : [`+${profile.source.ref}:${remoteTrackingRef(remote, branchOf(profile.source.ref))}`]),
   ];
   if (refspecs.length > 0) {
     const fetched = git.fetchRefs(context.top, remote, refspecs, timeouts.fetchMs);
@@ -252,7 +253,7 @@ export function releaseHoldNow(context: PromotionContext, git: WorktreeGitPort, 
  */
 function remoteCarries(context: PromotionContext, git: WorktreeGitPort, commit: string, listed: string): boolean {
   const { profile } = context.loaded;
-  const fetched = git.fetchRefs(context.top, profile.remote!, [`+${profile.target.ref}:refs/remotes/${profile.remote!}/${branchOf(profile.target.ref)}`], worktreeOperationTimeouts(context.document).fetchMs);
+  const fetched = git.fetchRefs(context.top, profile.remote!, [`+${profile.target.ref}:${remoteTrackingRef(profile.remote!, branchOf(profile.target.ref))}`], worktreeOperationTimeouts(context.document).fetchMs);
   if (fetched.refusal !== null) throw remoteFailure(`git fetch ${profile.remote!} (after the push)`, fetched.refusal, "promotion_remote_errored");
   return resolveRevision(context.repository, listed, "object") !== null && isAncestor(git, context, commit, listed);
 }
