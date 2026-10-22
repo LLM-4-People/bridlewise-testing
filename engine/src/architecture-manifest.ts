@@ -2639,7 +2639,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "build-bundle", path: "scripts/build-bundle.ts",
       realm: "builder", layer: "verification", owner: "self-protection",
-      publicApi: { exportCount: 3, namesSha256: "b3544ac6577a32e74307ecc2c9a3c75f0e3f3f3ebd375a23821441778ba1e204" },
+      publicApi: { exportCount: 3, namesSha256: "4e205f2ad24c52bb2c20082aa26fdba9f44f0166b31e02dbe9484c5e505da67a" },
       dependencies: ["esbuild","node:fs","node:path","node:url","scripts/verification/slice-projections.ts","src/filesystem/atomic-write.ts","src/kernel/integrity.ts","src/runtime/cli-debug.ts"],
       effects: ["filesystem-write"],
       executionBoundary: "composition-root",
