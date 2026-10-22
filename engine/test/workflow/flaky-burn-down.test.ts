@@ -13,6 +13,7 @@ import test from "node:test";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { burnDownLine, entryAddedWithOwner, FLAKY_BURN_DOWN_SCHEMA_VERSION, flakyBurnDownPath, judgeBurnDown, judgeFlakyMemory, type BurnDownEntry, type BurnDownList } from "../../src/workflow/flaky-burn-down.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 
 const ENGINE_ROOT = join(import.meta.dirname, "..", "..");
 import { createTempDir } from "../support/temp-dir.ts";
@@ -25,7 +26,9 @@ const entry: BurnDownEntry = { identity: SUSPECT, owner: "FLAKY-A" };
 const list = (...entries: BurnDownEntry[]): BurnDownList => ({ schemaVersion: FLAKY_BURN_DOWN_SCHEMA_VERSION, entries });
 const red = (identity: string) => ({ identity, failedAt: ["2026-10-08T10:00:00.000Z"] });
 const fileOf = (identity: string): string | null => identity.includes("::") ? identity.slice(0, identity.indexOf("::")) : null;
-const OPEN_ROW = `# Tasks\n\n- [ ] **FLAKY-A** tests/unit/a.test.ts flakes; owned in the burn-down of ${GUARD}.\n`;
+/** A board file: its rows inside the generated block, the only rows a guard reads (`boardRows`). */
+const onBoard = (rows: string): string => `# Tasks\n\n${TRACKER_BOARD.begin}\n\n${rows}\n${TRACKER_BOARD.end}\n`;
+const OPEN_ROW = onBoard(`- [ ] **FLAKY-A** tests/unit/a.test.ts flakes; owned in the burn-down of ${GUARD}.\n`);
 
 test("an owned entry passes and is said; a NEW suspect fails; nothing needs the suspect to be red now", () => {
   const owned = judgeBurnDown([red(SUSPECT)], list(entry), OPEN_ROW, GUARD, fileOf, () => true);
@@ -39,12 +42,21 @@ test("an owned entry passes and is said; a NEW suspect fails; nothing needs the 
   assert.deepEqual(quiet.owned, [{ ...entry, red: false }], "an entry stays (and is said) after its suspect left the window: nothing ages out");
 });
 
+test("a row typed by hand outside the board's generated block owns nothing", () => {
+  const handRow = `- [ ] **FLAKY-A** tests/unit/a.test.ts flakes; owned in the burn-down of ${GUARD}.\n`;
+  for (const tracker of [`${handRow}\n${onBoard("")}`, `${onBoard("")}\n${handRow}`]) {
+    const judged = judgeBurnDown([red(SUSPECT)], list(entry), tracker, GUARD, fileOf, () => true);
+    assert.match(judged.problems[0] ?? "", /is no row of the tracker/u, "a hand row above or below the block is no owner");
+  }
+  assert.throws(() => judgeBurnDown([red(SUSPECT)], list(entry), handRow, GUARD, fileOf, () => true), (error: Error & { code?: string }) => error.code === "tracker_board_block_missing");
+});
+
 test("an entry whose owner is closed, missing, or does not name both the test and the guard fails", () => {
   for (const [tracker, why] of [
     [OPEN_ROW.replace("- [ ]", "- [x]"), /is closed while the entry remains/u],
-    ["# Tasks\n", /is no row of the tracker/u],
-    [`# Tasks\n\n- [ ] **FLAKY-A** tests/unit/a.test.ts flakes.\n`, /does not name both/u],
-    [`# Tasks\n\n- [ ] **FLAKY-A** owned in ${GUARD}.\n`, /does not name both/u],
+    [onBoard(""), /is no row of the tracker/u],
+    [onBoard("- [ ] **FLAKY-A** tests/unit/a.test.ts flakes.\n"), /does not name both/u],
+    [onBoard(`- [ ] **FLAKY-A** owned in ${GUARD}.\n`), /does not name both/u],
   ] as const) {
     const judged = judgeBurnDown([red(SUSPECT)], list(entry), tracker, GUARD, fileOf, () => true);
     assert.equal(judged.problems.length, 1, tracker);
@@ -101,7 +113,7 @@ test("THE ONE JUDGEMENT, driven on a planted repository: one failure followed by
   git("init", "-q", "-b", "main");
   write("engine/bridlewise.config.json", readFileSync(join(ENGINE_ROOT, "bridlewise.config.json"), "utf8"));
   write(`engine/${flakyBurnDownPath("engine")}`, `${JSON.stringify(list())}\n`);
-  write(ROOT_POLICY.workflow.failureOwners.tracker, "# Tasks\n");
+  write(ROOT_POLICY.workflow.failureOwners.tracker, onBoard(""));
   git("add", "-A");
   git("commit", "-q", "-m", "init");
   const identity = "test/a.test.ts::flakes";
@@ -112,13 +124,13 @@ test("THE ONE JUDGEMENT, driven on a planted repository: one failure followed by
   const unowned = await judge();
   assert.match(unowned.failure ?? "", /test\/a\.test\.ts::flakes/u, "a failure 55 green runs ago is still red");
   write(`engine/${flakyBurnDownPath("engine")}`, `${JSON.stringify(list({ identity, owner: "FLAKY-A" }))}\n`);
-  write(ROOT_POLICY.workflow.failureOwners.tracker, "# Tasks\n\n- [ ] **FLAKY-A** engine/test/a.test.ts flakes; owned by engine/test/prevention/flaky-test-memory.test.ts.\n");
+  write(ROOT_POLICY.workflow.failureOwners.tracker, onBoard("- [ ] **FLAKY-A** engine/test/a.test.ts flakes; owned by engine/test/prevention/flaky-test-memory.test.ts.\n"));
   git("add", "-A");
   git("commit", "-q", "-m", "own it");
   const owned = await judge();
   assert.equal(owned.failure, null, owned.failure ?? "");
   assert.match(owned.lines.at(-1)!, /1 owned entry: test\/a\.test\.ts::flakes \(owner FLAKY-A, red now\)/u);
-  write(ROOT_POLICY.workflow.failureOwners.tracker, "# Tasks\n\n- [x] **FLAKY-A** engine/test/a.test.ts flakes; owned by engine/test/prevention/flaky-test-memory.test.ts.\n");
+  write(ROOT_POLICY.workflow.failureOwners.tracker, onBoard("- [x] **FLAKY-A** engine/test/a.test.ts flakes; owned by engine/test/prevention/flaky-test-memory.test.ts.\n"));
   git("add", "-A");
   git("commit", "-q", "-m", "close the row, keep the entry");
   assert.match((await judge()).failure ?? "", /closed while the entry remains/u);

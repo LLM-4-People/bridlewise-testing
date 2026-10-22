@@ -4,15 +4,18 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+  merge_group:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: docs-links-${{ github.ref }}
-  cancel-in-progress: true
+  # A pull request's newer push supersedes its older run. Every other event
+  # (main pushes, merge groups, schedules, dispatches) gets a group of its own,
+  # so a main run is never cancelled, neither in progress nor pending.
+  group: docs-links-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   links:

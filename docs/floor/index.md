@@ -30,7 +30,7 @@ The floor is not the product, a staging environment, a hosted service, or a supp
 
 | Question | Surface | What it shows | What it does not show |
 |---|---|---|---|
-| Did the floor's public gate pass? | [Testing CI](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml) | Typechecks, secret scan, public smoke tests, cockpit and engine builds, guardian build and tests | The corpus-backed suites, the live provider suite, or E2E on every change |
+| Did the floor's public gate pass? | [Testing CI](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml) | Typechecks, secret scan, public smoke tests, cockpit and engine builds, guardian build and tests, the sharded web suite, and the engine suite on the pinned corpus subset (reported, not yet a required check) | The live provider suite, or E2E on every change |
 | Did the product gate pass? | [Product CI](https://github.com/LLM-4-People/bridlewise/actions/workflows/ci.yml) | Typechecks, public smoke tests, secret scan, cockpit and engine builds, and guardian checks at one commit | Runtime correctness, security, or coverage of an untested path |
 | Which tests and records exist? | [Test atlas]({{ '/floor/atlas/' | relative_url }}) | Inventory entries, dispositions, prevention guards, and decision records | That any entry ran, passed, or applies to your checkout |
 | What rules govern a change? | [Decision records]({{ '/decisions/' | relative_url }}) | The rule, its state, and the paths where it was carried out | That the implementation is correct or complete |
