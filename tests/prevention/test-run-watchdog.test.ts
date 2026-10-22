@@ -41,7 +41,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 
-import { TEST_TIMEOUT_MS } from "../test-budget.ts";
+import { TEST_HANG_BACKSTOP_MS } from "../test-budget.ts";
 import type { SuiteWatchdog } from "../../engine/src/workflow/workflow-config.ts";
 import { readWebSuiteWatchdog } from "../helpers/budget-config.ts";
 import { strayVitest, superviseRun } from "../../scripts/run-tests.ts";
@@ -87,7 +87,7 @@ describe("0. the supervisor's OWN death never leaves the run hanging or its desc
       expect((run as Awaited<typeof running>).exitCode).toBe(1);
       for (let i = 0; i < 50 && isProcessAlive(grandchild); i += 1) await new Promise((r) => setTimeout(r, 100));
       expect(isProcessAlive(grandchild), "a descendant outlived its dead supervisor").toBe(false);
-    }, 30_000);
+    });
   }
 });
 
@@ -260,10 +260,10 @@ describe("2. the watchdog's numbers come from the config, validated by the confi
     const configured = readWebSuiteWatchdog();
     expect("missing" in configured, JSON.stringify(configured)).toBe(false);
     if ("missing" in configured) return;
-    expect(TEST_TIMEOUT_MS).toBeLessThan(configured.stallTimeoutMs);
+    expect(TEST_HANG_BACKSTOP_MS).toBeLessThan(configured.stallTimeoutMs);
     expect(configured.stallTimeoutMs).toBeLessThan(configured.hardCeilingMs);
     const cfg = readSourceView("vitest.config.ts").code();
-    expect(cfg).toContain("TEST_TIMEOUT_MS");
+    expect(cfg).toContain("TEST_HANG_BACKSTOP_MS");
     expect(cfg).not.toMatch(/testTimeout:\s*\d/);
   });
 });

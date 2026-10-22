@@ -153,7 +153,7 @@ test("the server answers while the ledger migrates, refuses ledger work typed, a
     // work, the requests above) was COUNTED, not silently lost (N6/M22).
     expect(Number(/^recording-gap: (\d+) effect/u.exec(gaps[0]!.description)?.[1] ?? "0"), gaps[0]!.description).toBeGreaterThan(0);
   } finally { ledger.close(); }
-}, 120_000);
+});
 
 test("a recording-gap event that cannot be written is reported, and the open ledger still says ready (SCALE-CR1-FIX M9c)", async () => {
   // A document limit no gap document fits: the ledger opens, the gap write is refused.
@@ -173,4 +173,4 @@ test("a recording-gap event that cannot be written is reported, and the open led
     server.abandon();
   }
   await stopServer(logs);
-}, 120_000);
+});

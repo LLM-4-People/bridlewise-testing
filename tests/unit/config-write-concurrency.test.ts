@@ -213,7 +213,7 @@ describe("the atomic-rename owner under a reader storm — no reader ever sees t
     // owner guarantees for a config-shaped file.
     expect(JSON.parse(readFileSync(configPath, "utf8"))).toHaveProperty("generation");
     expect((statSync(configPath).mode & 0o7777).toString(8)).toBe("600");
-  }, 30_000);
+  });
 });
 
 describe("the config write lock across processes", () => {
@@ -298,7 +298,7 @@ describe("the config write lock across processes", () => {
       `both increments must survive — a lost update is exactly one of them vanishing. ` +
         `bases read: ${String(first.base)}, ${String(secondBase)}; child stderr: [${stderrOne}] [${stderrTwo}]`,
     ).toBe(2);
-  }, 20_000);
+  });
 
   test("a lock held by another PROCESS excludes this process until it releases", async () => {
     const dir = createTempDir("config-exclusion-");
@@ -316,7 +316,7 @@ describe("the config write lock across processes", () => {
       "the holder kept the lock for 400ms, so this acquire must have waited for it — an acquire that " +
         `returned immediately (${String(waitedMs)}ms) is not cross-process`,
     ).toBeGreaterThanOrEqual(350);
-  }, 20_000);
+  });
 
   test("a stale lock from a dead holder is broken, not waited on", () => {
     const dir = createTempDir("config-stale-");
