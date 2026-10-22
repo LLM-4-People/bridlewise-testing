@@ -11,10 +11,11 @@
 // mechanics, and the committed manifest is generated where the cache lives.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
+
+import { createTempDir } from "../support/temp-dir.ts";
 
 import {
   CORPUS_ROOT,
@@ -105,7 +106,7 @@ test("corpus: a hand-edited hash, path, upstream or licence refuses by name", ()
 });
 
 test("corpus: verify passes a matching cache and names the file that drifted", () => {
-  const base = mkdtempSync(join(tmpdir(), "corpus-verify-"));
+  const base = createTempDir("corpus-verify-");
   try {
     const repo = join(base, "repo");
     const cache = join(base, "cache");
@@ -135,7 +136,7 @@ test("corpus: verify passes a matching cache and names the file that drifted", (
 });
 
 test("corpus: verify refuses a root that resolves inside the repository", () => {
-  const base = mkdtempSync(join(tmpdir(), "corpus-inside-"));
+  const base = createTempDir("corpus-inside-");
   try {
     const repo = join(base, "repo");
     mkdirSync(join(repo, "engine", "large-codebases", "member"), { recursive: true });
@@ -152,7 +153,7 @@ test("corpus: verify refuses a root that resolves inside the repository", () => 
 });
 
 test("corpus: fetch materialises the pinned commit and link checks it out", () => {
-  const base = mkdtempSync(join(tmpdir(), "corpus-fetch-"));
+  const base = createTempDir("corpus-fetch-");
   try {
     const bare = join(base, "member.git");
     const seed = join(base, "seed");
@@ -222,7 +223,7 @@ test("corpus: fetch materialises the pinned commit and link checks it out", () =
 });
 
 test("corpus: link refuses an existing real directory instead of overwriting it", () => {
-  const base = mkdtempSync(join(tmpdir(), "corpus-link-"));
+  const base = createTempDir("corpus-link-");
   try {
     const repo = join(base, "repo");
     const cache = join(base, "cache");
@@ -235,7 +236,7 @@ test("corpus: link refuses an existing real directory instead of overwriting it"
 });
 
 test("corpus: link replaces its own previous cache but never a foreign tree", () => {
-  const base = mkdtempSync(join(tmpdir(), "corpus-relink-"));
+  const base = createTempDir("corpus-relink-");
   try {
     const repo = join(base, "repo");
     const caches = join(base, "corpus");

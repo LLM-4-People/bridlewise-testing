@@ -22,6 +22,15 @@
  *     have. Measured while building this module: line numbers taken from a
  *     comment-deleting view were wrong by 19 lines on the first file checked.
  *
+ * ── THE BOUNDARY WITH THE MARKUP OWNER ────────────────────────────────────
+ *
+ * This file owns SOURCE FILES: which spans of a `.ts`, `.js` or `.svelte`
+ * file are comments (markup comments in a template included), strings,
+ * templates or regex literals. It does not own HTML TEXT. Escaping,
+ * decoding, stripping or removing markup in a built page or a rendered
+ * string is `shared/markup.ts`'s, the one markup owner, and a source view is
+ * never used to rewrite HTML.
+ *
  * ── WHAT THIS OWNER GIVES INSTEAD ─────────────────────────────────────────
  *
  * `readSourceView(path)` is the sanctioned reader. It returns a `SourceView`,
