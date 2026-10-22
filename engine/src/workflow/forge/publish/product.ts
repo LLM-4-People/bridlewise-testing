@@ -72,7 +72,8 @@ export function receiptBytes(receipt: ProjectionReceipt): string {
 /** The workspace re-make's own answers that mean the forge stored or signed something else. */
 const REMAKE_MISMATCHES: ReadonlySet<string> = new Set(["workspace_publish_object_mismatch", "workspace_publish_unverified", "workspace_publish_mode", "workspace_publish_encoding", "workspace_publish_root_commit"]);
 
-function forgeRefusal(error: unknown): never {
+/** A forge failure as the publisher's answer: a re-make that does not match is integrity, a budget or failure errored, any other refusal refused. */
+export function forgeRefusal(error: unknown): never {
   if (error instanceof HarnessError && !(error instanceof ForgeError) && REMAKE_MISMATCHES.has(error.code)) {
     throw new PromotionError("promotion_forge_mismatch", `${error.code}: ${error.message}`, { remakeCode: error.code });
   }
