@@ -13,6 +13,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { decodeHtmlEntities } from "../../../shared/markup.ts";
+
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { FORGE_APP_ROLES, FORGE_APPS } from "../../src/workflow/forge/app-registry.ts";
@@ -199,9 +201,9 @@ type PageData = {
 };
 
 function pageData(html: string): PageData {
-  const match = /<script id="data" type="application\/json">([^<]*)<\/script>/u.exec(html);
+  const match = /<main data-page="([^"]*)">/u.exec(html);
   assert.ok(match !== null, "the page embeds its one data document");
-  return JSON.parse(match[1]!) as PageData;
+  return JSON.parse(decodeHtmlEntities(match[1]!)) as PageData;
 }
 
 async function withPage<T>(options: Readonly<{ gh?: ReturnType<typeof githubGh> }>, body: (context: Readonly<{ fake: ReturnType<typeof fakeGithub>; url: string; origin: string; keyHome: ReturnType<typeof temporaryKeyHome>; gh: ReturnType<typeof githubGh>; page: Awaited<ReturnType<typeof serveAppsPage>> }>) => Promise<T>): Promise<T> {
