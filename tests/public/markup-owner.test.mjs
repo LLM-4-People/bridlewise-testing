@@ -121,6 +121,8 @@ const DECLARED = new Map([
   ["scripts/floor/site-links.mjs", "reads every tag of the BUILT site to crawl its href/src attributes; it reads, never sanitizes"],
   ["tests/cockpit/cockpit-mouse-path-owner.test.ts", "reads the tags of this repository's own Svelte components to find their pointer controls"],
   ["tests/cockpit/editor-surface-owner.test.ts", "reads the tags of this repository's own Svelte components to find the editor surface"],
+  ["engine/src/shared/source-structure.ts", "the source-structure owner locates `<script>` blocks of Svelte sources for its parser; it reads, never sanitizes"],
+  ["tests/cockpit/switch-verb-owner.test.ts", "reads the tags of this repository's own Svelte components to find their interactive controls"],
   ["engine/src/workflow/reachability.ts", "extracts the `<script>` blocks of this repository's own Svelte sources to follow their imports; it reads, never sanitizes"],
   ["server/safety/artifact-check.ts", "the artifact safety owner locates `<script>` elements of a generated artifact to SYNTAX-CHECK them; it never rewrites or sanitizes the artifact"],
   ["tests/cockpit/rest-visibility-floor.test.ts", "reads the `<style>` block of this repository's own Svelte components"],
@@ -155,16 +157,21 @@ function calleeName(node) {
 }
 
 /**
- * The initializer of a MODULE-LEVEL `const` of this file (no unwrapping).
- * Module level only: a parameter or a local of the same name elsewhere in
- * the file is a different binding, and scoping it properly is data flow
- * (#180).
+ * The initializer of the `const` an identifier names: the nearest enclosing
+ * block, function body, module block or the file itself that declares it
+ * (no unwrapping). A parameter, a `let`, a `var` or an import is not a
+ * constant and is left to data flow (#180).
  */
-function declaredInitializer(name, file) {
-  for (const statement of file.statements) {
-    if (!ts.isVariableStatement(statement) || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
-    for (const declaration of statement.declarationList.declarations) {
-      if (ts.isIdentifier(declaration.name) && declaration.name.text === name) return declaration.initializer ?? null;
+function constInitializer(identifier) {
+  for (let scope = identifier.parent; scope !== undefined; scope = scope.parent) {
+    const statements = ts.isSourceFile(scope) || ts.isBlock(scope) || ts.isModuleBlock(scope) ? scope.statements
+      : ts.isCaseClause(scope) || ts.isDefaultClause(scope) ? scope.statements : undefined;
+    if (statements === undefined) continue;
+    for (const statement of statements) {
+      if (!ts.isVariableStatement(statement) || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.name.text === identifier.text && declaration.name !== identifier) return declaration.initializer ?? null;
+      }
     }
   }
   return null;
@@ -172,10 +179,11 @@ function declaredInitializer(name, file) {
 
 /**
  * A pattern argument resolved to its text: a literal where it stands, a
- * same-file constant it names, or a `RegExp(…)` built from either (with its
+ * `String.raw` template, a literal concatenation, the `const` it names (in
+ * any enclosing scope of this file), or a `RegExp(…)` built from any of them (with its
  * flags). Template holes stay holes. `{ regex }` says whether the text is a
  * regular expression (a regex literal or a `RegExp`) or a literal string.
- * Imports, `.call` and runtime-built patterns need data flow (#180).
+ * Imports and `.call` need data flow (#180).
  */
 function resolvePattern(node, file, depth = 0) {
   if (node === undefined || node === null || depth > 4) return null;
@@ -183,7 +191,14 @@ function resolvePattern(node, file, depth = 0) {
   if (ts.isRegularExpressionLiteral(node)) return { text: literalText(node), flags: node.text.slice(node.text.lastIndexOf("/") + 1), regex: true };
   const text = literalText(node);
   if (text !== null) return { text, flags: "", regex: false };
-  if (ts.isIdentifier(node)) return resolvePattern(declaredInitializer(node.text, file), file, depth + 1);
+  // String.raw`…`: the template's raw text (holes stay holes).
+  if (ts.isTaggedTemplateExpression(node) && node.tag.getText() === "String.raw") {
+    const raw = node.template.getText().slice(1, -1).replace(/\$\{[^}]*\}/gu, HOLE);
+    return { text: raw, flags: "", regex: false };
+  }
+  // A literal concatenation, every non-literal operand a hole.
+  if (isPlus(node)) return { text: folded(node), flags: "", regex: false };
+  if (ts.isIdentifier(node)) return resolvePattern(constInitializer(node), file, depth + 1);
   if ((ts.isNewExpression(node) || ts.isCallExpression(node)) && calleeName(node.expression) === "RegExp") {
     const inner = resolvePattern(node.arguments?.[0], file, depth + 1);
     if (inner === null) return null;
@@ -388,6 +403,19 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
       'const e = s.replace(/<[^<>]+>/g, "");',
       'const f = s.replace(/<(?:[^>"\']|"[^"]*"|\'[^\']*\')*>/g, "");',
     ].join("\n") + "\n",
+    // a function-scoped const, a block-scoped const, String.raw and a literal concatenation
+    "server/n.ts": [
+      "function strip(s: string) {",
+      "  const TAG = /<[^>]+>/g;",
+      '  return s.replace(TAG, "");',
+      "}",
+      "if (ready) {",
+      '  const SOURCE = "<[^>]*>";',
+      '  s = s.replace(new RegExp(SOURCE, "g"), "");',
+      "}",
+      'const raw = s.replace(new RegExp(String.raw`<\\/?[a-z][^>]*>`, "gi"), "");',
+      'const joined = s.replace(new RegExp("<" + "[^>]*" + ">", "g"), "");',
+    ].join("\n") + "\n",
     // seven PARTIAL strippers: each misses some tag shape, and each is still a stripper
     "server/m.ts": [
       'const a = s.replace(/<\\/?\\w+>/g, "");',
@@ -423,6 +451,8 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
     "scripts/j.mjs": ["cell-escape", "tag-filter", "tag-filter", "entity", "entity"],
     "server/k.ts": ["tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter"],
     "server/m.ts": ["tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter"],
+    // each `new RegExp(…)` is judged as a call of its own, then again as the replace pattern it feeds
+    "server/n.ts": ["tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter"],
     // `new RegExp(…)` is judged as a call of its own, then again as the replace pattern it feeds
     "server/l.ts": ["tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter"],
     "src/h.svelte": ["tag-filter", "markup-char", "markup-callback", "entity"],
