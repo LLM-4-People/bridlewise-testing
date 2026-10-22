@@ -5,17 +5,17 @@
  * JWT with the App's public key.
  */
 import assert from "node:assert/strict";
-import { statSync, writeFileSync, chmodSync } from "node:fs";
+import { chmodSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { admitHarnessKeyHome } from "../../src/filesystem/self-protection/key-home.ts";
 import { FORGE_APP_ROLES, FORGE_APPS, forgeApp, narrowedPermissions } from "../../src/workflow/forge/app-registry.ts";
-import { harnessAppKeyCustody, keyHomeCustody, storeAppKey } from "../../src/workflow/forge/app-keys.ts";
-import { isForgeError, type ForgeCode } from "../../src/workflow/forge/codes.ts";
+import { appKeyState, keyHomeCustody, pushHeldKey, storeAppKey } from "../../src/workflow/forge/app-keys.ts";
+import { ForgeError, isForgeError, type ForgeCode } from "../../src/workflow/forge/codes.ts";
 import { appInstallationCredential, appJwt } from "../../src/workflow/forge/credentials.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
 import { fakeGithub } from "./fake-github.ts";
+import { temporaryKeyHome } from "./forge-key-home.ts";
 
 /** GitHub's App permission names (`app-permissions` in the REST description, 2026-10-21) plus the repository security advisories permission. */
 const GITHUB_PERMISSION_NAMES = new Set([
@@ -70,10 +70,10 @@ test("narrowing never widens: a permission the App lacks, or write over read, is
   assert.throws(() => narrowedPermissions("verifier", { contents: "write" }), (error: unknown) => isForgeError(error, "forge_request_invalid"));
 });
 
-test("the host custody stores a key at 0600 in the key home, answers the identity without it, and refuses environment Apps", async () => {
+test("the custody stores a key at 0600 in the key home, answers the identity without it, signs only for host Apps, and holds an environment key only until it is pushed", async () => {
   const fake = fakeGithub();
   const app = fake.installApp({ slug: "bridlewise-agent", permissions: FORGE_APPS.agent.permissions, repositories: ["o/r"] });
-  const keyHome = admitHarnessKeyHome([]);
+  const keyHome = temporaryKeyHome();
   const identity = storeAppKey(keyHome, "agent", { appId: app.appId, slug: app.slug, clientId: app.clientId, pem: app.pem });
   const file = join(keyHome, "forge-apps", "agent.json");
   assert.equal(statSync(file).mode & 0o777, 0o600);
@@ -87,13 +87,24 @@ test("the host custody stores a key at 0600 in the key home, answers the identit
   const claims = JSON.parse(Buffer.from(jwt.split(".")[1]!, "base64url").toString("utf8")) as { iss: string; exp: number; iat: number };
   assert.equal(claims.iss, app.clientId);
   assert.ok(claims.exp - claims.iat <= 600);
-  // Environment-custody Apps are never stored on the host.
-  await refusedWith("forge_request_invalid", () => storeAppKey(keyHome, "door", { appId: 1, slug: "bridlewise-door", clientId: "Iv1", pem: app.pem }));
-  await refusedWith("forge_request_invalid", () => custody.identity("publisher"));
+  // An environment-custody App: stored right after conversion, HELD, never signed with on the host; pushed, then gone from the host.
+  storeAppKey(keyHome, "door", { appId: 7, slug: "bridlewise-door", clientId: "Iv1door", pem: app.pem });
+  assert.equal(appKeyState(keyHome, "door").state, "held");
+  await refusedWith("forge_request_invalid", () => custody.identity("door"));
+  await refusedWith("forge_request_invalid", () => custody.signRs256("door", Buffer.from("x")));
+  await assert.rejects(pushHeldKey(keyHome, "door", async () => { throw new ForgeError("forge_maintainer_cli_failed", "the push failed", {}); }), (error: unknown) => isForgeError(error, "forge_maintainer_cli_failed"));
+  assert.equal(appKeyState(keyHome, "door").state, "held", "a failed push keeps the key");
+  let pushed = "";
+  await pushHeldKey(keyHome, "door", async (pem) => { pushed = pem; });
+  assert.equal(pushed, app.pem);
+  assert.equal(appKeyState(keyHome, "door").state, "done");
+  assert.equal((JSON.parse(readFileSync(join(keyHome, "forge-apps", "door.json"), "utf8")) as { pem: unknown }).pem, null, "the pushed key is gone from the host");
+  await refusedWith("forge_app_key_unavailable", () => pushHeldKey(keyHome, "door", async () => undefined));
+  await refusedWith("forge_request_invalid", () => pushHeldKey(keyHome, "agent", async () => undefined));
   // A malformed key, identity or record is refused before or at use.
   await refusedWith("forge_app_key_invalid", () => storeAppKey(keyHome, "verifier", { appId: 1, slug: "bridlewise-verifier", clientId: "Iv1", pem: "not a key in any format" }));
   await refusedWith("forge_request_invalid", () => storeAppKey(keyHome, "agent", { appId: 0, slug: app.slug, clientId: app.clientId, pem: app.pem }));
-  await refusedWith("forge_app_key_unavailable", () => harnessAppKeyCustody().identity("verifier"));
+  await refusedWith("forge_app_key_unavailable", () => keyHomeCustody(temporaryKeyHome()).identity("verifier"));
   writeFileSync(join(keyHome, "forge-apps", "verifier.json"), "{\"schemaVersion\":\"other\"}", { mode: 0o600 });
   await refusedWith("forge_app_key_invalid", () => custody.identity("verifier"));
 });
@@ -101,7 +112,7 @@ test("the host custody stores a key at 0600 in the key home, answers the identit
 test("the mode guard: a VALID key record readable by other accounts is refused, by its mode alone", async () => {
   const fake = fakeGithub();
   const app = fake.installApp({ slug: "bridlewise-verifier", permissions: FORGE_APPS.verifier.permissions, repositories: ["o/r"] });
-  const keyHome = admitHarnessKeyHome([]);
+  const keyHome = temporaryKeyHome();
   storeAppKey(keyHome, "verifier", { appId: app.appId, slug: app.slug, clientId: app.clientId, pem: app.pem });
   const custody = keyHomeCustody(keyHome);
   assert.equal(custody.identity("verifier").appId, app.appId, "the record is valid at 0600");
@@ -121,7 +132,7 @@ test("the mode guard: a VALID key record readable by other accounts is refused, 
 });
 
 test("the repository check: a token GitHub minted for another repository than asked is an integrity stop, even with the right permissions", async () => {
-  const keyHome = admitHarnessKeyHome([]);
+  const keyHome = temporaryKeyHome();
   const asked = { contents: "read", metadata: "read" } as const;
   const minted = (repositories: readonly string[]) => () => ({ status: 201, body: {
     token: "x", expires_at: new Date(Date.now() + 3600_000).toISOString(), permissions: asked, repositories: repositories.map((name) => ({ name })),
@@ -145,7 +156,7 @@ test("the repository check: a token GitHub minted for another repository than as
 test("an installation token is minted narrowed to one repository and the action's permissions, cached, and renewed before expiry", async () => {
   const fake = fakeGithub();
   const app = fake.installApp({ slug: "bridlewise-agent", permissions: FORGE_APPS.agent.permissions, repositories: ["o/r", "o/other"] });
-  const keyHome = admitHarnessKeyHome([]);
+  const keyHome = temporaryKeyHome();
   storeAppKey(keyHome, "agent", { appId: app.appId, slug: app.slug, clientId: app.clientId, pem: app.pem });
   const request = { role: "agent", owner: "o", repository: "r", permissions: { contents: "write", pull_requests: "write" }, renewBeforeMs: 300_000 } as const;
   const credential = appInstallationCredential(fake.endpoint(), keyHomeCustody(keyHome), request);
@@ -170,7 +181,7 @@ test("an installation token is minted narrowed to one repository and the action'
 test("minting refuses wider asks before any request, and a token minted for other permissions is an integrity stop", async () => {
   const fake = fakeGithub();
   const app = fake.installApp({ slug: "bridlewise-verifier", permissions: FORGE_APPS.verifier.permissions, repositories: ["o/r"] });
-  const keyHome = admitHarnessKeyHome([]);
+  const keyHome = temporaryKeyHome();
   storeAppKey(keyHome, "verifier", { appId: app.appId, slug: app.slug, clientId: app.clientId, pem: app.pem });
   const custody = keyHomeCustody(keyHome);
   assert.throws(() => appInstallationCredential(fake.endpoint(), custody, { role: "verifier", owner: "o", repository: "r", permissions: { contents: "write" }, renewBeforeMs: 0 }),
