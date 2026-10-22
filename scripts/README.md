@@ -64,6 +64,14 @@ ships into the client bundle or the server runtime.
   manifest; `cockpit-plan.ts` is its pure plan (sequence, masks, manifest)
   and `gif.ts` its PNG-to-GIF encoder. [Shipping](../docs/shipping.md#cockpit-captures)
   states what it guarantees.
+- `visual/` — the visual regression check. `plan.ts` declares the key
+  pages, both themes, three viewports, the volatile regions, the invariants
+  every shot holds (no sideways scroll, a load that shifts the layout less
+  than its budget, the faces actually loaded, alt text, one main, one h1) and
+  the gate; `screens.ts` builds no baseline: it shoots the base commit's site
+  and the head's in one browser in one run and compares the bytes, writing a
+  side-by-side report with diffs. A changed picture needs the pull request's
+  `visual-change` label. The Pages workflow's `visual` job runs it.
 - `floor/` — the testing-site toolchain. `site.mjs` assembles the Jekyll
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes
