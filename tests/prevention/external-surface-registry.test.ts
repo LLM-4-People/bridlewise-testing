@@ -1370,10 +1370,11 @@ describe("external surfaces — plants fail for the defect they name", () => {
     const build = "      - name: Build the site source\n";
     expect(workflow).toContain(build);
     expectRule(planted({ ".github/workflows/pages.yml": workflow.replace(build, "      - name: Fetch\n        run: git clone https://github.com/LLM-4-People/elsewhere product\n\n" + build) }), "pages-build-path", "fetches another tree");
+    // Every Jekyll build hands over the built commit (the site's and the visual check's two).
     const revision = workflow.replace("build_revision: ${{ github.sha }}", "build_revision: main");
     expect(revision).not.toBe(workflow);
     expectRule(planted({ ".github/workflows/pages.yml": revision }), "pages-build-path", "build_revision");
-    expectRule(planted({ ".github/workflows/pages.yml": workflow.replace("uses: actions/jekyll-build-pages@", "uses: someone/jekyll-build-pages@") }), "pages-build-path", "no longer builds through actions/jekyll-build-pages");
+    expectRule(planted({ ".github/workflows/pages.yml": workflow.replaceAll("uses: actions/jekyll-build-pages@", "uses: someone/jekyll-build-pages@") }), "pages-build-path", "no longer builds through actions/jekyll-build-pages");
 
     // Near misses: the declared list with extra spacing, a comment naming a
     // plugin outside the list, and a flow list of exactly the declaration.

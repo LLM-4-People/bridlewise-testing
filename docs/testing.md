@@ -287,7 +287,7 @@ CI runs on every pull request and every push to `main`: Node 24, both typechecks
 
 ## Flakiness
 
-A flaky test is a defect in the test or its subject. Reproduce it, name the cause, and fix the owner. Do not add retries to the default suite and do not reorder assertions until it passes. The E2E suite's retry policy is Playwright's: `playwright.config.ts` sets `retries: process.env.CI ? 2 : 0`, and Playwright's HTML reporter records every retry in its report. That suite is not run by this repository's CI ([CI](#ci)), so the policy is not exercised here; a retry in another suite is not permission to retry the default suite.
+A flaky test is a defect in the test or its subject. Reproduce it, name the cause, and fix the owner. Do not add retries to the default suite and do not reorder assertions until it passes. The E2E suite's retry policy is Playwright's: `playwright.config.ts` sets `retries: process.env.CI ? 2 : 0`, and Playwright's HTML reporter records every retry in its report. That suite is not run by this repository's CI ([CI](#ci)), so the policy is not exercised here; a retry in another suite is not permission to retry the default suite. The Pages workflow does drive the same browser, but not that suite: its visual regression check shoots the key pages of the base and head sites and compares the bytes, with no retry (`scripts/visual/screens.ts`).
 
 ## What is not covered
 

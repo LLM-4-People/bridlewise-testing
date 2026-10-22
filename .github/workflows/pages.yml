@@ -166,6 +166,7 @@ jobs:
         with:
           source: ./.site-head
           destination: ./_visual/head
+          build_revision: ${{ github.sha }}
 
       - name: Move the base source into the workspace
         run: mv "$RUNNER_TEMP/base/.site" ./.site-base
@@ -175,6 +176,7 @@ jobs:
         with:
           source: ./.site-base
           destination: ./_visual/base
+          build_revision: ${{ github.sha }}
 
       - name: Install the browser
         run: npx playwright install --with-deps chromium
