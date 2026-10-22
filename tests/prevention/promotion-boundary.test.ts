@@ -39,7 +39,7 @@ import type { TreeReader } from "../../engine/src/git/tree-reader.ts";
 import { unconsumedCommands } from "../../engine/src/workflow/checkout-setup.ts";
 import { excludedBy, profileCommandNames, type LoadedPromotionProfile } from "../../engine/src/workflow/promotion/profile.ts";
 import { moduleSpecifiers, normalizeRepositoryPath } from "../../engine/src/workflow/reachability.ts";
-import { classifyTree, deriveManifests, projectionAdvisories, shippedSources } from "../../engine/src/workflow/promotion/projection.ts";
+import { classifyTree, derivePureTransforms, projectionAdvisories, shippedSources } from "../../engine/src/workflow/promotion/projection.ts";
 import { promotionView } from "../helpers/promotion-view.ts";
 
 const { document, tree, profiles } = promotionView();
@@ -61,14 +61,14 @@ function overlay(base: TreeReader, overrides: Readonly<Record<string, string | n
 /** Every refusal the source side of `loaded`'s promotion raises over `reader`, by code. */
 function refusals(reader: TreeReader, loaded: LoadedPromotionProfile): readonly string[] {
   const classification = classifyTree(reader, loaded.profile);
-  return [...classification.refusals, ...deriveManifests(reader, loaded.profile, classification).refusals].map((entry) => `${entry.code}: ${entry.message}`);
+  return [...classification.refusals, ...derivePureTransforms(reader, loaded.profile, classification).refusals].map((entry) => `${entry.code}: ${entry.message}`);
 }
 
-/** Use the plan's document checker against the derived manifests, not the development scripts. */
+/** Use the plan's document checker against the derived files (the manifests' scripts), not the development scripts. */
 function danglingScripts(reader: TreeReader, loaded: LoadedPromotionProfile): readonly string[] {
   const classification = classifyTree(reader, loaded.profile);
-  const manifests = deriveManifests(reader, loaded.profile, classification);
-  return projectionAdvisories(reader, classification, manifests.texts, [])
+  const derived = derivePureTransforms(reader, loaded.profile, classification);
+  return projectionAdvisories(reader, classification, derived.texts, [])
     .filter((entry) => entry.kind === "dangling_script_reference")
     .map((entry) => `${entry.path}: ${entry.detail}`);
 }
@@ -91,7 +91,7 @@ describe("the source-side promotion guard", () => {
 
   test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: missing, different and inert script references cannot evade the document guard", (_name, loaded) => {
     const classification = classifyTree(tree, loaded.profile);
-    const { texts } = deriveManifests(tree, loaded.profile, classification);
+    const texts = [...derivePureTransforms(tree, loaded.profile, classification).texts].filter(([path]) => classification.projected.get(path)?.detail === "package-manifest");
     // Every shipped path with the source path its bytes come from: the
     // overlay's files (the product's own README) are planted where they live.
     const shipped = shippedSources(classification);

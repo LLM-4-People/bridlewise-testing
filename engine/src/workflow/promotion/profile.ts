@@ -21,7 +21,7 @@ import { gitAcceptsRefName } from "../../git/repository-ownership.ts";
 import type { TreeReader } from "../../git/tree-reader.ts";
 import { PromotionError } from "./codes.ts";
 
-const PROMOTION_PROFILE_SCHEMA_VERSION = schemaId("promotion-profile", 3);
+const PROMOTION_PROFILE_SCHEMA_VERSION = schemaId("promotion-profile", 4);
 
 const refName = z.string().regex(/^refs\/heads\/[A-Za-z0-9._/-]+$/u);
 /**
@@ -65,15 +65,16 @@ const promotionProfileShape = z.strictObject({
      * its path with the prefix removed (`product-only/README.md` →
      * `README.md`); `null`: none. The folder itself never ships (the boundary
      * excludes it). `kinds` is what it may hold, each one of `OVERLAY_KINDS`
-     * (compared without case): `*.<ext>` (an extension) or an exact basename.
+     * (compared without case): `*.<extension>`.
      */
     overlay: z.strictObject({
       folder: folderPrefix,
-      kinds: z.array(z.string().regex(/^(?:\*\.[A-Za-z0-9]+|[A-Za-z0-9][A-Za-z0-9._-]*)$/u, "must be *.<extension> or an exact basename")).min(1).max(32),
+      kinds: z.array(z.string().regex(/^\*\.[A-Za-z0-9]+$/u, "must be *.<extension>")).min(1).max(32),
     }).nullable(),
   }),
   transforms: z.array(z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("package-manifest"), path: REPOSITORY_RELATIVE_PATH_SCHEMA, scripts: z.array(z.string().min(1)).max(128) }),
+    z.strictObject({ kind: z.literal("makefile"), path: REPOSITORY_RELATIVE_PATH_SCHEMA, targets: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u, "must be a target name")).min(1).max(64) }),
     z.strictObject({ kind: z.literal("lockfile"), path: REPOSITORY_RELATIVE_PATH_SCHEMA, manifest: REPOSITORY_RELATIVE_PATH_SCHEMA, command: WORKSPACE_COMMAND_NAME_SCHEMA }),
   ])).max(32),
   phases: z.strictObject({
@@ -92,22 +93,23 @@ export type LoadedPromotionProfile = Readonly<{ profile: PromotionProfile; path:
 
 /** The branch name a profile's ref names (`refs/heads/<branch>` → `<branch>`; the schema admits only branch refs). */
 /**
- * THE ONLY KINDS AN OVERLAY MAY HOLD, a fixed allowlist: documents, the
- * images named here, and the one recipe a person runs by typing `make`.
- * Every other kind is refused, whatever its spelling: code (`*.js`, `*.mts`,
- * `*.node`, `*.wasm`, `*.sh`), active documents (`*.html`, `*.svg`), and
- * configuration a tool reads by itself (`package.json`, `.npmrc`, a hook).
- * Code ships from the source tree, where the import walk judges it. Kinds
+ * THE ONLY KINDS AN OVERLAY MAY HOLD, a fixed allowlist: documents and the
+ * images named here. Every other kind is refused, whatever its spelling: code
+ * (`*.js`, `*.mts`, `*.node`, `*.wasm`, `*.sh`), a build recipe (`Makefile`:
+ * the `makefile` transform derives the target's from the source's, so it has
+ * one source), active documents (`*.html`, `*.svg`), and configuration a tool
+ * reads by itself (`package.json`, `.npmrc`, a hook). Code ships from the
+ * source tree, where the import walk judges it. Kinds
  * and file names are compared without case, so no spelling of a refused kind
  * passes as another.
  */
-export const OVERLAY_KINDS = Object.freeze(["*.md", "*.txt", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "makefile"] as const);
+export const OVERLAY_KINDS = Object.freeze(["*.md", "*.txt", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp"] as const);
 
-/** Does the file `basename` belong to the overlay kind `kind` (compared without case)? */
+/** Does the file `basename` belong to the overlay kind `kind` (`*.<extension>`, compared without case)? */
 export function isOfOverlayKind(basename: string, kind: string): boolean {
   const name = basename.toLowerCase();
-  const wanted = kind.toLowerCase();
-  return wanted.startsWith("*.") ? name.endsWith(wanted.slice(1)) && name.length > wanted.length - 1 : name === wanted;
+  const extension = kind.toLowerCase().slice(1);
+  return name.endsWith(extension) && name.length > extension.length;
 }
 
 export function branchOf(ref: string): string {
@@ -181,6 +183,12 @@ function profileViolations(
     if (transform.kind === "lockfile" && !context.commandNames.has(transform.command)) {
       violations.push([`/transforms/${String(index)}/command`, `${transform.command} is not a command of the registry (workspaceIsolation.commands)`]);
     }
+    if (transform.kind === "makefile" && transform.path.slice(transform.path.lastIndexOf("/") + 1) !== "Makefile") {
+      violations.push([`/transforms/${String(index)}/path`, `${transform.path} is not a Makefile: the makefile transform derives a file named Makefile`]);
+    }
+    if (transform.kind === "makefile") {
+      for (const duplicate of duplicates(transform.targets)) violations.push([`/transforms/${String(index)}/targets`, `${duplicate} is listed twice`]);
+    }
   });
   for (const phase of ["setup", "converge", "verify"] as const) {
     profile.phases[phase].forEach((name, index) => {
@@ -212,7 +220,8 @@ export function profileTreeViolations(profile: PromotionProfile, present: Readon
  * name that is not the file's basename, the same ref twice, a ref git refuses,
  * a profile directory the boundary does not exclude, a path both excluded and
  * included (or derived), an overlay folder the boundary does not exclude or
- * that overlaps the profile directory, an overlay kind off the fixed allowlist, a duplicate, two transforms of one path, a lockfile
+ * that overlaps the profile directory, an overlay kind off the fixed allowlist, a duplicate, two transforms of one path, a makefile
+ * transform of a file not named Makefile, a lockfile
  * whose manifest no transform derives, a command the registry does not
  * declare.
  */

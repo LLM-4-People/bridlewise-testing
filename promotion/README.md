@@ -9,7 +9,7 @@ source, and every promotion commit names the exact profile blob it used.
 
 ## What a profile declares
 
-- `schema` — `bridlewise-promotion-profile/v3` (v2 added `boundary.overlay`; v3 made it `{ folder, kinds }`: an engine that reads an older version refuses a newer profile by its version, never by an unknown key).
+- `schema` — `bridlewise-promotion-profile/v4` (v2 added `boundary.overlay`; v3 made it `{ folder, kinds }`; v4 added the `makefile` transform: an engine that reads an older version refuses a newer profile by its version, never by an unknown key).
 - `name` — the file's basename.
 - `source.ref`, `target.ref` — full branch refs; `remote` — where both are
   published (`null`: local only); `trigger` — `manual`, or
@@ -35,10 +35,11 @@ source, and every promotion commit names the exact profile blob it used.
     (`product-only/README.md` is the product's `README.md`). `kinds` is what
     the folder may hold, each one of the engine's FIXED allowlist
     (`OVERLAY_KINDS`: `*.md`, `*.txt`, `*.png`, `*.jpg`, `*.jpeg`, `*.gif`,
-    `*.webp`, `Makefile`), compared without case. Every other kind is
-    refused in any spelling: code, active documents (`*.html`, `*.svg`) and
-    configuration a tool reads (`package.json`, `.npmrc`, a hook) ship from
-    the source tree, where the import walk judges them. The folder must be excluded; an
+    `*.webp`), compared without case. Every other kind is refused in any
+    spelling: code, a build recipe (the `makefile` transform derives it),
+    active documents (`*.html`, `*.svg`) and configuration a tool reads
+    (`package.json`, `.npmrc`, a hook) ship from the source tree, where the
+    import walk judges them. The folder must be excluded; an
     overlay file of an undeclared kind, a link, a file whose shipped path the
     profile excludes, or one naming a path the projection already carries is
     `promotion_overlay_invalid`. Write its links as absolute URLs, since
@@ -48,7 +49,11 @@ source, and every promotion commit names the exact profile blob it used.
   `package-manifest` keeps the listed `scripts` (each must exist on the source;
   segments that run a dropped script or name a path that does not ship are
   pruned) and the devDependencies the shipped files use; a `lockfile`
-  re-resolves the source lockfile against it with a registry command.
+  re-resolves the source lockfile against it with a registry command; a
+  `makefile` keeps the listed `targets` of the source Makefile (each kept rule
+  crosses verbatim, `.PHONY` names only the kept ones; a missing target, a
+  kept rule needing a dropped one, or a line outside its small grammar is
+  refused), so the target's recipe has one source.
 - `phases` — the registry commands a promotion runs in its candidate
   (`setup`, then `converge` repeated until a pass changes nothing — what it
   changes must be generated outputs —, then `verify`, which must change

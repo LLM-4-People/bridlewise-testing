@@ -1,13 +1,13 @@
 /**
- * THE DERIVED FILES (merge-door-final §6.2, T-X1..T-X4): the manifest
- * derivation's every rule, driven pure, and the lockfile derivation through
+ * THE DERIVED FILES (merge-door-final §6.2, T-X1..T-X4): the manifest and
+ * Makefile derivations' every rule, driven pure, and the lockfile derivation through
  * the ONE command runner over a real repository (an errored run is retried,
  * then refused as the machine's; a failed one is the change's).
  */
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { deriveManifest, type ManifestContext } from "../../../src/workflow/promotion/transforms.ts";
+import { deriveMakefile, deriveManifest, type ManifestContext } from "../../../src/workflow/promotion/transforms.ts";
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
 import { SOURCE, SOURCE_LOCK, SOURCE_MANIFEST, json, promotionFixture } from "./promotion-fixture.ts";
 
@@ -71,6 +71,93 @@ test("T-X3: an emptied script, shell syntax other than &&, and two real owners o
     () => deriveManifest(json({ ...SOURCE_MANIFEST, devDependencies: { ...SOURCE_MANIFEST.devDependencies, "vite-fork": "^1.0.0" } }), ["build"], context({ lockPackages: lock })),
     (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_manifest_bin_ambiguous" && JSON.stringify(error.facts["owners"]) === JSON.stringify(["vite", "vite-fork"]),
   );
+});
+
+/** The source repository's own Makefile, as `main` holds it (the product keeps the rules a product checkout can run). */
+const MAIN_MAKEFILE = [
+  ".PHONY: install typecheck public-test test check dev clean",
+  "",
+  "install:", "\tnpm ci", "\tnpm --prefix engine ci", "\tnpm run bootstrap:hooks", "\tchmod 600 engine/bridlewise.config.json",
+  "",
+  "typecheck:", "\tnpm run typecheck", "\tnpm --prefix engine run typecheck",
+  "",
+  "public-test:", "\tnpm run test:public",
+  "",
+  "test: public-test",
+  "",
+  "check: typecheck public-test", "\tnpm run check:secrets",
+  "",
+  "# the local servers",
+  "dev:", "\tnode scripts/sd.mjs start",
+  "",
+  "clean:", "\trm -rf dist engine/dist",
+  "",
+].join("\n");
+
+test("the makefile transform keeps the listed rules verbatim, in source order, and narrows .PHONY to them", () => {
+  const derived = deriveMakefile(MAIN_MAKEFILE, ["clean", "install", "typecheck", "dev"], "Makefile");
+  assert.equal(derived.text, [
+    ".PHONY: install typecheck dev clean",
+    "",
+    "install:", "\tnpm ci", "\tnpm --prefix engine ci", "\tnpm run bootstrap:hooks", "\tchmod 600 engine/bridlewise.config.json",
+    "",
+    "typecheck:", "\tnpm run typecheck", "\tnpm --prefix engine run typecheck",
+    "",
+    "# the local servers",
+    "dev:", "\tnode scripts/sd.mjs start",
+    "",
+    "clean:", "\trm -rf dist engine/dist",
+    "",
+  ].join("\n"), "a kept rule's comment, header and recipe cross as they are");
+  assert.deepEqual(derived.explanation, { path: "Makefile", keptTargets: ["install", "typecheck", "dev", "clean"], droppedTargets: ["public-test", "test", "check"] });
+  assert.equal(deriveMakefile(MAIN_MAKEFILE, ["install", "typecheck", "public-test", "test", "check", "dev", "clean"], "Makefile").text, MAIN_MAKEFILE, "keeping every rule is the source itself");
+  assert.equal(deriveMakefile("# recipes\n.PHONY: a b\n\na:\n\techo a\n\nb: a\n\techo b\n", ["a"], "Makefile").text, "# recipes\n.PHONY: a\n\na:\n\techo a\n", "a comment above .PHONY stays with it");
+  assert.equal(deriveMakefile("a: dist/out.txt\n\techo a\n", ["a"], "Makefile").text, "a: dist/out.txt\n\techo a\n", "a prerequisite that is a file, not a rule, crosses");
+});
+
+test("the makefile transform refuses by code: a missing target, a kept rule needing a dropped one, and every line outside its grammar", () => {
+  const refused = (text: string, keep: readonly string[]): PromotionError => {
+    try {
+      deriveMakefile(text, keep, "Makefile");
+    } catch (error) {
+      assert.ok(error instanceof PromotionError, String(error));
+      return error;
+    }
+    assert.fail("the derivation did not refuse");
+  };
+  const missing = refused(MAIN_MAKEFILE, ["install", "instal"]);
+  assert.equal(missing.promotionCode, "promotion_makefile_target_missing");
+  assert.deepEqual(missing.facts["targets"], ["instal"]);
+  for (const [keep, target, prerequisites] of [[["test"], "test", ["public-test"]], [["typecheck", "check"], "check", ["public-test"]], [["check"], "check", ["typecheck", "public-test"]]] as const) {
+    const dropped = refused(MAIN_MAKEFILE, keep);
+    assert.equal(dropped.promotionCode, "promotion_makefile_prerequisite_dropped", JSON.stringify(keep));
+    assert.deepEqual([dropped.facts["target"], dropped.facts["prerequisites"]], [target, prerequisites], JSON.stringify(keep));
+  }
+  const outside: readonly (readonly [string, number])[] = [
+    ["X = 1\na:\n\techo $(X)\n", 1],
+    ["X := 1\na:\n\techo a\n", 1],
+    ["a:\n\techo a\nifeq ($(X),1)\nendif\n", 3],
+    ["include other.mk\na:\n\techo a\n", 1],
+    ["%.o: %.c\n\tcc $<\n", 1],
+    ["a b:\n\techo a\n", 1],
+    ["a::\n\techo a\n", 1],
+    ["a:\n\techo a \\\n\t  more\n", 2],
+    ["\techo orphan\na:\n\techo a\n", 1],
+    ["a:\n    echo spaces\n", 2],
+    ["a:\n\techo a\n\n\techo after a blank line\n", 4],
+    [".PHONY: a\n.PHONY: b\na:\n\techo a\n", 2],
+    ["a:\n\techo a\n.PHONY: a\n", 3],
+    ["a:\n\techo a\n\na:\n\techo again\n", 4],
+    ["# a comment\n\na:\n\techo a\n", 2],
+    ["a:\n\techo a\n# a comment that ends the file\n", 4],
+    ["a: ; echo a\n", 1],
+    ["a:\r\n\techo a\r\n", 1],
+  ];
+  for (const [text, line] of outside) {
+    const error = refused(text, ["a"]);
+    assert.equal(error.promotionCode, "promotion_makefile_unparseable", JSON.stringify(text));
+    assert.equal(error.facts["line"], line, JSON.stringify(text));
+  }
 });
 
 test("PC-4: the command a kept segment runs is found behind environment assignments and an npx / npm exec launcher", () => {

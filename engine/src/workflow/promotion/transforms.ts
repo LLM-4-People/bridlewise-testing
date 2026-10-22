@@ -10,6 +10,11 @@
  *   projected module the manifest owns, named in a projected tsconfig's
  *   `types` (`@types/<x>`), or providing the command a kept segment runs.
  *   `dependencies` cross verbatim. Pure.
+ * - `makefile` — the source Makefile narrowed to the profile's `targets`:
+ *   each kept rule (its comments, header and recipe) crosses verbatim, every
+ *   other rule is dropped, and `.PHONY` names only the kept targets. A kept
+ *   rule whose prerequisite is dropped is refused, never emptied, and so is
+ *   any line outside the small grammar it judges. Pure.
  * - `lockfile` — the source lockfile re-resolved against the derived
  *   manifest by the registry command the transform names (npm's
  *   `--package-lock-only`), run in a private scratch directory of its own
@@ -178,6 +183,93 @@ export function deriveManifest(sourceText: string, keepScripts: readonly string[
       keptDevDependencies,
       droppedDevDependencies: Object.keys(devDependencies).filter((name) => !keptDev.has(name)),
     },
+  });
+}
+
+/** Which rules a derived Makefile kept and dropped (rendered by `plan`, digested into the receipt). */
+export type MakefileExplanation = Readonly<{ path: string; keptTargets: readonly string[]; droppedTargets: readonly string[] }>;
+
+export type DerivedMakefile = Readonly<{ text: string; explanation: MakefileExplanation }>;
+
+/** A rule header: one target, `:`, its prerequisites (rules, or repository files). */
+const MAKE_RULE = /^([A-Za-z0-9][A-Za-z0-9._-]*):(?!=)((?:[ \t]+[A-Za-z0-9][A-Za-z0-9._/-]*)*)[ \t]*$/u;
+const MAKE_PHONY = /^\.PHONY:((?:[ \t]+[A-Za-z0-9][A-Za-z0-9._-]*)*)[ \t]*$/u;
+
+type MakeRule = { target: string; prerequisites: readonly string[]; lines: string[] };
+
+/**
+ * The derived Makefile (see the header). The grammar it judges, line by line:
+ * a blank line, a `#` comment (it belongs to the `.PHONY` line or rule after
+ * it), one `.PHONY:`
+ * line, a rule header `<target>:[ <prerequisite>…]`, and tab-indented recipe
+ * lines under a header. Anything else (a variable, a conditional, an include,
+ * a pattern or multi-target rule, a continued line) is
+ * `promotion_makefile_unparseable`: what a rule means there cannot be judged
+ * line by line. A kept target the source does not declare is
+ * `promotion_makefile_target_missing`; a kept rule naming a dropped
+ * prerequisite is `promotion_makefile_prerequisite_dropped`.
+ */
+export function deriveMakefile(sourceText: string, keepTargets: readonly string[], path: string): DerivedMakefile {
+  const unparseable = (line: number, text: string, why: string): PromotionError =>
+    new PromotionError("promotion_makefile_unparseable", `${path}:${String(line)} ${why}: ${text}`, { makefile: path, line, text });
+  const rules: MakeRule[] = [];
+  let phony: readonly string[] | null = null;
+  let phonyComments: readonly string[] = [];
+  let comments: string[] = [];
+  let open: MakeRule | null = null;
+  sourceText.replace(/\n$/u, "").split("\n").forEach((text, index) => {
+    const line = index + 1;
+    if (text.endsWith("\\")) throw unparseable(line, text, "continues onto the next line");
+    if (text.startsWith("\t")) {
+      if (open === null || comments.length > 0) throw unparseable(line, text, "is a recipe line under no rule");
+      open.lines.push(text);
+      return;
+    }
+    if (text.trim() === "") {
+      if (comments.length > 0) throw unparseable(line, text, "separates a comment from the rule it belongs to");
+      open = null;
+      return;
+    }
+    if (text.startsWith("#")) {
+      comments.push(text);
+      return;
+    }
+    const phonyMatch = MAKE_PHONY.exec(text);
+    if (phonyMatch !== null) {
+      if (phony !== null || rules.length > 0) throw unparseable(line, text, "is a second .PHONY line, or one after the first rule");
+      phony = phonyMatch[1]!.trim().split(/\s+/u).filter((name) => name !== "");
+      phonyComments = comments;
+      comments = [];
+      open = null;
+      return;
+    }
+    const rule = MAKE_RULE.exec(text);
+    if (rule === null) throw unparseable(line, text, "is not a blank line, a comment, the .PHONY line, a single-target rule or a tab-indented recipe line");
+    if (rules.some((existing) => existing.target === rule[1])) throw unparseable(line, text, `declares ${rule[1]!} a second time`);
+    open = { target: rule[1]!, prerequisites: rule[2]!.trim().split(/\s+/u).filter((name) => name !== ""), lines: [...comments, text] };
+    comments = [];
+    rules.push(open);
+  });
+  if (comments.length > 0) throw unparseable(sourceText.split("\n").length, comments.at(-1)!, "is a comment that ends the file, with no rule after it");
+  const declared = new Set(rules.map((rule) => rule.target));
+  const missing = keepTargets.filter((target) => !declared.has(target));
+  if (missing.length > 0) {
+    throw new PromotionError("promotion_makefile_target_missing", `${path} declares no target ${missing.join(", ")}, which the profile keeps`, { makefile: path, targets: missing });
+  }
+  const kept = new Set(keepTargets);
+  for (const rule of rules.filter((candidate) => kept.has(candidate.target))) {
+    const dropped = rule.prerequisites.filter((prerequisite) => declared.has(prerequisite) && !kept.has(prerequisite));
+    if (dropped.length > 0) {
+      throw new PromotionError("promotion_makefile_prerequisite_dropped", `${path} keeps ${rule.target}, whose prerequisite ${dropped.join(", ")} the profile drops: the rule would no longer do what it says`, { makefile: path, target: rule.target, prerequisites: dropped });
+    }
+  }
+  const keptRules = rules.filter((rule) => kept.has(rule.target));
+  const keptPhony = (phony ?? []).filter((name) => kept.has(name));
+  const header = [...phonyComments, ...(keptPhony.length === 0 ? [] : [`.PHONY: ${keptPhony.join(" ")}`])];
+  const blocks = [...(header.length === 0 ? [] : [header.join("\n")]), ...keptRules.map((rule) => rule.lines.join("\n"))];
+  return deepFreeze({
+    text: `${blocks.join("\n\n")}\n`,
+    explanation: { path, keptTargets: keptRules.map((rule) => rule.target), droppedTargets: rules.filter((rule) => !kept.has(rule.target)).map((rule) => rule.target) },
   });
 }
 
