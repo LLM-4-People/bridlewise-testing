@@ -21,10 +21,10 @@ The performance domain: the metrics collectors, budgets, and the profiling that 
 
 The folder lives at `engine/src/performance/`.
 
-- `benchmark-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
+- `benchmark-cli.ts` is consumed by `engine/src/workflow/commands/benchmark.ts`.
 - `benchmark-runner.ts` is consumed by `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/index.ts`.
 - `configured-performance.ts` is consumed by `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/workflow/harness-commands.ts`, `server/kernel/canonical.ts`.
-- `diagnostic-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
+- `diagnostic-cli.ts` is consumed by `engine/src/workflow/commands/diagnostic.ts`.
 - `diagnostic-modes.ts` is consumed by `engine/src/performance/diagnostic-cli.ts`, `engine/src/performance/index.ts`.
 - `engine-instrumentation.ts` is consumed by `server/kernel/canonical.ts`.
 - `function-manifest.ts` is consumed by `engine/src/performance/index.ts`.

@@ -6,6 +6,7 @@ import { HarnessError, InputError } from "../kernel/errors.ts";
 import { canonicalJson, deepFreeze, sha256 } from "../kernel/integrity.ts";
 import { schemaId } from "../kernel/product-identity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
+import { COMMAND_REGISTRY_PATH } from "../../scripts/verification/command-registry.ts";
 import { REQUIREMENTS_REGISTRY_IDENTITY_HASH, REQUIREMENTS_REGISTRY_SOURCE_PATH } from "../kernel/requirements.ts";
 import { FORENSIC_SCHEMA_BUNDLE_HASH } from "../forensics/forensic-contracts.ts";
 import { S3_OFFLINE_FORENSIC_HASH } from "../forensics/offline-forensics.ts";
@@ -424,6 +425,8 @@ export function suiteRegeneratedPaths(): ReadonlySet<string> {
   ]);
 }
 
+/** The verb registry, repository-relative: generated from the verb modules of `src/workflow/commands/` (`command-registry.ts`). */
+const GENERATED_COMMAND_REGISTRY = `engine/${COMMAND_REGISTRY_PATH}`;
 /** The architecture manifest, repository-relative: the registrar rewrites it wholesale; it carries no pin. */
 const GENERATED_ARCHITECTURE_MANIFEST = `engine/${ROOT_POLICY.universalPolicyArchitecture.moduleArchitecture.manifest}`;
 /** The config-contract schema artifact, repository-relative: one canonical-JSON blob of the contract. */
@@ -448,6 +451,7 @@ const GENERATED_ARTIFACT_MANIFEST = `engine/${ROOT_POLICY.artifactGovernance.can
  */
 export function wholesaleGeneratedPaths(): ReadonlySet<string> {
   return new Set([
+    GENERATED_COMMAND_REGISTRY,
     GENERATED_ARCHITECTURE_MANIFEST,
     GENERATED_CONFIG_SCHEMA_ARTIFACT,
     GENERATED_SPEC_SCHEMA_ARTIFACT,

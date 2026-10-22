@@ -27,7 +27,9 @@ import {
   type BindingRepairReport,
 } from "./hash-binding-registry.ts";
 import { configuredLockOptions, lockedResources, withLock, type AcquireLockOptions } from "./resource-lock.ts";
-import { harnessFormat } from "./format-command.ts";
+import { HARNESS_COMMANDS } from "./harness-verbs.ts";
+import { COMMAND_REGISTRY_PATH, type CommandRegistryReport } from "../../scripts/verification/command-registry.ts";
+import { unknownFlag } from "./harness-command.ts";
 import { createMetricsCollector, type MetricsSnapshot } from "../performance/metrics-collector.ts";
 import { configuredPerformanceConfig } from "../performance/configured-performance.ts";
 import { createTimelineStore } from "../timeline/timeline-store.ts";
@@ -150,6 +152,8 @@ export type HarnessCheckOutput = Readonly<{
   artifactManifest: CheckStepResult;
   /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
   communityFiles: CheckStepResult;
+  /** Is the verb registry (`harness-verbs.ts`) its generator's output of the verb modules (scripts/verification/command-registry.ts)? */
+  commandRegistry: CheckStepResult;
   /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
   bundle: CheckStepResult;
   allPassed: boolean;
@@ -259,6 +263,8 @@ export type HarnessRegenerateOutput = Readonly<{
    * (src/workflow/community/health-files.ts), never edited by hand.
    */
   communityFiles: CommunityFilesArm;
+  /** The verb registry (`src/workflow/harness-verbs.ts`), from the verb modules of `src/workflow/commands/`. */
+  commandRegistry: CommandRegistryReport;
   /**
    * The guardian spec-schema artifact, rebuilt from the live Zod schema
    * (`scripts/verification/guardian-spec-artifact.ts`) BEFORE the binding
@@ -553,6 +559,9 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the bundle against a rebuild of the source...");
   steps.push(bundleFreshnessStep(root));
 
+  emitProgress(onProgress, "Checking the verb registry...");
+  steps.push(commandRegistryStep(runCommandRegistry(root, false)));
+
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
     typecheck: steps[0]!,
@@ -579,6 +588,7 @@ export async function harnessCheck(
     artifactManifest: steps[21]!,
     communityFiles: steps[22]!,
     bundle: steps[23]!,
+    commandRegistry: steps[24]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -652,7 +662,7 @@ const DELETIONS_VERBS = deepFreeze(["declare", "status", "clear"] as const);
  * (src/workflow/record-links.ts `acceptFrozenRecords`), with its reason in the
  * manifest. `harness sync` never does.
  */
-function harnessFrozen(root: string, argv: readonly string[]): HarnessCommandResult {
+export function harnessFrozen(root: string, argv: readonly string[]): HarnessCommandResult {
   const [verb, ...rest] = argv;
   if (verb !== "accept") throw new InputError(`unknown frozen subcommand: ${verb ?? "(none)"} (supported: accept)`, "command_unavailable");
   const reasonAt = rest.indexOf("--reason");
@@ -968,11 +978,13 @@ export function harnessRegenerate(
   const frozenRecords = syncFrozenRecords(trackedTop(root), write);
   // The community health files and forms, from their sources (before the inventory digests them).
   const communityFiles = regenerateCommunityFiles(root, write);
+  // The verb registry: every module of src/workflow/commands/, imported, judged and listed.
+  const commandRegistry = runCommandRegistry(root, write);
   // The canonical artifact inventory, LAST: every governed file the arms above
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, commandRegistry, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -988,7 +1000,7 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && (commandRegistry.allCurrent || commandRegistry.status === "written") &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1257,6 +1269,29 @@ export function evidenceIgnoreStep(evidenceIgnore: DecisionIndexArm): CheckStepR
       ? `the ignore file's evidence block matches the tracked evidence manifests${evidenceIgnore.status === "absent" ? " (this tree has no ignore file)" : ""}`
       : `the ignore file's evidence block is stale against the tracked evidence manifests (run harness sync): ${evidenceIgnore.changed.join(", ")}`,
     details: evidenceIgnore,
+  });
+}
+
+/** `harness check`'s verb-registry step: a registry that is not its generator's output of the verb files FAILS the check. */
+/**
+ * The verb-registry arm, as a subprocess (`scripts/verification/command-registry.ts`):
+ * it imports every verb module to judge the value it exports, which is
+ * asynchronous, and a module that exports no HarnessCommand is its typed
+ * refusal, passed through.
+ */
+function runCommandRegistry(root: string, write: boolean): CommandRegistryReport {
+  const report = generatorReport<CommandRegistryReport["status"]>(root, "scripts/verification/command-registry.ts", [write ? "--write" : "--check"], "the verb registry", "command_registry_no_result");
+  return deepFreeze({ allCurrent: report.allCurrent, status: report.status, changed: report.changed, verbs: Array.isArray(report.verbs) ? report.verbs.map(String) : [] });
+}
+
+function commandRegistryStep(commandRegistry: CommandRegistryReport): CheckStepResult {
+  return deepFreeze({
+    step: "command-registry",
+    status: commandRegistry.allCurrent ? "pass" : "fail",
+    message: commandRegistry.allCurrent
+      ? `the verb registry lists exactly the ${String(commandRegistry.verbs.length)} verb modules of src/workflow/commands/ (${COMMAND_REGISTRY_PATH})`
+      : `the verb registry is stale against the verb files (run harness sync): ${commandRegistry.changed.join(", ")}`,
+    details: commandRegistry,
   });
 }
 
@@ -2073,13 +2108,10 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 `;
 }
 
-export const HARNESS_SUBCOMMANDS = deepFreeze([
-  "check", "test", "register", "regenerate", "sync", "new-module", "eval",
-  "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge",
-] as const);
+/** Every harness verb, derived from the verb modules (`harness-verbs.ts`, generated): no hand-kept list (#221). */
+export const HARNESS_SUBCOMMANDS: readonly string[] = deepFreeze(HARNESS_COMMANDS.map((command) => command.verb));
 
-export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
+export type HarnessSubcommand = string;
 
 /**
  * Actionable error report emitted on stderr when a harness subcommand fails.
@@ -2185,157 +2217,16 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
   try {
     // Every verb's answer: its envelope, and (a verb that maps its own exit
     // code, or has its own report) the code and the report.
-    let answer: CommandAnswer;
-    if (subcommand === "check") {
-      answer = { result: await harnessCheck(root, { ...parseCheckOptions(rest), onProgress }) };
-    } else if (subcommand === "test") {
-      answer = { result: await harnessTest(root, { ...parseTestOptions(rest), onProgress }) };
-    } else if (subcommand === "register") {
-      answer = { result: harnessRegister(root, parseRegisterOptions(rest)) };
-    } else if (subcommand === "regenerate") {
-      const { prune } = parsePruneOptions("regenerate", rest, false);
-      answer = { result: harnessRegenerate(root, { write: true, prune }) };
-    } else if (subcommand === "sync") {
-      const { prune, withBundle } = parsePruneOptions("sync", rest, true);
-      answer = { result: await harnessSync(root, { withBundle, prune, onProgress }) };
-    } else if (subcommand === "new-module") {
-      if (rest.length === 0) throw new InputError("new-module requires a module path", "input_error");
-      if (rest.length > 1) throw new InputError("new-module accepts exactly one module path", "input_error");
-      answer = { result: harnessNewModule(root, rest[0]!) };
-    } else if (subcommand === "eval") {
-      const { runEvalCli } = await import("../evaluation/cli.ts");
-      answer = await runEvalCli(rest, onProgress);
-    } else if (subcommand === "benchmark") {
-      const { runBenchmarkCli } = await import("../performance/benchmark-cli.ts");
-      answer = await runBenchmarkCli(rest);
-    } else if (subcommand === "diagnostic") {
-      const { runDiagnosticCli } = await import("../performance/diagnostic-cli.ts");
-      answer = runDiagnosticCli(rest);
-    } else if (subcommand === "slot") {
-      const { runSlotCli } = await import("./slot-cli.ts");
-      answer = await runSlotCli(rest);
-    } else if (subcommand === "forge") {
-      // GitHub, the one forge (src/workflow/forge/): its own answers and codes.
-      const { runForgeCli } = await import("./forge/cli.ts");
-      answer = await runForgeCli(root, rest, onProgress);
-    } else if (subcommand === "flake") {
-      const { runFlakeCli } = await import("./flake-cli.ts");
-      answer = await runFlakeCli(rest);
-    } else if (subcommand === "workspace") {
-      const { runWorkspaceCli } = await import("./workspace-cli.ts");
-      answer = { result: await runWorkspaceCli(root, rest) };
-    } else if (subcommand === "promote") {
-      // Exit code: the class of the answer's code (src/workflow/promotion/codes.ts); its own report.
-      const { runPromoteCli } = await import("./promotion/promote-cli.ts");
-      answer = await runPromoteCli(root, rest);
-    } else if (subcommand === "release") {
-      // The product's release train (src/workflow/promotion/release-cli.ts): the promotion envelope and exit codes.
-      const { runReleaseCli } = await import("./promotion/release-cli.ts");
-      answer = await runReleaseCli(root, rest);
-    } else if (subcommand === "format") {
-      const write = !rest.includes("--check");
-      const unknown = rest.filter((a) => a !== "--check");
-      if (unknown.length > 0) throw unknownFlag("format", unknown[0]!, ["--check"]);
-      const formatResult = harnessFormat(root, { write });
-      const output: HarnessFormatOutput = deepFreeze({
-        scanned: formatResult.scanned,
-        fixed: formatResult.fixed,
-        write: formatResult.write,
-        changedFiles: formatResult.results.filter((r) => r.changed).map((r) => r.path),
-      });
-      // `--check` is a gate (the workspace's validate phase runs it): a file
-      // the fixer WOULD change is a failure, not a report.
-      answer = { result: wrapResult("format", output, { status: !write && output.changedFiles.length > 0 ? "fail" : "pass" }) };
-    } else if (subcommand === "index") {
-      answer = { result: harnessIndex(root, rest) };
-    } else if (subcommand === "deletions") {
-      answer = { result: harnessDeletions(root, rest) };
-    } else if (subcommand === "frozen") {
-      answer = { result: harnessFrozen(root, rest) };
-    } else if (subcommand === "evidence") {
-      answer = { result: harnessEvidence(root, rest) };
-    } else if (subcommand === "timeline") {
-      answer = { result: await harnessTimeline(root, parseTimelineOptions(rest)) };
-    } else if (subcommand === "metrics") {
-      if (rest.length > 0) throw unknownFlag("metrics", rest[0]!, []);
-      answer = { result: harnessMetrics(root) };
-    } else if (subcommand === "rollback") {
-      answer = { result: harnessRollback(root, parseRollbackOptions(rest)) };
-    } else if (subcommand === "extension") {
-      const extensionSub = rest[0];
-      if (extensionSub === "list") {
-        if (rest.length > 1) throw unknownFlag("extension list", rest[1]!, []);
-        answer = { result: harnessExtensionList() };
-      } else {
-        throw new InputError(
-          `unknown extension subcommand: ${extensionSub ?? "(none)"} (supported: list)`,
-          "command_unavailable",
-        );
-      }
-    } else {
-      throw new InputError(`unhandled harness subcommand: ${subcommand}`, "command_unavailable");
-    }
+    // The verb's own file (src/workflow/commands/<verb>.ts), found in the generated registry: no dispatch chain.
+    const command = HARNESS_COMMANDS.find((candidate) => candidate.verb === subcommand);
+    if (command === undefined) throw new InputError(`unhandled harness subcommand: ${subcommand}`, "command_unavailable");
+    const answer: CommandAnswer = await command.run({ root, rest, onProgress });
     process.stdout.write(renderCommandAnswer(answer, format));
     return commandExitCode(answer);
   } catch (error) {
     writeCommandError(format, wrapCommandError("harness", subcommand, error));
     return 1;
   }
-}
-
-function parseCheckOptions(argv: readonly string[]): HarnessCheckOptions {
-  const options: { skipTypecheck?: boolean; skipArchitecture?: boolean; skipInventory?: boolean } = {};
-  for (const arg of argv) {
-    if (arg === "--skip-typecheck") options.skipTypecheck = true;
-    else if (arg === "--skip-architecture") options.skipArchitecture = true;
-    else if (arg === "--skip-inventory") options.skipInventory = true;
-    else throw unknownFlag("check", arg, ["--skip-typecheck", "--skip-architecture", "--skip-inventory"]);
-  }
-  return deepFreeze(options);
-}
-
-/** `[--with-bundle] [--prune <test path>]…` for `sync`; the same without `--with-bundle` for `regenerate`. */
-function parsePruneOptions(subcommand: string, argv: readonly string[], bundleFlag: boolean): Readonly<{ prune: readonly string[]; withBundle: boolean }> {
-  const prune: string[] = [];
-  let withBundle = false;
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]!;
-    if (arg === "--prune" && index + 1 < argv.length) prune.push(argv[++index]!);
-    else if (arg === "--with-bundle" && bundleFlag) withBundle = true;
-    else throw unknownFlag(subcommand, arg, [...(bundleFlag ? ["--with-bundle"] : []), "--prune <test path>"]);
-  }
-  return { prune, withBundle };
-}
-
-function unknownFlag(subcommand: string, flag: string, supported: readonly string[]): InputError {
-  const supportedText = supported.length === 0 ? "no flags supported" : `supported: ${supported.join(", ")}`;
-  return new InputError(`unknown ${subcommand} flag: ${flag} (${supportedText})`, "unknown_flag");
-}
-
-function parseTestOptions(argv: readonly string[]): HarnessTestOptions {
-  const options: { file?: string; all?: boolean; writeResults?: boolean } = {};
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]!;
-    if (arg === "--file" && index + 1 < argv.length) {
-      const fileArg = argv[index + 1];
-      if (fileArg !== undefined) options.file = fileArg;
-      index += 1;
-    } else if (arg === "--all") {
-      options.all = true;
-    } else if (arg === "--no-write") {
-      options.writeResults = false;
-    } else {
-      throw unknownFlag("test", arg, ["--file", "--all", "--no-write"]);
-    }
-  }
-  return deepFreeze(options);
-}
-
-function parseRegisterOptions(argv: readonly string[]): Readonly<{ write: boolean }> {
-  for (const arg of argv) {
-    if (arg !== "--write") throw unknownFlag("register", arg, ["--write"]);
-  }
-  return deepFreeze({ write: argv.includes("--write") });
 }
 
 function emitProgress(onProgress: ((message: string) => void) | undefined, message: string): void {
@@ -2374,7 +2265,7 @@ export type HarnessTimelineOutput = Readonly<{
  * (event_id, sequence, event_type, wall_time, run_id, description) are the
  * foundational columns present since the genesis migration.
  */
-async function harnessTimeline(
+export async function harnessTimeline(
   root: string,
   options: HarnessTimelineOptions,
 ): Promise<HarnessCommandResult<HarnessTimelineOutput>> {
@@ -2422,36 +2313,6 @@ async function harnessTimeline(
   } finally {
     db.close();
   }
-}
-
-function parseTimelineOptions(argv: readonly string[]): HarnessTimelineOptions {
-  let runId: string | undefined;
-  let limit: number | undefined;
-  let eventType: string | undefined;
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === undefined) continue;
-    if (arg === "--run-id" && index + 1 < argv.length) {
-      runId = argv[index + 1];
-      index += 1;
-    } else if (arg === "--limit" && index + 1 < argv.length) {
-      const parsed = Number(argv[index + 1]);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        limit = Math.floor(parsed);
-      }
-      index += 1;
-    } else if (arg === "--event-type" && index + 1 < argv.length) {
-      eventType = argv[index + 1];
-      index += 1;
-    } else {
-      throw unknownFlag("timeline", arg, ["--run-id", "--limit", "--event-type"]);
-    }
-  }
-  const options: { runId?: string; limit?: number; eventType?: string } = {};
-  if (runId !== undefined) options.runId = runId;
-  if (limit !== undefined) options.limit = limit;
-  if (eventType !== undefined) options.eventType = eventType;
-  return deepFreeze(options);
 }
 
 // ---------------------------------------------------------------------------
@@ -2641,22 +2502,6 @@ export function harnessRollback(
   } finally {
     db.close();
   }
-}
-
-function parseRollbackOptions(argv: readonly string[]): HarnessRollbackOptions {
-  let effectId: string | undefined;
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === undefined) continue;
-    if (arg === "--effect-id" && index + 1 < argv.length) {
-      effectId = argv[index + 1];
-      index += 1;
-    } else {
-      throw unknownFlag("rollback", arg, ["--effect-id"]);
-    }
-  }
-  if (effectId === undefined) return deepFreeze({});
-  return deepFreeze({ effectId });
 }
 
 // ---------------------------------------------------------------------------

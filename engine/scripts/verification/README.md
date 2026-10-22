@@ -80,6 +80,7 @@ The folder lives at `engine/scripts/verification/`.
 - `authority-graph.ts` is consumed by nothing yet.
 - `candidate-format.ts` is consumed by `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/repository-git.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-execution.ts`, `engine/scripts/tooling/verification/artifact-admission.ts`, `engine/scripts/tooling/verification/rejected-binary-fixture.ts` and 1 more.
 - `catch-blocks.ts` is consumed by `engine/scripts/verification/ratchet-baselines.ts`.
+- `command-registry.ts` is consumed by `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/hash-binding-registry.ts`.
 - `consumer-plants.ts` is consumed by nothing yet.
 - `corpus.ts` is consumed by nothing yet.
 - `decision-index.ts` is consumed by nothing yet.

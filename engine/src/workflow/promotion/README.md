@@ -48,12 +48,12 @@ The folder lives at `engine/src/workflow/promotion/`.
 - `profile.ts` is consumed by `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/projection.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/promotion/publication.ts` and 3 more.
 - `projection.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promotion-run.ts`.
 - `promote-arguments.ts` is consumed by `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promote-cli.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/trigger.ts`.
-- `promote-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/release-cli.ts`.
+- `promote-cli.ts` is consumed by `engine/src/workflow/commands/promote.ts`, `engine/src/workflow/promotion/release-cli.ts`.
 - `promoter-home.ts` is consumed by `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/promotion/trigger.ts`.
 - `promotion-run.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/promotion/rollback.ts`, `engine/src/workflow/promotion/trigger.ts`.
 - `publication.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/rollback.ts`.
 - `release-assets.ts` is consumed by `engine/src/workflow/promotion/release-cli.ts`.
-- `release-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
+- `release-cli.ts` is consumed by `engine/src/workflow/commands/release.ts`.
 - `release-notes.ts` is consumed by `engine/src/workflow/promotion/release-cli.ts`.
 - `release-train.ts` is consumed by `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/release-assets.ts`, `engine/src/workflow/promotion/release-cli.ts`, `engine/src/workflow/promotion/release-notes.ts`.
 - `rollback.ts` is consumed by `engine/src/workflow/promotion/context.ts`.

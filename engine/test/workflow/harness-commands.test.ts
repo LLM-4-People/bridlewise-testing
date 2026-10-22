@@ -998,10 +998,9 @@ test("runHarnessCli: a failing subcommand emits actionable error context on stde
   assert.equal(report.command, "harness");
   assert.equal(report.subcommand, "new-module");
   assert.equal(report.originalCode, "input_error");
-  // The throw site lives in the dispatch helper since runHarnessCli split
-  // into validate → recording boundary → dispatch (entry-point wiring).
-  assert.equal(report.function, "dispatchHarnessSubcommand");
-  assert.ok(typeof report.file === "string" && report.file.endsWith("src/workflow/harness-commands.ts"), `file must point at harness-commands.ts; got ${String(report.file)}`);
+  // The throw site is the verb's own file (src/workflow/commands/<verb>.ts, #221): the dispatch finds the verb
+  // in the generated registry and runs it.
+  assert.ok(typeof report.file === "string" && report.file.endsWith("src/workflow/commands/new-module.ts"), `file must point at the verb's file; got ${String(report.file)}`);
   assert.ok(typeof report.line === "number" && report.line > 0);
   assert.ok(typeof report.column === "number" && report.column > 0);
   assert.ok(typeof report.stack === "string" && report.stack.includes("new-module requires a module path"));
@@ -1024,7 +1023,7 @@ test("runHarnessCli: an unknown subcommand flag is rejected with actionable erro
   assert.equal(report.subcommand, "regenerate");
   assert.equal(report.originalCode, "unknown_flag");
   assert.ok(typeof report.function === "string" && report.function.length > 0);
-  assert.ok(typeof report.file === "string" && report.file.endsWith("src/workflow/harness-commands.ts"), `file must point at harness-commands.ts; got ${String(report.file)}`);
+  assert.ok(typeof report.file === "string" && report.file.endsWith("src/workflow/harness-command.ts"), `file must point at the one unknown-flag refusal (harness-command.ts); got ${String(report.file)}`);
   assert.ok(typeof report.line === "number" && report.line > 0);
   assert.ok(typeof report.stack === "string" && report.stack.includes("unknown regenerate flag"));
 });
