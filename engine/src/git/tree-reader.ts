@@ -101,6 +101,11 @@ export function gitOutput(
 }
 
 /** The object `rev` names in `repository`, peeled to `kind` (a commit by default), or `null` when it names none. */
+/** Whether `ancestor` is `descendant` or one of its ancestors (`merge-base --is-ancestor`); an unknown commit is git's typed failure. */
+export function isAncestor(repository: GitRepository, ancestor: string, descendant: string): boolean {
+  return gitOutput(repository, ["merge-base", "--is-ancestor", ancestor, descendant], { allowed: [0, 1] }).status === 0;
+}
+
 export function resolveRevision(repository: GitRepository, rev: string, kind: "commit" | "tree" | "object" = "commit"): string | null {
   const found = gitOutput(repository, ["rev-parse", "-q", "--verify", `${rev}^{${kind}}`], { allowed: [0, 1] });
   return found.status === 0 ? found.stdout.toString("utf8").trim() : null;
