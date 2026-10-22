@@ -11,6 +11,7 @@ import {
   harnessRegister,
   harnessSync,
   runBundleBuildStep,
+  syncPassVerdict,
   regenerateReadmeConsumers,
   harnessNewModule,
   runArchitectureCheck,
@@ -22,6 +23,7 @@ import {
   type HarnessRegenerateOutput,
   type HarnessRegisterOutput,
   type HarnessSyncOutput,
+  communityFilesStep,
   evidenceIgnoreStep,
   trackerBoardStep,
   frozenRecordsStep,
@@ -1153,6 +1155,25 @@ test("HarnessCommands: harnessSync withBundle option type includes the bundle-bu
   );
 });
 
+test("HarnessCommands: syncPassVerdict judges every step except the stabilizing regenerate of a --with-bundle pass", () => {
+  const pass = (step: HarnessSyncOutput["steps"][number]["step"], status: "pass" | "fail" = "pass") => ({ step, status });
+  const withBundle = (initial: "pass" | "fail", final: "pass" | "fail", check: "pass" | "fail") => [
+    pass("register"), pass("regenerate", initial), pass("bundle-build"), pass("regenerate", final), pass("check", check),
+  ];
+  // A fresh checkout: the first regenerate has no bundle to pin yet.
+  assert.equal(syncPassVerdict(withBundle("fail", "pass", "pass"), true), true);
+  assert.equal(syncPassVerdict(withBundle("pass", "pass", "pass"), true), true);
+  // Every other step is still judged.
+  assert.equal(syncPassVerdict(withBundle("fail", "fail", "pass"), true), false);
+  assert.equal(syncPassVerdict(withBundle("pass", "pass", "fail"), true), false);
+  assert.equal(syncPassVerdict([pass("register"), pass("regenerate"), pass("bundle-build", "fail"), pass("regenerate"), pass("check")], true), false);
+  // Without the bundle there is no stabilizing step: the first regenerate is judged.
+  assert.equal(syncPassVerdict([pass("register"), pass("regenerate", "fail"), pass("check")], false), false);
+  assert.equal(syncPassVerdict([pass("register"), pass("regenerate"), pass("check")], false), true);
+  assert.equal(syncPassVerdict([], false), false, "an empty pass is not a pass");
+  assert.throws(() => syncPassVerdict([pass("register"), pass("bundle-build"), pass("regenerate"), pass("check")], true), /out of order/u);
+});
+
 test("HarnessCommands: harnessSync without withBundle omits the bundle-build step", async () => {
   // The default sync (no --with-bundle) must NOT run the bundle-build step —
   // deny-by-default: the bundle rebuild is opt-in, not opt-out.
@@ -1227,6 +1248,14 @@ test("HarnessCommands: harnessRegenerate write=true auto-adds missing dispositio
     const second = harnessRegenerate(fixtureRoot, { write: true });
     assert.equal(second.result.dispositionAutoAdd.status, "current");
     assert.equal(second.result.dispositionAutoAdd.addedCount, 0);
+    // A community surface with no sources (a hand-made shadow) is the arm's typed refusal, and it fails the regenerate (#56 review).
+    const top = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: fixtureRoot, encoding: "utf8" }).trim();
+    mkdirSync(join(top, ".github"), { recursive: true });
+    writeFileSync(join(top, ".github", "CONTRIBUTING.md"), "a hand-made page\n");
+    const refused = harnessRegenerate(fixtureRoot, { write: true });
+    assert.equal(refused.result.communityFiles.status, "refused");
+    assert.match(refused.result.communityFiles.refusal, /^community_/u);
+    assert.equal(refused.status, "fail");
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
   }
@@ -1261,6 +1290,17 @@ test("HarnessCommands: one regenerate converges after a contract source edit, an
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
   }
+});
+
+test("HarnessCommands: the community-files arm is wired into harnessCheck and harnessRegenerate, and its convergence gates the regenerate status (#56 review)", async () => {
+  const result = await checkSkipAll();
+  assert.equal(result.result.communityFiles.step, "community-files");
+  assert.equal(result.result.communityFiles.status, "pass", result.result.communityFiles.message);
+  const regenerated = harnessRegenerate(ROOT, { write: false });
+  assert.equal(regenerated.result.communityFiles.status, "current");
+  assert.equal(regenerated.result.communityFiles.converged, true);
+  const refused = communityFilesStep({ status: "refused", converged: false, changed: [], refusal: "community_shadow_file: x" });
+  assert.equal(refused.status, "fail");
 });
 
 test("HarnessCommands: the check's generated-block steps FAIL on drift and name it — the evidence ignore rule (correctness E5), the frozen roots' pinned content and the task board — and all are wired into harnessCheck (design N3')", async () => {

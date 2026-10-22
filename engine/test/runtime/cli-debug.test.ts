@@ -16,13 +16,14 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
 import { walk } from "../../scripts/verification/source-walk.ts";
 import { readSourceView } from "../../scripts/verification/source-view.ts";
+import { moduleSpecifiers } from "../../src/workflow/reachability.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 const ENGINE_ROOT = join(import.meta.dirname, "..", "..");
@@ -100,11 +101,15 @@ test("ONE main-ness test: no entry point decides it is the program by any spelli
 });
 
 /**
- * The modules a source reaches through static imports, from the repository
- * root: relative specifiers followed, bare ones collected (a package is a
- * bare specifier that is not a `node:` built-in).
+ * The packages a source reaches through its imports, from `root`: every
+ * edge the ONE module-specifier reader (`src/workflow/reachability.ts`
+ * `moduleSpecifiers`, which reads tokens) names, in every form (single,
+ * double or backtick quotes, `export … from`, dynamic `import()` of a
+ * literal), relative edges followed, bare non-`node:` specifiers collected.
+ * An import the reader cannot name (a computed `import()`) is reported too:
+ * what is not read is not certified.
  */
-function reachedPackages(start: string): readonly string[] {
+function reachedPackages(start: string, root: string = REPOSITORY_ROOT): readonly string[] {
   const packages = new Set<string>();
   const seen = new Set<string>();
   const queue = [start];
@@ -112,15 +117,29 @@ function reachedPackages(start: string): readonly string[] {
     const path = queue.pop()!;
     if (seen.has(path)) continue;
     seen.add(path);
-    const code = readSourceView(join(REPOSITORY_ROOT, path)).codeWithStrings();
-    for (const match of code.matchAll(/\b(?:from|import)\s*\(?\s*"([^"]+)"/gu)) {
-      const specifier = match[1]!;
-      if (specifier.startsWith(".")) queue.push(relative(REPOSITORY_ROOT, resolve(REPOSITORY_ROOT, dirname(path), specifier)).split("\\").join("/"));
+    const edges = moduleSpecifiers(path, readFileSync(join(root, path), "utf8"));
+    for (const specifier of edges.imports) {
+      if (specifier.startsWith(".")) queue.push(relative(root, resolve(root, dirname(path), specifier)).split("\\").join("/"));
       else if (!specifier.startsWith("node:")) packages.add(`${path} -> ${specifier}`);
     }
+    for (const opaque of edges.opaque) packages.add(`${path} -> ${opaque}`);
   }
   return [...packages].sort();
 }
+
+test("the import-graph reader follows every import form, through the one specifier reader (planted)", () => {
+  const dir = createTempDir("import-graph-");
+  writeFileSync(join(dir, "a.mjs"), "import x from './b.mjs';\nexport { y } from \"./c.mjs\";\nawait import(`./d.mjs`);\n// import 'commented-out';\n");
+  writeFileSync(join(dir, "b.mjs"), "import z from 'zod';\nexport const x = z;\n");
+  writeFileSync(join(dir, "c.mjs"), "export * from \"yaml\";\nexport const y = 1;\n");
+  writeFileSync(join(dir, "d.mjs"), "await import('picomatch');\nconst name = 'x';\nawait import(name);\n");
+  assert.deepEqual(reachedPackages("a.mjs", dir), [
+    "b.mjs -> zod",
+    "c.mjs -> yaml",
+    "d.mjs -> import(<computed>)",
+    "d.mjs -> picomatch",
+  ]);
+});
 
 test("a dependency-free utility reaches no package: its whole import graph is node built-ins and the leaf entry-point module", () => {
   const utilities = Object.entries(NOT_BOOTSTRAPPED).filter(([, reason]) => reason.startsWith("a dependency-free CI utility")).map(([path]) => path);
