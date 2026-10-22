@@ -1186,11 +1186,20 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     leaseTtlMs: z.number().int().positive().max(31_536_000_000),
     admissionLock: workspaceLockSchema,
     mergeLock: workspaceLockSchema,
-    // The ONLY branches a workspace may land on (`workspace create` refuses
-    // any other target before anything is made, and `merge` checks again). A
-    // product branch that changes only through a promotion door is never one
-    // of them (UR-12), so no workspace can fast-forward it.
+    // The ONLY trunks a workspace may land on: its target's UPSTREAM branch on
+    // the forge (the forge's view, never a local branch name: `workspace
+    // create` refuses any other before anything is made, and `merge` and
+    // `land` check again). A product branch that changes only through a
+    // promotion door is never one of them (UR-12).
     landTargets: z.array(z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u)).min(1).max(64),
+    // `workspace land` waits on the forge's merge queue: it reads the pull
+    // request every `pollIntervalMs` and stops waiting after `timeoutMs` (a
+    // wait budget, never a verdict: the record stays `merging`, `workspace
+    // land` resumes it and `workspace recover` looks once).
+    landing: z.strictObject({
+      pollIntervalMs: z.number().int().min(1).max(600_000),
+      timeoutMs: z.number().int().positive().max(86_400_000),
+    }),
     // How long a supervised command told to stop (its ceiling, an operator's
     // Ctrl-C) has before it and every descendant are killed.
     killGraceMs: z.number().int().positive().max(60_000),
@@ -1335,7 +1344,33 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     ambientInflationCapFraction: z.number().min(0).lt(1),
   });
 
+  // ── PER-TEST LIMITS: CPU WORK, AND ONE HANG BACKSTOP (NO-LOAD-BLOCK L2) ──
+  //
+  // A test is judged by the CPU work it did (its process's CPU and every child
+  // it reaped, engine/src/shared/run-cpu.ts), never by its wall time: a busy
+  // host makes a test WAIT for a core, it does not make it do more work. The
+  // ceiling is its file's class (`classes`, each naming the repository paths
+  // of the files it holds), else `defaultCeilingMs`. A file sits in at most
+  // one class. Wall time survives only as `testHangBackstopMs`: an async hang
+  // ends there, classified `hung`, and is never retried. It sits below each
+  // suite's stall bound, so a hung test is named before its run is killed.
+  const testCpuClassesSchema = z.strictObject({
+    defaultCeilingMs: z.number().int().positive().max(3_600_000),
+    classes: z.array(z.strictObject({
+      name: z.string().regex(/^[a-z][a-z0-9-]*$/u),
+      ceilingMs: z.number().int().positive().max(3_600_000),
+      files: z.array(z.string().min(1)).min(1),
+    })),
+  }).refine((declared) => new Set(declared.classes.map((one) => one.name)).size === declared.classes.length, {
+    message: "every CPU class needs a distinct name", path: ["classes"],
+  }).refine((declared) => {
+    const files = declared.classes.flatMap((one) => one.files);
+    return new Set(files).size === files.length;
+  }, { message: "a test file sits in at most one CPU class", path: ["classes"] });
+
   const testExecutionConfigSchema = z.strictObject({
+    testCpuClasses: testCpuClassesSchema.optional(),
+    testHangBackstopMs: z.number().int().positive().max(3_600_000).optional(),
     concurrency: z.union([
       z.literal("auto"),
       z.literal(false),
@@ -1579,8 +1614,10 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // environmental marker (no space, an npm cache miss, a network reset) — and
   // how long it waits before the first retry (doubled each time). A command
   // that merely FAILED (any other non-zero exit) is never retried.
+  // (`typecheckTimeoutMs`, the typecheck's 120 s WALL limit, is gone: a
+  // typecheck is bounded by its CPU work and one hang backstop like every
+  // harness subprocess, src/workflow/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
   const harnessConfigSchema = z.strictObject({
-    typecheckTimeoutMs: z.number().int().positive().max(600000),
     commandErroredRetries: z.number().int().min(0).max(10).optional(),
     commandRetryBackoffMs: z.number().int().min(0).max(3_600_000).optional(),
   }).optional();

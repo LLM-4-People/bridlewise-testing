@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import { isAlias, isMap, isPair, isScalar, isSeq, LineCounter, parseDocument, visit } from "yaml";
 
+import { networkInstalls } from "../helpers/network-install.ts";
+
 /**
  * THE WORKFLOW POLICY: rules every GitHub Actions workflow in the tree obeys.
  *
@@ -340,6 +342,31 @@ function injectionViolations(workflow) {
   return violations;
 }
 
+/**
+ * NO NETWORK INSTALL ON THE TEST PATH (#333). A system package manager
+ * fetching from a mirror inside a job waits on the network without bound: a
+ * hung mirror held two shards until their 45-minute timeout and read as a red
+ * suite. The toolchain comes from the runner image and is PROBED (a missing
+ * tool is a named failure), never installed by a step. What counts as an
+ * install is the one reader `tests/helpers/network-install.ts`, shared with
+ * the external-surface registry and the guardian compiler pin.
+ */
+function networkInstallViolations(workflow) {
+  const { unreadable } = readWorkflow(workflow);
+  if (unreadable.length > 0) return unreadable;
+  const document = parseDocument(workflow.text).toJS() ?? {};
+  const violations = [];
+  for (const [jobName, job] of Object.entries(document.jobs ?? {})) {
+    for (const [index, step] of (Array.isArray(job?.steps) ? job.steps : []).entries()) {
+      if (typeof step?.run !== "string") continue;
+      for (const install of networkInstalls(step.run)) {
+        violations.push(`${workflow.path}: jobs.${jobName}.steps[${String(index)}].run installs from the network (${install.command}); probe the runner image's tool instead`);
+      }
+    }
+  }
+  return violations;
+}
+
 /** Literal group prefixes shared by two workflows cancel each other's pull-request runs. */
 function sharedGroupPrefixes(workflows) {
   const owners = new Map();
@@ -612,4 +639,44 @@ test("script injection is refused in every workflow, privileged or not; env-pass
   // Near misses: the value through env, a trusted context, an input.
   assert.deepEqual(plant("issue_comment", "      - env:\n          BODY: ${{ github.event.comment.body }}\n        run: printf '%s' \"$BODY\"\n"), []);
   assert.deepEqual(plant("push", "      - run: echo \"${{ github.sha }} ${{ github.repository }} ${{ matrix.shard }} ${{ inputs.runner }}\"\n"), []);
+});
+
+test("no live workflow installs system packages from the network on its path (#333)", () => {
+  assert.deepEqual(liveWorkflows().flatMap(networkInstallViolations), []);
+});
+
+test("network installs are refused in any spelling; probes and near misses pass", () => {
+  const plant = (run) => networkInstallViolations({ path: ".github/workflows/plant.yml", text: `on: push\njobs:\n  j:\n    runs-on: x\n    steps:\n      - run: |\n${run.split("\n").map((line) => `          ${line}`).join("\n")}\n` });
+  for (const run of [
+    "sudo apt-get update", "sudo apt-get install -y gcc-14", "apt install -y make", "sudo apt-get -qq update", "brew install llvm", "apk add gcc",
+    // Options before the subcommand, a continued line, and a prefixed environment (review of #335).
+    "sudo apt-get -o Acquire::Retries=3 install -y gcc-14",
+    "sudo apt-get \\\n  install -y gcc-14",
+    "env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-14",
+    "/usr/bin/apt-get install -y gcc-14",
+    // A command word the reader cannot see through: a variable or a substitution (review of #335).
+    "$PM install -y gcc-14",
+    "${PM} install -y gcc-14",
+    "sudo $PM add gcc",
+    "$(command -v apt-get) install -y gcc-14",
+    // Any expansion form, after any prefix, and inside eval or a shell's -c (second review of #415).
+    "${PM:-apt-get} install -y gcc-14",
+    "${PM[0]} install -y gcc-14",
+    "timeout 60 $PM install -y gcc-14",
+    "nice -n 5 $PM install -y gcc-14",
+    "doas $PM add gcc",
+    "echo gcc-14 | xargs $PM install -y",
+    "eval \"$PM install -y gcc-14\"",
+    "bash -c \"$PM install -y gcc-14\"",
+    "sh -ec \"apt-get update\"",
+  ]) {
+    assert.equal(plant(run).length, 1, run);
+  }
+  for (const run of [
+    "command -v gcc-14 >/dev/null || exit 1", "gcc-14 --version | head -n 1", "echo apt-get is not used here", "npm ci --no-audit --no-fund", "make -C engine/guardian all",
+    // Expansions that are not the command word, or not followed by a subcommand.
+    "TMPDIR=\"$RUNNER_TEMP/bw\" npm --prefix engine test", "npm install $PACKAGE", "cd \"$WORKDIR\" || exit 1", "$CC -o out file.c",
+  ]) {
+    assert.deepEqual(plant(run), [], run);
+  }
 });

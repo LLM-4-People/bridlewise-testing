@@ -51,6 +51,18 @@ test("T-P10: every invalid profile is refused with the pointer of its violation"
   assert.deepEqual(pointers(fixtureProfile({ boundary: { spawnCalls: [{ callee: "runScript", argument: 1, base: "" }] } })), []);
 });
 
+test("the makefile transform: a file named Makefile and a list of distinct targets", () => {
+  const base = (fixtureProfile() as { transforms: unknown[] }).transforms;
+  const withMakefile = (transform: Record<string, unknown>): readonly string[] => pointers(fixtureProfile({ transforms: [...base, { kind: "makefile", ...transform }] }));
+  const at = String(base.length);
+  assert.deepEqual(withMakefile({ path: "Makefile", targets: ["build", "dev"] }), [], "the root Makefile");
+  assert.deepEqual(withMakefile({ path: "product/Makefile", targets: ["build"] }), [], "a Makefile in a folder");
+  for (const path of ["GNUmakefile", "Makefile.orig", "product/makefile", "build.mk"]) assert.deepEqual(withMakefile({ path, targets: ["build"] }), [`/transforms/${at}/path`], `${path}: not a file named Makefile`);
+  assert.deepEqual(withMakefile({ path: "Makefile", targets: ["build", "build"] }), [`/transforms/${at}/targets`], "a target listed twice");
+  for (const targets of [[], ["%.o"], ["a b"], [".PHONY"], ["$(X)"]]) assert.ok(withMakefile({ path: "Makefile", targets }).length > 0, `${JSON.stringify(targets)}: not a list of target names`);
+  assert.deepEqual(withMakefile({ path: "Makefile", targets: ["build"], scripts: [] }), [`/transforms/${at}`], "no key of another kind");
+});
+
 test("a profile names only paths its checkout tracks: an absent file or an empty folder is named by its pointer (harness check, #279)", () => {
   const profile = fixtureProfile() as { boundary: { entryPoints: string[]; include: string[] } };
   const named = [...profile.boundary.entryPoints, ...profile.boundary.include];
@@ -69,7 +81,7 @@ test("a profile names only paths its checkout tracks: an absent file or an empty
 });
 
 test("the overlay: a folder prefix the boundary excludes, apart from the profile directory, with kinds only from the fixed allowlist, compared without case", () => {
-  const overlay = (folder: unknown, kinds: unknown = ["*.md", "Makefile"], exclude: readonly string[] = ["dev/", "promotion/", "target-only/"]): readonly string[] => pointers(fixtureProfile({ boundary: { overlay: { folder, kinds }, exclude } }));
+  const overlay = (folder: unknown, kinds: unknown = ["*.md", "*.txt"], exclude: readonly string[] = ["dev/", "promotion/", "target-only/"]): readonly string[] => pointers(fixtureProfile({ boundary: { overlay: { folder, kinds }, exclude } }));
   assert.deepEqual(overlay("target-only/"), [], "an excluded folder prefix");
   assert.deepEqual(overlay("dev/nested/"), [], "a folder inside an excluded one");
   assert.deepEqual(overlay("target-only/", undefined, ["dev/", "promotion/"]), ["/boundary/overlay/folder"], "a folder the boundary does not exclude would also ship at its own path");
@@ -79,19 +91,19 @@ test("the overlay: a folder prefix the boundary excludes, apart from the profile
   const refusedKinds = [
     "*.ts", "*.mts", "*.cts", "*.tsx", "*.js", "*.mjs", "*.cjs", "*.jsx", "*.svelte", "*.css",
     "*.JS", "*.MTS", "*.Ts", "*.node", "*.wasm", "*.sh", "*.html", "*.HTML", "*.svg", "*.SVG", "*.json", "*.yml",
-    "package.json", "npmrc", "pre-commit", "NOTICE", "Makefile.orig", "GNUmakefile",
+    "package.json", "npmrc", "pre-commit", "NOTICE", "Makefile", "makefile", "MAKEFILE", "Makefile.orig", "GNUmakefile",
   ];
   for (const kind of refusedKinds) assert.deepEqual(overlay("target-only/", ["*.md", kind]), ["/boundary/overlay/kinds/1"], `${kind}: not on the fixed allowlist, in any spelling`);
   assert.ok(overlay("target-only/", ["*.md", ".npmrc"]).length > 0, ".npmrc: not a kind at all");
-  assert.deepEqual([...OVERLAY_KINDS], ["*.md", "*.txt", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "makefile"], "the allowlist is fixed: documents, named images, the make recipe");
+  assert.deepEqual([...OVERLAY_KINDS], ["*.md", "*.txt", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp"], "the allowlist is fixed: documents and named images (a recipe is derived by the makefile transform)");
   assert.deepEqual(overlay("target-only/", [...OVERLAY_KINDS]), [], "every allowlisted kind is accepted");
-  assert.deepEqual(overlay("target-only/", ["*.MD", "*.Png", "MAKEFILE"]), [], "compared without case");
+  assert.deepEqual(overlay("target-only/", ["*.MD", "*.Png", "*.TXT"]), [], "compared without case");
   assert.deepEqual(overlay("target-only/", ["*.md", "*.MD"]), ["/boundary/overlay/kinds"], "one kind in two spellings is listed twice");
-  assert.deepEqual([["README.MD", "*.md"], ["makefile", "Makefile"], ["shot.PNG", "*.png"]].map(([name, kind]) => isOfOverlayKind(name!, kind!)), [true, true, true], "a file matches its kind in any case");
-  assert.deepEqual([["evil.md.js", "*.md"], [".md", "*.md"], ["Makefile.orig", "Makefile"], ["xmakefile", "Makefile"]].map(([name, kind]) => isOfOverlayKind(name!, kind!)), [false, false, false, false], "near-misses never match");
+  assert.deepEqual([["README.MD", "*.md"], ["notes.txt", "*.TXT"], ["shot.PNG", "*.png"]].map(([name, kind]) => isOfOverlayKind(name!, kind!)), [true, true, true], "a file matches its kind in any case");
+  assert.deepEqual([["evil.md.js", "*.md"], [".md", "*.md"], ["readme", "*.md"], ["notesmd", "*.md"]].map(([name, kind]) => isOfOverlayKind(name!, kind!)), [false, false, false, false], "near-misses never match");
   for (const bad of [[], ["*"], ["*.md/x"], ["dir/Makefile"], ["*.*"]]) assert.ok(overlay("target-only/", bad).length > 0, `${JSON.stringify(bad)}: not a list of kinds`);
   assert.deepEqual(overlay("target-only/", ["*.md", "*.md"]), ["/boundary/overlay/kinds"], "a kind listed twice");
-  assert.deepEqual(overlay("target-only/", ["*.txt", "Makefile"]), [], "documents and the recipe");
+  assert.deepEqual(overlay("target-only/", ["*.txt", "*.png"]), [], "a document and an image");
   const withoutOverlay = fixtureProfile();
   delete (withoutOverlay["boundary"] as Record<string, unknown>)["overlay"];
   assert.deepEqual(pointers(withoutOverlay), ["/boundary/overlay"], "the field is stated (null: none), never defaulted");

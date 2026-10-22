@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { buildAtlas } from "./floor/atlas.mjs";
 import { stableJson } from "./floor/files.mjs";
 import { buildStatus } from "./floor/status.mjs";
-import { configuredForgeClient } from "../engine/src/workflow/forge/configured-forge.ts";
+import { configuredForge, configuredForgeClient } from "../engine/src/workflow/forge/configured-forge.ts";
 import { environmentCredential } from "../engine/src/workflow/forge/credentials.ts";
 
 function parseArgs(argv) {
@@ -36,6 +36,7 @@ async function main() {
     root: args.root,
     // The credential is the workflow's token in GH_TOKEN, read at call time, never an argument.
     client: args.offline ? null : configuredForgeClient(environmentCredential("floor:GH_TOKEN", "GH_TOKEN")),
+    maxPages: args.offline ? null : configuredForge().request.maxPages,
     offline: args.offline,
     counts: atlas.counts,
   });
