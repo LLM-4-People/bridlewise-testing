@@ -41,6 +41,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+import { canonicalJsonLines } from "../../engine/src/kernel/integrity.ts";
+
 import {
   OPTIONAL_DOSSIER_FIELDS,
   REQUIRED_DOSSIER_FIELDS,
@@ -304,12 +306,14 @@ export function readFloorSnapshot(path: string): FloorLoad {
  * THE ONLY WRITER. Called by the explicit rebase command, never by the judge
  * and never by a test run. The snapshot is canonical: facts sorted by path,
  * field lines in the dossier's canonical order, no timestamp (a clock in a
- * reviewed floor is churn, not evidence).
+ * reviewed floor is churn, not evidence), one guard per line.
  */
 export function writeFloorSnapshot(path: string, observed: readonly ObservedGuard[]): FloorSnapshot {
   const snapshot = canonicalSnapshot(observed);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+  // One guard per line, in path order (canonicalJsonLines): two rebases that add different guards touch different
+  // lines and merge; only two views of the same guard conflict (#221).
+  writeFileSync(path, canonicalJsonLines({ ...snapshot }), "utf8");
   return snapshot;
 }
 
