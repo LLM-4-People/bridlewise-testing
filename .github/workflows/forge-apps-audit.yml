@@ -1,0 +1,71 @@
+name: Forge Apps audit
+
+# Runbook P1.11 for the two Apps whose keys exist ONLY as secrets of their
+# protected environments (GH-KEYS): the door (`door`) and the publisher
+# (`publish`). Each job declares its environment, so only a run of `main`
+# (the environments' deployment branch policy) is handed that App's key and
+# client id. It runs `harness forge apps audit --role <role>`, the same audit
+# the maintainer runs on the host for the agent and the verifier. The App reads
+# its own installation with a metadata-only token and compares it with the
+# registry. The verdict is the job's exit status, and the audit's report is
+# printed. Nothing is written to GitHub.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One audit at a time; a second dispatch waits its turn, and none is ever cancelled.
+concurrency:
+  group: forge-apps-audit
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  audit:
+    name: Audit the ${{ matrix.role }} App
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - role: door
+            environment: door
+          - role: publisher
+            environment: publish
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            engine/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install engine dependencies
+        run: npm --prefix engine ci --no-audit --no-fund
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      # The key and client id reach only this step's process, by the names the App registry declares.
+      - name: Audit the installation
+        working-directory: engine
+        env:
+          DOOR_APP_KEY: ${{ matrix.role == 'door' && secrets.DOOR_APP_KEY || '' }}
+          DOOR_APP_CLIENT_ID: ${{ matrix.role == 'door' && vars.DOOR_APP_CLIENT_ID || '' }}
+          PUBLISHER_APP_KEY: ${{ matrix.role == 'publisher' && secrets.PUBLISHER_APP_KEY || '' }}
+          PUBLISHER_APP_CLIENT_ID: ${{ matrix.role == 'publisher' && vars.PUBLISHER_APP_CLIENT_ID || '' }}
+        run: node src/cli.ts harness forge apps audit --role "${{ matrix.role }}"

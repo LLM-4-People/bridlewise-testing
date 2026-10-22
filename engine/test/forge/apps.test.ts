@@ -23,34 +23,16 @@ import { serveAppsPage } from "../../src/workflow/forge/apps-page.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { readIntake } from "../../src/workflow/community/sources.ts";
 import { trackedTop } from "../../src/workflow/evidence-store.ts";
-import { FORGE_CONFIG_SCHEMA, forgeEndpoint, repositoriesOfKinds, type ForgeSettings } from "../../src/workflow/forge/forge-config.ts";
+import { FORGE_CONFIG_SCHEMA, forgeEndpoint, repositoriesOfKinds } from "../../src/workflow/forge/forge-config.ts";
 import { appManifest, forgeGeneratedFiles, syncForgeFiles } from "../../src/workflow/forge/generated-files.ts";
 import { maintainerCli, runBoundedCommand, type MaintainerCliRun } from "../../src/workflow/forge/maintainer-cli.ts";
 import { fakeGithub } from "./fake-github.ts";
 import { requireTestKeyHome, temporaryKeyHome } from "./forge-key-home.ts";
+import { SETTINGS } from "./forge-settings.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 /** The repository's own community intake: the one table of the Discussion categories. */
 const CATEGORIES = readIntake(trackedTop(join(import.meta.dirname, "..", ".."))).discussionCategories;
-
-const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
-  organization: "LLM-4-People",
-  apiUrl: "https://api.github.com",
-  webUrl: "https://github.com",
-  userAgent: "bridlewise-forge-test",
-  request: { timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64, maxPages: 10 },
-  tokenRenewBeforeMs: 300_000,
-  repositories: [
-    { name: "bridlewise-testing", kind: "trunk", visibility: "public" },
-    { name: ".github", kind: "meta", visibility: "public" },
-    { name: "bridlewise-evidence", kind: "evidence", visibility: "public" },
-    { name: "bridlewise-coordination", kind: "notes", visibility: "private" },
-    { name: "bridlewise-archive", kind: "archive", visibility: "private" },
-    { name: "forge-proving-ground", kind: "none", visibility: "public", provingGround: true },
-  ],
-  maintainerCli: { stallMs: 120_000, cpuLimitMs: 30_000, killGraceMs: 500 },
-  appsPage: { port: 47811, legacyApps: [{ slug: "claude", repositories: ["bridlewise-testing"] }] },
-});
 
 const LIMITS = SETTINGS.maintainerCli;
 
@@ -352,7 +334,7 @@ test("the Apps page end to end: host custody, install links, Done guarded by ses
     const redirect = await call(`${origin}/callback?code=code-agent&state=${agentState}`);
     assert.equal(redirect.status, 303);
     assert.equal(redirect.headers.location, new URL(url).pathname + new URL(url).search, "back to the token-bound page");
-    assert.equal(keyHomeCustody(keyHome).identity("agent").appId, agent.appId);
+    assert.equal(keyHomeCustody(keyHome).clientId("agent"), agent.clientId);
     await call(`${origin}/callback?code=code-agent&state=${agentState}`);
     const after = pageData((await call(url)).body);
     assert.equal(after.error?.code, "forge_apps_page_refused");

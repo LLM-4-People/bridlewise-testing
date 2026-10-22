@@ -4,6 +4,7 @@
  *
  *   harness forge apps manifests [--check]   write (or check) .github/forge/ from the registry
  *   harness forge apps create                serve the Apps page (Session 1) until Done
+ *   harness forge apps audit [--role <role>]…  each App's installation, read by the App, against the registry
  *
  * Every verb answers one result envelope (`{"result":{…}}`) and its progress
  * on stderr. The `forge` section of `bridlewise.config.json` is required
@@ -14,7 +15,9 @@ import { deepFreeze } from "../../kernel/integrity.ts";
 import { wrapResult, type CommandAnswer } from "../command-result.ts";
 import { readIntake } from "../community/sources.ts";
 import { trackedTop } from "../evidence-store.ts";
-import { FORGE_APP_ROLES, FORGE_APPS } from "./app-registry.ts";
+import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
+import { environmentKeyCustody, keyHomeCustody } from "./app-keys.ts";
+import { auditAppInstallation } from "./apps-audit.ts";
 import { serveAppsPage } from "./apps-page.ts";
 import { ForgeError } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
@@ -22,7 +25,7 @@ import { forgeEndpoint, trunkRepository } from "./forge-config.ts";
 import { syncForgeFiles } from "./generated-files.ts";
 import { maintainerCli } from "./maintainer-cli.ts";
 
-const USAGE = "harness forge takes: apps manifests [--check] | apps create";
+const USAGE = "harness forge takes: apps manifests [--check] | apps create | apps audit [--role <agent|verifier|door|publisher>]...";
 
 function usage(): never {
   throw new ForgeError("forge_usage", USAGE, {});
@@ -57,10 +60,36 @@ async function appsCreate(root: string, rest: readonly string[], onProgress: (li
   return { result: wrapResult("forge", deepFreeze({ verb: "apps create", ...summary }), { status: summary.pending.length === 0 ? "pass" : "fail" }) };
 }
 
+/**
+ * `harness forge apps audit [--role <role>]…` (runbook P1.11): each App's
+ * installation, read by the App itself, against the registry. Without
+ * `--role` it audits the host Apps (their keys are in the key home). An
+ * environment App is named by `--role` inside its own environment's job,
+ * where its key is handed in (`forge-apps-audit.yml`).
+ */
+async function appsAudit(rest: readonly string[]): Promise<CommandAnswer> {
+  const roles: ForgeAppRole[] = [];
+  for (let index = 0; index < rest.length; index += 2) {
+    const role = rest[index + 1];
+    if (rest[index] !== "--role" || role === undefined || !(FORGE_APP_ROLES as readonly string[]).includes(role)) usage();
+    roles.push(role as ForgeAppRole);
+  }
+  const settings = configuredForge();
+  const audited = roles.length > 0 ? roles : FORGE_APP_ROLES.filter((role) => FORGE_APPS[role].custody.kind === "host");
+  const audits = [];
+  for (const role of audited) {
+    const custody = FORGE_APPS[role].custody.kind === "host" ? keyHomeCustody(admitHarnessKeyHome([])) : environmentKeyCustody();
+    audits.push(await auditAppInstallation(forgeEndpoint(settings), custody, role, settings));
+  }
+  const ok = audits.every((audit) => audit.ok);
+  return { result: wrapResult("forge", deepFreeze({ verb: "apps audit", ok, audits }), { status: ok ? "pass" : "fail" }) };
+}
+
 /** The `harness forge` dispatch. */
 export async function runForgeCli(root: string, argv: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer> {
   const [group, verb, ...rest] = argv;
   if (group === "apps" && verb === "manifests") return appsManifests(root, rest);
   if (group === "apps" && verb === "create") return appsCreate(root, rest, onProgress);
+  if (group === "apps" && verb === "audit") return appsAudit(rest);
   return usage();
 }
