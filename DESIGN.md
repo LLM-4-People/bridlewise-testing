@@ -119,6 +119,10 @@ every colour, duration and face is a token `var()` with no fallback, the
 themes and tokens are declared only in the owner, nothing is imported or
 fetched from elsewhere, and the sheets are plain CSS. No layout, include or
 HTML page carries a style of its own (`<style>`, `style=`) or loads a sheet,
-font or script from another origin.
+font or script from another origin. The boundary under both is the browser's:
+every page carries one Content-Security-Policy first
+(`scripts/floor/site-design.mjs` `sitePolicy`). Only the site's own scripts,
+sheets, fonts and images load. There is no inline script or `<style>`, and
+the only style attributes are the Markdown table alignments, allowed by hash.
 `tests/public/site-design-system.test.mjs` proves each refusal and holds the
 text to 4.5:1 in both themes.
