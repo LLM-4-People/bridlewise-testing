@@ -34,8 +34,12 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/syscall.h>
+#include <linux/audit.h>
+#include <linux/filter.h>
 #include <linux/openat2.h>
+#include <linux/seccomp.h>
 #include <linux/version.h>
 
 #include "landlock-guardian.h"
@@ -48,6 +52,20 @@
  */
 #ifndef GUARDIAN_BUILD_STAMP
 #define GUARDIAN_BUILD_STAMP ""
+#endif
+
+/*
+ * The architecture whose syscall numbers the network refusal's filter names.
+ * A filter written for one ABI says nothing about another, so a syscall made
+ * through any other ABI (x32 on x86-64, or a foreign arch) KILLS the process
+ * rather than passing unexamined.
+ */
+#if defined(__x86_64__)
+#define GUARDIAN_AUDIT_ARCH AUDIT_ARCH_X86_64
+#elif defined(__aarch64__)
+#define GUARDIAN_AUDIT_ARCH AUDIT_ARCH_AARCH64
+#else
+#error "the guardian's network refusal names this architecture's syscall ABI; add it here"
 #endif
 
 /* ---- typed error reporting ------------------------------------------- */
@@ -758,6 +776,30 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
         default_deny = vdd->bval;
     }
 
+    /* 3b'. network (optional string, only "refused"). When present, the
+     * payload and every descendant can create NO socket of any family (the
+     * seccomp filter installed in step 12b answers socket() with EACCES) and
+     * cannot set up io_uring (ENOSYS), whose socket operation would bypass
+     * that filter. Absent: the network is not governed (the guardian's
+     * historical, filesystem-only confinement). */
+    int network_refused = 0;
+    const jval *vnet = obj_get(&root, "network");
+    if (vnet) {
+        if (vnet->type != J_STR || strcmp(vnet->sval, "refused") != 0) fail(2, "network must be the string \"refused\"");
+        network_refused = 1;
+    }
+
+    /* 3b''. cpu_seconds (optional number, 1..86400). When present, the
+     * payload's CPU time is bounded by RLIMIT_CPU (soft = hard = the value):
+     * a payload that spends it is ended by the kernel (SIGXCPU, then SIGKILL),
+     * judged by CPU work and never by wall time, so host load moves nothing. */
+    long cpu_seconds = 0;
+    const jval *vcpu = obj_get(&root, "cpu_seconds");
+    if (vcpu) {
+        if (vcpu->type != J_NUM || vcpu->nval < 1 || vcpu->nval > 86400) fail(2, "cpu_seconds must be a number from 1 to 86400");
+        cpu_seconds = vcpu->nval;
+    }
+
     /* 3c. temp_dir (optional string) + temp_dir_access (optional array).
      * Syntactic sugar: if temp_dir is present, the binary appends an
      * allow-rule for it using temp_dir_access flags (default: full
@@ -1168,6 +1210,39 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
         fail(8, "landlock_restrict_self failed (errno=%d: %s)", e, strerror(e));
     }
     close(ruleset_fd);
+
+    /* 12a. The CPU ceiling (cpu_seconds): inherited across exec and fork. */
+    if (cpu_seconds > 0) {
+        struct rlimit limit = { (rlim_t)cpu_seconds, (rlim_t)cpu_seconds };
+        if (setrlimit(RLIMIT_CPU, &limit) != 0) fail(12, "setrlimit(RLIMIT_CPU, %ld) failed: %s", cpu_seconds, strerror(errno));
+    }
+
+    /* 12b. The network refusal (network: "refused"): a seccomp filter, set
+     * under the NO_NEW_PRIVS of step 9, inherited across exec, fork and
+     * clone, irrevocable like the Landlock domain. Every thread is covered
+     * (TSYNC). */
+    if (network_refused) {
+        struct sock_filter filter[] = {
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, GUARDIAN_AUDIT_ARCH, 1, 0),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+#if defined(__x86_64__)
+            /* x32 syscalls carry this bit: another ABI, refused by killing. */
+            BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+#endif
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_io_uring_setup, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        };
+        struct sock_fprog program = { (unsigned short)(sizeof(filter) / sizeof(filter[0])), filter };
+        if (syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &program) != 0) {
+            fail(11, "seccomp network refusal failed (errno=%d: %s)", errno, strerror(errno));
+        }
+    }
 
     /* 13. No "already confined" env sentinel is set: nothing may decide it is
      * sandboxed from an env value a process can forge (the CLI re-exec that

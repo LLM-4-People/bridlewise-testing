@@ -76,6 +76,7 @@ test("the one site's source is this tree's docs/, with no second repository", as
     assert.match(readFileSync(join(out, "contribute.md"), "utf8"), /permalink: \/contribute\//u);
     assert.ok(readFileSync(join(out, "floor/index.md"), "utf8").includes("The development floor"));
     assert.ok(readFileSync(join(out, "assets/floor/floor.css"), "utf8").includes("floor-table-wrap"));
+    assert.ok(readFileSync(join(out, "floor/roadmap.md"), "utf8").includes("# Roadmap\n"));
     assert.ok(readFileSync(join(out, ".well-known/security.txt"), "utf8").includes("Contact:"));
     // The trackers are plain Markdown; the build gives the copy its header.
     const tasks = readFileSync(join(out, "trackers/TASKS.md"), "utf8");
