@@ -34,7 +34,7 @@ import { LandingError, branchCheckout, commitCandidate, landCommit, refuseUndecl
 import { importWorkspaceTimelineShard, openWorkspaceTimelineShard } from "./timeline-shard.ts";
 import { createWorkspaceRecordStore, refuseOwnedByOlder, workspaceRecordStores, type WorkspaceRecordStore } from "./workspace-registry.ts";
 import { remoteTrackingRef } from "../git/git-port.ts";
-import { fetchForgeBranches, publishBranch, remoteUrlOf, resolveForgeTarget, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
+import { fetchForgeBranches, publishBranch, remoteUrlOf, resolveForgeTarget, type ForgePullRequest, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry, workspaceRootOf, type RepositoryRegistry } from "./repository-registry.ts";
 import { DEFAULT_MAXIMUM_PERSISTED_GATE_STRING_CHARACTERS } from "./workflow-config.ts";
 import {
@@ -1705,12 +1705,8 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
 
     const number = state.pullRequest.number;
     const current = await forge.pullRequest(number);
-    if (!current.merged) {
-      if (current.state !== "open") throw new InputError(`pull request #${String(number)} is ${current.state}`, "workspace_pull_request_closed");
-      if (current.headSha !== head) {
-        throw new InputError(`pull request #${String(number)}'s head is ${current.headSha}, not the published ${head}: someone else pushed to ${record.lease.branch!}`, "workspace_published_head_moved");
-      }
-    }
+    // A merged one is an answer (a land another tool finished), never a refusal: its head is judged after the merge.
+    if (!current.merged) assertOpenAtPublishedHead(record, current, head);
     // `merging` BEFORE the request, naming the one head that may land: a land that dies after it is found by `recover`.
     record = store.save(transition(deepFreeze({ ...record, forge: deepFreeze({ ...state, land: deepFreeze({ head }) }) }), "merging", `the land of ${head} was requested (pull request #${String(number)})`));
     // Already merged (a land another tool finished) or already queued at this head: nothing to ask, only to wait.
@@ -2018,6 +2014,20 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    * verifier). Only a published head whose tree passed the local validation is
    * ready; the forge's head must be the one this workspace published.
    */
+  /**
+   * THE ONE CHECK that a workspace's pull request (read once, `current`) is
+   * open at exactly the head it published: a closed one is refused
+   * (`workspace_pull_request_closed`), and so is one whose head another
+   * writer moved (`workspace_published_head_moved`). `ready` and `land` both
+   * ask it before they act on the forge.
+   */
+  function assertOpenAtPublishedHead(record: WorkspaceRecord, current: ForgePullRequest, head: string): void {
+    if (current.state !== "open") throw new InputError(`pull request #${String(current.number)} is ${current.state}`, "workspace_pull_request_closed");
+    if (current.headSha !== head) {
+      throw new InputError(`pull request #${String(current.number)}'s head is ${current.headSha}, not the published ${head}: someone else pushed to ${record.lease.branch!}`, "workspace_published_head_moved");
+    }
+  }
+
   async function ready(workspaceId: string): Promise<WorkspaceRecord> {
     const record = await requireForgeable(workspaceId, "be marked ready");
     const worktreePath = record.lease.worktreePath;
@@ -2035,10 +2045,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       throw new InputError(`workspace ${workspaceId}'s published tree ${tree} has no passing validation: validate it first`, "workspace_not_validated");
     }
     const current = await forge.pullRequest(state.pullRequest.number);
-    if (current.state !== "open") throw new InputError(`pull request #${String(current.number)} is ${current.state}`, "workspace_pull_request_closed");
-    if (current.headSha !== head) {
-      throw new InputError(`pull request #${String(current.number)}'s head is ${current.headSha}, not the published ${head}: someone else pushed to ${record.lease.branch!}`, "workspace_published_head_moved");
-    }
+    assertOpenAtPublishedHead(record, current, head);
     if (current.draft) await forge.markReadyForReview(current.number);
     const saved = store.save(deepFreeze({ ...record, forge: deepFreeze({ ...state, ready: true }) }));
     auditEvent("workspace-ready", { workspaceId, pullRequest: current.number, head });

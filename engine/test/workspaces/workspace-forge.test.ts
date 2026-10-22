@@ -263,6 +263,8 @@ test("ready: only a published head whose tree passed validation leaves draft; un
   forge.calls.length = 0;
   await manager.ready(record.workspaceId);
   assert.equal(forge.calls.filter((call) => call.op === "markReadyForReview").length, 0, "an already ready pull request is not marked again");
+  forge.pulls.get(1)!.state = "closed";
+  await assert.rejects(() => manager.ready(record.workspaceId), throwsCode("workspace_pull_request_closed"), "a closed pull request is never readied");
 });
 
 test("a validation survives the publish (the twin holds the same tree): the local merge still lands it", async () => {
