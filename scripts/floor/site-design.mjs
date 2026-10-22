@@ -20,7 +20,10 @@
  * - `_includes/design-head.html`: the head's design links — the token sheet,
  *   a preload for each upright face (the first paint's text), and the lead
  *   theme's ground as the browser's `theme-color`.
- *
+ * - `_includes/figures/<name>.svg`: each figure declared as data in
+ *   `docs/_data/figures/<name>.json`, drawn inline by `shared/figures.ts`
+ *   with classes the stylesheet inks, so it follows the theme switch. A
+ *   malformed figure refuses the build (`site_figure_invalid`).
  * - `_data/brand.json`: the public words and every claim judged at the floor
  *   status snapshot's commit (`engine/scripts/brand/cli.ts` `siteData`), for
  *   the landing and `/floor/claims/` templates. The snapshot is the one the
@@ -29,11 +32,12 @@
  *
  * The layout includes the two includes; nothing here is committed.
  */
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
 import { siteData } from "../../engine/scripts/brand/cli.ts";
+import { boxFigureInline, boxFigureViolations } from "../../shared/figures.ts";
 import { escapeHtml } from "../../shared/markup.ts";
 import { readNames, readTokenOwner, themeColor, tokenSheet } from "../../shared/token-reader.ts";
 import { SHARED_CSS } from "./design-coverage.mjs";
@@ -48,6 +52,9 @@ export const HEAD_INCLUDE = "_includes/design-head.html";
 export const BRAND_DATA = "_data/brand.json";
 /** The floor status snapshot the source step writes before the design step. */
 const STATUS_SNAPSHOT = "floor/data/status.json";
+/** Where the site's figures are declared (docs-relative, so in the assembled source too) and where they are drawn. */
+export const FIGURE_DATA = "_data/figures";
+export const FIGURE_INCLUDES = "_includes/figures";
 /** The site's attribute for an explicit theme choice; its absence is the lead theme. */
 export const THEME_ATTRIBUTE = "data-theme";
 export const LEAD_THEME = "logbook";
@@ -118,5 +125,21 @@ export function writeSiteDesign({ root, outRoot }) {
     "",
   ].join("\n"));
   write(outRoot, BRAND_DATA, `${JSON.stringify(siteData(root, join(outRoot, ...STATUS_SNAPSHOT.split("/"))), null, 2)}\n`);
-  return { tokens: used.size, fonts: fonts.length };
+  const figures = writeFigures(outRoot);
+  return { tokens: used.size, fonts: fonts.length, figures };
+}
+
+/** Draws every declared figure into its include; refuses a malformed one. */
+function writeFigures(outRoot) {
+  const directory = join(outRoot, ...FIGURE_DATA.split("/"));
+  if (!existsSync(directory)) return 0;
+  const names = readdirSync(directory).filter((name) => name.endsWith(".json")).sort();
+  for (const name of names) {
+    const figure = JSON.parse(readFileSync(join(directory, name), "utf8"));
+    const problems = boxFigureViolations(figure);
+    if (problems.length > 0) throw new Error(`site_figure_invalid: ${FIGURE_DATA}/${name}: ${problems.join("; ")}`);
+    const stem = name.replace(/\.json$/u, "");
+    write(outRoot, `${FIGURE_INCLUDES}/${stem}.svg`, `${boxFigureInline(figure, `fig-${stem}`)}\n`);
+  }
+  return names.length;
 }

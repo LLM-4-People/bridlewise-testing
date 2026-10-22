@@ -123,3 +123,11 @@ built, and how many are not claimed. Below come the ledger, one real refusal
 quoted from the code, and the name's dictionary entry. The claims page uses the
 same ledger and receipt. Every word comes from the messaging source and the
 claims register, and every value printed is escaped.
+Figures are generated, never drawn by hand (`shared/figures.ts`). A figure for
+a README is a light/dark SVG pair in concrete token colours behind a
+`<picture>`, with its facts repeated as a sentence beside it. The decision
+index's status bar is one: it is written with the index, from the same
+records. A figure on the site is declared as data (`docs/_data/figures/`) and
+drawn inline with `fig-*` classes, so it follows the theme switch. Parts are
+labelled directly with their counts, and a hatched part is hatched, so
+identity is never carried by colour alone.

@@ -1229,6 +1229,71 @@ figcaption {
     padding: var(--sp-1) 0;
     border: 0;
   }
+/* ── Figures drawn inline from data (shared/figures.ts): inked by the live
+   theme, like the page around them. ─────────────────────────────────────── */
+
+.fig {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: var(--hairline-w) solid var(--line-1);
+  border-radius: var(--radius-card);
+}
+
+.fig-ground {
+  fill: var(--ground-1);
+}
+
+.fig-box {
+  fill: var(--ground-2);
+  stroke: var(--line-2);
+}
+
+.fig-box-accent {
+  stroke: var(--accent);
+}
+
+.fig-rule {
+  stroke: var(--line-1);
+}
+
+.fig-heading,
+.fig-label {
+  fill: var(--ink-1);
+  font-family: var(--face-sans);
+  font-size: var(--f-ui-size);
+  font-weight: 600;
+}
+
+.fig-note {
+  fill: var(--ink-2);
+  font-family: var(--face-sans);
+  font-size: var(--f-micro-size);
+}
+
+.fig-tag {
+  fill: var(--ink-2);
+  font-family: var(--face-mono);
+  font-size: var(--f-nano-size);
+}
+
+.fig-edge {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: var(--hairline-w);
+}
+
+.fig-edge-muted {
+  stroke: var(--ink-2);
+  stroke-dasharray: 4 4;
+}
+
+.fig-arrow {
+  fill: var(--accent);
+}
+
+.fig-arrow-muted {
+  fill: var(--ink-2);
 }
 
 /* ── Footer: the index, then the colophon ───────────────────────────────── */
