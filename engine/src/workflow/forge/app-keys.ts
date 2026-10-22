@@ -53,9 +53,9 @@ export type StoredAppIdentity = Readonly<{
 /** What GitHub's manifest conversion gives the custody (`POST /app-manifests/{code}/conversions`). */
 export type AppKeyMaterial = Readonly<{ appId: number; slug: string; clientId: string; pem: string }>;
 
-/** THE CUSTODY PORT the token minting depends on: the identity, and a signature made with the key it never hands out. */
+/** THE CUSTODY PORT the token minting depends on: the App's client id (a JWT's `iss`), and a signature made with the key it never hands out. */
 export type AppKeyCustody = Readonly<{
-  identity: (role: ForgeAppRole) => StoredAppIdentity;
+  clientId: (role: ForgeAppRole) => string;
   /** RSASSA-PKCS1-v1_5 with SHA-256 (JWT `RS256`) over `data`. */
   signRs256: (role: ForgeAppRole, data: Uint8Array) => Uint8Array;
 }>;
@@ -169,13 +169,36 @@ export async function pushHeldKey(keyHome: AdmittedKeyHome, role: ForgeAppRole, 
 /** THE CUSTODY over an admitted key home. */
 export function keyHomeCustody(keyHome: AdmittedKeyHome): AppKeyCustody {
   return Object.freeze({
-    identity: (role: ForgeAppRole): StoredAppIdentity => {
-      const record = hostRecord(keyHome, role);
-      return Object.freeze({ role: record.role, appId: record.appId, slug: record.slug, clientId: record.clientId, storedAt: record.storedAt });
-    },
+    clientId: (role: ForgeAppRole): string => hostRecord(keyHome, role).clientId,
     signRs256: (role: ForgeAppRole, data: Uint8Array): Uint8Array => {
       const record = hostRecord(keyHome, role);
       return sign("sha256", data, privateKeyOf(record.pem, role, recordFile(keyHome, role)));
     },
+  });
+}
+
+/**
+ * THE CUSTODY OF AN ENVIRONMENT APP INSIDE ITS OWN JOB: the door's and the
+ * publisher's keys exist only as their protected environment's secret (GH-KEYS).
+ * A workflow job that declares that environment is handed the key
+ * (`keySecret`) and the client id (`clientIdVariable`) in its process
+ * environment. They are read at each use, held nowhere else, and never
+ * written. Outside such a job they are absent (`forge_app_key_unavailable`),
+ * and a host App never signs through here.
+ */
+export function environmentKeyCustody(): AppKeyCustody {
+  const handed = (role: ForgeAppRole): Readonly<{ keySecret: string; clientIdVariable: string }> => {
+    const custody = FORGE_APPS[role].custody;
+    if (custody.kind !== "environment") throw new ForgeError("forge_app_key_unavailable", `The ${role} App's key lives in the key home, not in an environment.`, { role });
+    for (const variable of [custody.keySecret, custody.clientIdVariable]) {
+      if ((process.env[variable] ?? "").trim() === "") {
+        throw new ForgeError("forge_app_key_unavailable", `${variable} is not set: the ${role} App's key and client id exist only inside a job of the '${custody.environment}' environment.`, { role, variable, environment: custody.environment });
+      }
+    }
+    return custody;
+  };
+  return Object.freeze({
+    clientId: (role: ForgeAppRole): string => process.env[handed(role).clientIdVariable]!.trim(),
+    signRs256: (role: ForgeAppRole, data: Uint8Array): Uint8Array => sign("sha256", data, privateKeyOf(process.env[handed(role).keySecret]!, role, handed(role).keySecret)),
   });
 }

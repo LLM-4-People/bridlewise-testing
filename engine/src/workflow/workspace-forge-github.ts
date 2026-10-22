@@ -231,7 +231,7 @@ export function githubWorkspaceForgeFactory(landTargets: readonly string[]): Wor
     // The key home is admitted on the first signature, not here: a workspace that never reaches the forge needs no App key.
     let admitted: AppKeyCustody | undefined;
     const custody: AppKeyCustody = Object.freeze({
-      identity: (role: ForgeAppRole) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).identity(role),
+      clientId: (role: ForgeAppRole) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).clientId(role),
       signRs256: (role: ForgeAppRole, data: Uint8Array) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).signRs256(role, data),
     });
     const credential = appInstallationCredential(forgeEndpoint(settings), custody, { role: "agent", owner: settings.organization, repository: trunk.name, renewBeforeMs: settings.tokenRenewBeforeMs });
