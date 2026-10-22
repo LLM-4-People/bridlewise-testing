@@ -5599,7 +5599,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-gates-workflows", path: "src/workflow/gates/workflows.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 14, namesSha256: "b5193996e995651e1b6ac0857d4003317f8f9c7d2fb5027505060ec6e45dfb89" },
+      owner: "verification-workflow", publicApi: { exportCount: 15, namesSha256: "e24066aa6b1802c22cbb872184e0d02dbf61ea5f2b3391a08782c791991b527f" },
       dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/text/yaml-emit.ts","src/workflow/gates/catalogue.ts","src/workflow/gates/workflow-scripts.ts"],
     }),
     moduleContract({

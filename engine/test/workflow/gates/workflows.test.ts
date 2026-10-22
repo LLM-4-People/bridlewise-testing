@@ -26,6 +26,7 @@ import {
   auditWorkflow,
   ciWorkflow,
   failureIssueWorkflow,
+  forkSafetyViolations,
   promotionGateWorkflow,
   reusableFailureWorkflow,
   codeqlWorkflow,
@@ -231,4 +232,22 @@ test("the failure reporter watches every generated workflow by name, and the pro
   for (const [name, build] of [["workflow-failure-issue.yml", failureIssueWorkflow], ["reusable-workflow-failure.yml", reusableFailureWorkflow], ["promotion-gate.yml", promotionGateWorkflow]] as const) {
     assert.doesNotThrow(() => lintWorkflow(name, build()), name);
   }
+});
+
+test("fork safety (main's policy, owned by the generator): a privileged run names no pull-request value outside the declared data-only job", () => {
+  const set = { "workflow-failure-issue.yml": failureIssueWorkflow(), "reusable-workflow-failure.yml": reusableFailureWorkflow(), "ci.yml": ciWorkflow() };
+  assert.deepEqual(forkSafetyViolations(set), [], "the generated set is fork-safe");
+  // A checkout of the run's head in the reporter (privileged through its workflow_run caller) is refused.
+  const checkoutHead = structuredClone(set["reusable-workflow-failure.yml"]) as Mutable;
+  (((checkoutHead.jobs as Mutable).report as Mutable).steps as Mutable[]).unshift({ name: "x", uses: new Commented("actions/checkout@0", "v0"), with: { ref: "${{ github.event.workflow_run.head_sha }}" } });
+  assert.ok(forkSafetyViolations({ ...set, "reusable-workflow-failure.yml": checkoutHead as never }).length > 0, "a head checkout in a privileged run");
+  // The data-only exception holds only for its declared variables: another env value naming a head is refused.
+  const extraEnv = structuredClone(set["reusable-workflow-failure.yml"]) as Mutable;
+  ((extraEnv.jobs as Mutable).report as Mutable).env = { ...(((extraEnv.jobs as Mutable).report as Mutable).env as Mutable), OTHER: "${{ github.head_ref }}" };
+  assert.ok(forkSafetyViolations({ ...set, "reusable-workflow-failure.yml": extraEnv as never }).some((violation) => violation.includes("OTHER")));
+  // A scheduled workflow (privileged) that reads a fork's head is refused; an uncalled reusable one is judged privileged.
+  const scheduled = structuredClone(set["ci.yml"]) as Mutable;
+  (scheduled.jobs as Mutable).probe = { "runs-on": "x", permissions: {}, steps: [{ name: "fetch", run: "git fetch origin refs/pull/1/head" }] };
+  assert.ok(forkSafetyViolations({ "ci.yml": scheduled as never }).length > 0);
+  assert.ok(forkSafetyViolations({ "reusable-workflow-failure.yml": extraEnv as never }).length > 0, "uncalled, the reusable reporter is judged privileged");
 });

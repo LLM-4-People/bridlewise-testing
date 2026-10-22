@@ -586,8 +586,86 @@ export function lintWorkflow(name: string, workflow: Workflow): void {
   }
 }
 
-/** Refuses a SET of workflows two of which share a concurrency group prefix (one would cancel the other's runs). */
+/**
+ * FORK SAFETY (github-only §10.1; the policy main's hand-written guard held,
+ * owned here since the workflows are generated). A workflow that runs with
+ * the base repository's privilege — its own trigger, or for a reusable one a
+ * caller's (a reusable workflow nobody calls is judged privileged) — names no
+ * value a pull request controls anywhere (a ref, an env value, a run text),
+ * and no text of it fetches, checks out or reads a pull request's head. The
+ * one exception is a declared DATA-ONLY job: it checks out and fetches
+ * nothing, and only its named env variables carry such values, into an
+ * issue's text. `pull_request_target` is never used (the per-workflow lint).
+ */
+const PRIVILEGED_EVENTS: ReadonlySet<string> = new Set([
+  "pull_request_target", "workflow_run", "check_suite", "check_run", "repository_dispatch", "deployment_status", "status",
+  "issue_comment", "issues", "discussion", "discussion_comment", "schedule",
+]);
+const PULL_REQUEST_CONTROLLED = /github\.event\.(?:workflow_run\.(?:head_|pull_requests)|pull_request\.head|check_suite\.(?:head_|pull_requests)|check_run\.(?:head_sha|pull_requests|check_suite\.(?:head_|pull_requests))|deployment(?:_status)?\.|status\.(?:sha|branches|commit)|client_payload|issue\.pull_request)|github\.head_ref/iu;
+const HEAD_IN_TEXT = /\bpull\/\S*\/(?:head|merge)\b|refs\/pull\/|\bgh\s+pr\s+checkout\b|\bhead_(?:sha|branch|ref|repository)\b|\bpull_requests\b|\bclient_payload\b/u;
+const GIT_FETCH = /\bgit\s+(?:fetch|checkout|switch|clone|pull|worktree)\b|\bgh\s+(?:pr|repo)\s+(?:checkout|clone)\b/iu;
+/** The declared data-only jobs, by generated file: the job, the env variables that carry pull-request values, and why. */
+const DATA_ONLY: Readonly<Record<string, Readonly<{ job: string; variables: readonly string[]; why: string }>>> = deepFreeze({
+  "reusable-workflow-failure.yml": {
+    job: "report",
+    variables: ["HEAD_SHA", "HEAD_BRANCH", "PR_NUMBER"],
+    why: "the failure reporter writes the failed run's commit, branch and pull-request number into an issue's text; it checks out nothing and fetches nothing",
+  },
+});
+
+/** Every string of a value, with where it sits (`jobs.x.steps[0].run`); a pin's `Commented` is its value. */
+function stringsOf(value: YamlValue | undefined, path: string): readonly Readonly<{ path: string; value: string }>[] {
+  if (typeof value === "string") return [{ path, value }];
+  if (value instanceof Commented) return [{ path, value: value.value }];
+  if (Array.isArray(value)) return value.flatMap((item, index) => stringsOf(item, `${path}[${String(index)}]`));
+  if (value !== null && typeof value === "object") return Object.entries(value).flatMap(([key, item]) => stringsOf(item, path === "" ? key : `${path}.${key}`));
+  return [];
+}
+
+/** The events each workflow of the set effectively runs under: its own, plus every caller's for a reusable one. */
+function effectiveEvents(workflows: Readonly<Record<string, Workflow>>): ReadonlyMap<string, ReadonlySet<string>> {
+  const effective = new Map(Object.entries(workflows).map(([name, workflow]) => [name, new Set(Object.keys(workflow.on as Readonly<Record<string, YamlValue>>))]));
+  const calls = Object.entries(workflows).flatMap(([name, workflow]) => Object.values(workflow.jobs as Readonly<Record<string, Readonly<Record<string, YamlValue>>>>)
+    .flatMap((job) => (typeof job.uses === "string" && job.uses.startsWith(`./${WORKFLOW_DIRECTORY}/`) ? [{ caller: name, callee: job.uses.slice(WORKFLOW_DIRECTORY.length + 3) }] : [])));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const { caller, callee } of calls) {
+      const target = effective.get(callee);
+      if (target === undefined) continue;
+      for (const event of effective.get(caller) ?? []) if (!target.has(event)) { target.add(event); changed = true; }
+    }
+  }
+  for (const [name, events] of effective) if (events.has("workflow_call") && !calls.some((call) => call.callee === name)) events.add("uncalled-reusable");
+  return effective;
+}
+
+/** The fork-safety violations of the set (empty when every privileged workflow keeps pull-request values out). */
+export function forkSafetyViolations(workflows: Readonly<Record<string, Workflow>>): readonly string[] {
+  const violations: string[] = [];
+  for (const [name, events] of effectiveEvents(workflows)) {
+    if (![...events].some((event) => PRIVILEGED_EVENTS.has(event) || event === "uncalled-reusable")) continue;
+    const workflow = workflows[name]!;
+    const dataOnly = DATA_ONLY[name];
+    const dataJob = dataOnly === undefined ? undefined : (workflow.jobs as Readonly<Record<string, Readonly<Record<string, YamlValue>>>>)[dataOnly.job];
+    const dataJobClean = dataJob !== undefined && !((dataJob.steps ?? []) as readonly Step[]).some((step) =>
+      (step.uses instanceof Commented && step.uses.value.startsWith("actions/checkout@")) || (typeof step.run === "string" && GIT_FETCH.test(step.run)));
+    const declared = (path: string): boolean => dataOnly !== undefined && dataJobClean && dataOnly.variables.some((variable) => path === `jobs.${dataOnly.job}.env.${variable}`);
+    for (const { path, value } of stringsOf(workflow, "")) {
+      if (path === "on" || path.startsWith("on.") || declared(path)) continue;
+      if (PULL_REQUEST_CONTROLLED.test(value)) violations.push(`${name}: ${path} names a value a pull request controls in a run that holds the base repository's privilege`);
+      else if (HEAD_IN_TEXT.test(value)) violations.push(`${name}: ${path} fetches, checks out or reads a pull request's head in a run that holds the base repository's privilege`);
+    }
+  }
+  return violations;
+}
+
+/**
+ * Refuses a SET of workflows that is not fork-safe ({@link forkSafetyViolations}), or two of which share a
+ * concurrency group prefix (one would cancel the other's runs).
+ */
 export function lintWorkflowSet(workflows: Readonly<Record<string, Workflow>>): void {
+  const unsafe = forkSafetyViolations(workflows);
+  if (unsafe.length > 0) throw new InputError(`generated workflows are not fork-safe: ${unsafe.join("; ")}`, "workflow_lint_refused");
   const owners = new Map<string, string>();
   for (const [name, workflow] of Object.entries(workflows)) {
     if (workflow.concurrency === undefined) continue;
