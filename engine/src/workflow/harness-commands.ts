@@ -51,6 +51,7 @@ import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexB
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
 import { syncCommunityFiles } from "./community/health-files.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
+import { syncForgeFiles } from "./forge/generated-files.ts";
 import { acceptFrozenRecords, frozenRecordsMessage, syncFrozenRecords, type FrozenRecordsReport } from "./record-links.ts";
 import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
 import { engineAndCheckoutRoots, repositoryToplevel } from "../git/repository-ownership.ts";
@@ -146,6 +147,8 @@ export type HarnessCheckOutput = Readonly<{
   shippedHooks: CheckStepResult;
   /** Would `harness regenerate` rewrite the ignore file's generated evidence block (a manifest was added, moved or removed)? */
   evidenceIgnore: CheckStepResult;
+  /** Would `harness regenerate` rewrite a generated forge file under `.github/forge/` (src/workflow/forge/generated-files.ts)? */
+  forgeFiles: CheckStepResult;
   /** Does every file under a frozen record root hold the content its pinned manifest records (src/workflow/record-links.ts)? */
   frozenRecords: CheckStepResult;
   /** Does the published guardian spec-schema artifact equal a fresh projection of GUARDIAN_SPEC_SCHEMA (scripts/verification/guardian-spec-artifact.ts)? */
@@ -244,6 +247,12 @@ export type HarnessRegenerateOutput = Readonly<{
    * so the folder materialize writes into is ignored by construction.
    */
   evidenceIgnore: DecisionIndexArm;
+  /**
+   * The forge's generated files (`.github/forge/`: the App manifests and
+   * their index), from the App registry and the `forge` configuration
+   * section (src/workflow/forge/generated-files.ts).
+   */
+  forgeFiles: DecisionIndexArm;
   /** The frozen record roots' pinned content (`ROOT_POLICY.verification.frozenRecordManifest`, src/workflow/record-links.ts). */
   frozenRecords: DecisionIndexArm;
   /**
@@ -498,6 +507,17 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the evidence ignore rule...");
   steps.push(evidenceIgnoreStep(regenerateEvidenceIgnore(root, false)));
 
+  emitProgress(onProgress, "Checking the generated forge files...");
+  const forgeFiles = regenerateForgeFiles(root, false);
+  steps.push(deepFreeze({
+    step: "forge-files",
+    status: forgeFiles.converged ? "pass" : "fail",
+    message: forgeFiles.converged
+      ? "every generated forge file under .github/forge/ is its owner's bytes"
+      : `generated forge files differ from their owners (run harness sync): ${forgeFiles.changed.join(", ")}`,
+    details: forgeFiles,
+  }));
+
   emitProgress(onProgress, "Checking the frozen record roots' pinned content...");
   steps.push(frozenRecordsStep(syncFrozenRecords(trackedTop(root), false)));
 
@@ -552,11 +572,12 @@ export async function harnessCheck(
     promotions: steps[14]!,
     shippedHooks: steps[15]!,
     evidenceIgnore: steps[16]!,
-    frozenRecords: steps[17]!,
-    guardianSpecArtifact: steps[18]!,
-    trackerBoard: steps[19]!,
-    artifactManifest: steps[20]!,
-    communityFiles: steps[21]!,
+    forgeFiles: steps[17]!,
+    frozenRecords: steps[18]!,
+    guardianSpecArtifact: steps[19]!,
+    trackerBoard: steps[20]!,
+    artifactManifest: steps[21]!,
+    communityFiles: steps[22]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -936,6 +957,8 @@ export function harnessRegenerate(
   const shippedHooks = regenerateShippedHooks(root, write);
   // The evidence ignore rule: derived from the tracked evidence manifests.
   const evidenceIgnore = regenerateEvidenceIgnore(root, write);
+  // The forge's generated files: the App manifests and their index, from the registry and the `forge` section.
+  const forgeFiles = regenerateForgeFiles(root, write);
   // The frozen roots' pinned content: a change there is a manifest change the diff shows.
   const frozenRecords = syncFrozenRecords(trackedTop(root), write);
   // The community health files and forms, from their sources (before the inventory digests them).
@@ -944,7 +967,7 @@ export function harnessRegenerate(
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -960,7 +983,7 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && frozenRecords.converged && communityFiles.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1304,6 +1327,12 @@ function regenerateDecisionIndex(root: string, write: boolean): DecisionIndexArm
 /** The evidence ignore arm (in process: the evidence store is a runtime module): the generated block, from the tracked manifests. */
 function regenerateEvidenceIgnore(root: string, write: boolean): DecisionIndexArm {
   const report = syncEvidenceIgnore(trackedTop(root), write);
+  return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
+}
+
+/** The forge-files arm (in process): `.github/forge/` from the App registry and the `forge` configuration section. */
+function regenerateForgeFiles(root: string, write: boolean): DecisionIndexArm {
+  const report = syncForgeFiles(trackedTop(root), loadPinnedConfigSnapshot().document.forge, write);
   return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
 }
 
@@ -1975,7 +2004,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 export const HARNESS_SUBCOMMANDS = deepFreeze([
   "check", "test", "register", "regenerate", "sync", "new-module", "eval",
   "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "slot", "flake", "frozen",
+  "format", "index", "deletions", "evidence", "promote", "slot", "flake", "frozen", "forge",
 ] as const);
 
 export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
@@ -2113,6 +2142,10 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
     } else if (subcommand === "slot") {
       const { runSlotCli } = await import("./slot-cli.ts");
       answer = await runSlotCli(rest);
+    } else if (subcommand === "forge") {
+      // GitHub, the one forge (src/workflow/forge/): its own answers and codes.
+      const { runForgeCli } = await import("./forge/cli.ts");
+      answer = await runForgeCli(root, rest, onProgress);
     } else if (subcommand === "flake") {
       const { runFlakeCli } = await import("./flake-cli.ts");
       answer = await runFlakeCli(rest);

@@ -126,6 +126,8 @@ These verbs are for maintainers of the development floor. They assume the privat
 | `harness frozen` | Inspect or accept frozen records |
 | `harness rollback` | Roll back a recorded change |
 | `harness slot` | Run a bounded long task under the slot supervisor |
+| `harness forge apps manifests [--check]` | Write (or check) the generated App manifests under `.github/forge/` from the App registry (`engine/src/workflow/forge/`) |
+| `harness forge apps create` | Serve the local Apps page (127.0.0.1) that creates the four GitHub Apps from their manifests and stores each key where the registry says |
 
 ## Development scripts
 
