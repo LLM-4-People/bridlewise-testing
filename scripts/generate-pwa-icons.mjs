@@ -73,7 +73,8 @@ export function markSvg(colors = markColors()) {
   ].join("\n");
 }
 
-const rgb = (hex) => [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+/** A `#rrggbb` value as its three channels. */
+const rgb = (hex) => hex.slice(1).match(/../g).map((pair) => Number.parseInt(pair, 16));
 
 /** Distance from point p to segment a–b. */
 function segmentDistance(px, py, [ax, ay], [bx, by]) {
@@ -105,7 +106,7 @@ export function markPng(size, colors = markColors()) {
     const rowOff = y * (rowLen + 1);
     raw[rowOff] = 0; // filter type 0 (None)
     for (let x = 0; x < size; x++) {
-      const acc = [0, 0, 0];
+      const acc = new Array(3).fill(0);
       for (let sy = 0; sy < S; sy++) {
         for (let sx = 0; sx < S; sx++) {
           const gx = (x + (sx + 0.5) / S) / scale;

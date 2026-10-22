@@ -13,14 +13,14 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { runInNewContext } from "node:vm";
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { read } from "../helpers/source-scan.ts";
 
 import { modulePathMatching } from "../helpers/module-resolver.ts";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program (as in floor-site-links.test.ts).
 import { markColors, markOutputs } from "../../scripts/generate-pwa-icons.mjs";
-import { assetsDigest, cachedFiles, committedServiceWorker, serviceWorkerDigestPlugin, withAssetsDigest } from "../../scripts/service-worker-cache.ts";
+import { assetsDigest, cachedFiles, committedServiceWorker, precachedUrls, serviceWorkerDigestPlugin, uncoveredPrecache, withAssetsDigest } from "../../scripts/service-worker-cache.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
 const root = resolve(import.meta.dirname, "../..");
 // The worker's own cache names: its generation and the generated icons digest (scripts/generate-pwa-icons.mjs).
@@ -129,8 +129,40 @@ describe("PWA — service worker (public/sw.js)", () => {
     expect(() => withAssetsDigest("const x = 1;", "abc")).toThrow(/carries no/);
   });
 
+  it("the digest covers exactly what the worker precaches: a file it misses is refused, a file added to the list joins it", () => {
+    const assets = cachedFiles(resolve(root, "public"));
+    const urls = precachedUrls(sw);
+    expect(urls, "the worker precaches the app shell, the manifest and the icons").toEqual(expect.arrayContaining(["/", "/manifest.json", "/icons/icon.svg"]));
+    expect(uncoveredPrecache(sw, assets), "every precached URL but the navigation root is a digest input").toEqual([]);
+    // Plant 1: a precached file left out of the digest's inputs (the NOT_CACHED mutation) is named, and the owner refuses it.
+    const missing = new Map(assets);
+    missing.delete("icons/icon.svg");
+    expect(uncoveredPrecache(sw, missing)).toEqual(["/icons/icon.svg"]);
+    const copy = createTempDir("sw-precache-");
+    cpSync(resolve(root, "public"), resolve(copy, "public"), { recursive: true });
+    const before = committedServiceWorker(copy);
+    // Plant 2: a URL added to the precache list with no file behind it is refused by name, never digested around.
+    const listed = sw.replace('"/manifest.json",', '"/manifest.json", "/icons/icon-1024.png",');
+    expect(listed, "the plant landed").not.toBe(sw);
+    writeFileSync(resolve(copy, "public/sw.js"), listed);
+    expect(() => committedServiceWorker(copy)).toThrow(/precaches \/icons\/icon-1024\.png, which the cached-assets digest does not cover/u);
+    // Once the file exists it is a digest input, so adding it is a new cache.
+    writeFileSync(resolve(copy, "public/icons/icon-1024.png"), "png");
+    const added = committedServiceWorker(copy);
+    expect(added).not.toBe(listed);
+    expect(/const ASSETS_DIGEST = "([0-9a-f]{12})";/u.exec(added)![1]).not.toBe(/const ASSETS_DIGEST = "([0-9a-f]{12})";/u.exec(before)![1]);
+    // One changed byte of a precached icon is a new digest.
+    const icon = readFileSync(resolve(copy, "public/icons/icon.svg"));
+    icon.writeUInt8(icon.readUInt8(icon.length - 1) ^ 1, icon.length - 1);
+    writeFileSync(resolve(copy, "public/icons/icon.svg"), icon);
+    expect(committedServiceWorker(copy)).not.toBe(added);
+    expect(() => precachedUrls("const x = 1;")).toThrow(/carries no/u);
+    expect(() => precachedUrls("const PRECACHE_URLS = [];")).toThrow(/names no URL/u);
+  });
+
   it("the build sets the BUILT worker's digest from every emitted file, bundles included", () => {
     const dist = createTempDir("sw-digest-");
+    cpSync(resolve(root, "public"), dist, { recursive: true });
     mkdirSync(resolve(dist, "assets"), { recursive: true });
     writeFileSync(resolve(dist, "sw.js"), sw);
     writeFileSync(resolve(dist, "assets/index-abc12345.js"), "console.log(1)");
