@@ -36,6 +36,9 @@ jobs:
     steps:
       - name: Check out testing floor
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The roadmap feed replays the tracker's first-parent history.
+          fetch-depth: 0
 
       - name: Check out product docs
         id: product
@@ -77,6 +80,17 @@ jobs:
             --testing . \
             --product product \
             --out .site/floor/data
+
+      - name: Compute and render the roadmap
+        run: |
+          node engine/scripts/tooling/roadmap-feed.ts \
+            --at HEAD \
+            --repository-url "https://github.com/${{ github.repository }}" \
+            --out .site/floor/roadmap/data/roadmap.json
+          node engine/scripts/roadmap/cli.ts build \
+            --feed .site/floor/roadmap/data/roadmap.json \
+            --site .site \
+            --out .site/floor/roadmap
 
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1

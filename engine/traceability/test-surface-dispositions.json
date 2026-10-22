@@ -2533,6 +2533,22 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/roadmap/graph.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/roadmap/render.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/runtime/admitted-node-runtime.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4237,5 +4253,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "b1fc56c1db8d04757ef0ba3e6d4fcf4adf156d21ee07dd598063e7b2f89bc5f6"
+  "integrityHash": "9cc83c2d78d040077030b31221da0c88036fe44d82327c416d9d9e22dec955f1"
 }

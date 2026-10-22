@@ -60,12 +60,9 @@ ships into the client bundle or the server runtime.
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes
   through the forge port (`engine/src/workflow/forge/repository-reads.ts`).
-  `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
-  blocks: it renders them from the tracker items (`docs/trackers/items/`,
-  states computed by `engine/src/workflow/tracker-status.ts`), the decision
-  records, and the non-proofs in `docs/floor/evidence.md`. Run `npm run docs:roadmap` to regenerate;
-  `npm run docs:roadmap -- --check` is the read-only form, and
-  `tests/prevention/roadmap-status-owner.test.ts` refuses drift.
+  The roadmap is not rendered here: the site build computes the roadmap
+  feed (`engine/scripts/tooling/roadmap-feed.ts`) and renders it with
+  `engine/scripts/roadmap/cli.ts build`.
 
 ## Where it lives and what consumes it
 

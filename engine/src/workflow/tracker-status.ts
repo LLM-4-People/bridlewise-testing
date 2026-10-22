@@ -28,10 +28,10 @@
  * `built` (done), `partly built` (partial), `designed` (pending) or
  * `standing` (a rule that binds all work and is never "done").
  *
- * PURE: no import, no I/O, no clock. The roadmap page
- * (scripts/floor/roadmap-status.ts), the roadmap data feed and the GitHub
- * projector's sealed realm (src/workflow/forge/projector/) all read states
- * from this one function.
+ * PURE: no import, no I/O, no clock. The roadmap data feed and the GitHub
+ * projector's sealed realm (src/workflow/forge/projector/) read states from
+ * this one function; the roadmap page (engine/scripts/roadmap/) renders the
+ * feed and computes none.
  */
 
 export const ROADMAP_STATES = Object.freeze(["shipped", "claimed", "in progress", "planned", "blocked", "not planned"] as const);

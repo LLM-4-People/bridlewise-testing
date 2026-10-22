@@ -177,7 +177,6 @@ The `tests/prevention/` folder of the development surface.
 - `rewind-record-and-addressing.test.ts` — @vitest-environment node; recorded rewinds, page scoping, refusals, and hostile addressing.
 - `rewind-restore.test.ts` — @vitest-environment node; the restore core and the append-only lane's disjoint prefixes.
 - `rewind-restore-hostile.test.ts` — @vitest-environment node; restore refusals, cross-chat/user cases, and concurrent reversals.
-- `roadmap-status-owner.test.ts` — the roadmap's generated blocks are the renderer's output from the tracker items: every open item, every roadmap item and milestone, and every evidence-page non-proof appears; a state moves only with its evidence (a close with no proof is `claimed`); item markup (a planted script, an `img onerror`, a `javascript:` link) is refused; a hand edit, a loose roadmap item, a dead evidence anchor or a missing marker is refused.
 - `route-registry.test.ts` — @vitest-environment node.
 - `run-ends-are-announced.test.ts` — @vitest-environment node.
 - `run-executes-once.test.ts` — @vitest-environment node.

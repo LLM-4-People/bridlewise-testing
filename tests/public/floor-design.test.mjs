@@ -9,14 +9,15 @@ import { coverage } from "../../scripts/floor/design-coverage.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
-test("the roadmap uses the site's ordinary components, not a private vocabulary", () => {
+test("the roadmap is a page shell the renderer fills, styled by the floor layer alone", () => {
   const roadmap = readFileSync(join(ROOT, "docs/floor/roadmap.md"), "utf8");
-  assert.match(roadmap, /^page_class: article$/mu);
-  assert.doesNotMatch(roadmap, /class="roadmap-/u);
-  assert.match(roadmap, /^### Milestone plan$/mu);
-  assert.match(roadmap, /^\| Workstream \| State \| Owner \| Evidence \|$/mu);
+  assert.match(roadmap, /^page_class: roadmap$/mu);
+  assert.match(roadmap, /^<!-- BEGIN GENERATED AT PUBLISH: the roadmap/mu);
+  assert.match(roadmap, /^<!-- END GENERATED AT PUBLISH: the roadmap -->$/mu);
+  assert.doesNotMatch(roadmap, /ROADMAP-PLAN/u, "no hand-kept plan: the roadmap is the feed's");
   const css = readFileSync(join(ROOT, "docs/assets/floor/floor.css"), "utf8");
-  assert.doesNotMatch(css, /\\.roadmap-/u);
+  assert.doesNotMatch(css, /\.roadmap-|\.rm-/u, "the roadmap's components are floor components, not a private vocabulary");
+  assert.match(css, /\.floor-roadmap \{/u);
   assert.match(css, /--floor-space-4/u);
 });
 

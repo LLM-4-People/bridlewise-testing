@@ -66,6 +66,7 @@ The `engine/test/` folder of the development surface.
 - `quality-packs/`
 - `regression/`
 - `research/`
+- `roadmap/`
 - `runtime/`
 - `s1-scenarios/`
 - `safety/`

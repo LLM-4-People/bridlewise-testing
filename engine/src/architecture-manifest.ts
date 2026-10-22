@@ -187,6 +187,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       "scripts/pin-authority-regeneration.ts",
       "scripts/post-commit.ts",
       "scripts/regenerate-handoff-manifest.ts",
+      "scripts/roadmap/cli.ts",
       "scripts/test-inventory.ts",
       "scripts/tooling/artifact-manifest.ts",
       "scripts/tooling/bootstrap-permissions.ts",
@@ -5688,6 +5689,27 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-workflow-forge-projector-roadmap-feed", path: "src/workflow/forge/projector/roadmap-feed.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 9, namesSha256: "d7efd7b3505eccb1472f3f71f21a39cb479b85fbd7a0c38eeb71759073374f7a" },
       dependencies: ["src/kernel/ordered.ts","src/kernel/product-identity.ts","src/workflow/tracker-status.ts"],
+    }),
+    moduleContract({
+      id: "scripts-brand-messaging", path: "scripts/brand/messaging.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 5, namesSha256: "32b7bd7e8765493e90694a228297d8b8c8e368f73062f64480868f50091db67f" },
+      dependencies: ["node:fs","node:path","src/kernel/errors.ts"],
+    }),
+    moduleContract({
+      id: "scripts-roadmap-cli", path: "scripts/roadmap/cli.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 3, namesSha256: "dfed18dcc28baa66bbcb2e09ac2d7d442446424d2951d4943d5c06e29f6ed511" },
+      dependencies: ["node:fs","node:path","node:url","node:util","scripts/brand/messaging.ts","scripts/roadmap/graph.ts","scripts/roadmap/render.ts","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/runtime/cli-debug.ts","src/workflow/forge/projector/roadmap-feed.ts"],
+      executionBoundary: "composition-root", compositionRoot: true,
+    }),
+    moduleContract({
+      id: "scripts-roadmap-graph", path: "scripts/roadmap/graph.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 13, namesSha256: "83fc4f7a710a2e347bfcc7f2f35bd432410dc639e904e13e3baac7869a839166" },
+      dependencies: ["../shared/markup.ts","src/kernel/errors.ts","src/tools/concurrent/dependency-graph.ts"],
+    }),
+    moduleContract({
+      id: "scripts-roadmap-render", path: "scripts/roadmap/render.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 10, namesSha256: "359d7f10330d46c258cf2f96131f366572eb3030428fbe09727c1b3be5fdd65a" },
+      dependencies: ["../shared/markup.ts","src/workflow/tracker-status.ts"],
     }),
   ],
 });
