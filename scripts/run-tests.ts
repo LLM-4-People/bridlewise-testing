@@ -258,12 +258,14 @@ async function main(): Promise<void> {
   const keptOut = temporaryRootKeepOutRefusal(fileURLToPath(new URL("../engine/", import.meta.url)));
   if (keptOut !== undefined) {
     process.stderr.write(`[run-tests] REFUSED (temporary_root_kept_out) — ${keptOut}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   const watchdog = readWebSuiteWatchdog();
   if ("missing" in watchdog) {
     process.stderr.write(`[run-tests] ${watchdog.missing}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   const strays = strayVitest();
   if (strays.length > 0) {
@@ -277,36 +279,44 @@ async function main(): Promise<void> {
   // vitest's own global setup then runs inside this hold, and the supervisor
   // that runs vitest is adopted into it.
   const instrumentLock = await enforceTestRunLock("web npm test", { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
-  const invocationId = qualificationInvocation(process.env);
-  const tree = readMeasuredTree(projectDir);
-  const run = await superviseRun("npx", ["vitest", "run", ...process.argv.slice(2)], watchdog, {
-    killOnInterrupt: true, stopWhenLauncherExits: true,
-    environment: { ...process.env, [QUALIFICATION_INVOCATION_ENV]: invocationId },
-  });
-  process.stderr.write(`${sweepEndedRunTemporaries("run-tests")}\n`);
-  const completion = supervisedCommandOutcome(run.terminal, "web test command");
-  if (completion.kind !== "pass") process.stderr.write(`[run-tests] ${completion.message}\n`);
-  const history = resolve(projectDir, WEB_RUN_HISTORY_PATH);
-  // A focused/cold run legitimately has no numeric row. A workspace suite
-  // gate refuses that absence; this wrapper never fabricates a measurement.
-  if (runForInvocation(history, invocationId) !== undefined) {
-    if (tree === null || readMeasuredTree(projectDir) !== tree) {
-      process.stderr.write("[run-tests] current qualification tree changed or is unreadable\n");
-      process.exit(1);
+  // The run's verdict is the exit code, set before the lock is released; the
+  // process then drains (never `process.exit()`, which can deadlock at
+  // shutdown: Node #54918, #351).
+  try {
+    const invocationId = qualificationInvocation(process.env);
+    const tree = readMeasuredTree(projectDir);
+    const run = await superviseRun("npx", ["vitest", "run", ...process.argv.slice(2)], watchdog, {
+      killOnInterrupt: true, stopWhenLauncherExits: true,
+      environment: { ...process.env, [QUALIFICATION_INVOCATION_ENV]: invocationId },
+    });
+    process.stderr.write(`${sweepEndedRunTemporaries("run-tests")}\n`);
+    const completion = supervisedCommandOutcome(run.terminal, "web test command");
+    if (completion.kind !== "pass") process.stderr.write(`[run-tests] ${completion.message}\n`);
+    process.exitCode = completion.kind === "pass" ? run.exitCode : 1;
+    const history = resolve(projectDir, WEB_RUN_HISTORY_PATH);
+    // A focused/cold run legitimately has no numeric row. A workspace suite
+    // gate refuses that absence; this wrapper never fabricates a measurement.
+    if (runForInvocation(history, invocationId) !== undefined) {
+      if (tree === null || readMeasuredTree(projectDir) !== tree) {
+        process.stderr.write("[run-tests] current qualification tree changed or is unreadable\n");
+        process.exitCode = 1;
+        return;
+      }
+      try { finalizeQualifiedRun(history, invocationId, tree, qualificationTerminal(invocationId, tree, run.terminal, run.ending)); }
+      catch {
+        process.stderr.write("[run-tests] current qualification finalization refused\n");
+        process.exitCode = 1;
+      }
     }
-    try { finalizeQualifiedRun(history, invocationId, tree, qualificationTerminal(invocationId, tree, run.terminal, run.ending)); }
-    catch {
-      process.stderr.write("[run-tests] current qualification finalization refused\n");
-      process.exit(1);
-    }
+  } finally {
+    instrumentLock.release();
   }
-  instrumentLock.release();
-  process.exit(completion.kind === "pass" ? run.exitCode : 1);
 }
 
 // Only run when invoked as a script, so the tests above can import the
 // stray finder without launching a suite.
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  await asLockDoor(main);
+  const interrupted = await asLockDoor(main);
+  if (interrupted !== null) process.exitCode = interrupted;
 }

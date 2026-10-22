@@ -22,3 +22,12 @@ import { parentPort } from "node:worker_threads";
 export function postWorkerResult(result: unknown): void {
   parentPort?.postMessage(result);
 }
+
+/**
+ * THE ONE REFUSAL of a worker entry started without a parent port (run directly
+ * as a program): thrown, never `process.exit()`, which can deadlock at shutdown
+ * (Node #54918, #351).
+ */
+export function requireWorkerThread(): void {
+  if (parentPort === null) throw new Error("this module is a worker thread's entry; start it as a worker");
+}

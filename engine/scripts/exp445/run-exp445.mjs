@@ -684,5 +684,5 @@ async function main() {
 
 main().catch((err) => {
   console.error("FATAL:", err);
-  process.exit(1);
+  process.exitCode = 1;
 });

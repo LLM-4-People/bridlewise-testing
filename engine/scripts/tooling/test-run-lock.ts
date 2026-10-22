@@ -199,18 +199,22 @@ export async function enforceTestRunLock(
 }
 
 /**
- * A door's entry point: `run`, and when a signal ended its wait for the lock
- * (`instrument_lock_wait_interrupted`), said and exited as the signal would
- * have (128 + its number) — the door never went on to take the lock.
+ * A door's entry point: `run`, and `null` when it ran. When a signal ended its
+ * wait for the lock (`instrument_lock_wait_interrupted`), the wait is said and
+ * the exit code the signal asks for (128 + its number) is answered: the door
+ * never went on to take the lock, and its caller sets that code and lets the
+ * process drain (never `process.exit()`, which can deadlock at shutdown: Node
+ * #54918, #351).
  */
-export async function asLockDoor(run: () => Promise<void>): Promise<void> {
+export async function asLockDoor(run: () => Promise<void>): Promise<number | null> {
   try {
     await run();
+    return null;
   } catch (error) {
     const code = interruptedWaitExitCode(error);
     if (code === undefined) throw error;
     process.stderr.write(`[test-run-lock] ${(error as Error).message}\n`);
-    process.exit(code);
+    return code;
   }
 }
 

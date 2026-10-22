@@ -61,7 +61,7 @@ function repository(): Fixture {
       writeFileSync(join(root, path), text);
     }
     git("add", "--", ...Object.keys(files));
-    git("commit", "-q", "-m", message);
+    git("commit", "-s", "-q", "-m", message);
     return git("rev-parse", "HEAD");
   };
   return { root, engineRoot: join(root, "engine"), git, commit, tree: () => git("rev-parse", "HEAD^{tree}") };
@@ -372,7 +372,7 @@ test("a cause the LATEST tree no longer holds is other bytes: a fixed suspect st
   const brokenTree = fixture.tree();
   const fix = fixture.commit({ "engine/src/door.ts": "fixed\n" }, `fix\n\nFlake-cause: ${IDENTITY} => engine/src/door.ts`);
   fixture.git("rm", "-q", "engine/src/door.ts");
-  fixture.git("commit", "-q", "-m", "the door is gone");
+  fixture.git("commit", "-s", "-q", "-m", "the door is gone");
   const goneTree = fixture.tree();
   record(fixture, IDENTITY, fix, ["engine/test/x.test.ts", "engine/src/door.ts"], FAILED_SO);
   assert.deepEqual(reds([row("2026-10-07T20:00:00.000Z", brokenTree, [IDENTITY], FAILED_SO), row("2026-10-07T22:00:00.000Z", goneTree, [])], await evidenceOf(fixture)), []);
@@ -441,14 +441,18 @@ test("THE SHIPPED commit-msg HOOK refuses a malformed Flake-cause trailer and pa
   chmodSync(hook, 0o755);
   symlinkSync(engine, join(scratch, "engine"));
   writeFileSync(join(scratch, "readme.md"), "# scratch\n");
-  execFileSync("git", ["-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-q", "--allow-empty", "-m", "base"], { cwd: scratch, stdio: "pipe" });
+  execFileSync("git", ["-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-s", "-q", "--allow-empty", "-m", "base"], { cwd: scratch, stdio: "pipe" });
   const run = (message: string): ReturnType<typeof spawnSync> => {
     writeFileSync(join(scratch, "COMMIT_EDITMSG"), message);
-    return spawnSync("sh", [hook, join(scratch, "COMMIT_EDITMSG")], { cwd: scratch, encoding: "utf8", maxBuffer: 1 << 24 });
+    // Signed off by the committer the hook sees (the DCO is one of the message's duties).
+    return spawnSync("sh", [hook, join(scratch, "COMMIT_EDITMSG")], {
+      cwd: scratch, encoding: "utf8", maxBuffer: 1 << 24, env: { ...process.env, GIT_COMMITTER_NAME: "hook", GIT_COMMITTER_EMAIL: "hook@example.invalid" },
+    });
   };
-  const good = run(`fix\n\nFlake-cause: ${IDENTITY} => engine/src/door.ts\n`);
+  const signedOff = "Signed-off-by: hook <hook@example.invalid>";
+  const good = run(`fix\n\nFlake-cause: ${IDENTITY} => engine/src/door.ts\n${signedOff}\n`);
   assert.equal(good.status, 0, String(good.stderr));
-  const bad = run(`fix\n\nFlake-cause: ${IDENTITY} => engine/src/\n`);
+  const bad = run(`fix\n\nFlake-cause: ${IDENTITY} => engine/src/\n${signedOff}\n`);
   assert.notEqual(bad.status, 0);
   assert.match(String(bad.stderr), /Flake-cause trailer of this message is malformed/u);
 });
