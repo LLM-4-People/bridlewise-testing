@@ -26,7 +26,8 @@
  *   - THE DOOR: credentials in a URL refused before anything runs; usage.
  */
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
@@ -55,7 +56,8 @@ import {
   type HistoryScan,
   type OracleRunner,
 } from "../../src/workflow/forge/history-import.ts";
-import { historyToolPath, historyToolPin, resolveHistoryTool, runBounded } from "../../src/workflow/forge/history-tools.ts";
+import { historyToolPath, historyToolPin, installHistoryTools, resolveHistoryTool, runBounded, type HistoryToolPin } from "../../src/workflow/forge/history-tools.ts";
+import { address, received, serve } from "../support/loopback-upstream.ts";
 import { isProcessAlive } from "../../src/process/process-facts.ts";
 import { runCpuBounded, type CpuBounds } from "../../src/process/supervised-run.ts";
 import { armTestKeyHome } from "../support/test-key-home.ts";
@@ -334,9 +336,9 @@ test("the oracle's configuration: every catalogue row projected or named, never 
   for (const row of projection.notProjected) assert.ok(text.includes(`#   ${row.id}: `));
 });
 
-test("pinned tools: absent names the provisioning command, other bytes are refused, an unpinned platform is refused", () => {
+test("pinned tools: absent names the install verb, other bytes are refused, an unpinned platform is refused", () => {
   const home = createOwnedTemporaryDirectory(armTestKeyHome(), "import-home-");
-  assert.throws(() => resolveHistoryTool(home, "gitleaks"), (error: Error & { code?: string }) => error.code === "history_tool_missing" && error.message.includes(historyToolPin("gitleaks").archiveSha256) && error.message.includes("sha256sum -c"));
+  assert.throws(() => resolveHistoryTool(home, "gitleaks"), (error: Error & { code?: string }) => error.code === "history_tool_missing" && error.message.includes("harness forge install-history-tools"));
   const path = historyToolPath(home, historyToolPin("git-filter-repo"));
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, "#!/usr/bin/env python3\nprint('not the pinned script')\n");
@@ -435,4 +437,32 @@ test("the work-bounded run bounds the whole GROUP: a grandchild holding the pipe
   assert.equal(leaderSpent.ending, "cpu-exhausted");
   assert.ok((leaderSpent.cpuMs ?? 0) > TIGHT.cpuBudgetMs, `the total kept the exited leader's work (${String(leaderSpent.cpuMs)} ms)`);
   assert.equal(isProcessAlive(Number(readFileSync(spent, "utf8"))), false);
+});
+
+test("install-history-tools: the archive comes through the door's pinned download (redirect to a pinned host), its member is checked against its own pin and written 0700; a present tool is left alone; a wrong member writes nothing", async () => {
+  const work = createTempDir("history-tools-release-");
+  const member = Buffer.from("#!/bin/sh\necho pinned tool\n");
+  mkdirSync(join(work, "tool-1.0"), { recursive: true });
+  writeFileSync(join(work, "tool-1.0", "tool"), member);
+  execFileSync("tar", ["-czf", join(work, "tool-1.0.tar.gz"), "-C", work, "tool-1.0/tool"]);
+  const archive = readFileSync(join(work, "tool-1.0.tar.gz"));
+  const pin: HistoryToolPin = { name: "tool", version: "1.0", platform: "any", release: { repository: "example/tool", tag: "v1.0", asset: "tool-1.0.tar.gz" }, archiveSha256: sha256(archive), member: "tool-1.0/tool", sha256: sha256(member), runner: "executable" };
+  serve(async (url) => new URL(url).pathname === "/example/tool/releases/download/v1.0/tool-1.0.tar.gz"
+    ? new Response(null, { status: 302, headers: { location: address("https://assets.example.net/blob") } })
+    : new Response(new Uint8Array(archive)));
+  const settings = { webUrl: address("https://forge.example"), downloads: { hosts: ["127.0.0.1"], maxRedirects: 2, maxBytes: 1 << 20, timeoutMs: 10_000 }, request: { timeoutMs: 10_000, maxResponseBytes: 1 << 20, cleanupTimeoutMs: 1_000, etagCacheEntries: 8, maxPages: 2 } };
+  const home = createOwnedTemporaryDirectory(armTestKeyHome(), "import-home-");
+  const installed = await installHistoryTools(home, settings, { pins: [pin], allowPrivateAddress: true });
+  assert.deepEqual(installed.map((tool) => tool.status), ["installed"]);
+  const path = historyToolPath(home, pin);
+  assert.deepEqual(readFileSync(path), member);
+  assert.equal(statSync(path).mode & 0o777, 0o700);
+  assert.equal(received.length, 2, "the release URL, then the pinned asset host");
+  assert.deepEqual((await installHistoryTools(home, settings, { pins: [pin], allowPrivateAddress: true })).map((tool) => tool.status), ["present"]);
+  // A member that is not its pin: refused, nothing written.
+  const other = createOwnedTemporaryDirectory(armTestKeyHome(), "import-home-");
+  await assert.rejects(installHistoryTools(other, settings, { pins: [{ ...pin, sha256: "0".repeat(64) }], allowPrivateAddress: true }), (error: Error & { code?: string }) => error.code === "history_tool_digest_mismatch");
+  assert.equal(existsSync(historyToolPath(other, pin)), false);
+  // An archive that is not its pin never reaches tar.
+  await assert.rejects(installHistoryTools(other, settings, { pins: [{ ...pin, archiveSha256: "1".repeat(64) }], allowPrivateAddress: true }), (error: Error & { code?: string }) => error.code === "outbound_download_digest_mismatch");
 });

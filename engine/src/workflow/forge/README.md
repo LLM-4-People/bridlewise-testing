@@ -33,9 +33,9 @@ prompt and held in memory.
 - `app-registry.ts` — THE APP REGISTRY (github-only §4.1): the four Apps (`agent`, `verifier`, `door`, `publisher`), each one's exact GitHub permissions, key custody (`host`, or a GitHub environment secret with its client-id variable) and the repository kinds it is installed on; `narrowedPermissions` (a token is never minted wider than the registry; `metadata: read` is implied).
 - `app-keys.ts` — THE HOST'S APP KEY CUSTODY: the agent's and verifier's keys in the key home (`<key home>/forge-apps/<role>.json`, 0600, written atomically and durably), `storeAppKey`, and `keyHomeCustody` — a custody that answers the App's public identity and SIGNS, and never hands the key out. Until cred-final's credential broker exists, the key home is the host's one key custody.
 - `history-import.ts` — THE HISTORY IMPORTER (above): `importHistory`, and its steps for the tests — `enumerateHistory`, `scanHistory` (one read of every blob, commit and tag, and of every path and ref name, for the catalogue's spans and the oracle's chunked findings), `judgeOracle` (covered, disposed or a gap), `planPurge` (the expressions, deterministic), `planRefs` (kept namespaces, everything else under `refs/heads/imported/`), `purgeResidue` (what the re-scan left), `decodedTexts`, `receiptRefusal` and `recordedLocation`, `readImportReview`, `admitImportHome`.
-- `history-tools.ts` — THE PINNED TOOLS: gitleaks 8.30.1 and git-filter-repo 2.47.0, each pinned by the sha256 of its release archive and of the file run (an AUTHORED PINS region), `resolveHistoryTool` (absent → the provisioning command; other bytes → refused), `runBounded` / `runHistoryTool` (a process group bounded by CPU time and a stall check, never wall time; stopped only through the owned-process `terminate`).
+- `history-tools.ts` — THE PINNED TOOLS: gitleaks 8.30.1 and git-filter-repo 2.47.0, each pinned by the sha256 of its release archive and of the file run (an AUTHORED PINS region), `resolveHistoryTool` (absent → `harness forge install-history-tools`; other bytes → refused), `installHistoryTools` (the release archive through the door's pinned download, the member extracted under the work-bounded run, both pins checked), `runBounded` / `runHistoryTool` (a process group bounded by CPU time and a stall check, never wall time; stopped only through the owned-process `terminate`).
 - `gitleaks-config.ts` — THE ORACLE'S CONFIGURATION, projected from the catalogue: gitleaks' default rules plus one `bridlewise-<row>` rule per catalogue row RE2 can express; a row with a lookaround or a JavaScript-only escape is named in the header, never approximated.
-- `forge-cli.ts` — `harness forge <verb>`: parses argv for the domain (`import-history`).
+- `forge-cli.ts` — `harness forge <verb>`: parses argv for the domain (`import-history`, `install-history-tools`).
 - `credentials.ts` — THE FOUR CREDENTIALS: `appInstallationCredential` (the installation looked up once, the token minted narrowed to one repository and the action's permissions, checked to be exactly what was asked — else `forge_token_scope_mismatch` —, cached in memory and renewed `renewBeforeMs` before it expires), `appJwtCredential` / `appJwt` (RS256, 9 minutes, `iss` = the client id), `environmentCredential` and `memoryCredential`.
 
 - `forge-config.ts` — THE `forge` CONFIGURATION SECTION (spliced into the config document by `src/kernel/config-contracts.ts`): the organisation, the API and web origins, the request bounds (timeout, body size, cleanup, ETag cache entries, page bound), the token renewal margin and the repository topology (name, `kind`, visibility, the proving ground; exactly one trunk); `forgeEndpoint`, `trunkRepository`, `repositoriesOfKinds`. No default in code; it imports no configuration reader (the kernel imports it).
@@ -50,10 +50,8 @@ mirrors the source into a run folder of the private import home
 (`HARNESS_IMPORT_HOME`, default `~/.local/state/bridlewise/history-import`,
 0700, kept out of every confined process) and enumerates every object of every
 ref. It reads each object ONCE and decodes every text it holds before any
-matching, judged over the WHOLE content (a BOM's encoding — UTF-8,
-UTF-16LE/BE, UTF-32LE/BE — else strict UTF-8, plus UTF-16 when the NULs sit
-at alternate positions, plus the printable UTF-16 runs anywhere in the bytes
-at both alignments); an object nothing
+matching (a BOM's encoding — UTF-8, UTF-16LE/BE, UTF-32LE/BE — else strict
+UTF-8, plus UTF-16 when the NULs sit at alternate positions); an object nothing
 decodes is matched byte for byte and refused unless the review exempts it by
 id. Both scanners read those texts: the secret CATALOGUE (the redaction
 engine's format layer, the same rows every scanner uses), which decides what
@@ -71,12 +69,13 @@ receipt itself (no absolute or home path: a local repository is recorded as
 pushes every ref with an explicit refspec, atomically and never forced, into
 an EMPTY target, then reads the target back. A secret in a path or a ref name,
 or a credential in a URL, is refused. The two tools are pinned by sha256 and
-checked before every run, and every tool process runs as a PROCESS GROUP
-under the one supervisor's work-bounded mode: the group's CPU time (members
-that vanished included) and a stall check (no output and no CPU progress),
-until its pipes close, never by wall time; the harness does not download them (the outbound door never
-follows a release asset's redirect), so a missing one's refusal prints its
-provisioning command.
+checked before every run, and every tool process is bounded by its process
+group's CPU time and a stall check (no output and no CPU progress), never by
+wall time. `harness forge install-history-tools` provisions them through the
+outbound door's ONE exception, the pinned download: no credential on it, a
+redirect only to a configured `forge.downloads.hosts` entry, the archive's
+pinned sha256 verified before `tar` extracts the member, and the member's own
+pin verified before it is written.
 
 ## Tests
 

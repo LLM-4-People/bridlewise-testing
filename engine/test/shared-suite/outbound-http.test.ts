@@ -21,6 +21,7 @@ import {
   closeConnection,
   closeOutboundConnections,
   connectionFreshForMs,
+  downloadPinned,
   isLoopbackHostName,
   isPublicAddress,
   openOutboundWebSocket,
@@ -31,7 +32,9 @@ import {
   remoteRefusedUnderTest,
   summedDispatcherState,
   type OutboundHttpRequest,
+  type PinnedDownloadRequest,
 } from "../../src/shared/outbound-http.ts";
+import { sha256 } from "../../src/kernel/integrity.ts";
 import { processUnderTest } from "../../src/filesystem/checkout-write-door.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { installOutboundPolicySource, OUTBOUND_POLICY_SCHEMA, outboundSignals } from "../../src/shared/outbound-policy.ts";
@@ -780,4 +783,53 @@ test("the pool's summed state refuses a client state that is not a number (the p
   const state = Symbol("kRunning");
   assert.equal(summedDispatcherState([{ [state]: 2 }, { [state]: true }, { [state]: 0 }], state), 3);
   assert.throws(() => summedDispatcherState([{ [state]: 1 }, {}], state), (error: unknown) => (error as { code?: string }).code === "outbound_pool_state_unreadable" && /answers its Symbol\(kRunning\) state as undefined, not a number/u.test((error as Error).message));
+});
+
+// ── THE ONE EXCEPTION: a credential-free, hash-pinned download (#78) ──────
+
+const ASSET = Buffer.from("the release archive's exact bytes\n");
+
+/** A pinned download of `address("https://releases.example.net/a.tar.gz")`, its pin ASSET's digest, redirects allowed only to this upstream's host. */
+function pinned(overrides: Partial<PinnedDownloadRequest> = {}): PinnedDownloadRequest {
+  return {
+    url: address("https://releases.example.net/a.tar.gz"), sha256: sha256(ASSET), redirectHosts: ["127.0.0.1"], maxRedirects: 2,
+    maxBytes: 1 << 20, cleanupTimeoutMs: 1_000, allowPrivateAddress: true, signal: AbortSignal.timeout(10_000), logCategory: "forge",
+    ...overrides,
+  };
+}
+
+/** The upstream as a release host: the archive URL redirects (once) to the asset host, which answers `asset`. */
+function releaseHost(asset: Buffer, target: string = address("https://assets.example.net/blob")): void {
+  serve(async (url) => new URL(url).hostname === "releases.example.net" ? new Response(null, { status: 302, headers: { location: target } }) : new Response(new Uint8Array(asset)));
+}
+
+test("pinned download: a redirect to a pinned host is followed as a fresh request with no header of the first; the bytes are answered only with their pinned digest", async () => {
+  releaseHost(ASSET);
+  const bytes = await downloadPinned(pinned({ protocolHeaders: { Accept: "application/octet-stream" } }));
+  assert.deepEqual(bytes, ASSET);
+  assert.equal(received.length, 2, "the archive URL, then the asset host");
+  assert.equal(received[0]!.headers.get("accept"), "application/octet-stream");
+  assert.equal(received[1]!.headers.get("accept"), null, "no header of the first request crosses the redirect");
+});
+
+test("pinned download: a request that carries a credential is refused before anything is sent, even toward a redirecting host", async () => {
+  releaseHost(ASSET);
+  for (const header of ["Authorization", "authorization", "Proxy-Authorization", "Cookie", "X-API-Key", "X-Session-Token"]) {
+    await assert.rejects(downloadPinned(pinned({ protocolHeaders: { [header]: "Bearer k" } })), (error) => codeOf(error) === "outbound_download_credentialed" && !(error as Error).message.includes("Bearer k"), header);
+    assert.equal(received.length, 0, `${header}: nothing was sent`);
+  }
+});
+
+test("pinned download: a redirect to an unpinned host, or past the redirect bound, is refused; a digest that is not the pin is refused and nothing is answered", async () => {
+  releaseHost(ASSET, "https://elsewhere.example.net/steal");
+  await assert.rejects(downloadPinned(pinned()), (error) => codeOf(error) === "outbound_redirect_refused" && (error as Error).message.includes("not a pinned download host"));
+  assert.equal(received.length, 1, "the unpinned target is never requested");
+  releaseHost(ASSET);
+  await assert.rejects(downloadPinned(pinned({ maxRedirects: 0 })), (error) => codeOf(error) === "outbound_redirect_refused" && (error as Error).message.includes("past the 0 redirect(s) allowed"));
+  releaseHost(Buffer.from("other bytes\n"));
+  await assert.rejects(downloadPinned(pinned()), (error) => codeOf(error) === "outbound_download_digest_mismatch" && (error as Error).message.includes(sha256(Buffer.from("other bytes\n"))));
+  serve(async () => new Response("gone", { status: 404 }));
+  await assert.rejects(downloadPinned(pinned()), (error) => codeOf(error) === "outbound_download_failed");
+  releaseHost(Buffer.alloc(4096));
+  await assert.rejects(downloadPinned(pinned({ maxBytes: 1024, sha256: sha256(Buffer.alloc(4096)) })), (error) => codeOf(error) === "outbound_body_too_large");
 });

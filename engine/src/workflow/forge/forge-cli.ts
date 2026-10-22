@@ -6,6 +6,9 @@
  *   path a history enters the forge (`history-import.ts`): scanned by the
  *   catalogue and the oracle, purged, re-scanned to zero, receipted, pushed
  *   into an empty target.
+ * - `install-history-tools`: provisions the importer's pinned tools
+ *   (`history-tools.ts`) through the HTTP door's pinned download; a tool
+ *   already present with its pinned bytes is left alone.
  */
 import { resolve } from "node:path";
 
@@ -15,9 +18,11 @@ import { resolveGitExecutable } from "../../git/git-adapter.ts";
 import { wrapResult, type CommandAnswer } from "../command-result.ts";
 import { trackedTop } from "../evidence-store.ts";
 import { ForgeError } from "./codes.ts";
+import { configuredForge } from "./configured-forge.ts";
+import { installHistoryTools, type HistoryToolInstall } from "./history-tools.ts";
 import { admitImportHome, importHistory, type HistoryImportReceipt, type HistoryImportRequest } from "./history-import.ts";
 
-const FORGE_VERBS = Object.freeze(["import-history"] as const);
+const FORGE_VERBS = Object.freeze(["import-history", "install-history-tools"] as const);
 
 const IMPORT_USAGE = "harness forge import-history <source> --to <target> [--review <file>]";
 
@@ -46,8 +51,14 @@ export function parseImportHistoryArguments(argv: readonly string[]): HistoryImp
   return Object.freeze({ source, target, ...(review === undefined ? {} : { review }) });
 }
 
-export async function runForgeCli(root: string, argv: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer<HistoryImportReceipt>> {
+export async function runForgeCli(root: string, argv: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer<HistoryImportReceipt | readonly HistoryToolInstall[]>> {
   const verb = argv[0];
+  if (verb === "install-history-tools") {
+    if (argv.length > 1) throw new ForgeError("history_import_usage", "harness forge install-history-tools takes no argument");
+    const installed = await installHistoryTools(admitImportHome(trackedTop(root)), configuredForge());
+    for (const tool of installed) onProgress(`${tool.tool} ${tool.version}: ${tool.status} (${tool.path})`);
+    return { result: wrapResult("forge", installed, { status: "pass" }) };
+  }
   if (verb !== "import-history") throw new InputError(`harness forge takes one of: ${FORGE_VERBS.join(", ")}`, "command_unavailable");
   const request = parseImportHistoryArguments(argv.slice(1));
   const home = admitImportHome(trackedTop(root));

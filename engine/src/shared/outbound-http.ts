@@ -37,6 +37,18 @@
  *     ANY 3xx answer is the typed refusal `outbound_redirect_refused`, with
  *     no second request — except 304 Not Modified, a conditional request's
  *     answer, which points nowhere (the forge's ETag cache relies on it).
+ *   - ONE EXCEPTION, SAFE BY CONSTRUCTION: A PINNED DOWNLOAD
+ *     ({@link downloadPinned}). A GET that carries NO credential (a header
+ *     the one sensitive-name owner flags is refused before anything is sent:
+ *     `outbound_download_credentialed`), whose bytes have a PINNED sha256,
+ *     may follow redirects — at most `maxRedirects`, each only to a host the
+ *     caller pins (`redirectHosts`, else `outbound_redirect_refused`), each
+ *     a fresh request with no header of the first — and its body is read
+ *     whole within `maxBytes` and refused unless its digest is the pinned one
+ *     (`outbound_download_digest_mismatch`): nothing it answers can run
+ *     unverified, and nothing secret can follow a redirect, because nothing
+ *     secret is ever on it. A release asset (GitHub serves one through a
+ *     redirect) is the case it exists for.
  *   - TLS IS VERIFIED. The platform fetch verifies certificates; the one way
  *     to switch that off process-wide (`NODE_TLS_REJECT_UNAUTHORIZED=0`) makes
  *     every `https:` request here the refusal
@@ -114,6 +126,7 @@ import type { LookupAddress } from "node:dns";
 import type { Dispatcher } from "undici";
 
 import { HarnessError, SecurityError } from "../kernel/errors.ts";
+import { sha256 } from "../kernel/integrity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { debugLog } from "./debug/debug-system.ts";
 import { deadline } from "./abort-signals.ts";
@@ -121,6 +134,7 @@ import { PROXY_VARIABLES } from "../process/environment-projection.ts";
 import { processUnderTest } from "../filesystem/checkout-write-door.ts";
 import { liveHostConsented } from "../process/live-network.ts";
 import { countOutboundRefusal, firstSightOf, outboundPolicy } from "./outbound-policy.ts";
+import { isSensitiveKeyName } from "../privacy/secret-signals.ts";
 
 export const CONTENT_TYPE_SSE = "text/event-stream";
 
@@ -959,6 +973,98 @@ export async function dispatchOutboundRequest(prepared: PreparedOutboundRequest,
 /** Prepare and dispatch one request under the policy. A refusal is thrown before or instead of any second request. */
 export async function outboundFetch(request: OutboundHttpRequest): Promise<Response> {
   return dispatchOutboundRequest(prepareOutboundRequest(request), request.body, request.signal);
+}
+
+/** A credential-free, hash-pinned download (see the module doc's one exception). */
+export type PinnedDownloadRequest = Readonly<{
+  url: string;
+  /** The sha256 the downloaded bytes must have, lower-case hex. */
+  sha256: string;
+  /** The hosts a redirect may lead to (exact host names); every other target is refused. */
+  redirectHosts: readonly string[];
+  maxRedirects: number;
+  maxBytes: number;
+  cleanupTimeoutMs: number;
+  /** Content negotiation only: a header that names a credential is refused before anything is sent. */
+  protocolHeaders?: Readonly<Record<string, string>> | undefined;
+  /** REQUIRED, as for every request: may it reach a loopback/private address? */
+  allowPrivateAddress: boolean;
+  signal: AbortSignal;
+  logCategory: string;
+}>;
+
+/** A header that carries a credential: the connection-level `Proxy-Authorization`, `Cookie`, or any name the one sensitive-name owner flags (`Authorization`, `X-API-Key`, …). */
+function carriesCredential(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower === "proxy-authorization" || lower === "cookie" || lower === "set-cookie" || isSensitiveKeyName(name);
+}
+
+/** A whole response body as bytes, within `maxBytes` (`outbound_body_too_large`). */
+async function readBodyBytes(response: Response, signal: AbortSignal, maxBytes: number, cleanupTimeoutMs: number, logCategory: string): Promise<Buffer> {
+  if (response.body === null) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const parts: Buffer[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      signal.throwIfAborted();
+      const { done, value } = await reader.read();
+      if (done) return Buffer.concat(parts);
+      bytes += value.byteLength;
+      if (bytes > maxBytes) throw tooLarge();
+      parts.push(Buffer.from(value));
+    }
+  } finally {
+    await cancelBody(() => reader.cancel(), cleanupTimeoutMs, logCategory);
+    reader.releaseLock();
+  }
+}
+
+/**
+ * DOWNLOAD `request.url`'s bytes, PINNED (the module doc's one exception):
+ * refused before anything is sent when a header names a credential; a
+ * redirect followed only to a pinned host, as a new request with no header
+ * of the first; the body read within `maxBytes`, and answered only when its
+ * sha256 is the pinned one. Every hop is prepared and routed like any
+ * request (URL checks, TLS, the destination rule, pinned addresses).
+ */
+export async function downloadPinned(request: PinnedDownloadRequest): Promise<Buffer> {
+  const { logCategory } = request;
+  const headers = request.protocolHeaders ?? {};
+  const credential = Object.keys(headers).find(carriesCredential);
+  if (credential !== undefined) {
+    refuse(logCategory, `A pinned download carries no credential, and this one names '${credential}': a redirect would carry it to a host the caller never named. Nothing was sent.`, "outbound_download_credentialed", { header: credential });
+  }
+  let url = request.url;
+  for (let hop = 0; ; hop += 1) {
+    const prepared = prepareOutboundRequest({ url, method: "GET", protocolHeaders: hop === 0 ? headers : {}, allowPrivateAddress: request.allowPrivateAddress, logCategory });
+    const response = await send(prepared, await routeOf(prepared), undefined, request.signal);
+    if (isRedirect(response)) {
+      void discardBody(response, logCategory);
+      const location = response.headers.get("location");
+      let target: URL;
+      try {
+        target = new URL(location ?? "", prepared.url);
+      } catch {
+        return refuse(logCategory, `${prepared.url.origin} answered a redirect with no usable location, so nothing more was fetched.`, "outbound_redirect_refused", { status: response.status, origin: prepared.url.origin });
+      }
+      if (location === null || hop >= request.maxRedirects || !request.redirectHosts.includes(target.hostname)) {
+        refuse(logCategory, `${prepared.url.origin} redirected (${response.status}) to ${target.origin}, which is ${hop >= request.maxRedirects ? `past the ${String(request.maxRedirects)} redirect(s) allowed` : "not a pinned download host"}, so nothing more was fetched.`, "outbound_redirect_refused", { status: response.status, origin: prepared.url.origin, target: target.origin });
+      }
+      url = target.href;
+      continue;
+    }
+    if (response.status !== 200) {
+      void discardBody(response, logCategory);
+      refuse(logCategory, `${prepared.url.origin} answered ${String(response.status)} to a pinned download, so nothing was taken.`, "outbound_download_failed", { status: response.status, origin: prepared.url.origin });
+    }
+    const bytes = await readBodyBytes(response, request.signal, request.maxBytes, request.cleanupTimeoutMs, logCategory);
+    const actual = sha256(bytes);
+    if (actual !== request.sha256) {
+      refuse(logCategory, `The download from ${prepared.url.origin} has sha256 ${actual}, not the pinned ${request.sha256}: it is not the pinned content, and nothing of it is kept.`, "outbound_download_digest_mismatch", { origin: prepared.url.origin, sha256: actual });
+    }
+    return bytes;
+  }
 }
 
 export type OutboundWebSocketRequest = Readonly<{

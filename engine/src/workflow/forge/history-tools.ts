@@ -18,21 +18,31 @@
  *
  * Where a tool lives: `<the import home>/<toolsFolder>/<name>-<version>/<file>`
  * (the private-home owner places the home; `ROOT_POLICY.workflow.historyImport`).
- * The harness does not download it: the outbound HTTP door never follows a
- * redirect (secb-design F-6) and a release asset is served through one, so
- * provisioning is the operator's one command the refusal prints.
+ * PROVISIONING is `harness forge install-history-tools`
+ * ({@link installHistoryTools}): each release archive comes through the ONE
+ * HTTP door's pinned download (`downloadPinned`: no credential on it, a
+ * redirect only to the configured `forge.downloads.hosts`, the archive's
+ * pinned sha256 checked before anything else), its member is extracted by
+ * the host's `tar` under the one supervisor's work-bounded run, and the
+ * member's own pin is checked before it is written.
  *
  * Moving a pin is a deliberate, reviewed provenance change: read the
  * upstream checksum file, verify the archive, record both digests here.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { ROOT_POLICY } from "../../kernel/root-policy.ts";
 import { runCpuBounded, type CpuBounds, type CpuBoundedEnding } from "../../process/supervised-run.ts";
 import { ForgeError, type ForgeCode } from "./codes.ts";
-import { configuredForge } from "./configured-forge.ts";
+import type { ForgeSettings } from "./forge-config.ts";
+import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
+import { PRIVATE_STATE_DIRECTORY_MODE } from "../../filesystem/private-state.ts";
+import { COMMAND_ENVIRONMENT, projectEnvironment } from "../../process/environment-projection.ts";
+import { deadline } from "../../shared/abort-signals.ts";
+import { downloadPinned } from "../../shared/outbound-http.ts";
+import { FORGE_LOG_CATEGORY } from "./codes.ts";
 
 /** How the importer runs a pinned file: directly, or as the script of the host's `python3`. */
 export type HistoryToolRunner = "executable" | "python3";
@@ -103,15 +113,6 @@ export function historyToolPath(home: string, pin: HistoryToolPin): string {
   return join(home, ROOT_POLICY.workflow.historyImport.toolsFolder, `${pin.name}-${pin.version}`, basename(pin.member));
 }
 
-/** The command that provisions `pin` at `path` from `webOrigin` (the configured forge web origin): fetch, verify the archive's digest, extract the member (printed, never run by the harness). */
-function provisioningCommand(pin: HistoryToolPin, path: string, webOrigin: string): string {
-  const archive = pin.release.asset;
-  const source = `${webOrigin}/${pin.release.repository}/releases/download/${pin.release.tag}/${archive}`;
-  const extract = archive.endsWith(".tar.xz") ? "tar -xJf" : "tar -xzf";
-  const folder = join(path, "..");
-  return `mkdir -p '${folder}' && cd '${folder}' && curl -fsSLO '${source}' && echo '${pin.archiveSha256}  ${archive}' | sha256sum -c - && ${extract} '${archive}' '${pin.member}' && mv '${pin.member}' '${basename(path)}' && rm -f '${archive}'`;
-}
-
 /** A pinned tool ready to run: its pin and the verified file. */
 export type ResolvedHistoryTool = Readonly<{ pin: HistoryToolPin; path: string }>;
 
@@ -125,7 +126,7 @@ export function resolveHistoryTool(home: string, name: HistoryToolName): Resolve
   const pin = historyToolPin(name);
   const path = historyToolPath(home, pin);
   if (!existsSync(path)) {
-    throw new ForgeError("history_tool_missing", `${pin.name} ${pin.version} is not provisioned at ${path}. Provision it (the archive's digest is checked): ${provisioningCommand(pin, path, configuredForge().webUrl)}`, { tool: pin.name, version: pin.version, path });
+    throw new ForgeError("history_tool_missing", `${pin.name} ${pin.version} is not provisioned at ${path}. Run \`harness forge install-history-tools\` (the release archive comes through the pinned download; both digests are checked).`, { tool: pin.name, version: pin.version, path });
   }
   const actual = sha256(readFileSync(path));
   if (actual !== pin.sha256) {
@@ -167,11 +168,19 @@ const STOPPED: Readonly<Record<Exclude<CpuBoundedEnding, "exited" | "unstarted">
  * own last stderr lines (the tools print names and counts, never a scanned
  * value).
  */
-export async function runBounded(
-  label: string,
-  argv: readonly string[],
-  options: Readonly<{ cwd: string; env: Readonly<Record<string, string>>; allowed?: readonly number[]; input?: Buffer; bounds?: CpuBounds }>,
-): Promise<HistoryToolRun> {
+type BoundedRunOptions = Readonly<{ cwd: string; env: Readonly<Record<string, string>>; allowed?: readonly number[]; input?: Buffer; bounds?: CpuBounds }>;
+
+export async function runBounded(label: string, argv: readonly string[], options: BoundedRunOptions): Promise<HistoryToolRun> {
+  const run = await boundedRun(label, argv, options);
+  return deepFreeze({ status: run.status, stdout: run.stdout.toString("utf8"), stderr: run.stderr });
+}
+
+/** {@link runBounded}, its stdout as the bytes the program wrote (a member `tar` extracted). */
+async function runBoundedBytes(label: string, argv: readonly string[], options: BoundedRunOptions): Promise<Buffer> {
+  return (await boundedRun(label, argv, options)).stdout;
+}
+
+async function boundedRun(label: string, argv: readonly string[], options: BoundedRunOptions): Promise<Readonly<{ status: number; stdout: Buffer; stderr: string }>> {
   const bounds = options.bounds ?? policyBounds();
   const run = await runCpuBounded(argv[0]!, argv.slice(1), { cwd: options.cwd, env: options.env, bounds, ...(options.input === undefined ? {} : { input: options.input }) });
   const err = run.stderr.toString("utf8");
@@ -185,7 +194,7 @@ export async function runBounded(
       : run.signal !== null ? `it ended by ${run.signal}` : `it exited ${String(run.status)}: ${err.trim().split("\n").slice(-5).join(" | ")}`;
     throw new ForgeError("history_tool_failed", `${label} failed: ${reason}`, { tool: label });
   }
-  return deepFreeze({ status: run.status, stdout: run.stdout.toString("utf8"), stderr: err });
+  return { status: run.status, stdout: run.stdout, stderr: err };
 }
 
 /** Runs the pinned `tool` with `args` ({@link runBounded}; `env` is a projection the caller chose, never this process's whole environment). */
@@ -205,4 +214,67 @@ export function runHistoryTool(
 export async function hostProgramVersion(program: string, env: Readonly<Record<string, string>>): Promise<string> {
   const run = await runBounded(program, [program, "--version"], { cwd: process.cwd(), env });
   return `${run.stdout}${run.stderr}`.trim().split("\n")[0]!;
+}
+
+/** The release archive's URL: the configured forge web origin and the pin's coordinates (no address held in code). */
+function releaseUrl(webOrigin: string, pin: HistoryToolPin): string {
+  return `${webOrigin.replace(/\/+$/u, "")}/${pin.release.repository}/releases/download/${pin.release.tag}/${pin.release.asset}`;
+}
+
+/** What provisioning did for one tool. */
+export type HistoryToolInstall = Readonly<{ tool: string; version: string; path: string; status: "installed" | "present" }>;
+
+/**
+ * PROVISION every pinned tool for this host into `home` (`harness forge
+ * install-history-tools`): a tool already present with its pinned bytes is
+ * left alone; otherwise its release archive is downloaded through the door's
+ * pinned download (`settings.downloads`: the redirect hosts, bounds and
+ * lifetime; the archive's pinned sha256), the member is extracted from it by
+ * the host's `tar` (stdin to stdout, under the one supervisor's work-bounded
+ * run: nothing is unpacked on disk), checked against the member's own pin
+ * (`history_tool_digest_mismatch`, nothing written) and written 0700 at
+ * {@link historyToolPath}. `pins` and `allowPrivateAddress` are the tests'
+ * (a loopback release server); production passes neither.
+ */
+export async function installHistoryTools(
+  home: string,
+  settings: Pick<ForgeSettings, "webUrl" | "downloads" | "request">,
+  options: Readonly<{ pins?: readonly HistoryToolPin[]; allowPrivateAddress?: boolean }> = {},
+): Promise<readonly HistoryToolInstall[]> {
+  const pins = options.pins ?? (Object.keys(PINS) as HistoryToolName[]).map((name) => historyToolPin(name));
+  const installed: HistoryToolInstall[] = [];
+  for (const pin of pins) {
+    const path = historyToolPath(home, pin);
+    if (existsSync(path) && sha256(readFileSync(path)) === pin.sha256) {
+      installed.push({ tool: pin.name, version: pin.version, path, status: "present" });
+      continue;
+    }
+    const lifetime = deadline(undefined, settings.downloads.timeoutMs);
+    let archive: Buffer;
+    try {
+      archive = await downloadPinned({
+        url: releaseUrl(settings.webUrl, pin),
+        sha256: pin.archiveSha256,
+        redirectHosts: settings.downloads.hosts,
+        maxRedirects: settings.downloads.maxRedirects,
+        maxBytes: settings.downloads.maxBytes,
+        cleanupTimeoutMs: settings.request.cleanupTimeoutMs,
+        allowPrivateAddress: options.allowPrivateAddress ?? false,
+        signal: lifetime.signal,
+        logCategory: FORGE_LOG_CATEGORY,
+      });
+    } finally {
+      lifetime.clear();
+    }
+    const unpack = pin.release.asset.endsWith(".tar.xz") ? "-xJOf" : "-xzOf";
+    const member = await runBoundedBytes("tar", ["tar", unpack, "-", pin.member], { cwd: home, env: projectEnvironment(process.env, COMMAND_ENVIRONMENT), input: archive });
+    if (sha256(member) !== pin.sha256) {
+      throw new ForgeError("history_tool_digest_mismatch", `${pin.member} in ${pin.release.asset} is not the pinned ${pin.name} ${pin.version} (sha256 ${sha256(member)}, pinned ${pin.sha256}); nothing was written`, { tool: pin.name, version: pin.version, path });
+    }
+    mkdirSync(dirname(path), { recursive: true, mode: PRIVATE_STATE_DIRECTORY_MODE });
+    const written = atomicWriteFile(path, member, { exactMode: 0o700 });
+    if (!written.success) throw new ForgeError("history_import_write_failed", `${path} could not be written: ${written.reason ?? "unknown"}`, { path });
+    installed.push({ tool: pin.name, version: pin.version, path, status: "installed" });
+  }
+  return deepFreeze(installed);
 }

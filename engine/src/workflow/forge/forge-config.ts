@@ -41,6 +41,20 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     /** The most pages one list read follows (a longer list is refused, never truncated). */
     maxPages: z.number().int().min(1).max(1_000),
   }),
+  /**
+   * PINNED DOWNLOADS (release assets: the history importer's pinned tools).
+   * A download starts at `webUrl` and may follow a redirect ONLY to one of
+   * `hosts` (exact host names: GitHub serves a release asset from its asset
+   * host), at most `maxRedirects` times, within `maxBytes`; its content's
+   * sha256 is pinned by the caller and checked before anything runs.
+   */
+  downloads: z.strictObject({
+    hosts: z.array(z.string().regex(/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/u)).min(1),
+    maxRedirects: z.number().int().min(0).max(10),
+    maxBytes: z.number().int().min(1_024).max(268_435_456),
+    /** One download's lifetime (the door requires one; a release asset is tens of megabytes). */
+    timeoutMs: z.number().int().min(1_000).max(3_600_000),
+  }),
   /** An installation token is minted again this long before it expires. */
   tokenRenewBeforeMs: z.number().int().min(0).max(3_000_000),
   /**
