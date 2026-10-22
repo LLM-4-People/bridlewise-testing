@@ -51,7 +51,7 @@ describe("awareness worker — non-blocking (502 wedge fix)", () => {
     expect(timerFired).toBe(true);
     const snap = await snapPromise;
     expect(snap.fileCount).toBeGreaterThan(0);
-  }, 30_000);
+  });
 
   test("concurrent async calls share one worker build", async () => {
     seedProject(projectPath, 10);
@@ -63,7 +63,7 @@ describe("awareness worker — non-blocking (502 wedge fix)", () => {
     // Cache ready — sync read succeeds (no throw, no re-build).
     const syncSnap = getAwarenessSnapshot(projectPath);
     expect(syncSnap.fileCount).toBe(a.fileCount);
-  }, 30_000);
+  });
 
   test("sync accessor throws a typed AwarenessNotReadyError on a miss", () => {
     seedProject(projectPath, 5);
@@ -87,7 +87,7 @@ describe("awareness worker — non-blocking (502 wedge fix)", () => {
     const snap = getAwarenessSnapshot(projectPath);
     expect(snap.fileCount).toBeGreaterThan(0);
     expect(typeof snap.totalLoc).toBe("number");
-  }, 30_000);
+  });
 });
 
 

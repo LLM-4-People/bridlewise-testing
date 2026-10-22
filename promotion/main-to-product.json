@@ -1,5 +1,5 @@
 {
-  "schema": "bridlewise-promotion-profile/v3",
+  "schema": "bridlewise-promotion-profile/v4",
   "name": "main-to-product",
   "source": {
     "ref": "refs/heads/main"
@@ -123,12 +123,25 @@
     "overlay": {
       "folder": "product-only/",
       "kinds": [
-        "*.md",
-        "Makefile"
+        "*.md"
       ]
     }
   },
   "transforms": [
+    {
+      "kind": "makefile",
+      "path": "Makefile",
+      "targets": [
+        "install",
+        "typecheck",
+        "build",
+        "guardian",
+        "dev",
+        "status",
+        "stop",
+        "clean"
+      ]
+    },
     {
       "kind": "package-manifest",
       "path": "package.json",

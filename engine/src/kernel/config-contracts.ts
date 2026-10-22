@@ -1344,7 +1344,33 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     ambientInflationCapFraction: z.number().min(0).lt(1),
   });
 
+  // ── PER-TEST LIMITS: CPU WORK, AND ONE HANG BACKSTOP (NO-LOAD-BLOCK L2) ──
+  //
+  // A test is judged by the CPU work it did (its process's CPU and every child
+  // it reaped, engine/src/shared/run-cpu.ts), never by its wall time: a busy
+  // host makes a test WAIT for a core, it does not make it do more work. The
+  // ceiling is its file's class (`classes`, each naming the repository paths
+  // of the files it holds), else `defaultCeilingMs`. A file sits in at most
+  // one class. Wall time survives only as `testHangBackstopMs`: an async hang
+  // ends there, classified `hung`, and is never retried. It sits below each
+  // suite's stall bound, so a hung test is named before its run is killed.
+  const testCpuClassesSchema = z.strictObject({
+    defaultCeilingMs: z.number().int().positive().max(3_600_000),
+    classes: z.array(z.strictObject({
+      name: z.string().regex(/^[a-z][a-z0-9-]*$/u),
+      ceilingMs: z.number().int().positive().max(3_600_000),
+      files: z.array(z.string().min(1)).min(1),
+    })),
+  }).refine((declared) => new Set(declared.classes.map((one) => one.name)).size === declared.classes.length, {
+    message: "every CPU class needs a distinct name", path: ["classes"],
+  }).refine((declared) => {
+    const files = declared.classes.flatMap((one) => one.files);
+    return new Set(files).size === files.length;
+  }, { message: "a test file sits in at most one CPU class", path: ["classes"] });
+
   const testExecutionConfigSchema = z.strictObject({
+    testCpuClasses: testCpuClassesSchema.optional(),
+    testHangBackstopMs: z.number().int().positive().max(3_600_000).optional(),
     concurrency: z.union([
       z.literal("auto"),
       z.literal(false),
