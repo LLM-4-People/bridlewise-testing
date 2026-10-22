@@ -35,7 +35,7 @@ import { createOwnedTemporaryDirectory } from "../../src/filesystem/private-stat
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { SECRET_TEXT_SIGNAL_CATALOG } from "../../src/privacy/secret-signals.ts";
-import { parseImportHistoryArguments } from "../../src/workflow/forge/forge-cli.ts";
+import { parseImportHistoryArguments } from "../../src/workflow/forge/cli.ts";
 import { gitleaksConfigText, gitleaksProjection } from "../../src/workflow/forge/gitleaks-config.ts";
 import {
   enumerateHistory,
