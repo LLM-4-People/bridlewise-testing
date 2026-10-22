@@ -1897,8 +1897,8 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     workspaceIsolation: workspaceIsolationConfigSchema,
     promotion: promotionConfigSchema,
     // The forge (src/workflow/forge/): GitHub, the one forge — the
-    // organisation, origins, request bounds and the repository topology
-    // (`forge-config.ts` declares the section beside its owner).
+    // organisation, origins, request bounds, the repository topology and the
+    // local Apps page (`forge-config.ts` declares the section beside its owner).
     forge: FORGE_CONFIG_SCHEMA.optional(),
     evaluation: evaluationConfigSchema.optional(),
     migrationAuthority: migrationAuthorityConfigSchema,

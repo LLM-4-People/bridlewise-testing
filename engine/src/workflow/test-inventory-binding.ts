@@ -11,7 +11,7 @@ import { VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
  * Inventory binding for `collectTestResults`. The canonical inventory owner
  * and generator live in `scripts/test-inventory.ts` (builder layer, which may
  * import `src/`). This module is the `src/`-side consumer of the generated
- * artifact: it validates the pinned inventory against `ROOT_POLICY`, asserts
+ * artifact: it validates the inventory's schema against `ROOT_POLICY`, asserts
  * the recorded source snapshot against current file bytes, and reconciles the
  * executed tests against the inventoried (sourceId, name) identities. It never
  * re-derives test names from source — name drift is caught because any source
@@ -54,9 +54,11 @@ const HEX_64 = /^[0-9a-f]{64}$/u;
 const MAX_REPORTED_VIOLATIONS = DEFAULT_MAX_REPORTED_VIOLATIONS;
 
 /**
- * Load the generated test inventory and bind it to the root-policy pin.
- * Throws `test_inventory_stale` when the inventory file is missing, malformed,
- * or disagrees with the pinned schema/hash in `ROOT_POLICY.verification`.
+ * Load the generated test inventory. Throws `test_inventory_stale` when the
+ * inventory file is missing, malformed, or of another schema than
+ * `ROOT_POLICY.verification.testInventorySchema`; a stale inventory is caught
+ * by the source snapshot (every source edit changes its pinned `sourceHash`).
+ * The root policy holds no copy of the inventory's hash (#221).
  */
 export function loadTestInventoryBinding(root: string): TestInventoryBinding {
   if (typeof root !== "string" || root.length === 0) {
@@ -90,12 +92,6 @@ export function loadTestInventoryBinding(root: string): TestInventoryBinding {
   }
   if (typeof record.inventoryHash !== "string" || !HEX_64.test(record.inventoryHash)) {
     throw new HarnessError("test inventory hash is invalid", "test_inventory_stale");
-  }
-  if (record.inventoryHash !== ROOT_POLICY.verification.testInventoryHash) {
-    throw new HarnessError(
-      "test inventory is stale: its hash does not match the root-policy pin; run `harness regenerate`",
-      "test_inventory_stale",
-    );
   }
   if (!Array.isArray(record.tests) || record.tests.length === 0) {
     throw new HarnessError("test inventory contains no tests", "test_inventory_stale");
