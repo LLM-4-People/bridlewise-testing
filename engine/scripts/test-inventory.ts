@@ -47,6 +47,8 @@ const INVENTORY_PATH = VERIFICATION_PATHS.testInventory;
 const ROOT_POLICY_PATH = "src/kernel/root-policy.ts";
 /** The name of the inventory transaction's journal (the owner derives its path: `journalPathFor`). */
 const TRANSACTION_JOURNAL = "test-inventory";
+/** The mode a first write of the inventory gives it (it is not committed, #221, so a fresh checkout has none yet). */
+const INVENTORY_FILE_MODE = 0o644;
 const GENERATOR_REVISION = "test-inventory-generator/v4";
 const TEST_DISCOVERY = ROOT_POLICY.verification.testDiscovery;
 const TEST_INVENTORY_ENTRY_HASH_DOMAIN = "test-inventory.entry/v1";
@@ -282,7 +284,7 @@ export function writeTestInventoryTransaction(
   const nextInventory = parseTestInventoryDocument(inventory);
   assertInventoryMatchesBoundProjection(root, nextInventory, options);
   commitJournaled(root, TRANSACTION_JOURNAL, [
-    { path: INVENTORY_PATH, bytes: Buffer.from(`${canonicalJson(nextInventory)}\n`, "utf8"), mode: statSync(inventoryPath).mode & 0o7777 },
+    { path: INVENTORY_PATH, bytes: Buffer.from(`${canonicalJson(nextInventory)}\n`, "utf8"), mode: existsSync(inventoryPath) ? statSync(inventoryPath).mode & 0o7777 : INVENTORY_FILE_MODE },
   ], { onPhase });
 }
 
@@ -463,8 +465,8 @@ function scopeForConservation(root: string): TestSurfaceScope {
 }
 
 function main(argv: readonly string[]): number {
-  if (argv.length !== 1 || !["--write", "--check", "--recover"].includes(argv[0]!)) {
-    throw new Error("Usage: test-inventory --write|--check|--recover");
+  if (argv.length !== 1 || !["--write", "--check", "--print", "--recover"].includes(argv[0]!)) {
+    throw new Error("Usage: test-inventory --write|--check|--print|--recover");
   }
   const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
   if (argv[0] === "--recover") {
@@ -491,23 +493,34 @@ function main(argv: readonly string[]): number {
   const inventory = buildTestInventory(root);
   const inventoryBytes = `${canonicalJson(inventory)}\n`;
   const inventoryPath = join(root, INVENTORY_PATH);
-  const inventoryMatches = readFileSync(inventoryPath, "utf8") === inventoryBytes;
+  // THE INVENTORY IS A CACHE OF THE TREE (#221): it is not committed, so its absence or staleness is no drift of
+  // the tree. `--check` judges only what the tree decides (every refusal above and in the build); `--write`
+  // refreshes the cache that the runner, `harness test` and the gate populations read.
+  const inventoryMatches = existsSync(inventoryPath) && readFileSync(inventoryPath, "utf8") === inventoryBytes;
   const sourceSetHash = canonicalHash([...new Map(inventory.tests.map((entry) => [
     entry.sourceId,
     { sourceId: entry.sourceId, sourceHash: entry.sourceHash },
   ])).values()]);
+
+  // `--print`: the inventory itself on stdout, nothing written: a reader that may not write the checkout (the
+  // floor atlas, under a test's write door) asks the owner for the tree's inventory this way.
+  if (argv[0] === "--print") {
+    process.stdout.write(inventoryBytes);
+    return 0;
+  }
 
   if (argv[0] === "--check") {
     process.stdout.write(`${canonicalJson({
       generatorRevision: GENERATOR_REVISION,
       inventoryHash: inventory.inventoryHash,
       sourceSetHash,
-      status: inventoryMatches && !transactionPresent ? "current" : "drift",
+      status: transactionPresent ? "drift" : "current",
+      cache: inventoryMatches ? "current" : "stale",
       testCount: inventory.tests.length,
       transactionPresent,
       conservation,
     })}\n`);
-    return inventoryMatches && !transactionPresent ? 0 : 1;
+    return transactionPresent ? 1 : 0;
   }
 
   if (transactionPresent) throw new Error("test inventory transaction recovery is required");
@@ -554,7 +567,7 @@ export function computeTestSurfaceFingerprint(candidateRoot: string): string {
   return canonicalDomainHash(TEST_SURFACE_FINGERPRINT_HASH_DOMAIN, {
     sources,
     dispositionManifest: sha256(readFileSync(join(root, TEST_DISCOVERY.dispositionRegistry.manifestPath))),
-    inventory: sha256(readFileSync(join(root, INVENTORY_PATH))),
+    inventory: existsSync(join(root, INVENTORY_PATH)) ? sha256(readFileSync(join(root, INVENTORY_PATH))) : "absent",
     rootPolicy: sha256(readFileSync(join(root, ROOT_POLICY_PATH))),
     // The git-tracked recognizable set is part of the fingerprint because it
     // is an input to the conservation identity. Without it, `git rm --cached`
