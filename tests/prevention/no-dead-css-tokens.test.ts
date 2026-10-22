@@ -43,6 +43,8 @@ import { callArgumentsOf } from "../helpers/function-scope.ts";
 
 import { read, relpath, walk } from "../helpers/source-scan.ts";
 import { modulePathMatching } from "../helpers/module-resolver.ts";
+// @ts-expect-error -- a .mjs module has no declaration file in the TS program (as in floor-site-links.test.ts).
+import { SHARED_CSS } from "../../scripts/floor/design-coverage.mjs";
 
 const TOKENS = "src/cockpit/tokens.css";
 const CATEGORIES = modulePathMatching("src/cockpit/sweep/categories.ts");
@@ -119,15 +121,18 @@ describe("no-dead-css-tokens — every declared token has a consumer, every refe
   });
 
   // The scanned population: every cockpit source (components + state
-  // modules), index.html, and the token file itself (internal composition).
+  // modules), index.html, the token file itself (internal composition), and
+  // the public site's stylesheets, which read the same owner through the
+  // generated token sheet (scripts/floor/site-design.mjs).
   const svelteFiles = walk("src/cockpit", { exts: [".svelte", ".ts"] });
+  const siteSheets = (SHARED_CSS as readonly string[]).map((path) => `docs/${path}`);
   const consumers = new Map<string, Set<string>>();
   const consume = (name: string, where: string): void => {
     if (!consumers.has(name)) consumers.set(name, new Set());
     consumers.get(name)!.add(where);
   };
   // var() reads across the tree
-  const allSources = [TOKENS, CATEGORIES, "index.html", ...svelteFiles.map(relpath)];
+  const allSources = [TOKENS, CATEGORIES, "index.html", ...svelteFiles.map(relpath), ...siteSheets];
   for (const f of allSources) {
     const src = read(f);
     for (const name of consumedVars(src)) consume(name, `${f} (var)`);
