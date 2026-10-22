@@ -2639,7 +2639,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "build-bundle", path: "scripts/build-bundle.ts",
       realm: "builder", layer: "verification", owner: "self-protection",
-      publicApi: { exportCount: 3, namesSha256: "b3544ac6577a32e74307ecc2c9a3c75f0e3f3f3ebd375a23821441778ba1e204" },
+      publicApi: { exportCount: 3, namesSha256: "4e205f2ad24c52bb2c20082aa26fdba9f44f0166b31e02dbe9484c5e505da67a" },
       dependencies: ["esbuild","node:fs","node:path","node:url","scripts/verification/slice-projections.ts","src/filesystem/atomic-write.ts","src/kernel/integrity.ts","src/runtime/cli-debug.ts"],
       effects: ["filesystem-write"],
       executionBoundary: "composition-root",
@@ -5295,12 +5295,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-promotion-profile", path: "src/workflow/promotion/profile.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 11, namesSha256: "582f560aaf1c1af255ec37f77c95f8cef3df95cc9f1f3ffd557a9b8a624da636" },
+      owner: "verification-workflow", publicApi: { exportCount: 13, namesSha256: "46c040664404d935efe13039044da0ad051daeb41bec9ed4a6715eed78f4bb27" },
       dependencies: ["src/git/repository-ownership.ts","src/kernel/config-contracts.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/kernel/product-identity.ts","src/workflow/promotion/codes.ts","zod"],
     }),
     moduleContract({
       id: "src-workflow-promotion-projection", path: "src/workflow/promotion/projection.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 15, namesSha256: "6e28305517233a22fb4e75676d8bebf565224f7bed5382f72cb5ce7fd0cd7daf" },
+      owner: "verification-workflow", publicApi: { exportCount: 14, namesSha256: "b263531e7e8343a41747e155cd84c8bb3fa87bf2ff480e3bfb9d85d7ccbec666" },
       dependencies: ["node:fs","node:path","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-state.ts","src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/checkout-setup.ts","src/workflow/hash-binding-registry.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/trailers.ts","src/workflow/promotion/transforms.ts","src/workflow/reachability.ts"],
     }),
     moduleContract({
