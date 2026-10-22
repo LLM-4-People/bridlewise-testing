@@ -8,7 +8,7 @@ import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
 /**
  * The typecheck has NO wall limit (NO-LOAD-BLOCK A-17): `runTypecheck` runs
  * tsc through the harness's one subprocess bound (CPU work per process and
- * one hang backstop, src/workflow/subprocess-bounds.ts), and the config's
+ * one hang backstop, src/process/subprocess-bounds.ts), and the config's
  * old `harness.typecheckTimeoutMs` (120 s of wall) is gone. (The git
  * add/commit timeouts' consumer was the deleted `harness integrate`; the
  * workspace command is their consumer now, asserted below.)

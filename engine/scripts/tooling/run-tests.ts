@@ -18,7 +18,7 @@ import {
   type ExecutionOperation,
 } from "./test-execution.ts";
 import { computeTestResultReceiptDeterministicHash, testResultLedgerRows, type TestResultReceipt } from "./test-receipt.ts";
-import { asLockDoor, enforceTestRunLock } from "./test-run-lock.ts";
+import { enforceTestRunLock } from "./test-run-lock.ts";
 import { HarnessError, extractErrorMessage } from "../../src/kernel/errors.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
@@ -51,7 +51,6 @@ import { configuredRuntimeAdmission, withAdmittedNodeRuntime } from "../../src/r
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { reportLauncherStop, watchLauncher } from "./launcher-watch.ts";
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
-import type { InstrumentLockStamp } from "../../src/process/instrument-lock.ts";
 import { sweepEndedRunTemporaries, temporaryRootHeadroom, temporaryRootKeepOutRefusal, temporaryRootPreflightLine } from "../../src/filesystem/temporary-root.ts";
 
 export type WorkerExecutionOptions = Readonly<{
@@ -159,16 +158,14 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
       // this exits 0 — or it never gets here, because the refusal above threw.
       return finish(0);
     }
-    // ONE INSTRUMENT AT A TIME, ENFORCED HERE — and not at the top of this
-    // function, on purpose: `harness regenerate` shells out to the
-    // `--auto-add-dispositions` sub-CLI above as a DESCENDANT of a run that
-    // already holds the lock, and a lock taken at the top would make that
-    // child refuse against its own ancestor. The sub-CLI returns before this
-    // line; everything below it is the run, and the run is what contends.
-    // THE HOST'S ONE INSTRUMENT LOCK: the whole suite is heavy, so the door
-    // waits here while another heavy run holds the lock (saying who), and the
-    // run's measurement records that it held it (the handle's stamp).
-    const instrumentLock = await enforceTestRunLock("engine npm test", { testFileCount: inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
+    // HEAVY-RUN ADMISSION, HERE — and not at the top of this function, on
+    // purpose: `harness regenerate` shells out to the `--auto-add-dispositions`
+    // sub-CLI above, which runs no tests and needs no run of its own. The
+    // sub-CLI returns before this line; everything below it is the run. The
+    // whole suite is heavy, so it is admitted at once (never waiting for
+    // another run) and this process enters the run's caps — its cgroup scope
+    // and CPU-time limit — before the worker and every test child start.
+    const instrumentLock = enforceTestRunLock("engine npm test", { testFileCount: inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
     releaseInstrumentLock = instrumentLock.release;
     // BEFORE THE RUN, AND AFTER THE SUB-CLI ABOVE: the corpora git cannot
     // report missing. See scripts/verification/required-fixture-roots.ts — an
@@ -356,7 +353,6 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
       ambientLoadPerCpu,
       ambientLoad5PerCpu,
       ambientLoad15PerCpu,
-      heavySlot: instrumentLock.stamp,
       provisional,
       mutation,
       tree,
@@ -446,7 +442,7 @@ export function beginMeasuredRun(
   // figure is the covariate recorded beside the verdict, and the 5-/15-minute
   // legs witness the saturation ghost that decays out of the 1-minute figure
   // within minutes of a previous suite finishing. An unreadable sample is
-  // null — the verdict takes no ambient adjustment, never a fabricated zero.
+  // null, never a fabricated zero; no leg ever moves a cap (NO-LOAD-BLOCK).
   const ambient = readAmbientLoadPerCpu();
   const runStartMs = steps.stampStart();
   return {
@@ -531,8 +527,6 @@ export function judgeSuiteRunCost(run: Readonly<{
   ambientLoadPerCpu: number | null;
   ambientLoad5PerCpu: number | null;
   ambientLoad15PerCpu: number | null;
-  /** Whether the measurement held the host's instrument lock: an unslotted one is refused, never judged. */
-  heavySlot: InstrumentLockStamp;
   provisional: Readonly<{ provisionalFailures: true }> | Readonly<Record<string, never>>;
   mutation: ReturnType<typeof mutationRunMark>;
   tree: ReturnType<typeof measuredTreeMark>;
@@ -555,16 +549,9 @@ export function judgeSuiteRunCost(run: Readonly<{
       { atStart: run.calibrationBefore, atEnd: run.calibrationAfter },
       testFileCount ?? 0,
     );
-    // AN UNSLOTTED MEASUREMENT IS REFUSED, NEVER JUDGED: without the host's
-    // instrument lock another writer's heavy run may have shared the cores, so the
-    // figure says nothing about this tree (src/process/instrument-lock.ts).
-    if (run.heavySlot !== "held") {
-      process.stderr.write(
-        `\n[suite-budget] cpu-per-test-file REFUSED: this run did not hold the host's instrument lock, so its CPU cost is not a ` +
-          `measurement of this tree and is neither judged nor recorded. Run the whole suite through its runner, which holds the lock.\n`,
-      );
-      return 1;
-    }
+    // EVERY FULL RUN IS A MEASUREMENT, whatever else ran beside it: the cost
+    // is CPU work, valid at any load (NO-LOAD-BLOCK, audit A-04). There is no
+    // "unslotted" refusal: runs share the host under per-run caps.
     // The warmth scan runs AFTER the CPU readings above, so its own cost
     // (a stat walk of the compile cache) never inflates the judged figure.
     const scan = scanCompileCache(run.runStartMs);
@@ -639,7 +626,6 @@ export function judgeSuiteRunCost(run: Readonly<{
           ...run.provisional,
           ...run.mutation,
           ...run.tree,
-          heavySlot: run.heavySlot,
         },
         historyPath,
       );
@@ -992,7 +978,7 @@ if (isEntryPoint(import.meta.url)) {
   const tree = readMeasuredTree(root);
   let execution: CompletedExecution | undefined;
   let result: TestCommandResult | undefined;
-  await asLockDoor(async () => { result = await runCli(invocationId, (observed) => { execution = observed; }); });
+  result = await runCli(invocationId, (observed) => { execution = observed; });
   if (result === undefined) throw new Error("the engine runner answered nothing");
   process.exitCode = result.exitCode;
   process.stderr.write(`${sweepEndedRunTemporaries("run-tests")}\n`);

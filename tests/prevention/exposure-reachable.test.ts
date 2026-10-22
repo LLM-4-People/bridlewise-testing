@@ -1277,7 +1277,7 @@ describe("exposure is declared and reachable", () => {
       // union is ONE declared leaf to it, so its branch leaves are not
       // counted here — the budget's own tests assert the branches' required
       // fields and the signals read them directly.
-      testExecution: 26,
+      testExecution: 27, // 26 → 27: the instrument lock's poll interval became the per-run caps (memoryMaxPercent, cpuWeight; NO-LOAD-BLOCK)
       // 1 → 3: the ONE command runner's errored-class retries (PROMO-1).
       // 3 → 2: the typecheck's wall limit (`typecheckTimeoutMs`) deleted; a
       // typecheck is bounded by CPU work and one hang backstop (NO-LOAD-BLOCK A-17).
@@ -1309,7 +1309,7 @@ describe("exposure is declared and reachable", () => {
       sectionCounts[section] = declared.size - before;
     }
     expect(sectionCounts, "each section must declare exactly its measured leaves — a new leaf reds its own section here").toEqual(expectedSectionCounts);
-    expect(declared.size, "the class's twelve sections declare sixty-nine leaves in total").toBe(69);
+    expect(declared.size, "the class's twelve sections declare seventy leaves in total").toBe(70);
 
     // The class's rows live in THREE modules (testExecution,
     // harnessCommands, agents) spanning FIVE sections — the census binds
@@ -1333,8 +1333,6 @@ describe("exposure is declared and reachable", () => {
       ["testExecution.webSuiteCpuPopulation", "testExecution.webUiSuiteCpuBudget.derivedAtTestFileCount"],
       ["testExecution.webSuitePopulationDriftTolerance", "testExecution.webUiSuiteCpuBudget.maxPopulationDriftFraction"],
       ["testExecution.webSuiteNoiseSpread", "testExecution.webUiSuiteCpuBudget.sameTreeSpreadFraction"],
-      ["testExecution.webSuiteAmbientInflationSlope", "testExecution.webUiSuiteCpuBudget.ambientInflationSlopePerCpu"],
-      ["testExecution.webSuiteAmbientInflationCap", "testExecution.webUiSuiteCpuBudget.ambientInflationCapFraction"],
       ["testExecution.webTestFileCostShareMax", "testExecution.webUiTestFileCostShareMax"],
       ["testExecution.integrationSuiteBudgetPhase", "testExecution.integrationSuiteCpuBudget"],
       ["testExecution.webSuiteStallTimeout", "testExecution.webSuiteWatchdog.stallTimeoutMs"],
@@ -1345,7 +1343,8 @@ describe("exposure is declared and reachable", () => {
       ["testExecution.engineSuiteKillGrace", "testExecution.engineSuiteWatchdog.killGraceMs"],
       ["testExecution.instrumentLockFile", "testExecution.instrumentLock.cacheRelativeLockPath"],
       ["testExecution.instrumentLockHeavyAt", "testExecution.instrumentLock.minimumTestFiles"],
-      ["testExecution.instrumentLockPoll", "testExecution.instrumentLock.pollIntervalMs"],
+      ["testExecution.perRunMemoryCap", "testExecution.instrumentLock.perRun.memoryMaxPercent"],
+      ["testExecution.perRunCpuWeight", "testExecution.instrumentLock.perRun.cpuWeight"],
       ["testExecution.flakeReproductionRuns", "testExecution.flakeReproduction.statisticalRuns"],
       ["testExecution.flakeReproductionSignificance", "testExecution.flakeReproduction.significance"],
       ["testExecution.instrumentLockWholeInstruments", "testExecution.instrumentLock.wholeInstruments"],
@@ -1396,14 +1395,12 @@ describe("exposure is declared and reachable", () => {
         maxPopulationDriftFraction: 0.031,
         sameTreeSpreadFraction: 0.027,
         baselineWindowRuns: 13,
-        ambientInflationSlopePerCpu: 0.055,
-        ambientInflationCapFraction: 0.13,
       },
       webUiTestFileCostShareMax: 0.06,
       integrationSuiteCpuBudget: { phase: "accumulation", minimumJudgedRuns: 6, maxPopulationDriftFraction: 0.031 },
       webSuiteWatchdog: { stallTimeoutMs: 240_000, hardCeilingMs: 1_500_000, killGraceMs: 2_000 },
       engineSuiteWatchdog: { stallTimeoutMs: 250_000, hardCeilingMs: 1_600_000, killGraceMs: 4_000 },
-      instrumentLock: { cacheRelativeLockPath: "planted/instrument.lock", minimumTestFiles: 3, wholeInstruments: ["playwright", "coverage"], pollIntervalMs: 500 },
+      instrumentLock: { cacheRelativeLockPath: "planted/instrument.lock", minimumTestFiles: 3, wholeInstruments: ["playwright", "coverage"], perRun: { memoryMaxPercent: 37, cpuWeight: 42 } },
       flakeReproduction: { statisticalRuns: 7, significance: 0.02, deterministicShims: ["engine/test/support/planted-shim.ts"] },
     });
     const expectSignal = (signalId: string, expected: unknown) => {
@@ -1411,7 +1408,8 @@ describe("exposure is declared and reachable", () => {
     };
     expectSignal("testExecution.instrumentLockFile", "<cache>/planted/instrument.lock");
     expectSignal("testExecution.instrumentLockHeavyAt", "a run of 3 or more test files is heavy");
-    expectSignal("testExecution.instrumentLockPoll", "a waiting run looks again every 500 ms");
+    expectSignal("testExecution.perRunMemoryCap", "a heavy run may use at most 37% of the host's memory");
+    expectSignal("testExecution.perRunCpuWeight", "a heavy run's CPU weight is 42");
     expectSignal("testExecution.flakeReproductionRuns", "7 runs on each side of a statistical reproduction");
     expectSignal("testExecution.flakeReproductionSignificance", "a reproduction counts only when a no-op fix shows its counts at most 0.02 of the time");
     expectSignal("testExecution.instrumentLockWholeInstruments", "heavy by kind: playwright, coverage");
@@ -1426,11 +1424,9 @@ describe("exposure is declared and reachable", () => {
     expectSignal("testExecution.webSuiteNoiseSpread", "2.7% same-tree spread decides which runs feed the baseline");
     // No streak count is exposed: one judged run over the cap fails (UR-24-BUDGETS).
     expect(signalsByModule.has("testExecution.webSuiteOverCapStreak")).toBe(false);
-    expectSignal(
-      "testExecution.webSuiteAmbientInflationSlope",
-      "the gate pays 5.5% more allowance per unit of recorded 5-minute ambient load per CPU",
-    );
-    expectSignal("testExecution.webSuiteAmbientInflationCap", "the ambient allowance is capped at 13.0% of the baseline");
+    // No ambient allowance is exposed: a cap never moves with host load (NO-LOAD-BLOCK, audit A-08).
+    expect(signalsByModule.has("testExecution.webSuiteAmbientInflationSlope")).toBe(false);
+    expect(signalsByModule.has("testExecution.webSuiteAmbientInflationCap")).toBe(false);
     expectSignal("testExecution.webTestFileCostShareMax", "one test file may take at most 6% of the pool's worker time");
     expectSignal("testExecution.integrationSuiteBudgetPhase", "accumulation — at least 6 judged runs before the cap is derived");
     expectSignal("testExecution.webSuiteStallTimeout", "a run that prints nothing for 240 s is killed");
@@ -1449,8 +1445,6 @@ describe("exposure is declared and reachable", () => {
         unitsPerTestFile: 1500,
         derivedAtTestFileCount: 480,
         maxPopulationDriftFraction: 0.03,
-        ambientInflationSlopePerCpu: 0,
-        ambientInflationCapFraction: 0,
       },
     });
     expectSignal("testExecution.integrationSuiteBudgetPhase", "derived — 1500 calibration units of work per test file over 480 files");

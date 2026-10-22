@@ -1041,7 +1041,7 @@ test("a ledger-judged suite gate: the target's tip is measured like for like in 
   assert.notEqual(older, target);
   // A row as the runners write it: the HEAD it ran at and the tree it measured.
   const row = (headSha: string, failures: Readonly<Record<string, string>>, timestamp: string, extra: Readonly<Record<string, unknown>> = {}) =>
-    ({ timestamp, headSha, treeId: rawGit(root, ["rev-parse", `${headSha}^{tree}`]), wallClockMs: 0, cpuMsPerTestFile: 1, testModuleCount: 1, failures: Object.keys(failures), failureDigests: { ...failures }, heavySlot: "held" as const, ...extra });
+    ({ timestamp, headSha, treeId: rawGit(root, ["rev-parse", `${headSha}^{tree}`]), wallClockMs: 0, cpuMsPerTestFile: 1, testModuleCount: 1, failures: Object.keys(failures), failureDigests: { ...failures }, ...extra });
   const appendRow = (checkout: string, entry: unknown): void => {
     const path = join(checkout, ledger);
     const runs = existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as { runs: unknown[] }).runs : [];
@@ -1132,7 +1132,7 @@ test("a baseline is found by its TREE: a candidate's row of exactly the target's
   };
   const owned = { "suite.test.ts::an owned failure": "aaaaaaaaaaaaaaaa" };
   const row = (failures: Readonly<Record<string, string>>, extra: Readonly<Record<string, unknown>>) =>
-    ({ timestamp: new Date().toISOString(), wallClockMs: 0, cpuMsPerTestFile: 1, testModuleCount: 1, failures: Object.keys(failures), failureDigests: { ...failures }, heavySlot: "held" as const, ...extra });
+    ({ timestamp: new Date().toISOString(), wallClockMs: 0, cpuMsPerTestFile: 1, testModuleCount: 1, failures: Object.keys(failures), failureDigests: { ...failures }, ...extra });
   // A CANDIDATE's qualification of the tree the commit then landed: measured on the parent HEAD, dirty (provisional), keyed by the tree.
   appendRow(root, row(owned, { headSha: parent, provisionalFailures: true, treeId: targetTree, importedFrom: "/candidate" }));
   let identity: "full" | "none" = "full";
@@ -1225,7 +1225,7 @@ for (const ledgerName of ["engine", "web"] as const satisfies readonly SuiteLedg
     const target = rawGit(root, ["rev-parse", "HEAD"]);
     const digests = { [owned]: "aaaaaaaaaaaaaaaa", [unowned]: "bbbbbbbbbbbbbbbb", [planted]: "cccccccccccccccc" };
     const row = (failures: readonly string[], treeId: string) => ({ timestamp: new Date().toISOString(), headSha: target, treeId,
-      wallClockMs: 0, cpuMsPerTestFile: 1, testModuleCount: 1, failures, failureDigests: Object.fromEntries(failures.map((id) => [id, digests[id]!])), heavySlot: "held" as const });
+      wallClockMs: 0, cpuMsPerTestFile: 1, testModuleCount: 1, failures, failureDigests: Object.fromEntries(failures.map((id) => [id, digests[id]!])) });
     // The target tree's recorded run: both base failures.
     writeFile(root, ledger, `${JSON.stringify({ runs: [row([owned, unowned], rawGit(root, ["rev-parse", "HEAD^{tree}"]))] })}\n`);
     let branchFailures: readonly string[] = [];
@@ -1270,22 +1270,22 @@ for (const ledgerName of ["engine", "web"] as const satisfies readonly SuiteLedg
   });
 }
 
-test("a budget breach joins the ONE judgement (UR-24): only SLOTTED target rows recorded before the run count; not worse and owned passes; worse, unowned, unslotted or a fragment-named owner fails", async () => {
+test("a budget breach joins the ONE judgement (UR-24): every target row recorded before the run counts, whatever ran beside it (NO-LOAD-BLOCK, audit A-05); not worse and owned passes; worse, unowned or a fragment-named owner fails", async () => {
   const { root } = initTempRepo("ws-budget");
   const ledger = WEB_RUN_HISTORY_PATH;
   commitTrackerBoard(root, ["- [ ] **BUDGET-OWNER** re-derives `testExecution.webUiSuiteCpuBudget`."]);
   const target = rawGit(root, ["rev-parse", "HEAD"]);
   const targetTree = rawGit(root, ["rev-parse", "HEAD^{tree}"]);
-  // The target's runs of its tree: two UNSLOTTED (2204, 2137: they judge nothing), one slotted (2150), and a slotted
-  // one recorded AFTER this run (1000: it may not set the bar).
-  const baseRow = (cpu: number, at: string, held: boolean) => ({ timestamp: at, headSha: target, treeId: targetTree, wallClockMs: 0, cpuMsPerTestFile: cpu, testModuleCount: 1, failures: [], ...(held ? { heavySlot: "held" } : { heavySlot: "unslotted" }) });
-  writeFile(root, ledger, `${JSON.stringify({ runs: [baseRow(2204, "2026-10-02T04:49:08.852Z", false), baseRow(2137, "2026-10-02T04:51:55.567Z", false), baseRow(2150, "2026-10-02T05:00:00.000Z", true), baseRow(1000, "2999-01-01T00:00:00.000Z", true)] })}\n`);
-  let cpu = 2140;
-  let slot: "held" | "unslotted" = "held";
+  // The target's runs of its tree: three recorded before this run (2204, 2137, 2150 — a row recorded beside other
+  // runs counts like any other, and its legacy `heavySlot` field is ignored), and one recorded AFTER this run (1000:
+  // it may not set the bar).
+  const baseRow = (cpu: number, at: string, extra: Record<string, unknown> = {}) => ({ timestamp: at, headSha: target, treeId: targetTree, wallClockMs: 0, cpuMsPerTestFile: cpu, testModuleCount: 1, failures: [], ...extra });
+  writeFile(root, ledger, `${JSON.stringify({ runs: [baseRow(2204, "2026-10-02T04:49:08.852Z", { heavySlot: "unslotted" }), baseRow(2137, "2026-10-02T04:51:55.567Z", { heavySlot: "unslotted" }), baseRow(2150, "2026-10-02T05:00:00.000Z"), baseRow(1000, "2999-01-01T00:00:00.000Z")] })}\n`);
+  let cpu = 2130;
   let kind: "fail" | "not-judged" = "fail";
   const commands = makeFakeCommands({
     suite: (cwd) => qualifiedSuiteGate(cwd, "web", {
-      timestamp: new Date().toISOString(), headSha: rawGit(cwd, ["rev-parse", "HEAD"]), wallClockMs: 0, cpuMsPerTestFile: cpu, testModuleCount: 1, failures: [], heavySlot: slot,
+      timestamp: new Date().toISOString(), headSha: rawGit(cwd, ["rev-parse", "HEAD"]), wallClockMs: 0, cpuMsPerTestFile: cpu, testModuleCount: 1, failures: [],
     }, { outcomes: [{ gate: "cpu-per-test-file", kind, message: "over the cap in force" }] }),
   });
   const config = makeTestConfig(mkWorkspaceTempDir("ws-budget-wt"), {
@@ -1299,44 +1299,39 @@ test("a budget breach joins the ONE judgement (UR-24): only SLOTTED target rows 
 
   const owned = await judge();
   assert.equal(owned.status, "pass", JSON.stringify(owned));
-  assert.match(owned.details.join("\n"), /cpu-per-test-file \(testExecution\.webUiSuiteCpuBudget\): 2140\.0; the target's lowest of 1 slotted value\(s\) is 2150\.0; persists from the target, not worse; owner BUDGET-OWNER/u);
+  assert.match(owned.details.join("\n"), /cpu-per-test-file \(testExecution\.webUiSuiteCpuBudget\): 2130\.0; the target's lowest of 3 value\(s\) is 2137\.0; persists from the target, not worse; owner BUDGET-OWNER/u);
 
-  cpu = 2151;
+  cpu = 2140;
   const worse = await judge();
-  assert.equal(worse.status, "fail", "worse than the target's LOWEST slotted value: no allowance");
-  assert.match(worse.details.join("\n"), /WORSE than the target: 2151\.0 > 2150\.0/u);
+  assert.equal(worse.status, "fail", "worse than the target's LOWEST value: no allowance");
+  assert.match(worse.details.join("\n"), /WORSE than the target: 2140\.0 > 2137\.0/u);
   // A budget gate that did not pass is a breach whatever it calls itself: a "not-judged" is judged the same
   // way, never waved through (UR-24-BUDGETS; design M-A).
   for (const softer of ["not-judged"] as const) {
     kind = softer;
     const softerWorse = await judge();
     assert.equal(softerWorse.status, "fail", `a ${softer} budget gate worse than the target fails`);
-    assert.match(softerWorse.details.join("\n"), /WORSE than the target: 2151\.0 > 2150\.0/u);
+    assert.match(softerWorse.details.join("\n"), /WORSE than the target: 2140\.0 > 2137\.0/u);
   }
   kind = "fail";
 
-  cpu = 2140;
-  slot = "unslotted";
-  const unslotted = await judge();
-  assert.equal(unslotted.status, "fail");
-  assert.match(unslotted.details.join("\n"), /did not hold the instrument lock: refused, not judged/u);
-
-  slot = "held";
+  cpu = 2130;
   commitTrackerBoard(workspace.lease.worktreePath, ["- [ ] **NEAR-MISS** re-derives testExecution.webUiSuiteCpuBudgetHistory.", "- [x] **BUDGET-OWNER** re-derived testExecution.webUiSuiteCpuBudget."]);
   const unowned = await judge();
   assert.equal(unowned.status, "fail", "a closed row owns nothing, and a longer name is not the budget's");
   assert.match(unowned.details.join("\n"), /no open task row of docs\/trackers\/TASKS\.md declares testExecution\.webUiSuiteCpuBudget/u);
 });
 
-test("a PERFORMANCE budget's breach is judged in the same ONE judgement: owned and not worse than the target's lowest slotted value passes, worse fails; a target with no slotted value of an owned budget is measured first", async () => {
+test("a PERFORMANCE budget's breach is judged in the same ONE judgement: owned and not worse than the target's lowest value passes, worse fails; a target with no value of an owned budget is measured first", async () => {
   const { root } = initTempRepo("ws-perf-budget");
   const ledger = WEB_RUN_HISTORY_PATH;
-  const gate = `${ROOT_POLICY.workflow.webPerformanceBudgets.gatePrefix}apiResponseMaxMs`;
-  commitTrackerBoard(root, ["- [ ] **PERF-OWNER** makes the routes fast: `webUi.performance.apiResponseMaxMs`."]);
+  // A budget that is not wall time (a wall-time one is a recorded signal and never breaches: NO-LOAD-BLOCK).
+  const gate = `${ROOT_POLICY.workflow.webPerformanceBudgets.gatePrefix}tabDomNodesMax`;
+  commitTrackerBoard(root, ["- [ ] **PERF-OWNER** makes the tabs lighter: `webUi.performance.tabDomNodesMax`."]);
   const target = rawGit(root, ["rev-parse", "HEAD"]);
   const targetTree = rawGit(root, ["rev-parse", "HEAD^{tree}"]);
-  // The target's one slotted run carries no performance value: it is measured in the lock (750).
-  writeFile(root, ledger, `${JSON.stringify({ runs: [{ timestamp: "2026-10-02T05:00:00.000Z", headSha: target, treeId: targetTree, wallClockMs: 0, cpuMsPerTestFile: 1000, testModuleCount: 1, failures: [], heavySlot: "held" }] })}\n`);
+  // The target's one run carries no performance value: it is measured (750).
+  writeFile(root, ledger, `${JSON.stringify({ runs: [{ timestamp: "2026-10-02T05:00:00.000Z", headSha: target, treeId: targetTree, wallClockMs: 0, cpuMsPerTestFile: 1000, testModuleCount: 1, failures: [] }] })}\n`);
   let api = 700;
   const measured: string[] = [];
   // THE PRODUCER RUNS FIRST, on the target too (correctness B-N3): the target is measured through the one sequencer,
@@ -1353,9 +1348,9 @@ test("a PERFORMANCE budget's breach is judged in the same ONE judgement: owned a
       if (tree === targetTree) measured.push(tree);
       const value = tree === targetTree ? 750 : api;
       return qualifiedSuiteGate(cwd, "web", {
-        timestamp: new Date().toISOString(), headSha: rawGit(cwd, ["rev-parse", "HEAD"]), wallClockMs: 0, cpuMsPerTestFile: 1000, testModuleCount: 1, failures: [], heavySlot: "held",
-        performanceMeasurements: { apiResponseMaxMs: value },
-      }, { outcomes: [{ gate, kind: "fail", message: `webUi.performance.apiResponseMaxMs: ${String(value)} exceeds the budget 250` }] });
+        timestamp: new Date().toISOString(), headSha: rawGit(cwd, ["rev-parse", "HEAD"]), wallClockMs: 0, cpuMsPerTestFile: 1000, testModuleCount: 1, failures: [],
+        performanceMeasurements: { tabDomNodesMax: value },
+      }, { outcomes: [{ gate, kind: "fail", message: `webUi.performance.tabDomNodesMax: ${String(value)} exceeds the budget 250` }] });
     },
   });
   const config = makeTestConfig(mkWorkspaceTempDir("ws-perf-budget-wt"), {
@@ -1367,10 +1362,10 @@ test("a PERFORMANCE budget's breach is judged in the same ONE judgement: owned a
   commitFile(workspace.lease.worktreePath, "src/change.ts", "export const change = 1;\n");
   const judge = async () => (await manager.validate(workspace.workspaceId, { full: true })).gates.find((found) => found.gate === "suite")!;
   const owned = await judge();
-  assert.deepEqual(measured, [targetTree], "the target had no slotted value of the owned perf budget: measured once, in the lock");
+  assert.deepEqual(measured, [targetTree], "the target had no value of the owned perf budget: measured once");
   assert.deepEqual(sequence.slice(0, 2), ["profile@target", "suite@target"], "the target's measurement runs its producer first, through the one sequencer");
   assert.equal(owned.status, "pass", JSON.stringify(owned));
-  assert.match(owned.details.join("\n"), /performance:apiResponseMaxMs \(webUi\.performance\.apiResponseMaxMs\): 700\.0; the target's lowest of 1 slotted value\(s\) is 750\.0; persists from the target, not worse; owner PERF-OWNER/u);
+  assert.match(owned.details.join("\n"), /performance:tabDomNodesMax \(webUi\.performance\.tabDomNodesMax\): 700\.0; the target's lowest of 1 value\(s\) is 750\.0; persists from the target, not worse; owner PERF-OWNER/u);
   api = 760;
   const worse = await judge();
   assert.equal(worse.status, "fail");
@@ -1380,13 +1375,14 @@ test("a PERFORMANCE budget's breach is judged in the same ONE judgement: owned a
   assert.equal(budgetFieldOf({ a: null }, "a.b"), undefined);
 });
 
-test("a target with NO slotted run is measured in the lock first, then judged strictly: its slotted value is the bar", async () => {
+test("a target with NO run is measured first, then judged strictly: its value is the bar", async () => {
   const { root } = initTempRepo("ws-budget-measure");
   const ledger = WEB_RUN_HISTORY_PATH;
   commitTrackerBoard(root, ["- [ ] **BUDGET-OWNER** `testExecution.webUiSuiteCpuBudget`"]);
   const target = rawGit(root, ["rev-parse", "HEAD"]);
   const targetTree = rawGit(root, ["rev-parse", "HEAD^{tree}"]);
-  writeFile(root, ledger, `${JSON.stringify({ runs: [{ timestamp: "2026-10-02T04:49:08.852Z", headSha: target, treeId: targetTree, wallClockMs: 0, cpuMsPerTestFile: 3000, testModuleCount: 1, failures: [], heavySlot: "unslotted" }] })}\n`);
+  // The ledger holds a run of ANOTHER tree only: it is never the target's bar.
+  writeFile(root, ledger, `${JSON.stringify({ runs: [{ timestamp: "2026-10-02T04:49:08.852Z", headSha: target, treeId: "0".repeat(40), wallClockMs: 0, cpuMsPerTestFile: 3000, testModuleCount: 1, failures: [] }] })}\n`);
   let workspaceCpu = 1950;
   const measured: string[] = [];
   const commands = makeFakeCommands({
@@ -1394,7 +1390,7 @@ test("a target with NO slotted run is measured in the lock first, then judged st
       const tree = rawGit(cwd, ["rev-parse", "HEAD^{tree}"]);
       if (tree === targetTree) measured.push(tree);
       return qualifiedSuiteGate(cwd, "web", {
-        timestamp: new Date().toISOString(), headSha: rawGit(cwd, ["rev-parse", "HEAD"]), wallClockMs: 0, cpuMsPerTestFile: tree === targetTree ? 1900 : workspaceCpu, testModuleCount: 1, failures: [], heavySlot: "held",
+        timestamp: new Date().toISOString(), headSha: rawGit(cwd, ["rev-parse", "HEAD"]), wallClockMs: 0, cpuMsPerTestFile: tree === targetTree ? 1900 : workspaceCpu, testModuleCount: 1, failures: [],
       }, { outcomes: [{ gate: "cpu-per-test-file", kind: "fail", message: "over the cap" }] });
     },
   });
@@ -1406,19 +1402,19 @@ test("a target with NO slotted run is measured in the lock first, then judged st
   const workspace = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
   commitFile(workspace.lease.worktreePath, "src/change.ts", "export const change = 1;\n");
   const worse = (await manager.validate(workspace.workspaceId, { full: true })).gates.find((gate) => gate.gate === "suite")!;
-  assert.deepEqual(measured, [targetTree], "the target was measured once, in the lock, because it had no slotted run");
+  assert.deepEqual(measured, [targetTree], "the target was measured once, because it had no run");
   assert.equal(worse.status, "fail", JSON.stringify(worse));
-  assert.match(worse.details.join("\n"), /WORSE than the target: 1950\.0 > 1900\.0/u, "the unslotted 3000 is never the bar");
+  assert.match(worse.details.join("\n"), /WORSE than the target: 1950\.0 > 1900\.0/u, "another tree's 3000 is never the bar");
   workspaceCpu = 1890;
   const better = (await manager.validate(workspace.workspaceId, { full: true })).gates.find((gate) => gate.gate === "suite")!;
   assert.equal(better.status, "pass", JSON.stringify(better));
-  assert.deepEqual(measured, [targetTree], "a slotted target run, once recorded, is not measured again");
+  assert.deepEqual(measured, [targetTree], "a target run, once recorded, is not measured again");
 });
 
 test("a read-only validation passes no budget breach: there is no target to own it against", async () => {
   const { root } = initTempRepo("ws-budget-readonly");
   const commands = makeFakeCommands({ suite: (cwd) => qualifiedSuiteGate(cwd, "web", {
-    timestamp: new Date().toISOString(), cpuMsPerTestFile: 1, testModuleCount: 1, failures: [], heavySlot: "held",
+    timestamp: new Date().toISOString(), cpuMsPerTestFile: 1, testModuleCount: 1, failures: [],
   }, { outcomes: [{ gate: "cpu-per-test-file", kind: "fail", message: "over the cap" }] }) });
   const config = makeTestConfig(mkWorkspaceTempDir("ws-budget-readonly-wt"), {
     commands: { suite: { cwd: ".", argv: ["true"], timeoutMs: 60_000, ledger: "web" } },
@@ -1444,7 +1440,7 @@ test("ONE judge: a new failure the flaky memory holds is a regression — nothin
     writeFile(checkout, ledger, `${JSON.stringify({ runs: [...runs, entry] })}\n`);
   };
   const row = (failures: readonly string[], extra: Readonly<Record<string, unknown>>, timestamp: string) =>
-    ({ timestamp, wallClockMs: 0, cpuMsPerTestFile: 1, testModuleCount: 1, failures, heavySlot: "held" as const, ...extra });
+    ({ timestamp, wallClockMs: 0, cpuMsPerTestFile: 1, testModuleCount: 1, failures, ...extra });
   const flaky = "flaky.test.ts::meets load now and then";
   // An earlier committed-tree run failed it, the target's own run did not: the flaky memory holds it.
   appendRow(root, row([flaky], { headSha: older }, "2026-09-01T00:00:00.000Z"));
@@ -1646,7 +1642,7 @@ test("a land keeps the canonical config's 0600: the merge's fast-forward rewrite
   assert.equal(statSync(join(root, configFile)).mode & 0o777, 0o600, "the landing checkout's config keeps 0600");
 });
 
-test("a read-only create does not run a heavy setup instrument (it never waits for the lock a validate holds); a feature create runs it", async () => {
+test("a read-only create does not run a heavy setup instrument (a verifier runs single files); a feature create runs it", async () => {
   const { root } = initTempRepo("ws-heavy-setup");
   const ran: string[] = [];
   const commands = makeFakeCommands({ warm: (cwd) => { ran.push(cwd); return { step: "warm", status: "pass", message: "warmed", details: [] }; } });

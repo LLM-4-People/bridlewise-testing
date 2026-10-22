@@ -29,6 +29,7 @@ import { join } from "node:path";
 
 import { createTempDir } from "../helpers/temp-dir.ts";
 import { judgePerformanceBudgets, performanceGate, performanceMeasurements } from "../../scripts/testing/performance-measurements.ts";
+import { WEB_PERFORMANCE_WALL_SIGNALS } from "../../engine/src/kernel/web-performance-budgets.ts";
 import type { ProfileReport } from "../performance/lib/perf-harness.ts";
 import { readMeasuredSurfaceHash } from "../../engine/src/shared/tree-identity.ts";
 import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
@@ -47,7 +48,6 @@ import {
   baselineLine,
   baselineNote,
   provenanceLine,
-  ambientInflationFraction,
   COLLECT_TAIL_SHARE_MAX,
   MIN_COVERAGE_FRACTION,
   type DeclaredCpuBudget,
@@ -63,7 +63,6 @@ import { engineConfigDocumentPath } from "../../engine/src/kernel/config.ts";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { resetServerConfig } from "../../server/kernel/config.ts";
 import { procfsDocument } from "../../engine/src/process/process-facts.ts";
-import { waitForInstrumentLock } from "../../engine/src/process/instrument-lock.ts";
 import { DEFAULT_VITEST_MODULE_CACHE_DIR, moduleCacheDirOf } from "../helpers/budget-paths.ts";
 
 const FULL = 417;
@@ -161,11 +160,6 @@ function reporterRepository(): string {
   return reporterTree;
 }
 
-/**
- * A lock file THIS test process holds, through the one instrument lock's own
- * door (engine/src/process/instrument-lock.ts): the reporter reads "held" from
- * its live holder — a drive never states its stamp.
- */
 /** A profile report no drive has: a run that reads it FAILS its `performance-report` gate (an unmeasured budget is never a pass, design M-A). */
 const ABSENT_PROFILE_REPORT = join(import.meta.dirname, "no-such-profile-report.json");
 
@@ -184,18 +178,6 @@ function passingProfileReport(): string {
   })));
   return path;
 }
-let heldLock: string | undefined;
-beforeAll(async () => {
-  // Made at the file's start, like the fixture repository: a temp folder made
-  // inside a test is removed when that test finishes, and the lock with it.
-  heldLock = join(createTempDir("reporter-instrument-lock-"), "instrument.lock");
-  await waitForInstrumentLock(heldLock, "reporter fixture drives", { onWait: () => undefined, pollIntervalMs: 50 });
-});
-function heldInstrumentLock(): string {
-  if (heldLock === undefined) throw new Error("the held instrument lock is taken in beforeAll");
-  return heldLock;
-}
-
 describe("a summary that IS evidence is judged", () => {
   test("a full, cheap run measures", () => {
     const v = judgeRuntimeBudget(goodSummary(), OPTS);
@@ -550,17 +532,12 @@ describe("the run's own costs are judged, and a refusal is not a pass", () => {
     derivedAtTestFileCount: FULL,
     maxPopulationDriftFraction: 0.03,
     // The baseline DERIVES from the ledger (never below the floor), and
-    // these fixtures keep their readings unstamped or at or under the floor
-    // so the floor holds the baseline at 1,000 exactly: the cap in force is
-    // 1,000 at no ambient. The spread only decides which ledger readings
-    // feed the baseline; it never widens a verdict.
+    // these fixtures keep their readings at or under the floor so the floor
+    // holds the baseline at 1,000 exactly: the cap in force is 1,000 at ANY
+    // load. The spread only decides which ledger readings feed the baseline;
+    // it never widens a verdict.
     sameTreeSpreadFraction: 0.047,
     baselineWindowRuns: 12,
-    // The deployed ambient envelope's proportions: +5% per unit of recorded
-    // 5-minute ambient load per CPU, capped at 12%. At amb5 0.8 the
-    // adjustment is +4% — the cap 1,040.
-    ambientInflationSlopePerCpu: 0.05,
-    ambientInflationCapFraction: 0.12,
   };
   const IDENTITIES = ["tests/prevention/web-ui-runtime-budget.test.ts::"];
   const INPUTS = {
@@ -581,7 +558,6 @@ describe("the run's own costs are judged, and a refusal is not a pass", () => {
     calibrationMs: 1,
     calibrationDriftFraction: 0.02,
     testModuleCount: FULL,
-    heavySlot: "held" as const,
   });
   /** A summary whose judged figure lands at exactly `msPerFile`. */
   const summaryAt = (msPerFile: number) => goodSummary({ runCpuMs: msPerFile * FULL });
@@ -658,108 +634,48 @@ describe("the run's own costs are judged, and a refusal is not a pass", () => {
     expect(verdict(950, [ranAt(1_090), ranAt(1_090), ranAt(1_090)])).toBe("pass");
   });
 
-  // ── AMBIENT LOAD: THE ONE ALLOWANCE LEFT, STATED ON EVERY VERDICT ────────
+  // ── AMBIENT LOAD IS A SIGNAL, NEVER A TERM OF THE CAP (NO-LOAD-BLOCK, A-08) ─
   //
-  // Sustained ambient load inflates the CPU figure (the ledger's own
-  // busy-vs-quiet pairs: +2.0% to +5.5% at amb5 0.557-1.263), and the declared
-  // envelope scales the cap by exactly that much, capped, until
-  // AMBIENT-ALLOWANCE-REMOVE removes it. The arms below hold both
-  // directions — clean at busy ambient judges CLEAN, regressed at busy
-  // ambient FAILS in its one run — plus the ghost bound (the 1-minute leg
-  // adjusts nothing) and the cap (no ambient empties the teeth).
+  // The cap used to scale by the run's recorded 5-minute load (an envelope:
+  // +5% per unit, capped at 12%), so a saturated host moved the line and a
+  // clean tree failed past the envelope. The judged figure is calibrated
+  // CPU work; the load legs ride beside it, printed, and never judged.
   /** A summary recorded at the given 5-minute ambient load per CPU. */
   const atAmb5 = (amb5: number, msPerFile: number) =>
     goodSummary({ load5PerCpuAtStart: amb5, load1PerCpuAtStart: amb5, runCpuMs: msPerFile * FULL });
 
-  test("A CLEAN RUN AT A BUSY AMBIENT JUDGES CLEAN — the adjustment does its work, with the arithmetic on the gate line", () => {
-    // At amb5 0.8 the adjustment is +4%: the cap is 1,040. A busy reading
-    // of 1,030 lands within it — a PASS, with the arithmetic named.
-    const busy = judgeRunCosts(judgeRuntimeBudget(atAmb5(0.8, 1_030), OPTS), INPUTS);
-    const cpu = busy.find((o) => o.gate === "cpu-per-test-file")!;
-    expect(cpu.kind).toBe("pass");
-    expect(cpu.message).toContain("1030.000 calibration units/file within 1040.000");
-    expect(cpu.message).toContain("baseline 1000.000 × 1.040 ambient adjustment");
-    expect(cpu.message).toContain("0.800/cpu");
-    expect(cpu.message).toContain("rolling baseline 1000.000");
-    expect(cpu.message).toContain("ambient adjustment this run earned");
-    // The counterfactual in the same arm: the IDENTICAL reading at a quiet
-    // ambient FAILS — the adjustment moved the line, and it is stated.
-    const quiet = judgeRunCosts(judgeRuntimeBudget(atAmb5(0.05, 1_030), OPTS), INPUTS);
-    const quietCpu = quiet.find((o) => o.gate === "cpu-per-test-file")!;
-    expect(quietCpu.kind).toBe("fail");
-    expect(quietCpu.message).toContain("ambient allowance in force until AMBIENT-ALLOWANCE-REMOVE");
+  test("THE CAP NEVER MOVES WITH LOAD — the same reading gets the same verdict at a quiet and at a busy host, and the load is printed as a signal", () => {
+    for (const reading of [990, 1_000, 1_030]) {
+      const quiet = gate(judgeRunCosts(judgeRuntimeBudget(atAmb5(0.05, reading), OPTS), INPUTS), "cpu-per-test-file");
+      const busy = gate(judgeRunCosts(judgeRuntimeBudget(atAmb5(1.2, reading), OPTS), INPUTS), "cpu-per-test-file");
+      expect(busy, `a ${String(reading)} reading`).toBe(quiet);
+    }
+    const busy = judgeRunCosts(judgeRuntimeBudget(atAmb5(0.8, 1_030), OPTS), INPUTS).find((o) => o.gate === "cpu-per-test-file")!;
+    expect(busy.kind).toBe("fail");
+    expect(busy.message).toContain("over the 1000.000 cap in force");
+    expect(busy.message).toContain("5-minute load 0.800/cpu: recorded, not judged");
+    expect(busy.message).not.toMatch(/ambient adjustment|ambient allowance/u);
   });
 
-  test("THE TEETH HOLD UNDER LOAD — one regressed reading at a busy ambient FAILS, whatever the ledger behind it", () => {
-    // At amb5 0.8 the cap is 1,040: a 1,050 reading fails in its one run,
-    // with green busy neighbours or none.
+  test("THE TEETH HOLD AT ANY LOAD — one regressed reading FAILS, whatever the ledger behind it; past the metric's validity bound the gate DEFERS, never passes", () => {
     const busyAmbient = (cpu: number, when: string) => ({ ...ranAt(cpu, when), ambientLoad5PerCpu: 0.8 });
     for (const priorRuns of [[], [busyAmbient(1_000, "2026-07-30T10:10:00.000Z"), busyAmbient(1_010, "2026-07-30T10:20:00.000Z")]]) {
-      const out = judgeRunCosts(judgeRuntimeBudget(atAmb5(0.8, 1_050), OPTS), { ...INPUTS, priorRuns });
-      const cpu = out.find((o) => o.gate === "cpu-per-test-file")!;
+      const cpu = judgeRunCosts(judgeRuntimeBudget(atAmb5(0.8, 1_001), OPTS), { ...INPUTS, priorRuns }).find((o) => o.gate === "cpu-per-test-file")!;
       expect(cpu.kind).toBe("fail");
       expect(cpu.message).toContain("do not raise the budget");
-      expect(cpu.message).toContain("baseline 1000.000 × 1.040 ambient adjustment");
-      expect(cpu.message).toContain("1050.0");
     }
-  });
-
-  test("THE CAP — inside the metric's validity bound a saturated run still fails; past it the gate DEFERS, never passes", () => {
-    // At amb5 1.2 the adjustment is +6%: the cap is 1,060. 1,061 fails;
-    // 1,060 passes. The teeth do not come out at high ambient.
-    expect(ambientInflationFraction(1.2, BUDGET)).toBeCloseTo(0.06, 10);
-    const busy = judgeRunCosts(judgeRuntimeBudget(atAmb5(1.2, 1_061), OPTS), INPUTS);
-    const busyCpu = busy.find((o) => o.gate === "cpu-per-test-file")!;
-    expect(busyCpu.kind).toBe("fail");
-    expect(busyCpu.message).toContain("1060.000");
-    expect(gate(judgeRunCosts(judgeRuntimeBudget(atAmb5(1.2, 1_060), OPTS), INPUTS), "cpu-per-test-file")).toBe("pass");
-    // PAST THE BOUND the residual is UNMEASURED: a 3.0/cpu ambient is not a
-    // reason to pass OR to fail. The gate says so and defers.
-    expect(ambientInflationFraction(3.0, BUDGET)).toBe(0.12);
-    const saturated = judgeRunCosts(judgeRuntimeBudget(atAmb5(3.0, 1_121), OPTS), INPUTS);
-    const cpu = saturated.find((o) => o.gate === "cpu-per-test-file")!;
+    // Past the bound the calibrated metric's residual was measured through,
+    // the gate says so and defers: not a pass, not a fail, nothing waits.
+    const cpu = judgeRunCosts(judgeRuntimeBudget(atAmb5(3.0, 1_121), OPTS), INPUTS).find((o) => o.gate === "cpu-per-test-file")!;
     expect(cpu.kind).toBe("not-judged");
     expect(cpu.message).toContain("past the 1.25/cpu bound");
-    // And the helper's own bounds: absence, garbage and non-positive
-    // readings adjust nothing — a missing covariate must never loosen a
-    // line (deny-by-default).
-    expect(ambientInflationFraction(undefined, BUDGET)).toBe(0);
-    expect(ambientInflationFraction(null, BUDGET)).toBe(0);
-    expect(ambientInflationFraction(Number.NaN, BUDGET)).toBe(0);
-    expect(ambientInflationFraction(-1, BUDGET)).toBe(0);
-  });
-
-  test("THE GHOST BOUND — the 1-minute leg adjusts nothing, whatever it reads", () => {
-    // The recorded 1-minute ambient is the decaying echo of the minute
-    // BEFORE launch: a prior suite leaves it at 0.8-1.9/cpu on an otherwise
-    // idle box. Two summaries identical in every recorded figure except the
-    // 1-minute leg (1.6/cpu ghost vs 0.2/cpu honest) produce the IDENTICAL
-    // verdict and the same cap — the ghost buys no allowance.
-    const ghost = judgeRunCosts(
-      judgeRuntimeBudget(goodSummary({ load1PerCpuAtStart: 1.6, load5PerCpuAtStart: 0.15, runCpuMs: 1_060 * FULL }), OPTS),
-      INPUTS,
-    );
-    const twin = judgeRunCosts(
-      judgeRuntimeBudget(goodSummary({ load1PerCpuAtStart: 0.2, load5PerCpuAtStart: 0.15, runCpuMs: 1_060 * FULL }), OPTS),
-      INPUTS,
-    );
-    const cpu = ghost.find((o) => o.gate === "cpu-per-test-file")!;
-    const cpuTwin = twin.find((o) => o.gate === "cpu-per-test-file")!;
-    expect(cpu.kind).toBe(cpuTwin.kind);
-    const cap = (1_000 * (1 + ambientInflationFraction(0.15, BUDGET))).toFixed(3);
-    expect(cpu.message).toContain(`over the ${cap} cap in force`);
-    expect(cpuTwin.message).toContain(`over the ${cap} cap in force`);
-    expect(cpu.message).toContain("× 1.008 ambient adjustment");
-    expect(cpuTwin.message).toContain("× 1.008 ambient adjustment");
-    expect(cpu.message).not.toContain("× 1.016");
-    expect(cpu.kind).toBe("fail");
-    // ABSENCE IS NOT AN ESCAPE HATCH either: no 5-minute leg judges against
-    // the unadjusted cap.
+    // ABSENCE IS NOT AN ESCAPE HATCH: no 5-minute leg is an unreadable
+    // condition, never a clean one.
     const s = goodSummary({ runCpuMs: 1_060 * FULL });
     delete s.load5PerCpuAtStart;
-    const noLeg = judgeRunCosts(judgeRuntimeBudget(s, OPTS), INPUTS);
-    expect(noLeg.find((o) => o.gate === "cpu-per-test-file")!.kind).toBe("not-judged");
-    expect(noLeg.find((o) => o.gate === "cpu-per-test-file")!.message).toContain("no 5-minute ambient load");
+    const noLeg = judgeRunCosts(judgeRuntimeBudget(s, OPTS), INPUTS).find((o) => o.gate === "cpu-per-test-file")!;
+    expect(noLeg.kind).toBe("not-judged");
+    expect(noLeg.message).toContain("no 5-minute ambient load");
   });
 
   test("THE 23.9s-of-330s FILE — one file eating 7.2% of the pool FAILS", () => {
@@ -818,10 +734,8 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
     maxPopulationDriftFraction: 0.03,
     sameTreeSpreadFraction: 0.047,
     baselineWindowRuns: 4,
-    ambientInflationSlopePerCpu: 0.05,
-    ambientInflationCapFraction: 0.12,
   };
-  // Every row is stamped as measured inside the host's instrument lock: only such a reading feeds (D-17, design M-B).
+  // A row is a judged run's record; whatever ran beside it, its reading counts (NO-LOAD-BLOCK, audit A-12).
   const row = (cpuMsPerTestFile: number, over: Record<string, unknown> = {}) => ({
     timestamp: "t",
     cpuMsPerTestFile,
@@ -830,48 +744,41 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
     calibrationMs: 1,
     calibrationDriftFraction: 0.02,
     testModuleCount: FULL,
-    heavySlot: "held" as const,
     ...over,
   });
 
-  test("the median of the last window of eligible readings, ambient-adjusted, at the CURRENT population; ineligible rows and OUTLIERS never count — the same rows the rolling baseline feeds on (WF-1b3b design M5)", () => {
+  test("the median of the last window of eligible readings, as recorded, at the CURRENT population; ineligible rows and OUTLIERS never count — the same rows the rolling baseline feeds on (WF-1b3b design M5)", () => {
     const rows = [
       row(9_000),                                          // older than the window, and an outlier
       row(2_000), row(2_100),
       row(2_600),                                          // an overloaded outlier: beyond the allowance of the window's median
       row(2_200),
-      row(2_300, { ambientLoad5PerCpu: 1 }),               // busy: 2300 / 1.05 = 2190.5
+      row(2_240, { ambientLoad5PerCpu: 1 }),               // a busy host: counted as recorded, never adjusted
       row(9_999, { mutation: true }),                      // a deliberate mutation run
       row(9_999, { testModuleCount: 300 }),                // another population
       row(9_999, { failures: [`${IDENTITIES[0]!}budget`] }), // the gate's own failure
-      row(1_000, { heavySlot: "unslotted" }),              // measured outside the lock
-      row(1_000, { heavySlot: undefined }),                // a legacy row with no stamp
     ];
     const measured = measureBudgetFloor(declared, rows, FULL, IDENTITIES);
     expect(measured.status).toBe("measured");
     if (measured.status !== "measured") return;
     expect(measured.derivedAtTestFileCount).toBe(FULL);
-    expect(measured.readings).toEqual([2_000, 2_100, 2_200, 2_300 / 1.05]);
-    expect(measured.floorUnitsPerTestFile).toBe(Math.ceil((2_100 + 2_300 / 1.05) / 2));
+    expect(measured.readings).toEqual([2_000, 2_100, 2_200, 2_240]);
+    expect(measured.floorUnitsPerTestFile).toBe(Math.ceil((2_100 + 2_200) / 2));
     // The rolling baseline feeds on the same eligible rows, but only those whose OWN CPU outcome passed (at or under
-    // the cap in force at their moment): 2,200 and 2,190.5 were over the 2,150 cap, so they feed nothing (design HIGH 1).
+    // the cap in force at their moment): 2,200 and 2,240 were over the 2,150 cap, so they feed nothing (design HIGH 1).
     expect(deriveRollingBaseline({ ...declared, baselineFloorUnitsPerTestFile: 2_150 }, rows, FULL, IDENTITIES).windowReadings).toEqual([2_000, 2_100]);
   });
 
-  test("ONLY A READING TAKEN INSIDE THE LOCK FEEDS: an unslotted row and a legacy row with no stamp never reach the tool's window or the rolling baseline (D-17, design M-B)", () => {
-    const unstamped = (cpu: number) => ({ timestamp: "t", cpuMsPerTestFile: cpu, workUnitsPerTestFile: cpu, metric: "calibrated-work/v1", calibrationMs: 1, testModuleCount: FULL });
-    for (const outside of [
-      Array.from({ length: 4 }, (_, i) => unstamped(2_000 + i)),
-      Array.from({ length: 4 }, (_, i) => row(2_000 + i, { heavySlot: "unslotted" })),
+  test("EVERY READING FEEDS, WHATEVER RAN BESIDE IT: a row from a run that shared the host, or one recorded before admission existed, reaches the tool's window and the rolling baseline like any other (NO-LOAD-BLOCK, audit A-12)", () => {
+    const legacy = (cpu: number) => ({ timestamp: "t", cpuMsPerTestFile: cpu, workUnitsPerTestFile: cpu, metric: "calibrated-work/v1", calibrationMs: 1, testModuleCount: FULL });
+    for (const rows of [
+      Array.from({ length: 4 }, (_, i) => legacy(2_000 + i)),
+      Array.from({ length: 4 }, (_, i) => row(2_000 + i, { heavySlot: "unslotted", ambientLoad5PerCpu: 1.2 })),
     ]) {
-      expect(measureBudgetFloor(declared, outside, FULL, IDENTITIES)).toMatchObject({ status: "unmeasurable", eligibleRuns: 0 });
-      expect(deriveRollingBaseline({ ...declared, baselineFloorUnitsPerTestFile: 2_000 }, outside, FULL, IDENTITIES).windowReadings).toEqual([]);
+      expect(measureBudgetFloor(declared, rows, FULL, IDENTITIES)).toMatchObject({ status: "measured", readings: [2_000, 2_001, 2_002, 2_003] });
+      // …and the rolling baseline feeds the run that passed its own 2,000 cap (2,001 and above failed theirs).
+      expect(deriveRollingBaseline({ ...declared, baselineFloorUnitsPerTestFile: 2_000 }, rows, FULL, IDENTITIES).windowReadings).toEqual([2_000]);
     }
-    // The same readings, stamped, feed both.
-    const held = Array.from({ length: 4 }, (_, i) => row(2_000 + i));
-    expect(measureBudgetFloor(declared, held, FULL, IDENTITIES)).toMatchObject({ status: "measured", readings: [2_000, 2_001, 2_002, 2_003] });
-    // …and the rolling baseline feeds only the stamped run that passed its own 2,000 cap (2,001 and above failed theirs).
-    expect(deriveRollingBaseline({ ...declared, baselineFloorUnitsPerTestFile: 2_000 }, held, FULL, IDENTITIES).windowReadings).toEqual([2_000]);
   });
 
   test("a run failing ONLY the gate's population arm is eligible — the failure a re-measurement clears; any other face of the gate still disqualifies its run", () => {
@@ -928,8 +835,6 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
       maxPopulationDriftFraction: 0.03,
       sameTreeSpreadFraction: 0.047,
       baselineWindowRuns: 12,
-      ambientInflationSlopePerCpu: 0,
-      ambientInflationCapFraction: 0,
       calibrationDriftMaxFraction: 0.15,
       validThroughLoad5PerCpu: 1.25,
     };
@@ -947,7 +852,6 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
         metric: "calibrated-work/v1",
         calibrationMs: 1,
         testModuleCount: fullRunModuleCount(),
-        heavySlot: "held",
       })) }));
       expect(() => measureWebBudget(true, ledger)).toThrow(expect.objectContaining({ code: "web_budget_document_mismatch" }));
       expect(readFileSync(engineDocument).equals(engineBytes), "the engine's document was written").toBe(true);
@@ -975,8 +879,6 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     maxPopulationDriftFraction: 0.03,
     sameTreeSpreadFraction: 0.047,
     baselineWindowRuns: 12,
-    ambientInflationSlopePerCpu: 0.05,
-    ambientInflationCapFraction: 0.12,
     ...over,
   });
   // Stamped as measured inside the host's instrument lock: only such a row feeds the baseline (design M-B).
@@ -988,7 +890,6 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     calibrationMs: 1,
     calibrationDriftFraction: 0.02,
     testModuleCount: FULL,
-    heavySlot: "held" as const,
     ...over,
   });
   const summaryAt = (msPerFile: number) => goodSummary({ runCpuMs: msPerFile * FULL });
@@ -1023,25 +924,21 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     // …and the red names the baseline it fired against, so a reader sees
     // the cap did not move.
     expect(cpu.message).toContain("rolling baseline 1000.000");
-    // …AND THE SAME PROOF AT A BUSY AMBIENT: the regression is recorded at
-    // amb5 0.8 (its readings earning the +4% adjustment), and the clean
-    // history behind it is quiet. The regressed readings sit beyond the
-    // AMBIENT-ADJUSTED cap (1,040), so they failed their runs and feed nothing,
-    // the baseline still does not move, and the next regressed reading
-    // still FAILS — the adjustment pays for the box, never for the
-    // regression. A mutant that over-adjusts (or feeds raw busy readings)
-    // moves the baseline here and this half reds.
+    // …AND THE SAME PROOF ON A BUSY HOST: the regression is recorded at
+    // amb5 0.8, and the clean history behind it is quiet. The regressed
+    // readings sit beyond the cap (1,000 — a cap never moves with load), so
+    // they failed their runs and feed nothing, the baseline does not move,
+    // and the next regressed reading still FAILS.
     const busyRegressed = [...cleanHistory,
       ranAt(1_140, { ambientLoad5PerCpu: 0.8 }),
       ranAt(1_160, { ambientLoad5PerCpu: 0.8 }),
     ];
     const busyAfter = deriveRollingBaseline(budget(), busyRegressed, FULL, IDENTITIES);
     expect(busyAfter.baselineUnitsPerTestFile).toBe(before.baselineUnitsPerTestFile);
-    expect(busyAfter.windowReadings).not.toContain(1_140 / 1.04);
-    expect(busyAfter.windowReadings).not.toContain(1_160 / 1.04);
+    expect(busyAfter.windowReadings).not.toContain(1_140);
+    expect(busyAfter.windowReadings).not.toContain(1_160);
     const busyOut = costs(budget(), busyRegressed, 1_150);
-    // The current run is quiet (no amb5): its cap is the unadjusted 1,000,
-    // and 1,150 fails against the UNCHANGED baseline, exactly as at quiet.
+    // 1,150 fails against the UNCHANGED baseline, exactly as at quiet.
     const busyCpu = busyOut.find((o) => o.gate === "cpu-per-test-file")!;
     expect(busyCpu.kind).toBe("fail");
     expect(busyCpu.message).toContain("rolling baseline 1000.000");
@@ -1124,21 +1021,18 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
       IDENTITIES,
     );
     expect(withMut.windowReadings).not.toContain(935);
-    // THE BUSY-CLEAN ROW FEEDS ITS ADJUSTED READING — the acceptance
-    // scenario's mechanism, pinned on the derivation: a row at amb5 0.8
-    // reading 935 (inside its own adjusted line 1,000 × 1.047 × 1.04 =
-    // 1,088.9) feeds, at 935 / 1.04 = 899.0 — its quiet-equivalent cost, so
-    // a busy stretch cannot drag the window's centre up. A mutant that
-    // excludes busy rows starves the window on a busy box (the quiet
-    // dependency the design forbids); one that feeds the RAW reading
-    // inflates the median by 4% for free.
+    // A BUSY-HOST ROW FEEDS ITS READING AS RECORDED (NO-LOAD-BLOCK, audit
+    // A-08, A-12): a row at amb5 0.8 reading 935 is under the cap, so it
+    // feeds at 935 — never excluded for busyness, never divided by a load
+    // factor. A mutant that excludes busy rows starves the window on a busy
+    // box; one that re-adds an adjustment feeds 899.
     const withBusy = deriveRollingBaseline(
       budget(),
       [...clean, ranAt(935, { ambientLoad5PerCpu: 0.8 })],
       FULL,
       IDENTITIES,
     );
-    expect(withBusy.windowReadings).toContain(899.0384615384615);
+    expect(withBusy.windowReadings).toContain(935);
     // And the population-drifted row still never feeds — the one condition
     // that remains an exclusion, because it is about the SUITE, not the box.
     const withDrifted = deriveRollingBaseline(
@@ -1166,15 +1060,10 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     expect(pass.kind).toBe("pass");
     expect(pass.message).toContain("rolling baseline 1000.000");
     expect(pass.message).toContain("12-run window");
-    expect(baselineNote(d, 0, 0.05)).toContain("945.5");
-    // The standing line says the window's readings are ambient-adjusted
-    // (an operator must not read them as raw costs), and the note carries
-    // the adjustment a given run earned — zero for a quiet one, the
-    // envelope's product for a busy one, both spelled.
-    expect(baselineLine(d)).toContain("ambient-adjusted");
-    expect(baselineNote(d, 0, 0.05)).toContain("No ambient adjustment was earned");
-    expect(baselineNote(d, 0.04, 0.8)).toContain("+4.0%");
-    expect(baselineNote(d, 0.04, 0.8)).toContain("0.800/cpu");
+    expect(baselineNote(d)).toContain("945.5");
+    // No load term anywhere: the readings are calibrated work as recorded (NO-LOAD-BLOCK, audit A-08).
+    expect(baselineLine(d)).not.toContain("ambient");
+    expect(baselineNote(d)).not.toContain("ambient");
   });
 
   test("(g) A STALE-HIGH FLOOR IS DISCLOSED — when the clean median sits beyond the spread below the floor, every line says the floor is stale-loose", () => {
@@ -1195,23 +1084,11 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
     expect(out.message).toContain("STALE-LOOSE");
   });
 
-  test("(h) THE AMBIENT CURVE — a synthetic ledger where inflation is planted: the verdict applies the measured adjustment, and the window holds the quiet centre", () => {
-    // The calibration the deployed envelope was derived from, planted as a
-    // ledger: quiet rows at 950, then busy rows whose readings carry
-    // exactly the inflation the envelope predicts for their ambient
-    // (amb5 0.6 → +3%, reading 950 × 1.03 = 978.5; amb5 1.0 → +5%, reading
-    // 997.5). Every busy row sits inside its own adjusted line (950-era
-    // baseline 1,000 × 1.047 × 1.0x ≥ the reading), so all of them feed —
-    // and each feeds its ADJUSTED value (950.0 and 950.0 again: the
-    // inflation cancels EXACTLY, which is the curve being right). A window
-    // full of busy rows therefore holds the quiet centre: the median stays
-    // 950 and the floor keeps holding the baseline at 1,000. A mutant that
-    // applies no adjustment lets the 997.5 reading feed raw (the median
-    // climbs toward 997.5 and this arm's median assertion reds); a mutant
-    // that over-adjusts (double the slope) feeds 950 × 1.05 / 1.10 ≈ 909
-    // and drags the median DOWN — the floor hides that here, so the arm
-    // also asserts the window's VALUES directly, which the floor cannot
-    // mask.
+  test("(h) A BUSY HOST IS NOT ADJUSTED FOR — the window holds the readings as recorded, and a busy reading over the cap fails like a quiet one (NO-LOAD-BLOCK, audit A-08)", () => {
+    // Quiet rows at 950, then rows recorded on a busy host at 978.5 and
+    // 997.5: every one is under the floor-held cap of 1,000, so all feed —
+    // AS RECORDED. Nothing divides them by a load factor, so a mutant that
+    // re-adds an adjustment moves these values and reds here.
     const quiet = Array.from({ length: 6 }, (_, i) => ranAt(950, { timestamp: `2026-08-01T0${String(i)}:00:00.000Z` }));
     const busy = [
       ranAt(978.5, { ambientLoad5PerCpu: 0.6, timestamp: "2026-08-02T01:00:00.000Z" }),
@@ -1222,37 +1099,18 @@ describe("the rolling baseline — the cap derived from the ledger's own clean h
       ranAt(978.5, { ambientLoad5PerCpu: 0.6, timestamp: "2026-08-02T06:00:00.000Z" }),
     ];
     const d = deriveRollingBaseline(budget(), [...quiet, ...busy], FULL, IDENTITIES);
-    // Every busy row fed, at its adjusted value — the window carries the
-    // quiet centre, not the busy readings.
     expect(d.windowReadings).toHaveLength(12);
-    expect(d.windowReadings).not.toContain(978.5);
-    expect(d.windowReadings).not.toContain(997.5);
-    // 978.5 / 1.03 and 997.5 / 1.05 both land at ~950 (the planted
-    // inflation cancels), beside the six quiet 950s.
-    const near = (x: number) => Math.abs(x - 950) < 0.01;
-    expect(d.windowReadings.every(near)).toBe(true);
-    expect(d.medianUnitsPerTestFile).toBeLessThan(951);
-    expect(d.floorBound).toBe(true); // 950 < the 1,000 floor: the floor holds
+    expect(d.windowReadings.filter((x) => x === 978.5)).toHaveLength(3);
+    expect(d.windowReadings.filter((x) => x === 997.5)).toHaveLength(3);
     expect(d.baselineUnitsPerTestFile).toBe(1_000);
-    // And the gate over that window: a busy reading carrying exactly the
-    // envelope's inflation (1,000 × 1.05 = 1,050 at amb5 1.0) judges a
-    // PASS with the arithmetic on the line — the acceptance scenario,
-    // driven at the owner. The current run's own ambient is planted on the
-    // SUMMARY (where the reporter records it), not on a ledger row.
+    // And a busy current run over that window: 1,050 at amb5 1.0 is over the 1,000 cap, and FAILS.
     const planted = judgeRunCosts(
       judgeRuntimeBudget(goodSummary({ load5PerCpuAtStart: 1.0, load1PerCpuAtStart: 1.0, runCpuMs: 1_050 * FULL }), OPTS),
-      {
-        cpuBudget: budget(),
-        fileShareMax: 0.05,
-        priorRuns: [...quiet, ...busy],
-        suiteLabel: "web-UI",
-        budgetFailureIdentities: IDENTITIES,
-      },
+      { cpuBudget: budget(), fileShareMax: 0.05, priorRuns: [...quiet, ...busy], suiteLabel: "web-UI", budgetFailureIdentities: IDENTITIES },
     );
     const plantedCpu = planted.find((o) => o.gate === "cpu-per-test-file")!;
-    expect(plantedCpu.kind).toBe("pass");
-    expect(plantedCpu.message).toContain("1050.000 calibration units/file within 1050.000");
-    expect(plantedCpu.message).toContain("× 1.050 ambient adjustment");
+    expect(plantedCpu.kind).toBe("fail");
+    expect(plantedCpu.message).toContain("over the 1000.000 cap in force");
   });
 });
 
@@ -1483,8 +1341,6 @@ describe("the budget names the population it bounds", () => {
     validThroughLoad5PerCpu: 1.25,
     derivedAtTestFileCount: 451,
     maxPopulationDriftFraction: 0.03,
-    ambientInflationSlopePerCpu: 0.05,
-    ambientInflationCapFraction: 0.12,
   };
 
   test("the tree it was derived against is current", () => {
@@ -1901,7 +1757,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
         const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU,
           summaryPath: cause === "summary-write" ? dir : join(dir, "summary.json"), historyPath, cacheDir, repositoryRoot: reporterRepository(),
           out: (line) => { output.push(line); }, err: (line) => { output.push(line); },
-          instrumentLockPath: heldInstrumentLock(), performanceReportPath: passingProfileReport(), setExitCode: (code) => { exits.push(code); },
+          performanceReportPath: passingProfileReport(), setExitCode: (code) => { exits.push(code); },
         });
         const owned = cause !== "file-share" && cause !== "passed-reason-global" && cause !== "unaccounted-module";
         const allModules = fakeModules(full).map((module, index) => ({
@@ -2078,7 +1934,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
       readCpu: FIXED_CPU,
       out: (chunk: string) => void printed.push(chunk),
       err: (chunk: string) => void printed.push(chunk),
-      instrumentLockPath: heldInstrumentLock(), performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: (code: number) => void exitCodes.push(code),
+      performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: (code: number) => void exitCodes.push(code),
     } as const;
     const exitBefore = process.exitCode;
 
@@ -2160,7 +2016,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
     expect(process.exitCode).toBe(exitBefore);
   });
 
-  test("THE PERF BUDGETS REACH THE RUN AND THE LEDGER (correctness B-N2): a profile report over a budget FAILS the run by its gate, and the row records every measurement the ledger judge compares", () => {
+  test("THE PERF BUDGETS REACH THE RUN AND THE LEDGER (correctness B-N2): a profile report over a judged budget FAILS the run by its gate, a wall-time reading is a recorded signal, and the row records every measurement", () => {
     const dir = createTempDir("reporter-perf-");
     const cacheDir = join(dir, "cache");
     mkdirSync(cacheDir);
@@ -2171,21 +2027,28 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
       writeFileSync(p, "x");
       utimesSync(p, past, past);
     }
-    // The planted report breaches the API budget (1,926 ms against 250).
+    // The planted report breaches the tab DOM-node budget (9,000 against the configured 8,000) — a judged
+    // budget; its wall-time readings (the API's 1,926 ms among them) are recorded signals, never a fail.
     const report = join(dir, "report.json");
-    writeFileSync(report, JSON.stringify(plantedReport({ treeIdentity: { headSha: "0".repeat(40), dirty: false, measuredSurfaceHash: readMeasuredSurfaceHash(reporterRepository()) } })));
+    writeFileSync(report, JSON.stringify(plantedReport({
+      treeIdentity: { headSha: "0".repeat(40), dirty: false, measuredSurfaceHash: readMeasuredSurfaceHash(reporterRepository()) },
+      tabs: [{ name: "a", ok: true, switchMs: 90, domNodes: 900 }, { name: "b", ok: true, switchMs: 120, domNodes: 9000 }],
+    })));
     const exits: number[] = [];
     const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU,
       summaryPath: join(dir, "summary.json"), historyPath: join(dir, "history.json"), cacheDir, repositoryRoot: reporterRepository(),
-      out: () => undefined, err: () => undefined, instrumentLockPath: heldInstrumentLock(), performanceReportPath: report, setExitCode: (code) => { exits.push(code); },
+      out: () => undefined, err: () => undefined, performanceReportPath: report, setExitCode: (code) => { exits.push(code); },
     });
     reporter.onInit();
     reporter.onTestRunEnd(fakeModules(full), [], "passed");
     expect(exits, "a breached perf budget fails the run").toContain(1);
     const raw = JSON.parse(readFileSync(join(dir, "history.json"), "utf8")) as { runs: Record<string, unknown>[] };
     const outcomes = (raw.runs[0]!["qualification"] as { outcomes: { gate: string; kind: string }[] }).outcomes;
-    expect(outcomes.find((outcome) => outcome.gate === "performance:apiResponseMaxMs")?.kind, "the breach is its own gate's fail").toBe("fail");
-    expect((raw.runs[0]![ROOT_POLICY.workflow.webPerformanceBudgets.ledgerField] as Record<string, number>)["apiResponseMaxMs"], "the row records the measurement the ledger judge compares").toBe(1926);
+    expect(outcomes.find((outcome) => outcome.gate === "performance:tabDomNodesMax")?.kind, "the breach is its own gate's fail").toBe("fail");
+    expect(outcomes.find((outcome) => outcome.gate === "performance:apiResponseMaxMs")?.kind, "a wall-time reading is a recorded signal").toBe("not-judged");
+    const measured = raw.runs[0]![ROOT_POLICY.workflow.webPerformanceBudgets.ledgerField] as Record<string, number>;
+    expect(measured["tabDomNodesMax"], "the row records the measurement the ledger judge compares").toBe(9000);
+    expect(measured["apiResponseMaxMs"], "and the signal beside it").toBe(1926);
   });
 
   test("a judged run's PER-TEST FAILURE ROWS land in its ledger record — the flaky memory's substrate", () => {
@@ -2239,7 +2102,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
       readCpu: FIXED_CPU,
       out: () => undefined,
       err: () => undefined,
-      instrumentLockPath: heldInstrumentLock(), performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: () => undefined,
+      performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: () => undefined,
     } as const;
     const reporter = new BudgetReporter(harness);
     reporter.onInit();
@@ -2254,27 +2117,6 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
       "tests/fake/flaky.test.ts::suite > flakes sometimes",
       "tests/fake/flaky.test.ts::suite > second flake",
     ]);
-  });
-
-  test("a measured run that did not hold the host's instrument lock is REFUSED: failed, said, and not recorded (engine/src/process/instrument-lock.ts)", () => {
-    const dir = createTempDir("reporter-unslotted-");
-    const historyPath = join(dir, "history.json");
-    const errors: string[] = [];
-    const exits: number[] = [];
-    const full = fullRunModuleCount();
-    const modules = Array.from({ length: full }, (_, i) => ({
-      moduleId: `tests/fake/${String(i)}.test.ts`,
-      diagnostic: () => ({ collectDuration: 0, duration: 1 }),
-    }));
-    const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU,
-      summaryPath: join(dir, "summary.json"), historyPath, cacheDir: dir, repositoryRoot: reporterRepository(),
-      instrumentLockPath: join(dir, "no-holder.lock"), performanceReportPath: ABSENT_PROFILE_REPORT, out: () => undefined, err: (chunk) => { errors.push(chunk); }, setExitCode: (code) => { exits.push(code); },
-    });
-    reporter.onInit();
-    reporter.onTestRunEnd(modules, [], "passed");
-    expect(errors.join("")).toMatch(/cpu-per-test-file REFUSED: this run did not hold the host's instrument lock/u);
-    expect(exits).toContain(1);
-    expect(existsSync(historyPath), "an unslotted measurement is not recorded").toBe(false);
   });
 
   test("a judged run's record carries the PROVISIONAL marker when the measured tree is tracked-dirty, and not when clean", () => {
@@ -2305,7 +2147,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
       const modules = fakeModules(full);
       const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU,
         summaryPath: join(dir, "summary.json"), historyPath, cacheDir, repositoryRoot: repository.dir,
-        out: () => undefined, err: () => undefined, instrumentLockPath: heldInstrumentLock(), performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: () => undefined,
+        out: () => undefined, err: () => undefined, performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: () => undefined,
       });
       reporter.onInit();
       reporter.onTestRunStart(modules.map((module) => ({ taskId: module.id, moduleId: module.moduleId })));
@@ -2345,7 +2187,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
       const historyPath = join(dir, `history-${String(index)}.json`);
       const exits: number[] = [];
       const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU, summaryPath: join(dir, "summary.json"), historyPath, cacheDir, repositoryRoot: reporterRepository(),
-        out: () => undefined, err: () => undefined, instrumentLockPath: heldInstrumentLock(), performanceReportPath: passingProfileReport(), setExitCode: (code) => { exits.push(code); } });
+        out: () => undefined, err: () => undefined, performanceReportPath: passingProfileReport(), setExitCode: (code) => { exits.push(code); } });
       // Cross the actual external boundary deliberately. Passed cases with
       // valid earlier retry diagnostics stay passed and do not become rows.
       const errors = input.errors as { message: string; name?: string }[] | undefined;
@@ -2386,7 +2228,7 @@ describe("the reporter appends ONLY judged runs — D2's other half, driven end-
       }
       const exits: number[] = [];
       const reporter = new BudgetReporter({ readCalibration: FIXED_CALIBRATION, readCpu: FIXED_CPU, summaryPath: join(dir, "summary.json"), historyPath, cacheDir, repositoryRoot: reporterRepository(),
-        out: () => undefined, err: () => undefined, instrumentLockPath: heldInstrumentLock(), performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: (code) => { exits.push(code); } });
+        out: () => undefined, err: () => undefined, performanceReportPath: ABSENT_PROFILE_REPORT, setExitCode: (code) => { exits.push(code); } });
       const modules = fakeModules(full).map((module, index) => ({ ...module,
         state: () => index === 0 ? "failed" : "passed",
         // Deliberately cross the typed external boundary with one malformed
@@ -2518,7 +2360,6 @@ const PERF_ROOT = process.cwd();
 /** A report every budget can read, with the readings the test names. */
 function plantedReport(over: Readonly<Record<string, unknown>> = {}): ProfileReport {
   return {
-    instrumentLock: "held",
     treeIdentity: { headSha: "0".repeat(40), dirty: false, measuredSurfaceHash: readMeasuredSurfaceHash(PERF_ROOT) },
     pageLoad: { lcp: 600, cls: 0.05, longTaskWorstMs: 80, longTaskTotalMs: 200 },
     tabs: [{ name: "a", ok: true, switchMs: 90, domNodes: 900 }, { name: "b", ok: true, switchMs: 120, domNodes: 1100 }],
@@ -2562,10 +2403,9 @@ describe("the reporter's judgement of a run", () => {
     return path;
   };
 
-  test("a report it cannot judge FAILS the run by name, with why — absent, unslotted, of other code — and records nothing (an unmeasured budget is never a pass: design M-A)", () => {
+  test("a report it cannot judge FAILS the run by name, with why — absent, of other code — and records nothing (an unmeasured budget is never a pass: design M-A)", () => {
     for (const [path, why] of [
       [join(createTempDir("perf-judgement-absent-"), "none.json"), /no profile report/u],
-      [at({ ...plantedReport(), instrumentLock: "unslotted" }), /outside the host's instrument lock/u],
       [at({ ...plantedReport(), treeIdentity: { headSha: "0".repeat(40), dirty: false, measuredSurfaceHash: "f".repeat(64) } }), /describes other code/u],
     ] as const) {
       const judged = judgePerformanceBudgets(PERF_ROOT, path, budget);
@@ -2577,14 +2417,31 @@ describe("the reporter's judgement of a run", () => {
   });
 
   test("a judged report fails each breach and each unmeasured budget by its gate, passes the rest, and records every measurement", () => {
-    const judged = judgePerformanceBudgets(PERF_ROOT, at(plantedReport({ viewports: [{ lcp: null }] })), budget);
+    const judged = judgePerformanceBudgets(PERF_ROOT, at(plantedReport({
+      tabs: [{ name: "a", ok: true, switchMs: 90, domNodes: 900 }, { name: "b", ok: true, switchMs: 120, domNodes: 1600 }],
+      longSession: { heapGrowthMb: null, domNodeGrowth: 30 },
+    })), budget);
     const kinds = Object.fromEntries(judged.outcomes.map((outcome) => [outcome.gate, outcome.kind]));
-    expect(kinds[performanceGate("apiResponseMaxMs")]).toBe("fail");
-    expect(kinds[performanceGate("viewportLcpMaxMs")], "unmeasured is a failure, never a pass").toBe("fail");
-    expect(kinds[performanceGate("lcpMaxMs")]).toBe("pass");
-    expect(judged.outcomes.find((outcome) => outcome.gate === performanceGate("apiResponseMaxMs"))!.message).toMatch(/1926 exceeds the budget 250/u);
+    expect(kinds[performanceGate("tabDomNodesMax")]).toBe("fail");
+    expect(kinds[performanceGate("longSessionHeapGrowthMaxMb")], "unmeasured is a failure, never a pass").toBe("fail");
+    expect(kinds[performanceGate("clsMax")]).toBe("pass");
+    expect(judged.outcomes.find((outcome) => outcome.gate === performanceGate("tabDomNodesMax"))!.message).toMatch(/1600 exceeds the budget 1500/u);
     expect(judged.measurements?.apiResponseMaxMs).toBe(1926);
+    expect(judged.measurements?.tabDomNodesMax).toBe(1600);
     // Every gate is one the workspace's ledger judge holds: the ONE budget judgement.
     for (const outcome of judged.outcomes) expect(ROOT_POLICY.workflow.failureOwners.budgets.web, outcome.gate).toHaveProperty([outcome.gate]);
+  });
+
+  test("A WALL-TIME BUDGET IS A RECORDED SIGNAL, NEVER A VERDICT — over its budget or unmeasured, it is printed and recorded and fails nothing (NO-LOAD-BLOCK)", () => {
+    const judged = judgePerformanceBudgets(PERF_ROOT, at(plantedReport({ viewports: [{ lcp: null }] })), budget);
+    const byGate = new Map(judged.outcomes.map((outcome) => [outcome.gate, outcome]));
+    for (const name of WEB_PERFORMANCE_WALL_SIGNALS) expect(byGate.get(performanceGate(name))?.kind, name).toBe("not-judged");
+    expect(byGate.get(performanceGate("apiResponseMaxMs"))!.message).toMatch(/1926 \(budget 250\) — wall time, recorded as a signal and never judged/u);
+    expect(byGate.get(performanceGate("viewportLcpMaxMs"))!.message).toMatch(/unmeasured \(budget 2000\)/u);
+    expect(judged.measurements?.apiResponseMaxMs, "the signal is still recorded in the row").toBe(1926);
+    // Every budget that is not wall time stays judged.
+    const judgedNames = Object.keys(budget).filter((name) => !WEB_PERFORMANCE_WALL_SIGNALS.has(name as never));
+    expect(judgedNames.sort()).toEqual(["clsMax", "longSessionDomGrowthMax", "longSessionHeapGrowthMaxMb", "tabDomNodesMax"]);
+    for (const name of judgedNames) expect(byGate.get(`${ROOT_POLICY.workflow.webPerformanceBudgets.gatePrefix}${name}`)?.kind, name).toBe("pass");
   });
 });

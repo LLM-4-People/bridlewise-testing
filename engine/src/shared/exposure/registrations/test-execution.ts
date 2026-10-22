@@ -261,38 +261,6 @@ export function registerTestExecutionExposure(): void {
     },
   });
   registerSignal({
-    id: "testExecution.webSuiteAmbientInflationSlope",
-    module: "testExecution",
-    name: "CPU inflation paid per unit of sustained ambient load",
-    description:
-      "How much of a run's recorded CPU cost the box's sustained ambient load explains, per recorded 5-minute load unit per CPU — the measured envelope every judgement line scales by, so a clean run at a busy ambient judges clean and nothing anywhere waits for a quiet box. Shown read-only: the slope is the gate's own measured calibration (the ledger's recorded busy-vs-quiet pairs), and a settings write that steepened it would loosen what a green run means.",
-    type: "string",
-    value: () => {
-      const slope = readBudgetNumber(`${BUDGET_PATH}.ambientInflationSlopePerCpu`);
-      if (slope !== undefined) {
-        return `the gate pays ${(slope * 100).toFixed(1)}% more allowance per unit of recorded 5-minute ambient load per CPU`;
-      }
-      return readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`) === undefined
-        ? NOT_DECLARED
-        : "no ambient allowance is paid — the calibrated metric normalises the run's own work instead";
-    },
-  });
-  registerSignal({
-    id: "testExecution.webSuiteAmbientInflationCap",
-    module: "testExecution",
-    name: "Bound on the ambient allowance the gate may pay",
-    description:
-      "The largest fraction of the baseline the ambient-inflation allowance may ever expand a judgement line by, so the gate's teeth hold at every ambient: a regression beyond the capped line fails at any load the box is under. Shown read-only: the cap is the gate's own bound, and a settings write that raised it would let a busy box hide a regression.",
-    type: "string",
-    value: () => {
-      const cap = readBudgetNumber(`${BUDGET_PATH}.ambientInflationCapFraction`);
-      if (cap !== undefined) return `the ambient allowance is capped at ${(cap * 100).toFixed(1)}% of the baseline`;
-      return readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`) === undefined
-        ? NOT_DECLARED
-        : "no ambient allowance is paid — the calibrated metric normalises the run's own work instead";
-    },
-  });
-  registerSignal({
     id: "testExecution.webTestFileCostShareMax",
     module: "testExecution",
     name: "Worker-time share one web-suite test file may take",
@@ -304,15 +272,15 @@ export function registerTestExecutionExposure(): void {
       return share === undefined ? NOT_DECLARED : `one test file may take at most ${asPercent(share)} of the pool's worker time`;
     },
   });
-  // THE HOST'S ONE INSTRUMENT LOCK (src/process/instrument-lock.ts): served
-  // read-only, like every suite-gate number — a settings write that moved the
-  // lock's file or raised the heavy threshold would let two instruments overlap.
+  // HEAVY-RUN ADMISSION (src/process/instrument-lock.ts): served read-only,
+  // like every suite-gate number — a settings write that moved the registry
+  // or loosened a run's caps would let a run escape them.
   registerSignal({
     id: "testExecution.instrumentLockFile",
     module: "testExecution",
-    name: "The host's one instrument lock file (under the host user's cache folder)",
+    name: "The host's run registry (under the host user's cache folder)",
     description:
-      "Every heavy instrument — a whole suite, a coverage or browser run, a workspace validation, an ad-hoc load run through `harness slot run` — holds this one lock of the host; a second one waits, naming the holder. Shown read-only.",
+      "Every heavy instrument — a whole suite, a coverage or browser run, a workspace validation, an ad-hoc load run through `harness slot run` — is admitted at once and recorded beside this path, under its per-run caps; none waits for another. Shown read-only.",
     type: "string",
     value: () => {
       const path = readConfigCustomization("testExecution.instrumentLock.cacheRelativeLockPath");
@@ -324,7 +292,7 @@ export function registerTestExecutionExposure(): void {
     module: "testExecution",
     name: "Test files that make a run heavy",
     description:
-      "A run of this many test files or more is heavy and holds the host's instrument lock; a targeted run of fewer takes nothing. Shown read-only.",
+      "A run of this many test files or more is heavy: it is admitted under its per-run caps; a targeted run of fewer records nothing. Shown read-only.",
     type: "string",
     value: () => {
       const files = readBudgetNumber("testExecution.instrumentLock.minimumTestFiles");
@@ -332,15 +300,27 @@ export function registerTestExecutionExposure(): void {
     },
   });
   registerSignal({
-    id: "testExecution.instrumentLockPoll",
+    id: "testExecution.perRunMemoryCap",
     module: "testExecution",
-    name: "How often a waiting heavy run looks at the instrument lock again",
+    name: "The memory one heavy run may use (a share of the host's memory)",
     description:
-      "A heavy run that waits for the host's instrument lock looks at it again at this interval (and says who holds it whenever the holder changes). Shown read-only.",
+      "Every supervisor a heavy run starts runs in a cgroup scope of its own with this memory ceiling; a host that cannot make the scope refuses the run. Shown read-only.",
     type: "string",
     value: () => {
-      const ms = readBudgetNumber("testExecution.instrumentLock.pollIntervalMs");
-      return ms === undefined ? NOT_DECLARED : `a waiting run looks again every ${ms} ms`;
+      const percent = readBudgetNumber("testExecution.instrumentLock.perRun.memoryMaxPercent");
+      return percent === undefined ? NOT_DECLARED : `a heavy run may use at most ${String(percent)}% of the host's memory`;
+    },
+  });
+  registerSignal({
+    id: "testExecution.perRunCpuWeight",
+    module: "testExecution",
+    name: "The CPU share one heavy run gets beside the others",
+    description:
+      "Heavy runs proceed concurrently; each one's scope gets this CPU weight (100 is an equal share), so runs share the cores instead of waiting for each other. Shown read-only.",
+    type: "string",
+    value: () => {
+      const weight = readBudgetNumber("testExecution.instrumentLock.perRun.cpuWeight");
+      return weight === undefined ? NOT_DECLARED : `a heavy run's CPU weight is ${String(weight)}`;
     },
   });
   registerSignal({
