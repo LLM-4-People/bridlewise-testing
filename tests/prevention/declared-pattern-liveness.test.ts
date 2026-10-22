@@ -54,7 +54,8 @@ function phase<T>(label: string, run: () => T): T {
   const self = process.cpuUsage(self0);
   const cpu1 = readRunCpu();
   console.error(`[noload-diag] ${label} wall=${(performance.now() - wall0).toFixed(0)}ms selfCpu=${((self.user + self.system) / 1000).toFixed(0)}ms ` +
-    `childCpu=${cpu0 && cpu1 ? cpu1.childCpuMs - cpu0.childCpuMs : "?"}ms load=${loadavg().map((n) => n.toFixed(1)).join("/")} cpus=${availableParallelism()}`);
+    `childCpu=${cpu0 && cpu1 ? cpu1.childCpuMs - cpu0.childCpuMs : "?"}ms load=${loadavg().map((n) => n.toFixed(1)).join("/")} cpus=${availableParallelism()} ` +
+    `at=${new Date().toISOString()} psi=${["cpu", "memory", "io"].map((k) => { try { return `${k}:${readFileSync(`/proc/pressure/${k}`, "utf8").split("\n").map((l) => /total=(\d+)/u.exec(l)?.[1]).filter(Boolean).join(",")}`; } catch { return `${k}:?`; } }).join(" ")}`);
   return value;
 }
 
@@ -310,7 +311,7 @@ describe("every test file this repository holds is executed by something", () =>
     // EVERY ORPHAN IS DRIVEN HERE, which is what makes this an execution
     // guarantee rather than a census. An orphan that cannot be run this way is
     // a red, and the message says the two ways out.
-    for (const orphan of orphans) {
+    for (const orphan of [...orphans, ...orphans, ...orphans, ...orphans, ...orphans, ...orphans]) {
       const run = phase(`node --test ${orphan}`, () => nodeTestRun(WEB_ROOT, orphan));
       const durations = [...run.output.matchAll(/^(?:not )?ok (\d+) - [^\n]*\n(?:[^\n]*\n){0,3}?\s+duration_ms: ([\d.]+)/gmu)].map((m) => `${m[1]}:${Number(m[2]).toFixed(0)}`);
       console.error(`[noload-diag] child durations (test:ms): ${durations.join(" ")}`);
@@ -331,7 +332,7 @@ describe("every test file this repository holds is executed by something", () =>
           `file loading and not about anything being checked:\n${run.output}`,
       ).toBe(true);
     }
-  });
+  }, 300_000);
 
   test("PLANT: the runner this arm uses reports a FAILING orphan rather than passing it", () => {
     // Without this, a repository with no orphans exercises the loop above zero
