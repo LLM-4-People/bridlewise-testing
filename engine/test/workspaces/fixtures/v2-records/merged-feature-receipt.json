@@ -1,0 +1,164 @@
+{
+  "abortReason": null,
+  "agentName": "land-opencode",
+  "changedPaths": [
+    ".githooks/README.md",
+    ".gitignore",
+    "AGENTS.md",
+    "README.md"
+  ],
+  "conflictReport": null,
+  "history": [
+    {
+      "at": "2026-10-07T15:44:09.144Z",
+      "from": "admitted",
+      "reason": "workspace created",
+      "to": "active"
+    },
+    {
+      "at": "2026-10-07T16:10:26.039Z",
+      "from": "active",
+      "reason": "validation started",
+      "to": "validating"
+    },
+    {
+      "at": "2026-10-07T16:12:45.150Z",
+      "from": "validating",
+      "reason": "validation failed",
+      "to": "active"
+    },
+    {
+      "at": "2026-10-07T16:16:51.246Z",
+      "from": "active",
+      "reason": "validation started",
+      "to": "validating"
+    }
+  ],
+  "lease": {
+    "agentName": "land-opencode",
+    "baseSha": "6aacb7dd3eab025f75eb2d6a0aae16c0731c068a",
+    "branch": "agent/land-opencode/786a92020aae",
+    "expiresAt": "2026-10-15T17:57:15.197Z",
+    "generation": 159,
+    "heartbeatAt": "2026-10-14T17:57:15.197Z",
+    "issuedAt": "2026-10-07T15:42:38.318Z",
+    "kind": "feature",
+    "nonce": "786a92020aae",
+    "overlay": null,
+    "schemaVersion": "bridlewise-workspace/v2",
+    "targetBranch": "testing",
+    "workspaceId": "land-opencode-786a92020aae",
+    "worktreePath": "/home/user/bridlewise-wt/land-opencode-786a92020aae",
+    "writeSet": [
+      ".githooks/README.md",
+      ".gitignore",
+      "AGENTS.md",
+      "README.md"
+    ],
+    "writeSetIdentity": "4bfac7f2ed683f576555aac0d3d5002c5cf283e4e5a156fc037e6e22ffdf149f"
+  },
+  "mergeReceipt": {
+    "agentName": "land-opencode",
+    "baseSha": "6aacb7dd3eab025f75eb2d6a0aae16c0731c068a",
+    "branch": "agent/land-opencode/786a92020aae",
+    "changedPaths": [
+      ".githooks/README.md",
+      ".gitignore",
+      "AGENTS.md",
+      "README.md"
+    ],
+    "gateResults": [
+      {
+        "details": [
+          "faults\",\"path\":\"engine/test/prevention/inline-literal-defaults-baseline.json\",\"stale\":[],\"status\":\"current\",\"unbaselined\":[]},{\"id\":\"web-unhandled-catch\",\"path\":\"tests/prevention/unhandled-catch-baseline.json\",\"stale\":[],\"status\":\"current\",\"unbaselined\":[]},{\"id\":\"dead-markdown-links\",\"path\":\"tests/prevention/markdown-links-baseline.json\",\"stale\":[],\"status\":\"current\",\"unbaselined\":[]}],\"status\":\"current\"},\"readmeConsumers\":{\"changed\":[],\"converged\":true,\"readmes\":103,\"status\":\"current\"},\"schemaArtifact\":{\"artifactPath\":\"/home/user/bridlewise-wt/land-opencode-786a92020aae/engine/traceability/c"
+        ],
+        "gate": "harness-sync",
+        "message": "node src/cli.ts harness sync --with-bundle (in engine)",
+        "status": "pass"
+      },
+      {
+        "details": [],
+        "gate": "merge-gates",
+        "message": "the merge's tree 9ed9585031806414ce8f22e63bda63aa531e4c86 is the tree validate --full qualified",
+        "status": "skip"
+      },
+      {
+        "details": [],
+        "gate": "converged",
+        "message": "the gates left the merge as committed",
+        "status": "pass"
+      }
+    ],
+    "importedRuns": [
+      "engine: 1",
+      "web: 1"
+    ],
+    "landedIn": "/home/user/bridlewise-testing",
+    "landing": "fast-forward",
+    "mergeCommitSha": "1c295b08cdb4ef9b5a8362376fbfda750d954562",
+    "mergeTree": "9ed9585031806414ce8f22e63bda63aa531e4c86",
+    "mergedAt": "2026-10-15T04:21:38.015Z",
+    "preMergeHeadSha": "6aacb7dd3eab025f75eb2d6a0aae16c0731c068a",
+    "receiptHash": "926dbff3c4498b537dd41268f1c4b08c2b3f0244ff9dba262fa70306537e4c0a",
+    "regeneratedPaths": [],
+    "resolvedConflicts": [],
+    "schemaVersion": "bridlewise-workspace/v2",
+    "targetBranch": "testing",
+    "timelineImportedEvents": 74,
+    "timelineSkippedEvents": 0,
+    "workspaceId": "land-opencode-786a92020aae"
+  },
+  "revision": 308,
+  "schemaVersion": "bridlewise-workspace/v2",
+  "state": "merged",
+  "validationReport": {
+    "baseSha": "6aacb7dd3eab025f75eb2d6a0aae16c0731c068a",
+    "changedPaths": [
+      ".githooks/README.md",
+      ".gitignore",
+      "AGENTS.md",
+      "README.md"
+    ],
+    "full": true,
+    "gates": [
+      {
+        "details": [],
+        "gate": "write-set-proof",
+        "message": "changed set (759 paths) is inside the declared write set",
+        "status": "pass"
+      },
+      {
+        "details": [
+          "{\"command\":\"format\",\"generatedAt\":\"2026-10-15T04:07:00.462Z\",\"integrityHash\":\"618b5a34fb0f152178f219f8a3dc9c23f6e40e2084d4f0f0b09aa42226d98a55\",\"result\":{\"changedFiles\":[],\"fixed\":0,\"scanned\":1371,\"write\":false},\"schemaVersion\":\"bridlewise-harness-command/v1\",\"status\":\"pass\"}"
+        ],
+        "gate": "engine-format",
+        "message": "node src/cli.ts harness format --check (in engine)",
+        "status": "pass"
+      },
+      {
+        "details": [
+          "\",\"path\":\"verification/oracles/README.md\"},\"index\":{\"mode\":\"100644\",\"objectId\":\"4e66179ab0603dda65179eb0a2857d6eb5cbf365\",\"path\":\"verification/oracles/README.md\"},\"path\":\"verification/oracles/README.md\",\"states\":[\"clean\"],\"worktree\":{\"bytes\":278,\"mode\":\"100644\",\"objectId\":\"4e66179ab0603dda65179eb0a2857d6eb5cbf365\",\"sha256\":\"f9d7ef8d4d990999d01bab77ed54cf69db81508b6f84b52dad21cc9c4ecf77d9\"}},{\"head\":{\"mode\":\"100644\",\"objectId\":\"323bd5d4aa8d24ab2ee6340582219a1f64306738\",\"path\":\"verification/oracles/content-addressed-evidence.ts\"},\"index\":{\"mode\":\"100644\",\"objectId\":\"323bd5d4aa8d24ab2ee6340582219"
+        ],
+        "gate": "engine-candidate-format",
+        "message": "npm run -s manifest:candidate (in engine)",
+        "status": "pass"
+      },
+      {
+        "details": [
+          "tsconfig include liveness: /home/user/bridlewise-wt/land-opencode-786a92020aae/tsconfig.json src/**/*.ts\u2192159 shared/**/*.ts\u219217\ntsconfig include liveness: /home/user/bridlewise-wt/land-opencode-786a92020aae/tsconfig.server.json server/**/*.ts\u2192143\ntsconfig include liveness: /home/user/bridlewise-wt/land-opencode-786a92020aae/tsconfig.templates.json src/**/*.ts\u2192159 src/**/*.svelte\u219287 shared/**/*.ts\u219217\ntsconfig include liveness: /home/user/bridlewise-wt/land-opencode-786a92020aae/tsconfig.tests.json tests/**/*.ts\u2192579 src/**/*.ts\u2192159 server/**/*.ts\u2192143 shared/**/*.ts\u219217 scripts/**/*.ts\u219217\n179203723"
+        ],
+        "gate": "web-typecheck",
+        "message": "npm run typecheck (in .)",
+        "status": "pass"
+      }
+    ],
+    "headSha": "21fc7dc4dd65a26469005ca5e3f0632a823824b1",
+    "schemaVersion": "bridlewise-workspace/v2",
+    "startedAt": "2026-10-15T04:06:59.471Z",
+    "status": "pass",
+    "tree": "9ed9585031806414ce8f22e63bda63aa531e4c86",
+    "validatedAt": "2026-10-15T04:20:48.177Z",
+    "workspaceId": "land-opencode-786a92020aae"
+  },
+  "workspaceId": "land-opencode-786a92020aae"
+}

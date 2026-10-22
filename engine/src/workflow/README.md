@@ -234,7 +234,7 @@ The folder lives at `engine/src/workflow/`.
 - `checkout-setup.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts` and 8 more.
 - `command-result.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/evaluation/cli.ts`, `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/flake-cli.ts` and 7 more.
 - `evidence-store.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/forge/cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/record-links.ts`.
-- `failure-owners.ts` is consumed by `engine/scripts/brand/claims.ts`, `engine/scripts/tooling/lessons.ts`, `engine/scripts/verification/decision-index.ts`, `engine/scripts/verification/lesson-trailers.ts`, `engine/scripts/verification/tracker-entries.ts`, `engine/src/workflow/flaky-burn-down.ts` and 2 more.
+- `failure-owners.ts` is consumed by `engine/scripts/brand/claims.ts`, `engine/scripts/tooling/lessons.ts`, `engine/scripts/verification/decision-index.ts`, `engine/scripts/verification/lesson-trailers.ts`, `engine/scripts/verification/tracker-entries.ts`, `engine/src/workflow/flaky-burn-down.ts` and 3 more.
 - `flake-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
 - `flaky-burn-down.ts` is consumed by nothing yet.
 - `format-command.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
@@ -255,6 +255,7 @@ The folder lives at `engine/src/workflow/`.
 - `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/git/worktree-port.ts` and 18 more.
 - `workspace-cli.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
 - `workspace-contracts.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`, `engine/src/workflow/workspace-registry.ts`.
+- `workspace-forge.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`.
 - `workspace-manager.ts` is consumed by `engine/src/workflow/workspace-cli.ts`.
 - `workspace-registry.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/workspace-manager.ts`.
 

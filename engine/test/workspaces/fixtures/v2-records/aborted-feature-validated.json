@@ -1,0 +1,105 @@
+{
+  "abortReason": "operator abort",
+  "agentName": "coordinator",
+  "changedPaths": [
+    "promotion/testing-to-master.json"
+  ],
+  "conflictReport": null,
+  "history": [
+    {
+      "at": "2026-10-01T18:26:30.360Z",
+      "from": "admitted",
+      "reason": "workspace created",
+      "to": "active"
+    },
+    {
+      "at": "2026-10-01T18:26:41.886Z",
+      "from": "active",
+      "reason": "full validation started",
+      "to": "validating"
+    },
+    {
+      "at": "2026-10-01T18:50:54.429Z",
+      "from": "validating",
+      "reason": "validation failed",
+      "to": "active"
+    },
+    {
+      "at": "2026-10-01T19:07:39.283Z",
+      "from": "active",
+      "reason": "operator abort",
+      "to": "aborted"
+    }
+  ],
+  "lease": {
+    "agentName": "coordinator",
+    "baseSha": "b16f29b558c1c3067ad251c74df10c316620f7e8",
+    "branch": "agent/coordinator/7dc42b1200e0",
+    "expiresAt": "2026-10-02T18:24:40.075Z",
+    "generation": 1,
+    "heartbeatAt": "2026-10-01T18:24:40.075Z",
+    "issuedAt": "2026-10-01T18:24:40.075Z",
+    "kind": "feature",
+    "nonce": "7dc42b1200e0",
+    "overlay": null,
+    "schemaVersion": "bridlewise-workspace/v2",
+    "targetBranch": "testing",
+    "workspaceId": "coordinator-7dc42b1200e0",
+    "worktreePath": "/home/user/bridlewise-wt/coordinator-7dc42b1200e0",
+    "writeSet": [
+      "promotion/testing-to-master.json"
+    ],
+    "writeSetIdentity": "84055b6301b095dc3d196e7efb5901409f0d645eba3be12526114e4ff9d9eb71"
+  },
+  "mergeReceipt": null,
+  "revision": 5,
+  "schemaVersion": "bridlewise-workspace/v2",
+  "state": "aborted",
+  "validationReport": {
+    "baseSha": "b16f29b558c1c3067ad251c74df10c316620f7e8",
+    "changedPaths": [
+      "promotion/testing-to-master.json"
+    ],
+    "full": true,
+    "gates": [
+      {
+        "details": [],
+        "gate": "write-set-proof",
+        "message": "changed set (1 paths) is inside the declared write set",
+        "status": "pass"
+      },
+      {
+        "details": [
+          "{\"command\":\"format\",\"generatedAt\":\"2026-10-01T18:26:42.837Z\",\"integrityHash\":\"98794bc57cb9042fdc652f2be2acb1d03c8d52b72c6654a0bff9b7243c02b043\",\"result\":{\"changedFiles\":[],\"fixed\":0,\"scanned\":1329,\"write\":false},\"schemaVersion\":\"bridlewise-harness-command/v1\",\"status\":\"pass\"}"
+        ],
+        "gate": "engine-format",
+        "message": "node src/cli.ts harness format --check (in engine)",
+        "status": "pass"
+      },
+      {
+        "details": [
+          "65\",\"path\":\"verification/oracles/README.md\"},\"index\":{\"mode\":\"100644\",\"objectId\":\"4e66179ab0603dda65179eb0a2857d6eb5cbf365\",\"path\":\"verification/oracles/README.md\"},\"path\":\"verification/oracles/README.md\",\"states\":[\"clean\"],\"worktree\":{\"bytes\":278,\"mode\":\"100644\",\"objectId\":\"4e66179ab0603dda65179eb0a2857d6eb5cbf365\",\"sha256\":\"f9d7ef8d4d990999d01bab77ed54cf69db81508b6f84b52dad21cc9c4ecf77d9\"}},{\"head\":{\"mode\":\"100644\",\"objectId\":\"323bd5d4aa8d24ab2ee6340582219a1f64306738\",\"path\":\"verification/oracles/content-addressed-evidence.ts\"},\"index\":{\"mode\":\"100644\",\"objectId\":\"323bd5d4aa8d24ab2ee63405822"
+        ],
+        "gate": "engine-candidate-format",
+        "message": "npm run -s manifest:candidate (in engine)",
+        "status": "pass"
+      },
+      {
+        "details": [
+          "tsconfig include liveness: /home/user/bridlewise-wt/coordinator-7dc42b1200e0/tsconfig.json src/**/*.ts\u2192160 shared/**/*.ts\u219216\ntsconfig include liveness: /home/user/bridlewise-wt/coordinator-7dc42b1200e0/tsconfig.server.json server/**/*.ts\u2192140\ntsconfig include liveness: /home/user/bridlewise-wt/coordinator-7dc42b1200e0/tsconfig.templates.json src/**/*.ts\u2192160 src/**/*.svelte\u219287 shared/**/*.ts\u219216\ntsconfig include liveness: /home/user/bridlewise-wt/coordinator-7dc42b1200e0/tsconfig.tests.json tests/**/*.ts\u2192572 src/**/*.ts\u2192160 server/**/*.ts\u2192140 shared/**/*.ts\u219216 scripts/**/*.ts\u219213\n1790879221752 STA"
+        ],
+        "gate": "web-typecheck",
+        "message": "npm run typecheck (in .)",
+        "status": "pass"
+      }
+    ],
+    "headSha": "8918eea5c109eaf44856d54836dae926be640a94",
+    "schemaVersion": "bridlewise-workspace/v2",
+    "startedAt": "2026-10-01T18:26:41.907Z",
+    "status": "fail",
+    "tree": "8a0f28fea6ba56aaa809159f82eb4fa5aefc4c43",
+    "validatedAt": "2026-10-01T18:50:54.429Z",
+    "workspaceId": "coordinator-7dc42b1200e0"
+  },
+  "workspaceId": "coordinator-7dc42b1200e0"
+}
