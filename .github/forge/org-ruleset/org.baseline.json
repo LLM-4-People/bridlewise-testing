@@ -1,0 +1,83 @@
+{
+  "kind": "org-ruleset",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "baseline",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "baseline",
+    "target": "branch",
+    "enforcement": "active",
+    "bypass_actors": [],
+    "conditions": {
+      "repository_property": {
+        "include": [
+          {
+            "name": "kind",
+            "property_values": [
+              "trunk"
+            ]
+          }
+        ],
+        "exclude": []
+      },
+      "ref_name": {
+        "include": [
+          "~DEFAULT_BRANCH"
+        ],
+        "exclude": []
+      }
+    },
+    "rules": [
+      {
+        "type": "deletion"
+      },
+      {
+        "type": "non_fast_forward"
+      },
+      {
+        "type": "pull_request",
+        "parameters": {
+          "required_approving_review_count": 0,
+          "dismiss_stale_reviews_on_push": true,
+          "require_code_owner_review": false,
+          "require_last_push_approval": false,
+          "required_review_thread_resolution": true,
+          "allowed_merge_methods": [
+            "merge"
+          ]
+        }
+      },
+      {
+        "type": "required_status_checks",
+        "parameters": {
+          "strict_required_status_checks_policy": false,
+          "do_not_enforce_on_create": false,
+          "required_status_checks": [
+            {
+              "context": "Typecheck, public tests, build",
+              "integration_id": 15368
+            },
+            {
+              "context": "Secret and privacy scan",
+              "integration_id": 15368
+            },
+            {
+              "context": "Relative Markdown links",
+              "integration_id": 15368
+            },
+            {
+              "context": "Analyze JavaScript and TypeScript (javascript-typescript)",
+              "integration_id": 15368
+            },
+            {
+              "context": "Full suite shards / Merge one qualification receipt",
+              "integration_id": 15368
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

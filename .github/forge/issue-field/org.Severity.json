@@ -1,0 +1,28 @@
+{
+  "kind": "issue-field",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Severity",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Severity",
+    "data_type": "single_select",
+    "visibility": "all",
+    "description": "How bad it is (P0 worst)",
+    "options": [
+      {
+        "name": "P0"
+      },
+      {
+        "name": "P1"
+      },
+      {
+        "name": "P2"
+      },
+      {
+        "name": "P3"
+      }
+    ]
+  }
+}

@@ -12,6 +12,10 @@ upstream, so every test drives the real outbound door and transport.
 
 - `apps.test.ts` — GH-1a: the App manifests, the `forge` section's refusals, and the generated `.github/forge/` files (drift named in two places, plus a near miss). The maintainer's `gh`: a secret on stdin only and typed failures without the value. The bounded run: input on stdin, a stall ended, a busy run ended by its CPU limit and never by a stall, and a slow talker kept alive. The Apps page against the fake GitHub, with each barrier red without it: the one-time token (no state without it), Host and Origin, and the conversion check (owner, name, permissions, events). Custody right after conversion: an environment key is stored before its push, held on failure and resumed on reload. A name already taken is detected. End to end: host custody, install links, and Done guarded by session and origin. A busy port is typed.
 
+- `declarations.test.ts` — the declarations (every object once, in apply order, the plan's unavailable fields, the registry's references, the stage's flip, a form type outside the registry refused), the allowed actions, Dependabot's breadth over the tracked lockfiles, CODEOWNERS routing, and the comparison.
+- `forge-settings.ts` — the forge section and the generated files' sources the forge tests use (a fixture, not a test file), independent of the repository's own configuration.
+- `plan.test.ts` — plan, apply and audit against the fake GitHub: every action (create, update, unchanged, refused, unmanaged, retire), a partial plan never applied, one object's refusal kept to it, a budget refusal stopping the run, unavailable fields never written, and the whole declaration set applied and converged to zero drift, idempotently.
+
 ## Where it lives and what consumes it
 
 The folder lives at `engine/test/forge/`.

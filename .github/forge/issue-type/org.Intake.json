@@ -1,0 +1,14 @@
+{
+  "kind": "issue-type",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Intake",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Intake",
+    "color": "gray",
+    "description": "Outside input waiting for /accept, /decline or /duplicate",
+    "is_enabled": true
+  }
+}

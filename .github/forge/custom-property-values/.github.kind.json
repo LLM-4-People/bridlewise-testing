@@ -1,0 +1,12 @@
+{
+  "kind": "custom-property-values",
+  "scope": {
+    "kind": "repo",
+    "repository": ".github"
+  },
+  "key": "kind",
+  "unavailableOnPlan": [],
+  "desired": {
+    "kind": "meta"
+  }
+}
