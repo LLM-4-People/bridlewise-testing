@@ -9,7 +9,9 @@
  * styles give identical bytes. No baseline image is stored anywhere.
  */
 
-export type Theme = "logbook" | "carbon";
+import { THEMES as OWNER_THEMES, type ThemeName } from "../../shared/token-reader.ts";
+
+export type Theme = ThemeName;
 
 export interface Viewport {
   readonly name: string;
@@ -29,8 +31,8 @@ export const PAGES: readonly string[] = Object.freeze([
   "/floor/roadmap/",
 ]);
 
-/** Logbook leads (no attribute); Carbon is the remembered choice. */
-export const THEMES: readonly Theme[] = Object.freeze(["logbook", "carbon"]);
+/** Both of the owner's themes: Logbook leads (no attribute); Carbon is the remembered choice. */
+export const THEMES: readonly Theme[] = OWNER_THEMES;
 
 /** The theme choice as the site's own script stores it (docs/assets/js/site.js). */
 export const THEME_STORAGE = Object.freeze({ key: "bridlewise-theme", carbon: "carbon" });
@@ -57,8 +59,20 @@ export const VOLATILE_SELECTORS: readonly string[] = Object.freeze([
 /** Motion is frozen for a shot: a moving page has no single picture. */
 export const FREEZE_CSS = "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
 
-/** Chromium without a GPU process (`--disable-gpu` alone still spawns one). */
-export const BROWSER_ARGS: readonly string[] = Object.freeze(["--disable-gpu", "--disable-gpu-compositing", "--in-process-gpu", "--font-render-hinting=none"]);
+/**
+ * Chromium rasterising one way every time. No GPU process (`--disable-gpu`
+ * alone still spawns one); one raster thread and no partial raster, because
+ * threaded tile raster painted a rounded border's edge differently on 1 load
+ * in 24 (measured: 12 pixels of 11.1 million on the quickstart page; with
+ * these flags, 24 of 24 loads across three launches were byte-identical);
+ * an sRGB colour profile and greyscale text, so no host setting enters the
+ * picture.
+ */
+export const BROWSER_ARGS: readonly string[] = Object.freeze([
+  "--disable-gpu", "--disable-gpu-compositing", "--in-process-gpu",
+  "--num-raster-threads=1", "--disable-partial-raster", "--disable-skia-runtime-opts",
+  "--force-color-profile=srgb", "--disable-lcd-text", "--font-render-hinting=none",
+]);
 
 /** The page's measurements a shot carries, taken in the browser after load. */
 export interface PageFacts {
