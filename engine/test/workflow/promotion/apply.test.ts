@@ -48,7 +48,7 @@ test("happy build: ONE commit with parents [T, S], the trailers, the settled tre
   assert.match(message, /^promote\(dev-to-prod\): dev@[0-9a-f]{8} into prod\n/u);
   assert.match(message, /\n\+0 ~1 -0 \(derived: package\.json, package-lock\.json; regenerated: 1\)\n/u);
   assert.match(message, /a product change \([0-9a-f]{8}\)/u);
-  assert.equal(fixture.git(["log", "-1", "--format=%(trailers:key=Promoted-From,valueonly)", built.commit]), source);
+  assert.equal(fixture.git(["log", "-1", "--format=%(trailers:key=Projected-From,valueonly)", built.commit]), source);
   assert.equal(fixture.git(["log", "-1", "--format=%(trailers:key=Promotion-Profile,valueonly)", built.commit]), `${PROFILE_NAME}@${fixture.loaded().blob!}`);
   // The settled tree: P plus the regenerated output, the product change carried.
   assert.deepEqual(built.regenerated, ["gen/pin.txt"]);

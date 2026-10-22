@@ -449,7 +449,7 @@ test("T-R5: the source advancing during an unattended run: S stays pinned, and t
     },
   });
   const done = published(outcome as PromotionAnswer);
-  assert.equal(fixture.git(["log", "-1", "--format=%(trailers:key=Promoted-From,valueonly)", done.commit]), source, "S stayed pinned");
+  assert.equal(fixture.git(["log", "-1", "--format=%(trailers:key=Projected-From,valueonly)", done.commit]), source, "S stayed pinned");
   assert.deepEqual(launches, [{ source: next, lockFree: true }], "one more run for the new tip, once the lock is free");
   assert.equal(((outcome as PromotionAnswer).data as { chained: { started: readonly unknown[] } }).chained.started.length, 1, "the answer says what it chained");
 });

@@ -28,7 +28,8 @@ single call.
   tool's verdict is that tool's contract, so the room shows it without
   offering to write it. Fed by the installable state source the server's
   metrics bridge installs at boot.
-- `promotion.ts` — shipping to the product branch (`harness promote`), read only: the signals `promotion.profiles`, `promotion.pending` and `promotion.advisories` and the actions `promotion.status`, `promotion.plan` and `promotion.explain`, answered by the source the engine CLI installs (`src/workflow/promotion/context.ts`); the web server installs none, so its rows read `unmeasured` and its actions refuse (`promotion_source_unavailable`).
+- `release.ts` — the product's release train (`harness release`): its settings (`release.train`, `release.minIntervalHours`, `release.profile`, `release.tagPrefix`, `release.discussionCategory`), each bound to its `promotion.release.*` configuration path; what the train would do now is the promotion module's `promotion.releaseTrain` signal.
+- `promotion.ts` — shipping to the product branch (`harness promote`), read only: the signals `promotion.profiles`, `promotion.pending`, `promotion.advisories` and `promotion.releaseTrain` (the next release: due, or each condition it waits for) and the actions `promotion.status`, `promotion.plan` and `promotion.explain`, answered by the source the engine CLI installs (`src/workflow/promotion/context.ts`); the web server installs none, so its rows read `unmeasured` and its actions refuse (`promotion_source_unavailable`).
 - `redaction.ts` — the re-hiding store's registration: the store's live
   occupancy as a signal (through an installable source the web redaction
   owner installs) and the `redaction` section's one bound — the store's
@@ -80,6 +81,7 @@ The folder lives at `engine/src/shared/exposure/registrations/`.
 - `promotion.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`, `engine/src/workflow/promotion/context.ts`.
 - `quality.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
 - `redaction.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
+- `release.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
 - `safety.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`, `server/kernel/canonical.ts`.
 - `search.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
 - `settings.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
