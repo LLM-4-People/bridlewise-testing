@@ -40,7 +40,7 @@ The target tree is computed from the source. It is not a merge result and it is 
 - `include` names files or folder prefixes that ship without an import edge. Included modules are walked like entry points.
 - `exclude` names paths that never ship and are never walked.
 - `companions` ship when their folder or a subfolder holds a shipped path.
-- `overlay` files ship at their path without the folder prefix, and only the kinds the overlay declares (an allowlist; never a kind of code) may. The excludes hold at the shipped path. An undeclared kind, a link, an excluded target, or a path the projection already carries is refused (`promotion_overlay_invalid`): a path ships for one reason.
+- `overlay` files ship at their path without the folder prefix, and only the kinds the overlay declares may, each from the engine's fixed allowlist (`*.md`, `*.txt`, named images, `Makefile`; compared without case, so no spelling of code or configuration passes). The excludes hold at the shipped path. An undeclared kind, a link, an excluded target, or a path the projection already carries is refused (`promotion_overlay_invalid`): a path ships for one reason.
 - Everything else is denied by default.
 
 The current profile excludes `tests/`, `bench/`, `docs/`, and `promotion/`, plus internal design and evidence folders. A shipped module that imports an excluded path is refused. The documentation site is built separately; `docs/` does not travel through this promotion profile.

@@ -138,26 +138,28 @@ test("T-P12: companions — a README ships iff its folder holds a projected path
 });
 
 test("the overlay: each file of its folder ships at its path without the prefix, says why, and is read by the advisories", async () => {
-  const overlaid = { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: { folder: "target-only/", kinds: ["*.md", "NOTICE"] } } };
+  const overlaid = { boundary: { exclude: ["dev/", "promotion/", "target-only/"], overlay: { folder: "target-only/", kinds: ["*.md", "*.txt"] } } };
   const fixture = promotionFixture("promotion-overlay", overlaid);
   fixture.commit(SOURCE, {
-    "target-only/NOTICE": "the product's notice\n",
+    "target-only/NOTICE.txt": "the product's notice\n",
     "target-only/docs/start.md": "Run `npm run build`, then `npm run not-shipped`.\n",
-    "NOTICE": "the source's own notice never ships\n",
+    "target-only/docs/UPPER.MD": "a declared kind in another case is that kind\n",
+    "NOTICE.txt": "the source's own notice never ships\n",
   });
   const plan = await fixture.plan();
   assert.deepEqual(codes(plan), []);
   assert.deepEqual(plan.paths.added.filter((entry) => !entry.path.startsWith("product/")).map((entry) => [entry.path, entry.reason]).sort(), [
-    ["NOTICE", "overlaid from target-only/NOTICE"],
+    ["NOTICE.txt", "overlaid from target-only/NOTICE.txt"],
+    ["docs/UPPER.MD", "overlaid from target-only/docs/UPPER.MD"],
     ["docs/start.md", "overlaid from target-only/docs/start.md"],
   ]);
-  assert.equal(fixture.git(["cat-file", "-p", `${plan.projection.tree}:NOTICE`]), "the product's notice", "the overlay's bytes, not the source's file at that path");
+  assert.equal(fixture.git(["cat-file", "-p", `${plan.projection.tree}:NOTICE.txt`]), "the product's notice", "the overlay's bytes, not the source's file at that path");
   assert.equal(plan.paths.added.concat(plan.paths.modified).some((entry) => entry.path.startsWith("target-only/")), false, "the folder never ships at its own path");
   assert.deepEqual(plan.advisories.filter((advisory) => advisory.kind === "dangling_script_reference").map((advisory) => [advisory.path, advisory.detail.includes("not-shipped")]), [["docs/start.md", true]], "an overlaid document is judged at its shipped path; `build` is carried, `not-shipped` is not");
   const classification = classifyTree(commitTreeReader(fixture.repository, fixture.tip(SOURCE)), fixture.loaded().profile);
-  assert.deepEqual(explainPaths(classification, ["NOTICE", "target-only/NOTICE"]).map((entry) => [entry.path, entry.projected, entry.reason]), [
-    ["NOTICE", true, "overlaid from target-only/NOTICE"],
-    ["target-only/NOTICE", false, "excluded (target-only/)"],
+  assert.deepEqual(explainPaths(classification, ["NOTICE.txt", "target-only/NOTICE.txt"]).map((entry) => [entry.path, entry.projected, entry.reason]), [
+    ["NOTICE.txt", true, "overlaid from target-only/NOTICE.txt"],
+    ["target-only/NOTICE.txt", false, "excluded (target-only/)"],
   ]);
   assert.equal((await fixture.plan()).projection.tree, plan.projection.tree, "the same source projects the same tree");
 });

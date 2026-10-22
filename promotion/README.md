@@ -32,10 +32,13 @@ source, and every promotion commit names the exact profile blob it used.
     prefix ending in `/`).
   - `overlay`: `{ folder, kinds }` (or `null`): the target-only files. Each
     file of `folder` ships at its path without the prefix
-    (`product-only/README.md` is the product's `README.md`). `kinds` is the
-    ALLOWLIST of what the folder may hold: `*.<extension>` or an exact
-    basename (`Makefile`), never a kind of code (code ships from the source
-    tree, where the import walk judges it). The folder must be excluded; an
+    (`product-only/README.md` is the product's `README.md`). `kinds` is what
+    the folder may hold, each one of the engine's FIXED allowlist
+    (`OVERLAY_KINDS`: `*.md`, `*.txt`, `*.png`, `*.jpg`, `*.jpeg`, `*.gif`,
+    `*.webp`, `Makefile`), compared without case. Every other kind is
+    refused in any spelling: code, active documents (`*.html`, `*.svg`) and
+    configuration a tool reads (`package.json`, `.npmrc`, a hook) ship from
+    the source tree, where the import walk judges them. The folder must be excluded; an
     overlay file of an undeclared kind, a link, a file whose shipped path the
     profile excludes, or one naming a path the projection already carries is
     `promotion_overlay_invalid`. Write its links as absolute URLs, since

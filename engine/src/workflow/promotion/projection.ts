@@ -11,7 +11,7 @@
  * in when its folder holds a projected path; everything else is out (deny by
  * default). The profile's overlay (`boundary.overlay`) adds the target-only
  * files: each file of its folder ships at its path without the folder prefix,
- * must be one of its declared kinds (an allowlist; no kind of code), obeys the
+ * must be one of its declared kinds (from the fixed `OVERLAY_KINDS`, without case), obeys the
  * profile's excludes at that path, and may not name a path the projection
  * already carries. It runs over any {@link TreeReader}: a commit (the plan) or the
  * source's working tree (the source-side boundary guard).
@@ -41,7 +41,7 @@ import { GITLINK_MODE, SYMLINK_MODE, commitTreeReader, gitOutput, writeBlob, wri
 import { generatedOutputPathsOf, isGenerationOnlyChange } from "../hash-binding-registry.ts";
 import { directoryOf, isWalkableModule, normalizeRepositoryPath, packageNameOf, reachabilityChain, reachabilityClosure, type PathAlias, type Reachability } from "../reachability.ts";
 import { PromotionError, mostSevereCode, type PromotionCode } from "./codes.ts";
-import { excludedBy, pathMatchesEntry, profileCommandNames, type LoadedPromotionProfile, type PromotionProfile } from "./profile.ts";
+import { excludedBy, isOfOverlayKind, pathMatchesEntry, profileCommandNames, type LoadedPromotionProfile, type PromotionProfile } from "./profile.ts";
 import { deriveLockfile, deriveManifest, type LockfileRun, type ManifestExplanation } from "./transforms.ts";
 import { profileHistory, type TrailerLine } from "./trailers.ts";
 
@@ -215,7 +215,7 @@ export function classifyTree(reader: TreeReader, profile: PromotionProfile): Cla
   }
   const overlaid = new Map<string, string>();
   const { overlay } = profile.boundary;
-  const declaredKind = (basename: string): boolean => overlay!.kinds.some((kind) => (kind.startsWith("*.") ? basename.endsWith(kind.slice(1)) && basename.length > kind.length - 1 : basename === kind));
+  const declaredKind = (basename: string): boolean => overlay!.kinds.some((kind) => isOfOverlayKind(basename, kind));
   for (const path of overlay === null ? [] : paths.filter((candidate) => candidate.startsWith(overlay.folder))) {
     const target = path.slice(overlay!.folder.length);
     const mode = reader.entry(path)?.mode;

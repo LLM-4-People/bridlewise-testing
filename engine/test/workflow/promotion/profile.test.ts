@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
-import { parsePromotionProfile, profileCommandNames, selectPromotionProfile } from "../../../src/workflow/promotion/profile.ts";
+import { isOfOverlayKind, OVERLAY_KINDS, parsePromotionProfile, profileCommandNames, selectPromotionProfile } from "../../../src/workflow/promotion/profile.ts";
 import { PROFILE_DIRECTORY, PROFILE_NAME, PROFILE_PATH, fixtureProfile, json } from "./promotion-fixture.ts";
 
 const COMMANDS: ReadonlySet<string> = new Set(["lockfile", "gate"]);
@@ -51,7 +51,7 @@ test("T-P10: every invalid profile is refused with the pointer of its violation"
   assert.deepEqual(pointers(fixtureProfile({ boundary: { spawnCalls: [{ callee: "runScript", argument: 1, base: "" }] } })), []);
 });
 
-test("the overlay: a folder prefix the boundary excludes, apart from the profile directory, with an allowlist of kinds that holds no kind of code", () => {
+test("the overlay: a folder prefix the boundary excludes, apart from the profile directory, with kinds only from the fixed allowlist, compared without case", () => {
   const overlay = (folder: unknown, kinds: unknown = ["*.md", "Makefile"], exclude: readonly string[] = ["dev/", "promotion/", "target-only/"]): readonly string[] => pointers(fixtureProfile({ boundary: { overlay: { folder, kinds }, exclude } }));
   assert.deepEqual(overlay("target-only/"), [], "an excluded folder prefix");
   assert.deepEqual(overlay("dev/nested/"), [], "a folder inside an excluded one");
@@ -59,10 +59,22 @@ test("the overlay: a folder prefix the boundary excludes, apart from the profile
   for (const value of ["target-only", "/target-only/", "../target-only/", "./", "README.md"]) assert.deepEqual(overlay(value), ["/boundary/overlay/folder"], `${value}: not a repository folder prefix`);
   assert.deepEqual(overlay("promotion/"), ["/boundary/overlay/folder"], "the profile directory never ships, through an overlay either");
   assert.deepEqual(overlay("promotion/target/", undefined, ["dev/", "promotion/"]), ["/boundary/overlay/folder"], "nor a folder inside it");
-  for (const code of ["*.ts", "*.mts", "*.cts", "*.tsx", "*.js", "*.mjs", "*.cjs", "*.jsx", "*.svelte", "*.css"]) assert.deepEqual(overlay("target-only/", ["*.md", code]), ["/boundary/overlay/kinds/1"], `${code}: a kind of code is never an overlay kind`);
+  const refusedKinds = [
+    "*.ts", "*.mts", "*.cts", "*.tsx", "*.js", "*.mjs", "*.cjs", "*.jsx", "*.svelte", "*.css",
+    "*.JS", "*.MTS", "*.Ts", "*.node", "*.wasm", "*.sh", "*.html", "*.HTML", "*.svg", "*.SVG", "*.json", "*.yml",
+    "package.json", "npmrc", "pre-commit", "NOTICE", "Makefile.orig", "GNUmakefile",
+  ];
+  for (const kind of refusedKinds) assert.deepEqual(overlay("target-only/", ["*.md", kind]), ["/boundary/overlay/kinds/1"], `${kind}: not on the fixed allowlist, in any spelling`);
+  assert.ok(overlay("target-only/", ["*.md", ".npmrc"]).length > 0, ".npmrc: not a kind at all");
+  assert.deepEqual([...OVERLAY_KINDS], ["*.md", "*.txt", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "makefile"], "the allowlist is fixed: documents, named images, the make recipe");
+  assert.deepEqual(overlay("target-only/", [...OVERLAY_KINDS]), [], "every allowlisted kind is accepted");
+  assert.deepEqual(overlay("target-only/", ["*.MD", "*.Png", "MAKEFILE"]), [], "compared without case");
+  assert.deepEqual(overlay("target-only/", ["*.md", "*.MD"]), ["/boundary/overlay/kinds"], "one kind in two spellings is listed twice");
+  assert.deepEqual([["README.MD", "*.md"], ["makefile", "Makefile"], ["shot.PNG", "*.png"]].map(([name, kind]) => isOfOverlayKind(name!, kind!)), [true, true, true], "a file matches its kind in any case");
+  assert.deepEqual([["evil.md.js", "*.md"], [".md", "*.md"], ["Makefile.orig", "Makefile"], ["xmakefile", "Makefile"]].map(([name, kind]) => isOfOverlayKind(name!, kind!)), [false, false, false, false], "near-misses never match");
   for (const bad of [[], ["*"], ["*.md/x"], ["dir/Makefile"], ["*.*"]]) assert.ok(overlay("target-only/", bad).length > 0, `${JSON.stringify(bad)}: not a list of kinds`);
   assert.deepEqual(overlay("target-only/", ["*.md", "*.md"]), ["/boundary/overlay/kinds"], "a kind listed twice");
-  assert.deepEqual(overlay("target-only/", ["*.txt", "NOTICE", "Makefile"]), [], "near-misses: documents and recipes");
+  assert.deepEqual(overlay("target-only/", ["*.txt", "Makefile"]), [], "documents and the recipe");
   const withoutOverlay = fixtureProfile();
   delete (withoutOverlay["boundary"] as Record<string, unknown>)["overlay"];
   assert.deepEqual(pointers(withoutOverlay), ["/boundary/overlay"], "the field is stated (null: none), never defaulted");
