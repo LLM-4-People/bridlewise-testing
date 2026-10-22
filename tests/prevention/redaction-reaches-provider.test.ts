@@ -242,7 +242,7 @@ describe("outbound provider call — the pasted credential does not leave the ma
     expect(wire(messages)).toContain("[REDACTED:");
     // The sentence survives — the user's words are not the secret.
     expect(wire(messages)).toContain("my api key openaiapi format is");
-  }, 30000);
+  });
 
   test("a value NO format regex can recognise is still caught, because it was declared", async () => {
     // The case that separates this from "add another regex". Forty hex
@@ -251,7 +251,7 @@ describe("outbound provider call — the pasted credential does not leave the ma
     const ids = await newConversation("redact-opaque-declared");
     const { messages } = await sendAndCapture(ids, `the password for the db is ${OPAQUE_KEY}`);
     expect(wire(messages)).not.toContain(OPAQUE_KEY);
-  }, 30000);
+  });
 
   test("the SAME value with nothing declaring it reaches the provider intact", async () => {
     // The honest other half. If this were also masked, the detector would be
@@ -263,7 +263,7 @@ describe("outbound provider call — the pasted credential does not leave the ma
       wire(messages),
       "an undeclared hash must survive — masking it would destroy legitimate content",
     ).toContain(NEVER_DECLARED);
-  }, 30000);
+  });
 
   test("the server's OWN provider key is masked, having registered itself at the mint", async () => {
     // Nobody calls the registrar in this test. The key sits in the seeded DB
@@ -283,7 +283,7 @@ describe("outbound provider call — the pasted credential does not leave the ma
     );
     // The sentence around it survives — the mask is the value, not the turn.
     expect(wire(messages)).toContain("is this still valid?");
-  }, 30000);
+  });
 
   test("ordinary prose reaches the provider byte for byte", async () => {
     // Redaction that damages normal messages is worse than none: it is a
@@ -295,7 +295,7 @@ describe("outbound provider call — the pasted credential does not leave the ma
     expect(wire(messages)).toContain(prompt);
     const user = messages.filter((m) => m.role === "user").at(-1);
     expect(user?.content).toBe(prompt);
-  }, 30000);
+  });
 });
 
 describe("outbound provider call — a credential declared once stays a secret", () => {
@@ -312,7 +312,7 @@ describe("outbound provider call — a credential declared once stays a secret",
     const user = messages.filter((m) => m.role === "user").at(-1);
     expect(user?.content, "the declaring message leaked").not.toContain(DECLARED);
     expect(user?.content).toContain("my password may be");
-  }, 30000);
+  });
 
   test("the model is never handed the value when asked to repeat it", async () => {
     const ids = await newConversation("redact-what-is-my-password");
@@ -320,7 +320,7 @@ describe("outbound provider call — a credential declared once stays a secret",
     const { messages } = await sendAndCapture(ids, "what is my password");
     const user = messages.filter((m) => m.role === "user").at(-1);
     expect(user?.content).not.toContain(DECLARED);
-  }, 30000);
+  });
 
   test("a PLACEHOLDER declared as a password does not become a permanent shredder", async () => {
     // The expensive failure. Once a value is matched by equality, EVERY
@@ -337,7 +337,7 @@ describe("outbound provider call — a credential declared once stays a secret",
       user?.content,
       "the word 'test' was masked out of an ordinary sentence",
     ).toContain("test suite");
-  }, 30000);
+  });
 
   test("STORAGE KEEPS THE USER'S REAL WORDS — redaction is egress-only", async () => {
     // The conversation is the user's own record on their own machine. Masking
@@ -357,7 +357,7 @@ describe("outbound provider call — a credential declared once stays a secret",
       userRows.map((m) => m.content).join("\n"),
       "the database must keep what the user actually typed",
     ).toContain(DECLARED);
-  }, 30000);
+  });
 });
 
 describe("outbound provider call — the user is told the input was rewritten", () => {
@@ -407,7 +407,7 @@ describe("outbound provider call — the user is told the input was rewritten", 
 
     // And the notice never carries the thing it is about.
     expect(JSON.stringify(payload)).not.toContain(PASTED_KEY);
-  }, 30000);
+  });
 
   test("an isolated unchanged request is silent and one actual rewrite emits one notice", async () => {
     const {streamChat}=await import("../../server/llm/llm-bridge.ts");

@@ -1323,6 +1323,9 @@ describe("exposure is declared and reachable", () => {
       ["testExecution.flakeReproductionSignificance", "testExecution.flakeReproduction.significance"],
       ["testExecution.instrumentLockWholeInstruments", "testExecution.instrumentLock.wholeInstruments"],
       ["testExecution.flakeReproductionShims", "testExecution.flakeReproduction.deterministicShims"],
+      ["testExecution.testCpuDefaultCeiling", "testExecution.testCpuClasses.defaultCeilingMs"],
+      ["testExecution.testCpuClasses", "testExecution.testCpuClasses.classes"],
+      ["testExecution.testHangBackstop", "testExecution.testHangBackstopMs"],
     ];
     const neverWritablePrefixes = [
       "testExecution.webUiSuiteCpuBudget",
@@ -1332,6 +1335,8 @@ describe("exposure is declared and reachable", () => {
       "testExecution.engineSuiteWatchdog",
       "testExecution.instrumentLock",
       "testExecution.flakeReproduction",
+      "testExecution.testCpuClasses",
+      "testExecution.testHangBackstopMs",
     ];
     for (const customization of listCustomizations()) {
       const path = customization.configPath;

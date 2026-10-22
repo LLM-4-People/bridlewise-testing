@@ -22,6 +22,7 @@ import { supportedTestFiles } from "./test-manifest.ts";
 import type { AccumulatingCpuBudget, CpuBudgetDeclaration, RollingCpuBudget } from "./budget-verdict.ts";
 import { SUITE_WORK_METRIC } from "../../engine/src/shared/run-cpu.ts";
 import type { SuiteWatchdog } from "../../engine/src/workflow/workflow-config.ts";
+import type { TestCpuClasses } from "../../engine/scripts/tooling/test-cpu-class.ts";
 
 export type { AccumulatingCpuBudget, CpuBudgetDeclaration, RollingCpuBudget };
 
@@ -308,6 +309,42 @@ export function readWebSuiteWatchdog(): SuiteWatchdog | { readonly missing: stri
         `hardCeilingMs (a run still going after this long is killed, whatever the load) and killGraceMs (a stopped run's ` +
         `time between SIGTERM and SIGKILL): ${parsed.error.issues[0]?.message ?? "invalid"}`,
     };
+  }
+  return parsed.data;
+}
+
+/**
+ * Each test's CPU-work ceiling by class (`testCpuClasses` under the
+ * testExecution section; judged by engine/scripts/tooling/test-cpu-class.ts),
+ * validated by the config contract's own schema, or the plain-words reason it
+ * cannot be read. No default: a ceiling nobody chose is not a ceiling.
+ */
+export function readTestCpuClasses(): TestCpuClasses | { readonly missing: string } {
+  const schema = getConfigDocumentSchema().shape.testExecution.unwrap().shape.testCpuClasses.unwrap();
+  const parsed = schema.safeParse(testExecutionSection().testCpuClasses);
+  if (!parsed.success) {
+    return {
+      missing:
+        `testCpuClasses under ${CONFIG_SITE} must carry defaultCeilingMs (a test's CPU-work ceiling) and classes ` +
+        `(named ceilings, each for the test files it lists): ${parsed.error.issues[0]?.message ?? "invalid"}`,
+    };
+  }
+  return parsed.data;
+}
+
+/**
+ * The one wall bound left on a test: the HANG BACKSTOP (`testHangBackstopMs`
+ * under the testExecution section). A test still running at it is hung, not
+ * slow; slowness is judged in CPU work. Throws its reason when unset.
+ */
+export function readTestHangBackstopMs(): number {
+  const schema = getConfigDocumentSchema().shape.testExecution.unwrap().shape.testHangBackstopMs.unwrap();
+  const parsed = schema.safeParse(testExecutionSection().testHangBackstopMs);
+  if (!parsed.success) {
+    throw new Error(
+      `testHangBackstopMs under ${CONFIG_SITE} must be a positive number of milliseconds (a test still running ` +
+        `after this long is hung): ${parsed.error.issues[0]?.message ?? "invalid"}`,
+    );
   }
   return parsed.data;
 }
