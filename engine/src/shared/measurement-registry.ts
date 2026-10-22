@@ -304,7 +304,6 @@ export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Objec
   "engine/src/process/supervised-run.ts::readSupervisorReceipt": "reads the supervisor's terminal receipt; a terminal outcome, not a quantity",
   "tests/performance/lib/perf-harness.ts::seedChatMessagesViaDb": "seeds the performance fixture's chat rows; fixture setup, not a measurement",
   "engine/src/workflow/hash-binding-registry.ts::computeBindingHash": "content hash of a binding fixture; identity, not a measured quantity",
-  "engine/src/workflow/hash-binding-registry.ts::fixtureDigestBindings": "digests the fixture bindings for the guard's own comparison; identity, not a measurement",
   "engine/src/workflow/hash-binding-registry.ts::repairBinding": "repairs a stored binding fixture; no measurement",
   "src/state/chat-messages.ts::toolCallDurationMs": "the UI's tool-call elapsed time for display; not judged, recorded or quoted by the floor",
   "src/state/chat-messages.ts::healStrandedToolCallsFromLedger": "repairs chat state from the ledger using wall-clock stamps; a state repair, not a recorded measurement",

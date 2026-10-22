@@ -7,8 +7,6 @@ import { canonicalJson, deepFreeze, sha256 } from "../kernel/integrity.ts";
 import { schemaId } from "../kernel/product-identity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { REQUIREMENTS_REGISTRY_IDENTITY_HASH, REQUIREMENTS_REGISTRY_SOURCE_PATH } from "../kernel/requirements.ts";
-import { FORENSIC_SCHEMA_BUNDLE_HASH } from "../forensics/forensic-contracts.ts";
-import { S3_OFFLINE_FORENSIC_HASH } from "../forensics/offline-forensics.ts";
 import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, TRACKER_BOARD } from "../kernel/verification-paths.ts";
 import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
 import { ownedFiles } from "../git/repository-ownership.ts";
@@ -216,107 +214,17 @@ const HASH_BINDINGS: readonly HashBinding[] = deepFreeze([
     hashMode: { kind: "module-constant", compute: () => REQUIREMENTS_REGISTRY_IDENTITY_HASH },
     jsonPath: ["requirementsRegistry", "identityHash"],
   },
-  {
-    id: "s2-trace-requirements-registry-file-sha256",
-    description: "traceability/requirements.json bytes -> traceability/s2.json requirementsRegistry.fileSha256",
-    sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    targetPath: SLICE_PROJECTION_PATHS.s2Trace,
-    targetKind: "json",
-    hashMode: { kind: "file-sha256" },
-    jsonPath: ["requirementsRegistry", "fileSha256"],
-  },
-  {
-    id: "s2-4-trace-requirements-registry-file-sha256",
-    description: "traceability/requirements.json bytes -> traceability/s2.4.json requirementsRegistry.fileSha256",
-    sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    targetPath: SLICE_PROJECTION_PATHS.s24Trace,
-    targetKind: "json",
-    hashMode: { kind: "file-sha256" },
-    jsonPath: ["requirementsRegistry", "fileSha256"],
-  },
-  {
-    id: "s3-1-trace-requirements-registry-file-sha256",
-    description: "traceability/requirements.json bytes -> traceability/s3.1.json requirementsRegistry.fileSha256",
-    sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    targetPath: SLICE_PROJECTION_PATHS.s31Trace,
-    targetKind: "json",
-    hashMode: { kind: "file-sha256" },
-    jsonPath: ["requirementsRegistry", "fileSha256"],
-  },
   // The slice trace files pin the requirements registry's IDENTITY (a derived
   // module constant — it rotates when the schema-id namespace rotates, e.g. on
   // a product rename). The expected value is computed live from the registry
   // owner, never read from a file's bytes, so a rename re-derives it through
   // `harness regenerate`/`sync` instead of needing a hand-edit.
-  {
-    id: "s2-trace-requirements-registry-identity-hash",
-    description: "requirements registry identity -> traceability/s2.json requirementsRegistry.identityHash",
-    sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    targetPath: SLICE_PROJECTION_PATHS.s2Trace,
-    targetKind: "json",
-    hashMode: { kind: "module-constant", compute: () => REQUIREMENTS_REGISTRY_IDENTITY_HASH },
-    jsonPath: ["requirementsRegistry", "identityHash"],
-  },
-  {
-    id: "s2-4-trace-requirements-registry-identity-hash",
-    description: "requirements registry identity -> traceability/s2.4.json requirementsRegistry.identityHash",
-    sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    targetPath: SLICE_PROJECTION_PATHS.s24Trace,
-    targetKind: "json",
-    hashMode: { kind: "module-constant", compute: () => REQUIREMENTS_REGISTRY_IDENTITY_HASH },
-    jsonPath: ["requirementsRegistry", "identityHash"],
-  },
-  {
-    id: "s3-1-trace-requirements-registry-identity-hash",
-    description: "requirements registry identity -> traceability/s3.1.json requirementsRegistry.identityHash",
-    sourcePath: SLICE_PROJECTION_PATHS.requirementsRegistry,
-    targetPath: SLICE_PROJECTION_PATHS.s31Trace,
-    targetKind: "json",
-    hashMode: { kind: "module-constant", compute: () => REQUIREMENTS_REGISTRY_IDENTITY_HASH },
-    jsonPath: ["requirementsRegistry", "identityHash"],
-  },
   // The S3.1 trace's CONTRACT identities are derived module constants too:
   // the offline forensic identity hashes the whole `ROOT_POLICY.forensics`
   // section, so a new forensic domain moved it and nothing regenerated the
   // trace (FIX-1: the S1-B08 scenario was the only witness). Computed live
   // from their owners, so `harness sync` re-derives them and `harness check`
   // reports their drift.
-  {
-    id: "s3-1-trace-offline-forensic-hash",
-    description: "offline forensic identity -> traceability/s3.1.json contracts.offlineForensicHash",
-    sourcePath: "src/forensics/offline-forensics.ts",
-    targetPath: SLICE_PROJECTION_PATHS.s31Trace,
-    targetKind: "json",
-    hashMode: { kind: "module-constant", compute: () => S3_OFFLINE_FORENSIC_HASH },
-    jsonPath: ["contracts", "offlineForensicHash"],
-  },
-  {
-    id: "s3-1-trace-forensic-schema-bundle-hash",
-    description: "generated forensic schema bundle -> traceability/s3.1.json contracts.schemaBundleHash",
-    sourcePath: "src/forensics/forensic-contracts.ts",
-    targetPath: SLICE_PROJECTION_PATHS.s31Trace,
-    targetKind: "json",
-    hashMode: { kind: "module-constant", compute: () => FORENSIC_SCHEMA_BUNDLE_HASH },
-    jsonPath: ["contracts", "schemaBundleHash"],
-  },
-  {
-    id: "s2-4-trace-requirements-source-artifact-sha256",
-    description: "traceability/canonical/harness-requirements.md bytes -> traceability/s2.4.json requirementsRegistry.sourceArtifactSha256",
-    sourcePath: REQUIREMENTS_REGISTRY_SOURCE_PATH,
-    targetPath: SLICE_PROJECTION_PATHS.s24Trace,
-    targetKind: "json",
-    hashMode: { kind: "file-sha256" },
-    jsonPath: ["requirementsRegistry", "sourceArtifactSha256"],
-  },
-  {
-    id: "s2-4-trace-requirements-schema-artifact-sha256",
-    description: "traceability/s2.4-requirements-schema.json bytes -> traceability/s2.4.json requirementsRegistry.schemaArtifact.sha256",
-    sourcePath: SLICE_PROJECTION_PATHS.requirementsSchemaArtifact,
-    targetPath: SLICE_PROJECTION_PATHS.s24Trace,
-    targetKind: "json",
-    hashMode: { kind: "file-sha256" },
-    jsonPath: ["requirementsRegistry", "schemaArtifact", "sha256"],
-  },
   {
     id: "slice-traces-requirements-schema-artifact-sha256",
     description: "traceability/s2.4-requirements-schema.json bytes -> scripts/verification/slice-traces.ts schemaArtifact z.literal",
@@ -849,54 +757,7 @@ export function verifyBinding(root: string, binding: HashBinding): BindingVerify
  * file.
  */
 function applicableBindings(root: string): readonly HashBinding[] {
-  return [...HASH_BINDINGS, ...fixtureDigestBindings(root)].filter((binding) => existsSync(resolve(root, binding.targetPath)));
-}
-
-/**
- * THE S2 BEHAVIOUR FIXTURE DIGESTS ARE BINDINGS TOO — derived, not listed.
- *
- * `traceability/s2.json` pins every behaviour fixture by `sha256`
- * (`behaviors[i].fixtures[j]`), and the slice verifier refuses a fixture whose
- * bytes disagree (`s2-fixture-hash-mismatch`). No generator owned those pins,
- * so an edited fixture could only be re-pinned by hand — and twenty were left
- * stale when the Responses fixtures were rewritten. Each entry the trace
- * declares becomes a `file-sha256` binding from the fixture's bytes to its
- * own `sha256` field, so `harness sync` re-pins it and `harness check`
- * (hash-bindings) reports it. Derived from the trace on every call: a fixture
- * added to the trace is bound the moment it is declared.
- *
- * A tree that does not carry the test surface at all (`test/`) binds none:
- * the product tree a promotion builds ships the trace but never the test
- * surface, so its pins there describe fixtures that live on the development
- * branch. In a tree that carries the test surface, a declared fixture that is
- * missing stays an error, as any absent source is — the fixtures' folder
- * deleted wholesale included (`harness check`, the commit guard's facts leg,
- * still refuses it; keyed on the folder itself it went silent: PROMO-2 N6).
- */
-export function fixtureDigestBindings(root: string): readonly HashBinding[] {
-  const tracePath = resolve(root, SLICE_PROJECTION_PATHS.s2Trace);
-  if (!existsSync(tracePath) || !existsSync(resolve(root, SLICE_PROJECTION_PATHS.testSurface))) return [];
-  const trace = JSON.parse(readFileSync(tracePath, "utf8")) as { behaviors?: unknown };
-  if (!Array.isArray(trace.behaviors)) return [];
-  const bindings: HashBinding[] = [];
-  trace.behaviors.forEach((behavior: unknown, behaviorIndex) => {
-    const fixtures = (behavior as { fixtures?: unknown } | null)?.fixtures;
-    if (!Array.isArray(fixtures)) return;
-    fixtures.forEach((fixture: unknown, fixtureIndex) => {
-      const path = (fixture as { path?: unknown } | null)?.path;
-      if (typeof path !== "string") return;
-      bindings.push({
-        id: `s2-fixture-digest:${path}`,
-        description: `${path} bytes -> ${SLICE_PROJECTION_PATHS.s2Trace} behaviors[${behaviorIndex}].fixtures[${fixtureIndex}].sha256`,
-        sourcePath: path,
-            targetPath: SLICE_PROJECTION_PATHS.s2Trace,
-        targetKind: "json",
-        hashMode: { kind: "file-sha256" },
-        jsonPath: ["behaviors", String(behaviorIndex), "fixtures", String(fixtureIndex), "sha256"],
-      });
-    });
-  });
-  return bindings;
+  return HASH_BINDINGS.filter((binding) => existsSync(resolve(root, binding.targetPath)));
 }
 
 export function verifyAllBindings(root: string): BindingRegistryReport {

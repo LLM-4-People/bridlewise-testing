@@ -15,7 +15,6 @@ import {
   AUTHORED_PIN_REGION,
   bindingPinRanges,
   computeBindingHash,
-  fixtureDigestBindings,
   generatedOutputPaths,
   generatedReadmePaths,
   isGenerationOnlyChange,
@@ -45,11 +44,6 @@ const EXPECTED_BINDING_IDS = new Set([
   "requirements-registry-file-sha256",
   "requirements-registry-source-sha256",
   "s1-trace-requirements-registry-file-sha256",
-  "s2-trace-requirements-registry-file-sha256",
-  "s2-4-trace-requirements-registry-file-sha256",
-  "s3-1-trace-requirements-registry-file-sha256",
-  "s2-4-trace-requirements-source-artifact-sha256",
-  "s2-4-trace-requirements-schema-artifact-sha256",
   "slice-traces-requirements-schema-artifact-sha256",
   "s1-verification-requirements-schema-artifact-sha256",
 ]);
@@ -137,7 +131,7 @@ test("HashBindingRegistry: computeBindingHash reads json-field bindings from the
 test("HashBindingRegistry: verifyAllBindings covers every registered binding", () => {
   const report = verifyAllBindings(ROOT);
   assert.equal(report.schemaVersion, HASH_BINDING_REGISTRY_VERSION);
-  const expected = listAllBindings().length + fixtureDigestBindings(ROOT).length;
+  const expected = listAllBindings().length;
   assert.equal(report.totalBindings, expected);
   assert.equal(report.results.length, expected);
   assert.ok(typeof report.integrityHash === "string");
@@ -348,7 +342,7 @@ test("HashBindingRegistry: repairAllBindings repairs all stale bindings and veri
     // `src/architecture-manifest.ts`, which this fixture does not carry.
     const applicable = listAllBindings().filter((binding) => existsSync(join(tmpRoot, binding.targetPath)));
     const report = repairAllBindings(tmpRoot, { write: true });
-    assert.equal(report.totalBindings, applicable.length + fixtureDigestBindings(tmpRoot).length);
+    assert.equal(report.totalBindings, applicable.length);
     assert.ok(report.repairedCount > 0, `expected repairs, got ${report.repairedCount}`);
     assert.equal(report.errorCount, 0, `unexpected errors: ${report.results.map((r) => r.error).filter(Boolean).join(", ")}`);
     assert.equal(report.allMatch, true);
@@ -484,52 +478,12 @@ test("HashBindingRegistry: a missing source names the way out (restore it from v
   }
 });
 
-test("HashBindingRegistry: an S2 behaviour fixture digest is a binding — a stale pin is reported and re-pinned", () => {
-  // The trace pins each behaviour fixture by sha256; no generator used to own
-  // those pins, so an edited fixture could only be re-pinned by hand.
-  const tmpRoot = createTempDir("hash-binding-fixture-digest-");
-  try {
-    const fixture = "test/fixtures/s2/b01-plant/one.json";
-    mkdirSync(join(tmpRoot, "test/fixtures/s2/b01-plant"), { recursive: true });
-    writeFileSync(join(tmpRoot, fixture), '{"planted":true}\n');
-    mkdirSync(join(tmpRoot, "traceability"), { recursive: true });
-    const tracePath = join(tmpRoot, "traceability/s2.json");
-    writeFileSync(tracePath, `${JSON.stringify({ behaviors: [{ id: "S2-B01", fixtures: [{ path: fixture, sha256: "0".repeat(64) }] }] }, null, 2)}\n`);
-    const bindings = fixtureDigestBindings(tmpRoot);
-    assert.deepEqual(bindings.map((binding) => binding.id), [`s2-fixture-digest:${fixture}`]);
-    const id = bindings[0]!.id;
-    assert.equal(verifyAllBindings(tmpRoot).results.find((result) => result.id === id)?.matches, false);
-    repairAllBindings(tmpRoot, { write: true });
-    const repaired = JSON.parse(readFileSync(tracePath, "utf8")) as { behaviors: [{ fixtures: [{ sha256: string }] }] };
-    assert.equal(repaired.behaviors[0].fixtures[0].sha256, sha256(readFileSync(join(tmpRoot, fixture))));
-    assert.equal(verifyAllBindings(tmpRoot).results.find((result) => result.id === id)?.matches, true);
-  } finally {
-    rmSync(tmpRoot, { recursive: true, force: true });
-  }
-});
-
-test("HashBindingRegistry: a tree WITHOUT the test surface (a promotion's product tree) binds no S2 fixture digest; a tree that carries it judges every declared fixture, its folder deleted wholesale included", () => {
-  // The product tree ships traceability/s2.json but never the test surface:
-  // its `harness sync` used to fail on 50 fixtures "missing from the working
-  // tree" (PROMO-2's real-data rehearsal). A tree that carries `test/` judges
-  // each declared fixture — with the fixtures' folder gone too (PROMO-2 N6:
-  // keyed on that folder, deleting it silenced the commit guard's check).
-  const tmpRoot = createTempDir("hash-binding-fixture-product-");
-  try {
-    const fixture = "test/fixtures/s2/b01-plant/one.json";
-    mkdirSync(join(tmpRoot, "traceability"), { recursive: true });
-    writeFileSync(join(tmpRoot, "traceability/s2.json"), `${JSON.stringify({ behaviors: [{ id: "S2-B01", fixtures: [{ path: fixture, sha256: "0".repeat(64) }] }] }, null, 2)}\n`);
-    assert.deepEqual(fixtureDigestBindings(tmpRoot), [], "no test surface: nothing to bind");
-    assert.equal(verifyAllBindings(tmpRoot).results.some((result) => result.id.startsWith("s2-fixture-digest:")), false);
-    mkdirSync(join(tmpRoot, "test"), { recursive: true });
-    const id = `s2-fixture-digest:${fixture}`;
-    assert.deepEqual(fixtureDigestBindings(tmpRoot).map((binding) => binding.id), [id]);
-    const result = verifyAllBindings(tmpRoot).results.find((entry) => entry.id === id);
-    assert.equal(result?.matches, false);
-    assert.match(result?.error ?? "", /missing from the working tree/u, "the fixtures' folder deleted wholesale from a tree that carries the test surface is an error");
-  } finally {
-    rmSync(tmpRoot, { recursive: true, force: true });
-  }
+// The S2 behaviour fixtures' digests, the requirements registry's digests in the slice traces and the forensic hashes
+// in s3.1.json are no bindings: the traces are written whole by their one generator
+// (scripts/verification/projection-artifacts.ts), and harness check refuses a trace that is not its output (#221).
+test("HashBindingRegistry: no binding writes a slice trace — the projection generator is its one writer", () => {
+  const traces = new Set(["traceability/s2.json", "traceability/s2.4.json", "traceability/s3.1.json"]);
+  assert.deepEqual(listAllBindings().filter((binding) => traces.has(binding.targetPath)).map((binding) => binding.id), []);
 });
 
 test("generatedReadmePaths: every OWNED README carrying the consumer marker is a generated output — tracked or untracked, never an ignored or unmarked one", () => {
