@@ -13,7 +13,9 @@
  *   - the version P declares (its root `package.json`, the ONE version source
  *     until per-module versioning generates it, decision Q6: issue #101) has
  *     no tag yet;
- *   - `release.minIntervalHours` have passed since the last release;
+ *   - `release.minIntervalHours` have passed since the newest release
+ *     RECORD's own `published_at` (the forge's answer, whatever the tag type;
+ *     records not read: the `releases_unread` reason, never "due");
  *   - the mode allows it: `auto` departs, `manual` departs only when asked
  *     (`--manual`, a person's dispatch), `approval` departs and says the run
  *     needs an approving reviewer (the release environment's).
@@ -25,7 +27,8 @@
  * A condition that does not hold is a REASON in a `promotion_release_not_due` answer
  * (each named, so the dashboard can say what the next release waits for),
  * never an error. A product with no `Projected-From`, a version that is not
- * semver or does not grow, and a missing product ref are typed refusals.
+ * semver or does not grow, a lightweight release tag on the product's line,
+ * and a missing product ref are typed refusals.
  *
  * No clock is read here: `now` is an input (the command door passes the
  * time it was invoked), so the same inputs give the same plan.
@@ -42,7 +45,7 @@ import { promotionTrailersOf } from "./trailers.ts";
 export type ReleaseSettings = NonNullable<NonNullable<ConfigDocument["promotion"]>["release"]>;
 
 /** Why the train does not depart now (each a condition that does not hold). */
-export type ReleaseWaitReason = "version_released" | "product_unchanged" | "interval" | "manual_mode";
+export type ReleaseWaitReason = "version_released" | "product_unchanged" | "releases_unread" | "interval" | "manual_mode";
 
 export type ReleasePlan = Readonly<{
   due: boolean;
@@ -56,8 +59,10 @@ export type ReleasePlan = Readonly<{
   /** Below 1.0, or a version with a pre-release part: published as a pre-release. */
   prerelease: boolean;
   product: Readonly<{ ref: string; commit: string; tree: string; source: string }>;
-  /** The last release; `at` is its annotated tag's time, `null` for a lightweight (seeded) tag. */
-  previous: Readonly<{ tag: string; version: string; commit: string; source: string | null; at: string | null }> | null;
+  /** The last release tag on the product's line (by version). */
+  previous: Readonly<{ tag: string; version: string; commit: string; source: string | null }> | null;
+  /** The newest release record's publication time (the interval's origin), or `null` when none was published or the records were not read. */
+  lastPublishedAt: string | null;
   productChanged: boolean;
   hoursSincePrevious: number | null;
   discussionCategory: string;
@@ -83,27 +88,41 @@ function declaredVersion(repository: GitRepository, commit: string): string {
  * first-parent history: a tag on a `main` commit the product carries as a
  * second parent is no release), by version precedence, or `null`.
  *
- * A release's time is its ANNOTATED tag's tagger date: the train creates
- * every release tag annotated (and the release immutable), so the tag is the
- * release record git holds. A lightweight tag (a preview the product branch
- * was seeded with) has no release time here — `at` is `null` and the
- * interval is not measured from it; a commit's date is never taken for a
- * release's.
+ * Every release tag is annotated (or signed: a tag object either way) — the
+ * train creates no other, and the tags ruleset requires it. A LIGHTWEIGHT
+ * release tag on the product's line is something else's (`gh release create
+ * --target` makes one), so it is refused (`promotion_release_tag_lightweight`),
+ * never read as a release.
  */
 function previousRelease(repository: GitRepository, commit: string, settings: ReleaseSettings): ReleasePlan["previous"] {
   const line = new Set(gitOutput(repository, ["rev-list", "--first-parent", commit]).stdout.toString("utf8").split("\n").filter((id) => id.length > 0));
-  const lines = gitOutput(repository, ["for-each-ref", "--merged", commit, "--format=%(refname:strip=2)%00%(objecttype)%00%(taggerdate:iso-strict)%00%(*objectname)%00%(objectname)", `refs/tags/${settings.tagPrefix}*`]).stdout.toString("utf8").split("\n").filter((entry) => entry.length > 0);
-  let best: { tag: string; version: string; at: string | null } | null = null;
+  const lines = gitOutput(repository, ["for-each-ref", "--merged", commit, "--format=%(refname:strip=2)%00%(objecttype)%00%(*objectname)%00%(objectname)", `refs/tags/${settings.tagPrefix}*`]).stdout.toString("utf8").split("\n").filter((entry) => entry.length > 0);
+  let best: { tag: string; version: string } | null = null;
   for (const entry of lines) {
-    const [tag, type, taggerDate, peeled, object] = entry.split("\0") as [string, string, string, string, string];
+    const [tag, type, peeled, object] = entry.split("\0") as [string, string, string, string];
     if (!line.has(type === "tag" ? peeled : object)) continue;
     const version = tag.slice(settings.tagPrefix.length);
     if (!isValidSemver(version) || version !== version.trim()) continue;
-    if (best === null || compareSemver(version, best.version) > 0) best = { tag, version, at: type === "tag" && taggerDate !== "" ? new Date(taggerDate).toISOString() : null };
+    if (type !== "tag") throw new PromotionError("promotion_release_tag_lightweight", `the release tag ${tag} on the product's line is lightweight: a release tag is annotated (or signed), so something other than the train made it`, { tag });
+    if (best === null || compareSemver(version, best.version) > 0) best = { tag, version };
   }
   if (best === null) return null;
   const tagged = resolveRevision(repository, `refs/tags/${best.tag}`)!;
-  return deepFreeze({ tag: best.tag, version: best.version, commit: tagged, source: promotionTrailersOf(repository, tagged).projectedFrom, at: best.at });
+  return deepFreeze({ tag: best.tag, version: best.version, commit: tagged, source: promotionTrailersOf(repository, tagged).projectedFrom });
+}
+
+/** One release record as the forge lists it (`GET /repos/{owner}/{repo}/releases`): its tag, whether it is a draft, and when it was published. */
+export type ReleaseRecord = Readonly<{ tag: string; draft: boolean; publishedAt: string | null }>;
+
+/** The newest publication time among the published (non-draft) records, or `null` when none was published. */
+function lastPublishedAt(records: readonly ReleaseRecord[]): string | null {
+  let newest: number | null = null;
+  for (const record of records) {
+    if (record.draft || record.publishedAt === null) continue;
+    const at = Date.parse(record.publishedAt);
+    if (newest === null || at > newest) newest = at;
+  }
+  return newest === null ? null : new Date(newest).toISOString();
 }
 
 export type ReleasePlanInput = Readonly<{
@@ -116,6 +135,8 @@ export type ReleasePlanInput = Readonly<{
   now: Date;
   /** A person asked for this departure (`manual` mode departs only so). */
   manual: boolean;
+  /** The repository's release records (the interval runs from the newest one's `published_at`), or `null` when they were not read. */
+  releases: readonly ReleaseRecord[] | null;
 }>;
 
 /** THE PLAN (see the header). Reads refs and objects; writes nothing. */
@@ -137,10 +158,12 @@ export function planRelease(input: ReleasePlanInput): ReleasePlan {
   const tag = `${settings.tagPrefix}${version}`;
   const tree = resolveRevision(repository, commit, "tree")!;
   const productChanged = previous === null || resolveRevision(repository, previous.commit, "tree") !== tree;
-  const hoursSincePrevious = previous === null || previous.at === null ? null : Math.floor((input.now.getTime() - Date.parse(previous.at)) / 36_000) / 100;
+  const publishedAt = input.releases === null ? null : lastPublishedAt(input.releases);
+  const hoursSincePrevious = publishedAt === null ? null : Math.floor((input.now.getTime() - Date.parse(publishedAt)) / 36_000) / 100;
   const reasons: ReleaseWaitReason[] = [];
   if (resolveRevision(repository, `refs/tags/${tag}`, "object") !== null) reasons.push("version_released");
   if (!productChanged) reasons.push("product_unchanged");
+  if (input.releases === null) reasons.push("releases_unread");
   if (hoursSincePrevious !== null && hoursSincePrevious < settings.minIntervalHours) reasons.push("interval");
   if (settings.train === "manual" && !input.manual) reasons.push("manual_mode");
   return deepFreeze({
@@ -154,6 +177,7 @@ export function planRelease(input: ReleasePlanInput): ReleasePlan {
     product: { ref: productRef, commit, tree, source },
     previous,
     productChanged,
+    lastPublishedAt: publishedAt,
     hoursSincePrevious,
     discussionCategory: settings.discussionCategory,
   });
@@ -163,6 +187,7 @@ export function planRelease(input: ReleasePlanInput): ReleasePlan {
 export const RELEASE_WAIT_REMEDIES: Readonly<Record<ReleaseWaitReason, string>> = deepFreeze({
   version_released: "the product's declared version is already released: declare the next version in package.json on main",
   product_unchanged: "the product has not changed since the last release",
-  interval: "the minimum interval since the last release (release.minIntervalHours) has not passed",
+  releases_unread: "the release records were not read, so the interval since the last release is unmeasured (the release job reads them from the forge)",
+  interval: "the minimum interval since the last release was published (release.minIntervalHours) has not passed",
   manual_mode: "the train is manual (release.train): a person dispatches the release",
 });

@@ -4,16 +4,21 @@
  * table of answers for the product's publication) with its class's exit
  * code and a `--text` report.
  *
- *   plan      [--now <iso time>] [--manual]
- *   notes     --repository <owner/name> --out <file> [--now …] [--manual]
- *   assemble  --out <empty folder> --bundle <file> --guardian <file>
+ *   plan      --releases <records.jsonl> [--now <iso time>] [--manual]
+ *   notes     --releases … --repository <owner/name> --out <file> [--now …] [--manual]
+ *   assemble  --releases … --out <empty folder> --bundle <file> --guardian <file>
  *             --sbom <file> --docs-site <file> [--now …] [--manual]
+ *
+ * `--releases` is the forge's list of release records (the interval runs
+ * from the newest one's `published_at`).
  *
  * The clock is read here and only here (`--now` replaces it): the plan is a
  * function of the repository, the settings and that time. `notes` and
  * `assemble` refuse unless the train is due, so a release is never built
  * for a plan that says "not now".
  */
+import { readFileSync } from "node:fs";
+
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { wrapResult } from "../command-result.ts";
 import { PromotionError, answer, promotionExitCode, type PromotionAnswer } from "./codes.ts";
@@ -21,16 +26,16 @@ import { resolveRepositoryContext, type PromotionDocument } from "./context.ts";
 import type { PromoteCliOutcome } from "./promote-cli.ts";
 import { assembleRelease, RELEASE_INPUTS, type ReleaseInput } from "./release-assets.ts";
 import { renderReleaseNotes } from "./release-notes.ts";
-import { RELEASE_WAIT_REMEDIES, planRelease, type ReleasePlan } from "./release-train.ts";
+import { RELEASE_WAIT_REMEDIES, planRelease, type ReleasePlan, type ReleaseRecord } from "./release-train.ts";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 
 const VERBS = deepFreeze(["plan", "notes", "assemble"] as const);
 type ReleaseVerb = typeof VERBS[number];
 
 const VALUE_FLAGS: Readonly<Record<ReleaseVerb, readonly string[]>> = deepFreeze({
-  plan: ["--now"],
-  notes: ["--now", "--repository", "--out"],
-  assemble: ["--now", "--out", "--bundle", "--guardian", "--sbom", "--docs-site"],
+  plan: ["--now", "--releases"],
+  notes: ["--now", "--releases", "--repository", "--out"],
+  assemble: ["--now", "--releases", "--out", "--bundle", "--guardian", "--sbom", "--docs-site"],
 });
 
 const INPUT_FLAGS: Readonly<Record<ReleaseInput, string>> = deepFreeze({ bundle: "--bundle", guardian: "--guardian", sbom: "--sbom", docsSite: "--docs-site" });
@@ -56,12 +61,40 @@ export function parseReleaseArguments(argv: readonly string[]): ReleaseRequest {
       values.set(argument, value);
     } else throw usage(`${verb} takes no ${argument}`);
   }
-  const required = verb === "notes" ? ["--repository", "--out"] : verb === "assemble" ? VALUE_FLAGS.assemble.filter((flag) => flag !== "--now") : [];
+  const required = verb === "notes" ? ["--releases", "--repository", "--out"] : verb === "assemble" ? VALUE_FLAGS.assemble.filter((flag) => flag !== "--now") : ["--releases"];
   const absent = required.filter((flag) => !values.has(flag));
   if (absent.length > 0) throw usage(`${verb} needs ${absent.join(", ")}`);
   if (values.has("--repository") && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(values.get("--repository")!)) throw usage("--repository is <owner>/<name>");
   if (values.has("--now") && Number.isNaN(Date.parse(values.get("--now")!))) throw usage("--now is an ISO time");
   return deepFreeze({ verb: verb as ReleaseVerb, values, manual });
+}
+
+/**
+ * The release records the forge listed, one JSON object per line
+ * (`gh api --paginate repos/<owner>/<name>/releases --jq '.[] | {tag_name, draft, published_at}'`):
+ * each with its tag, whether it is a draft, and its publication time. A
+ * line of another shape is refused, never skipped.
+ */
+export function readReleaseRecords(path: string): readonly ReleaseRecord[] {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    throw usage(`--releases ${path} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return deepFreeze(text.split("\n").filter((line) => line.trim().length > 0).map((line, index) => {
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      throw usage(`--releases ${path}:${String(index + 1)} is not JSON`);
+    }
+    const { tag_name: tag, draft, published_at: publishedAt } = (record ?? {}) as Record<string, unknown>;
+    if (typeof tag !== "string" || typeof draft !== "boolean" || !(publishedAt === null || (typeof publishedAt === "string" && !Number.isNaN(Date.parse(publishedAt))))) {
+      throw usage(`--releases ${path}:${String(index + 1)} is not a release record ({tag_name, draft, published_at})`);
+    }
+    return { tag, draft, publishedAt: publishedAt as string | null };
+  }));
 }
 
 function describePlan(plan: ReleasePlan): string {
@@ -81,6 +114,7 @@ async function releaseVerb(root: string, request: ReleaseRequest, document?: Pro
     commandNames: context.commandNames,
     now: new Date(request.values.get("--now") ?? Date.now()),
     manual: request.manual,
+    releases: readReleaseRecords(request.values.get("--releases")!),
   });
   if (request.verb === "plan" || !plan.due) return answer(plan.due ? "promotion_release_due" : "promotion_release_not_due", describePlan(plan), plan);
   if (request.verb === "notes") {

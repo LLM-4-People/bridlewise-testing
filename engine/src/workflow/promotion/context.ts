@@ -483,7 +483,7 @@ export function enginePromotionSource(root: string, document?: PromotionDocument
         const context = resolveRepositoryContext(root, document);
         const settings = context.document.promotion?.release;
         if (settings === undefined) return "no release train declared (promotion.release)";
-        const plan = planRelease({ repository: context.repository, settings, profileDirectory: context.profileDirectory, commandNames: context.commandNames, now: new Date(), manual: false });
+        const plan = planRelease({ repository: context.repository, settings, profileDirectory: context.profileDirectory, commandNames: context.commandNames, now: new Date(), manual: false, releases: null });
         return plan.due ? `${plan.tag} due (${plan.mode})` : `${plan.tag} waits: ${plan.reasons.join(", ")}`;
       } catch (error) {
         if (error instanceof PromotionError) return `${error.promotionCode}: ${error.message}`;
