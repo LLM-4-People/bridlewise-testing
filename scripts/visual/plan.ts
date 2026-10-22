@@ -45,7 +45,8 @@ export const VIEWPORTS: readonly Viewport[] = Object.freeze([
 
 /**
  * What differs between two commits without being design: a commit id, a
- * build time, a live snapshot. Masked in both shots (painted one flat box),
+ * build time, a snapshot's time and source commit (both sites carry offline
+ * floor snapshots, so no live run enters a picture). Masked in both shots (painted one flat box),
  * so the comparison judges the page, not the clock.
  */
 export const VOLATILE_SELECTORS: readonly string[] = Object.freeze([
