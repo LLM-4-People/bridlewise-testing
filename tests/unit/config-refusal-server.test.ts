@@ -193,7 +193,7 @@ describe("the real server with a settings file that goes bad at runtime", () => 
     expect(stderr.split("\n").filter((line) => line.includes("config_unreadable: the settings file")), "the refusal is logged once").toHaveLength(1);
     expect(stderr, "no fallback flood").not.toContain("[debug] diagnostic unavailable");
     expect(stdout).toContain("is ok (was unreadable)");
-  }, 120_000);
+  });
 
   test("the dispatch boundary, a store removed or privacy-refused after boot, and the store watch", async () => {
     const refused = createTempDir("ch-config-server-refused-");
@@ -255,5 +255,5 @@ describe("the real server with a settings file that goes bad at runtime", () => 
     expect(exitCode(), `the server exited:\n${logs().stderr.slice(-3000)}`).toBeUndefined();
     expect(logs().stderr, "no uncaught exception or unhandled rejection").not.toMatch(/uncaught exception|unhandled rejection/iu);
     expect(root.length).toBeGreaterThan(0);
-  }, 120_000);
+  });
 });
