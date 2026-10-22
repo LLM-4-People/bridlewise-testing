@@ -9,11 +9,15 @@
  *      `rect`, the rein `path`, one `path` per record line from an `{#each}`
  *      over the declaration, and the beam `circle`. Each element carries
  *      exactly the attributes that read its part (its geometry and
- *      `inkOf(<the part>.ink)`), nothing else; the styles paint no part.
+ *      `inkOf(<the part>.ink)`), nothing else. The styles hold only the
+ *      declared rules, each with only its declared properties and values,
+ *      so no filter, opacity, visibility or display can hide or recolour a
+ *      part; no other cockpit stylesheet may style the mark.
  *   B. The icon generator (`scripts/generate-pwa-icons.mjs`) paints each part
  *      with the value of the token the declaration names for it. Driven with a
- *      PLANTED palette (a distinct value per token), every part of the SVG and
- *      a pixel inside every part of the PNG must carry its own token's planted
+ *      PLANTED palette (a distinct value per token) through `markOutputs`, the
+ *      function the generator writes from, every part of the SVG and a pixel
+ *      inside every part of each PNG must carry its own token's planted
  *      value, so a remap that recolours a part fails. It restates no colour in
  *      any spelling.
  *   C. No other file in the tree carries the mark's geometry (a copy of the
@@ -32,7 +36,7 @@ import { describe, expect, test } from "vitest";
 
 import { sourceViewOf } from "../../engine/scripts/verification/source-view.ts";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program (as in pwa.test.ts).
-import { markColors, markPng, markSvg } from "../../scripts/generate-pwa-icons.mjs";
+import { markColors, markOutputs, markPng, markSvg } from "../../scripts/generate-pwa-icons.mjs";
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
 import { read } from "../helpers/source-scan.ts";
 
@@ -54,11 +58,29 @@ const DRAWING: readonly (Drawn | Readonly<{ each: string; as: string; body: Draw
   { name: "circle", attributes: { cx: "BRAND_MARK.beam.at[0]", cy: "BRAND_MARK.beam.at[1]", r: "BRAND_MARK.beam.r", "style:fill": "inkOf(BRAND_MARK.beam.ink)" } },
 ];
 const VIEW_BOX = "0 0 {BRAND_MARK.grid} {BRAND_MARK.grid}";
+/** The `<svg>` element's own attributes: its box and its accessible name, nothing that styles it. */
+const SVG_ATTRIBUTES = ["viewBox", "role", "aria-label", "aria-hidden"] as const;
+/** The wrapper's attributes: its class and the wordmark switch. */
+const WRAPPER_ATTRIBUTES = { class: "brand", "Class:wordmark": "wordmark" } as const;
+/** A design token, the only size a style here may name. */
+const TOKEN = /^var\(--[\w-]+\)$/u;
+/**
+ * EVERY rule the component's styles may hold, with every property each may
+ * set and the values it accepts. Anything else is refused: a filter, an
+ * opacity, a visibility, a display that hides, a transform, a mask, a second
+ * selector — the parts take no styling the declaration does not read.
+ */
+const STYLE: Readonly<Record<string, Readonly<Record<string, RegExp>>>> = {
+  ".brand": { display: /^inline-flex$/u, "align-items": /^center$/u, gap: TOKEN, "min-width": /^0$/u, color: TOKEN, font: /^var\(--[\w-]+\) var\(--[\w-]+\)$/u },
+  svg: { display: /^block$/u, width: TOKEN, height: TOKEN, flex: /^none$/u },
+  ".wordmark svg": { width: TOKEN, height: TOKEN },
+  path: { fill: /^none$/u, "stroke-linecap": /^round$/u },
+};
 
 /** The legacy Svelte AST, as far as these checks read it. */
 interface Expr { start: number; end: number }
 interface ValuePart { type: string; data?: string; expression?: Expr }
-interface Attr { type: string; name: string; value: true | ValuePart[] }
+interface Attr { type: string; name: string; value?: true | ValuePart[]; expression?: Expr | null }
 interface Node {
   type: string;
   name?: string;
@@ -69,11 +91,11 @@ interface Node {
   context?: { type: string; name?: string };
   else?: Node | null;
 }
-interface Declared { type: string; property?: string; value?: string; children?: Declared[]; block?: Declared; prelude?: unknown }
+interface Declared { type: string; property?: string; value?: string; children?: Declared[]; block?: Declared; prelude?: { start: number; end: number } }
 interface Statement { type: string; source?: { value: string }; specifiers?: { imported?: { name: string }; local: { name: string } }[]; declarations?: { id: unknown }[]; id?: { name: string } | null }
 
 /** The source of an attribute value, as written: text kept, each expression as `{…}` (or bare when it is the whole value). */
-function valueText(source: string, value: Attr["value"]): string {
+function valueText(source: string, value: true | ValuePart[]): string {
   if (value === true) return "true";
   const text = value.map((part) => (part.type === "Text" ? part.data ?? "" : `{${source.slice(part.expression!.start, part.expression!.end)}}`)).join("");
   const only = value.length === 1 && value[0]!.type !== "Text";
@@ -85,7 +107,8 @@ function attributesOf(source: string, node: Node): Record<string, string> {
   const out: Record<string, string> = {};
   for (const attr of node.attributes ?? []) {
     const key = attr.type === "Attribute" ? attr.name : attr.type === "StyleDirective" ? `style:${attr.name}` : `${attr.type}:${attr.name}`;
-    out[key] = valueText(source, attr.value);
+    // A directive (`class:x`, `use:x`, …) carries an expression rather than a value.
+    out[key] = attr.value !== undefined ? valueText(source, attr.value) : attr.expression ? source.slice(attr.expression.start, attr.expression.end) : "true";
   }
   return out;
 }
@@ -177,10 +200,34 @@ export function brandFindings(source: string): string[] {
     if (body.length !== 1) findings.push(`${where}: {#each} draws ${body.length} elements per line, not one`);
     findings.push(...drawnFindings(source, body[0], part.body, `${where} {#each}`));
   });
-  // The styles paint no part: every fill or stroke is the declaration's (`fill: none` only unpaints).
-  const declarations = (node: Declared | undefined): Declared[] => (node ? [node, ...(node.children ?? []).flatMap(declarations), ...declarations(node.block)] : []);
-  for (const d of declarations(ast.css)) {
-    if (d.type === "Declaration" && /^(?:fill|stroke)$/u.test(d.property ?? "") && (d.value ?? "").trim() !== "none") findings.push(`its styles paint a part (${d.property}: ${d.value}): the palette is the declaration's`);
+  // The wrapper and the <svg> carry exactly their own attributes: nothing that styles, hides or recolours.
+  const wrapper = drawnChildren(ast.html).filter((n) => n.type === "Element");
+  if (wrapper.length !== 1 || wrapper[0]!.name !== "span" || drawnChildren(wrapper[0]!)[0] !== svg) findings.push("the <svg> is not the first child of the one wrapping <span>");
+  else {
+    const actual = attributesOf(source, wrapper[0]!);
+    for (const name of Object.keys(actual)) if (!(name in WRAPPER_ATTRIBUTES)) findings.push(`the wrapper carries ${name}, which the mark does not read`);
+    for (const [name, value] of Object.entries(WRAPPER_ATTRIBUTES)) if (actual[name] !== value) findings.push(`the wrapper's ${name} is ${actual[name] ?? "missing"}, not ${value}`);
+  }
+  for (const name of Object.keys(attributesOf(source, svg))) if (!(SVG_ATTRIBUTES as readonly string[]).includes(name)) findings.push(`<svg> carries ${name}, which the mark does not read`);
+  // The styles: only the declared rules, each with only its declared properties and values.
+  for (const rule of ast.css?.children ?? []) {
+    if (rule.type !== "Rule" || rule.prelude === undefined) {
+      findings.push(`its styles hold a ${rule.type}, not a declared rule`);
+      continue;
+    }
+    const selector = source.slice(rule.prelude.start, rule.prelude.end).replace(/\s+/gu, " ").trim();
+    const allowed = STYLE[selector];
+    if (allowed === undefined) {
+      findings.push(`its styles target ${selector}, which is not a declared rule`);
+      continue;
+    }
+    for (const d of rule.block?.children ?? []) {
+      const property = d.property ?? d.type;
+      const value = (d.value ?? "").trim();
+      const accepted = Object.hasOwn(allowed, property) ? allowed[property] : undefined;
+      if (d.type !== "Declaration" || accepted === undefined) findings.push(`its styles set ${property} on ${selector}: the parts take no styling the declaration does not read`);
+      else if (!accepted.test(value)) findings.push(`its styles set ${property}: ${value} on ${selector}, outside what that rule may take`);
+    }
   }
   if (COLOUR_LITERAL.some((pattern) => pattern.test(source))) findings.push("it carries a colour literal");
   return findings;
@@ -287,6 +334,17 @@ export function pngPaintFindings(png: Buffer, palette: Record<string, string>): 
   });
 }
 
+/** Findings for every file the generator writes: an SVG through its paint, a PNG through a pixel of each part; any other kind is unjudged and refused. */
+export function outputPaintFindings(outputs: ReadonlyMap<string, Buffer>, palette: Record<string, string>): string[] {
+  if (outputs.size === 0) return ["the generator writes no file"];
+  return [...outputs].flatMap(([path, bytes]) => {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    if (name.endsWith(".svg")) return svgPaintFindings(bytes.toString("utf8"), palette).map((f) => `${name}: ${f}`);
+    if (name.endsWith(".png")) return pngPaintFindings(bytes, palette).map((f) => `${name}: ${f}`);
+    return [`${name}: an output kind this check does not judge`];
+  });
+}
+
 /** The mark's geometry signatures, from the declaration itself: the rein (either direction) and the beam. */
 function signatures(): RegExp[] {
   const [rx, ry] = BRAND_MARK.rein.from;
@@ -297,6 +355,13 @@ function signatures(): RegExp[] {
     new RegExp(`M\\s*${tx}[ ,]+${ty}\\s*(?:L\\s*${rx}[ ,]+${ry}|V\\s*${ry})`, "u"),
     new RegExp(`cx="${bx}"\\s+cy="${by}"\\s+r="${BRAND_MARK.beam.r}"`, "u"),
   ];
+}
+
+/** The cockpit's stylesheets other than the mark's own: none may style the mark from outside (a filter or opacity there would recolour or hide it). */
+export function outsideStyleFindings(path: string, text: string): string[] {
+  if (path === BRAND || !/^(?:src\/|index\.html$)/u.test(path) || !/\.(?:css|svelte|html)$/u.test(path)) return [];
+  const styles = path.endsWith(".css") ? [text] : [...text.matchAll(/<style\b[^>]*>([^<]*)<\/style\s*>/giu)].map((m) => m[1]!);
+  return styles.some((css) => /\.brand(?![\w-])/u.test(css)) ? [`${path}: styles the brand mark from outside Brand.svelte`] : [];
 }
 
 /** Findings for one file of the tree: a copy of the mark's geometry outside the owner and its generated output. */
@@ -321,8 +386,8 @@ describe("one geometry, one palette", () => {
     const palette = plantedPalette();
     expect(new Set(Object.values(palette)).size, "the planted palette gives every token its own value").toBe(Object.keys(palette).length);
     const css = plantedTokens(palette);
-    expect(svgPaintFindings(markSvg(markColorsOf(css)), palette)).toEqual([]);
-    for (const size of [192, 512]) expect(pngPaintFindings(markPng(size, markColorsOf(css)), palette), `the ${size} PNG`).toEqual([]);
+    // Through markOutputs, the function the generator writes from: every file it writes is judged, by its kind.
+    expect(outputPaintFindings(markOutputs(markColorsOf(css)) as Map<string, Buffer>, palette)).toEqual([]);
   });
 
   test("C: no tracked file outside the owner and the generated icon carries the geometry", () => {
@@ -336,7 +401,7 @@ describe("one geometry, one palette", () => {
       } catch {
         return [`${f}: listed by git but unreadable`];
       }
-      return geometryFindings(f, text);
+      return [...geometryFindings(f, text), ...outsideStyleFindings(f, text)];
     });
     expect(findings).toEqual([]);
     expect(geometryFindings("public/icons/icon.svg", `<path d="${strokePath(BRAND_MARK.rein)}"/>`), "the generated icon is the geometry's own output").toEqual([]);
@@ -362,7 +427,18 @@ describe("one geometry, one palette", () => {
     refused(plant(brand, "inkOf(BRAND_MARK.tile)", 'inkOf("--ground-2")'), /style:fill is inkOf\("--ground-2"\)/u);
     refused(plant(brand, "<circle ", '<circle class="beam" '), /<circle>: carries class, which reads no part/u);
     refused(plant(brand, "<rect ", '<rect style="fill: var(--beam)" '), /<rect>: carries style, which reads no part/u);
-    refused(plant(brand, "<style>", "<style>\n  rect { fill: var(--ground-2); }"), /its styles paint a part \(fill: var\(--ground-2\)\)/u);
+    refused(plant(brand, "<style>", "<style>\n  rect { fill: var(--ground-2); }"), /its styles target rect, which is not a declared rule/u);
+    // Styling that hides or recolours a part without touching fill or stroke: every property outside the declared set is refused.
+    for (const [rule, property] of [["path { fill: none;", "filter: hue-rotate(90deg);"], ["path { fill: none;", "opacity: 0;"], ["path { fill: none;", "visibility: hidden;"], ["svg { display: block;", "filter: invert(1);"], [".brand { display: inline-flex;", "opacity: 0.2;"]] as const) {
+      refused(plant(brand, rule, `${rule} ${property}`), new RegExp(`its styles set ${property.split(":")[0]} on`, "u"));
+    }
+    refused(plant(brand, "svg { display: block;", "svg { display: none;"), /its styles set display: none on svg, outside what that rule may take/u);
+    refused(plant(brand, "svg { display: block;", "svg { display: block; width: 0;"), /its styles set width: 0 on svg/u);
+    refused(plant(brand, "  path { fill: none;", "  @media print { path { opacity: 0; } }\n  path { fill: none;"), /its styles hold a Atrule, not a declared rule/u);
+    refused(plant(brand, "  path { fill: none;", "  :global(.brand) circle { opacity: 0; }\n  path { fill: none;"), /its styles target :global\(\.brand\) circle/u);
+    // The wrapper and the <svg> carry no styling of their own.
+    refused(plant(brand, "<svg\n", '<svg style="filter: invert(1)"\n'), /<svg> carries style, which the mark does not read/u);
+    refused(plant(brand, '<span class="brand" class:wordmark>', '<span class="brand" class:wordmark style:opacity="0">'), /the wrapper carries style:opacity, which the mark does not read/u);
     // An extra drawn element, and a second <svg>.
     refused(plant(brand, "  </svg>", '    <line x1="0" y1="0" x2="32" y2="32" />\n  </svg>'), /<svg> draws 5 parts/u);
     refused(plant(brand, "{#if wordmark}", "<svg></svg>{#if wordmark}"), /draws 2 <svg> elements, not one/u);
@@ -408,5 +484,10 @@ describe("one geometry, one palette", () => {
     expect(geometryFindings("src/cockpit/boot/Logo.svelte", '<path d="M8 7L8 25"/>')).toHaveLength(1);
     expect(geometryFindings("docs/x.md", '<circle cx="8" cy="16" r="2.5" fill="#8fd3ff"/>')).toHaveLength(1);
     expect(geometryFindings("src/a.svelte", '<path d="M8 7L9 25"/><circle cx="8" cy="16" r="3"/>')).toEqual([]);
+    // Styling the mark from another stylesheet is refused; a class that only starts with "brand" is not the mark.
+    expect(outsideStyleFindings("src/cockpit/shell/Horizon.svelte", "<style>\n  :global(.brand) svg { filter: invert(1); }\n</style>")).toHaveLength(1);
+    expect(outsideStyleFindings("src/cockpit/tokens.css", ".brand path { opacity: 0; }")).toHaveLength(1);
+    expect(outsideStyleFindings("src/cockpit/tokens.css", ".brand-new { color: red; }")).toEqual([]);
+    expect(outsideStyleFindings("docs/assets/css/site.css", ".brand { opacity: 0; }"), "the site is not the cockpit").toEqual([]);
   });
 });
