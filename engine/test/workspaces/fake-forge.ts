@@ -1,4 +1,5 @@
 import { HarnessError } from "../../src/kernel/errors.ts";
+import { ForgeError } from "../../src/workflow/forge/codes.ts";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
 import { resolveGitExecutable } from "../../src/git/git-adapter.ts";
 import { commitTreeReader, gitOutput, writeTree, type GitRepository } from "../../src/git/tree-reader.ts";
@@ -130,8 +131,13 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
       record("branchHead", { branch });
       return headOf(branch);
     },
-    async setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null }>): Promise<Readonly<{ applied: boolean }>> {
+    async setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null; forwardOnly: boolean }>): Promise<Readonly<{ applied: boolean }>> {
       record("setBranch", request);
+      // `force: false`, as GitHub's: a move that is not a fast-forward is refused (422), never applied.
+      if (request.forwardOnly && request.previous !== null && headOf(request.branch) === request.previous
+        && gitOutput(repository, ["merge-base", "--is-ancestor", request.previous, request.sha], { allowed: [0, 1] }).status !== 0) {
+        throw new ForgeError("github_validation_failed", `the move of ${request.branch} to ${request.sha} is not a fast forward`, { branch: request.branch });
+      }
       // A compare-and-swap, as GraphQL `updateRefs` with `beforeOid` (and a create only while absent): git's own.
       const swapped = gitOutput(repository, ["update-ref", `refs/heads/${request.branch}`, request.sha, request.previous ?? "0".repeat(40)], { allowed: [0, 1, 128] });
       return deepFreeze({ applied: swapped.status === 0 });
