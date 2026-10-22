@@ -77,15 +77,15 @@ const SPECIAL_ELEMENTS = "script|style|iframe|object|embed|svg|math|template|tit
 // below, not by spelling.
 const TAG_FILTER = new RegExp(String.raw`<(?:\\?\/)?(?:${SPECIAL_ELEMENTS})|<!--`, "iu");
 // A GENERIC tag matcher, by what the regex DOES (the JavaScript regex engine
-// is the parser and the judge): it matches each of these whole, unrelated
-// opening tags (an element of any name, with or without attributes). `<.*?>`, `<[^>]+>`, `<\/?[a-z][^>]*>` and every other spelling of
+// is the parser and the judge): it matches at least one of these unrelated
+// tags whole (bare, closing, self-closing, upper case, with attributes). `<.*?>`, `<[^>]+>`, `<\/?[a-z][^>]*>` and every other spelling of
 // "`<`, a run, `>`" do; a specific element (`<Spark\b[^>]*>`), a generic
 // type in source (`fn name<[^>]*>(`) or a bare `<` do not.
-const GENERIC_TAG_PROBES = Object.freeze(["<b>", '<a href="x">', "<div class='y' data-z=1>"]);
+const GENERIC_TAG_PROBES = Object.freeze(["<b>", "</b>", "<br/>", "<B>", '<a href="x">', "<div class='y' data-z=1>"]);
 // …and depends on the brackets: the same text without them matches nowhere
 // (a pattern that eats any run, `[^\r\n]+` or `^[\x20-\x7e]+$`, is not a
 // tag matcher).
-const BRACKETLESS_CONTROLS = Object.freeze(["b", 'a href="x"', "div class='y' data-z=1"]);
+const BRACKETLESS_CONTROLS = Object.freeze(["b", "/b", "br/", "B", 'a href="x"', "div class='y' data-z=1"]);
 function matchesGenericTags(resolved) {
   if (resolved === null || !resolved.regex) return false;
   let pattern;
@@ -94,7 +94,9 @@ function matchesGenericTags(resolved) {
   } catch {
     return false;
   }
-  return GENERIC_TAG_PROBES.every((probe) => pattern.exec(probe)?.[0] === probe)
+  // ANY probe matched whole is enough: a partial stripper (only bare tags,
+  // only closers, no quoted attributes) is a stripper all the same.
+  return GENERIC_TAG_PROBES.some((probe) => pattern.exec(probe)?.[0] === probe)
     && BRACKETLESS_CONTROLS.every((control) => !pattern.test(control));
 }
 const REGEX_SYNTAX_ANGLES = /\(\?<[=!]|\(\?<[A-Za-z_$][\w$]*>|\\k<[A-Za-z_$][\w$]*>/gu;
@@ -386,6 +388,16 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
       'const e = s.replace(/<[^<>]+>/g, "");',
       'const f = s.replace(/<(?:[^>"\']|"[^"]*"|\'[^\']*\')*>/g, "");',
     ].join("\n") + "\n",
+    // seven PARTIAL strippers: each misses some tag shape, and each is still a stripper
+    "server/m.ts": [
+      'const a = s.replace(/<\\/?\\w+>/g, "");',
+      'const b = s.replace(/<\\S+?>/g, "");',
+      'const c = s.replace(/<[^>"]*>/g, "");',
+      'const d = s.replace(/<[^>]{1,20}>/g, "");',
+      'const e = s.replace(/<[^>=]*>/g, "");',
+      'const f = s.replace(/<[a-z/]+>/g, "");',
+      'const g = s.replace(/<[A-Z][^>]*>/g, "");',
+    ].join("\n") + "\n",
     // the pattern through a module constant, RegExp(const), a template hole and a computed member
     "server/l.ts": [
       "const TAG = /<[^>]+>/g;",
@@ -410,6 +422,7 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
     "server/i.ts": ["entity", "entity", "markup-char", "markup-callback", "markup-callback", "entity", "entity", "markup-callback", "entity-pattern", "markup-callback"],
     "scripts/j.mjs": ["cell-escape", "tag-filter", "tag-filter", "entity", "entity"],
     "server/k.ts": ["tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter"],
+    "server/m.ts": ["tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter"],
     // `new RegExp(…)` is judged as a call of its own, then again as the replace pattern it feeds
     "server/l.ts": ["tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter"],
     "src/h.svelte": ["tag-filter", "markup-char", "markup-callback", "entity"],
