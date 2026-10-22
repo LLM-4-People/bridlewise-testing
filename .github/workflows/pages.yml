@@ -164,21 +164,19 @@ jobs:
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
           npm ci --prefix "$RUNNER_TEMP/base" --no-audit --no-fund --ignore-scripts
 
+      # Each source step writes its own OFFLINE floor snapshot (no live run
+      # enters a picture), so base and head differ only by their trees.
       - name: Build both site sources
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           node scripts/build-site.mjs source --out .site-head --baseurl "$VISUAL_BASEURL"
           (cd "$RUNNER_TEMP/base" && node scripts/build-site.mjs source --out .site --baseurl "$VISUAL_BASEURL") || { echo "visual_base_unbuildable: the base commit's one site builder did not build its site; land the site builder (#62) before judging pictures against it"; exit 1; }
-          node scripts/build-floor-data.mjs --root . --out .site-head/floor/data
-          mkdir -p "$RUNNER_TEMP/base/.site/floor/data"
-          cp -R .site-head/floor/data/. "$RUNNER_TEMP/base/.site/floor/data/"
 
       - name: Build the head site with Jekyll
         uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
         with:
           source: ./.site-head
           destination: ./_visual/head
+          build_revision: ${{ github.sha }}
 
       - name: Move the base source into the workspace
         run: mv "$RUNNER_TEMP/base/.site" ./.site-base
@@ -188,6 +186,7 @@ jobs:
         with:
           source: ./.site-base
           destination: ./_visual/base
+          build_revision: ${{ github.sha }}
 
       - name: Install the browser
         run: npx playwright install --with-deps chromium
