@@ -1080,6 +1080,11 @@
         "provingGround": true
       }
     ],
+    "maintainerCli": {
+      "stallMs": 120000,
+      "cpuLimitMs": 30000,
+      "killGraceMs": 2000
+    },
     "appsPage": {
       "port": 47811,
       "legacyApps": [

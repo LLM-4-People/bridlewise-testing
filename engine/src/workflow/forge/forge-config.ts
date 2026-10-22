@@ -59,6 +59,16 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     if (new Set(names).size !== names.length) context.addIssue({ code: "custom", message: "repository names must be unique" });
     if (repositories.filter((repository) => repository.kind === "trunk").length !== 1) context.addIssue({ code: "custom", message: "exactly one repository is the trunk" });
   }),
+  /**
+   * How a run of the maintainer's `gh` is bounded: never by the wall clock
+   * (the no-load-block rule), only when it stalls (no output and no CPU work
+   * for `stallMs`) or passes `cpuLimitMs` of its own CPU time.
+   */
+  maintainerCli: z.strictObject({
+    stallMs: z.number().int().min(1_000).max(3_600_000),
+    cpuLimitMs: z.number().int().min(100).max(3_600_000),
+    killGraceMs: z.number().int().min(10).max(60_000),
+  }),
   /** The local page `harness forge apps create` serves (on 127.0.0.1 only). */
   appsPage: z.strictObject({
     port: z.number().int().min(1_024).max(65_535),

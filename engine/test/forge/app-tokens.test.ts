@@ -5,14 +5,14 @@
  * JWT with the App's public key.
  */
 import assert from "node:assert/strict";
-import { statSync, writeFileSync, chmodSync } from "node:fs";
+import { chmodSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
 import { admitHarnessKeyHome } from "../../src/filesystem/self-protection/key-home.ts";
 import { FORGE_APP_ROLES, FORGE_APPS, forgeApp, narrowedPermissions } from "../../src/workflow/forge/app-registry.ts";
-import { harnessAppKeyCustody, keyHomeCustody, storeAppKey } from "../../src/workflow/forge/app-keys.ts";
-import { isForgeError, type ForgeCode } from "../../src/workflow/forge/codes.ts";
+import { appKeyState, harnessAppKeyCustody, keyHomeCustody, pushHeldKey, storeAppKey } from "../../src/workflow/forge/app-keys.ts";
+import { ForgeError, isForgeError, type ForgeCode } from "../../src/workflow/forge/codes.ts";
 import { appInstallationCredential, appJwt } from "../../src/workflow/forge/credentials.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
 import { fakeGithub } from "./fake-github.ts";
@@ -70,7 +70,7 @@ test("narrowing never widens: a permission the App lacks, or write over read, is
   assert.throws(() => narrowedPermissions("verifier", { contents: "write" }), (error: unknown) => isForgeError(error, "forge_request_invalid"));
 });
 
-test("the host custody stores a key at 0600 in the key home, answers the identity without it, and refuses environment Apps", async () => {
+test("the custody stores a key at 0600 in the key home, answers the identity without it, signs only for host Apps, and holds an environment key only until it is pushed", async () => {
   const fake = fakeGithub();
   const app = fake.installApp({ slug: "bridlewise-agent", permissions: FORGE_APPS.agent.permissions, repositories: ["o/r"] });
   const keyHome = admitHarnessKeyHome([]);
@@ -87,9 +87,20 @@ test("the host custody stores a key at 0600 in the key home, answers the identit
   const claims = JSON.parse(Buffer.from(jwt.split(".")[1]!, "base64url").toString("utf8")) as { iss: string; exp: number; iat: number };
   assert.equal(claims.iss, app.clientId);
   assert.ok(claims.exp - claims.iat <= 600);
-  // Environment-custody Apps are never stored on the host.
-  await refusedWith("forge_request_invalid", () => storeAppKey(keyHome, "door", { appId: 1, slug: "bridlewise-door", clientId: "Iv1", pem: app.pem }));
-  await refusedWith("forge_request_invalid", () => custody.identity("publisher"));
+  // An environment-custody App: stored right after conversion, HELD, never signed with on the host; pushed, then gone from the host.
+  storeAppKey(keyHome, "door", { appId: 7, slug: "bridlewise-door", clientId: "Iv1door", pem: app.pem });
+  assert.equal(appKeyState(keyHome, "door").state, "held");
+  await refusedWith("forge_request_invalid", () => custody.identity("door"));
+  await refusedWith("forge_request_invalid", () => custody.signRs256("door", Buffer.from("x")));
+  await assert.rejects(pushHeldKey(keyHome, "door", async () => { throw new ForgeError("forge_maintainer_cli_failed", "the push failed", {}); }), (error: unknown) => isForgeError(error, "forge_maintainer_cli_failed"));
+  assert.equal(appKeyState(keyHome, "door").state, "held", "a failed push keeps the key");
+  let pushed = "";
+  await pushHeldKey(keyHome, "door", async (pem) => { pushed = pem; });
+  assert.equal(pushed, app.pem);
+  assert.equal(appKeyState(keyHome, "door").state, "done");
+  assert.equal(readFileSync(join(keyHome, "forge-apps", "door.json"), "utf8").includes(app.pem.split("\n")[1]!), false, "the pushed key is gone from the host");
+  await refusedWith("forge_app_key_unavailable", () => pushHeldKey(keyHome, "door", async () => undefined));
+  await refusedWith("forge_request_invalid", () => pushHeldKey(keyHome, "agent", async () => undefined));
   // A malformed key, identity or record is refused before or at use.
   await refusedWith("forge_app_key_invalid", () => storeAppKey(keyHome, "verifier", { appId: 1, slug: "bridlewise-verifier", clientId: "Iv1", pem: "not a key in any format" }));
   await refusedWith("forge_request_invalid", () => storeAppKey(keyHome, "agent", { appId: 0, slug: app.slug, clientId: app.clientId, pem: app.pem }));
