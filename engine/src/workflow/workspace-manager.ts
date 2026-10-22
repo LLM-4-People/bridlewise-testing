@@ -32,7 +32,7 @@ import { frozenAcceptancesBetween } from "./record-links.ts";
 import { applyCheckoutFiles, assertSameFilesystem, removeGateLogs, runCheckoutPhase, runDeclaredCommands, settleCheckout, type CheckoutCommand, type CheckoutPhase, type CheckoutStep } from "./checkout-setup.ts";
 import { LandingError, branchCheckout, commitCandidate, landCommit, refuseUndeclaredWrites } from "./tree-landing.ts";
 import { importWorkspaceTimelineShard, openWorkspaceTimelineShard } from "./timeline-shard.ts";
-import { createWorkspaceRecordStore, type WorkspaceRecordStore } from "./workspace-registry.ts";
+import { createWorkspaceRecordStore, workspaceRecordStores, type WorkspaceRecordStore } from "./workspace-registry.ts";
 import { remoteTrackingRef } from "../git/git-port.ts";
 import { fetchForgeBranches, publishBranch, resolveForgeTarget, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry, workspaceRootOf, type RepositoryRegistry } from "./repository-registry.ts";
@@ -363,7 +363,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   const progress = options.onProgress ?? ((): void => undefined);
   const checkoutRoot = git.toplevel(resolve(options.checkoutRoot), timeouts.inspectMs);
   const registry = resolveRepositoryRegistry(git, checkoutRoot, timeouts.inspectMs);
-  const store = options.records ?? createWorkspaceRecordStore(repositoryRegistryArea(registry, "workspaces"));
+  const store = options.records ?? createWorkspaceRecordStore(workspaceRecordStores(registry));
   const lockDirectory = repositoryRegistryArea(registry, "locks");
   const workspaceRoot = workspaceRootOf(registry, config.workspaceRoot);
   const snapshotIdentity = options.identity === undefined ? {} : { identity: options.identity };
@@ -1037,6 +1037,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       mergeReceipt: null,
       abortReason: null,
       history: deepFreeze([]),
+      migratedFrom: null,
       forge: forgeState,
       revision: 0,
     });
@@ -1706,6 +1707,8 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const orphaned: string[] = [];
     const nowMs = now().getTime();
     for (const record of store.list()) {
+      // A workspace known only to the legacy store is older code's: this code never sweeps it (until the P7 cutover).
+      if (store.isLegacyOnly(record.workspaceId)) continue;
       if (record.state === "merging") {
         // A merging record whose integrator is gone (the merge lock is free)
         // is recovered; a running integrator's is left to it.

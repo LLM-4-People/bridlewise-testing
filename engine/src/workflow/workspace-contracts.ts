@@ -50,8 +50,9 @@ import { wholesaleGeneratedPaths } from "./hash-binding-registry.ts";
  */
 
 export const WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 3);
-/** The version before the forge: records of it are migrated on read ({@link migrateWorkspaceRecord}). */
-const WORKSPACE_SCHEMA_V2 = schemaId("workspace", 2);
+/** The version before the forge: records of it are migrated in memory on read ({@link migrateWorkspaceRecord}), never rewritten. */
+export const LEGACY_WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 2);
+const WORKSPACE_SCHEMA_V2 = LEGACY_WORKSPACE_SCHEMA_VERSION;
 
 export const WORKSPACE_STATES = deepFreeze([
   "admitted",
@@ -318,6 +319,13 @@ export const workspaceRecordSchema = z.strictObject({
   mergeReceipt: z.union([mergeReceiptSchema, legacyMergeReceiptSchema]).nullable(),
   abortReason: REASON_SCHEMA.nullable(),
   history: z.array(workspaceTransitionSchema).max(4096),
+  /**
+   * The legacy record this one was first written from (per-version storage,
+   * `workspace-registry.ts`: a v2 workspace this code changed is a NEW record
+   * in the current store; the v2 file is never touched); null for a record
+   * created by this version.
+   */
+  migratedFrom: z.strictObject({ schemaVersion: z.literal(WORKSPACE_SCHEMA_V2), revision: z.number().int().nonnegative() }).nullable(),
   /** The forge state of a feature workspace (or its legacy marker); null for a read-only one (it never publishes). */
   forge: z.union([workspaceForgeSchema, legacyForgeSchema]).nullable(),
   /**
@@ -527,9 +535,10 @@ export function parseWorkspaceRecord(value: unknown): WorkspaceRecord {
 }
 
 /**
- * THE ONE MIGRATION of a stored record (the record store runs it on every
- * read and writes a migrated record back): a v2 record (before the forge)
- * becomes v3 deterministically — the record, its lease and its reports
+ * THE ONE MIGRATION of a stored record, IN MEMORY (the record store runs it
+ * on every read of the legacy store and never writes the result back: older
+ * code still reads that store): a v2 record (before the forge) becomes v3
+ * deterministically — the record, its lease and its reports
  * re-tagged; a merge receipt kept verbatim (its hash binds its own version);
  * the forge state `null` for a read-only workspace and the legacy marker for a
  * feature one ({@link legacyForgeSchema}). A current record is answered as it
@@ -552,6 +561,7 @@ export function migrateWorkspaceRecord(value: unknown): Readonly<{ record: Works
       validationReport: retag(stored["validationReport"]),
       conflictReport: retag(stored["conflictReport"]),
       forge: lease?.["kind"] === "read-only" ? null : { legacy: true },
+      migratedFrom: null,
     }),
     migrated: true,
   });

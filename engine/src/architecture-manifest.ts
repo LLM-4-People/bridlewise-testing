@@ -703,7 +703,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "workflow-workspace-contracts", path: "src/workflow/workspace-contracts.ts",
       realm: "shared", layer: "domain", owner: "verification-workflow",
-      publicApi: { exportCount: 42, namesSha256: "c657d32c0bb5abca79df5eb5dfc497d29f50a8f64acfbc07f5a2b5b3f271d3f3" },
+      publicApi: { exportCount: 43, namesSha256: "a005ed148d03c905f22b537c1350b93fff7265b01a271af7df944c8b2fa50056" },
       dependencies: ["src/filesystem/path-boundary.ts","src/git/git-port.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/hash-binding-registry.ts","zod"],
       executionBoundary: "pure",
       ports: { requires: [], provides: ["workspace-contracts"] },
@@ -5279,7 +5279,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workspace-registry", path: "src/workflow/workspace-registry.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 3, namesSha256: "2557f9fb4e72b16f5573102ef412e9c41b72d4d998e5274a5f53487e1f9aaac8" },
+      owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "7ba73602ea942cd80948c3479e5c85a3d68516f56dba5020c72152bdd4cd9986" },
       dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/filesystem/file-lock.ts","src/filesystem/private-state.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/repository-registry.ts","src/workflow/workspace-contracts.ts"],
     }),
     moduleContract({

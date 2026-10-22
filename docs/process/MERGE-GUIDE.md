@@ -79,8 +79,12 @@ branch only from where the workspace left it: another writer's commits are
 refused, `branch_moved_by_another_writer`) and opens or regenerates the DRAFT
 pull request; `ready` takes it out of draft once its published tree passed
 `validate`, and any later round that publishes a new head returns it to
-draft. A record written before the forge (v2) is migrated on read; such a
-feature workspace never reaches the forge (`workspace_legacy_record`).
+draft. Records are stored per version: the store before the forge (v2),
+which older code still uses, is read and migrated in memory and never
+written; a v2 workspace this code changes becomes a new record in the
+current store. Such a feature workspace never reaches the forge
+(`workspace_legacy_record`), and `sweep` leaves v2-only workspaces to the
+older code until the P7 cutover.
 
 ## 2. The commands
 

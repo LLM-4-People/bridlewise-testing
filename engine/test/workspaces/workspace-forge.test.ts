@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { WorkspaceConflictError } from "../../src/workflow/workspace-manager.ts";
-import { createWorkspaceRecordStore } from "../../src/workflow/workspace-registry.ts";
+import { createWorkspaceRecordStore, workspaceRecordStores } from "../../src/workflow/workspace-registry.ts";
 import { resolveForgeTarget, type WorkspaceForge, type WorkspaceForgeFactory } from "../../src/workflow/workspace-forge.ts";
 import {
   commitFile,
@@ -15,7 +15,7 @@ import {
   makeTestConfig,
   mkWorkspaceTempDir,
   rawGit,
-  registryRoot,
+  registryOf,
   testRepository,
   trackBranch,
   writeFile,
@@ -327,7 +327,7 @@ test("a later round that crashed after moving the forge branch is adopted (its t
   await manager.publish(record.workspaceId);
   commitFile(worktree, "src/b.ts", "export const b = 1;\n", "Second");
   // The round moves the forge branch and the local branch, then dies before its record is saved.
-  const store = createWorkspaceRecordStore(join(registryRoot(root), "workspaces"));
+  const store = createWorkspaceRecordStore(workspaceRecordStores(registryOf(root)));
   const dying = makeManager(root, { config, records: { ...store, save: () => { throw new Error("injected: died before the record was saved"); } } }).manager;
   await assert.rejects(() => dying.publish(record.workspaceId), /injected/u);
   const adopted = await manager.publish(record.workspaceId);

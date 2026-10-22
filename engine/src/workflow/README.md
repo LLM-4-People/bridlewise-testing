@@ -45,11 +45,15 @@ in
   implementation of the port, on the forge client of
   `engine/src/workflow/forge/`; until the CLI is given one, both refuse
   `workspace_forge_unavailable`.
-- **Records** are migrated on read by the one record reader
-  (`migrateWorkspaceRecord`, written back atomically): a v2 record (before the
-  forge) becomes v3, a feature one with the legacy marker that refuses every
-  forge verb (`workspace_legacy_record`). `sweep` reports a live record whose
-  worktree is gone (`orphaned`) and leaves it to its owner.
+- **Records** use PER-VERSION STORAGE (`workspace-registry.ts`): this code
+  writes only the current store (`workspaces-v3/`); the store before the
+  forge (`workspaces/`, v2), which older code still uses, is read and migrated
+  IN MEMORY (`migrateWorkspaceRecord`) and never written. A v2 workspace this
+  code changes becomes a new current record noting `migratedFrom`; a feature
+  one carries the legacy marker that refuses every forge verb
+  (`workspace_legacy_record`); `sweep` never ends a v2-only workspace (older
+  code owns it until the P7 cutover archives that store) and reports a live
+  record whose worktree is gone (`orphaned`), leaving it to its owner.
 - **Registry**: `<git common dir>/bridlewise/` (`repository-registry.ts`, the one derivation; the records in `workspace-registry.ts`):
   `workspaces/<id>.json`, `locks/` (the admission and merge locks),
   `timeline/` (the shards and the integrator's ledger) — one per repository,
