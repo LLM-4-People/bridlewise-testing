@@ -12,6 +12,6 @@ The cockpit motion law: a structural rule for when an element may move, owned on
 
 The folder lives at `src/cockpit/motion/`.
 
-- `motion.ts` is consumed by `src/cockpit/computer/FindingNote.svelte`, `src/cockpit/desk/ChannelStrip.svelte`, `src/cockpit/desk/Gauge.svelte`, `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/ThinkingFold.svelte`, `src/cockpit/flow/ToolBeat.svelte` and 10 more.
+- `motion.ts` is consumed by `src/cockpit/computer/FindingNote.svelte`, `src/cockpit/desk/ChannelStrip.svelte`, `src/cockpit/desk/Gauge.svelte`, `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/ThinkingFold.svelte`, `src/cockpit/flow/ToolBeat.svelte` and others.
 
 <!-- /consumers:generated -->

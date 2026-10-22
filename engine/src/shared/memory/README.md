@@ -35,8 +35,8 @@ The folder lives at `engine/src/shared/memory/`.
 
 - `ebbinghaus.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/shared-memory-store.ts`, `engine/src/shared/memory/token-cap.ts`.
 - `index.ts` is consumed by nothing yet.
-- `memory-config.ts` is consumed by `engine/src/shared/memory/ebbinghaus.ts`, `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/memory-entry.ts`, `engine/src/shared/memory/memory-exposure.ts`, `engine/src/shared/memory/memory-tree.ts`, `engine/src/shared/memory/retrieval/embeddings.ts` and 4 more.
-- `memory-entry.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/memory-tree.ts`, `engine/src/shared/memory/retrieval/retriever.ts`, `engine/src/shared/memory/shared-memory-store.ts`, `engine/src/shared/memory/storage/append-log-backend.ts`, `engine/src/shared/memory/storage/backend.ts` and 5 more.
+- `memory-config.ts` is consumed by `engine/src/shared/memory/ebbinghaus.ts`, `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/memory-entry.ts`, `engine/src/shared/memory/memory-exposure.ts`, `engine/src/shared/memory/memory-tree.ts`, `engine/src/shared/memory/retrieval/embeddings.ts` and others.
+- `memory-entry.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/memory-tree.ts`, `engine/src/shared/memory/retrieval/retriever.ts`, `engine/src/shared/memory/shared-memory-store.ts`, `engine/src/shared/memory/storage/append-log-backend.ts`, `engine/src/shared/memory/storage/backend.ts` and others.
 - `memory-exposure.ts` is consumed by `engine/src/shared/memory/index.ts`.
 - `memory-tree.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/shared-memory-store.ts`.
 - `shared-memory-store.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/memory-exposure.ts`.

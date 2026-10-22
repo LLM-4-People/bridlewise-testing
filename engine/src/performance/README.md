@@ -29,7 +29,7 @@ The folder lives at `engine/src/performance/`.
 - `engine-instrumentation.ts` is consumed by `server/kernel/canonical.ts`.
 - `function-manifest.ts` is consumed by `engine/src/performance/index.ts`.
 - `index.ts` is consumed by nothing yet.
-- `metrics-collector.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/index.ts`, `engine/src/performance/index.ts`, `engine/src/runtime/agent-tools.ts`, `engine/src/runtime/orchestrator-tools.ts` and 5 more.
-- `performance-config.ts` is consumed by `engine/src/kernel/config-contracts.ts`, `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/benchmark-runner.ts`, `engine/src/performance/configured-performance.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/performance/diagnostic-modes.ts` and 6 more.
+- `metrics-collector.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/index.ts`, `engine/src/performance/index.ts`, `engine/src/runtime/agent-tools.ts`, `engine/src/runtime/orchestrator-tools.ts` and others.
+- `performance-config.ts` is consumed by `engine/src/kernel/config-contracts.ts`, `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/benchmark-runner.ts`, `engine/src/performance/configured-performance.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/performance/diagnostic-modes.ts` and others.
 
 <!-- /consumers:generated -->

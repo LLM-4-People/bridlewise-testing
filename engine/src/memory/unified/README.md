@@ -44,7 +44,7 @@ The folder lives at `engine/src/memory/unified/`.
 - `ebbinghaus.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`, `engine/src/memory/unified/unified-memory-store.ts`.
 - `index.ts` is consumed by `engine/scripts/exp445/run-exp445.mjs`, `engine/scripts/exp456/run-exp456.mjs`.
 - `proactive-injector.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`.
-- `tokenizer.ts` is consumed by `engine/src/memory/unified/conversation-summary.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`, `engine/src/memory/unified/unified-context-manager.ts`, `engine/src/memory/unified/unified-memory-store.ts` and 2 more.
+- `tokenizer.ts` is consumed by `engine/src/memory/unified/conversation-summary.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`, `engine/src/memory/unified/unified-context-manager.ts`, `engine/src/memory/unified/unified-memory-store.ts` and others.
 - `trust-enforcer.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`.
 - `unified-config.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-context-manager.ts`, `engine/src/memory/unified/unified-memory-store.ts`, `server/context/context-bridge.ts`.
 - `unified-context-manager.ts` is consumed by `engine/src/index.ts`, `engine/src/memory/unified/index.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/shared/llm/response-transcript.ts`, `server/context/context-bridge.ts`.

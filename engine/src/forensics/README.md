@@ -19,7 +19,7 @@ The forensic and offline-evidence cluster: the schemas, encryption, normalizatio
 
 The folder lives at `engine/src/forensics/`.
 
-- `forensic-contracts.ts` is consumed by `engine/scripts/tooling/verification/slice-traces.ts`, `engine/scripts/verification/slice-projection-inputs.ts`, `engine/scripts/verification/slice-projections.ts`, `engine/src/forensics/forensic-crypto.ts`, `engine/src/forensics/forensic-normalization.ts`, `engine/src/forensics/forensic-projection.ts` and 3 more.
+- `forensic-contracts.ts` is consumed by `engine/scripts/tooling/verification/slice-traces.ts`, `engine/scripts/verification/slice-projection-inputs.ts`, `engine/scripts/verification/slice-projections.ts`, `engine/src/forensics/forensic-crypto.ts`, `engine/src/forensics/forensic-normalization.ts`, `engine/src/forensics/forensic-projection.ts` and others.
 - `forensic-crypto.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/forensic-projection.ts`, `engine/src/forensics/offline-forensics.ts`, `engine/src/timeline/timeline-sealing.ts`.
 - `forensic-normalization.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/offline-forensics.ts`.
 - `forensic-projection.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/offline-forensics.ts`.

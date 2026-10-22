@@ -64,17 +64,17 @@ The folder lives at `engine/src/timeline/`.
 - `effect-documents.ts` is consumed by `engine/src/timeline/effect-sink.ts`, `server/kernel/canonical.ts`.
 - `effect-sink.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `server/kernel/canonical.ts`.
 - `ledger-dig.ts` is consumed by nothing yet.
-- `ledger-primitives.ts` is consumed by `engine/src/cli.ts`, `engine/src/kernel/execution-closure.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/effect-sink.ts`, `engine/src/timeline/recorded-effect.ts`, `engine/src/timeline/timeline-query.ts` and 4 more.
+- `ledger-primitives.ts` is consumed by `engine/src/cli.ts`, `engine/src/kernel/execution-closure.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/effect-sink.ts`, `engine/src/timeline/recorded-effect.ts`, `engine/src/timeline/timeline-query.ts` and others.
 - `provider-recording.ts` is consumed by nothing yet.
-- `recorded-effect.ts` is consumed by `engine/src/performance/engine-instrumentation.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/shared/exposure/action.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/effect-sink.ts`, `engine/src/timeline/provider-recording.ts` and 1 more.
-- `recording-context.ts` is consumed by `engine/src/cli.ts`, `engine/src/performance/engine-instrumentation.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/provider-http.ts`, `engine/src/timeline/effect-sink.ts` and 5 more.
+- `recorded-effect.ts` is consumed by `engine/src/performance/engine-instrumentation.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/shared/exposure/action.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/effect-sink.ts`, `engine/src/timeline/provider-recording.ts` and others.
+- `recording-context.ts` is consumed by `engine/src/cli.ts`, `engine/src/performance/engine-instrumentation.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/provider-http.ts`, `engine/src/timeline/effect-sink.ts` and others.
 - `rollback.ts` is consumed by `engine/src/timeline/timeline-recorder.ts`, `engine/src/workflow/harness-commands.ts`.
 - `timeline-config.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/timeline-store.ts`, `server/kernel/canonical.ts`.
 - `timeline-query.ts` is consumed by `engine/src/timeline/timeline-recorder.ts`, `server/kernel/canonical.ts`.
-- `timeline-recorder.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/agents/agent-state.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/evaluation/cli.ts`, `engine/src/evaluation/matrix-executor.ts`, `engine/src/evaluation/scenario-runner.ts` and 8 more.
+- `timeline-recorder.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/agents/agent-state.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/evaluation/cli.ts`, `engine/src/evaluation/matrix-executor.ts`, `engine/src/evaluation/scenario-runner.ts` and others.
 - `timeline-schema.ts` is consumed by `engine/src/timeline/timeline-store.ts`.
 - `timeline-sealing.ts` is consumed by `engine/src/timeline/timeline-store.ts`.
-- `timeline-store.ts` is consumed by `engine/src/evaluation/cli.ts`, `engine/src/index.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/timeline-shard.ts`, `engine/src/workflow/workspace-manager.ts` and 1 more.
-- `timeline-types.ts` is consumed by `engine/src/agents/agent-state.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/agents/workspace-peek.ts`, `engine/src/memory/memory-store.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/runtime/orchestrator-tools.ts` and 11 more.
+- `timeline-store.ts` is consumed by `engine/src/evaluation/cli.ts`, `engine/src/index.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/timeline-shard.ts`, `engine/src/workflow/workspace-manager.ts` and others.
+- `timeline-types.ts` is consumed by `engine/src/agents/agent-state.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/agents/workspace-peek.ts`, `engine/src/memory/memory-store.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/runtime/orchestrator-tools.ts` and others.
 
 <!-- /consumers:generated -->

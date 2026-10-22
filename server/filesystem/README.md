@@ -23,7 +23,7 @@ paths themselves.
 The folder lives at `server/filesystem/`.
 
 - `editor-bridge.ts` is consumed by `server/blocks/editor.ts`, `server/intelligence/intelligence-bridge.ts`, `server/routes/editor.ts`, `server/tools/tool-executor.ts`.
-- `file-read.ts` is consumed by `server/db/backup-restore.ts`, `server/db/conversation-archive.ts`, `server/filesystem/editor-bridge.ts`, `server/intelligence/content-search-engine.ts`, `server/kernel/harness-config.ts`, `server/observability/process-census.ts` and 1 more.
-- `fs-gate.ts` is consumed by `server/agent/agent-restrictions.ts`, `server/agent/agent-runtime-bridge.ts`, `server/awareness/awareness-bridge.ts`, `server/awareness/quality-bridge.ts`, `server/blocks/checks.ts`, `server/blocks/custody.ts` and 19 more.
+- `file-read.ts` is consumed by `server/db/backup-restore.ts`, `server/db/conversation-archive.ts`, `server/filesystem/editor-bridge.ts`, `server/intelligence/content-search-engine.ts`, `server/kernel/harness-config.ts`, `server/observability/process-census.ts` and others.
+- `fs-gate.ts` is consumed by `server/agent/agent-restrictions.ts`, `server/agent/agent-runtime-bridge.ts`, `server/awareness/awareness-bridge.ts`, `server/awareness/quality-bridge.ts`, `server/blocks/checks.ts`, `server/blocks/custody.ts` and others.
 
 <!-- /consumers:generated -->

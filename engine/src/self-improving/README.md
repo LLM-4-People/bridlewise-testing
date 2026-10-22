@@ -21,7 +21,7 @@ The self-improving domain: the analysis that turns recorded performance into imp
 The folder lives at `engine/src/self-improving/`.
 
 - `command-log.ts` is consumed by `engine/src/self-improving/index.ts`, `engine/src/self-improving/learner.ts`, `engine/src/self-improving/mistake-detector.ts`, `engine/src/self-improving/success-detector.ts`, `engine/src/self-improving/workflow-improver.ts`.
-- `config.ts` is consumed by `engine/src/self-improving/command-log.ts`, `engine/src/self-improving/generation-evolver.ts`, `engine/src/self-improving/index.ts`, `engine/src/self-improving/learner.ts`, `engine/src/self-improving/llm-boundary.ts`, `engine/src/self-improving/mistake-detector.ts` and 2 more.
+- `config.ts` is consumed by `engine/src/self-improving/command-log.ts`, `engine/src/self-improving/generation-evolver.ts`, `engine/src/self-improving/index.ts`, `engine/src/self-improving/learner.ts`, `engine/src/self-improving/llm-boundary.ts`, `engine/src/self-improving/mistake-detector.ts` and others.
 - `generation-evolver.ts` is consumed by nothing yet.
 - `index.ts` is consumed by nothing yet.
 - `learner.ts` is consumed by `engine/src/self-improving/index.ts`.

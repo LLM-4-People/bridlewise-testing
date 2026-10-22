@@ -23,7 +23,7 @@ The folder lives at `src/cockpit/settings/`.
 - `local-prefs.ts` is consumed by `src/cockpit/rooms/EditorRoom.svelte`, `src/cockpit/rooms/SettingsRoom.svelte`, `src/cockpit/settings/SettingSheet.svelte`, `src/cockpit/settings/open.ts`, `src/state/ui-control.ts`.
 - `open.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/lens/LensCallout.svelte`.
 - `settings-config.ts` is consumed by `src/cockpit/rooms/SettingsRoom.svelte`, `src/cockpit/settings/McpServersSection.svelte`, `src/cockpit/settings/ProvidersSection.svelte`, `src/cockpit/settings/SettingSheet.svelte`.
-- `settings-data.ts` is consumed by `src/cockpit/lens/lens-callout-data.ts`, `src/cockpit/rooms/SettingsRoom.svelte`, `src/cockpit/settings/DiagnosticModesSection.svelte`, `src/cockpit/settings/ProvidersSection.svelte`, `src/cockpit/settings/SettingSheet.svelte`, `src/cockpit/settings/local-prefs.ts` and 2 more.
+- `settings-data.ts` is consumed by `src/cockpit/lens/lens-callout-data.ts`, `src/cockpit/rooms/SettingsRoom.svelte`, `src/cockpit/settings/DiagnosticModesSection.svelte`, `src/cockpit/settings/ProvidersSection.svelte`, `src/cockpit/settings/SettingSheet.svelte`, `src/cockpit/settings/local-prefs.ts` and others.
 - `settings-feed.ts` is consumed by `src/cockpit/rooms/SettingsRoom.svelte`, `src/cockpit/settings/DiagnosticModesSection.svelte`, `src/cockpit/settings/SettingSheet.svelte`, `src/cockpit/settings/open.ts`.
 
 <!-- /consumers:generated -->

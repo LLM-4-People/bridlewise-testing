@@ -19,7 +19,7 @@ The quality domain: the quality indicators and checks computed over a codebase.
 The folder lives at `engine/src/quality/`.
 
 - `aggregator.ts` is consumed by `engine/src/quality/index.ts`.
-- `base.ts` is consumed by `engine/src/quality/aggregator.ts`, `engine/src/quality/checks/barrel-detection.ts`, `engine/src/quality/checks/circular-deps.ts`, `engine/src/quality/checks/code-health-aggregate.ts`, `engine/src/quality/checks/code-health.ts`, `engine/src/quality/checks/complex-condition.ts` and 53 more.
+- `base.ts` is consumed by `engine/src/quality/aggregator.ts`, `engine/src/quality/checks/barrel-detection.ts`, `engine/src/quality/checks/circular-deps.ts`, `engine/src/quality/checks/code-health-aggregate.ts`, `engine/src/quality/checks/code-health.ts`, `engine/src/quality/checks/complex-condition.ts` and others.
 - `config.ts` is consumed by `engine/src/quality/index.ts`, `engine/src/quality/languages/index.ts`.
 - `index.ts` is consumed by `engine/src/aux/index.ts`.
 - `monitoring.ts` is consumed by `engine/src/quality/index.ts`.

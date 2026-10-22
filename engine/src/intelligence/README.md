@@ -38,10 +38,10 @@ The folder lives at `engine/src/intelligence/`.
 - `dependency-graph.ts` is consumed by `engine/src/intelligence/retrieval.ts`, `engine/src/runtime/intelligence-tools.ts`, `server/intelligence/intelligence-bridge.ts`.
 - `farm-child.ts` is consumed by nothing yet.
 - `file-slice.ts` is consumed by `engine/src/runtime/tool-registry.ts`, `server/intelligence/intelligence-bridge.ts`.
-- `intelligence-config.ts` is consumed by `engine/src/intelligence/data-flow.ts`, `engine/src/intelligence/dependency-graph.ts`, `engine/src/intelligence/farm-child.ts`, `engine/src/intelligence/file-slice.ts`, `engine/src/intelligence/intelligence-types.ts`, `engine/src/intelligence/next-edit-prefetch.ts` and 10 more.
-- `intelligence-types.ts` is consumed by `engine/src/evaluation/scenarios.ts`, `engine/src/intelligence/action-affinity.ts`, `engine/src/intelligence/data-flow.ts`, `engine/src/intelligence/dependency-graph.ts`, `engine/src/intelligence/multi-import-extractor.ts`, `engine/src/intelligence/next-edit-prefetch.ts` and 11 more.
+- `intelligence-config.ts` is consumed by `engine/src/intelligence/data-flow.ts`, `engine/src/intelligence/dependency-graph.ts`, `engine/src/intelligence/farm-child.ts`, `engine/src/intelligence/file-slice.ts`, `engine/src/intelligence/intelligence-types.ts`, `engine/src/intelligence/next-edit-prefetch.ts` and others.
+- `intelligence-types.ts` is consumed by `engine/src/evaluation/scenarios.ts`, `engine/src/intelligence/action-affinity.ts`, `engine/src/intelligence/data-flow.ts`, `engine/src/intelligence/dependency-graph.ts`, `engine/src/intelligence/multi-import-extractor.ts`, `engine/src/intelligence/next-edit-prefetch.ts` and others.
 - `js-tokenizer.ts` is consumed by `engine/src/intelligence/data-flow.ts`, `engine/src/intelligence/symbol-extractor.ts`, `engine/src/quality-packs/typescript-pack.ts`, `engine/src/workflow/reachability.ts`.
-- `language-registry.ts` is consumed by `engine/src/editor/syntax-validator.ts`, `engine/src/intelligence/dependency-graph.ts`, `engine/src/intelligence/farm-child.ts`, `engine/src/intelligence/intelligence-types.ts`, `engine/src/intelligence/multi-import-extractor.ts`, `engine/src/intelligence/repository-map.ts` and 4 more.
+- `language-registry.ts` is consumed by `engine/src/editor/syntax-validator.ts`, `engine/src/intelligence/dependency-graph.ts`, `engine/src/intelligence/farm-child.ts`, `engine/src/intelligence/intelligence-types.ts`, `engine/src/intelligence/multi-import-extractor.ts`, `engine/src/intelligence/repository-map.ts` and others.
 - `multi-import-extractor.ts` is consumed by `engine/src/intelligence/tree-sitter-extractor.ts`.
 - `next-edit-prefetch.ts` is consumed by nothing yet.
 - `process-farm.ts` is consumed by `engine/src/intelligence/repository-map.ts`.

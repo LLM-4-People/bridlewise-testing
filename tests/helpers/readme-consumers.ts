@@ -98,19 +98,24 @@ function readModuleSource(path: string): string {
   return read(isAbsolute(path) ? path : join(REPO, path));
 }
 
-/** How many consumers to list before collapsing the rest into "and N more". */
+/** How many consumers to list before the line says there are others. */
 const SHOWN = 6;
 
-/** The per-file consumer line, in the README's established voice. */
+/**
+ * The per-file consumer line, in the README's established voice. Past
+ * {@link SHOWN} consumers it says "and others", never a count: a count moved
+ * with every new importer of a popular module, so two branches that each
+ * added one conflicted on that line (#221). The sorted first few change only
+ * when a new consumer sorts among them.
+ */
 function consumerLine(fileName: string, consumers: readonly string[]): string {
   if (consumers.length === 0) {
     return `- \`${fileName}\` is consumed by nothing yet.`;
   }
   const shown = consumers.slice(0, SHOWN).map((c) => `\`${c}\``);
-  const rest = consumers.length - shown.length;
   const list = shown.join(", ");
-  return rest > 0
-    ? `- \`${fileName}\` is consumed by ${list} and ${rest} more.`
+  return consumers.length > shown.length
+    ? `- \`${fileName}\` is consumed by ${list} and others.`
     : `- \`${fileName}\` is consumed by ${list}.`;
 }
 

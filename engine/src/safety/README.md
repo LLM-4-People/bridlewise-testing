@@ -32,7 +32,7 @@ The safety domain: the pre-dispatch gates, the runtime detectors, and the self-p
 The folder lives at `engine/src/safety/`.
 
 - `bandaid-ast-detector.ts` is consumed by `engine/src/safety/bandaid-detector.ts`.
-- `bandaid-config.ts` is consumed by `engine/src/safety/bandaid-ast-detector.ts`, `engine/src/safety/bandaid-detector.ts`, `engine/src/safety/bandaid-exposure.ts`, `engine/src/safety/deviation-detector.ts`, `engine/src/safety/index.ts`, `engine/src/safety/investigation.ts` and 6 more.
+- `bandaid-config.ts` is consumed by `engine/src/safety/bandaid-ast-detector.ts`, `engine/src/safety/bandaid-detector.ts`, `engine/src/safety/bandaid-exposure.ts`, `engine/src/safety/deviation-detector.ts`, `engine/src/safety/index.ts`, `engine/src/safety/investigation.ts` and others.
 - `bandaid-detector.ts` is consumed by `engine/src/safety/index.ts`, `engine/src/safety/investigation.ts`, `server/kernel/canonical.ts`.
 - `bandaid-exposure.ts` is consumed by nothing yet.
 - `bandaid-pattern-learner.ts` is consumed by `engine/src/safety/bandaid-exposure.ts`.

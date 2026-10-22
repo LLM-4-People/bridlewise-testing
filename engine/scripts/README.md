@@ -94,6 +94,6 @@ The folder lives at `engine/scripts/`.
 - `pin-authority-regeneration.ts` is consumed by nothing yet.
 - `post-commit.ts` is consumed by nothing yet.
 - `regenerate-handoff-manifest.ts` is consumed by `engine/scripts/pin-authority-regeneration.ts`.
-- `test-inventory.ts` is consumed by `engine/scripts/tooling/coverage.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-receipt.ts` and 4 more.
+- `test-inventory.ts` is consumed by `engine/scripts/tooling/coverage.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-receipt.ts` and others.
 
 <!-- /consumers:generated -->

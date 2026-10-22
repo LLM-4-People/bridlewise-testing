@@ -39,7 +39,7 @@ The folder lives at `engine/src/mcp/transport/`.
 - `helpers.ts` is consumed by `engine/src/mcp/transport/stdio.ts`.
 - `stdio.ts` is consumed by `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`.
 - `streamable-http.ts` is consumed by `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`.
-- `types.ts` is consumed by `engine/src/mcp/auth.ts`, `engine/src/mcp/config.ts`, `engine/src/mcp/core.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/transport/stdio.ts` and 2 more.
+- `types.ts` is consumed by `engine/src/mcp/auth.ts`, `engine/src/mcp/config.ts`, `engine/src/mcp/core.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/transport/stdio.ts` and others.
 - `websocket.ts` is consumed by `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`.
 
 <!-- /consumers:generated -->

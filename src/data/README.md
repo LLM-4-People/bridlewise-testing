@@ -19,12 +19,12 @@ The client data layer: the single owners of the client's connection to the serve
 
 The folder lives at `src/data/`.
 
-- `absence.ts` is consumed by `src/client.ts`, `src/cockpit/desk/desk-feed.ts`, `src/cockpit/editor/feed.ts`, `src/cockpit/flow/composer-router.ts`, `src/cockpit/flow/run-stream.ts`, `src/cockpit/rooms/InstrumentsRoom.svelte` and 9 more.
-- `asof.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/desk/BreakerRow.svelte`, `src/cockpit/desk/ChannelStrip.svelte`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/desk/Gauge.svelte`, `src/cockpit/flow/Flow.svelte` and 22 more.
-- `broker.ts` is consumed by `src/client.ts`, `src/cockpit/computer/ask.ts`, `src/cockpit/computer/commands.ts`, `src/cockpit/desk/TripScope.svelte`, `src/cockpit/desk/desk-feed.ts`, `src/cockpit/flow/EffectBeat.svelte` and 17 more.
+- `absence.ts` is consumed by `src/client.ts`, `src/cockpit/desk/desk-feed.ts`, `src/cockpit/editor/feed.ts`, `src/cockpit/flow/composer-router.ts`, `src/cockpit/flow/run-stream.ts`, `src/cockpit/rooms/InstrumentsRoom.svelte` and others.
+- `asof.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/desk/BreakerRow.svelte`, `src/cockpit/desk/ChannelStrip.svelte`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/desk/Gauge.svelte`, `src/cockpit/flow/Flow.svelte` and others.
+- `broker.ts` is consumed by `src/client.ts`, `src/cockpit/computer/ask.ts`, `src/cockpit/computer/commands.ts`, `src/cockpit/desk/TripScope.svelte`, `src/cockpit/desk/desk-feed.ts`, `src/cockpit/flow/EffectBeat.svelte` and others.
 - `connection.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/main.ts`, `src/cockpit/shell/ConnectionBlock.svelte`, `src/data/broker.ts`.
 - `error-messages.ts` is consumed by `src/client.ts`.
-- `errors.ts` is consumed by `src/client.ts`, `src/cockpit/boot/probes.ts`, `src/cockpit/computer/ask.ts`, `src/cockpit/computer/derivation.ts`, `src/cockpit/flow/Verb.svelte`, `src/cockpit/flow/log.ts` and 17 more.
+- `errors.ts` is consumed by `src/client.ts`, `src/cockpit/boot/probes.ts`, `src/cockpit/computer/ask.ts`, `src/cockpit/computer/derivation.ts`, `src/cockpit/flow/Verb.svelte`, `src/cockpit/flow/log.ts` and others.
 - `ledger.ts` is consumed by `src/data/broker.ts`, `src/state/lens.ts`.
 - `liveness-share.ts` is consumed by `src/data/connection.ts`.
 

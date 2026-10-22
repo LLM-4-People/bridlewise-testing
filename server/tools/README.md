@@ -21,7 +21,7 @@ manifest; the executor and the UI pick it up automatically.
 The folder lives at `server/tools/`.
 
 - `tool-executor.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/run/run-executor.ts`.
-- `tools-bridge.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/blocks/breaker.ts`, `server/blocks/compose.ts`, `server/blocks/tools.ts`, `server/context/memory-bridge.ts`, `server/integrations/mcp-bridge.ts` and 5 more.
+- `tools-bridge.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/blocks/breaker.ts`, `server/blocks/compose.ts`, `server/blocks/tools.ts`, `server/context/memory-bridge.ts`, `server/integrations/mcp-bridge.ts` and others.
 - `ui-control.ts` is consumed by `server/run/run-executor.ts`, `server/tools/tool-executor.ts`, `server/tools/tools-bridge.ts`.
 
 <!-- /consumers:generated -->
