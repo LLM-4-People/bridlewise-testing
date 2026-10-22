@@ -30,6 +30,7 @@
  *     gives); closed as completed, unpinned, once main is green again. It
  *     replaces the failure-issue workflow (one issue per failed run, title-keyed).
  */
+import { escapeMarkdownTableCell } from "../../../../../shared/markup.ts";
 import { compareUtf8Bytes } from "../../../kernel/ordered.ts";
 import { rewriteRelativeLinks } from "../../markdown-links.ts";
 import { itemStatuses, type ItemStatus } from "../../tracker-status.ts";
@@ -97,7 +98,7 @@ function mainRedIssue(run: ProjectionInput["mainRuns"][number], input: Projectio
   const commit = `[\`${run.commit}\`](${input.repositoryUrl}/commit/${run.commit})`;
   const red = run.conclusion === "failure";
   const owner = (owners: readonly string[]): string => (owners.length === 0 ? "**UNOWNED**" : owners.map((id) => `\`${id}\``).join(", "));
-  const firstLine = (message: string): string => (message.split("\n")[0] ?? "").replace(/\|/gu, "\\|");
+  const firstLine = (message: string): string => escapeMarkdownTableCell(message.split("\n")[0] ?? "");
   const body = red
     ? [
       `The last judged \`${run.workflow}\` run on \`main\`, at ${commit}, **failed** ([the run](${run.runUrl})).`,

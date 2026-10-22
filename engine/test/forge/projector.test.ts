@@ -169,7 +169,7 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   for (const rule of [{ path: "/home", access: ["READ_FILE"] as const }, { path: "/usr", access: ["WRITE_FILE"] as const }, { path: join(ENGINE_ROOT, "src"), access: ["READ_FILE"] as const }]) {
     assert.throws(() => narrowGuardianSpec(compiled, [rule]), (error: HarnessError) => error.code === "confined_rule_outside_floor", rule.path);
   }
-  assert.ok(PROJECTION_PROGRAM.modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || path === join(REPOSITORY_ROOT, "shared/markdown.ts")), "the projection's program links only the source it declares");
+  assert.ok(PROJECTION_PROGRAM.modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || ["shared/markdown.ts", "shared/markup.ts"].some((shared) => path === join(REPOSITORY_ROOT, shared))), "the projection's program links only the source it declares");
 });
 
 test("the first run creates in phase order, verifies, and its receipt names every write", async () => {
