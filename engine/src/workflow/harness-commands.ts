@@ -61,7 +61,7 @@ import { configuredGitRepository, configuredWorktreeGitPort } from "../git/workt
 import { repositoryRegistryArea, resolveRepositoryRegistry } from "./repository-registry.ts";
 import { convergeBound, convergeUntilStable, unconsumedCommands, type ConvergenceReport } from "./checkout-setup.ts";
 import { PromotionError } from "./promotion/codes.ts";
-import { loadPromotionProfiles, profileCommandNames, type LoadedPromotionProfile } from "./promotion/profile.ts";
+import { loadPromotionProfiles, profileCommandNames, profileTreeViolations, type LoadedPromotionProfile } from "./promotion/profile.ts";
 import { journalsUnder } from "../filesystem/journaled-commit.ts";
 import { bootstrapProcess, isEntryPoint } from "../runtime/cli-debug.ts";
 
@@ -791,6 +791,10 @@ function deadCommandsStep(root: string): CheckStepResult {
       return deepFreeze({ step: "dead-commands", status: "fail", message: `${error.promotionCode}: ${error.message}`, details: error.facts });
     }
     if (profiles.length === 0) return deepFreeze({ step: "dead-commands", status: "pass", message: `not judged: ${directory}/ holds no promotion profile here, so not every consumer of the registry is visible`, details: null });
+    // Every path a profile names is one this checkout tracks (a deleted file is never shipped under its old name, #279).
+    const tracked = new Set(workingTreeReader(top).paths());
+    const absent = profiles.flatMap((loaded) => profileTreeViolations(loaded.profile, tracked).map(([pointer, message]) => `${loaded.path}${pointer}: ${message}`));
+    if (absent.length > 0) return deepFreeze({ step: "dead-commands", status: "fail", message: `promotion_profile_invalid: a profile names paths this checkout does not track: ${absent.join("; ")}`, details: { absent } });
     consumers = profiles.flatMap((loaded) => profileCommandNames(loaded.profile));
   }
   const dead = unconsumedCommands(isolation, consumers);
@@ -1563,6 +1567,16 @@ export async function harnessSync(
   return wrapResult("sync", deepFreeze({ ...output, convergence }), { status: output.allPassed ? "pass" : "fail" });
 }
 
+/** The bundle's freshness verdict (`scripts/build-bundle.ts --check`, the builder layer, as a subprocess): an in-memory rebuild compared with `dist/bundle.js`. */
+function readBundleFreshness(root: string): Readonly<{ fresh?: unknown; status?: unknown; path?: unknown }> {
+  return JSON.parse(runScriptSubprocess(root, "scripts/build-bundle.ts", ["--check"], DEFAULT_SYNC_CHECK_TIMEOUT_MS)) as { fresh?: unknown; status?: unknown; path?: unknown };
+}
+
+/** Whether `dist/bundle.js` is exactly a rebuild of the current source (absent is not fresh). */
+function bundleIsFresh(root: string): boolean {
+  return readBundleFreshness(root).fresh === true;
+}
+
 /**
  * `harness check`'s bundle step: a rebuild in memory from the current source
  * (`scripts/build-bundle.ts --check`, the builder layer, as a subprocess like
@@ -1573,7 +1587,7 @@ export async function harnessSync(
  */
 function bundleFreshnessStep(root: string): CheckStepResult {
   try {
-    const answer = JSON.parse(runScriptSubprocess(root, "scripts/build-bundle.ts", ["--check"], DEFAULT_SYNC_CHECK_TIMEOUT_MS)) as { fresh?: unknown; status?: unknown; path?: unknown };
+    const answer = readBundleFreshness(root);
     const fresh = answer.fresh === true;
     return deepFreeze({
       step: "bundle",
@@ -1602,8 +1616,11 @@ async function syncPass(
   //   artifact) -> regenerate (re-derive what the build wrote) -> check (5 steps).
   // The bundle compiles root-policy.ts in, so it is built after the pins
   // settle; no digest of it is committed (#221), and the check compares it
-  // with an in-memory rebuild.
-  const totalSteps = options.withBundle ? 5 : 3;
+  // with an in-memory rebuild. A PLAIN sync rebuilds it too whenever the
+  // first regenerate left it stale (a pin it compiles in moved, #308): a sync
+  // that leaves its own check red cannot converge, so the bundle is one of
+  // the generated outputs sync owns, and `--with-bundle` only forces it.
+  let totalSteps = options.withBundle ? 5 : 3;
   let stepIndex = 0;
   let bundleBuild: HarnessCommandResult | undefined;
   let regenerateInitial: HarnessCommandResult | undefined;
@@ -1614,7 +1631,12 @@ async function syncPass(
   emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: harness regenerate (fix hash bindings + inventory)...`);
   regenerateInitial = runSyncStep(root, "regenerate", prune, DEFAULT_SYNC_REGENERATE_TIMEOUT_MS);
   let regenerate = regenerateInitial;
-  if (options.withBundle) {
+  const rebuild = options.withBundle === true || !bundleIsFresh(root);
+  if (rebuild && options.withBundle !== true) {
+    totalSteps = 5;
+    emitProgress(options.onProgress, "the bundle is not a rebuild of the source the regenerate left: rebuilding it");
+  }
+  if (rebuild) {
     stepIndex += 1;
     emitProgress(options.onProgress, `sync step ${stepIndex}/${totalSteps}: build production bundle (scripts/build-bundle.ts)...`);
     bundleBuild = runBundleBuildStep(root);
@@ -1629,9 +1651,9 @@ async function syncPass(
   steps.push(deepFreeze({ step: "register", status: register.status }));
   steps.push(deepFreeze({ step: "regenerate", status: regenerateInitial.status }));
   if (bundleBuild !== undefined) steps.push(deepFreeze({ step: "bundle-build", status: bundleBuild.status }));
-  if (options.withBundle) steps.push(deepFreeze({ step: "regenerate", status: regenerate.status }));
+  if (rebuild) steps.push(deepFreeze({ step: "regenerate", status: regenerate.status }));
   steps.push(deepFreeze({ step: "check", status: check.status }));
-  const allPassed = syncPassVerdict(steps, options.withBundle === true);
+  const allPassed = syncPassVerdict(steps, rebuild);
   return deepFreeze({
     steps: deepFreeze(steps),
     ...(bundleBuild !== undefined ? { bundleBuild } : {}),

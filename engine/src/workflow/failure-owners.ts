@@ -39,6 +39,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, posix } from "node:path";
 
+import type { TreeReader } from "../git/tree-reader.ts";
+
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
@@ -213,10 +215,15 @@ export function entryViolations(label: string, text: string, schema: EntrySchema
   return problems;
 }
 
+/** Whether a folder's file `name` is an entry: a `.md` file, not the folder's README. */
+function isEntryName(name: string): boolean {
+  return name.endsWith(".md") && name !== "README.md";
+}
+
 /** Each `.md` entry of `directory` (not its README) with its text. */
 export function readEntries(root: string, directory: string): readonly { readonly name: string; readonly text: string }[] {
   return readdirSync(join(root, directory))
-    .filter((name) => name.endsWith(".md") && name !== "README.md")
+    .filter(isEntryName)
     .sort()
     .map((name) => ({ name, text: readFileSync(join(root, directory, name), "utf8") }));
 }
@@ -478,6 +485,14 @@ export function trackerItems(entries: readonly { readonly name: string; readonly
       body: body.replace(/^\n+|\n+$/gu, ""),
     };
   }).sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)));
+}
+
+/** The items a tree holds (a commit's, through `reader`): the same entries and parser as {@link readTrackerItems}; a tree without the folder has none. */
+export function trackerItemsOf(reader: TreeReader): readonly TrackerItem[] {
+  const prefix = `${TRACKER_BOARD.items}/`;
+  const paths = reader.paths().filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes("/") && isEntryName(path.slice(prefix.length))).sort();
+  reader.prefetch(paths);
+  return trackerItems(paths.map((path) => ({ name: path.slice(prefix.length), text: reader.text(path) ?? "" })));
 }
 
 /**
