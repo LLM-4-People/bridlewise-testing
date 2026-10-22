@@ -144,12 +144,6 @@ function report(path, line, rule, detail, fixture) {
   findings.push({ path, line, rule, detail, fixture });
 }
 
-/** The line a literal spelling appears on, or 0 when the text was escaped. */
-function lineOf(text, needle) {
-  const index = text.indexOf(needle);
-  return index === -1 ? 0 : text.slice(0, index).split("\n").length;
-}
-
 /** Every string value in a parsed JSON document, keys included. */
 function jsonStrings(value, out = []) {
   if (typeof value === "string") {
@@ -177,11 +171,18 @@ function scanJsonDocument(path, text, fixture) {
   } catch {
     return;
   }
+  // A string spelled with no escape was already covered by the raw line pass;
+  // only an ESCAPED string (whose decoded value no raw line contains) needs
+  // this decoded pass. Reporting both was a duplicate finding for one path.
+  // The literal spellings are read in ONE linear pass over the raw string
+  // tokens: searching the whole text once per value (the old `lineOf`, which
+  // also split the prefix into lines) was quadratic in a large document (#301).
+  const literal = new Set();
+  for (const token of text.matchAll(/"((?:[^"\\\n]|\\.)*)"/gu)) {
+    if (!token[1].includes("\\")) literal.add(token[1]);
+  }
   for (const value of jsonStrings(parsed)) {
-    // A value that appears literally in the file was already covered by the
-    // raw line pass; only an ESCAPED value (which no raw line contains) needs
-    // this decoded pass. Reporting both was a duplicate finding for one path.
-    if (lineOf(text, value) !== 0) continue;
+    if (literal.has(value)) continue;
     scanText(path, 0, value, fixture);
   }
 }

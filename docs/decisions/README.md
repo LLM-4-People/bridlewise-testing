@@ -257,6 +257,7 @@ check` reports it stale): change a decision's file, never its row.
 | [GITHUB-300](GITHUB-300-the-full-github-feature-catalogue.md) | GitHub as an active part of the harness: the full feature catalogue (covers GITHUB-500) | user | partial (P3.1) |
 | [GITHUB-COMMUNITY](GITHUB-COMMUNITY-people-can-collaborate.md) | People can collaborate, help and interact | user | partial (P5.4) |
 | [GITHUB-ONLY](GITHUB-ONLY-github-is-the-only-host.md) | GitHub is the only host | user | partial (P2.1) |
+| [WS-RECORDS](WS-RECORDS-older-workspace-records-are-read-only.md) | Older workspace records are read-only, upcast in memory, and never written | coordinator | done |
 
 ## Brand and public messaging
 

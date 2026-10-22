@@ -787,7 +787,6 @@
     }
   },
   "harness": {
-    "typecheckTimeoutMs": 120000,
     "commandErroredRetries": 2,
     "commandRetryBackoffMs": 60000
   },
@@ -809,8 +808,12 @@
       "staleMs": 300000
     },
     "landTargets": [
-      "testing"
+      "main"
     ],
+    "landing": {
+      "pollIntervalMs": 20000,
+      "timeoutMs": 1800000
+    },
     "killGraceMs": 3000,
     "links": [
       "engine/large-codebases"

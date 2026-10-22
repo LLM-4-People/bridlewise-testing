@@ -519,10 +519,6 @@ const VERIFIED_NON_IMMEDIATE: ReadonlyMap<string, string> = new Map([
     "engine/src/workflow/test-result-collector.ts resolves the testExecution section from the pinned config document once per runner invocation (readTestExecutionConfig :318-353) and threads fullSuiteParallelConcurrency into the full suite's parallel phase lane count (:330-331), so the honest timing is next-run; engine/test/workflow/test-execution-config.test.ts drives the real harness-test door consuming the section",
   ],
   [
-    "harnessCommands.typecheckTimeoutMs",
-    "engine/src/workflow/harness-commands.ts resolves harness.typecheckTimeoutMs from the pinned config document once per command invocation (resolveTypecheckTimeoutMs :60-65, a fresh process per run) and bounds the typecheck subprocess with it (:1365), so the honest timing is next-run; engine/test/workflow/harness-commands-timeouts.test.ts proves resolveTypecheckTimeoutMs returns the configured value from the pinned file",
-  ],
-  [
     "harnessCommands.lockTimeoutMs",
     "engine/src/workflow/harness-commands.ts resolves the resourceLock section from the pinned config document once per command invocation (resolveLockOptions :1305-1312, a fresh process per run) and hands timeoutMs to the shared lock the harness-test door holds (:527), so the honest timing is next-run; engine/test/workflow/resource-lock.test.ts proves the lock machinery consumes its acquire options",
   ],

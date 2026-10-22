@@ -1281,7 +1281,9 @@ describe("exposure is declared and reachable", () => {
       // (one array leaf) and the hang backstop, all served read-only.
       testExecution: 29,
       // 1 → 3: the ONE command runner's errored-class retries (PROMO-1).
-      harness: 3,
+      // 3 → 2: the typecheck's wall limit (`typecheckTimeoutMs`) deleted; a
+      // typecheck is bounded by CPU work and one hang backstop (NO-LOAD-BLOCK A-17).
+      harness: 2,
       evaluation: 2,
       resourceLock: 3,
       qualityPacks: 1,
@@ -1309,7 +1311,7 @@ describe("exposure is declared and reachable", () => {
       sectionCounts[section] = declared.size - before;
     }
     expect(sectionCounts, "each section must declare exactly its measured leaves — a new leaf reds its own section here").toEqual(expectedSectionCounts);
-    expect(declared.size, "the class's twelve sections declare seventy-three leaves in total").toBe(73);
+    expect(declared.size, "the class's twelve sections declare seventy-two leaves in total").toBe(72);
 
     // The class's rows live in THREE modules (testExecution,
     // harnessCommands, agents) spanning FIVE sections — the census binds
@@ -1590,14 +1592,13 @@ describe("exposure is declared and reachable", () => {
     // from that set would promise a partition it no longer has. The loops
     // above already assert every declared leaf is a row, a signal or filed,
     // and that a filed leaf is never served; this pin is the row count.
-    expect(rowsByPath.size, "the class serves exactly its sixteen disposed rows").toBe(16);
+    expect(rowsByPath.size, "the class serves exactly its fifteen disposed rows").toBe(15);
     const expectedRows: ReadonlyArray<readonly [string, "immediate" | "next-run", unknown, string | undefined]> = [
       ["testExecution.runtimeBudgetMs", "next-run", 120000, "milliseconds"],
       ["testExecution.serialPhaseConcurrency", "next-run", 2, "lanes"],
       ["testExecution.fullSuiteSerialPhaseConcurrency", "next-run", 8, "lanes"],
       ["testExecution.fullSuiteInProcessSerialPhaseConcurrency", "next-run", 4, "lanes"],
       ["testExecution.fullSuiteParallelConcurrency", "next-run", 12, "lanes"],
-      ["harness.typecheckTimeoutMs", "next-run", 120000, "milliseconds"],
       ["harness.commandErroredRetries", "next-run", 2, "retries"],
       ["harness.commandRetryBackoffMs", "next-run", 60000, "milliseconds"],
       ["resourceLock.timeoutMs", "next-run", 120000, "milliseconds"],

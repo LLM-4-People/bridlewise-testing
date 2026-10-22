@@ -42,7 +42,7 @@ export type AlertCount = Readonly<{
 export type Release = Readonly<{ tag: string; name: string | null; draft: boolean; prerelease: boolean; publishedAt: string | null; url: string }>;
 
 /** `/repos/<owner>/<name>` of `owner/name`. */
-function repositoryPath(repository: string): string {
+export function repositoryPath(repository: string): string {
   const [owner, name, ...rest] = repository.split("/");
   if (owner === undefined || name === undefined || owner === "" || name === "" || rest.length > 0) throw new ForgeError("forge_request_invalid", `Not an owner/name repository: ${repository}.`, { repository });
   return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
@@ -121,10 +121,15 @@ export async function countOpenAlerts(client: ForgeClient, repository: string, k
   return Object.freeze({ total: complete ? alerts.length : null, judged: alerts.length, declaredTotal, high, critical, complete, truncated: !complete });
 }
 
-/** The 20 latest releases. */
-export async function listReleases(client: ForgeClient, repository: string): Promise<readonly Release[]> {
-  const answer = await client.rest<unknown>({ method: "GET", path: `${repositoryPath(repository)}/releases`, query: { per_page: 20 } });
-  return (Array.isArray(answer.data) ? answer.data as Record<string, unknown>[] : []).map((release) => Object.freeze({
+/**
+ * Every release, newest first (GitHub's order), read page by page up to
+ * `maxPages` (the configured `forge.request.maxPages`): a longer list is
+ * refused, never truncated, since the release train's interval and its
+ * previous release are judged over all of them.
+ */
+export async function listReleases(client: ForgeClient, repository: string, maxPages: number): Promise<readonly Release[]> {
+  const releases = await client.paginate<Record<string, unknown>>({ path: `${repositoryPath(repository)}/releases` }, { maxPages, perPage: 100 });
+  return releases.map((release) => Object.freeze({
     tag: String(release.tag_name), name: typeof release.name === "string" ? release.name : null, draft: release.draft === true, prerelease: release.prerelease === true,
     publishedAt: typeof release.published_at === "string" ? release.published_at : null, url: String(release.html_url),
   }));
