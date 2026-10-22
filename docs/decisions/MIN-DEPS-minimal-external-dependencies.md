@@ -23,7 +23,8 @@ has huge pros vs building ourself".
 - Retroactive ([UR-19](UR-19-every-rule-is-retroactive.md)): the existing
   dependencies are audited the same way.
 
-How it is enforced: `.github/workflows/dependency-review.yml` reviews the
+How it is enforced: the `dependency-review` job of the generated
+`.github/workflows/ci.yml` reviews the
 dependency changes of a pull request, but nothing yet requires the written
 justification, and the audit of the existing dependencies is not recorded in
 this repository. No mechanical guard for the justification yet.

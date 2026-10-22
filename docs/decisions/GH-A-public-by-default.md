@@ -22,6 +22,7 @@ The user's decision A of 2026-10-21 (GITHUB DECISIONS): public by default.
   the plan does not include is recorded as unavailable, never assumed.
 
 How it is enforced: it governs where work goes. The public secret gate
-(`.github/workflows/secret-scan.yml`) keeps private material out of the
+(the `secret-tree-scan` gate of the generated `.github/workflows/ci.yml`,
+declared in `engine/src/workflow/gates/catalogue.ts`) keeps private material out of the
 public tree; nothing yet decides a new repository's visibility from a
 declared rule.
