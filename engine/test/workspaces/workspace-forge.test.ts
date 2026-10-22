@@ -44,7 +44,7 @@ test("the first round publishes signed twins with the same trees, moves the loca
   const { root, bare, manager, forge } = forgeFixture("ws-forge-round");
   const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src", "bin"] });
   const worktree = record.lease.worktreePath;
-  assert.deepEqual(record.forge, { remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false, land: null }, "create resolved the target's upstream and opened nothing yet");
+  assert.deepEqual(record.forge, { remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false, land: null, stackedOn: null }, "create resolved the target's upstream and opened nothing yet");
   writeFile(worktree, "src/deep/nested/a.ts", "export const a = 1;\n");
   writeFile(worktree, "bin/run.sh", "#!/bin/sh\necho run\n");
   chmodSync(join(worktree, "bin/run.sh"), 0o755);
@@ -92,7 +92,7 @@ test("the first round publishes signed twins with the same trees, moves the loca
   assert.ok(pull.body.includes("Tune the feature"), "the commits are listed");
   assert.ok(pull.body.includes("Not validated at this tree yet"));
   assert.ok(!pull.body.includes(worktree), "no local path reaches the forge");
-  assert.deepEqual(published.forge, { remote: "origin", trunk: "main", pullRequest: { number: 1, url: "https://forge.test/pull/1" }, publishedHead: round.head, ready: false, land: null });
+  assert.deepEqual(published.forge, { remote: "origin", trunk: "main", pullRequest: { number: 1, url: "https://forge.test/pull/1" }, publishedHead: round.head, ready: false, land: null, stackedOn: null });
   assert.equal(forgeStateOf(manager.status(record.workspaceId)).publishedHead, round.head, "the record is saved");
 });
 

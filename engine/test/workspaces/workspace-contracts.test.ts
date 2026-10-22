@@ -71,7 +71,7 @@ function makeRecord(): WorkspaceRecord {
     mergeReceipt: null,
     abortReason: null,
     history: [deepFreeze({ from: "admitted", to: "active", at: "2026-07-19T00:00:00.000Z", reason: "created" })],
-    forge: deepFreeze({ remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false, land: null }),
+    forge: deepFreeze({ remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false, land: null, stackedOn: null }),
     revision: 1,
   });
 }

@@ -30,6 +30,7 @@ import type { PublishedRound } from "./workspace-forge.ts";
  * `npm run ws -- <subcommand>`), the composition root of isolated work.
  *
  *   create --agent <name> --write-set <path…> [--target <branch>] [--base <ref>]   a feature workspace
+ *   create --agent <name> --write-set <path…> --stack-on <id>                      stacked on a published workspace
  *   create --agent <name> --overlay [--write-set <path…>]                          adopt THIS dirty checkout
  *   create --agent <name> --read-only [--base <ref>]                               a verifier's checkout
  *   extend <id> --write-set <path…>          widen and renew the lease (admission-checked)
@@ -242,6 +243,7 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
   let agentName: string | undefined;
   let base: string | undefined;
   let target: string | undefined;
+  let stackOn: string | undefined;
   let overlay = false;
   let readOnly = false;
   const writeSet: string[] = [];
@@ -249,9 +251,10 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
   while (index < args.length) {
     const arg = args[index]!;
     const value = args[index + 1];
-    if ((arg === "--agent" || arg === "--base" || arg === "--target") && value !== undefined && !value.startsWith("--")) {
+    if ((arg === "--agent" || arg === "--base" || arg === "--target" || arg === "--stack-on") && value !== undefined && !value.startsWith("--")) {
       if (arg === "--agent") agentName = value;
       else if (arg === "--base") base = value;
+      else if (arg === "--stack-on") stackOn = value;
       else target = value;
       index += 2;
       continue;
@@ -271,7 +274,7 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
       continue;
     }
     throw new InputError(
-      `unknown workspace create flag: ${arg} (supported: --agent, --write-set, --overlay, --read-only, --base, --target)`,
+      `unknown workspace create flag: ${arg} (supported: --agent, --write-set, --overlay, --read-only, --base, --target, --stack-on)`,
       "unknown_flag",
     );
   }
@@ -287,5 +290,6 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
     writeSet: deepFreeze(writeSet),
     ...(base !== undefined ? { base } : {}),
     ...(target !== undefined ? { target } : {}),
+    ...(stackOn !== undefined ? { stackOn } : {}),
   });
 }
