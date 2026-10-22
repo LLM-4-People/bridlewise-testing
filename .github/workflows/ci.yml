@@ -217,10 +217,27 @@ jobs:
           npm run corpus:fetch
           npm run corpus:verify
 
-      - name: Run the engine suite
+      # DIAGNOSTIC DRAFT (#149): what the hosted runner IS, then the hosted-only rows with their full output.
+      - name: Probe the hosted runner's environment
+        run: |
+          set -x
+          id; uname -a; cat /etc/os-release | head -3
+          locale -a | head -50
+          ls -la /proc/self/ | head -5; cat /proc/self/mountinfo | head -40; findmnt -o TARGET,SOURCE,FSTYPE,OPTIONS | head -40
+          ulimit -a; cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null; cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null
+          df -hT "$RUNNER_TEMP" "$HOME" . | head; echo "HOME=$HOME RUNNER_TEMP=$RUNNER_TEMP XDG_CACHE_HOME=${XDG_CACHE_HOME:-unset}"
+          git --version; node --version
+
+      - name: Run the hosted-only rows with their full output
+        working-directory: engine
         run: |
           mkdir -p "$RUNNER_TEMP/bw"
-          TMPDIR="$RUNNER_TEMP/bw" npm --prefix engine test
+          TMPDIR="$RUNNER_TEMP/bw" node --experimental-strip-types scripts/tooling/test-guards.ts \
+            test/foundation-cascade.test.ts test/s1-scenarios/b04.test.ts test/s1-scenarios/b13.test.ts \
+            test/unit/tasks-agents/handoff-continuity.test.ts test/verification/recursive-test-inventory.test.ts \
+            test/process/instrument-lock.test.ts test/filesystem/self-protection/refused-paths.test.ts \
+            test/filesystem/self-protection/keep-out-links.test.ts test/prevention/no-destructive-test-writes.test.ts \
+            test/workflow/promotion/trigger.test.ts test/repository-path.test.ts 2>&1 | tail -n 4000
 
       # The runner writes its verdict to one summary file; the job prints the
       # failing tests and their reasons, so a red run is readable without a
