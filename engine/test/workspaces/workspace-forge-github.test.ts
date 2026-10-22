@@ -60,7 +60,7 @@ test("the Git Data API: a blob in base64, a tree on its base with a deletion's o
   assert.deepEqual(fake.requests.at(-1)!.body, { message: "The work\n", tree: SHA("2"), parents: [SHA("8")] }, "no author, committer or signature: GitHub signs the App's commit");
 });
 
-test("the branch move is a compare-and-swap: created with POST /git/refs, moved with GraphQL updateRefs beforeOid (never REST PATCH); a refused swap is read back — moved elsewhere is applied:false, still in place is the error", async () => {
+test("the branch move is a compare-and-swap: created with POST /git/refs, moved with GraphQL updateRefs beforeOid (never REST PATCH), forced only when the caller allows a non-forward move; a refused swap is read back — moved elsewhere is applied:false, still in place is the error", async () => {
   const fake = fakeGithub();
   let remoteHead = SHA("b");
   fake.route("POST", /^\/repos\/o\/r\/git\/refs$/u, () => ({ status: 201, body: { ref: "refs/heads/agent/x", object: { sha: SHA("a") } } }));
@@ -71,16 +71,18 @@ test("the branch move is a compare-and-swap: created with POST /git/refs, moved 
     updateRefs: () => (refuse ? { data: null, errors: [{ type: "UNPROCESSABLE", message: "Expected branch to point to bbbb" }] } : { data: { updateRefs: { clientMutationId: null } } }),
   });
   const forge = forgeOn(fake);
-  assert.deepEqual(await forge.setBranch({ branch: "agent/x", sha: SHA("a"), previous: null }), { applied: true });
+  assert.deepEqual(await forge.setBranch({ branch: "agent/x", sha: SHA("a"), previous: null, forwardOnly: false }), { applied: true });
   assert.deepEqual(fake.requests.at(-1)!.body, { ref: "refs/heads/agent/x", sha: SHA("a") });
-  assert.deepEqual(await forge.setBranch({ branch: "agent/x", sha: SHA("c"), previous: SHA("b") }), { applied: true });
-  assert.deepEqual(graphql.at(-1)!.variables, { repositoryId: "R_node", name: "refs/heads/agent/x", after: SHA("c"), before: SHA("b") });
+  assert.deepEqual(await forge.setBranch({ branch: "agent/x", sha: SHA("c"), previous: SHA("b"), forwardOnly: false }), { applied: true });
+  assert.deepEqual(graphql.at(-1)!.variables, { repositoryId: "R_node", name: "refs/heads/agent/x", after: SHA("c"), before: SHA("b"), force: true }, "a workspace head may be rebased");
+  assert.deepEqual(await forge.setBranch({ branch: "agent/x", sha: SHA("c"), previous: SHA("b"), forwardOnly: true }), { applied: true });
+  assert.equal(graphql.at(-1)!.variables["force"], false, "forward only: GitHub refuses a move that is not a fast-forward");
   assert.ok(!fake.requests.some((request) => request.method === "PATCH"), "REST PATCH of a ref is never sent");
   refuse = true;
   remoteHead = SHA("d");
-  assert.deepEqual(await forge.setBranch({ branch: "agent/x", sha: SHA("c"), previous: SHA("b") }), { applied: false }, "another writer moved it: an answer");
+  assert.deepEqual(await forge.setBranch({ branch: "agent/x", sha: SHA("c"), previous: SHA("b"), forwardOnly: false }), { applied: false }, "another writer moved it: an answer");
   remoteHead = SHA("b");
-  await assert.rejects(() => forge.setBranch({ branch: "agent/x", sha: SHA("c"), previous: SHA("b") }), (error: unknown) => isForgeError(error, "github_validation_failed"), "refused while in place: GitHub's error stands");
+  await assert.rejects(() => forge.setBranch({ branch: "agent/x", sha: SHA("c"), previous: SHA("b"), forwardOnly: false }), (error: unknown) => isForgeError(error, "github_validation_failed"), "refused while in place: GitHub's error stands");
   fake.route("GET", /^\/repos\/o\/r\/git\/ref\/heads\/agent\/gone$/u, () => ({ status: 404, body: { message: "Not Found" } }));
   assert.equal(await forge.branchHead("agent/gone"), null);
 });
