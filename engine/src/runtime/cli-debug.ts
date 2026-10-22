@@ -37,10 +37,6 @@
  * `test/runtime/cli-debug.test.ts` and `tests/prevention/guarded-callbacks.test.ts`
  * refuse an entry point or a worker that bypasses them.
  */
-import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { engineConfigDocumentPath, inspectConfigDocument } from "../kernel/config.ts";
 import { DEBUG_CONFIG_DEFAULTS, DEBUG_CONFIG_SCHEMA, debugConfigViolations, resolveDebugConfigSection, type DebugConfig } from "../shared/debug/debug-config.ts";
 import { configureDebugSystem, createConsoleSink, isDebugSystemConfigured } from "../shared/debug/debug-system.ts";
@@ -62,25 +58,5 @@ export function bootstrapProcess(options: Readonly<{ role: ProcessFaultRole }>):
   configureDebugSystem(config, config.sinks.enabledSinks.includes("console") ? [createConsoleSink()] : []);
 }
 
-/**
- * THE ONE MAIN-NESS TEST: whether the module at `moduleUrl` (its
- * `import.meta.url`) is the program node was asked to run. Compared by real
- * path, so a symlinked or relative invocation is still the program (the
- * twelve private spellings this replaced disagreed on exactly that: a
- * `file://${argv[1]}` spelling was false for a relative path, and every
- * spelling but one for a symlink). The engine's entry-point guard
- * (`test/runtime/cli-debug.test.ts`) refuses any other spelling, so every
- * entry point is found and runs the process bootstrap first.
- */
-export function isEntryPoint(moduleUrl: string, argv1: string | undefined = process.argv[1]): boolean {
-  if (argv1 === undefined || argv1.length === 0) return false;
-  const real = (path: string): string => {
-    try {
-      return realpathSync(path);
-    } catch {
-      // Not on disk (an eval, a vanished file): its own spelling is the answer.
-      return path;
-    }
-  };
-  return real(resolve(argv1)) === real(fileURLToPath(moduleUrl));
-}
+/** THE ONE MAIN-NESS TEST, owned by the leaf module `entry-point.ts` and offered here beside the bootstrap. */
+export { isEntryPoint } from "./entry-point.ts";

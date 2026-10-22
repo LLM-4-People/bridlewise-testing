@@ -2,8 +2,9 @@ import {
   countOpenAlerts,
   latestByWorkflow,
   listReleases,
-  listRuns,
-} from "./github.mjs";
+  readFailureCode,
+  workflowRuns,
+} from "../../engine/src/workflow/forge/repository-reads.ts";
 import { repoInfo } from "./files.mjs";
 
 export const STATUS_SCHEMA = "bridlewise-floor-status/v1";
@@ -119,32 +120,37 @@ function securityCheck(id, label, result, required) {
 
 function settled(result, code = "api-error") {
   if (result.status === "fulfilled") return { ok: true, value: result.value };
-  return { ok: false, code: result.reason?.status === 401 || result.reason?.status === 403 ? "authentication" : code };
+  return { ok: false, code: readFailureCode(result.reason) === "authentication" ? "authentication" : code };
 }
 
+/**
+ * The floor status. GitHub is read through the forge port: `client` (the
+ * build's token) for the testing repository, `publicClient` (no credential)
+ * for the product's public reads. Offline, neither is asked.
+ */
 export async function buildStatus({
   testingRoot,
   productRoot = null,
-  token = null,
-  fetchImpl = fetch,
+  client = null,
+  publicClient = null,
   now = new Date(),
   counts = null,
   offline = false,
 }) {
   const testing = repoInfo(testingRoot);
   const product = repoInfo(productRoot);
-  const productToken = null;
+  if (!offline && (client === null || publicClient === null)) throw new Error("buildStatus needs the forge clients unless offline");
 
   const offlineResult = { status: "rejected", reason: Object.assign(new Error("offline"), { code: "offline" }) };
   const [testingRunsResult, productRunsResult, testingCodeResult, testingDepResult, releasesResult] =
     offline
       ? [offlineResult, offlineResult, offlineResult, offlineResult, offlineResult]
       : await Promise.allSettled([
-          listRuns(TESTING_REPOSITORY, token, { fetchImpl }),
-          listRuns(PRODUCT_REPOSITORY, productToken, { fetchImpl }),
-          countOpenAlerts(TESTING_REPOSITORY, "code-scanning", token, { fetchImpl }),
-          countOpenAlerts(TESTING_REPOSITORY, "dependabot", token, { fetchImpl }),
-          listReleases(PRODUCT_REPOSITORY, productToken, { fetchImpl }),
+          workflowRuns(client, TESTING_REPOSITORY),
+          workflowRuns(publicClient, PRODUCT_REPOSITORY),
+          countOpenAlerts(client, TESTING_REPOSITORY, "code-scanning"),
+          countOpenAlerts(client, TESTING_REPOSITORY, "dependabot"),
+          listReleases(publicClient, PRODUCT_REPOSITORY),
         ]);
 
   const testingRuns = settled(testingRunsResult);

@@ -734,7 +734,8 @@ test("DRIVEN: a compile leg that outlives its bound is KILLED and REFUSED — a 
   const root = createTempDir("ch-typecheck-bound-");
   const block = source.slice(from + BOUNDED_LEG_START.length, to);
   const leg = join(root, "typecheck-leg.ts");
-  writeFileSync(leg, `import { spawn } from "node:child_process";\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
+  const processFacts = pathToFileURL(join(INTEGRATION_ROOT, "src/process/process-facts.ts")).href;
+  writeFileSync(leg, `import { spawn } from "node:child_process";\nimport { ownedChild, terminate } from ${JSON.stringify(processFacts)};\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
   const tree = join(root, "tree");
   writeFile(root, "tree/package.json", `${JSON.stringify({ name: "bounded-leg-fixture", private: true, scripts: { typecheck: 'node -e "setTimeout(() => {}, 60000)"' } })}\n`);
   const driver = join(root, "drive.ts");
