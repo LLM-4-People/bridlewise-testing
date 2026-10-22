@@ -30,8 +30,9 @@ The `engine/test/workspaces/` folder of the development surface.
 - `workspace-migration.test.ts` — the v2 → v3 record migration and per-version storage over real v2 records
   (`fixtures/v2-records/`, copied from a host registry: arrays trimmed, home paths replaced): deterministic,
   receipts kept verbatim, migrated in memory and NEVER rewritten (every v2 file byte-identical after list, create,
-  publish and sweep); a changed one written as a new current record noting `migratedFrom`; a legacy feature
-  workspace refused at the forge; the sweep leaving v2-only workspaces alone and reporting an orphaned live one.
+  publish and sweep); a v2-only workspace READ-ONLY to every saving or destructive verb (a real one: abort, extend,
+  validate, publish, ready, merge, recover, snapshot and an expired sweep refuse, its worktree, branch and record
+  intact, no v3 twin); the sweep reporting an orphaned live one.
 - `workspace-overlay.test.ts` — `create --overlay` of a dirty linked worktree (its index byte-identical, the
   overlay equal to what `git add -A` would commit), the adoption, and its refusals (stale — files, index only or
   target only —, a staged version or a kept staged deletion the snapshot cannot carry, a move-loss, a clean

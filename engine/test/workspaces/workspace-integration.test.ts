@@ -970,7 +970,7 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
     let persisted: WorkspaceRecord = manager.status(record.workspaceId);
     const injected = new Error(`injected ${failure}`);
     let inject = true;
-    const records = { load: () => persisted, list: () => [persisted], isLegacyOnly: () => false, save(next: WorkspaceRecord): WorkspaceRecord {
+    const records = { load: () => persisted, list: () => [persisted], legacyRecordPath: () => null, save(next: WorkspaceRecord): WorkspaceRecord {
       if (inject && failure === "receipt-save" && next.state === "merged") throw injected;
       persisted = { ...next, revision: next.revision + 1 };
       return persisted;

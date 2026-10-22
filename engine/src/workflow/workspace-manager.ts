@@ -32,7 +32,7 @@ import { frozenAcceptancesBetween } from "./record-links.ts";
 import { applyCheckoutFiles, assertSameFilesystem, removeGateLogs, runCheckoutPhase, runDeclaredCommands, settleCheckout, type CheckoutCommand, type CheckoutPhase, type CheckoutStep } from "./checkout-setup.ts";
 import { LandingError, branchCheckout, commitCandidate, landCommit, refuseUndeclaredWrites } from "./tree-landing.ts";
 import { importWorkspaceTimelineShard, openWorkspaceTimelineShard } from "./timeline-shard.ts";
-import { createWorkspaceRecordStore, workspaceRecordStores, type WorkspaceRecordStore } from "./workspace-registry.ts";
+import { createWorkspaceRecordStore, refuseOwnedByV2, workspaceRecordStores, type WorkspaceRecordStore } from "./workspace-registry.ts";
 import { remoteTrackingRef } from "../git/git-port.ts";
 import { fetchForgeBranches, publishBranch, resolveForgeTarget, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry, workspaceRootOf, type RepositoryRegistry } from "./repository-registry.ts";
@@ -380,6 +380,19 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     } finally {
       handle.release();
     }
+  }
+
+  /**
+   * A record a verb may CHANGE: refused (`workspace_owned_by_v2_checkout`)
+   * before anything is touched when the workspace is v2-only — its worktree,
+   * branch and record belong to the checkout of the version that made it
+   * until the recorded P7 cutover (`workspace-registry.ts`).
+   */
+  function requireOwnedRecord(workspaceId: string): WorkspaceRecord {
+    const record = requireRecord(workspaceId);
+    const legacy = store.legacyRecordPath(workspaceId);
+    if (legacy !== null) refuseOwnedByV2(workspaceId, legacy, record.lease.worktreePath);
+    return record;
   }
 
   function requireRecord(workspaceId: string): WorkspaceRecord {
@@ -1037,7 +1050,6 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       mergeReceipt: null,
       abortReason: null,
       history: deepFreeze([]),
-      migratedFrom: null,
       forge: forgeState,
       revision: 0,
     });
@@ -1071,7 +1083,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
 
   async function extend(workspaceId: string, paths: readonly string[]): Promise<WorkspaceRecord> {
     return withRepositoryLock(config.admissionLock, `workspace-extend:${workspaceId}`, () => {
-      const record = requireRecord(workspaceId);
+      const record = requireOwnedRecord(workspaceId);
       if (isTerminalWorkspaceState(record.state)) throw new InputError(`workspace ${workspaceId} is terminal (${record.state})`, "workspace_terminal");
       if (record.lease.kind === "read-only") throw new InputError("a read-only workspace has no lease to extend", "workspace_read_only");
       if (record.state === "merging") throw new InputError(`workspace ${workspaceId} is merging; the integrator owns it`, "workspace_precondition_failed");
@@ -1100,7 +1112,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
 
   async function validate(workspaceId: string, validateOptions: Readonly<{ full?: boolean }> = {}): Promise<ValidationReport> {
     const full = validateOptions.full === true;
-    let record = requireRecord(workspaceId);
+    let record = requireOwnedRecord(workspaceId);
     if (isTerminalWorkspaceState(record.state)) throw new InputError(`workspace ${workspaceId} is terminal (${record.state})`, "workspace_terminal");
     if (record.state !== "active" && record.state !== "validating") {
       throw new InputError(`workspace ${workspaceId} cannot be validated from ${record.state}`, "workspace_precondition_failed");
@@ -1243,7 +1255,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
 
   async function merge(workspaceId: string): Promise<MergeReceipt> {
     return withRepositoryLock(config.mergeLock, `workspace-merge:${workspaceId}`, async () => {
-      let record = requireRecord(workspaceId);
+      let record = requireOwnedRecord(workspaceId);
       if (record.lease.kind === "read-only") throw new InputError(`workspace ${workspaceId} is read-only: it never merges`, "workspace_read_only");
       const validated = record.validationReport;
       if (record.state !== "validating" || validated === null || validated.status !== "pass") {
@@ -1486,7 +1498,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    */
   async function recover(workspaceId: string): Promise<WorkspaceRecord> {
     try {
-      return await withRepositoryLock({ ...config.mergeLock, timeoutMs: 0 }, `workspace-recover:${workspaceId}`, () => recoverUnderMergeLock(requireRecord(workspaceId)));
+      return await withRepositoryLock({ ...config.mergeLock, timeoutMs: 0 }, `workspace-recover:${workspaceId}`, () => recoverUnderMergeLock(requireOwnedRecord(workspaceId)));
     } catch (error) {
       if ((error as { code?: unknown }).code !== "lock_acquisition_timeout") throw error;
       throw new InputError(`an integrator holds the merge lock (it is running): workspace ${workspaceId} is not stuck`, "workspace_recover_denied");
@@ -1529,7 +1541,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   function forgeOf(record: WorkspaceRecord): Readonly<{ forge: WorkspaceForge; target: ForgeTarget; state: WorkspaceForgeState }> {
     const state = record.forge;
     if (state === null) throw new InputError(`workspace ${record.workspaceId} is read-only: it never reaches the forge`, "workspace_read_only");
-    if (isLegacyForgeState(state)) refuseLegacy(record.workspaceId);
+    if (isLegacyForgeState(state)) refuseOwnedByV2(record.workspaceId, store.legacyRecordPath(record.workspaceId) ?? "(the legacy store)", record.lease.worktreePath);
     if (options.forge === undefined) {
       throw new HarnessError("no forge client is configured: the GitHub implementation of the workspace's forge port (workspace-forge.ts, on the forge client of engine/src/workflow/forge/) is not wired into the workspace CLI yet", "workspace_forge_unavailable", false, { workspaceId: record.workspaceId });
     }
@@ -1541,16 +1553,10 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     return Object.freeze({ forge: options.forge(target), target, state });
   }
 
-  /** A migrated record of a workspace made before the forge never reaches it. */
-  function refuseLegacy(workspaceId: string): never {
-    throw new InputError(`workspace ${workspaceId} was created before the forge (a migrated record with no upstream): it never reaches the forge — abort it and create a new one`, "workspace_legacy_record");
-  }
-
   /** A feature workspace a forge verb may act on: not read-only, not terminal, not merging; its lease live and its worktree intact. */
   function requireForgeable(workspaceId: string, verb: string): WorkspaceRecord {
-    const record = requireRecord(workspaceId);
+    const record = requireOwnedRecord(workspaceId);
     if (record.lease.kind === "read-only") throw new InputError(`workspace ${workspaceId} is read-only: it never reaches the forge`, "workspace_read_only");
-    if (record.forge !== null && isLegacyForgeState(record.forge)) refuseLegacy(workspaceId);
     if (isTerminalWorkspaceState(record.state)) throw new InputError(`workspace ${workspaceId} is terminal (${record.state})`, "workspace_terminal");
     if (record.state !== "active" && record.state !== "validating") {
       throw new InputError(`workspace ${workspaceId} cannot ${verb} from ${record.state}`, "workspace_precondition_failed");
@@ -1693,11 +1699,11 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   }
 
   function abort(workspaceId: string, abortOptions: Readonly<{ quarantine?: boolean; reason?: string }> = {}): WorkspaceRecord {
-    return abortInternal(requireRecord(workspaceId), abortOptions.quarantine ?? false, abortOptions.reason ?? "operator abort");
+    return abortInternal(requireOwnedRecord(workspaceId), abortOptions.quarantine ?? false, abortOptions.reason ?? "operator abort");
   }
 
   function snapshotWorkspace(workspaceId: string, label: string): WorkingTreeSnapshot {
-    const record = requireRecord(workspaceId);
+    const record = requireOwnedRecord(workspaceId);
     if (isTerminalWorkspaceState(record.state)) throw new InputError(`workspace ${workspaceId} is terminal (${record.state})`, "workspace_terminal");
     return snapshot(record.lease.worktreePath, { message: `workspace ${workspaceId} snapshot ${label}`, name: `${workspaceId}.${label}`, ...snapshotIdentity });
   }
@@ -1708,7 +1714,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const nowMs = now().getTime();
     for (const record of store.list()) {
       // A workspace known only to the legacy store is older code's: this code never sweeps it (until the P7 cutover).
-      if (store.isLegacyOnly(record.workspaceId)) continue;
+      if (store.legacyRecordPath(record.workspaceId) !== null) continue;
       if (record.state === "merging") {
         // A merging record whose integrator is gone (the merge lock is free)
         // is recovered; a running integrator's is left to it.

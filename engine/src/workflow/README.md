@@ -48,12 +48,13 @@ in
 - **Records** use PER-VERSION STORAGE (`workspace-registry.ts`): this code
   writes only the current store (`workspaces-v3/`); the store before the
   forge (`workspaces/`, v2), which older code still uses, is read and migrated
-  IN MEMORY (`migrateWorkspaceRecord`) and never written. A v2 workspace this
-  code changes becomes a new current record noting `migratedFrom`; a feature
-  one carries the legacy marker that refuses every forge verb
-  (`workspace_legacy_record`); `sweep` never ends a v2-only workspace (older
-  code owns it until the P7 cutover archives that store) and reports a live
-  record whose worktree is gone (`orphaned`), leaving it to its owner.
+  IN MEMORY (`migrateWorkspaceRecord`) and never written. A v2-only workspace
+  is READ-ONLY to this code until the recorded P7 cutover: every saving or
+  destructive verb (and the store's save) refuses it
+  (`workspace_owned_by_v2_checkout`, naming its record and worktree) before
+  touching anything, no v3 twin is ever made of it, and `sweep` never ends
+  it. `sweep` reports a live record whose worktree is gone (`orphaned`),
+  leaving it to its owner.
 - **Registry**: `<git common dir>/bridlewise/` (`repository-registry.ts`, the one derivation; the records in `workspace-registry.ts`):
   `workspaces/<id>.json`, `locks/` (the admission and merge locks),
   `timeline/` (the shards and the integrator's ledger) — one per repository,

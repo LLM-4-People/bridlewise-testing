@@ -50,9 +50,8 @@ import { wholesaleGeneratedPaths } from "./hash-binding-registry.ts";
  */
 
 export const WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 3);
-/** The version before the forge: records of it are migrated in memory on read ({@link migrateWorkspaceRecord}), never rewritten. */
-export const LEGACY_WORKSPACE_SCHEMA_VERSION = schemaId("workspace", 2);
-const WORKSPACE_SCHEMA_V2 = LEGACY_WORKSPACE_SCHEMA_VERSION;
+/** The version before the forge: records of it are migrated in memory on read ({@link migrateWorkspaceRecord}), never written (read-only to this version). */
+const WORKSPACE_SCHEMA_V2 = schemaId("workspace", 2);
 
 export const WORKSPACE_STATES = deepFreeze([
   "admitted",
@@ -283,10 +282,10 @@ const workspaceForgeSchema = z.strictObject({
 export type WorkspaceForgeState = DeepReadonly<z.infer<typeof workspaceForgeSchema>>;
 
 /**
- * The forge state of a feature workspace created BEFORE the forge (a migrated
- * v2 record): it has no upstream recorded and never reaches the forge — a
- * forge verb refuses it (`workspace_legacy_record`: abort it and create a new
- * one); every local verb works.
+ * The forge state of a feature workspace created BEFORE the forge (a v2
+ * record, migrated in memory): it has no upstream recorded. A v2-only
+ * workspace is read-only to this version (`workspace_owned_by_v2_checkout`,
+ * `workspace-registry.ts`), so nothing here ever publishes, lands or saves it.
  */
 const legacyForgeSchema = z.strictObject({ legacy: z.literal(true) });
 export type LegacyForgeState = DeepReadonly<z.infer<typeof legacyForgeSchema>>;
@@ -319,13 +318,6 @@ export const workspaceRecordSchema = z.strictObject({
   mergeReceipt: z.union([mergeReceiptSchema, legacyMergeReceiptSchema]).nullable(),
   abortReason: REASON_SCHEMA.nullable(),
   history: z.array(workspaceTransitionSchema).max(4096),
-  /**
-   * The legacy record this one was first written from (per-version storage,
-   * `workspace-registry.ts`: a v2 workspace this code changed is a NEW record
-   * in the current store; the v2 file is never touched); null for a record
-   * created by this version.
-   */
-  migratedFrom: z.strictObject({ schemaVersion: z.literal(WORKSPACE_SCHEMA_V2), revision: z.number().int().nonnegative() }).nullable(),
   /** The forge state of a feature workspace (or its legacy marker); null for a read-only one (it never publishes). */
   forge: z.union([workspaceForgeSchema, legacyForgeSchema]).nullable(),
   /**
@@ -561,7 +553,6 @@ export function migrateWorkspaceRecord(value: unknown): Readonly<{ record: Works
       validationReport: retag(stored["validationReport"]),
       conflictReport: retag(stored["conflictReport"]),
       forge: lease?.["kind"] === "read-only" ? null : { legacy: true },
-      migratedFrom: null,
     }),
     migrated: true,
   });

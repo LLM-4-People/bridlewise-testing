@@ -6,7 +6,7 @@ import { canonicalJson, deepFreeze } from "../kernel/integrity.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { withFileLock } from "../filesystem/file-lock.ts";
 import { ensurePrivateStateDirectory } from "../filesystem/private-state.ts";
-import { assertWorkspaceId, isTerminalWorkspaceState, LEGACY_WORKSPACE_SCHEMA_VERSION, migrateWorkspaceRecord, parseWorkspaceRecord, type WorkspaceRecord } from "./workspace-contracts.ts";
+import { assertWorkspaceId, isTerminalWorkspaceState, migrateWorkspaceRecord, parseWorkspaceRecord, type WorkspaceRecord } from "./workspace-contracts.ts";
 import { repositoryRegistryArea, type RepositoryRegistry } from "./repository-registry.ts";
 
 /**
@@ -18,13 +18,13 @@ import { repositoryRegistryArea, type RepositoryRegistry } from "./repository-re
  *   writes, of the current version;
  * - the LEGACY store (`workspaces/<id>.json`): the records of the version
  *   before the forge (v2), which older code (another checkout of the same
- *   repository, another lane) still reads and writes. This code NEVER writes
- *   there: a legacy record is migrated IN MEMORY on every read
- *   (`migrateWorkspaceRecord`); a legacy workspace this code changes is
- *   written as a NEW record in the current store, noting what it was migrated
- *   from (`migratedFrom`), and the current record wins from then on. The
- *   legacy store is left exactly as it is until Gitea's retirement (runbook
- *   P7), whose recorded cutover archives it.
+ *   repository, another lane) still reads and writes. A legacy record is
+ *   migrated IN MEMORY on every read (`migrateWorkspaceRecord`) and is
+ *   READ-ONLY to this code: a v2-only workspace belongs to the checkout of the
+ *   version that made it, so every save of one is refused
+ *   (`workspace_owned_by_v2_checkout`) and no current twin is ever made of
+ *   it. The legacy store is left exactly as it is until Gitea's retirement
+ *   (runbook P7), whose recorded cutover archives it.
  *
  * The registry's `locks/` area holds the admission and merge locks and its
  * `timeline/` area the per-workspace shards and the integrator's ledger
@@ -37,17 +37,17 @@ import { repositoryRegistryArea, type RepositoryRegistry } from "./repository-re
 export type WorkspaceRecordStore = Readonly<{
   /**
    * THE ONE RECORD WRITER, a compare-and-swap: `record` is written only when
-   * the stored record's revision (the current store's, else the legacy
-   * store's, else 0) is `record.revision`, as revision + 1, which it returns;
-   * otherwise it refuses (`workspace_record_changed`) and writes nothing. It
-   * writes only into the current store. The read, the compare and the write
-   * are one step under the record's file lock.
+   * the current store's revision of it (0 when it has none) is
+   * `record.revision`, as revision + 1, which it returns; otherwise it refuses
+   * (`workspace_record_changed`) and writes nothing. A v2-only workspace is
+   * never written (`workspace_owned_by_v2_checkout`). The read, the compare
+   * and the write are one step under the record's file lock.
    */
   save(record: WorkspaceRecord): WorkspaceRecord;
   load(workspaceId: string): WorkspaceRecord | null;
   list(): readonly WorkspaceRecord[];
-  /** Whether the workspace is known only to the legacy store (older code's: this code never sweeps it). */
-  isLegacyOnly(workspaceId: string): boolean;
+  /** The legacy record's path when the workspace is known ONLY to the legacy store (older code's: read-only here), else null. */
+  legacyRecordPath(workspaceId: string): string | null;
 }>;
 
 /** The two stores' folders. */
@@ -56,6 +56,21 @@ export type WorkspaceRecordStores = Readonly<{ current: string; legacy: string }
 /** The record stores of `registry`: its current and its legacy area. */
 export function workspaceRecordStores(registry: RepositoryRegistry): WorkspaceRecordStores {
   return deepFreeze({ current: repositoryRegistryArea(registry, "workspaces"), legacy: repositoryRegistryArea(registry, "legacyWorkspaces") });
+}
+
+/**
+ * THE REFUSAL of a change to a v2-only workspace: it belongs to the checkout
+ * of the version that made it (its record in the legacy store, its worktree
+ * where that checkout made it); v3 code reads it and never changes it before
+ * the recorded P7 cutover.
+ */
+export function refuseOwnedByV2(workspaceId: string, legacyRecord: string, worktreePath: string): never {
+  throw new HarnessError(
+    `workspace ${workspaceId} belongs to the v2 code that made it (its record ${legacyRecord}, its worktree ${worktreePath}): this version reads it and never changes it before the recorded P7 cutover — act on it from that checkout`,
+    "workspace_owned_by_v2_checkout",
+    false,
+    { workspaceId },
+  );
 }
 
 export function createWorkspaceRecordStore(stores: WorkspaceRecordStores): WorkspaceRecordStore {
@@ -91,8 +106,8 @@ export function createWorkspaceRecordStore(stores: WorkspaceRecordStores): Works
     save(record: WorkspaceRecord): WorkspaceRecord {
       const path = currentPath(record.workspaceId);
       return withFileLock(`${path}.lock`, busy(record.workspaceId), () => {
-        const legacy = existsSync(path) ? null : existsSync(legacyPath(record.workspaceId)) ? parseFile(legacyPath(record.workspaceId), record.workspaceId).record : null;
-        const stored = existsSync(path) ? readCurrent(record.workspaceId).revision : legacy?.revision ?? 0;
+        if (!existsSync(path) && existsSync(legacyPath(record.workspaceId))) refuseOwnedByV2(record.workspaceId, legacyPath(record.workspaceId), record.lease.worktreePath);
+        const stored = existsSync(path) ? readCurrent(record.workspaceId).revision : 0;
         if (stored !== record.revision) {
           throw new HarnessError(
             `workspace record ${record.workspaceId} changed since it was read (revision ${String(record.revision)}, now ${String(stored)}): another command (an extend, an abort, a sweep) wrote it meanwhile — read its status and run the command again`,
@@ -101,9 +116,7 @@ export function createWorkspaceRecordStore(stores: WorkspaceRecordStores): Works
             { workspaceId: record.workspaceId },
           );
         }
-        // A legacy workspace's first write here: a NEW current record, noting its origin.
-        const migratedFrom = legacy === null ? record.migratedFrom : { schemaVersion: LEGACY_WORKSPACE_SCHEMA_VERSION, revision: legacy.revision };
-        const next = parseWorkspaceRecord({ ...record, migratedFrom, revision: record.revision + 1 });
+        const next = parseWorkspaceRecord({ ...record, revision: record.revision + 1 });
         const written = atomicWriteFile(path, `${canonicalJson(next)}\n`);
         if (!written.success) throw written.error ?? new HarnessError(`could not write workspace record ${record.workspaceId}: ${written.reason ?? "unknown"}`, "workspace_record_write_failed");
         return next;
@@ -113,8 +126,8 @@ export function createWorkspaceRecordStore(stores: WorkspaceRecordStores): Works
     list(): readonly WorkspaceRecord[] {
       return deepFreeze([...new Set([...ids(stores.current), ...ids(stores.legacy)])].toSorted().map((workspaceId) => load(workspaceId)!));
     },
-    isLegacyOnly(workspaceId: string): boolean {
-      return !existsSync(currentPath(workspaceId)) && existsSync(legacyPath(workspaceId));
+    legacyRecordPath(workspaceId: string): string | null {
+      return !existsSync(currentPath(workspaceId)) && existsSync(legacyPath(workspaceId)) ? legacyPath(workspaceId) : null;
     },
   });
 }

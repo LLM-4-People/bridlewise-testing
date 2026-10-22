@@ -18,4 +18,4 @@ replaced by `/home/user`; it holds no credential. One file per shape the host he
 
 The folder lives at `engine/test/workspaces/fixtures/v2-records/`. `engine/test/workspaces/workspace-migration.test.ts`
 reads every file through the one record reader (`createWorkspaceRecordStore`'s legacy store, migrated in memory by
-`migrateWorkspaceRecord`) and proves no file is ever rewritten.
+`migrateWorkspaceRecord`) and proves no file is ever rewritten and every save of one is refused.
