@@ -10,12 +10,14 @@ The `tests/cockpit/` folder of the development surface.
 - `artifact-containment.test.ts` — @vitest-environment jsdom.
 - `artifact-runtime-errors.test.ts` — @vitest-environment jsdom.
 - `boot-waves-owner.test.ts` — @vitest-environment node.
+- `brand-mark-owner.test.ts` — @vitest-environment node. One geometry, one palette: `Brand.svelte` draws exactly the parts of `brand-mark.ts`, each with its own ink (judged on Svelte's own parse). The icon generator paints every part with its own token's value, driven with a planted palette through the SVG and a pixel of each part in the PNG, and restates no colour in any spelling. No other file copies the mark's geometry. Each rule has planted violations and near-misses.
 - `canvas-release-on-hide.test.ts` — @vitest-environment jsdom.
 - `cockpit-boot-owner.test.ts` — @vitest-environment jsdom.
 - `cockpit-chart-owner.test.ts` — @vitest-environment jsdom.
 - `cockpit-chord-owner.test.ts` — @vitest-environment node.
 - `cockpit-derivation-owner.test.ts` — @vitest-environment node.
 - `cockpit-flow-verb-owner.test.ts` — @vitest-environment node.
+- `cockpit-fonts-owner.test.ts` — @vitest-environment node. The self-hosted fonts: `@font-face` only in the token owner, every declared file vendored and every vendored file declared, the OFL licence present, and no font CDN anywhere in the web tree (planted violations and near-misses).
 - `cockpit-keyboard-grammar.test.ts` — @vitest-environment node.
 - `cockpit-latency-budget.test.ts` — @vitest-environment node.
 - `cockpit-mouse-path-owner.test.ts` — @vitest-environment node.
