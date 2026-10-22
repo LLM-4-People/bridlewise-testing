@@ -5,7 +5,9 @@
  *
  *   - no file but node's own binary and libraries is readable, none writable;
  *   - no socket of any family, no io_uring (the network is refused);
- *   - a CPU-time ceiling, judged by CPU work;
+ *   - a CPU-time ceiling, judged by CPU work, and an address-space ceiling;
+ *   - no signal to and no abstract socket of any process outside it (a
+ *     scoped Landlock domain);
  *   - no environment;
  *   - the program and its input arrive on stdin; the one answer leaves on stdout.
  *
@@ -22,7 +24,8 @@
  *
  * Each refusal is typed: `projection_confinement_refused` (the guardian
  * cannot confine on this host — never an unconfined run), `projection_impure`,
- * `projection_import_refused`, `projection_cpu_exhausted`, `projection_failed`.
+ * `projection_import_refused`, `projection_cpu_exhausted`,
+ * `projection_memory_exhausted`, `projection_failed`.
  */
 import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
@@ -43,11 +46,12 @@ export type ConfinedModule = Readonly<{
   exportName: string;
 }>;
 
-/** Where and how bounded a confined call runs: the harness (its guardian), the host's keep-out facts, the CPU ceiling. */
+/** Where and how bounded a confined call runs: the harness (its guardian), the host's keep-out facts, the CPU and address-space ceilings. */
 export type ProjectorConfinement = Readonly<{
   harnessRoot: string;
   keepOut: Omit<KeepOutFacts, "harnessRoot">;
   cpuSeconds: number;
+  memoryBytes: number;
 }>;
 
 /** The projection's program: `project.ts`'s `projectText`, and the pure modules it is allowed to load. */
@@ -106,7 +110,7 @@ function linkProgram(module: ConfinedModule, input: string): string {
 
 /** `module.exportName(input)` computed in its confined process; its text answer, or a typed refusal. */
 export function confinedCall(module: ConfinedModule, input: string, confinement: ProjectorConfinement): string {
-  const result = runConfinedNode({ harnessRoot: confinement.harnessRoot, keepOut: confinement.keepOut, program: linkProgram(module, input), cpuSeconds: confinement.cpuSeconds });
+  const result = runConfinedNode({ harnessRoot: confinement.harnessRoot, keepOut: confinement.keepOut, program: linkProgram(module, input), cpuSeconds: confinement.cpuSeconds, memoryBytes: confinement.memoryBytes });
   if (result.status === "ok") return result.stdout;
   const fail = (code: string, message: string): never => {
     debugLog("forge", "warn", `confined ${module.exportName} refused: ${code}: ${message}`, () => ({ entry: module.entry }));
@@ -114,6 +118,8 @@ export function confinedCall(module: ConfinedModule, input: string, confinement:
   };
   if (result.status === "refused") return fail("projection_confinement_refused", `${result.code}: ${result.message}`);
   if (result.signal === "SIGKILL" || result.signal === "SIGXCPU") return fail("projection_cpu_exhausted", `the program spent its ${String(confinement.cpuSeconds)} CPU seconds and the kernel ended it (${result.signal})`);
+  // An allocation the address-space ceiling refused: node reports it and ends (an abort, or a caught allocation failure).
+  if (result.signal === "SIGABRT" || /out of memory|allocation failed|\bENOMEM\b/iu.test(result.stderr)) return fail("projection_memory_exhausted", `the program reached its ${String(confinement.memoryBytes)}-byte address-space ceiling`);
   // The line that names the failure: the boundary's EACCES/EPERM, else the error node printed, else its last word.
   const lines = result.stderr.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
   const reason = lines.find((line) => /\b(?:EACCES|EPERM)\b/u.test(line)) ?? lines.find((line) => /(?:^projection_|Error\b)/u.test(line)) ?? lines.at(-1) ?? "";

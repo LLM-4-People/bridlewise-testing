@@ -19,7 +19,7 @@ the spec compiler relies on. The guardian binary itself lives under
   mode / unconfined.
 - `self-protection-contracts.ts` — the guardian spec schema, the Landlock
   access-flag vocabulary, and the flag metadata.
-- `confined-run.ts` — A NODE PROGRAM IN THE NARROWEST CONFINEMENT. `runConfinedNode` compiles the spec with the one compiler, then narrows it with `narrowGuardianSpec`: every rule must lie inside a compiled rule with a subset of its access, and the result is node's binary, its mapped libraries and one empty OpenSSL configuration, all read-only. It adds `network: "refused"` and `cpu_seconds`, gives the program no environment, passes the program on stdin and answers how it ended. A host whose guardian cannot confine is a typed refusal. The clock is stated as unrefusable (the vDSO).
+- `confined-run.ts` — A NODE PROGRAM IN THE NARROWEST CONFINEMENT. `runConfinedNode` compiles the spec with the one compiler, then narrows it with `narrowGuardianSpec`: every rule must lie inside a compiled rule with a subset of its access, and the result is node's binary, its mapped libraries and one empty OpenSSL configuration, all read-only. It adds `network: "refused"`, `cpu_seconds`, `memory_bytes` (RLIMIT_AS) and `scoped: true` (no signal or abstract socket outside the domain; a kernel without Landlock ABI 6 is a refusal), gives the program no environment, passes the program on stdin and answers how it ended. A host whose guardian cannot confine is a typed refusal. The clock is stated as unrefusable (the vDSO).
 - `guardian-binary.ts` — resolving and verifying the guardian binary (its
   path, its reproducible build stamp recomputed from the sealed sources and
   checked against the root-policy pin, and a two-part confinement probe: a

@@ -689,6 +689,33 @@ sed '1a "cpu_seconds": 0,' "$WORK/spec.json" > "$WORK/spec-cpu-bad.json"
 run_cap "$BIN" apply --spec "$WORK/spec-cpu-bad.json" --exec "$TP" socket inet || true
 assert_exit "cpu_seconds: 0 -> exit 2" "2"
 
+echo "=== test 42: scoped — a signal to a process outside the domain is refused (EPERM); unscoped, the control reaches it ==="
+sleep 60 & OUTSIDE=$!
+sed '1a "scoped": true,' "$WORK/spec.json" > "$WORK/spec-scoped.json"
+run_cap "$BIN" apply --spec "$WORK/spec-scoped.json" --exec "$TP" signal "$OUTSIDE" || true
+if [[ "$OUT" == *"EPERM"* ]] && kill -0 "$OUTSIDE" 2>/dev/null; then pass "scoped: SIGTERM to an outside process -> EPERM, and it lives"; else fail "scoped: the signal was not refused (out=$OUT, rc=$RC)"; fi
+run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" signal "$OUTSIDE" || true
+sleep 0.2
+if [[ "$OUT" == *"OK"* ]] && ! kill -0 "$OUTSIDE" 2>/dev/null; then pass "unscoped control: the same signal reaches it"; else fail "unscoped control: the signal did not reach the outside process (out=$OUT)"; fi
+kill "$OUTSIDE" 2>/dev/null || true; wait "$OUTSIDE" 2>/dev/null || true
+echo "=== test 43 (hostile): scoped on an ABI before 6 -> exit 14, nothing runs; scoped of another type -> exit 2 ==="
+sed -e 's/"abi_version_hint": 0/"abi_version_hint": 5/' -e '1a "scoped": true,' "$WORK/spec.json" > "$WORK/spec-scoped-abi5.json"
+run_cap "$BIN" apply --spec "$WORK/spec-scoped-abi5.json" --exec "$TP" socket inet || true
+assert_exit "scoped at ABI 5 -> exit 14" "14"
+sed '1a "scoped": "yes",' "$WORK/spec.json" > "$WORK/spec-scoped-bad.json"
+run_cap "$BIN" apply --spec "$WORK/spec-scoped-bad.json" --exec "$TP" socket inet || true
+assert_exit "scoped: \"yes\" -> exit 2" "2"
+echo "=== test 44: memory_bytes — an allocation past RLIMIT_AS fails; one under it succeeds ==="
+sed '1a "memory_bytes": 134217728,' "$WORK/spec.json" > "$WORK/spec-mem.json"
+run_cap "$BIN" apply --spec "$WORK/spec-mem.json" --exec "$TP" alloc 512 || true
+if [[ "$OUT" == *"ENOMEM"* ]]; then pass "memory_bytes: 512 MiB past a 128 MiB ceiling -> ENOMEM"; else fail "memory_bytes: the allocation was not refused (out=$OUT, rc=$RC)"; fi
+run_cap "$BIN" apply --spec "$WORK/spec-mem.json" --exec "$TP" alloc 16 || true
+if [[ "$OUT" == *"OK"* ]]; then pass "memory_bytes: 16 MiB under the ceiling -> OK"; else fail "memory_bytes: a small allocation failed (out=$OUT)"; fi
+echo "=== test 45 (hostile): memory_bytes out of range -> exit 2 ==="
+sed '1a "memory_bytes": 1024,' "$WORK/spec.json" > "$WORK/spec-mem-bad.json"
+run_cap "$BIN" apply --spec "$WORK/spec-mem-bad.json" --exec "$TP" socket inet || true
+assert_exit "memory_bytes: 1024 -> exit 2" "2"
+
 if [ -n "$UNSHARE" ]; then
   ALIAS="$WORK/alias"; mkdir -p "$ALIAS"
   cat > "$WORK/spec-alias-under.json" <<EOF

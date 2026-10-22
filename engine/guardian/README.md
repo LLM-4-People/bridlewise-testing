@@ -112,6 +112,8 @@ harness-landlock-guardian --stamp
 | 10   | keep_out_exposed: THIS spawn's grant holds what decides a keep-out entry's content — a link's folder on the way, its target, a dangling link's would-be target's folder, or a mount below the grant that shows a kept-out place. The message names the link (or the mount) and the remedy. Other spawns are unaffected. |
 | 11   | network_refusal_failed: `network: "refused"` asked for the seccomp filter and the kernel refused to install it |
 | 12   | cpu_limit_failed: `cpu_seconds` asked for RLIMIT_CPU and it could not be set |
+| 13   | memory_limit_failed: `memory_bytes` asked for RLIMIT_AS and it could not be set |
+| 14   | scope_unavailable: `scoped` asked for Landlock ABI 6 (signal and abstract unix socket scoping) and the kernel (or the guardian's build) has none; nothing ran |
 | 64   | usage (bad CLI args)                                            |
 
 ## Ruleset spec
@@ -165,6 +167,12 @@ harness-landlock-guardian --stamp
 - `cpu_seconds` (optional, 1..86400): RLIMIT_CPU, soft = hard. A payload that
   spends that much CPU time is ended by the kernel — judged by CPU work, never
   by wall time.
+- `memory_bytes` (optional, 64 MiB..1 TiB): RLIMIT_AS, soft = hard. An
+  allocation past it fails in the kernel; a runtime that cannot allocate ends.
+- `scoped` (optional boolean): `true` scopes the Landlock domain (ABI 6):
+  the payload can send no signal to, and connect to no abstract unix socket
+  of, any process outside its own domain. Without ABI 6 the guardian refuses
+  with exit 14 and runs nothing.
 - `keep_out_retries` (required with `keep_out`): how many times an entry that
   changed while it was located is located again (the root policy's
   `selfProtection.keepOutRetries`).

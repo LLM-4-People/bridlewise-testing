@@ -1,19 +1,21 @@
 /**
  * THE PROJECTOR (src/workflow/forge/projector/, github-only §9.0): D is a pure
- * function of the source commit, computed in a sealed realm, and one apply
+ * function of the source commit, computed in a confined process, and one apply
  * algorithm makes GitHub equal to it — writing only the difference, re-reading,
  * and verifying every git-owned field.
  *
  *   V-25 idempotent: a second run on the same (S, L) makes zero writes.
  *   V-26 pure, by the kernel: the projection runs in a separate process under
  *        the guardian (no readable file but node's own, nothing writable, no
- *        socket, a CPU ceiling, no environment); a write, a harness or /proc
- *        read, a connect are refused; the clock and randomness, which no
- *        kernel boundary refuses, are caught by computing twice.
+ *        socket, no signal outside its domain, CPU and memory ceilings, no
+ *        environment); a write, a harness or /proc read, a connect, a signal
+ *        to another process and an allocation past the ceiling are refused;
+ *        the clock and randomness, which no kernel boundary refuses, are
+ *        caught by computing twice.
  *   V-28 a field GitHub silently drops is `projection_unverified`, never a success.
  */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -39,8 +41,8 @@ import { memoryStore } from "./projection-store.ts";
 const SOURCE = "0123456789abcdef0123456789abcdef01234567";
 const REPOSITORY_ROOT = join(import.meta.dirname, "..", "..", "..");
 const ENGINE_ROOT = join(REPOSITORY_ROOT, "engine");
-/** Every projection here runs confined: this engine's guardian, an empty keep-out registry of the test's own, a generous CPU ceiling. */
-const CONFINEMENT: ProjectorConfinement = { harnessRoot: ENGINE_ROOT, keepOut: emptyKeepOutFacts(), cpuSeconds: 60 };
+/** Every projection here runs confined: this engine's guardian, an empty keep-out registry of the test's own, a generous CPU ceiling, 1.5 GiB of address space. */
+const CONFINEMENT: ProjectorConfinement = { harnessRoot: ENGINE_ROOT, keepOut: emptyKeepOutFacts(), cpuSeconds: 60, memoryBytes: 1_610_612_736 };
 
 const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> = {}): ProjectionInput["items"][number] => ({
   id, type: "Task", title: null, state: "open", resolution: null, lane: "floor", parent: null, blockedBy: [],
@@ -98,7 +100,7 @@ test("V-26: purity is a kernel property — two confined processes give one dige
       return true;
     });
   };
-  // A WRITE through a dynamic import of node:fs (the realm's escape): the kernel refuses it, nothing is written.
+  // A WRITE through a dynamic import of node:fs (the escape a JS realm could not close): the kernel refuses it, nothing is written.
   const written = join(directory, "written-by-the-projection");
   // (A computed specifier: no static link can see it, so only the kernel stands in the way; a literal one is refused at link, below.)
   refused(planted("write", `const fs = await import(["node", "fs"].join(":"));\nfs.writeFileSync(${JSON.stringify(written)}, "x");\nexport function projectText(): string { return ""; }`), "projection_impure", /EACCES/u);
@@ -126,8 +128,21 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   refused(planted("builtin", "import { readFileSync } from 'node:fs';\nexport function projectText(): string { return String(readFileSync); }"), "projection_import_refused", /node:fs/u);
   refused(planted("literal-dynamic", "const fs = await import('node:fs');\nexport function projectText(): string { return String(fs); }"), "projection_import_refused", /node:fs/u);
   refused(planted("bare", "import x from 'zod';\nexport function projectText(): string { return String(x); }"), "projection_import_refused", /zod/u);
-  // A CPU spin is ended by its CPU ceiling (by CPU work, never wall time).
-  refused(planted("spin", "export function projectText(): string { for (;;) {} }"), "projection_cpu_exhausted", /CPU seconds/u, () => confinedCall(planted("spin", "export function projectText(): string { for (;;) {} }"), "{}", { ...CONFINEMENT, cpuSeconds: 1 }));
+  // A CPU spin is ended by its CPU ceiling (by CPU work, never wall time). The spin is BOUNDED (far past a 1-second ceiling):
+  // with the ceiling gone it returns an answer and the assertion fails, never a hung file.
+  const spin = planted("spin", "export function projectText(): string { let n = 0; for (let i = 0; i < 2e10; i += 1) n += i & 1; return String(n); }");
+  refused(spin, "projection_cpu_exhausted", /CPU seconds/u, () => confinedCall(spin, "{}", { ...CONFINEMENT, cpuSeconds: 1 }));
+  // A SIGNAL to a process outside the projection's domain (here, a live child of this test): refused by the scoped domain, and it lives.
+  const outsider = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], { stdio: "ignore" });
+  try {
+    refused(planted("signal", `export function projectText(): string { process.kill(${String(outsider.pid)}, "SIGTERM"); return "sent"; }`), "projection_impure", /EPERM/u);
+    assert.equal(outsider.exitCode, null, "the outside process was not signalled");
+    assert.equal(outsider.signalCode, null);
+  } finally {
+    outsider.kill("SIGKILL");
+  }
+  // An ALLOCATION past the address-space ceiling (2 GiB, bounded: with no ceiling it answers and the assertion fails).
+  refused(planted("allocate", "export function projectText(): string { const kept: Uint8Array[] = []; for (let i = 0; i < 2048; i += 1) kept.push(new Uint8Array(1 << 20).fill(1)); return String(kept.length); }"), "projection_memory_exhausted", /address-space ceiling/u);
   // A large answer arrives whole (a pipe write can still be pending when write() returns).
   const large = confinedCall(planted("large", "export function projectText(): string { return 'x'.repeat(4_000_000) + 'END'; }"), "{}", CONFINEMENT);
   assert.equal(large.length, 4_000_003);

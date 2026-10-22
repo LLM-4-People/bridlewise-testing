@@ -800,6 +800,28 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
         cpu_seconds = vcpu->nval;
     }
 
+    /* 3b-iii. memory_bytes (optional number, 64 MiB..1 TiB). When present,
+     * the payload's address space is bounded by RLIMIT_AS (soft = hard): an
+     * allocation past it fails in the kernel, and a runtime that cannot
+     * allocate ends. Inherited across exec and fork. */
+    long memory_bytes = 0;
+    const jval *vmem = obj_get(&root, "memory_bytes");
+    if (vmem) {
+        if (vmem->type != J_NUM || vmem->nval < 67108864L || vmem->nval > 1099511627776L) fail(2, "memory_bytes must be a number from 67108864 (64 MiB) to 1099511627776 (1 TiB)");
+        memory_bytes = vmem->nval;
+    }
+
+    /* 3b-iv. scoped (optional boolean). true: the domain is SCOPED (Landlock
+     * ABI 6): the payload can send no signal to, and connect to no abstract
+     * unix socket of, a process outside its own domain. A kernel without ABI
+     * 6 is a refusal (exit 14), never a weaker run. */
+    int scoped = 0;
+    const jval *vscoped = obj_get(&root, "scoped");
+    if (vscoped) {
+        if (vscoped->type != J_BOOL) fail(2, "scoped must be a boolean");
+        scoped = vscoped->bval;
+    }
+
     /* 3c. temp_dir (optional string) + temp_dir_access (optional array).
      * Syntactic sugar: if temp_dir is present, the binary appends an
      * allow-rule for it using temp_dir_access flags (default: full
@@ -1170,6 +1192,11 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
         rule_access[i] = masked;
     }
 
+    /* 8a. A scoped domain needs Landlock ABI 6 (signal and abstract unix socket scoping). */
+    if (scoped && effective_abi < 6) {
+        fail(14, "scope_unavailable: scoped asks for Landlock ABI 6 and the effective ABI is %d; nothing ran", effective_abi);
+    }
+
     /* 9. PR_SET_NO_NEW_PRIVS (unprivileged self-restriction prerequisite). */
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
         fail(5, "prctl(PR_SET_NO_NEW_PRIVS) failed: %s", strerror(errno));
@@ -1181,7 +1208,9 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
     attr.handled_access_fs = masked_handled;
     attr.handled_access_net = 0;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-    attr.scoped = 0;
+    attr.scoped = scoped ? (LANDLOCK_SCOPE_SIGNAL | LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET) : 0;
+#else
+    if (scoped) fail(14, "scope_unavailable: this guardian was built without Landlock scoping (kernel headers before 6.12); nothing ran");
 #endif
     int ruleset_fd = (int)syscall(__NR_landlock_create_ruleset, &attr, sizeof(attr), 0);
     if (ruleset_fd < 0) {
@@ -1215,6 +1244,12 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
     if (cpu_seconds > 0) {
         struct rlimit limit = { (rlim_t)cpu_seconds, (rlim_t)cpu_seconds };
         if (setrlimit(RLIMIT_CPU, &limit) != 0) fail(12, "setrlimit(RLIMIT_CPU, %ld) failed: %s", cpu_seconds, strerror(errno));
+    }
+
+    /* 12a-ii. The memory ceiling (memory_bytes): inherited across exec and fork. */
+    if (memory_bytes > 0) {
+        struct rlimit limit = { (rlim_t)memory_bytes, (rlim_t)memory_bytes };
+        if (setrlimit(RLIMIT_AS, &limit) != 0) fail(13, "setrlimit(RLIMIT_AS, %ld) failed: %s", memory_bytes, strerror(errno));
     }
 
     /* 12b. The network refusal (network: "refused"): a seccomp filter, set
