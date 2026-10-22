@@ -15,6 +15,7 @@ The `engine/test/workflow/` folder of the development surface.
 - `gating-never-subtracts.test.ts` — a WITHHELD TEST IS A SKIPPED TEST, NEVER A SUBTRACTED ONE. This is the regression test for the largest hole the suite has had.
 - `harness-commands-cli-fixes.test.ts` — the `harness-commands-cli-fixes.test` module.
 - `harness-commands-timeouts.test.ts` — the `harness-commands-timeouts.test` module.
+- `community-categories.test.ts` — the Discussion-category audit: no drift when the repository matches the registry; each kind of drift named with what to do; the live read is one GraphQL query on the fake GitHub; the verb refuses what it does not know.
 - `community-health-files.test.ts` — the community sources' refusals (role table, intake registry), the one YAML emitter, and the generated health files and forms: `harness sync` writes them, `harness check` names a hand edit or a stale form, and this repository's own files are current.
 - `harness-commands.test.ts` — the `harness-commands.test` module.
 - `inventory-test-run.test.ts` — the `inventory-test-run.test` module.
