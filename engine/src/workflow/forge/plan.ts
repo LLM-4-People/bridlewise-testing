@@ -28,6 +28,7 @@ import { ForgeError, isForgeError, type ForgeCode } from "./codes.ts";
 import { differences, referenceKey, referencesOf, resolveReferences, scopeName, writableBody, type ForgeObject, type ForgeObjectKind, type ForgeReference, type ForgeScope } from "./forge-state.ts";
 import { FORGE_LOG_CATEGORY } from "./github.ts";
 import { afterWrite, EXCLUSIVE_KINDS, KIND_ADAPTERS, type LiveContext, type LiveObject } from "./live-state.ts";
+import { looseningOf, movedPremisesUnmet } from "./strictness.ts";
 
 export type PlanAction = "create" | "update" | "unchanged" | "refused" | "unmanaged" | "retire";
 
@@ -107,11 +108,9 @@ type Planned = Readonly<{ object: ForgeObject; entry: PlanEntry; body?: unknown;
 
 async function planObjects(context: LiveContext, objects: readonly ForgeObject[], retired: readonly RetiredObject[]): Promise<Readonly<{ planned: readonly Planned[]; extra: readonly PlanEntry[]; retiredFound: readonly Readonly<{ retired: RetiredObject; found: LiveObject }>[] }>> {
   const resolved = await resolveAll(context, objects);
-  /** Each repository's declared `kind` (the custom property value), for the moved-rule judgement. */
-  const kindOf = (repository: string): string | undefined => {
-    const declared = objects.find((object) => object.kind === "custom-property-values" && object.scope.kind === "repo" && object.scope.repository === repository);
-    return (declared?.desired as { kind?: string } | undefined)?.kind;
-  };
+  /** The declared org baseline, its references resolved: what a move into it is judged against at plan time. */
+  const baseline = baselineObject(objects);
+  const declaredBaseline = baseline === undefined ? undefined : resolveReferences(baseline.desired, resolved);
   const planned: Planned[] = [];
   for (const object of objects) {
     const base = { kind: object.kind, scope: scopeName(object.scope), key: object.key, ...(object.unavailableOnPlan.length === 0 ? {} : { unavailableOnPlan: object.unavailableOnPlan }) };
@@ -129,7 +128,8 @@ async function planObjects(context: LiveContext, objects: readonly ForgeObject[]
       }
       const differing = differences(body, found.live);
       const loosening = differing.length === 0 ? [] : looseningOf(object.kind, body, found.live);
-      const moved = loosening.length > 0 && object.kind === "ruleset" && object.scope.kind === "repo" && movedIntoBaseline(loosening, object.scope.repository, objects, kindOf);
+      const moved = loosening.length > 0 && object.kind === "ruleset" && object.scope.kind === "repo"
+        && movedPremisesUnmet(loosening, found.live, declaredBaseline, declaredKindOf(objects, object.scope.repository)).length === 0;
       planned.push({ object, body, found, entry: deepFreeze({
         ...base, action: differing.length === 0 ? "unchanged" : "update",
         ...(differing.length === 0 ? {} : { differences: differing }),
@@ -173,62 +173,44 @@ function looseningId(entry: Readonly<{ kind: string; scope: string; key: string 
   return `${entry.kind}:${entry.scope}:${entry.key}`;
 }
 
-type Rule = Readonly<{ type?: unknown; parameters?: Readonly<Record<string, unknown>> }>;
-type RulesetBody = Readonly<{ enforcement?: unknown; rules?: readonly Rule[]; bypass_actors?: readonly unknown[] }>;
-
-const ruleTypes = (body: RulesetBody): readonly string[] => (body.rules ?? []).map((rule) => String(rule.type));
-const ruleOf = (body: RulesetBody, type: string): Rule | undefined => (body.rules ?? []).find((rule) => rule.type === type);
-const checksOf = (body: RulesetBody): readonly string[] => ((ruleOf(body, "required_status_checks")?.parameters?.required_status_checks ?? []) as readonly { context?: unknown }[]).map((check) => String(check.context));
-
-/**
- * WHAT AN UPDATE WEAKENS (§3.4, the review's tighten-first ruling): for a
- * ruleset, an enforcement switched off, a rule removed, a bypass actor
- * added, a required check dropped, fewer approvals or a review safeguard
- * switched off; for the security configuration, a feature disabled; for
- * Actions, SHA pinning off or every action allowed. Empty: a tightening or a
- * neutral change.
- */
-export function looseningOf(kind: ForgeObjectKind, desired: unknown, live: unknown): readonly string[] {
-  const reasons: string[] = [];
-  const want = (desired ?? {}) as Readonly<Record<string, unknown>>;
-  const have = (live ?? {}) as Readonly<Record<string, unknown>>;
-  if (kind === "ruleset" || kind === "org-ruleset") {
-    const next = want as RulesetBody;
-    const now = have as RulesetBody;
-    if (now.enforcement === "active" && next.enforcement !== "active") reasons.push("enforcement off");
-    for (const type of ruleTypes(now)) if (!ruleTypes(next).includes(type)) reasons.push(`removes rule ${type}`);
-    const actors = (body: RulesetBody): readonly string[] => (body.bypass_actors ?? []).map((actor) => JSON.stringify(actor));
-    for (const actor of actors(next)) if (!actors(now).includes(actor)) reasons.push(`adds bypass ${actor}`);
-    for (const context of checksOf(now)) if (ruleTypes(next).includes("required_status_checks") && !checksOf(next).includes(context)) reasons.push(`drops required check ${context}`);
-    const nowReview = ruleOf(now, "pull_request")?.parameters;
-    const nextReview = ruleOf(next, "pull_request")?.parameters;
-    if (nowReview !== undefined && nextReview !== undefined) {
-      if (Number(nextReview.required_approving_review_count) < Number(nowReview.required_approving_review_count)) reasons.push("fewer required approvals");
-      for (const flag of ["require_last_push_approval", "dismiss_stale_reviews_on_push", "required_review_thread_resolution", "require_code_owner_review"]) {
-        if (nowReview[flag] === true && nextReview[flag] === false) reasons.push(`${flag} off`);
-      }
-    }
-  } else if (kind === "security-configuration") {
-    for (const [field, value] of Object.entries(want)) if (have[field] === "enabled" && value !== "enabled") reasons.push(`${field} ${String(value)}`);
-  } else if (kind === "actions-permissions") {
-    if (have.sha_pinning_required === true && want.sha_pinning_required !== true) reasons.push("sha pinning off");
-    if (have.allowed_actions === "selected" && want.allowed_actions !== "selected") reasons.push(`allowed actions ${String(want.allowed_actions)}`);
-  }
-  return reasons;
+/** The declared org baseline ruleset (one, by the declarations). */
+function baselineObject(objects: readonly ForgeObject[]): ForgeObject | undefined {
+  return objects.find((object) => object.kind === "org-ruleset");
 }
 
-/** Whether every reason of a repository ruleset's loosening is a rule or check the declared org baseline carries for this repository. */
-function movedIntoBaseline(reasons: readonly string[], repository: string, objects: readonly ForgeObject[], kindOf: (repository: string) => string | undefined): boolean {
-  const baseline = objects.find((object) => object.kind === "org-ruleset")?.desired as (RulesetBody & { conditions?: { repository_property?: { include?: readonly { property_values?: readonly string[] }[] } } }) | undefined;
-  if (baseline === undefined) return false;
-  const kinds = baseline.conditions?.repository_property?.include?.flatMap((entry) => entry.property_values ?? []) ?? [];
-  const kind = kindOf(repository);
-  if (kind === undefined || !kinds.includes(kind)) return false;
-  return reasons.every((reason) => {
-    if (reason.startsWith("removes rule ")) return ruleTypes(baseline).includes(reason.slice("removes rule ".length));
-    if (reason.startsWith("drops required check ")) return checksOf(baseline).includes(reason.slice("drops required check ".length));
-    return false;
-  });
+/** The declared custom-property values object of `repository`. */
+function propertyValuesObject(objects: readonly ForgeObject[], repository: string): ForgeObject | undefined {
+  return objects.find((object) => object.kind === "custom-property-values" && object.scope.kind === "repo" && object.scope.repository === repository);
+}
+
+/** A repository's declared `kind` (the custom property value). */
+function declaredKindOf(objects: readonly ForgeObject[], repository: string): string | undefined {
+  return (propertyValuesObject(objects, repository)?.desired as { kind?: string } | undefined)?.kind;
+}
+
+/**
+ * THE MOVE'S PREMISES, READ FROM GITHUB: before any loosening is written,
+ * each moved one is judged again against what GitHub holds now, never
+ * against the declarations. That means the repository's live `kind`
+ * property, the live org baseline (its enforcement, target, conditions,
+ * bypass actors and rules), and the live repository ruleset being
+ * loosened. Every unmet premise is named, by loosening id.
+ */
+async function liveMovePremisesUnmet(context: LiveContext, objects: readonly ForgeObject[], moves: readonly Planned[]): Promise<readonly string[]> {
+  const unmet: string[] = [];
+  const baseline = baselineObject(objects);
+  const liveBaseline = baseline === undefined ? undefined : (await KIND_ADAPTERS[baseline.kind].read(context, baseline))?.live;
+  for (const { object, body, entry } of moves) {
+    const id = looseningId(entry);
+    const repository = object.scope.kind === "repo" ? object.scope.repository : "";
+    const values = propertyValuesObject(objects, repository);
+    const liveKind = values === undefined ? undefined : ((await KIND_ADAPTERS[values.kind].read(context, values))?.live as { kind?: unknown } | undefined)?.kind;
+    const liveRuleset = (await KIND_ADAPTERS[object.kind].read(context, object))?.live;
+    if (liveRuleset === undefined) { unmet.push(`${id}: the ruleset is gone from GitHub`); continue; }
+    const reasons = looseningOf(object.kind, body, liveRuleset);
+    unmet.push(...movedPremisesUnmet(reasons, liveRuleset, liveBaseline, typeof liveKind === "string" ? liveKind : undefined).map((premise) => `${id}: ${premise}`));
+  }
+  return unmet;
 }
 
 function summarize(entries: readonly PlanEntry[]): ForgePlan {
@@ -263,8 +245,13 @@ export type ForgeApplyResult = Readonly<{
  *    declaration order (the org baseline before the repository rulesets);
  * 3. the org baseline is READ BACK: it must hold exactly what is declared, or
  *    the apply stops (`forge_tighten_unverified`) with nothing loosened;
- * 4. only then the loosenings, then the retirements;
- * 5. a fresh plan is the verification.
+ * 4. the acknowledged loosenings (each accepted by id);
+ * 5. every MOVE is judged again on what GitHub holds now
+ *    ({@link liveMovePremisesUnmet}: the repository's live `kind`, the live
+ *    baseline, the live ruleset), never on the declarations, and refused
+ *    (`forge_tighten_unverified`) with no protection moved unless every
+ *    premise holds; only then the moves;
+ * 6. the retirements; a fresh plan is the verification.
  * So no step leaves `main` with less protection than before it.
  */
 export async function forgeApply(context: LiveContext, objects: readonly ForgeObject[], retired: readonly RetiredObject[], accepted: ReadonlySet<string> = new Set()): Promise<ForgeApplyResult> {
@@ -298,8 +285,16 @@ export async function forgeApply(context: LiveContext, objects: readonly ForgeOb
     if (unheld.length > 0) {
       throw new ForgeError("forge_tighten_unverified", `The org baseline does not hold what was declared after it was applied (${unheld.map(looseningId).join(", ")}); nothing was loosened.`, { unheld: unheld.map(looseningId) });
     }
-    // 4. Then loosen, then retire.
-    for (const item of loosening) await write(item);
+    // 4. The acknowledged loosenings: the maintainer accepted each by id, and a move may rely on one (a kind set on the repository).
+    for (const item of loosening) if (item.entry.moved !== true) await write(item);
+    // 5. Every MOVE's premises, read back from GitHub (the repository's live kind, the live baseline, the live ruleset), and only then the moves.
+    const moves = loosening.filter((item) => item.entry.moved === true);
+    const unmet = await liveMovePremisesUnmet(context, objects, moves);
+    if (unmet.length > 0) {
+      throw new ForgeError("forge_tighten_unverified", `A move into the org baseline does not hold on GitHub (${unmet.join("; ")}); no protection was moved out of a repository.`, { unheld: unmet });
+    }
+    for (const item of moves) await write(item);
+    // 6. The retirements (each acknowledged).
     for (const { retired: entry, found } of retiredFound) {
       const scope: ForgeScope = { kind: "repo", repository: entry.repository };
       await KIND_ADAPTERS[entry.kind].remove!(context, found, scope);

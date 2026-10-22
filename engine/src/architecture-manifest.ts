@@ -5669,8 +5669,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-forge-plan", path: "src/workflow/forge/plan.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 8, namesSha256: "2c0ef8ab939498a6fdf9333571709ab75777a9468e5e8bb47ace0bd4a02da646" },
-      dependencies: ["src/kernel/integrity.ts","src/shared/debug/debug-system.ts","src/workflow/forge/app-registry.ts","src/workflow/forge/codes.ts","src/workflow/forge/forge-state.ts","src/workflow/forge/github.ts","src/workflow/forge/live-state.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "191a2b3abc7daefac1589f24d2976cc7e5ed3b1dd4dcda3098203406306372bc" },
+      dependencies: ["src/kernel/integrity.ts","src/shared/debug/debug-system.ts","src/workflow/forge/app-registry.ts","src/workflow/forge/codes.ts","src/workflow/forge/forge-state.ts","src/workflow/forge/github.ts","src/workflow/forge/live-state.ts","src/workflow/forge/strictness.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-repository-files", path: "src/workflow/forge/repository-files.ts", realm: "runtime", layer: "infrastructure",
@@ -5681,6 +5681,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-runtime-entry-point", path: "src/runtime/entry-point.ts", realm: "shared", layer: "infrastructure",
       owner: "runtime-infrastructure", publicApi: { exportCount: 1, namesSha256: "01d7cf3d8bfb10347411a4baaf5e1738e22562aa79476ad2e221acc56eb48bca" },
       dependencies: ["node:fs","node:path","node:url"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-strictness", path: "src/workflow/forge/strictness.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "2f6732bae984c96d573192da9c8a062bb0ea43d7ce9ca755921d13e734796c61" },
+      dependencies: ["src/kernel/integrity.ts"],
     }),
   ],
 });

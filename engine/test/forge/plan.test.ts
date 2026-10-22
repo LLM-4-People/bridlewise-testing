@@ -13,7 +13,8 @@ import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import type { ForgeObject } from "../../src/workflow/forge/forge-state.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
-import { forgeApply, forgePlan, looseningOf } from "../../src/workflow/forge/plan.ts";
+import { forgeApply, forgePlan } from "../../src/workflow/forge/plan.ts";
+import { looseningOf, movedPremisesUnmet } from "../../src/workflow/forge/strictness.ts";
 import { fakeGithub, type FakeGithub } from "./fake-github.ts";
 import { SOURCES } from "./forge-settings.ts";
 
@@ -225,23 +226,27 @@ test("the whole declaration set plans, applies in order and converges: zero drif
   assert.equal(fake.requests.filter((request) => request.method !== "GET" && request.path !== "/graphql").length, writes);
 });
 
+const TRUNK_REFS = { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } };
+
 /** A trunk whose repository ruleset holds the review rules today, and the declarations that move them into the org baseline. */
 function movingFixture() {
   const fake = fakeGithub();
+  /** The repository's kind as GitHub holds it (a test changes it to plant a mismatch). */
+  const live = { kind: "trunk" };
   fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
   const checks = [{ context: "CI", integration_id: 15368 }];
   const review = { type: "pull_request", parameters: { required_approving_review_count: 0, dismiss_stale_reviews_on_push: true, require_code_owner_review: false, require_last_push_approval: false, required_review_thread_resolution: true, allowed_merge_methods: ["merge"] } };
   const status = { type: "required_status_checks", parameters: { strict_required_status_checks_policy: false, do_not_enforce_on_create: false, required_status_checks: checks } };
-  fake.collection(`/repos/${ORG}/${REPO}/rulesets`, [{ name: "trunk", source_type: "Repository", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "deletion" }, review, status] }], "id", { source_type: "Repository" });
+  fake.collection(`/repos/${ORG}/${REPO}/rulesets`, [{ name: "trunk", source_type: "Repository", target: "branch", enforcement: "active", bypass_actors: [], conditions: TRUNK_REFS, rules: [{ type: "deletion" }, review, status] }], "id", { source_type: "Repository" });
   fake.collection(`/orgs/${ORG}/rulesets`, [], "id", { source_type: "Organization" });
-  fake.route("GET", /^\/repos\/[^/]+\/[^/]+\/properties\/values$/u, () => ({ status: 200, body: [{ property_name: "kind", value: "trunk" }] }));
+  fake.route("GET", /^\/repos\/[^/]+\/[^/]+\/properties\/values$/u, () => ({ status: 200, body: [{ property_name: "kind", value: live.kind }] }));
   const objects: ForgeObject[] = [
     object("custom-property-values", "kind", { kind: "trunk" }),
     object("org-ruleset", "baseline", { name: "baseline", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "deletion" }, review, status],
       conditions: { repository_property: { include: [{ name: "kind", property_values: ["trunk"] }], exclude: [] }, ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } } }, { kind: "org" }),
-    object("ruleset", "trunk", { name: "trunk", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "deletion" }] }),
+    object("ruleset", "trunk", { name: "trunk", target: "branch", enforcement: "active", bypass_actors: [], conditions: TRUNK_REFS, rules: [{ type: "deletion" }] }),
   ];
-  return { fake, objects };
+  return { fake, objects, live };
 }
 
 test("barrier 1, tighten first: the baseline is created and read back BEFORE the repository rules move out; a move needs no acknowledgement", async () => {
@@ -266,7 +271,8 @@ test("barrier 2, the read-back: a baseline that does not hold what was declared 
   // GitHub stores the baseline without its review rule (a plan limit, an API quirk): the read-back must catch it.
   fake.route("POST", new RegExp(`^/orgs/${ORG}/rulesets$`, "u"), (request) => {
     const body = request.body as { rules: { type: string }[] };
-    const stored = { ...body, id: 9001, source_type: "Organization", rules: body.rules.filter((rule) => rule.type !== "pull_request") };
+    // It drops `deletion`, a rule no move relies on: only the read-back of the whole declared baseline can see it.
+    const stored = { ...body, id: 9001, source_type: "Organization", rules: body.rules.filter((rule) => rule.type !== "deletion") };
     (fake.objects.get(`/orgs/${ORG}/rulesets`) as unknown[]).push(stored);
     fake.objects.set(`/orgs/${ORG}/rulesets/9001`, stored);
     return { status: 201, body: stored };
@@ -290,6 +296,93 @@ test("barrier 3, acknowledgement: a weakening that is not a move is refused befo
   // The classifier, directly: tightening and neutral changes are not loosenings (near misses).
   assert.deepEqual(looseningOf("ruleset", { enforcement: "active", rules: [{ type: "deletion" }, { type: "creation" }] }, { enforcement: "active", rules: [{ type: "deletion" }] }), []);
   assert.deepEqual(looseningOf("actions-permissions", { sha_pinning_required: true, allowed_actions: "selected" }, { sha_pinning_required: false, allowed_actions: "all" }), []);
-  assert.deepEqual(looseningOf("actions-permissions", { sha_pinning_required: false, allowed_actions: "all" }, { sha_pinning_required: true, allowed_actions: "selected" }), ["sha pinning off", "allowed actions all"]);
-  assert.deepEqual(looseningOf("security-configuration", { secret_scanning: "disabled" }, { secret_scanning: "enabled" }), ["secret_scanning disabled"]);
+  assert.deepEqual(looseningOf("actions-permissions", { sha_pinning_required: false, allowed_actions: "all" }, { sha_pinning_required: true, allowed_actions: "selected" }), ['allowed_actions "selected" -> "all"', "sha_pinning_required true -> false"]);
+  assert.deepEqual(looseningOf("security-configuration", { secret_scanning: "disabled" }, { secret_scanning: "enabled" }), ['secret_scanning "enabled" -> "disabled"']);
+});
+
+test("barrier 4, the move's premises are READ FROM GITHUB: a repository whose live kind is not the baseline's keeps its rules, whatever the declarations say", async () => {
+  const { fake, objects, live } = movingFixture();
+  // The probe's case: the repository's live kind is `tool`, and GitHub answers the PATCH that sets `trunk` without changing it.
+  live.kind = "tool";
+  fake.route("PATCH", /^\/repos\/[^/]+\/[^/]+\/properties\/values$/u, () => ({ status: 204 }));
+  const context = contextOf(fake);
+  const plan = await forgePlan(context, objects, []);
+  assert.equal(entry(plan, "ruleset", "trunk").moved, true, "by the declarations, the move holds");
+  assert.deepEqual(entry(plan, "custom-property-values", "kind").loosening, ['kind "tool" -> "trunk"'], "changing a set kind is not proven stricter");
+  await assert.rejects(forgeApply(context, objects, [], new Set(["custom-property-values:bridlewise-testing:kind"])),
+    (error: unknown) => isForgeError(error, "forge_tighten_unverified") && /does not include kind tool/u.test(error.message) && /ruleset:bridlewise-testing:trunk/u.test(error.message));
+  assert.ok(fake.requests.some((request) => request.method === "PATCH" && request.path.endsWith("/properties/values")), "the acknowledged kind change was sent");
+  assert.ok(!fake.requests.some((request) => request.method === "PUT" && request.path.startsWith(`/repos/${ORG}/${REPO}/rulesets/`)), "the trunk kept its rules: main is never left unprotected");
+});
+
+test("barrier 5, the live baseline must carry what moves: a baseline rule weaker than the one leaving the repository stops the move", async () => {
+  const { fake, objects } = movingFixture();
+  // The baseline already exists on GitHub exactly as declared, but declared with ONE approval fewer than the trunk has today.
+  const trunkToday = (fake.objects.get(`/repos/${ORG}/${REPO}/rulesets`) as { rules: { type: string; parameters?: Record<string, unknown> }[] }[])[0]!;
+  trunkToday.rules = trunkToday.rules.map((rule) => rule.type === "pull_request" ? { ...rule, parameters: { ...rule.parameters, required_approving_review_count: 1 } } : rule);
+  const context = contextOf(fake);
+  const plan = await forgePlan(context, objects, []);
+  assert.equal(entry(plan, "ruleset", "trunk").moved, false, "the declared baseline asks fewer approvals: not a move");
+  await assert.rejects(forgeApply(context, objects, []), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged"));
+  assert.ok(!fake.requests.some((request) => request.method !== "GET"), "nothing was written");
+});
+
+test("the strictness order is TOTAL: what is not proven stricter or equal is a loosening, named", () => {
+  const checks = (...entries: unknown[]) => ({ type: "required_status_checks", parameters: { strict_required_status_checks_policy: true, do_not_enforce_on_create: false, required_status_checks: entries } });
+  const ruleset = (conditions: unknown, ...rules: unknown[]) => ({ name: "trunk", target: "branch", enforcement: "active", bypass_actors: [], conditions, rules });
+  const ci = { context: "CI", integration_id: 15368 };
+  const live = ruleset(TRUNK_REFS, checks(ci));
+  // The three weakenings a list of known ones missed: a conditions retarget, a lost integration_id, strict turned off.
+  assert.deepEqual(looseningOf("ruleset", ruleset({ ref_name: { include: ["refs/heads/other"], exclude: [] } }, checks(ci)), live), [
+    'narrows condition ref_name: {"exclude":[],"include":["~DEFAULT_BRANCH"]} -> {"exclude":[],"include":["refs/heads/other"]}',
+  ]);
+  assert.deepEqual(looseningOf("ruleset", ruleset(TRUNK_REFS, checks({ context: "CI" })), live), [
+    'weakens rule required_status_checks: required_status_checks [{"context":"CI","integration_id":15368}] -> [{"context":"CI"}]',
+    'drops required check {"context":"CI","integration_id":15368}',
+  ]);
+  const notStrict = checks(ci);
+  (notStrict.parameters as Record<string, unknown>).strict_required_status_checks_policy = false;
+  assert.deepEqual(looseningOf("ruleset", ruleset(TRUNK_REFS, notStrict), live), ["weakens rule required_status_checks: strict_required_status_checks_policy true -> false"]);
+  // A field or parameter nobody ordered is unproven, so it is a loosening; a condition GitHub added that the order does not know, too.
+  assert.deepEqual(looseningOf("ruleset", ruleset(TRUNK_REFS, { type: "merge_queue", parameters: { max_entries_to_merge: 4 } }), ruleset(TRUNK_REFS, { type: "merge_queue", parameters: { max_entries_to_merge: 5 } })), ["weakens rule merge_queue: max_entries_to_merge 5 -> 4"]);
+  assert.deepEqual(looseningOf("ruleset", ruleset({ ...TRUNK_REFS, repository_id: { repository_ids: [2] } }, checks(ci)), ruleset({ ...TRUNK_REFS, repository_id: { repository_ids: [1] } }, checks(ci))), ['narrows condition repository_id: {"repository_ids":[1]} -> {"repository_ids":[2]}']);
+  assert.deepEqual(looseningOf("actions-workflow", { default_workflow_permissions: "read", new_field: 1 }, { default_workflow_permissions: "read", new_field: 2 }), ["new_field 2 -> 1"]);
+  // A replacing write resets what it omits: an environment that drops its reviewers loosens.
+  assert.deepEqual(looseningOf("environment", { can_admins_bypass: false }, { can_admins_bypass: false, reviewers: [{ type: "User", id: 99 }] }), ['reviewers [{"id":99,"type":"User"}] -> null']);
+  assert.deepEqual(looseningOf("ruleset", { ...live, enforcement: "evaluate" }, live), ["enforcement off"]);
+  assert.deepEqual(looseningOf("ruleset", { ...live, enforcement: "evaluate" }, { ...live, enforcement: "disabled" }), [], "evaluate is stricter than disabled");
+  // Near misses: wider refs, an extra check, strict on, a new rule, a neutral setting, a kind set where none was: none weakens.
+  assert.deepEqual(looseningOf("ruleset", ruleset({ ref_name: { include: ["~ALL"], exclude: [] } }, checks(ci, { context: "More" }), { type: "deletion" }), live), []);
+  assert.deepEqual(looseningOf("repository-settings", { has_wiki: true, allow_squash_merge: true }, { has_wiki: false, allow_squash_merge: false }), []);
+  assert.deepEqual(looseningOf("custom-property-values", { kind: "trunk" }, {}), []);
+  assert.deepEqual(looseningOf("label", { color: "000000" }, { color: "ffffff" }), [], "a label guards nothing");
+});
+
+test("a move's premises, one by one: each unmet one is named, and only a baseline that carries every moved rule at least as strictly holds", () => {
+  const review = { type: "pull_request", parameters: { required_approving_review_count: 1, dismiss_stale_reviews_on_push: true } };
+  const repo = { name: "trunk", target: "branch", enforcement: "active", bypass_actors: [{ actor_id: 7, actor_type: "Integration", bypass_mode: "always" }], conditions: TRUNK_REFS, rules: [{ type: "deletion" }, review] };
+  const baseline = { name: "baseline", target: "branch", enforcement: "active", bypass_actors: [] as unknown[],
+    conditions: { repository_property: { include: [{ name: "kind", property_values: ["trunk"] }], exclude: [] as unknown[] }, ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] as unknown[] } },
+    rules: [{ type: "deletion" }, review] };
+  const reasons = ["removes rule pull_request"];
+  assert.deepEqual(movedPremisesUnmet(reasons, repo, baseline, "trunk"), [], "the positive control holds");
+  const unmet = (changed: Record<string, unknown>, kind = "trunk", why = reasons) => movedPremisesUnmet(why, repo, { ...baseline, ...changed }, kind);
+  const named = (found: readonly string[], pattern: RegExp) => assert.ok(found.length === 1 && pattern.test(found[0]!), JSON.stringify(found));
+  named(unmet({ enforcement: "evaluate" }), /enforcement is "evaluate"/u);
+  named(unmet({ target: "tag" }), /baseline targets "tag"/u);
+  named(unmet({ conditions: { ...baseline.conditions, repository_name: { include: ["x"], exclude: [] } } }), /conditions a move cannot judge: repository_name/u);
+  named(unmet({}, "tool"), /does not include kind tool/u);
+  named(movedPremisesUnmet(reasons, repo, baseline, undefined), /no kind property/u);
+  named(unmet({ conditions: { ...baseline.conditions, repository_property: { include: [{ name: "kind", property_values: ["trunk"] }, { name: "team", property_values: ["x"] }], exclude: [] } } }), /does not include kind trunk/u);
+  named(unmet({ conditions: { ...baseline.conditions, repository_property: { include: [{ name: "kind", property_values: ["trunk"] }], exclude: [{ name: "kind", property_values: ["x"] }] } } }), /excludes repositories/u);
+  named(unmet({ conditions: { ...baseline.conditions, ref_name: { include: ["~DEFAULT_BRANCH"], exclude: ["refs/heads/x"] } } }), /excludes refs/u);
+  named(unmet({ conditions: { ...baseline.conditions, ref_name: { include: ["refs/heads/other"], exclude: [] } } }), /does not cover the refs/u);
+  named(unmet({ bypass_actors: [{ actor_id: 8, actor_type: "Integration", bypass_mode: "always" }] }), /lets .* bypass/u);
+  named(unmet({}, "trunk", ["adds bypass {}"]), /is not a rule a baseline carries/u);
+  named(unmet({ rules: [{ type: "deletion" }] }), /has no pull_request rule/u);
+  named(unmet({ rules: [{ type: "deletion" }, { type: "pull_request", parameters: { required_approving_review_count: 0, dismiss_stale_reviews_on_push: true } }] }), /pull_request rule is weaker: .*required_approving_review_count/u);
+  named(movedPremisesUnmet(reasons, { ...repo, rules: [{ type: "deletion" }] }, baseline, "trunk"), /has no pull_request rule to move/u);
+  named(movedPremisesUnmet(reasons, { ...repo, conditions: {} }, baseline, "trunk"), /names no refs/u);
+  // Near misses that hold: `~ALL` covers any ref, and the baseline's bypass actor is one the ruleset already has.
+  assert.deepEqual(unmet({ conditions: { ...baseline.conditions, ref_name: { include: ["~ALL"], exclude: [] } }, bypass_actors: [repo.bypass_actors[0]] }), []);
 });
