@@ -195,6 +195,10 @@
       "sha256": "a31cb0a101b4f70a4f94a878fce04f43743f1f18b15c58b55c37dfad40504a3f"
     },
     {
+      "path": ".github/forge/ruleset/bridlewise-coordination.content-policy.json",
+      "sha256": "a5e8ad56f3b8b74525caecfe7a2178b63061e9f1afe8e753de7c43a56f45e6d9"
+    },
+    {
       "path": ".github/forge/label/bridlewise-testing.area_engine.json",
       "sha256": "6f3b9a76df847460b4be4f0c1e77a2ee75d1e132226b7ee6af8455009bee6f7b"
     },

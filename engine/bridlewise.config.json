@@ -1321,6 +1321,27 @@
         "Done"
       ]
     },
+    "contentPolicy": {
+      "maxFileMegabytes": 10,
+      "forbiddenExtensions": [
+        ".pem",
+        ".key",
+        ".p12",
+        ".pfx",
+        ".env",
+        ".sqlite",
+        ".db",
+        ".zst",
+        ".tar",
+        ".gz",
+        ".zip"
+      ],
+      "forbiddenPaths": [
+        "**/secrets/**",
+        "**/.bridlewise/**",
+        "**/tokens/**"
+      ]
+    },
     "retired": [
       {
         "kind": "ruleset",

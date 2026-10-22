@@ -165,7 +165,26 @@ function rulesets(settings: ForgeSettings): readonly ForgeObject[] {
       rules: [{ type: "creation" }, { type: "deletion" }],
     }),
     ...branchProtections,
+    ...contentPolicyRulesets(settings),
   ];
+}
+
+/**
+ * The push ruleset of every PRIVATE governed repository (github-only §3.2;
+ * GitHub's push rulesets apply to private repositories only, where Team has
+ * no secret scanning): the content policy's size, extension and path limits.
+ */
+function contentPolicyRulesets(settings: ForgeSettings): readonly ForgeObject[] {
+  const policy = settings.contentPolicy;
+  return governedRepositories(settings).filter((repository) => repository.visibility === "private").map((repository) =>
+    object("ruleset", { kind: "repo", repository: repository.name }, "content-policy", {
+      name: "content-policy", target: "push", enforcement: "active", bypass_actors: [],
+      rules: [
+        { type: "max_file_size", parameters: { max_file_size: policy.maxFileMegabytes } },
+        { type: "file_extension_restriction", parameters: { restricted_file_extensions: policy.forbiddenExtensions.map((extension) => `*${extension}`) } },
+        { type: "file_path_restriction", parameters: { restricted_file_paths: [...policy.forbiddenPaths] } },
+      ],
+    }));
 }
 
 /** Repository, Actions and release settings (github-only §3.3) for every governed repository. */

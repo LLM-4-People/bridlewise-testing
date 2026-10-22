@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { allowedActionPatterns, FORGE_ISSUE_TYPES, forgeDeclarations } from "../../src/workflow/forge/declarations.ts";
-import { differences, referencesOf, resolveReferences, writableBody, type ForgeObject } from "../../src/workflow/forge/forge-state.ts";
+import { differences, referencesOf, resolveReferences, scopeName, writableBody, type ForgeObject } from "../../src/workflow/forge/forge-state.ts";
 import { codeownersFile, dependabotFile, forgeTreeFacts, workflowUsesOf } from "../../src/workflow/forge/repository-files.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { workingTreeReader, type TreeReader } from "../../src/git/tree-reader.ts";
@@ -54,6 +54,14 @@ test("the declarations: every object once, in apply order, with the plan's unava
   for (const name of ["Workstream", "Flake", "Lesson", "Bug", "Task"]) assert.ok(objects.some((entry) => entry.kind === "issue-type" && entry.key === name), name);
   assert.deepEqual((find(objects, "issue-field", "Area").desired as { options: { name: string }[] }).options.map((option) => option.name), ["engine", "docs"]);
   assert.equal((find(objects, "issue-field", "Severity").desired as { visibility: string }).visibility, "all");
+  // The content policy: one push ruleset per PRIVATE governed repository (the notes one), from the config section; never on a public or ungoverned one.
+  const pushRulesets = objects.filter((entry) => entry.kind === "ruleset" && (entry.desired as { target: string }).target === "push");
+  assert.deepEqual(pushRulesets.map((entry) => `${scopeName(entry.scope)}:${entry.key}`), ["bridlewise-coordination:content-policy"]);
+  assert.deepEqual((pushRulesets[0]!.desired as { rules: unknown[] }).rules, [
+    { type: "max_file_size", parameters: { max_file_size: 10 } },
+    { type: "file_extension_restriction", parameters: { restricted_file_extensions: ["*.pem", "*.key", "*.env"] } },
+    { type: "file_path_restriction", parameters: { restricted_file_paths: ["**/secrets/**", "**/tokens/**"] } },
+  ]);
 });
 
 test("the stage decides the flip: p0 keeps the P0 contexts on the trunk only, door requires the door App's check everywhere with signatures and one approval", () => {

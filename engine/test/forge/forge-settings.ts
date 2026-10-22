@@ -45,6 +45,7 @@ export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
     frozenPrefixes: ["engine/verification/benchmarks/"],
   },
   project: { title: "Bridlewise", statusOptions: ["Intake", "Ready", "In progress", "In review", "Done"] },
+  contentPolicy: { maxFileMegabytes: 10, forbiddenExtensions: [".pem", ".key", ".env"], forbiddenPaths: ["**/secrets/**", "**/tokens/**"] },
   retired: [{ kind: "ruleset", repository: "bridlewise-testing", name: "protect-release-tags" }],
 });
 

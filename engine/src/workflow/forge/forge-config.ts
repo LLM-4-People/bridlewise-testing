@@ -142,6 +142,20 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
   }),
   /** The org Project the projection writes (github-only §9.2). */
   project: z.strictObject({ title: z.string().min(1).max(100), statusOptions: z.array(z.string().min(1).max(50)).min(1) }),
+  /**
+   * THE CONTENT POLICY (github-only §3.2, §5.4): what no commit may carry.
+   * A private governed repository's push ruleset (`content-policy`) is
+   * generated from it; the door's tree judge must read this same section
+   * (#125), never a second list.
+   */
+  contentPolicy: z.strictObject({
+    /** The largest file a push may carry, in megabytes (GitHub's push rule takes 1 to 100). */
+    maxFileMegabytes: z.number().int().min(1).max(100),
+    /** Extensions no file may have, each a dot and a name (`.pem`). */
+    forbiddenExtensions: z.array(z.string().regex(/^\.[A-Za-z0-9]{1,32}$/u)).min(1).max(200),
+    /** Paths no file may sit under, in GitHub's fnmatch syntax (`**\/secrets/**`). */
+    forbiddenPaths: z.array(z.string().regex(/^[A-Za-z0-9._*\/-]{1,200}$/u)).min(1).max(200),
+  }),
   /** Objects a generated one replaced: `harness forge apply` deletes them (by kind and name). */
   retired: z.array(z.strictObject({ kind: z.enum(["ruleset"]), repository: z.string().regex(NAME), name: z.string().min(1) })),
 });
