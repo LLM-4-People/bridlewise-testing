@@ -35,6 +35,7 @@ import { dirname, join } from "node:path";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../kernel/errors.ts";
 import { emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
+import { escapeMarkdownTableCell } from "../../../../shared/markup.ts";
 import {
   COMMUNITY_DIRECTORY,
   CONFIRMATIONS_FIELD_ID,
@@ -115,9 +116,9 @@ const repositoryUrl = (facts: CommunityFacts): string => `https://github.com/${f
 const advisoryUrl = (facts: CommunityFacts): string => `${repositoryUrl(facts)}/security/advisories/new`;
 const categoryUrl = (facts: CommunityFacts, slug: string): string => `${repositoryUrl(facts)}/discussions/new?category=${slug}`;
 
-/** A Markdown table cell: a backslash and a pipe escaped in one pass and line breaks folded, so a source string never breaks the table. */
+/** A Markdown table cell: escaped by the one markup owner (backslash and pipe), line breaks folded, so a source string never breaks the table. */
 function cell(text: string): string {
-  return text.replace(/[\\|]/gu, (character) => `\\${character}`).replace(/\s*\n\s*/gu, " ");
+  return escapeMarkdownTableCell(text).replace(/\s*\n\s*/gu, " ");
 }
 
 /** A planned claim's line: what it will be, and where it is tracked. */

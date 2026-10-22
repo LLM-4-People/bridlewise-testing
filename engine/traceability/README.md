@@ -13,7 +13,9 @@ the generators re-derive the pinned ones rather than hand-editing them.
 - `s1.json` — the S1 slice trace: requirement/control IDs and the twelve
   registered behaviors.
 - `s1-test-inventory.json` — the complete S1 test inventory: every test
-  name bound to its source ID and source hash.
+  name bound to its source ID and source hash. A cache of the tree, not
+  committed (#221): `scripts/test-inventory.ts` writes it (`harness sync`,
+  and the runner before every run) and `--print` answers it without writing.
 - `s2.json` — the S2.3 slice trace, pinning the official OpenAI and MCP
   source revisions, retrieval date, and digests.
 - `s2.4.json` — the S2.4 slice trace for the canonical requirements

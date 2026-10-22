@@ -1,16 +1,17 @@
 {
-  "schema": "bridlewise-promotion-profile/v1",
-  "name": "testing-to-master",
+  "schema": "bridlewise-promotion-profile/v3",
+  "name": "main-to-product",
   "source": {
-    "ref": "refs/heads/testing"
+    "ref": "refs/heads/main"
   },
   "target": {
-    "ref": "refs/heads/master"
+    "ref": "refs/heads/product"
   },
   "remote": "origin",
-  "trigger": "on-source-publish",
+  "trigger": "manual",
   "boundary": {
     "entryPoints": [
+      "bin/bridlewise.mjs",
       "src/main.ts",
       "server/index.ts",
       "engine/src/cli.ts",
@@ -29,6 +30,17 @@
       "engine/scripts/generation/repository-path-unicode.ts"
     ],
     "include": [
+      "LICENSE",
+      "NOTICE",
+      "THIRD_PARTY_NOTICES.md",
+      "SECURITY.md",
+      "CHANGELOG.md",
+      "CITATION.cff",
+      ".nvmrc",
+      ".node-version",
+      ".editorconfig",
+      ".gitattributes",
+      ".devcontainer/",
       "index.html",
       "public/",
       "shared/",
@@ -41,7 +53,6 @@
       "engine/traceability/artifacts/",
       "engine/traceability/requirements.json",
       "engine/traceability/config-document-schema.json",
-      "engine/traceability/s1-test-inventory.json",
       "engine/traceability/test-surface-dispositions.json",
       "engine/traceability/s1.json",
       "engine/traceability/s2.json",
@@ -65,8 +76,6 @@
       "engine/.gitignore",
       ".githooks/",
       "engine/README.md",
-      "engine/docs/architecture/",
-      "engine/docs/registration-procedure.md",
       "scripts/trace.ts"
     ],
     "exclude": [
@@ -99,7 +108,8 @@
       "tsconfig.tests.json",
       "promotion/",
       "vitest.config.ts",
-      "engine/tsconfig.tests.json"
+      "engine/tsconfig.tests.json",
+      "product-only/"
     ],
     "companions": [],
     "spawnCalls": [
@@ -108,7 +118,14 @@
         "argument": 1,
         "base": "engine/"
       }
-    ]
+    ],
+    "overlay": {
+      "folder": "product-only/",
+      "kinds": [
+        "*.md",
+        "Makefile"
+      ]
+    }
   },
   "transforms": [
     {

@@ -4,7 +4,7 @@
 // node_modules/, bridlewise.config.json, the on-disk bundle, etc.) races
 // with other tests that verify the artifact. The runBundleBuildStep test
 // (removed in a prior round) rebuilt the on-disk dist/bundle.js during the test
-// suite, racing with the hash-binding tests that verify the bundle sha256.
+// suite, racing with the tests that verify the on-disk bundle.
 //
 // This test scans every test file dynamically (readdirSync — no hardcoded
 // list, deny-by-default) for filesystem-write calls where the path argument

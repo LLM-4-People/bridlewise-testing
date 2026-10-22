@@ -69,6 +69,7 @@ export const LANGUAGE_ENFORCED_MODULES: ReadonlySet<string> = Object.freeze(
     "workspaceGit",
     "testExecution",
     "harnessCommands",
+    "release",
     "agents",
     "network",
   ]),

@@ -2,7 +2,7 @@
  * THE PROMOTION TRAILERS — the one reader of what a promotion commit says
  * about itself (`ROOT_POLICY.workflow.promotion.trailers`): the profile and
  * its blob (`Promotion-Profile: <name>@<blob>`), the source commit it carries
- * (`Promoted-From`), the target edits it was told to overwrite
+ * (`Projected-From`), the target edits it was told to overwrite
  * (`Promotion-Accepted-Target-Edits`) and, for a rollback, the promotion it
  * restores (`Promotion-Restores`). The durable state a rerun derives from:
  * the plan's last promotion and never-rule, a resumed pending commit, a

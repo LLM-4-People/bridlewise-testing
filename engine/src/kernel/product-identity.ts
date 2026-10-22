@@ -25,9 +25,9 @@
  *
  * ── WHY A LEAF, NOT root-policy ───────────────────────────────────────────
  *
- * `root-policy.ts` is self-referentially pinned: it carries `bundleSha256`
- * while itself living inside the bundle, so any edit to it re-primes the
- * build/pin ordering ritual. The product identity is consumed by root-policy
+ * `root-policy.ts` carries the pins `harness sync` rewrites and is compiled
+ * into the bundle, so it changes with every regeneration. The product
+ * identity is consumed by root-policy
  * (the config basename, the schema ids it pins), so it must be a leaf module
  * that root-policy imports — never the other way around, and never a value
  * root-policy restates.

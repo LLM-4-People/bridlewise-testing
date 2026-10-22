@@ -24,12 +24,13 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { generatedOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
+import { syncFrozenRecords } from "../../src/workflow/record-links.ts";
 import { snapshotWorkingTree, stageInCopy } from "../../src/git/working-copy.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 
@@ -127,6 +128,16 @@ test("commit guard: EVERY commit is certified for its frozen records — a docs-
   try {
     stubTypecheck(join(copy.root, "package.json"));
     stubTypecheck(join(copy.engineRoot, "package.json"));
+    // A tree that carries no frozen-record population (the public snapshot
+    // publishes none) still proves the guard: plant one record outside the
+    // engine and pin it through the frozen-record owner, so the refusal below
+    // never depends on which records a tree happens to hold.
+    if (!existsSync(join(copy.root, ROOT_POLICY.verification.frozenRecordManifest))) {
+      const plantedRoot = ROOT_POLICY.verification.frozenRecordRoots.find((root) => !root.startsWith("engine/"))!;
+      mkdirSync(join(copy.root, plantedRoot), { recursive: true });
+      writeFileSync(join(copy.root, plantedRoot, "planted-frozen-record.md"), "# A planted frozen record\n\nIts bytes are pinned.\n");
+      syncFrozenRecords(copy.root, true);
+    }
     stageInCopy(copy.root, ["."]);
     snapshotWorkingTree(copy.root, { message: "baseline", advanceHead: true, identity: { name: "Commit Guard Test", email: "guard.invalid@example.invalid" } });
     const manifest = JSON.parse(readFileSync(join(copy.root, ROOT_POLICY.verification.frozenRecordManifest), "utf8")) as { files: Record<string, string> };

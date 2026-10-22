@@ -18,26 +18,33 @@ follows is [WORKFLOW.md](WORKFLOW.md).
 - **Work happens on `testing`.** Every edit, test, guard, record and tool
   lives there, and reaches it only through a workspace merge (§1b) or the
   committer's certified commits.
-- **`master` is a promotion of `testing`.** Its tree is a pure function of a
-  `testing` commit S and the promotion profile S carries
-  (`promotion/testing-to-master.json`): what the product's entry points reach,
-  what the profile includes, and the derived package manifests and lockfiles.
-  Nothing is merged, so nothing conflicts and nothing is settled by hand.
-- **Never edit `master` directly**, and never use its checkout as a work tree.
-  A direct edit is refused at the next promotion (`promotion_target_edits`)
-  and handed back as a patch to land on `testing` (§4).
-- **Never merge `master` into `testing`.** The promotion refuses a source
-  that holds a promotion commit (`promotion_never_rule`): the rule is
-  structural, not a convention.
+- **`product` is a promotion of `main`** (on GitHub, the one repository;
+  [PROMO-GH](../decisions/PROMO-GH-the-product-is-promoted-on-land.md)). Its
+  tree is a pure function of a `main` commit S and the promotion profile S
+  carries (`promotion/main-to-product.json`): what the product's entry points
+  reach, what the profile includes, the files of its overlay folder, and the
+  derived package manifests and lockfiles. Nothing is merged, so nothing
+  conflicts and nothing is settled by hand.
+- **Never edit `product` directly**, and never use its checkout as a work
+  tree. A direct edit is refused at the next promotion
+  (`promotion_target_edits`) and handed back as a patch to land on `main`
+  (§4).
+- **Never merge `product` into `main`.** The promotion refuses a source that
+  holds a promotion commit (`promotion_never_rule`): the rule is structural,
+  not a convention.
 
 ## 1b. Feature → `testing`: the workspace merge — refusals and the land
 
-`npm run ws -- merge <id>` (= `node engine/src/cli.ts harness workspace merge
-<id>`, the integrator in `engine/src/workflow/workspace-manager.ts`) lands a
-validated workspace on its target branch — one of
-`workspaceIsolation.landTargets` (this repository: `testing` only; `master`
-never). It lands locally and the caller pushes. Under the repository's merge
-lock (merges queue):
+A feature workspace lands on its target's UPSTREAM trunk on the forge — one
+of `workspaceIsolation.landTargets`, which name the forge's trunk (this
+repository: `main` on GitHub), never a local branch name: any local branch
+whose upstream is that trunk lands there, and a target whose upstream is
+another trunk, another remote, or none is refused at create. There are two
+ways to land, side by side: `ws land` through the forge's merge queue (§1c),
+and the local integrator, `npm run ws -- merge <id>` (= `node
+engine/src/cli.ts harness workspace merge <id>`, in
+`engine/src/workflow/workspace-manager.ts`), which lands locally and leaves
+the push to the caller. Under the repository's merge lock (merges queue):
 
 1. **Preconditions.** Validated (`ws validate`), the target still a land
    target, the lease live, the worktree intact and clean at the validated
@@ -71,11 +78,77 @@ A failure before the land leaves every checkout untouched and the workspace
 `active` (or `validating` when git refused the land itself). An integrator
 that dies leaves it `merging`: `ws recover <id>` finishes or rolls back.
 
+A feature workspace's target must track an upstream branch on a remote
+(`branch.<target>.remote`/`.merge`): `create` refuses one that does not
+(`workspace_target_untracked`), and one whose remote is not the forge's
+trunk repository (`workspace_forge_remote_unknown`). `publish` re-makes the branch's new commits
+on the forge as signed twins through the Git Data API (moving the forge
+branch only from where the workspace left it: another writer's commits are
+refused, `branch_moved_by_another_writer`) and opens or regenerates the DRAFT
+pull request; `ready` takes it out of draft once its published tree passed
+`validate`, and any later round that publishes a new head returns it to
+draft. Records are stored per version: each older store (v3, before the
+land; v2, before the forge), which older code still uses, is read and
+migrated in memory through one chain (v2 → v3 → v4) and never written. A
+workspace only an older store knows is read-only to this version until the
+recorded P7 cutover: every verb that would change it refuses
+(`workspace_owned_by_v3_checkout` or `workspace_owned_by_v2_checkout`,
+naming its record and worktree) — act on it from the checkout of the version
+that made it.
+
+## 1c. Feature → `main` on the forge: `ws land`
+
+`npm run ws -- land <id>` puts a workspace's pull request in the forge's
+MERGE QUEUE and waits for the queue's verdict. Auto-merge is never used.
+
+1. **Preconditions.** Validated, published, ready, and nothing unpublished:
+   the worktree's HEAD is the published head, clean, and its tree is the one
+   `validate` passed. Then the harness's own judgement, against the trunk as
+   the forge holds it now: the land target, the lease, the overlay's
+   checkout, every changed path inside the lease, nothing merged on the
+   trunk since the fork point touching one, the staleness budget, the
+   pending leases. A refusal sends the record back to `active`.
+2. **The request.** The pull request is read once. If it is closed, or its
+   head is not the published one, the land is refused before anything is
+   asked (`workspace_pull_request_closed`, `workspace_published_head_moved`).
+   Otherwise the record becomes `merging`, naming the one head that may
+   land, and GraphQL `enqueuePullRequest` is sent with that head as
+   `expectedHeadOid`. If it is already queued at that head, nothing is
+   asked: the land only waits.
+   - GitHub refuses the enqueue (not mergeable, a check or a review
+     missing): `workspace_enqueue_refused`, and the record goes back to
+     `validating`.
+   - GitHub answers that it queued another head: `workspace_land_foreign_head`.
+3. **The wait.** The pull request is read once every `landing.pollIntervalMs`
+   (each read covers its whole state). Leaving the queue without merging
+   (`workspace_land_dequeued`), a moved head (`workspace_published_head_moved`)
+   or a close ends the land, and the record goes back to `active`. After
+   `landing.timeoutMs` the wait stops with `workspace_land_pending`: the
+   record stays `merging`, `ws land` resumes the wait, and `ws recover`
+   looks once.
+4. **After the merge** (under the merge lock): the trunk is fetched.
+   - If the trunk does not hold the merge commit: `workspace_land_unconfirmed`
+     (retriable).
+   - If the merge commit's second parent is not EXACTLY the head that was
+     asked for: `workspace_land_foreign_head`, and no receipt is written.
+   Otherwise the local target follows the trunk: the overlay's adoption, or
+   the tree landing's fast-forward or ref swap. If git refuses the follow,
+   the refusal is recorded, never thrown, because the land already
+   happened. Then the qualifying runs and the timeline are imported, the
+   worktree and the local branch are removed, and the hashed LAND receipt
+   is written. Finishing is idempotent: a land that another land or a
+   recover already finished answers its receipt.
+
+`ws abort` closes the workspace's open pull request with a comment and keeps
+its branch.
+
 ## 2. The commands
 
 ```bash
 node src/cli.ts harness workspace create --agent <name> --write-set <path…> [--target <branch>] [--base <ref>]
 node src/cli.ts harness workspace validate <id> [--full]
+node src/cli.ts harness workspace publish <id> | ready <id>
+node src/cli.ts harness workspace land <id>
 node src/cli.ts harness workspace merge <id>
 node src/cli.ts harness workspace recover <id> | abort <id> [--quarantine]
 ```
@@ -126,7 +199,7 @@ process exits with its class's code (§7).
    and ONE `git commit` records it — the repository's commit hooks certify
    it like any commit, never `--no-verify`. The commit has `master`'s tip and
    S as parents, S's committer as author and committer at S's date, and the
-   trailers `Promoted-From`, `Promotion-Profile` (and
+   trailers `Projected-From`, `Promotion-Profile` (and
    `Promotion-Accepted-Target-Edits`). It is pinned by
    `refs/bridlewise/promotion/<profile>/pending` and described by a receipt:
    the plan, the overrides and their reasons, the convergence, every command
@@ -273,7 +346,7 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_hold_set` | ok | 0 | Automatic promotion is paused for this profile until `release-hold --reason <text>`. |
 | `promotion_hold_released` | ok | 0 | Automatic promotion resumes at the next source publication (or run `apply`). |
 | `promotion_not_held` | ok | 0 | Nothing to release: no hold is set for this profile. |
-| `promotion_usage` | input | 2 | Run `harness promote <status|plan|explain|apply|rollback|hold|release-hold|auto> [--profile <name>] [--source <rev>]` (apply: `--no-publish`, `--no-push`, `--accept-target-edits <path>… --reason <text>`, `--allow-deletions --reason <text>`, `--release-hold --reason <text>`, `--auto`; rollback: `--to <promotion commit> --reason <text>`; hold and release-hold: `--reason <text>`; auto: `--refs <refs>`). |
+| `promotion_usage` | input | 2 | Run `harness promote <status|plan|explain|apply|forge-publish|rollback|hold|release-hold|auto> [--profile <name>] [--source <rev>]` (apply: `--no-publish`, `--no-push`, `--accept-target-edits <path>… --reason <text>`, `--allow-deletions --reason <text>`, `--release-hold --reason <text>`, `--auto`; rollback: `--to <promotion commit> --reason <text>`; hold and release-hold: `--reason <text>`; auto: `--refs <refs>`; forge-publish: `--out <file>`, `--source <rev>` and apply's reasoned overrides). |
 | `promotion_profile_missing` | input | 2 | Add the profile `<profile directory>/<name>.json` on the source branch (see promotion/README.md), or name an existing one with --profile. |
 | `promotion_profile_invalid` | input | 2 | Fix the profile on the source branch: the JSON pointer names the field and the rule it breaks. |
 | `promotion_source_missing` | input | 2 | Name a source revision that exists (--source <rev>), or create the profile's source branch. |
@@ -283,6 +356,7 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_unresolved_import` | precondition | 3 | Fix on the source: the importer names a module the tree does not hold (a dangling import ships broken code). |
 | `promotion_import_into_excluded` | precondition | 3 | Fix on the source: product code must not import a path the profile excludes (move the module into the product, or the import out of it). |
 | `promotion_dependency_undeclared` | precondition | 3 | Fix on the source: declare the package in the owning package.json (`dependencies` for a runtime import). |
+| `promotion_overlay_invalid` | precondition | 3 | Fix the overlay folder on the source: each of its files ships at its path without the folder prefix, so it must be a regular file of a kind the overlay declares, at a path the profile does not exclude and the projection does not already carry. |
 | `promotion_gitlink_unsupported` | precondition | 3 | Exclude the submodule path in the profile: a gitlink cannot be projected. |
 | `promotion_manifest_script_missing` | precondition | 3 | The profile keeps a script the source manifest does not declare (a typo or a rename): correct the transform's `scripts` list, or restore the script. |
 | `promotion_manifest_script_emptied` | precondition | 3 | Every segment of a kept script was pruned: add the script's file to `boundary.entryPoints`, or drop the script from the transform's `scripts` list. |
@@ -325,4 +399,24 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_git_errored` | errored | 4 | None: a git step of the landing was ended by the environment (its ceiling, a signal, a full disk); run it again later (`workspaceGit.timeouts` bounds each step). |
 | `promotion_git_failed` | integrity | 6 | Stop and keep the evidence: a git step of the landing refused (its operation and words are named, the candidate is kept); report it, never publish it. |
 | `promotion_pending_conflict` | integrity | 6 | Stop and keep the evidence: another run pinned the pending ref while this one held the target's lock; report it, never publish either commit. |
+| `promotion_forge_published` | ok | 0 | Attest the projection receipt (its digest is the attestation's subject); the product branch on the forge is the published commit. |
+| `promotion_forge_profile_mismatch` | integrity | 6 | Stop and keep the evidence: the built commit names another profile blob or source than the projection being published; never publish it. |
+| `promotion_forge_projection_mismatch` | integrity | 6 | Stop and keep the evidence: the built commit's tree is not the projection recomputed from its source alone (each differing path is named), or the projection cannot be recomputed; never publish it. |
+| `promotion_forge_not_at_source` | precondition | 3 | Run forge-publish in a checkout clean at the source commit (the publish job's checkout of main): the build and its recompute are the source's own code. |
+| `promotion_forge_target_moved` | precondition | 3 | Another publication landed on the product branch since this promotion was built: run the publish job again; it rebuilds on the new head. |
+| `promotion_source_unproven_commit` | integrity | 6 | Stop and keep the evidence: the pending commit is not a promotion commit (no Projected-From or Promotion-Profile trailer, or parents other than [product tip, source]); never publish it. |
+| `promotion_forge_refused` | precondition | 3 | The forge refused the publication (the forge code and remedy are named): fix the publisher App's permission or the repository's rules, then run the job again. |
+| `promotion_forge_errored` | errored | 4 | None: the forge failed or a budget is spent (the forge code says which, and when to resume); run the job again later — nothing was published, or the next run finds the branch moved and rebuilds. |
+| `promotion_forge_mismatch` | integrity | 6 | Stop and keep the evidence: the forge stored or signed something other than the built commit (a blob, the tree, an unverified commit, or a branch not at the published commit); report it with the request ids. |
+| `promotion_release_due` | ok | 0 | The train departs: build the assets from the product commit, assemble and attest them, and publish the release immutable. |
+| `promotion_release_not_due` | ok | 0 | Nothing to do now: each reason names what the next release waits for. |
+| `promotion_release_notes_written` | ok | 0 | The notes are the release's body: publish them with the release, unedited. |
+| `promotion_release_assembled` | ok | 0 | Attest each asset (its digest is listed), then publish the release immutable. |
+| `promotion_release_usage` | input | 2 | Run `harness release <plan|notes|assemble> --releases <records.jsonl>` (plan: `[--now <iso time>] [--manual]`; notes: `--repository <forge>/<owner>/<name> --out <file> [--now <iso time>] [--manual]`; assemble: `--out <empty folder> --bundle <file> --guardian <file> --sbom <file> --docs-site <file> [--now <iso time>] [--manual]`). |
+| `promotion_release_settings_missing` | input | 2 | Declare `promotion.release` in the configuration (the product's profile, the train mode, the minimum interval, the tag prefix, the Discussions category, the prior releases' address). |
+| `promotion_release_product_missing` | input | 2 | Promote first (the product ref is the target of the release profile), or fetch the product branch. |
+| `promotion_release_source_unproven` | integrity | 6 | Stop and keep the evidence: the product tip carries no Projected-From trailer, so something other than the publisher wrote it; inspect the product branch, never release it. |
+| `promotion_release_tag_lightweight` | integrity | 6 | Stop and keep the evidence: a release tag on the product's line is lightweight, so the train did not make it (it creates annotated, immutable tags only; the tags ruleset requires them); find who made it, never release over it. |
+| `promotion_release_version_invalid` | precondition | 3 | Fix on main: the root package.json declares the product's semantic version, and a release version never goes back. |
+| `promotion_release_assets_incomplete` | failed | 5 | Build every named input (the engine bundle, the guardian, the SBOM, the documentation site) and assemble again: a release never ships without one. |
 | `promotion_unexpected` | integrity | 6 | Stop and keep the evidence: the landing ended on an error no code names (its message is given, the candidate is kept); report it. |

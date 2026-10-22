@@ -1,8 +1,9 @@
 /**
  * THE FLOOR'S GITHUB READS, on the forge port — the workflow runs, the open
  * code-scanning and Dependabot alerts (with the completeness the floor
- * judges), and the releases the floor status page and the promotion gate
- * show (`scripts/floor/status.mjs`, `scripts/promotion-gate.mjs`). They were
+ * judges), the releases and the `product` branch's tip the floor status page
+ * shows (`scripts/floor/status.mjs`), and the Pages deployments and commit
+ * comparison the deploy-order check judges (`scripts/floor/deploy-order.mjs`). They were
  * a second GitHub client (`scripts/floor/github.mjs`, deleted): every read is
  * now a typed call of the one client, through the one outbound door.
  */
@@ -41,7 +42,7 @@ export type AlertCount = Readonly<{
 export type Release = Readonly<{ tag: string; name: string | null; draft: boolean; prerelease: boolean; publishedAt: string | null; url: string }>;
 
 /** `/repos/<owner>/<name>` of `owner/name`. */
-function repositoryPath(repository: string): string {
+export function repositoryPath(repository: string): string {
   const [owner, name, ...rest] = repository.split("/");
   if (owner === undefined || name === undefined || owner === "" || name === "" || rest.length > 0) throw new ForgeError("forge_request_invalid", `Not an owner/name repository: ${repository}.`, { repository });
   return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
@@ -127,6 +128,62 @@ export async function listReleases(client: ForgeClient, repository: string): Pro
     tag: String(release.tag_name), name: typeof release.name === "string" ? release.name : null, draft: release.draft === true, prerelease: release.prerelease === true,
     publishedAt: typeof release.published_at === "string" ? release.published_at : null, url: String(release.html_url),
   }));
+}
+
+export type BranchTip = Readonly<{ commit: string; committedAt: string | null }>;
+
+/** A branch's tip, or `null` when the repository has no such branch (e.g. `product` before its first promotion). */
+export async function branchTip(client: ForgeClient, repository: string, branch: string): Promise<BranchTip | null> {
+  try {
+    const answer = await client.rest<{ commit?: { sha?: unknown; commit?: { committer?: { date?: unknown } } } }>({
+      method: "GET", path: `${repositoryPath(repository)}/branches/${encodeURIComponent(branch)}`,
+    });
+    const sha = answer.data?.commit?.sha;
+    if (typeof sha !== "string") throw new ForgeError("github_response_invalid", `The branch ${branch} answered no commit.`, { branch });
+    const date = answer.data.commit?.commit?.committer?.date;
+    return Object.freeze({ commit: sha, committedAt: typeof date === "string" ? date : null });
+  } catch (error) {
+    if (isForgeError(error, "github_not_found")) return null;
+    throw error;
+  }
+}
+
+export type Deployment = Readonly<{ id: number; sha: string }>;
+export type DeploymentStatus = Readonly<{ state: string; environmentUrl: string | null }>;
+
+/** The newest deployments of an environment (one page of 100, newest first). */
+export async function deployments(client: ForgeClient, repository: string, environment: string): Promise<readonly Deployment[]> {
+  const answer = await client.rest<unknown>({ method: "GET", path: `${repositoryPath(repository)}/deployments`, query: { environment, per_page: 100 } });
+  if (!Array.isArray(answer.data)) throw new ForgeError("github_response_invalid", "The deployments endpoint answered no list.", { environment });
+  return (answer.data as Record<string, unknown>[]).map((deployment) => Object.freeze({ id: Number(deployment.id), sha: String(deployment.sha) }));
+}
+
+/** Every status a deployment reported (newest first, up to 100). */
+export async function deploymentStatuses(client: ForgeClient, repository: string, id: number): Promise<readonly DeploymentStatus[]> {
+  const answer = await client.rest<unknown>({ method: "GET", path: `${repositoryPath(repository)}/deployments/${String(id)}/statuses`, query: { per_page: 100 } });
+  if (!Array.isArray(answer.data)) throw new ForgeError("github_response_invalid", `The statuses of deployment ${String(id)} are not a list.`, { id });
+  return (answer.data as Record<string, unknown>[]).map((status) => Object.freeze({
+    state: String(status.state), environmentUrl: typeof status.environment_url === "string" && status.environment_url.length > 0 ? status.environment_url : null,
+  }));
+}
+
+export type CommitComparison = "identical" | "ahead" | "behind" | "diverged";
+
+/**
+ * How `head` relates to `base` in the commit graph, or `null` when GitHub
+ * no longer holds `base` (a rewritten history): the caller decides what an
+ * unknown relation means, never this read.
+ */
+export async function compareCommits(client: ForgeClient, repository: string, base: string, head: string): Promise<CommitComparison | null> {
+  try {
+    const answer = await client.rest<{ status?: unknown }>({ method: "GET", path: `${repositoryPath(repository)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}` });
+    const status = answer.data?.status;
+    if (status === "identical" || status === "ahead" || status === "behind" || status === "diverged") return status;
+    throw new ForgeError("github_response_invalid", `The comparison of ${base}...${head} answered an unknown status.`, { base, head });
+  } catch (error) {
+    if (isForgeError(error, "github_not_found")) return null;
+    throw error;
+  }
 }
 
 /** The floor's word for why a read failed (its status page's vocabulary). */

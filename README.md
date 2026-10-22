@@ -53,7 +53,7 @@ The product repository is a **curated projection**: it contains what a user need
 - the test and design record can be inspected without pretending it is a stable SDK;
 - private fixtures and evidence are not published just to make a badge green.
 
-The projection is described in `promotion/testing-to-master.json`. It is maintainer tooling, not a public release process.
+The projection is described in `promotion/main-to-product.json`: the `product` branch of this repository is computed from `main` by it.
 
 ## Roadmap
 
@@ -118,10 +118,11 @@ The first account created owns the local harness. Add a provider in Settings bef
 | Benchmarks | `bench/` | Node harness |
 | Guardian | `engine/guardian/tests/` | C + shell |
 
-The floor site's published links are guarded by `scripts/floor/site-links.mjs`
-(the built `_site` crawl before deploy) and unit-tested by
-`tests/unit/floor-site-links.test.ts`; `npm run docs:links` also refuses a
-floor page linking a docs path the assembler does not publish.
+The one Pages site is built from `docs/` by `scripts/build-site.mjs`; its
+published links are guarded by the builder's crawl of the built `_site` before
+deploy and unit-tested by `tests/unit/floor-site-links.test.ts`;
+`npm run docs:links` also refuses a page link the builder would refuse and two
+pages publishing one URL.
 
 ```bash
 npm test                    # root web suite (watchdog)
