@@ -78,10 +78,16 @@
 #
 # (The evidence archive `traceability/evidence/` is a tracked record, named by
 # no rule: what ships to the product branch is the promotion profile's answer
-# — `promotion/testing-to-master.json` excludes it — never an ignore rule. The
+# — `promotion/main-to-product.json` excludes it — never an ignore rule. The
 # anchored rule and its re-admission that made it "floor bytes" retired with
 # the merge door, PROMO-4.)
 /experiments/
+
+# The test inventory is a CACHE of the tree (#221): a pure function of the
+# test sources and the dispositions, computed by `scripts/test-inventory.ts`
+# (`harness sync`, and the runner's auto-heal before every run). Committed, it
+# was one 3 MB line that conflicted between any two branches touching a test.
+/traceability/s1-test-inventory.json
 
 # Harness runtime state (databases, caches, ledgers). Every-depth: a harness
 # run writes one wherever its project root is, including under a fixture.

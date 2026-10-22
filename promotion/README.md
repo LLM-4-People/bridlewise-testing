@@ -9,7 +9,7 @@ source, and every promotion commit names the exact profile blob it used.
 
 ## What a profile declares
 
-- `schema` — `bridlewise-promotion-profile/v1`.
+- `schema` — `bridlewise-promotion-profile/v3` (v2 added `boundary.overlay`; v3 made it `{ folder, kinds }`: an engine that reads an older version refuses a newer profile by its version, never by an unknown key).
 - `name` — the file's basename.
 - `source.ref`, `target.ref` — full branch refs; `remote` — where both are
   published (`null`: local only); `trigger` — `manual`, or
@@ -30,6 +30,19 @@ source, and every promotion commit names the exact profile blob it used.
   - `spawnCalls`: calls whose string argument names a script the program runs
     as a subprocess (`{callee, argument, base}`; `base` is `""` or a folder
     prefix ending in `/`).
+  - `overlay`: `{ folder, kinds }` (or `null`): the target-only files. Each
+    file of `folder` ships at its path without the prefix
+    (`product-only/README.md` is the product's `README.md`). `kinds` is what
+    the folder may hold, each one of the engine's FIXED allowlist
+    (`OVERLAY_KINDS`: `*.md`, `*.txt`, `*.png`, `*.jpg`, `*.jpeg`, `*.gif`,
+    `*.webp`, `Makefile`), compared without case. Every other kind is
+    refused in any spelling: code, active documents (`*.html`, `*.svg`) and
+    configuration a tool reads (`package.json`, `.npmrc`, a hook) ship from
+    the source tree, where the import walk judges them. The folder must be excluded; an
+    overlay file of an undeclared kind, a link, a file whose shipped path the
+    profile excludes, or one naming a path the projection already carries is
+    `promotion_overlay_invalid`. Write its links as absolute URLs, since
+    they are read at the target path.
   Everything else does NOT ship (deny by default).
 - `transforms` — files derived for the target (never also excluded): a
   `package-manifest` keeps the listed `scripts` (each must exist on the source;

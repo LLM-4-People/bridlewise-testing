@@ -39,7 +39,7 @@ import type { TreeReader } from "../../engine/src/git/tree-reader.ts";
 import { unconsumedCommands } from "../../engine/src/workflow/checkout-setup.ts";
 import { excludedBy, profileCommandNames, type LoadedPromotionProfile } from "../../engine/src/workflow/promotion/profile.ts";
 import { moduleSpecifiers, normalizeRepositoryPath } from "../../engine/src/workflow/reachability.ts";
-import { classifyTree, deriveManifests, projectionAdvisories } from "../../engine/src/workflow/promotion/projection.ts";
+import { classifyTree, deriveManifests, projectionAdvisories, shippedSources } from "../../engine/src/workflow/promotion/projection.ts";
 import { promotionView } from "../helpers/promotion-view.ts";
 
 const { document, tree, profiles } = promotionView();
@@ -92,18 +92,22 @@ describe("the source-side promotion guard", () => {
   test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: missing, different and inert script references cannot evade the document guard", (_name, loaded) => {
     const classification = classifyTree(tree, loaded.profile);
     const { texts } = deriveManifests(tree, loaded.profile, classification);
+    // Every shipped path with the source path its bytes come from: the
+    // overlay's files (the product's own README) are planted where they live.
+    const shipped = shippedSources(classification);
     let checkedDocuments = 0;
     for (const [manifest, text] of texts) {
       const scripts = Object.keys((JSON.parse(text) as { scripts: Record<string, string> }).scripts);
       expect(scripts.length, `${manifest}: the passing control must exercise a real projected script`).toBeGreaterThan(0);
       const document = `${posix.dirname(manifest) === "." ? "" : `${posix.dirname(manifest)}/`}README.md`;
       // A package with no shipped README has no document to plant into. The
-      // public testing README is deliberately not a companion of the product
-      // projection, so the root package exercises the no-document case while
-      // the engine package still proves the guard sees a real document.
-      if (!classification.projected.has(document)) continue;
+      // product's root README ships from the profile's overlay folder and the
+      // engine's as a companion, so both packages prove the guard sees a real
+      // document, wherever its bytes live on the source.
+      const source = shipped.get(document);
+      if (source === undefined) continue;
       checkedDocuments += 1;
-      const planted = (body: string): readonly string[] => danglingScripts(overlay(tree, { [document]: body }), loaded)
+      const planted = (body: string): readonly string[] => danglingScripts(overlay(tree, { [source]: body }), loaded)
         .filter((entry) => entry.startsWith(`${document}:`));
       expect(planted(`Run npm run ${scripts[0]}.`)).toEqual([]);
       expect(planted("No runnable script is offered here.")).toEqual([]);

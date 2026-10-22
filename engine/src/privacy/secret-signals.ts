@@ -1,4 +1,5 @@
-import { deepFreeze } from "../kernel/integrity.ts";
+import { HarnessError } from "../kernel/errors.ts";
+import { deepFreeze, sha256 } from "../kernel/integrity.ts";
 
 export type SecretSignalProfile = "admission" | "classification";
 
@@ -77,15 +78,37 @@ export const SENSITIVE_KEY_PATTERNS: readonly RegExp[] = [
  * (`privacy-policy.ts`) and the explanation (`redaction-engine.ts`) derive
  * from here, so a new format is ONE entry (three parallel tables once had to
  * agree, and a new id fell to `unknown-sensitive`).
+ *
+ * It is also the ONE list every scanner reads (github-only §8.2): the
+ * repository scan (`scripts/check-secrets.mjs`), and, generated from it,
+ * GitHub's custom patterns and the history importer's gitleaks oracle. So
+ * each row declares, beside its grammar:
+ * - `github`: its GitHub projection. `provider` (GitHub's native secret type
+ *   detects it; push protection on), `generic` (GitHub's non-provider
+ *   generic patterns), `custom` (a custom pattern in GitHub's Hyperscan
+ *   subset: no lookarounds, back-references or modifiers; `mustMatch` and
+ *   `mustNotMatch` carry the conjuncts a lookahead expressed), or
+ *   `door-only` with the reason no GitHub form is exact.
+ * - `treeScan`: `true` when the repository scan applies the row, or the
+ *   reason it does not (a context grammar with benign hits in shipped text).
+ * - `fixtures`: positive cases as PARTS, joined only at runtime
+ *   ({@link signalFixture}), so no source file ever holds a contiguous
+ *   credential-shaped literal, plus negative near misses.
  */
 export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
-  { id: "makora-key", category: "api-key", description: "Makora API key", admission: /\bmbh_[A-Za-z0-9_-]{20,}\b/u, classification: /\bmbh_[A-Za-z0-9_-]{20,}\b/u },
+  { id: "makora-key",
+    github: { kind: "custom", pattern: "mbh_[A-Za-z0-9_-]{20,}" }, treeScan: true,
+    fixtures: { positive: [["mb", "h_", "Fx7".repeat(8)]], negative: ["mbh_short"] },
+    category: "api-key", description: "Makora API key", admission: /\bmbh_[A-Za-z0-9_-]{20,}\b/u, classification: /\bmbh_[A-Za-z0-9_-]{20,}\b/u },
   // The coralbricks key (`cb_` + a mixed-case alphanumeric body): a BARE key
   // pasted into a file or a log matched nothing (friction-audit-1: the
   // scanner must know provider key formats). The body must carry a digit and
   // an uppercase letter and no further `_`, so a snake_case identifier that
   // happens to start `cb_` (a callback name) is never a secret.
-  { id: "coralbricks-key", category: "api-key", description: "coralbricks API key", admission: /\bcb_(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[A-Z])[A-Za-z0-9]{24,}\b/u, classification: /\bcb_[A-Za-z0-9]{24,}\b/u },
+  { id: "coralbricks-key",
+    github: { kind: "custom", pattern: "cb_[A-Za-z0-9]{24,}", mustMatch: ["[0-9]", "[A-Z]"] }, treeScan: true,
+    fixtures: { positive: [["cb", "_", "Q9w".repeat(9)]], negative: ["cb_on_message_received_handler_for_the_queue"] },
+    category: "api-key", description: "coralbricks API key", admission: /\bcb_(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[A-Z])[A-Za-z0-9]{24,}\b/u, classification: /\bcb_[A-Za-z0-9]{24,}\b/u },
   // THE SEPARATOR IS `[_-]`, NOT `_`, AND THAT WAS A REAL HOLE.
   //
   // This read `(?:sk|rk|pk|ghp|github_pat)_` — underscore only. OpenAI and
@@ -99,12 +122,72 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
   // The widening is bounded by the `\b` and the 20-character tail: `risk-…`
   // and `desk-…` cannot match, because `\bsk` requires a word boundary
   // immediately before `sk`.
-  { id: "token-prefix", category: "token", description: "provider API token", admission: /\b(?:sk|rk|pk|ghp|github_pat)[_-][A-Za-z0-9_-]{20,}\b/u, classification: /\b(?:sk|rk|pk|ghp|github_pat)[_-][A-Za-z0-9_-]{20,}\b/u },
-  { id: "aws-access-key", category: "api-key", description: "AWS access key id", admission: /\bAKIA[A-Z0-9]{16}\b/u, classification: /\bAKIA[A-Z0-9]{16}\b/u },
-  { id: "bearer-token", category: "bearer-token", description: "bearer token", admission: /\bBearer\s+[A-Za-z0-9._~+/-]{16,}={0,2}\b/iu, classification: /\bBearer\s+\S+/iu },
-  { id: "private-key", category: "private-key", description: "private key block", admission: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/u, classification: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/u },
+  { id: "token-prefix",
+    github: { kind: "custom", pattern: "(?:sk|rk|pk)[_-][A-Za-z0-9_-]{20,}" }, treeScan: true,
+    fixtures: { positive: [["s", "k-", "proj", "Zr4".repeat(8)], ["r", "k_", "Lm2".repeat(8)]], negative: ["risk-assessment-for-the-quarter-planning", "task_scheduler_configuration_value"] },
+    category: "token", description: "provider API token", admission: /\b(?:sk|rk|pk)[_-][A-Za-z0-9_-]{20,}\b/u, classification: /\b(?:sk|rk|pk)[_-][A-Za-z0-9_-]{20,}\b/u },
+  // ── GITHUB'S TOKENS ──────────────────────────────────────────────────────
+  //
+  // `ghp_`/`github_pat_` lived inside `token-prefix`; they are their own row
+  // because GitHub detects them natively (a provider projection), while
+  // `sk`/`rk`/`pk` need a custom pattern. The grammar is unchanged.
+  //
+  // The rest were unknown here: an App installation token (`ghs_`, the
+  // `GITHUB_TOKEN` of every Actions run included), an OAuth token (`gho_`),
+  // a user-to-server token (`ghu_`) and a refresh token (`ghr_`). Since
+  // 2026-10-02 installation tokens are stateless JWTs of about 520 characters
+  // WITH DOTS, so the `ghs_` body admits `.`; the last character may not be a
+  // dot, so a sentence's full stop is never part of the token.
+  { id: "github-personal-token",
+    github: { kind: "provider", secretTypes: ["github_personal_access_token"] }, treeScan: true,
+    fixtures: { positive: [["gh", "p_", "Ab1".repeat(12)], ["github", "_pat_", "11AB", "Cd2".repeat(20)]], negative: ["ghp_short"] },
+    category: "token", description: "GitHub personal access token", admission: /\b(?:ghp|github_pat)[_-][A-Za-z0-9_-]{20,}\b/u, classification: /\b(?:ghp|github_pat)[_-][A-Za-z0-9_-]{20,}\b/u },
+  { id: "github-installation-token",
+    github: { kind: "provider", secretTypes: ["github_app_installation_access_token"] }, treeScan: true,
+    fixtures: {
+      positive: [["gh", "s_", "aB3dE".repeat(20), ".", "fG5hI".repeat(60), ".", "jK7lM".repeat(22), "jK7l"], ["gh", "s_", "Pq8".repeat(12)]],
+      negative: ["ghs_tooShort.x", "ghs_"],
+    },
+    category: "token", description: "GitHub App installation token", admission: /\bghs_[A-Za-z0-9._-]{35,}[A-Za-z0-9_-]/u, classification: /\bghs_[A-Za-z0-9._-]{35,}[A-Za-z0-9_-]/u },
+  { id: "github-oauth-token",
+    github: { kind: "provider", secretTypes: ["github_oauth_access_token"] }, treeScan: true,
+    fixtures: { positive: [["gh", "o_", "Rs9".repeat(12)]], negative: ["gho_short"] },
+    category: "token", description: "GitHub OAuth token", admission: /\bgho_[A-Za-z0-9]{36,}\b/u, classification: /\bgho_[A-Za-z0-9]{36,}\b/u },
+  // GitHub's provider list names no type for `ghu_`, so it is a custom pattern.
+  { id: "github-user-to-server-token",
+    github: { kind: "custom", pattern: "ghu_[A-Za-z0-9]{36,}" }, treeScan: true,
+    fixtures: { positive: [["gh", "u_", "Tv6".repeat(12)]], negative: ["ghu_short"] },
+    category: "token", description: "GitHub user-to-server token", admission: /\bghu_[A-Za-z0-9]{36,}\b/u, classification: /\bghu_[A-Za-z0-9]{36,}\b/u },
+  { id: "github-refresh-token",
+    github: { kind: "provider", secretTypes: ["github_refresh_token"] }, treeScan: true,
+    fixtures: { positive: [["gh", "r_", "Wx4".repeat(26)]], negative: ["ghr_short"] },
+    category: "token", description: "GitHub refresh token", admission: /\bghr_[A-Za-z0-9]{36,}\b/u, classification: /\bghr_[A-Za-z0-9]{36,}\b/u },
+  // The provider key format that once leaked (rotated): `sk-` and exactly 64
+  // lowercase hex digits. `token-prefix` matches it too; its own row gives it
+  // its own push-protected pattern and its own id in every finding.
+  { id: "neuralwatt-key",
+    github: { kind: "custom", pattern: "sk-[0-9a-f]{64}" }, treeScan: true,
+    fixtures: { positive: [["s", "k-", "0a1b2c3d".repeat(8)]], negative: ["sk-0a1b2c3d"] },
+    category: "api-key", description: "Neuralwatt API key", admission: /\bsk-[0-9a-f]{64}\b/u, classification: /\bsk-[0-9a-f]{64}\b/u },
+  { id: "aws-access-key",
+    github: { kind: "provider", secretTypes: ["aws_access_key_id"] }, treeScan: true,
+    fixtures: { positive: [["AK", "IA", "Q7XZ".repeat(4)]], negative: ["AKIA123"] },
+    category: "api-key", description: "AWS access key id", admission: /\bAKIA[A-Z0-9]{16}\b/u, classification: /\bAKIA[A-Z0-9]{16}\b/u },
+  { id: "bearer-token",
+    github: { kind: "custom", startDelimiter: "[Bb][Ee][Aa][Rr][Ee][Rr][ \\t]+", pattern: "[A-Za-z0-9._~+/-]{16,}={0,2}" }, treeScan: true,
+    fixtures: { positive: [["Bea", "rer ", "Tz5x".repeat(5)]], negative: ["Bearer short"] },
+    category: "bearer-token", description: "bearer token", admission: /\bBearer\s+[A-Za-z0-9._~+/-]{16,}={0,2}\b/iu, classification: /\bBearer\s+\S+/iu },
+  // A PGP key's header ends with ` BLOCK`. The repository scanner knew that
+  // and this row did not, so the redaction engine missed a PGP private key.
+  { id: "private-key",
+    github: { kind: "generic", secretTypes: ["rsa_private_key", "ec_private_key", "generic_private_key", "openssh_private_key", "pgp_private_key"] }, treeScan: true,
+    fixtures: { positive: [["-----BEGIN RSA PRI", "VATE KEY-----"], ["-----BEGIN ENCRYPTED PRI", "VATE KEY-----"], ["-----BEGIN PGP PRI", "VATE KEY BLOCK-----"]], negative: ["-----BEGIN PUBLIC KEY-----"] },
+    category: "private-key", description: "private key block", admission: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/u, classification: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/u },
   {
     id: "credential-assignment",
+    github: { kind: "door-only", reason: "its negative lookaheads inspect the value's context (a call after it, an identifier or hex shape), which GitHub's Hyperscan subset cannot express" },
+    treeScan: { reason: "a context grammar with known benign hits in shipped code (an enum value such as `credentialSecret: \"credential-secret\"`); the door's tree judge enforces it" },
+    fixtures: { positive: [["api_key = \"", "Zm9vYmFyYmF6cXV4MTIz", "\""]], negative: ["password = getPasswordFromVault()"] },
     category: "credential",
     description: "credential assignment",
     admission: /(?:api[_ -]?key|authorization|password|private[_ -]?key|secret|session[_ -]?token)\s*[:=]\s*["']?(?![A-Za-z0-9+/_-]{16,}\s*\()(?!(?:[A-Za-z]*_[A-Za-z_]*|[0-9a-f]{32,})(?:[^A-Za-z0-9_$]|$))[A-Za-z0-9+/_-]{16,}/iu,
@@ -148,6 +231,9 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     // second alternative starts at the `@` AFTER a keep mark and preserves
     // the mark; the mark's own `:` is not re-read as a password separator.
     id: "connection-string",
+    github: { kind: "door-only", reason: "the keep-mark veto and the last-@ userinfo grammar are lookarounds; GitHub's generic postgres/mongodb/mysql patterns cover only some schemes" },
+    treeScan: { reason: "shipped documentation and the redaction owner's own grammar sources spell example connection strings; the door's tree judge enforces it" },
+    fixtures: { positive: [["postgres://app:", "Hunter2pass", "@db.internal/app"]], negative: ["postgres://app@db.internal/app"] },
     category: "credential",
     description: "connection-string credential",
     admission: /\b[a-z][a-z0-9+.-]*:\/\/(?!(?:‹keep:[^›\s]{1,200}›)@)[^\s/?#]*:[^\s/?#]+@[^\s/?#]+|@[^\s/?#]*:[^\s/?#]+@[^\s/?#]+/iu,
@@ -169,7 +255,21 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     // The value is matched without its key so the key and separators stay
     // readable after redaction, and a keep mark or an existing mask is not
     // re-read as a value (the write-back contract again).
+    //
+    // ── NO CODE-EXPRESSION VETO, DELIBERATELY (#70, reviewed 2026-10-22) ──
+    //
+    // `password = request.headers['apikey']` matches (`request.headers[`).
+    // The catalogue reads TEXT, never a file type, and that line is a valid
+    // INI / my.cnf / ADO.NET value as written; a veto keyed on its shape
+    // (a spaced `=`, a dotted or bracketed value) was measured to miss real
+    // passwords (`password = my.secret.value`, `Password = x.y`, a tab before
+    // the value, a value holding `[` or `(`) that nothing else catches. A
+    // missed credential is never acceptable, so the row over-matches a code
+    // expression; the reviewed over-match is declared where it is tested.
     id: "dsn-credential",
+    github: { kind: "custom", startDelimiter: "(?:[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Pp][Ww][Dd])[ \\t]*=[ \\t]*", pattern: "[^\\s;&\"'`]+", mustNotMatch: ["^(?:null|undefined|true|false)$", "^[‹\\[<`\"'\\\\]"] },
+    treeScan: { reason: "shipped documentation and the redaction owner's own grammar sources spell example DSNs; the door's tree judge enforces it" },
+    fixtures: { positive: [["Server=db;User Id=app;Pass", "word=", "Hunter2pass;"]], negative: ["Password=null"] },
     category: "credential",
     description: "connection-string credential",
     admission: /(?<=(?<![A-Za-z0-9])(?:password|pwd)\s*=\s*)(?!(?:null|undefined|true|false)\b|‹|\[|<|`|"|'|\\)[^\s;&"'`]+/iu,
@@ -181,12 +281,177 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     // `user/pass@` segment itself is the evidence. A userinfo without the
     // slash (no password) cannot match.
     id: "oracle-connection-string",
+    github: { kind: "custom", pattern: "(?:jdbc:)?oracle:(?:thin|oci):[^\\s@/:]+/[^\\s@/?#]+@", endDelimiter: "[^\\s/?#]" }, treeScan: true,
+    fixtures: { positive: [["jdbc:oracle:thin:app/", "Hunter2pass", "@db.internal:1521/XE"]], negative: ["jdbc:oracle:thin:@db.internal:1521/XE"] },
     category: "credential",
     description: "Oracle connection-string credential",
     admission: /\b(?:jdbc:)?oracle:(?:thin|oci):[^\s@/:]+\/[^\s@/?#]+@(?=[^\s/?#])/iu,
     classification: /\b(?:jdbc:)?oracle:(?:thin|oci):[^\s@/:]+\/[^\s@/?#]+@(?=[^\s/?#])/iu,
   },
 ] as const);
+
+export type SecretTextSignal = (typeof SECRET_TEXT_SIGNAL_CATALOG)[number];
+export type SecretTextSignalId = SecretTextSignal["id"];
+
+/**
+ * A positive fixture of one catalogue row, assembled from its parts at
+ * runtime: the one way a test, a guard or a generator obtains a
+ * credential-shaped value, so the value never sits in a source file.
+ */
+export function signalFixture(id: SecretTextSignalId, index = 0): string {
+  const signal = SECRET_TEXT_SIGNAL_CATALOG.find((entry) => entry.id === id);
+  const parts = signal?.fixtures.positive[index];
+  if (parts === undefined) throw new HarnessError(`the secret signal ${id} has no positive fixture ${String(index)}`, "secret_signal_fixture_missing");
+  return parts.join("");
+}
+
+/** The rows the repository scan applies (`treeScan: true`). */
+export function treeScannedSignals(): readonly SecretTextSignal[] {
+  return SECRET_TEXT_SIGNAL_CATALOG.filter((signal) => signal.treeScan === true);
+}
+
+/**
+ * THE PUBLICATION PRIVACY ROWS (`category: "privacy"`): text that is not a
+ * credential but must never be published, for the repository scan only.
+ * They live beside the credential rows so the repository scan has one list,
+ * and they are a separate array because the redaction engine reads every
+ * credential row: a home path in a tool's output is not something to redact.
+ *
+ * `appliesTo: "text"` rows run over every line and every tracked path;
+ * `"file-name"` rows run over the tracked path's last segment.
+ *
+ * A row that protects a NAME (an internal host, a private directory) never
+ * spells it: this repository is public, and a pattern that names what it
+ * guards publishes it. Such a row carries `names` (how candidates are cut out
+ * of a text) and `digests` (each protected name's length and SHA-256,
+ * lower-cased); a candidate matches when its digest is one of them. Only SHAPE
+ * rows (a home path, a database file name) carry a `pattern`. Every row is
+ * applied through {@link createPrivacyMatcher}, the one matcher.
+ *
+ * The digests are authored pins: their inputs are deliberately absent from
+ * the tree, so no generator can re-derive them.
+ */
+const HOME_PATH_PLACEHOLDERS = deepFreeze([
+  "example", "user", "runner", "bridlewise", "ubuntu", "node", "app",
+  "workspace", "demo", "x", "u", "me", "alice", "bob", "jane", "jdoe",
+  "username", "test", "foo", "bar", "baz",
+] as const);
+
+// A placeholder must be a whole segment: a documented name followed by a
+// sentence period is still the placeholder; a dotted account (`jane.doe`) or
+// a name merely BEGINNING with a placeholder (`example123`) is not.
+const HOME_PLACEHOLDER_GUARD = `(?!(?:${HOME_PATH_PLACEHOLDERS.join("|")})(?![A-Za-z0-9_-])(?!\\.[A-Za-z0-9]))`;
+
+export const PUBLICATION_PRIVACY_SIGNALS = deepFreeze([
+  { id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path", pattern: new RegExp(`\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u") },
+  // BEGIN AUTHORED PINS
+  { id: "internal-git-host", category: "privacy", appliesTo: "text", description: "internal Git host", names: "dotted", digests: [{ length: 18, sha256: "64228b8af389331cee6e7dba27c81450a7181c1f719e7a133e37128c6a4309e5" }] },
+  { id: "internal-provider-host", category: "privacy", appliesTo: "text", description: "internal provider host", names: "dotted", digests: [{ length: 18, sha256: "c565b621df0b9302f8b7e6881dd58353a803981a9fe69ef0542009f1ad9c76d1" }] },
+  { id: "internal-scratch-path", category: "privacy", appliesTo: "text", description: "internal scratch path", names: "scratch-path", digests: [{ length: 13, sha256: "736a4cae0826a534c3de9b47542cbe9dd50ec8b8714e1d42aa45f4afc0799c0d" }] },
+  { id: "local-evidence-state", category: "privacy", appliesTo: "text", description: "local evidence state directory", names: "dotted", digests: [{ length: 27, sha256: "3bcb2fbbb43fef9d40e18b6e1858d5ca761166d8710552ae03d89b3ae9e6de8b" }] },
+  // END AUTHORED PINS
+  // A database or SQLite state file (and its -wal/-shm/-journal sidecars) is
+  // not a credential file, but a local data blob that is never published.
+  { id: "database-state", category: "privacy", appliesTo: "file-name", description: "database state", pattern: /\.(?:db|sqlite3?)(?:-[a-z]+)?$/iu },
+] as const);
+
+export type PublicationPrivacySignal = (typeof PUBLICATION_PRIVACY_SIGNALS)[number];
+type PrivacyNameKind = "dotted" | "scratch-path";
+type PrivacyRow = Readonly<{ id: string } & (
+  | { pattern: RegExp }
+  | { names: PrivacyNameKind; digests: readonly Readonly<{ length: number; sha256: string }>[] }
+)>;
+
+// A dotted name (a host, a dotted directory name) is a run of name characters
+// `[A-Za-z0-9_.-]` whose dot-separated labels are non-empty. Runs are cut by a
+// linear pattern, never a backtracking one: the scanner reads multi-megabyte
+// lines (see `createPrivacyMatcher`).
+// A directory directly under the system scratch root.
+const SCRATCH_DIRECTORY = /\/tmp\/\w+/gu;
+// The longest label window tried. A protected name is a host or a dotted
+// directory name of a few labels; the bound keeps a long dotted run linear.
+const MAXIMUM_NAME_LABELS = 6;
+
+/**
+ * THE ONE PRIVACY MATCHER over `rows`: the ids of the rows a text matches, in
+ * row order. A shape row is its pattern. Name rows are judged TOGETHER, so a
+ * text is cut ONCE however many name rows there are, and only a candidate
+ * whose length is a protected name's length is hashed, then looked up in one
+ * table (the scanner runs this on every line of the tree; per-row cutting and
+ * hashing every window cost the required scan +64% CPU).
+ *
+ * A dotted run yields every contiguous window of two to
+ * {@link MAXIMUM_NAME_LABELS} non-empty labels, so a protected host is found
+ * as a subdomain's suffix or a longer name's prefix (`a.<host>`, `<host>.x`),
+ * but never inside a label (`x<host>`, `x-<host>`).
+ */
+const NO_PRIVACY_FINDINGS: readonly string[] = Object.freeze([]);
+
+export function createPrivacyMatcher(rows: readonly PrivacyRow[]): (text: string) => readonly string[] {
+  const shapes: Readonly<{ id: string; pattern: RegExp }>[] = [];
+  const kinds = new Map<PrivacyNameKind, { lengths: Set<number>; ids: Map<string, string[]> }>();
+  for (const row of rows) {
+    if ("pattern" in row) {
+      shapes.push({ id: row.id, pattern: row.pattern });
+      continue;
+    }
+    const kind = kinds.get(row.names) ?? { lengths: new Set<number>(), ids: new Map<string, string[]>() };
+    kinds.set(row.names, kind);
+    for (const pin of row.digests) {
+      kind.lengths.add(pin.length);
+      kind.ids.set(pin.sha256, [...(kind.ids.get(pin.sha256) ?? []), row.id]);
+    }
+  }
+  const order = new Map(rows.map((row, index) => [row.id, index] as const));
+  const dotted = kinds.get("dotted");
+  // Only a run at least as long as the shortest protected dotted name can hold
+  // one: the regex finds just those runs (greedy, no backtracking: a shorter
+  // run fails within its own length), so the common short token costs nothing.
+  const longRuns = dotted === undefined
+    ? undefined
+    : new RegExp(`[A-Za-z0-9_.-]{${String(Math.min(...dotted.lengths))},}`, "gu");
+  const scratch = kinds.get("scratch-path");
+  return (text) => {
+    const found = new Set<string>();
+    for (const shape of shapes) if (shape.pattern.test(text)) found.add(shape.id);
+    const consider = (kind: { lengths: Set<number>; ids: Map<string, string[]> }, candidate: string): void => {
+      if (!kind.lengths.has(candidate.length)) return;
+      for (const id of kind.ids.get(sha256(candidate.toLowerCase())) ?? []) found.add(id);
+    };
+    if (scratch !== undefined) {
+      for (const match of text.matchAll(SCRATCH_DIRECTORY)) consider(scratch, match[0]);
+    }
+    if (dotted !== undefined && longRuns !== undefined && text.includes(".")) {
+      for (const match of text.matchAll(longRuns)) {
+        const run = match[0];
+        if (!run.includes(".")) continue;
+        // Label boundaries as offsets: a window is a slice, built only when its length can match.
+        const starts = [0];
+        for (let at = run.indexOf("."); at !== -1; at = run.indexOf(".", at + 1)) starts.push(at + 1);
+        const labelEnd = (index: number): number => (index + 1 < starts.length ? starts[index + 1]! - 1 : run.length);
+        for (let first = 0; first < starts.length - 1; first += 1) {
+          for (let last = first + 1; last < Math.min(starts.length, first + MAXIMUM_NAME_LABELS); last += 1) {
+            if (labelEnd(last) === starts[last] || labelEnd(last - 1) === starts[last - 1]) break;
+            const begin = starts[first]!;
+            const end = labelEnd(last);
+            if (dotted.lengths.has(end - begin)) consider(dotted, run.slice(begin, end));
+          }
+        }
+      }
+    }
+    if (found.size === 0) return NO_PRIVACY_FINDINGS;
+    return [...found].sort((left, right) => order.get(left)! - order.get(right)!);
+  };
+}
+
+const PRIVACY_ROW_BY_ID = new Map<string, PublicationPrivacySignal>(PUBLICATION_PRIVACY_SIGNALS.map((row) => [row.id, row] as const));
+const PRIVACY_TEXT_MATCHER = createPrivacyMatcher(PUBLICATION_PRIVACY_SIGNALS.filter((row) => row.appliesTo === "text"));
+const PRIVACY_FILE_NAME_MATCHER = createPrivacyMatcher(PUBLICATION_PRIVACY_SIGNALS.filter((row) => row.appliesTo === "file-name"));
+
+/** The publication-privacy rows `text` matches: `"text"` rows over a line or a path, `"file-name"` rows over a path's last segment. */
+export function publicationPrivacyFindings(text: string, appliesTo: "text" | "file-name"): readonly PublicationPrivacySignal[] {
+  return (appliesTo === "text" ? PRIVACY_TEXT_MATCHER : PRIVACY_FILE_NAME_MATCHER)(text).map((id) => PRIVACY_ROW_BY_ID.get(id)!);
+}
 
 export function secretTextSignalIds(
   value: string,

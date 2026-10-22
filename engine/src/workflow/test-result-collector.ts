@@ -1172,8 +1172,18 @@ async function discoverTestFiles(root: string): Promise<string[]> {
     const absDir = join(root, dir);
     try {
       statSync(absDir);
-    } catch (e) {handleError(e, { module: "workflow-test-result-collector", operation: "catch" });
-      continue;
+    } catch (e) {
+      // A declared root this project does not have (a fixture with `test/`
+      // and no `verification/`) is the expected state, not an error: it
+      // holds no test files. Any other failure to read it REFUSES the
+      // collection — skipping it would certify a run short of every test
+      // that root holds.
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") continue;
+      throw new HarnessError("A declared test root could not be read", "test_discovery_root_unreadable", false, {
+        root: dir,
+        errno: typeof code === "string" ? code : "unknown",
+      });
     }
     walk(absDir);
   }

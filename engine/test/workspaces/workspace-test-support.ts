@@ -1,4 +1,5 @@
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -25,6 +26,10 @@ import {
   type WorkspaceManagerTimeouts,
 } from "../../src/workflow/workspace-manager.ts";
 import { repositoryRegistry, type RepositoryRegistry } from "../../src/workflow/repository-registry.ts";
+import type { GitRepository } from "../../src/git/tree-reader.ts";
+import type { WorkspaceForgeFactory } from "../../src/workflow/workspace-forge.ts";
+import { isLegacyForgeState, type WorkspaceForgeState, type WorkspaceRecord } from "../../src/workflow/workspace-contracts.ts";
+import { createFakeForge, type FakeForge } from "./fake-forge.ts";
 
 /**
  * Shared fixtures for workspace isolation tests: temporary git repositories
@@ -63,16 +68,56 @@ export function rawGit(cwd: string, args: readonly string[], environment: Readon
   }).trim();
 }
 
-/** A temporary repository on branch `main` with one commit (README and an ignore file for the state directory). */
-export function initTempRepo(prefix: string): Readonly<{ root: string; baseSha: string }> {
+/**
+ * A temporary repository on branch `main` with one commit (README and an
+ * ignore file for the state directory), whose `main` tracks `origin/main` on
+ * a bare repository: the forge's remote ({@link forgeAt} is its fake forge).
+ */
+export function initTempRepo(prefix: string): Readonly<{ root: string; baseSha: string; bare: string }> {
   const root = mkWorkspaceTempDir(prefix);
   rawGit(root, ["init", "-b", "main"]);
   writeFileSync(join(root, ".gitignore"), ".bridlewise/\nnode_modules/\n");
   writeFileSync(join(root, "README.md"), "# workspace test\n");
   rawGit(root, ["add", "."]);
   rawGit(root, ["commit", "-m", "init"]);
-  return deepFreeze({ root, baseSha: rawGit(root, ["rev-parse", "HEAD"]) });
+  const bare = mkWorkspaceTempDir(`${prefix}-forge`);
+  rawGit(bare, ["init", "-q", "--bare", "-b", "main"]);
+  rawGit(root, ["remote", "add", "origin", bare]);
+  trackBranch(root, "main");
+  return deepFreeze({ root, baseSha: rawGit(root, ["rev-parse", "HEAD"]), bare });
 }
+
+/** Publishes `branch` to `origin` (the forge's remote) and makes it the branch's upstream: a land target. */
+export function trackBranch(root: string, branch: string): void {
+  rawGit(root, ["push", "-q", "-u", "origin", `${branch}:${branch}`]);
+}
+
+/** A feature record's forge state (refused for a read-only or a legacy record: a test that asks expects one). */
+export function forgeStateOf(record: WorkspaceRecord): WorkspaceForgeState {
+  const forge = record.forge;
+  if (forge === null || isLegacyForgeState(forge)) throw new Error(`workspace ${record.workspaceId} has no forge state`);
+  return forge;
+}
+
+/** The binary-safe git of a test checkout (PATH's git, the inspect ceiling). */
+export function testRepository(root: string): GitRepository {
+  return deepFreeze({ root, executable: resolveGitExecutable(), timeoutMs: TEST_TIMEOUTS.inspectMs });
+}
+
+const FORGES = new Map<string, FakeForge>();
+
+/** The fake forge of the bare repository at `remoteUrl` (one per remote, so its pull requests outlive a manager). */
+export function forgeAt(remoteUrl: string): FakeForge {
+  let forge = FORGES.get(remoteUrl);
+  if (forge === undefined) {
+    forge = createFakeForge(remoteUrl, mkWorkspaceTempDir("fake-forge-scratch"));
+    FORGES.set(remoteUrl, forge);
+  }
+  return forge;
+}
+
+/** The test factory: each target's remote answers through its {@link forgeAt} fake. */
+export const fakeForgeFactory: WorkspaceForgeFactory = (target) => forgeAt(target.remoteUrl);
 
 export function writeFile(repoRoot: string, relativePath: string, content: string): void {
   const absolute = join(repoRoot, relativePath);
@@ -88,12 +133,27 @@ export function commitFile(repoRoot: string, relativePath: string, content: stri
 }
 
 /**
- * Commit the failure owners' tracker (`ROOT_POLICY.workflow.failureOwners.tracker`)
- * with ONE open task row naming each repository path: the owner the ledger
- * judge requires for a failure that persists from the target.
+ * The failure owners' tracker text whose generated task board holds exactly
+ * `rows` (task rows, `- [ ] **ID** …`): the one reader reads rows ONLY inside
+ * the board's markers (`boardRows`, `TRACKER_BOARD`), so a fixture row typed
+ * outside them owns nothing.
+ */
+export function trackerBoardText(rows: readonly string[]): string {
+  return `# Tasks\n\n${TRACKER_BOARD.begin}\n${rows.join("\n")}\n${TRACKER_BOARD.end}\n`;
+}
+
+/** Commits the tracker ({@link trackerBoardText}) with `rows` in its board. */
+export function commitTrackerBoard(repoRoot: string, rows: readonly string[]): string {
+  return commitFile(repoRoot, ROOT_POLICY.workflow.failureOwners.tracker, trackerBoardText(rows));
+}
+
+/**
+ * Commit the failure owners' tracker with ONE open task row naming each
+ * repository path: the owner the ledger judge requires for a failure that
+ * persists from the target.
  */
 export function commitFailureOwners(repoRoot: string, paths: readonly string[], task = "FIXTURE-OWNER"): string {
-  return commitFile(repoRoot, ROOT_POLICY.workflow.failureOwners.tracker, `# Tasks\n\n- [ ] **${task}** owns ${paths.join(", ")}\n`);
+  return commitTrackerBoard(repoRoot, [`- [ ] **${task}** owns ${paths.join(", ")}`]);
 }
 
 export const TEST_INTEGRATOR_IDENTITY: GitIdentity = deepFreeze({
@@ -105,6 +165,7 @@ export const TEST_TIMEOUTS: WorkspaceManagerTimeouts = deepFreeze({
   worktreeMs: 30_000,
   inspectMs: 30_000,
   mergeMs: 30_000,
+  fetchMs: 30_000,
 });
 
 /** A declared command the fake runner answers for (its argv is never executed). */
@@ -129,6 +190,8 @@ export function makeTestConfig(workspaceRoot: string, overrides: Partial<Workspa
     // land-target refusal's tests use it).
     landTargets: deepFreeze(["main", "side", "testing", "other"]),
     killGraceMs: 1_000,
+    // The land's wait: a test's queue moves when the manager sleeps (its `sleep` option), so a poll is immediate.
+    landing: deepFreeze({ pollIntervalMs: 1, timeoutMs: 60_000 }),
     links: [],
     commands: deepFreeze({ unit: FAKE_COMMAND, regen: FAKE_COMMAND, suite: FAKE_COMMAND }),
     phases: deepFreeze({ setup: [], validate: ["unit"], regenerate: ["regen"], merge: ["suite"] }),
@@ -214,6 +277,10 @@ export function makeManager(
     git?: WorktreeGitPort;
     now?: () => Date;
     engineRelative?: string;
+    /** The forge factory (default: the fake forges); `null`: none configured. */
+    forge?: WorkspaceForgeFactory | null;
+    /** The land's wait between two reads (a test moves its fake queue here). */
+    sleep?: (ms: number) => Promise<void>;
   }>,
 ): ManagerFixture {
   const git = options.git ?? makeGitPort(options.config.branchNamespace);
@@ -222,12 +289,15 @@ export function makeManager(
     engineRelative: options.engineRelative ?? "engine",
     config: options.config,
     git,
+    repository: testRepository,
+    ...(options.forge === null ? {} : { forge: options.forge ?? fakeForgeFactory }),
     commands: options.commands ?? makeFakeCommands(),
     timeouts: TEST_TIMEOUTS,
     identity: TEST_INTEGRATOR_IDENTITY,
     timeline: options.timeline ?? null,
     ...(options.records !== undefined ? { records: options.records } : {}),
     ...(options.now !== undefined ? { now: options.now } : {}),
+    ...(options.sleep !== undefined ? { sleep: options.sleep } : {}),
   });
   return deepFreeze({ manager, git });
 }

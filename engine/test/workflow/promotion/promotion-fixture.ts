@@ -160,10 +160,11 @@ export function fixtureProfile(overrides: FixtureProfileOverrides = {}): Record<
     exclude: ["dev/", "promotion/"],
     companions: ["README.md"],
     spawnCalls: [{ callee: "runScript", argument: 1, base: "product/" }],
+    overlay: null,
     ...(overrides["boundary"] as object | undefined),
   };
   return {
-    schema: "bridlewise-promotion-profile/v1",
+    schema: "bridlewise-promotion-profile/v3",
     name: PROFILE_NAME,
     source: { ref: `refs/heads/${SOURCE}` },
     target: { ref: `refs/heads/${TARGET}` },
@@ -294,12 +295,13 @@ function fixtureDocument(commands: WorkspaceIsolationConfig["commands"], workRoo
       mergeLock: lock,
       landTargets: [SOURCE],
       killGraceMs: 1_000,
+      landing: { pollIntervalMs: 1, timeoutMs: 60_000 },
       links: [],
       commands,
       phases: { setup: [], validate: ["gate"], regenerate: [], merge: [] },
     },
     promotion: { profileDirectory: PROFILE_DIRECTORY },
-    harness: { typecheckTimeoutMs: 60_000, commandErroredRetries: 0, commandRetryBackoffMs: 1 },
+    harness: { commandErroredRetries: 0, commandRetryBackoffMs: 1 },
   });
 }
 
