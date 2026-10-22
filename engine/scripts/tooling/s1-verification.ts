@@ -11,7 +11,7 @@ import { configuredExecutionAuthority, loadTestResultFromExecution } from "./tes
 import { candidateFormatErrorViolations } from "../verification/candidate-format.ts";
 import { loadTestInventory } from "../test-inventory.ts";
 import { validateTestReceipt } from "./test-receipt.ts";
-import { verifyArchitectureSources, type ArchitectureSource } from "../verification/architecture.ts";
+import { readExternalCommandSources, verifyArchitectureSources } from "../verification/architecture.ts";
 import { verifyArtifactAdmission } from "../tooling/verification/artifact-admission.ts";
 import {
   inspectSafeRepositoryRootBoundary,
@@ -580,40 +580,12 @@ function verifyArchitecture(root: string, paths: readonly string[], violations: 
       return { path, source };
     })
     .filter((entry): entry is { path: string; source: string } => entry !== undefined);
-  const externalCommandSources = readExternalCommandSources(root, violations);
+  const externalCommandSources = readExternalCommandSources(root, ARCHITECTURE_MANIFEST, violations);
   violations.push(...verifyArchitectureSources(
     sources,
     ARCHITECTURE_MANIFEST,
     externalCommandSources,
   ).violations);
-}
-
-function readExternalCommandSources(
-  root: string,
-  violations: string[],
-): readonly ArchitectureSource[] {
-  const entries: ArchitectureSource[] = [];
-  for (const command of ARCHITECTURE_MANIFEST.externalCommands) {
-    // A source the public snapshot declares not-published is EXPECTED absent:
-    // the architecture verifier names that boundary itself. Only an
-    // unexpected source at the path is read, so it can be refused as an
-    // accidental publication (and hash-checked for a diagnostic receipt).
-    if (command.publication === "not-published" && !existsSync(join(root, command.path))) continue;
-    try {
-      const bytes = readSafeRepositoryFile(
-        root,
-        command.path,
-        ARCHITECTURE_MANIFEST.analysisLimits.maximumSourceBytes,
-      ).bytes;
-      entries.push({
-        path: command.path,
-        source: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-      });
-    } catch (error) {
-      violations.push(`architecture-external-command-source-unreadable:${command.path}:${extractErrorMessage(error)}`);
-    }
-  }
-  return deepFreeze(entries);
 }
 
 function isTransientSourcePath(path: string): boolean {

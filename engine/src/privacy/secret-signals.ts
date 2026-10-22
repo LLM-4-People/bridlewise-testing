@@ -507,6 +507,34 @@ export function isSensitiveKeyName(key: string): boolean {
   return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
 }
 
+/**
+ * THE HEADERS KNOWN NOT TO CARRY A CREDENTIAL, lower-case: the only header names whose values are shown or
+ * sent where a credential must not go. Everything else is treated as a credential BY DEFAULT, so a header
+ * nobody has named yet (`X-Jwt`, `DPoP`, `X-Session`, `X-Signature`, a vendor's next key header) is redacted
+ * without anyone having to think of it. A name joins this list only when its value is never a credential:
+ * content negotiation and framing, caching and conditional requests, and the GitHub request-id and
+ * rate-limit headers the forge reads. A session id (`Mcp-Session-Id`, `Session-Id`) is a bearer of access
+ * and never belongs here.
+ */
+export const NON_CREDENTIAL_HEADER_NAMES: ReadonlySet<string> = new Set([
+  "accept", "accept-charset", "accept-encoding", "accept-language",
+  "cache-control", "connection", "content-encoding", "content-language", "content-length", "content-type",
+  "date", "etag", "if-match", "if-modified-since", "if-none-match", "keep-alive", "last-modified", "link",
+  "location", "mcp-protocol-version", "pragma", "retry-after", "transfer-encoding", "user-agent", "vary",
+  "x-github-api-version", "x-github-media-type", "x-github-request-id",
+  "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "x-ratelimit-resource", "x-ratelimit-used",
+]);
+
+/**
+ * Whether a HEADER's value may carry a credential: true for EVERY name except the
+ * {@link NON_CREDENTIAL_HEADER_NAMES} (matched case-insensitively). THE ONE answer for every header
+ * redaction and every credential refusal. An allowlist, not a denylist: a denylist can only name the
+ * credential headers someone thought of, and a missed credential is never acceptable.
+ */
+export function isSensitiveHeaderName(name: string): boolean {
+  return !NON_CREDENTIAL_HEADER_NAMES.has(name.trim().toLowerCase());
+}
+
 export function secretLikeValuePaths(value: unknown, profile: SecretSignalProfile): readonly string[] {
   const paths: string[] = [];
   const visit = (current: unknown, path: string): void => {

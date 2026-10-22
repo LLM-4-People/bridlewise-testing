@@ -214,7 +214,7 @@ function digestOf(path: string): string | null {
  * the bytes, so it need not share the target's directory.
  */
 function stagedName(path: string, transactionId: string, kind: "previous" | "next"): string {
-  if (kind === "previous") return `${statePath("state", "journals")}/${transactionId}.${sha256(path).slice(0, 16)}.previous`;
+  if (kind === "previous") return `${statePath("state", "journals")}/${transactionId}.${sha256(path).slice(0, ROOT_POLICY.filesystemInfrastructure.privateState.journalBackupPathDigestHex)}.previous`;
   return join(dirname(path), `.${basename(path)}.${transactionId}.next`).split(sep).join("/");
 }
 

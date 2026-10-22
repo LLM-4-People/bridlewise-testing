@@ -72,7 +72,7 @@ describe("undoing the undo: a withdrawal can be brought back", () => {
     expect(stretch.anchorMessageId).toBe(rows[0]!.id);
     expect(stretch.messageIds).toEqual(data.discardedMessageIds);
     expect(stretch.restored).toBe(false);
-  }, 30000);
+  });
 
   test("restoring puts the turns back into what the model is shown", async () => {
     const ids = await newConversation("restore-reaches-provider");
@@ -99,7 +99,7 @@ describe("undoing the undo: a withdrawal can be brought back", () => {
     for (const id of data.discardedMessageIds as string[]) {
       expect(restoredRows.find((m) => m.id === id)?.discarded).toBeUndefined();
     }
-  }, 40000);
+  });
 
   test("the withdrawal STAYS in the record after it is undone", async () => {
     // A restore is an append, not an erasure — the same rule the rewind
@@ -114,7 +114,7 @@ describe("undoing the undo: a withdrawal can be brought back", () => {
     expect(listed.stretches).toHaveLength(1);
     expect(listed.stretches[0]!.restored).toBe(true);
     expect(listed.stretches[0]!.eventId).toBe(data.eventId);
-  }, 30000);
+  });
 
   test("the withdrawal and its undo each PERSIST a row in the transcript — the pair survives a reload (UIE-039)", async () => {
     // The record's two halves, as the conversation surface reads them. The
@@ -155,7 +155,7 @@ describe("undoing the undo: a withdrawal can be brought back", () => {
     // Both halves stand: the rewind's row was not edited or erased by the
     // undo — the record keeps BOTH facts, in order.
     expect(broughtBack.find((m) => m.id === rewindRow!.id)?.content).toContain("taken back");
-  }, 30000);
+  });
 
   test("a run's MEMORY comes back too — not half an undo", async () => {
     // The rewind withdrew the run so its stored interaction stopped being
@@ -173,7 +173,7 @@ describe("undoing the undo: a withdrawal can be brought back", () => {
       discardedRunIdsForChat(ids.chatId, ownerUserId).size,
       "the run is still withdrawn from memory recall after the restore",
     ).toBe(0);
-  }, 30000);
+  });
 
   test("withdraw, bring back, withdraw again — the last act is the one that stands", async () => {
     // The sequence a subtract-the-restores fold gets wrong: it ends with the
@@ -196,7 +196,7 @@ describe("undoing the undo: a withdrawal can be brought back", () => {
     ).toBe((first.data.discardedMessageIds as string[]).length);
     const next = await sendTurn(ids, "nu two", "nu two answer");
     expect(pairs(next).join("\n")).not.toContain("nu one");
-  }, 40000);
+  });
 
   test("sequential regions nest — both region rows stand, and restoring the EARLIER leaves the LATER untouched", async () => {
     // THE NESTING CONTRACT (rewind.ts's fold, compose.ts's restore door).
@@ -282,5 +282,5 @@ describe("undoing the undo: a withdrawal can be brought back", () => {
     const restoreRow = afterRestore.find((m) => m.role === "event" && m.metadata?.eventKind === "restore");
     expect(restoreRow, "the restore appends its own pair row").toBeDefined();
     expect(restoreRow!.content).toContain("2 messages brought back");
-  }, 40000);
+  });
 });

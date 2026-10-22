@@ -24,7 +24,7 @@ import { acquireLock } from "../../../src/workflow/resource-lock.ts";
 import { repositoryRegistry, repositoryRegistryArea } from "../../../src/workflow/repository-registry.ts";
 import { PromotionError, promotionExitCode, type PromotionCode } from "../../../src/workflow/promotion/codes.ts";
 import { resolvePromotionContext, type PromotionDocument } from "../../../src/workflow/promotion/context.ts";
-import { engineCheckout, promoterPlacement, runInPromoterHome, type PromoterEngine, type PromoterPlacement } from "../../../src/workflow/promotion/promoter-home.ts";
+import { engineCheckout, promoterHomeEnvironment, promoterPlacement, runInPromoterHome, type PromoterEngine, type PromoterPlacement } from "../../../src/workflow/promotion/promoter-home.ts";
 import { unattendedEnvironment, withUnattendedChain } from "../../../src/workflow/promotion/trigger.ts";
 import type { PromotionRequest } from "../../../src/workflow/promotion/promote-arguments.ts";
 import { promotionFolder } from "../../../src/workflow/promotion/promotion-run.ts";
@@ -341,4 +341,49 @@ test("N3/T-K5: runInPromoterHome re-executes the REAL engine entry in the home (
   const data = answered.data as { source: string; promoterHome: string };
   assert.equal(data.source, context.source, "the child answered for S, named with --source");
   assert.equal(data.promoterHome, placement.home);
+});
+
+/** Credentials a maintainer's or a job's process holds (planted for these tests only; none is real). */
+const PLANTED: Readonly<Record<string, string>> = {
+  BRIDLEWISE_PUBLISHER_TOKEN: "planted-publisher-token-value",
+  GH_TOKEN: "planted-gh-token-value",
+  GITHUB_TOKEN: "planted-github-token-value",
+  OPENAI_API_KEY: "planted-provider-key-value",
+  HARNESS_KEY_HOME: "/planted/key/home",
+  NPM_TOKEN: "planted-npm-token-value",
+  https_proxy: "http://proxyuser:planted-proxy-password@proxy.example:8080",
+};
+
+test("SECURITY: the home's child inherits no credential — the one projection (COMMAND_ENVIRONMENT), the proxy without its userinfo, and the variable naming it the home's child", () => {
+  const environment = promoterHomeEnvironment({ PATH: "/usr/bin", HOME: "/home/someone", LANG: "C.UTF-8", ...PLANTED }, "/the/home/engine");
+  assert.deepEqual(Object.keys(environment).sort(), ["HOME", "LANG", "PATH", VARIABLE, "https_proxy"].sort());
+  assert.equal(environment[VARIABLE], "/the/home/engine");
+  assert.ok(!JSON.stringify(environment).includes("planted-proxy-password") && !JSON.stringify(environment).includes("proxyuser"), "the proxy leaves without its userinfo");
+});
+
+test("SECURITY (planted): S's committed engine, run in the home, sees none of the credentials this process holds", async () => {
+  const { fixture, engine, document } = hostedFixture("promotion-home-environment");
+  // S's engine reports every variable it inherited.
+  fixture.commit(SOURCE, { "tool/promote.mjs": [
+    `const result = { ok: true, code: "promotion_committed", class: "ok", message: "inherited", remedy: "", data: { names: Object.keys(process.env).sort(), values: Object.values(process.env).join("\\n"), home: process.env.${VARIABLE} ?? null } };`,
+    "process.stdout.write(JSON.stringify({ result }) + \"\\n\");",
+    "",
+  ].join("\n") }, "an engine that reports what it inherits");
+  const saved = Object.fromEntries(Object.keys(PLANTED).map((name) => [name, process.env[name]]));
+  Object.assign(process.env, PLANTED);
+  try {
+    const { git, context, placement } = homePlacement(fixture, engine, document);
+    const answer = await runInPromoterHome(context, git, placement, APPLY, RUNNER(), engine);
+    const seen = answer.data as { names: string[]; values: string; home: string | null };
+    for (const name of Object.keys(PLANTED).filter((name) => name !== "https_proxy")) assert.ok(!seen.names.includes(name), `${name} never reaches S's engine`);
+    for (const value of [...Object.values(PLANTED), "proxyuser"].filter((value) => !value.startsWith("http"))) assert.ok(!seen.values.includes(value), "no planted value reaches it, under any name");
+    assert.ok(!seen.values.includes("planted-proxy-password"), "nor the proxy's password");
+    assert.equal(seen.home, join(placement.home, placement.engineRelative), "it knows it is the home's child");
+    assert.ok(seen.names.includes("PATH"));
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });
