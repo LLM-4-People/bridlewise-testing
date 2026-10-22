@@ -85,7 +85,8 @@ test("the one site's source is this tree's docs/, with no second repository", as
     assert.match(readFileSync(join(out, "floor/roadmap.md"), "utf8"), /\]\(\/bridlewise\/trackers\/TASKS\/\)/u);
     // The mirror landing is gone; its URL is a redirect to the front door.
     assert.equal(existsSync(join(out, "product.md")), false);
-    assert.match(readFileSync(join(out, "product/index.html"), "utf8"), /data-moved-to="\/bridlewise\/"/u, "a moved page names its place for the site script (no inline script under the policy)");
+    assert.match(readFileSync(join(out, "product/index.html"), "utf8"), /<script src="moved\.js"><\/script>/u, "a moved page forwards through a file (no inline script under the policy)");
+    assert.equal(readFileSync(join(out, "product/moved.js"), "utf8"), 'location.replace("/bridlewise/");\n');
     assert.ok(result.pages > 100);
     assert.deepEqual(result.versions, []);
   } finally {
