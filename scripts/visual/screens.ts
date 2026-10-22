@@ -46,10 +46,14 @@ const TYPES: Readonly<Record<string, string>> = Object.freeze({
 });
 
 /** A static server for a built site under its base path, on a free loopback port. */
+/** Where the server answers the freeze sheet: outside the site's base, on its origin. */
+const FREEZE_PATH = "/__visual-freeze.css";
+
 async function serve(siteRoot: string, baseurl: string): Promise<{ server: Server; origin: string }> {
   const base = baseurl.replace(/\/+$/u, "");
   const server = createServer((request, response) => {
     const path = decodeURIComponent(new URL(request.url ?? "/", "http://site").pathname);
+    if (path === FREEZE_PATH) { response.writeHead(200, { "content-type": TYPES[".css"] }).end(FREEZE_CSS); return; }
     if (!path.startsWith(`${base}/`) && path !== base) { response.writeHead(404).end(); return; }
     let file = join(siteRoot, path.slice(base.length));
     if (!file.startsWith(siteRoot)) { response.writeHead(403).end(); return; }
@@ -85,7 +89,9 @@ async function context(browser: Browser, shot: Shot): Promise<BrowserContext> {
 async function settle(page: Page, url: string): Promise<void> {
   const response = await page.goto(url, { waitUntil: "networkidle" });
   if (response === null || !response.ok()) throw new VisualRefusal("visual_page_missing", `${url} answered ${String(response?.status() ?? "nothing")}`);
-  await page.addStyleTag({ content: FREEZE_CSS });
+  // A same-origin sheet, not an inline <style>: the page's policy refuses
+  // inline styles, and the pictures are taken under the policy the site ships.
+  await page.addStyleTag({ url: `${new URL(url).origin}${FREEZE_PATH}` });
   await page.evaluate(async () => { await document.fonts.ready; });
 }
 
