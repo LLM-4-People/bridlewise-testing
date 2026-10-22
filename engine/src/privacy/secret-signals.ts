@@ -1,5 +1,5 @@
 import { HarnessError } from "../kernel/errors.ts";
-import { deepFreeze } from "../kernel/integrity.ts";
+import { deepFreeze, sha256 } from "../kernel/integrity.ts";
 
 export type SecretSignalProfile = "admission" | "classification";
 
@@ -319,6 +319,17 @@ export function treeScannedSignals(): readonly SecretTextSignal[] {
  *
  * `appliesTo: "text"` rows run over every line and every tracked path;
  * `"file-name"` rows run over the tracked path's last segment.
+ *
+ * A row that protects a NAME (an internal host, a private directory) never
+ * spells it: this repository is public, and a pattern that names what it
+ * guards publishes it. Such a row carries `names` (how candidates are cut out
+ * of a text) and `digests` (each protected name's length and SHA-256,
+ * lower-cased); a candidate matches when its digest is one of them. Only SHAPE
+ * rows (a home path, a database file name) carry a `pattern`. Every row is
+ * applied through {@link createPrivacyMatcher}, the one matcher.
+ *
+ * The digests are authored pins: their inputs are deliberately absent from
+ * the tree, so no generator can re-derive them.
  */
 const HOME_PATH_PLACEHOLDERS = deepFreeze([
   "example", "user", "runner", "bridlewise", "ubuntu", "node", "app",
@@ -333,14 +344,114 @@ const HOME_PLACEHOLDER_GUARD = `(?!(?:${HOME_PATH_PLACEHOLDERS.join("|")})(?![A-
 
 export const PUBLICATION_PRIVACY_SIGNALS = deepFreeze([
   { id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path", pattern: new RegExp(`\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u") },
-  { id: "internal-git-host", category: "privacy", appliesTo: "text", description: "internal Git host", pattern: /git\.localserver\.ca\b/u },
-  { id: "internal-provider-host", category: "privacy", appliesTo: "text", description: "internal provider host", pattern: /api\.neuralwatt\.com\b/u },
-  { id: "internal-scratch-path", category: "privacy", appliesTo: "text", description: "internal scratch path", pattern: /\/tmp\/opencode\b/u },
-  { id: "local-evidence-state", category: "privacy", appliesTo: "text", description: "local evidence state directory", pattern: /\bcode-harness\.fresh-evidence\b/u },
+  // BEGIN AUTHORED PINS
+  { id: "internal-git-host", category: "privacy", appliesTo: "text", description: "internal Git host", names: "dotted", digests: [{ length: 18, sha256: "64228b8af389331cee6e7dba27c81450a7181c1f719e7a133e37128c6a4309e5" }] },
+  { id: "internal-provider-host", category: "privacy", appliesTo: "text", description: "internal provider host", names: "dotted", digests: [{ length: 18, sha256: "c565b621df0b9302f8b7e6881dd58353a803981a9fe69ef0542009f1ad9c76d1" }] },
+  { id: "internal-scratch-path", category: "privacy", appliesTo: "text", description: "internal scratch path", names: "scratch-path", digests: [{ length: 13, sha256: "736a4cae0826a534c3de9b47542cbe9dd50ec8b8714e1d42aa45f4afc0799c0d" }] },
+  { id: "local-evidence-state", category: "privacy", appliesTo: "text", description: "local evidence state directory", names: "dotted", digests: [{ length: 27, sha256: "3bcb2fbbb43fef9d40e18b6e1858d5ca761166d8710552ae03d89b3ae9e6de8b" }] },
+  // END AUTHORED PINS
   // A database or SQLite state file (and its -wal/-shm/-journal sidecars) is
   // not a credential file, but a local data blob that is never published.
   { id: "database-state", category: "privacy", appliesTo: "file-name", description: "database state", pattern: /\.(?:db|sqlite3?)(?:-[a-z]+)?$/iu },
 ] as const);
+
+export type PublicationPrivacySignal = (typeof PUBLICATION_PRIVACY_SIGNALS)[number];
+type PrivacyNameKind = "dotted" | "scratch-path";
+type PrivacyRow = Readonly<{ id: string } & (
+  | { pattern: RegExp }
+  | { names: PrivacyNameKind; digests: readonly Readonly<{ length: number; sha256: string }>[] }
+)>;
+
+// A dotted name (a host, a dotted directory name) is a run of name characters
+// `[A-Za-z0-9_.-]` whose dot-separated labels are non-empty. Runs are cut by a
+// linear pattern, never a backtracking one: the scanner reads multi-megabyte
+// lines (see `createPrivacyMatcher`).
+// A directory directly under the system scratch root.
+const SCRATCH_DIRECTORY = /\/tmp\/\w+/gu;
+// The longest label window tried. A protected name is a host or a dotted
+// directory name of a few labels; the bound keeps a long dotted run linear.
+const MAXIMUM_NAME_LABELS = 6;
+
+/**
+ * THE ONE PRIVACY MATCHER over `rows`: the ids of the rows a text matches, in
+ * row order. A shape row is its pattern. Name rows are judged TOGETHER, so a
+ * text is cut ONCE however many name rows there are, and only a candidate
+ * whose length is a protected name's length is hashed, then looked up in one
+ * table (the scanner runs this on every line of the tree; per-row cutting and
+ * hashing every window cost the required scan +64% CPU).
+ *
+ * A dotted run yields every contiguous window of two to
+ * {@link MAXIMUM_NAME_LABELS} non-empty labels, so a protected host is found
+ * as a subdomain's suffix or a longer name's prefix (`a.<host>`, `<host>.x`),
+ * but never inside a label (`x<host>`, `x-<host>`).
+ */
+const NO_PRIVACY_FINDINGS: readonly string[] = Object.freeze([]);
+
+export function createPrivacyMatcher(rows: readonly PrivacyRow[]): (text: string) => readonly string[] {
+  const shapes: Readonly<{ id: string; pattern: RegExp }>[] = [];
+  const kinds = new Map<PrivacyNameKind, { lengths: Set<number>; ids: Map<string, string[]> }>();
+  for (const row of rows) {
+    if ("pattern" in row) {
+      shapes.push({ id: row.id, pattern: row.pattern });
+      continue;
+    }
+    const kind = kinds.get(row.names) ?? { lengths: new Set<number>(), ids: new Map<string, string[]>() };
+    kinds.set(row.names, kind);
+    for (const pin of row.digests) {
+      kind.lengths.add(pin.length);
+      kind.ids.set(pin.sha256, [...(kind.ids.get(pin.sha256) ?? []), row.id]);
+    }
+  }
+  const order = new Map(rows.map((row, index) => [row.id, index] as const));
+  const dotted = kinds.get("dotted");
+  // Only a run at least as long as the shortest protected dotted name can hold
+  // one: the regex finds just those runs (greedy, no backtracking: a shorter
+  // run fails within its own length), so the common short token costs nothing.
+  const longRuns = dotted === undefined
+    ? undefined
+    : new RegExp(`[A-Za-z0-9_.-]{${String(Math.min(...dotted.lengths))},}`, "gu");
+  const scratch = kinds.get("scratch-path");
+  return (text) => {
+    const found = new Set<string>();
+    for (const shape of shapes) if (shape.pattern.test(text)) found.add(shape.id);
+    const consider = (kind: { lengths: Set<number>; ids: Map<string, string[]> }, candidate: string): void => {
+      if (!kind.lengths.has(candidate.length)) return;
+      for (const id of kind.ids.get(sha256(candidate.toLowerCase())) ?? []) found.add(id);
+    };
+    if (scratch !== undefined) {
+      for (const match of text.matchAll(SCRATCH_DIRECTORY)) consider(scratch, match[0]);
+    }
+    if (dotted !== undefined && longRuns !== undefined && text.includes(".")) {
+      for (const match of text.matchAll(longRuns)) {
+        const run = match[0];
+        if (!run.includes(".")) continue;
+        // Label boundaries as offsets: a window is a slice, built only when its length can match.
+        const starts = [0];
+        for (let at = run.indexOf("."); at !== -1; at = run.indexOf(".", at + 1)) starts.push(at + 1);
+        const labelEnd = (index: number): number => (index + 1 < starts.length ? starts[index + 1]! - 1 : run.length);
+        for (let first = 0; first < starts.length - 1; first += 1) {
+          for (let last = first + 1; last < Math.min(starts.length, first + MAXIMUM_NAME_LABELS); last += 1) {
+            if (labelEnd(last) === starts[last] || labelEnd(last - 1) === starts[last - 1]) break;
+            const begin = starts[first]!;
+            const end = labelEnd(last);
+            if (dotted.lengths.has(end - begin)) consider(dotted, run.slice(begin, end));
+          }
+        }
+      }
+    }
+    if (found.size === 0) return NO_PRIVACY_FINDINGS;
+    return [...found].sort((left, right) => order.get(left)! - order.get(right)!);
+  };
+}
+
+const PRIVACY_ROW_BY_ID = new Map<string, PublicationPrivacySignal>(PUBLICATION_PRIVACY_SIGNALS.map((row) => [row.id, row] as const));
+const PRIVACY_TEXT_MATCHER = createPrivacyMatcher(PUBLICATION_PRIVACY_SIGNALS.filter((row) => row.appliesTo === "text"));
+const PRIVACY_FILE_NAME_MATCHER = createPrivacyMatcher(PUBLICATION_PRIVACY_SIGNALS.filter((row) => row.appliesTo === "file-name"));
+
+/** The publication-privacy rows `text` matches: `"text"` rows over a line or a path, `"file-name"` rows over a path's last segment. */
+export function publicationPrivacyFindings(text: string, appliesTo: "text" | "file-name"): readonly PublicationPrivacySignal[] {
+  return (appliesTo === "text" ? PRIVACY_TEXT_MATCHER : PRIVACY_FILE_NAME_MATCHER)(text).map((id) => PRIVACY_ROW_BY_ID.get(id)!);
+}
 
 export function secretTextSignalIds(
   value: string,
