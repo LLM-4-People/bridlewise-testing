@@ -1000,8 +1000,7 @@ function readTypescriptLiteral(binding: HashBinding, content: string): string {
 
 /**
  * The ONE locator of a binding's literal: its `findRegex`, matched exactly
- * once in `content` (the target's text, or — for a self-pinned binding — the
- * source's). Zero or several matches are a typed refusal naming `where`,
+ * once in `content` (the target's text). Zero or several matches are a typed refusal naming `where`,
  * never a guess: a decoy spelled like the pin makes the text ambiguous, it
  * never acquires the pin's exemption.
  */

@@ -165,6 +165,13 @@ test("M1: harnessCheck judges dead registry commands over the checkout's promoti
   assert.match(result.result.deadCommands.message, /every registry command is run by a workspace phase or a promotion profile/u, "this checkout declares its profiles, so the step judges");
 });
 
+test("#221: harnessCheck judges the bundle against a rebuild of the source (no committed digest)", async () => {
+  const result = await checkSkipAll();
+  assert.equal(result.result.bundle.step, "bundle");
+  assert.ok(["pass", "fail"].includes(result.result.bundle.status));
+  assert.match(result.result.bundle.message, /dist\/bundle\.js/u);
+});
+
 test("HarnessCommands: harnessCheck result is frozen", async () => {
   const result = await checkSkipAll();
   assert.ok(Object.isFrozen(result));
@@ -1105,9 +1112,8 @@ test("HarnessCommands: harnessSync result is frozen with a valid integrity hash"
 
 // ---------------------------------------------------------------------------
 // harness sync --with-bundle: the one-shot command that rebuilds the
-// production bundle THEN re-pins the hash bindings in a single pass. This
-// eliminates the bundle/regenerate chicken-and-egg that required two sync
-// rounds to stabilize manifest hash drift after a config/root-policy edit.
+// production bundle from the stabilized pins and re-derives what the build
+// wrote, in a single pass (no digest of the bundle is committed, #221).
 //
 // The bundle-build step is verified STRUCTURALLY (the step type + the
 // runBundleBuildStep export + the CLI flag parsing) rather than by running the

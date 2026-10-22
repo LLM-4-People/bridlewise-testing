@@ -200,7 +200,8 @@ function productChanged(context: PromotionContext): boolean | null {
   const projection = projectSource(context.repository, context.loaded, context.source, context.target);
   if (projection.lastPromoted.source === null) return true;
   const changed = gitOutput(context.repository, ["diff", "--name-only", "-z", "--no-renames", projection.lastPromoted.source, context.source, "--"]).stdout.toString("utf8").split("\0").filter((path) => path.length > 0);
-  return changed.some((path) => projection.classification.projected.has(path) || projection.classification.notProjected.get(path)?.rule === undefined);
+  const overlaySources = new Set(projection.classification.overlaid.values());
+  return changed.some((path) => projection.classification.projected.has(path) || overlaySources.has(path) || projection.classification.notProjected.get(path)?.rule === undefined);
 }
 
 /** The work folder's facts a promotion needs: on the repository's filesystem, and its free bytes. */
@@ -456,7 +457,7 @@ export function enginePromotionSource(root: string, document?: PromotionDocument
       const last = context.target === null ? undefined : profileHistory(context.repository, context.target, context.loaded.profile.name)[0];
       if (last === undefined) return `${context.loaded.profile.name}: never promoted`;
       const at = gitOutput(context.repository, ["log", "-1", "--format=%cI", last.commit]).stdout.toString("utf8").trim();
-      return `${context.loaded.profile.name}: ${last.commit} ${last.trailers.restores === null ? `carries ${last.trailers.promotedFrom ?? "?"}` : `restores ${last.trailers.restores}`} (${at})`;
+      return `${context.loaded.profile.name}: ${last.commit} ${last.trailers.restores === null ? `carries ${last.trailers.projectedFrom ?? "?"}` : `restores ${last.trailers.restores}`} (${at})`;
     }),
     pending: () => perProfile(root, document, (context) => {
       const facts = pendingFacts(context);

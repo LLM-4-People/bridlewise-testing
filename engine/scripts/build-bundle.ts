@@ -26,7 +26,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
@@ -68,6 +68,10 @@ export function getBundleBuildOptions(): Parameters<typeof build>[0] {
     outfile: bundlePath,
     sourcemap: false,
     sourcesContent: false,
+    // A dependency is named by the path it is reached by, never its real path: a checkout whose node_modules is a
+    // link (a worktree, the commit guard's staged tree) builds the same bytes as one that holds the folder, so the
+    // bundle is a function of the tree and the lockfile, never of where the dependencies happen to sit (#221).
+    preserveSymlinks: true,
     write: false,
     logLevel: "warning",
     external: ["onnxruntime-node", "sharp", "@xenova/transformers"],
@@ -143,8 +147,30 @@ async function buildBundle(): Promise<BuildSummary> {
   };
 }
 
+/**
+ * THE BUNDLE'S FRESHNESS, with no committed digest (#221): a rebuild in memory
+ * from the current source, compared byte for byte with `dist/bundle.js`. A
+ * stale, tampered or absent bundle is `fresh: false`, naming which; nothing is
+ * written. `harness check` runs this (`--check`), so a hand-edited bundle is
+ * refused by the check that refuses every other drift.
+ */
+export async function bundleFreshness(onDisk: string = bundlePath): Promise<Readonly<{ fresh: boolean; status: "current" | "stale" | "absent"; path: string }>> {
+  const result = await build(getBundleBuildOptions());
+  const rebuilt = result.outputFiles?.[0]?.text;
+  if (rebuilt === undefined) throw new Error("esbuild produced no output files");
+  const status = !existsSync(onDisk) ? "absent" : readFileSync(onDisk, "utf8") === rebuilt ? "current" : "stale";
+  return { fresh: status === "current", status, path: relative(harnessRoot, onDisk) };
+}
+
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
+  const argv = process.argv.slice(2);
+  if (argv.length > 1 || (argv.length === 1 && argv[0] !== "--check")) throw new Error("Usage: build-bundle [--check]");
+  if (argv[0] === "--check") {
+    const freshness = await bundleFreshness();
+    process.stdout.write(`${JSON.stringify(freshness)}\n`);
+    process.exit(freshness.fresh ? 0 : 1);
+  }
   const summary = await buildBundle();
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   process.exit(0);
