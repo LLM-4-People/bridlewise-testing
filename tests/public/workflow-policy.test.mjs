@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import { isAlias, isMap, isPair, isScalar, isSeq, LineCounter, parseDocument, visit } from "yaml";
 
+import { networkInstalls } from "../helpers/network-install.ts";
+
 /**
  * THE WORKFLOW POLICY: rules every GitHub Actions workflow in the tree obeys.
  *
@@ -345,10 +347,10 @@ function injectionViolations(workflow) {
  * fetching from a mirror inside a job waits on the network without bound: a
  * hung mirror held two shards until their 45-minute timeout and read as a red
  * suite. The toolchain comes from the runner image and is PROBED (a missing
- * tool is a named failure), never installed by a step.
+ * tool is a named failure), never installed by a step. What counts as an
+ * install is the one reader `tests/helpers/network-install.ts`, shared with
+ * the external-surface registry and the guardian compiler pin.
  */
-const NETWORK_INSTALL = /\b(?:apt-get|apt|aptitude|yum|dnf|apk|brew|snap)\s+(?:-\S+\s+)*(?:update|install|upgrade|add)\b/u;
-
 function networkInstallViolations(workflow) {
   const { unreadable } = readWorkflow(workflow);
   if (unreadable.length > 0) return unreadable;
@@ -357,8 +359,9 @@ function networkInstallViolations(workflow) {
   for (const [jobName, job] of Object.entries(document.jobs ?? {})) {
     for (const [index, step] of (Array.isArray(job?.steps) ? job.steps : []).entries()) {
       if (typeof step?.run !== "string") continue;
-      const line = step.run.split("\n").find((entry) => NETWORK_INSTALL.test(entry));
-      if (line !== undefined) violations.push(`${workflow.path}: jobs.${jobName}.steps[${String(index)}].run installs from the network (${line.trim()}); probe the runner image's tool instead`);
+      for (const install of networkInstalls(step.run)) {
+        violations.push(`${workflow.path}: jobs.${jobName}.steps[${String(index)}].run installs from the network (${install.command}); probe the runner image's tool instead`);
+      }
     }
   }
   return violations;
@@ -644,7 +647,14 @@ test("no live workflow installs system packages from the network on its path (#3
 
 test("network installs are refused in any spelling; probes and near misses pass", () => {
   const plant = (run) => networkInstallViolations({ path: ".github/workflows/plant.yml", text: `on: push\njobs:\n  j:\n    runs-on: x\n    steps:\n      - run: |\n${run.split("\n").map((line) => `          ${line}`).join("\n")}\n` });
-  for (const run of ["sudo apt-get update", "sudo apt-get install -y gcc-14", "apt install -y make", "sudo apt-get -qq update", "brew install llvm", "apk add gcc"]) {
+  for (const run of [
+    "sudo apt-get update", "sudo apt-get install -y gcc-14", "apt install -y make", "sudo apt-get -qq update", "brew install llvm", "apk add gcc",
+    // Options before the subcommand, a continued line, and a prefixed environment (review of #335).
+    "sudo apt-get -o Acquire::Retries=3 install -y gcc-14",
+    "sudo apt-get \\\n  install -y gcc-14",
+    "env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-14",
+    "/usr/bin/apt-get install -y gcc-14",
+  ]) {
     assert.equal(plant(run).length, 1, run);
   }
   for (const run of ["command -v gcc-14 >/dev/null || exit 1", "gcc-14 --version | head -n 1", "echo apt-get is not used here", "npm ci --no-audit --no-fund", "make -C engine/guardian all"]) {

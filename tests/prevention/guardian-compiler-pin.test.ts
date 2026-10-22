@@ -23,6 +23,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
+import { networkInstalls } from "../helpers/network-install.ts";
+
 const MAKEFILE = "engine/guardian/Makefile";
 const BUILD = "engine/guardian/build.ts";
 const WORKFLOWS = [".github/workflows/ci.yml", ".github/workflows/test-shards.yml"] as const;
@@ -56,7 +58,7 @@ describe("the guardian compiler pin", () => {
       const text = readFileSync(workflow, "utf8");
       // Probed, never installed: a network install only ever waited on a mirror (#333).
       expect(text, `${workflow} must probe ${compiler}, the declared pin`).toContain(`command -v ${compiler}`);
-      expect(text, `${workflow} must not install a compiler over the network`).not.toMatch(/apt-get\s+install/u);
+      expect(networkInstalls(text).map((install) => install.command), `${workflow} must not install anything over the network`).toEqual([]);
       expect(text, `${workflow} must not pass CC=; the Makefile owns the choice`).not.toMatch(/\bCC=/u);
       expect(text, `${workflow} must invoke the guardian build owner`).toMatch(/make -C engine\/guardian (?:all|test)/u);
     }
