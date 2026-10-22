@@ -42,6 +42,7 @@ import {
 import { createTempDir } from "../helpers/temp-dir.ts";
 import { TEST_INCLUDE } from "../test-include.ts";
 import { DECLARED_ROOT } from "../declared-root.ts";
+import { TEST_HANG_BACKSTOP_MS } from "../test-budget.ts";
 
 const WEB_ROOT = process.cwd();
 const INTEGRATION_ROOT = join(WEB_ROOT, "engine");
@@ -202,14 +203,15 @@ function nodeTestRun(
   root: string,
   file: string,
 ): Readonly<{ status: number | null; output: string; passedNames: readonly string[] }> {
-  // THE TIMEOUT IS NOT OPTIONAL, AND VITEST'S OWN CANNOT SUBSTITUTE FOR IT.
+  // THE HANG BOUND IS NOT OPTIONAL, AND VITEST'S OWN CANNOT SUBSTITUTE FOR IT.
   // `spawnSync` blocks the thread, so a child that never exits is a run that
   // never returns — `testTimeout` is a timer on an event loop this call is not
-  // yielding to, and it can neither fire nor interrupt. The failure mode is a
-  // hang rather than a false pass, which is the better of the two, but this
-  // suite judges wall clock and a hang takes the whole run with it. `SIGKILL`
-  // rather than the default `SIGTERM`: a spinning child never reaches a
-  // handler, which this workspace has already measured once.
+  // yielding to, and it can neither fire nor interrupt. So the child carries
+  // the suite's one hang backstop itself (tests/test-budget.ts). It judges
+  // nothing about speed: the child's CPU work is reaped into this test's and
+  // judged by its class (tests/setup/test-cpu-class.ts). `SIGKILL` rather
+  // than the default `SIGTERM`: a spinning child never reaches a handler,
+  // which this workspace has already measured once.
   const result = spawnSync(
     "node",
     ["--experimental-strip-types", "--test", "--test-reporter=tap", file],
@@ -217,7 +219,7 @@ function nodeTestRun(
       cwd: root,
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
-      timeout: 120_000,
+      timeout: TEST_HANG_BACKSTOP_MS,
       killSignal: "SIGKILL",
     },
   );
@@ -350,7 +352,7 @@ describe("every test file this repository holds is executed by something", () =>
     expect(none.status).toBe(0);
     expect(none.passedNames).toEqual(["empty.test.mjs"]);
     expect(ranSomething("empty.test.mjs", none.passedNames)).toBe(false);
-  }, 120_000);
+  });
 });
 
 describe("the fourth declaration class resolves testDir from its CONFIG, not the caller's cwd", () => {
@@ -378,5 +380,5 @@ describe("the fourth declaration class resolves testDir from its CONFIG, not the
       });
       expect(JSON.parse(stdout.trim()), `${config} must load from ${foreign}`).toBe(testDir);
     }
-  }, 120_000);
+  });
 });
