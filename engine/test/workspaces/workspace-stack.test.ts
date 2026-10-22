@@ -11,6 +11,7 @@ import {
   makeTestConfig,
   mkWorkspaceTempDir,
   rawGit,
+  writeFile,
 } from "./workspace-test-support.ts";
 
 /**
@@ -130,8 +131,8 @@ test("a parent that published another head, or ended without landing, leaves its
   await assert.rejects(() => manager.validate(child.workspaceId), throwsCode("workspace_stack_parent_ended"));
 });
 
-test("create --stack-on refuses what cannot be stacked on: an unpublished parent, a read-only one, an ended one, and a child that names its own target, base or overlay", async () => {
-  const { manager } = stackFixture("ws-stack-create");
+test("create --stack-on refuses what cannot be stacked on: an unpublished parent, a read-only one, an overlay, an ended one, and a child that names its own target, base or overlay", async () => {
+  const { root, manager } = stackFixture("ws-stack-create");
   const parent = await manager.create({ agentName: "base", mode: "feature", writeSet: ["src/a"] });
   await assert.rejects(() => manager.create({ agentName: "next", mode: "feature", writeSet: ["src/b"], stackOn: parent.workspaceId }), throwsCode("workspace_not_published"));
   commitFile(parent.lease.worktreePath, "src/a/one.ts", "export const one = 1;\n");
@@ -141,7 +142,15 @@ test("create --stack-on refuses what cannot be stacked on: an unpublished parent
   }
   await assert.rejects(() => manager.create({ agentName: "next", mode: "read-only", writeSet: [], stackOn: parent.workspaceId }), throwsCode("workspace_stack_invalid"));
   const reader = await manager.create({ agentName: "reader", mode: "read-only", writeSet: [] });
-  await assert.rejects(() => manager.create({ agentName: "next", mode: "feature", writeSet: ["src/b"], stackOn: reader.workspaceId }), throwsCode("workspace_stack_invalid"));
+  await assert.rejects(() => manager.create({ agentName: "next", mode: "feature", writeSet: ["src/b"], stackOn: reader.workspaceId }), (error: unknown) =>
+    throwsCode("workspace_stack_invalid")(error) && /is read-only/u.test((error as Error).message), "a read-only parent never publishes");
+  // An overlay parent lands by adoption into its checkout: nothing stacks on it, even published.
+  writeFile(root, "src/c/dirty.ts", "export const dirty = 1;\n");
+  const overlay = await manager.create({ agentName: "over", mode: "overlay", writeSet: [] });
+  await manager.publish(overlay.workspaceId);
+  await assert.rejects(() => manager.create({ agentName: "next", mode: "feature", writeSet: ["src/b"], stackOn: overlay.workspaceId }), (error: unknown) =>
+    throwsCode("workspace_stack_invalid")(error) && /is an overlay/u.test((error as Error).message), "an overlay parent is refused");
+  await manager.abort(overlay.workspaceId);
   await manager.abort(parent.workspaceId);
   await assert.rejects(() => manager.create({ agentName: "next", mode: "feature", writeSet: ["src/b"], stackOn: parent.workspaceId }), throwsCode("workspace_stack_parent_ended"));
   assert.deepEqual(manager.list().filter((record) => record.state === "active").map((record) => record.workspaceId), [reader.workspaceId], "nothing was made");

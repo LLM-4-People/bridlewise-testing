@@ -1012,10 +1012,14 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       throw new InputError("a stacked workspace is a feature workspace that starts at its parent's published head and lands on its parent's target: it takes no --target, --base or --overlay", "workspace_stack_invalid");
     }
     const parent = requireOwnedRecord(request.stackOn!);
-    const state = parent.forge;
-    if (parent.lease.kind !== "feature" || parent.lease.overlay !== null || state === null || isLegacyForgeState(state)) {
-      throw new InputError(`workspace ${parent.workspaceId} is not a feature workspace on the forge: nothing can be stacked on it`, "workspace_stack_invalid");
+    if (parent.lease.kind !== "feature") {
+      throw new InputError(`workspace ${parent.workspaceId} is read-only: it never publishes, so nothing can be stacked on it`, "workspace_stack_invalid");
     }
+    if (parent.lease.overlay !== null) {
+      throw new InputError(`workspace ${parent.workspaceId} is an overlay: it lands by adoption into the checkout it snapshotted, so nothing can be stacked on it`, "workspace_stack_invalid");
+    }
+    // A feature record this version owns has a live forge state (the record's schema; an older store's legacy marker was refused above).
+    const state = parent.forge as WorkspaceForgeState;
     if (parent.state !== "active" && parent.state !== "validating") {
       throw new InputError(`workspace ${parent.workspaceId} is ${parent.state}: a workspace is stacked only on a live one`, "workspace_stack_parent_ended");
     }
@@ -2136,13 +2140,19 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    */
   /**
    * THE ONE CHECK that a workspace's pull request (read once, `current`) is
-   * open at exactly the head it published: a closed one is refused
-   * (`workspace_pull_request_closed`), and so is one whose head another
-   * writer moved (`workspace_published_head_moved`). `ready` and `land` both
-   * ask it before they act on the forge.
+   * open at exactly the head it published, against the trunk: a closed one is
+   * refused (`workspace_pull_request_closed`), and so are one whose head
+   * another writer moved (`workspace_published_head_moved`) and one whose
+   * base was changed away from the trunk (`workspace_pull_request_base_mismatch`:
+   * a merge into any other branch is no land). `ready` and `land` both ask it
+   * before they act on the forge.
    */
   function assertOpenAtPublishedHead(record: WorkspaceRecord, current: ForgePullRequest, head: string): void {
     if (current.state !== "open") throw new InputError(`pull request #${String(current.number)} is ${current.state}`, "workspace_pull_request_closed");
+    const trunk = (record.forge as WorkspaceForgeState).trunk;
+    if (current.base !== trunk) {
+      throw new InputError(`pull request #${String(current.number)} is opened against ${current.base}, not the trunk ${trunk}: set its base back to ${trunk}`, "workspace_pull_request_base_mismatch");
+    }
     if (current.headSha !== head) {
       throw new InputError(`pull request #${String(current.number)}'s head is ${current.headSha}, not the published ${head}: someone else pushed to ${record.lease.branch!}`, "workspace_published_head_moved");
     }
