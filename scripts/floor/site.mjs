@@ -61,6 +61,8 @@ const MARKUP_OWNER = "shared/markup.ts";
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?$/u;
 /** The site folder that holds the released snapshots; the source must not publish into it. */
 export const VERSIONS_FOLDER = "v";
+/** The file beside each moved page that forwards the reader to its new place. */
+export const MOVED_SCRIPT = "moved.js";
 
 function fail(message) {
   throw new Error(message);
@@ -222,10 +224,12 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
     writeFileSync(
       join(directory, "index.html"),
       frontMatter({ layout: "default", page_class: "article", title: `Moved: ${name}` })
-        // The site's script follows `data-moved-to` (assets/js/site.js): the
-        // page's Content-Security-Policy runs no inline script.
-        + `<div class="callout-warning" role="status" data-moved-to="${escapeHtml(target)}">\n  <p>This page moved to <a href="${escapeHtml(target)}">${escapeHtml(target)}</a>.</p>\n</div>\n`,
+        + `<div class="callout-warning" role="status">\n  <p>This page moved to <a href="${escapeHtml(target)}">${escapeHtml(target)}</a>.</p>\n</div>\n`
+        // The forward is a file beside the page, not an inline script: the
+        // page's Content-Security-Policy runs only the site's own files.
+        + `<script src="${MOVED_SCRIPT}"></script>\n`,
     );
+    writeFileSync(join(directory, MOVED_SCRIPT), `location.replace(${JSON.stringify(target)});\n`);
     redirectedPaths += 1;
   }
 
