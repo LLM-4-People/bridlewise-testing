@@ -6,7 +6,7 @@
 // The cache generation: raise it when this worker's caching logic changes.
 const CACHE_GENERATION = "v5";
 // BEGIN GENERATED: the cached assets' digest (scripts/service-worker-cache.ts)
-const ASSETS_DIGEST = "02a8f79b2521";
+const ASSETS_DIGEST = "48e3c931e89f";
 // END GENERATED: the cached assets' digest
 // A changed icon, font or bundle is a new cache, so an installed app refreshes.
 const CACHE_VERSION = `${CACHE_GENERATION}-${ASSETS_DIGEST}`;
@@ -45,7 +45,7 @@ function isDevelopmentModule(url) {
 }
 
 function isPublicAsset(url) {
-  return url.pathname.startsWith("/icons/") || url.pathname === "/manifest.json"
+  return url.pathname.startsWith("/icons/") || url.pathname.startsWith("/fonts/") || url.pathname === "/manifest.json"
     || /^\/assets\/[^/]+-[\w-]{8,}\.(?:js|css|mjs|png|svg|ico|jpg|jpeg|gif|webp|woff2?|ttf|eot)$/i.test(url.pathname);
 }
 
