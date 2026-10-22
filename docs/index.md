@@ -1,193 +1,200 @@
 ---
 layout: default
-floor_assets: true
-page_class: home
-title: "Build, test, and extend Bridlewise"
-description: "The contributor hub for the Bridlewise development floor: how to help, how to build on the harness, and the milestones ahead."
+title: "Bridlewise — every run, recorded. Every tool, governed."
+description: "A local-first, experimental coding cockpit. The repository is a run record: eight beats from intent to release, with governed tools and visible limits."
 permalink: /
+page_class: home
 ---
 
 <section class="hero">
-  <p class="eyebrow">Development floor <span class="dot" aria-hidden="true"></span> Contributor hub <span class="dot" aria-hidden="true"></span> AGPL-3.0</p>
-  <h1>Build the harness.<br><span class="beam-text">Break it honestly.</span></h1>
-  <p class="lede">This is the working floor behind Bridlewise, not the product site. It carries the tests, prevention guards, benchmarks, decision records, and verification machinery. The product documentation is mirrored here. The product itself is at <a href="https://llm-4-people.github.io/bridlewise/">llm-4-people.github.io/bridlewise</a>.</p>
+  <p class="eyebrow">Developer preview <span class="dot" aria-hidden="true"></span> Pre-admission <span class="dot" aria-hidden="true"></span> AGPL-3.0</p>
+  <h1>Every run, recorded.<br><span class="beam-text">Every tool, governed.</span></h1>
+  <p class="lede">Bridlewise is a coding cockpit you run on your own machine. A conversation becomes a run: a recorded causal stream of model turns, tool calls, file effects, checks, and findings — with the tool surface gated before and during execution. The repository is its flight recorder.</p>
   <div class="actions">
-    <a class="button primary" href="{{ '/floor/help/' | relative_url }}">Find a way to help</a>
-    <a class="button" href="{{ '/floor/roadmap/' | relative_url }}">Read the roadmap</a>
-    <a class="button" href="https://github.com/LLM-4-People/bridlewise-testing">Open the repository</a>
+    <a class="button primary" href="{{ '/quickstart/' | relative_url }}">Start with a disposable copy</a>
+    <a class="button" href="{{ '/run/' | relative_url }}">Open the run record</a>
+    <a class="button" href="{{ site.repository_url }}">Read the source</a>
   </div>
-  <p class="hero-note">Node 24 · Linux first · public gate green · full suite incomplete · not production-ready</p>
-</section>
+  <p class="hero-note">Node 24 · Linux first · loopback only · SQLite · no hosted service</p>
 
-<div class="callout-warning" role="note">
-<p>Bridlewise is an experimental developer preview. It is not production-ready, and it is not safe for sensitive, proprietary, regulated, or production code. The floor records verification work about Bridlewise. It does not turn Bridlewise into a supported product.</p>
-</div>
+  <figure class="hero-figure">
+    <img src="{{ '/assets/hero.png' | relative_url }}" alt="The Bridlewise cockpit: a run rendered as a causal stream of turns, tool calls, file effects, checks, and findings">
+    <figcaption>A recorded run in the cockpit: causal beats, the tool surface, and the composer.</figcaption>
+  </figure>
+</section>
 
 <section class="section">
   <div class="section-head">
-    <p class="eyebrow">Start with the right site</p>
-    <h2>This is the floor. The product lives next door.</h2>
-    <p class="section-lede">The two repositories have different jobs, so they have different front doors.</p>
+    <p class="eyebrow">The flight recorder</p>
+    <h2>A run has eight beats. The repository keeps them.</h2>
   </div>
+  <div class="prose">
+    <p>Most coding agents leave the interesting part in a provider's logs: which tool was called, what it changed, which check moved, and what the system decided not to allow. Bridlewise makes that part the primary surface. A run executes once, persists its stream, and can be reopened without starting a second execution.</p>
+    <p>The same sequence describes the project's own public record. Intent becomes a README; boundary becomes a security policy; tool becomes a workflow; effect becomes a release; check becomes CI; finding becomes an issue; decision becomes a discussion or a decision record; release becomes the artifact you can inspect.</p>
+  </div>
+
   <div class="prose">
     <table>
       <thead>
-        <tr><th>Site</th><th>What it is for</th><th>Start here</th></tr>
+        <tr><th>Beat</th><th>What the record holds</th></tr>
       </thead>
       <tbody>
-        <tr><td><strong>Product site</strong></td><td>What Bridlewise is, how to run it, what it refuses, and what it does not prove.</td><td><a href="https://llm-4-people.github.io/bridlewise/">Product home</a> · <a href="{{ '/quickstart/' | relative_url }}">Quickstart mirror</a></td></tr>
-        <tr><td><strong>This floor</strong></td><td>How to test the harness, add prevention, reproduce evidence, review a change, and build on the extension points.</td><td><a href="{{ '/floor/help/' | relative_url }}">How to help</a> · <a href="{{ '/floor/roadmap/' | relative_url }}">Roadmap</a></td></tr>
+        <tr><td><strong>1 · Intent</strong></td><td>The prompt, project, model, and plan — what the run is trying to do.</td></tr>
+        <tr><td><strong>2 · Boundary</strong></td><td>The provider, tool registry, policy, project root, and confinement decision.</td></tr>
+        <tr><td><strong>3 · Tool</strong></td><td>The registered tool, typed arguments, and the pre-dispatch gate's answer.</td></tr>
+        <tr><td><strong>4 · Effect</strong></td><td>A file diff, command result, or process effect — with a rollback handle where one exists.</td></tr>
+        <tr><td><strong>5 · Check</strong></td><td>The check, its before-and-after state, and the delta that actually moved.</td></tr>
+        <tr><td><strong>6 · Finding</strong></td><td>What a check or detector found, with its source and derivation.</td></tr>
+        <tr><td><strong>7 · Decision</strong></td><td>Allow, deny, stop, retry, or escalate — including the typed refusals.</td></tr>
+        <tr><td><strong>8 · Release</strong></td><td>What leaves the harness: a diff, a report, a commit, or a published artifact.</td></tr>
       </tbody>
     </table>
-    <p>The complete product documentation is mirrored on this site. The <a href="{{ '/product/' | relative_url }}">product documentation entry point</a> collects the reading paths. The floor pages are additive: they document the machinery behind the product.</p>
+    <p><a href="{{ '/github/' | relative_url }}">See how each beat maps to a GitHub surface →</a> · <a href="{{ '/glossary/' | relative_url }}">Keep the vocabulary sharp →</a></p>
   </div>
 </section>
 
 <section class="section">
   <div class="section-head">
-    <p class="eyebrow">Three ways in</p>
-    <h2>Contribute. Build. Verify.</h2>
-    <p class="section-lede">Pick the path that matches the work you want to do. Each one starts with a public command, not a promise.</p>
+    <p class="eyebrow">Three doors</p>
+    <h2>Run it. Read the record. Audit the limits.</h2>
+    <p class="section-lede">Pick the door that matches what you need to know. None of them requires trusting the marketing copy.</p>
   </div>
   <div class="feature-grid">
     <article class="feature">
-      <p class="feature-kicker">01 · Contribute</p>
-      <h3>Make the floor stronger</h3>
-      <p>Reproduce a failure, add a prevention guard, improve a benchmark, fix a flaky test, or make the docs match the command output. The issue labels name the evidence needed.</p>
-      <p><a href="{{ '/floor/help/' | relative_url }}">How to help</a> · <a href="https://github.com/LLM-4-People/bridlewise-testing/blob/main/CONTRIBUTING.md">Contributing</a> · <a href="https://github.com/LLM-4-People/bridlewise-testing/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22">Good first issues</a> · <a href="https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/trackers/TASKS.md">Task board</a></p>
+      <p class="feature-kicker">01 · Run it</p>
+      <h3>Start on a disposable copy</h3>
+      <p>Node 24, a provider you can revoke, and a repository you can lose. The quickstart is explicit about the config mode, the ports, and the first account.</p>
+      <p><a href="{{ '/quickstart/' | relative_url }}">Quickstart</a> · <a href="{{ '/cli/' | relative_url }}">CLI reference</a> · <a href="{{ '/codespaces/' | relative_url }}">Codespace</a></p>
     </article>
     <article class="feature">
-      <p class="feature-kicker">02 · Build</p>
-      <h3>Extend the harness</h3>
-      <p>Add a governed tool, a block, a provider, an MCP server, a quality check, or an embedding. The extension points and typed refusals are part of the shipped tree.</p>
-      <p><a href="{{ '/extending/' | relative_url }}">Building on the harness</a> · <a href="{{ '/architecture/' | relative_url }}">Architecture</a> · <a href="{{ '/cli/' | relative_url }}">CLI</a></p>
+      <p class="feature-kicker">02 · Read the record</p>
+      <h3>Inspect a run, then the project</h3>
+      <p>The interactive run is a synthetic record you can explore. The GitHub map shows how the project records its own checks, findings, and releases.</p>
+      <p><a href="{{ '/run/' | relative_url }}">Interactive run</a> · <a href="{{ '/policy-lab/' | relative_url }}">Policy lab</a> · <a href="{{ '/github/' | relative_url }}">GitHub map</a> · <a href="{{ '/evidence/' | relative_url }}">Evidence</a></p>
     </article>
     <article class="feature">
-      <p class="feature-kicker">03 · Verify</p>
-      <h3>Check the claim</h3>
-      <p>Run the public gate, inspect the test atlas, read the status snapshot, or rerun an evidence command. A green badge is a pointer, not a proof.</p>
-      <p><a href="{{ '/floor/evidence/' | relative_url }}">Evidence commands</a> · <a href="{{ '/floor/status/' | relative_url }}">Status</a> · <a href="{{ '/floor/atlas/' | relative_url }}">Atlas</a></p>
+      <p class="feature-kicker">03 · Audit the limits</p>
+      <h3>Read what is not proven</h3>
+      <p>The threat model, the gap register, and a reading map that goes from 90 seconds to a security review. The warning is part of the product.</p>
+      <p><a href="{{ '/security/' | relative_url }}">Security and limits</a> · <a href="{{ '/known-issues/' | relative_url }}">Known issues</a> · <a href="{{ '/reading-map/' | relative_url }}">Reading map</a></p>
     </article>
   </div>
 </section>
 
 <section class="section">
   <div class="section-head">
-    <p class="eyebrow">How to help</p>
-    <h2>Useful work, with a visible finish line.</h2>
-    <p class="section-lede">The roadmap is grouped by outcome, not by a wish list. These are the lanes where a contribution can move a milestone.</p>
+    <p class="eyebrow">Two instruments, clearly labeled</p>
+    <h2>Don't just read the claim. Move through the record.</h2>
+    <p class="section-lede">Both pages are interactive, self-contained illustrations. Neither calls a model, executes a tool, or changes a real policy. That is the point: you can inspect the shape before you install anything.</p>
   </div>
   <div class="feature-grid">
     <article class="feature">
-      <p class="feature-kicker">Reproduce</p>
-      <h3>Turn a report into a failing test</h3>
-      <p>Capture the exact command, the typed error, the run id, and the smallest disposable fixture. Redact secrets and private code. A reproduction is the start of the fix.</p>
-      <p><a href="https://github.com/LLM-4-People/bridlewise-testing/issues?q=is%3Aissue+is%3Aopen+label%3Aneeds-evidence">Issues needing evidence</a></p>
+      <p class="feature-kicker">Instrument 01 · The flight recorder</p>
+      <h3>Run 0001: trace the request boundary</h3>
+      <p>Move through eight beats — intent, model turn, governed tool, file effect, check, finding, refusal, release. Follow cause to effect, inspect the evidence, and see where a redaction happened.</p>
+      <p><a href="{{ '/run/' | relative_url }}">Enter the run record →</a></p>
     </article>
     <article class="feature">
-      <p class="feature-kicker">Prevent</p>
-      <h3>Add a guard that would have caught it</h3>
-      <p>A prevention guard states the class, the plant, the driven behavior, and the liveness check. It must fail on the old behavior and pass on the fix.</p>
-      <p><a href="{{ '/testing/' | relative_url }}">Testing guide</a> · <a href="https://github.com/LLM-4-People/bridlewise-testing/issues?q=is%3Aissue+is%3Aopen+label%3Atesting">Testing issues</a></p>
+      <p class="feature-kicker">Instrument 02 · The governance console</p>
+      <h3>Flip a capability. Watch the receipt refuse.</h3>
+      <p>Toggle capabilities, try an action, and read the typed refusal. The safety floor cannot be toggled. The real engine's policy is code, not this console; the console makes the posture legible.</p>
+      <p><a href="{{ '/policy-lab/' | relative_url }}">Open the policy lab →</a></p>
     </article>
     <article class="feature">
-      <p class="feature-kicker">Make it reproducible</p>
-      <h3>Shard, fetch, and merge the floor</h3>
-      <p>The full suite is too slow for one host and too dependent on external fixtures. Help build the shard contract, the corpus manifest, and the single merged receipt.</p>
-      <p><a href="{{ '/floor/roadmap/' | relative_url }}">Milestone M1</a> · <a href="{{ '/testing/' | relative_url }}">Full-suite prerequisites</a></p>
+      <p class="feature-kicker">Instrument 03 · The repository</p>
+      <h3>The project is a run record too.</h3>
+      <p>Actions are checks. Security is custody. Releases are effects. Issues are findings. The GitHub map names what each surface proves — and what it does not.</p>
+      <p><a href="{{ '/github/' | relative_url }}">Read the GitHub map →</a></p>
+    </article>
+  </div>
+
+  <div class="screenshot-grid">
+    <figure class="screenshot">
+      <img src="{{ '/assets/run-record-preview.png' | relative_url }}" alt="The illustrative Run 0001 record, with a causal timeline of eight beats and an inspector showing a file effect">
+      <figcaption><strong>RUN 0001.</strong> A synthetic record with a causal timeline, evidence inspector, typed refusal, and a redaction. <a href="{{ '/run/' | relative_url }}">Open it →</a></figcaption>
+    </figure>
+    <figure class="screenshot">
+      <img src="{{ '/assets/policy-lab-preview.png' | relative_url }}" alt="The illustrative governance lab, showing capability gates, a preflight receipt, action probes, and the immutable safety floor">
+      <figcaption><strong>POLICY LAB.</strong> Six gates, one floor. Flip a capability and watch the receipt refuse. <a href="{{ '/policy-lab/' | relative_url }}">Open it →</a></figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <p class="eyebrow">What is in the tree</p>
+    <h2>Small surface, real machinery.</h2>
+  </div>
+  <div class="feature-grid">
+    <article class="feature">
+      <p class="feature-kicker">01 · Provenance</p>
+      <h3>A causal run stream</h3>
+      <p>Turns, tool beats, effects, checks, and findings in one ordered record. A second viewer reads the record; it does not fork the run.</p>
     </article>
     <article class="feature">
-      <p class="feature-kicker">Build</p>
-      <h3>Extend a real boundary</h3>
-      <p>Provider conformance, MCP transport, platform path handling, quality packs, and embedding contracts are all open work. Add the test at the layer that owns the behavior.</p>
-      <p><a href="{{ '/extending/' | relative_url }}">Extension points</a> · <a href="{{ '/architecture/' | relative_url }}">Architecture</a></p>
+      <p class="feature-kicker">02 · Governance</p>
+      <h3>Typed blockers, no silent fallback</h3>
+      <p>An unconfigured adapter names what is missing. A ghost tool is refused before dispatch. A blocked action stays blocked; it does not become a plausible substitute.</p>
     </article>
     <article class="feature">
-      <p class="feature-kicker">Document</p>
-      <h3>Make the record match the code</h3>
-      <p>Commands, config keys, routes, and user-visible behavior change. The docs and the release evidence must change with them. A broken example is a bug.</p>
-      <p><a href="https://github.com/LLM-4-People/bridlewise-testing/issues?q=is%3Aissue+is%3Aopen+label%3Adocumentation">Documentation issues</a></p>
+      <p class="feature-kicker">03 · Safety</p>
+      <h3>Gates before and during the turn</h3>
+      <p>Pre-dispatch schema and loop checks, streaming bias and deviation detectors, an artifact sandbox check, and Landlock confinement for shell commands on Linux.</p>
     </article>
     <article class="feature">
-      <p class="feature-kicker">Review</p>
-      <h3>Read for the failure mode</h3>
-      <p>Review the owner, the trust boundary, the failure path, and the evidence. A passing run is necessary, not sufficient. Report vulnerabilities privately.</p>
-      <p><a href="{{ '/floor/help/' | relative_url }}">Review checklist</a> · <a href="https://github.com/LLM-4-People/bridlewise-testing/blob/main/SECURITY.md">Security policy</a></p>
+      <p class="feature-kicker">04 · Locality</p>
+      <h3>Your machine is the boundary</h3>
+      <p>The server binds to <code>127.0.0.1</code>. State is local SQLite. Sensitive fields are encrypted, and database keys live outside every checkout.</p>
     </article>
   </div>
 </section>
 
 <section class="section">
   <div class="section-head">
-    <p class="eyebrow">Roadmap</p>
-    <h2>A milestone is a state of evidence.</h2>
-    <p class="section-lede">No dates. Each milestone names what must be true before the next one can be claimed. The <a href="{{ '/floor/roadmap/' | relative_url }}">full roadmap</a> carries the workstreams and exit criteria.</p>
+    <p class="eyebrow">The cockpit</p>
+    <h2>Instrument glass over a paper logbook.</h2>
+    <p class="section-lede">Carbon dark grounds, engraved labels, one live beam for what is actually happening, and a light logbook theme that reads like paper. The design is documented, not decorative.</p>
   </div>
-  <div class="prose">
-    <table>
-      <thead>
-        <tr><th>Milestone</th><th>State</th><th>What must be true</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><strong>M0 · Public floor online</strong></td><td>Done</td><td>Both repositories, Pages, the public gate, failure reporting, promotion, and a prerelease are live.</td></tr>
-        <tr><td><strong>M1 · Reproducible, sharded floor</strong></td><td>Active</td><td>A documented full-suite workflow runs on shards, merges into one receipt, and every canonical test file runs once.</td></tr>
-        <tr><td><strong>M2 · Admission evidence</strong></td><td>Next</td><td>Readiness is reported per capability, with the evidence and remedy attached. A single boolean is not enough.</td></tr>
-        <tr><td><strong>M3 · Product hardening</strong></td><td>Next</td><td>Backup and restore are one verified flow; provider coverage, portability, scale, and accessibility still need tested failure paths.</td></tr>
-        <tr><td><strong>M4 · Sustainable contribution</strong></td><td>Active</td><td>A new contributor can go from clone to a merged test or docs change using only public instructions.</td></tr>
-      </tbody>
-    </table>
+
+  <div class="screenshot-grid">
+    <figure class="screenshot">
+      <img src="{{ '/assets/cockpit-flow.png' | relative_url }}" alt="The FLOW shows a run as typed beats with visible verbs and causal connections">
+      <figcaption><strong>FLOW.</strong> The run, full-bleed. Prose at a readable measure; instruments across the width.</figcaption>
+    </figure>
+    <figure class="screenshot">
+      <img src="{{ '/assets/cockpit-switch.png' | relative_url }}" alt="The switch shows projects and recent conversations with measured outcomes">
+      <figcaption><strong>SWITCH.</strong> The recency river of projects and conversations, with measured outcomes.</figcaption>
+    </figure>
+    <figure class="screenshot">
+      <img src="{{ '/assets/cockpit-instruments.png' | relative_url }}" alt="The Instruments room lists measured signals with their actions">
+      <figcaption><strong>INSTRUMENTS.</strong> Measured values, honest absence, and the verb attached to each fact.</figcaption>
+    </figure>
+    <figure class="screenshot">
+      <img src="{{ '/assets/cockpit-settings.png' | relative_url }}" alt="The settings room indexes settings with their current values">
+      <figcaption><strong>SETTINGS.</strong> One searchable index; the value and its commit action stay together.</figcaption>
+    </figure>
   </div>
 </section>
 
 <section class="section">
   <div class="section-head">
-    <p class="eyebrow">Build on the harness</p>
-    <h2>The extension points are contracts.</h2>
-    <p class="section-lede">The engine is not a closed chat loop. It exposes governed seams, and each seam has a refusal path when it is not configured.</p>
+    <p class="eyebrow">Before you run it</p>
+    <h2>This is a preview, not a product.</h2>
   </div>
-  <div class="prose">
-    <ul>
-      <li><strong>Tools and blocks.</strong> One registry, one executor, typed pre-dispatch checks, and explicit blockers. Add the manifest and the executor together.</li>
-      <li><strong>Providers.</strong> The Responses path is primary. A Chat Completions adapter is supported where the protocol matches. No universal compatibility claim.</li>
-      <li><strong>MCP.</strong> Stdio, Streamable HTTP, and WebSocket transports, with Landlock confinement for stdio where the host exposes it.</li>
-      <li><strong>Quality and language packs.</strong> Typed checks that report findings and deltas, not silent pass states.</li>
-      <li><strong>Embedding.</strong> The engine barrel is public. The server and cockpit stay separate from domain logic.</li>
-    </ul>
-    <p>Read <a href="{{ '/extending/' | relative_url }}">Building on the harness</a> for the contracts, then add the test at the layer that owns the behavior. The <a href="{{ '/testing/' | relative_url }}">testing guide</a> explains where each test belongs.</p>
+  <div class="callout warning">
+    <p><strong>Do not use Bridlewise on proprietary, regulated, client-confidential, or production code.</strong> The engine is pre-admission: <code>harnessReady</code> is <code>false</code>, interactive capabilities remain behind an open governance gate, and there has been no security audit. Expect breaking changes and data loss. Run on a disposable copy, with revocable credentials and your own backups.</p>
+    <p><a href="{{ '/security/' | relative_url }}">Read the threat model and the limits →</a></p>
   </div>
 </section>
 
-<section class="section">
-  <div class="section-head">
-    <p class="eyebrow">First ten minutes</p>
-    <h2>Run the public gate before you change anything.</h2>
-  </div>
-  <div class="prose">
-    <pre><code>git clone https://github.com/LLM-4-People/bridlewise-testing.git
-cd bridlewise-testing
-npm ci
-npm --prefix engine ci
-npm run bootstrap:hooks
-chmod 600 engine/bridlewise.config.json
-npm run typecheck
-npm --prefix engine run typecheck
-npm run test:public</code></pre>
-    <p>The public gate is the part that works on a fresh clone. The corpus-backed suites and the live provider suite have named prerequisites and are not silently skipped. Read <a href="{{ '/testing/' | relative_url }}">the testing guide</a> before claiming a full run.</p>
-  </div>
-</section>
-
-<section class="section">
-  <div class="section-head">
-    <p class="eyebrow">What this site does not prove</p>
-    <h2>Unknown is not green.</h2>
-  </div>
-  <div class="prose">
-    <ul>
-      <li><strong>A green public gate is not the full suite.</strong> It proves the configured public steps passed at one commit.</li>
-      <li><strong>The full suite is not yet reproducible from a fresh clone.</strong> The external corpus, the performance report, Chromium, systemd, OpenSSL, and Landlock are separate prerequisites.</li>
-      <li><strong>Counts move.</strong> The atlas and status snapshot are dated. Treat an old snapshot as history.</li>
-      <li><strong>There is no security audit.</strong> No third-party review, penetration test, or certification exists.</li>
-      <li><strong>The floor is not permission.</strong> Do not point the preview at a codebase you cannot lose.</li>
-    </ul>
+<section class="section cta">
+  <p class="eyebrow">Take it for a spin — carefully</p>
+  <h2>Clone it. Read the record. Tell us what breaks.</h2>
+  <p>Install with Node 24, start the loopback server, create the first account, and point it at a disposable repository. If the evidence does not match the claim, that is a bug worth reporting.</p>
+  <div class="actions">
+    <a class="button primary" href="{{ '/quickstart/' | relative_url }}">Quickstart</a>
+    <a class="button" href="{{ '/github/' | relative_url }}">The repository as a run record</a>
+    <a class="button" href="{{ '/known-issues/' | relative_url }}">Known issues</a>
+    <a class="button" href="{{ '/floor/' | relative_url }}">Development floor</a>
   </div>
 </section>
