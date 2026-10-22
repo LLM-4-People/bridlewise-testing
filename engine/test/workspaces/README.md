@@ -40,13 +40,17 @@ The `engine/test/workspaces/` folder of the development surface.
   authored edit, generated-output conflicts, the merge's own pending-lease and staleness checks, the regenerate
   phase's declared writes, convergence, setup, placement, the like-for-like ledger baseline, the record
   compare-and-swap, recovery of a dead integrator, the timeline import and the teardown failures.
-- `workspace-migration.test.ts` — the one record migration chain v2 → v3 → v4 and per-version storage over real v2
-  records (`fixtures/v2-records/`, copied from a host registry: arrays trimmed, home paths replaced) and v3 records
+- `workspace-migration.test.ts` — the one record migration chain v2 → v3 → v4 → v5 and per-version storage over real v2
+  records (`fixtures/v2-records/`, copied from a host registry: arrays trimmed, home paths replaced) and v3 and v4 records
   of this code's own workspaces: deterministic, receipts kept verbatim, migrated in memory and NEVER rewritten
   (every v2 file byte-identical after list, create, publish and sweep; each store holding only its own version); a
-  v2-only and a v3-only workspace READ-ONLY to every saving or destructive verb (real ones: abort, extend,
+  v2-only, a v3-only and a v4-only workspace READ-ONLY to every saving or destructive verb (real ones: abort, extend,
   validate, publish, ready, land, merge, recover, snapshot and an expired sweep refuse, the worktree, branch and
   record intact, no current twin); the sweep reporting an orphaned live one.
+- `workspace-stack.test.ts` — stacks (V-14): a two-part stack through the fake merge queue (the child published
+  against the trunk with only its own commits, refused until its parent lands, untouched by the parent's branch
+  deletion, landing its own change), a stack's own leases never rivals, a parent that moves or ends, and the
+  refusals of `create --stack-on`.
 - `workspace-overlay.test.ts` — `create --overlay` of a dirty linked worktree (its index byte-identical, the
   overlay equal to what `git add -A` would commit), the adoption, and its refusals (stale — files, index only or
   target only —, a staged version or a kept staged deletion the snapshot cannot carry, a move-loss, a clean
