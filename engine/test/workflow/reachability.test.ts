@@ -193,3 +193,16 @@ test("PC-2: a symbolic link reaches its target; a link naming nothing is unresol
   assert.equal(result.reachedFrom.has("extra/seed.ts"), false);
   assert.equal(result.reachedFrom.get("extra/dep.ts"), "extra/seed.ts");
 });
+
+test("every code extension the language owner counts is walked: an .mts and a .cts module's own imports are followed", () => {
+  const { result } = walk({
+    "src/main.ts": 'import "./esm.mts";\nimport "./cjs.cts";\n',
+    "src/esm.mts": 'import "./from-esm.ts";\n',
+    "src/cjs.cts": 'import "./from-cjs.ts";\n',
+    "src/from-esm.ts": "",
+    "src/from-cjs.ts": "",
+    "src/unreached.mts": 'import "./never.ts";\n',
+  });
+  for (const path of ["src/esm.mts", "src/cjs.cts", "src/from-esm.ts", "src/from-cjs.ts"]) assert.ok(result.closure.has(path), path);
+  assert.equal(result.closure.has("src/unreached.mts"), false, "a near-miss: nothing imports it");
+});
