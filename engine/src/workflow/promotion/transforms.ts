@@ -198,8 +198,19 @@ const MAKE_PHONY = /^\.PHONY:((?:[ \t]+[A-Za-z0-9][A-Za-z0-9._-]*)*)[ \t]*$/u;
 
 type MakeRule = { target: string; prerequisites: readonly string[]; lines: string[]; recipe: { line: number; text: string }[] };
 
-/** The command words that run make: the program, and the variable a recipe calls it by. */
-const MAKE_WORDS: ReadonlySet<string> = new Set(["make", "$(MAKE)", "${MAKE}"]);
+/** The variable a recipe calls make by. */
+const MAKE_VARIABLES: ReadonlySet<string> = new Set(["$(MAKE)", "${MAKE}"]);
+/** The make programs, by basename (`make`, `/usr/bin/make`, `gmake`, `bmake`). */
+const MAKE_PROGRAMS: ReadonlySet<string> = new Set(["make", "gmake", "bmake"]);
+/** A command word that names a program (a name or a path) with nothing the shell expands, assigns or quotes. */
+const PROGRAM_WORD = /^[A-Za-z0-9_.+/-]+$/u;
+/** Where the shell starts another command: an and/or list, a sequence, a pipe, a background `&`. */
+const COMMAND_SEPARATOR = /&&|\|\||[;|&]/u;
+
+/** Is `word` a call of make: its variable, or a program whose basename is a make? */
+function isMakeWord(word: string): boolean {
+  return MAKE_VARIABLES.has(word) || MAKE_PROGRAMS.has(word.slice(word.lastIndexOf("/") + 1));
+}
 /** Shell syntax around a make invocation (a sequence, a pipe, a redirection, a quote, an escape, a substitution or variable other than the make word): its targets cannot be read off its words. */
 const MAKE_SHELL_SYNTAX = /[;|&<>`"'\\]|\$\((?!MAKE\))|\$\{(?!MAKE\})|\$[A-Za-z_@<^*?%+$]/u;
 /** make's options that take a value (`-C dir`, `-Cdir`, `--directory=dir`, `--directory dir`), by short letter and long name. */
@@ -213,14 +224,22 @@ const MAKE_NUMBER_OPTIONS: ReadonlySet<string> = new Set(["j", "l", "jobs", "loa
 /**
  * The targets a recipe line runs make on IN THIS Makefile, or null when the
  * line runs no make, or runs another Makefile (`-C` another folder, `-f`
- * another file). A make word anywhere but the command position, shell
- * syntax around it, or an option it cannot read is `unparseable`: what the
- * line runs cannot be judged.
+ * another file). It FAILS CLOSED: every command word of the line (its first,
+ * and each after `&&`, `||`, `;`, `|` or `&`) must be a make call (the
+ * variable, or a program whose basename is make, gmake or bmake) or a plain
+ * program name or path. A command word it cannot classify (a variable
+ * expansion, an assignment, a quote, a subshell), a make word anywhere but
+ * the line's command position, shell syntax around a make call, or an option
+ * it cannot read is `unparseable`: what the line runs cannot be judged.
  */
 function makeInvocationTargets(recipe: string, makefile: string, unparseable: (why: string) => PromotionError): readonly string[] | null {
   const body = recipe.slice(1).replace(/^[@+\-\s]+/u, "");
+  for (const command of body.split(COMMAND_SEPARATOR)) {
+    const word = command.trim().split(/\s+/u)[0] ?? "";
+    if (word !== "" && !isMakeWord(word) && !PROGRAM_WORD.test(word)) throw unparseable(`runs the command word ${word}, which cannot be classified (a variable, an assignment, a quote or a subshell), so what it runs cannot be judged`);
+  }
   const words = body.split(/\s+/u).filter((word) => word !== "");
-  const at = words.findIndex((word) => MAKE_WORDS.has(word));
+  const at = words.findIndex(isMakeWord);
   if (at === -1) return null;
   if (at !== 0) throw unparseable(`names ${words[at]!} other than as its command word`);
   if (MAKE_SHELL_SYNTAX.test(words.slice(1).join(" "))) throw unparseable("runs make with shell syntax around it, so its targets cannot be read");
@@ -285,12 +304,14 @@ function makeInvocationTargets(recipe: string, makefile: string, unparseable: (w
  * line by line. A kept target the source does not declare is
  * `promotion_makefile_target_missing`; a kept rule naming a dropped
  * prerequisite is `promotion_makefile_prerequisite_dropped`; a kept recipe
- * line that runs make in this Makefile (`make`, `$(MAKE)` or `${MAKE}` as its
- * command word, any options, `-C .` or `-f` this file) on a target the
+ * line that runs make in this Makefile (`$(MAKE)`, `${MAKE}`, or a program
+ * whose basename is make, gmake or bmake as its command word, any options,
+ * `-C .` or `-f` this file) on a target the
  * derived file does not keep, or on none (the default goal), is
  * `promotion_makefile_recipe_target_dropped`. A make word it cannot read
- * (not the command word, shell syntax around it, an unknown option) is
- * `promotion_makefile_unparseable`. Make run on another Makefile (`-C`
+ * (not the command word, shell syntax around it, an unknown option), or a
+ * command word it cannot classify (a variable, an assignment, a quote), is
+ * `promotion_makefile_unparseable`: it fails closed. Make run on another Makefile (`-C`
  * another folder) is not this file's to judge.
  */
 export function deriveMakefile(sourceText: string, keepTargets: readonly string[], path: string): DerivedMakefile {

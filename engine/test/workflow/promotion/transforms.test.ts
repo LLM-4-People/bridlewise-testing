@@ -174,15 +174,15 @@ test("the makefile transform refuses a kept recipe that runs make on a target it
       return error;
     }
   };
-  for (const recipe of ["$(MAKE) b", "make b", "make -C . b", "${MAKE} b", "@$(MAKE) b", "-make b", "make -f Makefile b", "make --file=./Makefile b", "make --directory=. b", "make -s -j4 -k b", "make -j 4 b", "make -Cb/.. b", "$(MAKE) c b", "make VAR=1 b", "$(MAKE)"]) {
+  for (const recipe of ["$(MAKE) b", "make b", "make -C . b", "${MAKE} b", "@$(MAKE) b", "-make b", "make -f Makefile b", "make --file=./Makefile b", "make --directory=. b", "make -s -j4 -k b", "make -j 4 b", "make -Cb/.. b", "$(MAKE) c b", "make VAR=1 b", "/usr/bin/make b", "gmake b", "bmake -C . b", "./make b", "/usr/local/bin/gmake -s b", "$(MAKE)"]) {
     const error = refusal(recipe, ["a", "c"]);
     assert.equal(error?.promotionCode, "promotion_makefile_recipe_target_dropped", recipe);
     assert.deepEqual([error.facts["target"], error.facts["line"], error.facts["targets"]], ["a", 2, recipe === "$(MAKE)" ? [] : ["b"]], recipe);
   }
-  for (const recipe of ["$(MAKE) c", "make -C . c", "make -f Makefile c", "make -C guardian all", "make -C engine/guardian test", "make -f other.mk b", "echo build", "make -C ./sub b"]) {
+  for (const recipe of ["$(MAKE) c", "make -C . c", "make -f Makefile c", "make -C guardian all", "make -C engine/guardian test", "make -f other.mk b", "echo build", "make -C ./sub b", "/usr/bin/make c", "gmake -C guardian all", "npm --prefix engine run build:bundle", "chmod 600 engine/bridlewise.config.json"]) {
     assert.equal(refusal(recipe, ["a", "c"]), null, `${recipe}: a kept target, or another Makefile's`);
   }
-  for (const recipe of ["echo make b", "cd x && make b", "make b; echo", "make b | tee log", "make b > log", "$(MAKE) $(TARGET)", "make $$X", "make -C", "make -C /abs b", "make \"b\"", "make -C a -C b x", "make --bogus=1 c", "env make b", "make \\$x"]) {
+  for (const recipe of ["echo make b", "cd x && make b", "make b; echo", "make b | tee log", "make b > log", "$(MAKE) $(TARGET)", "make $$X", "make -C", "make -C /abs b", "make \"b\"", "make -C a -C b x", "make --bogus=1 c", "env make b", "make \\$x", "$(MAKE_CMD) b", "${SUBMAKE} b", "$(CC) -o x x.c", "FOO=1 make b", "FOO=1 node x.js", "cd x && $(SUB) b", "(cd x; make b)", "\"make\" b", "`which make` b", "echo ok; $(TOOL)"]) {
     const error = refusal(recipe, ["a", "c"]);
     assert.equal(error?.promotionCode, "promotion_makefile_unparseable", recipe);
     assert.equal(error.facts["line"], 2, recipe);
