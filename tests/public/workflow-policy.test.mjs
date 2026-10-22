@@ -340,6 +340,30 @@ function injectionViolations(workflow) {
   return violations;
 }
 
+/**
+ * NO NETWORK INSTALL ON THE TEST PATH (#333). A system package manager
+ * fetching from a mirror inside a job waits on the network without bound: a
+ * hung mirror held two shards until their 45-minute timeout and read as a red
+ * suite. The toolchain comes from the runner image and is PROBED (a missing
+ * tool is a named failure), never installed by a step.
+ */
+const NETWORK_INSTALL = /\b(?:apt-get|apt|aptitude|yum|dnf|apk|brew|snap)\s+(?:-\S+\s+)*(?:update|install|upgrade|add)\b/u;
+
+function networkInstallViolations(workflow) {
+  const { unreadable } = readWorkflow(workflow);
+  if (unreadable.length > 0) return unreadable;
+  const document = parseDocument(workflow.text).toJS() ?? {};
+  const violations = [];
+  for (const [jobName, job] of Object.entries(document.jobs ?? {})) {
+    for (const [index, step] of (Array.isArray(job?.steps) ? job.steps : []).entries()) {
+      if (typeof step?.run !== "string") continue;
+      const line = step.run.split("\n").find((entry) => NETWORK_INSTALL.test(entry));
+      if (line !== undefined) violations.push(`${workflow.path}: jobs.${jobName}.steps[${String(index)}].run installs from the network (${line.trim()}); probe the runner image's tool instead`);
+    }
+  }
+  return violations;
+}
+
 /** Literal group prefixes shared by two workflows cancel each other's pull-request runs. */
 function sharedGroupPrefixes(workflows) {
   const owners = new Map();
@@ -612,4 +636,18 @@ test("script injection is refused in every workflow, privileged or not; env-pass
   // Near misses: the value through env, a trusted context, an input.
   assert.deepEqual(plant("issue_comment", "      - env:\n          BODY: ${{ github.event.comment.body }}\n        run: printf '%s' \"$BODY\"\n"), []);
   assert.deepEqual(plant("push", "      - run: echo \"${{ github.sha }} ${{ github.repository }} ${{ matrix.shard }} ${{ inputs.runner }}\"\n"), []);
+});
+
+test("no live workflow installs system packages from the network on its path (#333)", () => {
+  assert.deepEqual(liveWorkflows().flatMap(networkInstallViolations), []);
+});
+
+test("network installs are refused in any spelling; probes and near misses pass", () => {
+  const plant = (run) => networkInstallViolations({ path: ".github/workflows/plant.yml", text: `on: push\njobs:\n  j:\n    runs-on: x\n    steps:\n      - run: |\n${run.split("\n").map((line) => `          ${line}`).join("\n")}\n` });
+  for (const run of ["sudo apt-get update", "sudo apt-get install -y gcc-14", "apt install -y make", "sudo apt-get -qq update", "brew install llvm", "apk add gcc"]) {
+    assert.equal(plant(run).length, 1, run);
+  }
+  for (const run of ["command -v gcc-14 >/dev/null || exit 1", "gcc-14 --version | head -n 1", "echo apt-get is not used here", "npm ci --no-audit --no-fund", "make -C engine/guardian all"]) {
+    assert.deepEqual(plant(run), [], run);
+  }
 });
