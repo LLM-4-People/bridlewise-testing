@@ -1,8 +1,10 @@
 # forge
 
 The `engine/test/forge/` folder of the development surface: the forge
-(`engine/src/workflow/forge/`), against a fake GitHub on the loopback
-upstream, so every test drives the real outbound door and transport.
+(`engine/src/workflow/forge/`). The client's tests run against a fake GitHub
+on the loopback upstream, so every test drives the real outbound door and
+transport; the projector's algorithm tests run against an in-memory
+projection store.
 
 ## What each file does
 
