@@ -287,6 +287,14 @@ describe("D. the source step", () => {
     expect(JSON.parse(readFileSync(join(out, "versions.json"), "utf8"))).toEqual({ current: "main", versions: [] });
   });
 
+  test("a stylesheet that is not the design system's refuses the build (scripts/floor/site-style.mjs)", async () => {
+    const root = repository({
+      "docs/assets/css/style.css": "body { color: red; font-family: Georgia; }\n",
+      "docs/assets/css/extra.scss": "---\n---\n.a { color: #fff; }\n",
+    });
+    await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/3 stylesheet finding\(s\)[\s\S]*assets\/css\/extra\.scss: a Sass source[\s\S]*assets\/css\/style\.css:1:\d+ color: colour literal: red[\s\S]*font-family: not one --face-\* token: Georgia/u);
+  });
+
   test("a plain page holding {% endraw %} is refused (it would end the raw block early)", async () => {
     const root = repository({ "docs/process/x.md": "# X\n\n{% endraw %}\n" });
     await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/cannot contain \{% endraw %\}/u);

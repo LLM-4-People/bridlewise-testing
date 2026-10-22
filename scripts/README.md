@@ -83,7 +83,10 @@ ships into the client bundle or the server runtime.
   `site-design.mjs` writes the site's design assets at build time from the
   one design system: the token sheet (only what the site's stylesheets read,
   through `shared/token-reader.ts`), the self-hosted fonts, the icon, and the
-  mark from its one geometry.
+  mark from its one geometry. `site-style.mjs` then parses every stylesheet
+  the assembled source hands Jekyll (css-tree) and refuses the build on a
+  colour, duration or face that is not a token, a theme block, a fallback,
+  an `@import`, a remote `url()` or a Sass source.
   `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
   blocks: it renders them from the tracker items (`docs/trackers/items/`,
   states computed by `engine/src/workflow/tracker-status.ts`), the decision
