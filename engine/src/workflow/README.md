@@ -100,7 +100,7 @@ it (the profile's `setup`, `converge` to a fixed point, the declared-writes
 check, `verify`) and makes ONE commit there — the repository's hooks run on
 the exact tree — with parents `[T, S]`, S's committer identity and date (the
 same inputs give the same commit, with no git identity configured) and the
-trailers `Promoted-From`, `Promotion-Profile` (and
+trailers `Projected-From`, `Promotion-Profile` (and
 `Promotion-Accepted-Target-Edits`). It is pinned by
 `<namespace>/<profile>/pending` and described by a receipt blob
 (`promotion-receipt/v1`, each command's evidence, no timing) at
@@ -232,7 +232,7 @@ The folder lives at `engine/src/workflow/`.
 - `auto-generator.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
 - `byte-pin-objects.ts` is consumed by `engine/scripts/pin-authority-regeneration.ts`, `engine/src/workflow/hash-binding-registry.ts`.
 - `checkout-setup.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts` and 8 more.
-- `command-result.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/evaluation/cli.ts`, `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/flake-cli.ts` and 5 more.
+- `command-result.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/evaluation/cli.ts`, `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/flake-cli.ts` and 6 more.
 - `evidence-store.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/record-links.ts`.
 - `failure-owners.ts` is consumed by `engine/scripts/tooling/lessons.ts`, `engine/scripts/verification/decision-index.ts`, `engine/scripts/verification/lesson-trailers.ts`, `engine/scripts/verification/tracker-entries.ts`, `engine/src/workflow/flaky-burn-down.ts`, `engine/src/workflow/harness-commands.ts` and 1 more.
 - `flake-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
