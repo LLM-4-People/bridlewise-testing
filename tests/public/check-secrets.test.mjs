@@ -408,3 +408,45 @@ test("each publication-privacy row is reported by its id; database state by file
     rmSync(nearMiss, { recursive: true, force: true });
   }
 });
+
+/**
+ * THE ROWS THIS CATALOGUE MUST HOLD, pinned by id (github-only §8.2): each is
+ * present, applied by the repository scan, and projected to GitHub as the
+ * named native secret type or a custom pattern. Deleting or demoting any one
+ * of them reds here — the generic checks above iterate whatever rows exist,
+ * so they cannot see a row disappear.
+ */
+const REQUIRED_ROWS = Object.freeze({
+  "github-personal-token": { kind: "provider", secretType: "github_personal_access_token" },
+  "github-installation-token": { kind: "provider", secretType: "github_app_installation_access_token" },
+  "github-oauth-token": { kind: "provider", secretType: "github_oauth_access_token" },
+  "github-user-to-server-token": { kind: "custom" },
+  "github-refresh-token": { kind: "provider", secretType: "github_refresh_token" },
+  "neuralwatt-key": { kind: "custom" },
+});
+
+test("every required row is present, scanned over the tree, and projected to GitHub", () => {
+  const files = {};
+  for (const [id, expected] of Object.entries(REQUIRED_ROWS)) {
+    const row = SECRET_TEXT_SIGNAL_CATALOG.find((signal) => signal.id === id);
+    assert.ok(row !== undefined, `the catalogue lost the required row ${id}`);
+    assert.equal(row.treeScan, true, `${id} is not applied by the repository scan`);
+    assert.equal(row.github.kind, expected.kind, `${id} is projected to GitHub as ${String(row.github.kind)}`);
+    if (expected.kind === "provider") {
+      assert.ok(row.github.secretTypes.includes(expected.secretType), `${id} is not projected to GitHub's ${expected.secretType}`);
+    } else {
+      assert.ok(new RegExp(row.github.pattern, "u").test(signalFixture(id)), `${id}: the GitHub custom pattern misses the row's fixture`);
+    }
+    files[`plants/${id}.txt`] = `value = ${signalFixture(id)}\n`;
+  }
+  const dir = repoWith(files);
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, "the scanner passed a tree planted with every required row");
+    for (const id of Object.keys(REQUIRED_ROWS)) {
+      assert.match(result.stderr, new RegExp(`plants/${id}\\.txt:1: ${id}: `, "u"), `the tree scan did not report ${id} in its plant`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
