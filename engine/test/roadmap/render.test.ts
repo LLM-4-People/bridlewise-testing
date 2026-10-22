@@ -81,7 +81,7 @@ test("a close without proof is a claim: out of the lanes, listed apart, never co
   assert.ok(claims.includes('href="#item-H-CLAIMED"'), "the claim is listed under Closed, not proven");
   assert.ok(!claims.includes("A-SHIPPED"), "a proven close is not listed as a claim");
   assert.ok(page.includes(`${f.totals.claimed} claimed, unverified`), "the totals name the claims as unverified");
-  assert.ok(page.includes('data-status="claimed">claimed, unverified</span>'), "the item chip says unverified");
+  assert.ok(page.includes('<span class="state" data-state="claimed">claimed, unverified</span>'), "the item chip says unverified, in the shared state component");
   const m2 = burnUp(f, f.milestones.find((m) => m.id === "M2")!);
   assert.equal(m2.at(-1)!.done, 0, "a claim adds nothing to the burn-up");
 });

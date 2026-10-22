@@ -17,11 +17,11 @@ test("the roadmap is a page shell the renderer fills, styled by the floor layer 
   assert.doesNotMatch(roadmap, /ROADMAP-PLAN/u, "no hand-kept plan: the roadmap is the feed's");
   const css = readFileSync(join(ROOT, "docs/assets/floor/floor.css"), "utf8");
   assert.doesNotMatch(css, /\.roadmap-|\.rm-/u, "the roadmap's components are floor components, not a private vocabulary");
-  assert.match(css, /\.floor-roadmap \{/u);
+  assert.match(css, /\.floor-roadmap\b/u);
   // The floor's components read the one owner's spacing scale; the site
   // design guard refuses a local scale (tests/public/site-design-system.test.mjs).
   assert.match(css, /var\(--sp-4\)/u);
-  assert.doesNotMatch(css, /--floor-/u);
+  assert.doesNotMatch(css, /^\s*--[\w-]+\s*:/mu, "no local custom property: a stamp the renderer sets is registered in the owner");
 });
 
 test("the coverage guard names a missing rule and an unused rule", () => {
