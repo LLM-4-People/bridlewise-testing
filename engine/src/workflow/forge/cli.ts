@@ -28,6 +28,7 @@ import { wrapResult, type CommandAnswer } from "../command-result.ts";
 import { readIntake } from "../community/sources.ts";
 import { trackedTop } from "../evidence-store.ts";
 import { FORGE_APP_ROLES, FORGE_APPS } from "./app-registry.ts";
+import { keyHomeCustody, type AppKeyCustody } from "./app-keys.ts";
 import { serveAppsPage } from "./apps-page.ts";
 import { ForgeError } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
@@ -41,14 +42,24 @@ import { maintainerCli } from "./maintainer-cli.ts";
 import type { ForgeCredential, ForgeEndpoint } from "./port.ts";
 
 /**
- * What the settings verbs reach: the forge section and the endpoint it
- * names. In production that is this checkout's configured section; the
- * CLI-level test passes its own section and a fake GitHub's endpoint, and
- * drives the very same verbs.
+ * What the verbs that talk to GitHub reach: the forge section, the endpoint
+ * it names, and the host Apps' key custody. In production these are this
+ * checkout's configured section and its key home; the CLI-level tests pass
+ * a test section, a fake GitHub's endpoint and a key home of their own, and
+ * drive the very same verbs. ONE parameter object for every verb (#312's
+ * apps audit reads `hostCustody`).
  */
-export type ForgeCliWiring = Readonly<{ settings: () => ForgeSettings; endpoint: (settings: ForgeSettings) => ForgeEndpoint }>;
+export type ForgeCliWiring = Readonly<{
+  settings: () => ForgeSettings;
+  endpoint: (settings: ForgeSettings) => ForgeEndpoint;
+  hostCustody: () => AppKeyCustody;
+}>;
 
-const CONFIGURED: ForgeCliWiring = Object.freeze({ settings: configuredForge, endpoint: forgeEndpoint });
+const CONFIGURED: ForgeCliWiring = Object.freeze({
+  settings: configuredForge,
+  endpoint: forgeEndpoint,
+  hostCustody: () => keyHomeCustody(admitHarnessKeyHome([])),
+});
 
 const USAGE = "harness forge takes: apps manifests [--check] | apps create | plan|audit (--token-env <VAR> | --token-stdin) | apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]...";
 

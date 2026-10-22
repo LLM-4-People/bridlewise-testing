@@ -11,6 +11,7 @@ import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { keyHomeCustody } from "../../src/workflow/forge/app-keys.ts";
 import { runForgeCli } from "../../src/workflow/forge/cli.ts";
 import { forgeDeclarations } from "../../src/workflow/forge/declarations.ts";
 import { forgeFileSources, syncForgeFiles } from "../../src/workflow/forge/generated-files.ts";
@@ -21,6 +22,7 @@ import { githubClient } from "../../src/workflow/forge/github.ts";
 import { forgeApply, forgePlan } from "../../src/workflow/forge/plan.ts";
 import { looseningOf, movedPremisesUnmet } from "../../src/workflow/forge/strictness.ts";
 import { fakeGithub, type FakeGithub } from "./fake-github.ts";
+import { temporaryKeyHome } from "./forge-key-home.ts";
 import { SETTINGS, SOURCES } from "./forge-settings.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
@@ -411,7 +413,7 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
   execFileSync("git", ["add", "package-lock.json", "engine/package-lock.json", ".github/workflows/ci.yml"], { cwd: top });
   syncForgeFiles(top, forgeFileSources(top, SETTINGS), true);
   const fake = wholeGithub();
-  const wiring = { settings: () => SETTINGS, endpoint: () => fake.endpoint() };
+  const wiring = { settings: () => SETTINGS, endpoint: () => fake.endpoint(), hostCustody: () => keyHomeCustody(temporaryKeyHome()) };
   const progress: string[] = [];
   const run = (...argv: string[]) => runForgeCli(top, argv, (line) => progress.push(line), wiring);
   const variable = "FORGE_CLI_TEST_TOKEN";
