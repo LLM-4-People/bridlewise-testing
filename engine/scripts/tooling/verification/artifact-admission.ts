@@ -10,7 +10,7 @@ import { sameOrderedValues } from "../../../src/kernel/ordered.ts";
 import { hasSecretTextSignal } from "../../../src/privacy/secret-signals.ts";
 import { strictUtf8Text } from "../../verification/candidate-format.ts";
 import { verifyRejectedBinaryFixture } from "./rejected-binary-fixture.ts";
-import { VERIFICATION_PATHS } from "../../../src/kernel/verification-paths.ts";
+import { isUncommittedGovernedPath } from "../../../src/kernel/verification-paths.ts";
 import {
   readSafeRepositoryFile,
   safeRepositoryEntryStatus,
@@ -156,7 +156,7 @@ export function artifactAdmissionViolations(input: ArtifactAdmissionInput): read
   uniqueMap(canonicalAuthorities, (entry) => entry.authorityKey, "artifact-authority-duplicate", violations);
 
   const expectedPaths = input.paths.filter((path) =>
-    path !== manifest.selfPath && manifest.managedRoots.some((root) => path.startsWith(root)) &&
+    path !== manifest.selfPath && !isUncommittedGovernedPath(path) && manifest.managedRoots.some((root) => path.startsWith(root)) &&
     !isRepositoryScanExcludedPath(path) && isRegularFile(input.root, path)).toSorted();
   const actualPaths = [...entryByPath.keys()].toSorted();
   if (!sameOrderedValues(expectedPaths, actualPaths)) violations.push("artifact-admission-inventory-drift");
@@ -293,8 +293,8 @@ export function buildArtifactAdmissionManifest(input: Readonly<{
   }
   const candidatePaths = input.paths ?? discoverGovernedArtifactPaths(input.root, managedRoots);
   const paths = [...new Set(candidatePaths)].filter((path) =>
-    // The test inventory is a cache of the tree, not committed (#221): no governed artifact.
-    path !== ARTIFACT_MANIFEST_PATH && path !== VERIFICATION_PATHS.testInventory && managedRoots.some((root) => path.startsWith(root)) &&
+    // A never-committed path (the test inventory, the fetched Git sources) is no governed artifact.
+    path !== ARTIFACT_MANIFEST_PATH && !isUncommittedGovernedPath(path) && managedRoots.some((root) => path.startsWith(root)) &&
     !isRepositoryScanExcludedPath(path) && isRegularFile(input.root, path)).toSorted();
   const independentReviewPolicy = ROOT_POLICY.artifactGovernance.independentReview;
   const extensionReviewComplete = isIndependentReviewCurrent(input.root, paths);

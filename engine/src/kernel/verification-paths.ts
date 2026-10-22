@@ -4,7 +4,26 @@ import { ROOT_POLICY } from "./root-policy.ts";
 /** Neutral path authority shared by runtime-neutral verification cores and scripts. */
 export const VERIFICATION_PATHS = deepFreeze({
   testInventory: "traceability/s1-test-inventory.json",
+  /** Git 2.55.0's GPL-2.0-only path sources: fetched beside their manifest (`npm run sources:fetch`), never published here. */
+  unpublishedPathPolicySources: "traceability/sources/path-policy/git-2.55.0/",
 } as const);
+
+/**
+ * THE GOVERNED-ROOT PATHS THAT ARE NEVER COMMITTED: each is ignored by the
+ * versioned `.gitignore` (the test inventory is a cache of the tree; the Git
+ * path sources are fetched, not published), so it is never a governed
+ * artifact — admitted, it would be a manifest entry no commit can hold. A
+ * folder ends in `/` and covers what lies under it; a file is itself.
+ */
+export const UNCOMMITTED_GOVERNED_PATHS: readonly string[] = deepFreeze([
+  VERIFICATION_PATHS.testInventory,
+  VERIFICATION_PATHS.unpublishedPathPolicySources,
+]);
+
+/** Is `path` (engine-relative) one of the never-committed governed-root paths, or under one? */
+export function isUncommittedGovernedPath(path: string): boolean {
+  return UNCOMMITTED_GOVERNED_PATHS.some((uncommitted) => uncommitted.endsWith("/") ? path.startsWith(uncommitted) : path === uncommitted);
+}
 
 /**
  * THE GENERATED README CONSUMER BLOCKS: every README.md carrying `begin`

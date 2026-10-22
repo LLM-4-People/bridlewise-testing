@@ -11,6 +11,7 @@ import {
 } from "../../scripts/tooling/verification/artifact-admission.ts";
 import { syncArtifactManifest } from "../../scripts/tooling/artifact-manifest.ts";
 import { rawSafeRepositoryRootAccess } from "../../scripts/verification/safe-repository-reader.ts";
+import { UNCOMMITTED_GOVERNED_PATHS } from "../../src/kernel/verification-paths.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 /**
@@ -69,6 +70,28 @@ test("artifact-manifest: the producer reads no clock — one tree gives the same
     assert.equal(syncArtifactManifest(root, { write: false }).allCurrent, true, "a run at another time over one tree is byte-identical");
     assert.equal(syncArtifactManifest(root, { write: true }).status, "current");
     assert.equal(readFileSync(join(root, ARTIFACT_MANIFEST_PATH), "utf8"), committed);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("artifact-manifest: a never-committed governed-root path is ignored by the versioned rules and never admitted", () => {
+  // Each is ignored by THIS tree's own .gitignore (never only a machine's exclude): no commit can hold it.
+  const engine = join(import.meta.dirname, "..", "..");
+  for (const uncommitted of UNCOMMITTED_GOVERNED_PATHS) {
+    const probe = uncommitted.endsWith("/") ? `${uncommitted}probe.txt` : uncommitted;
+    const ignored = spawnSync("git", ["check-ignore", "--no-index", "--verbose", "--", probe], { cwd: engine, encoding: "utf8" });
+    assert.equal(ignored.status, 0, `${probe} is ignored: ${ignored.stderr}`);
+    assert.match(ignored.stdout, /^engine\/\.gitignore:\d+:/u, `${probe} is ignored by engine/.gitignore: ${ignored.stdout}`);
+  }
+  // Planted on disk, none enters the inventory: a manifest entry for it would be a governed artifact no commit holds.
+  const root = makeFixture();
+  try {
+    for (const uncommitted of UNCOMMITTED_GOVERNED_PATHS) {
+      writeRelative(root, uncommitted.endsWith("/") ? `${uncommitted}t/planted.sh` : uncommitted, "never committed\n");
+    }
+    assert.equal(syncArtifactManifest(root, { write: true }).entries, GOVERNED.length);
+    assert.deepEqual(readManifest(root).entries.map((entry) => entry.path).toSorted(), [...GOVERNED].toSorted());
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
