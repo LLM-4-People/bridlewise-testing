@@ -507,6 +507,25 @@ export function isSensitiveKeyName(key: string): boolean {
   return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
 }
 
+/**
+ * Header shapes a key name does not cover. Matched case-insensitively against the name AS WRITTEN:
+ * `Authentication` in any position (`Authentication`, `X-Authentication`), and any name whose last hyphen
+ * part is `Key` (`Ocp-Apim-Subscription-Key`). Anchoring `Key` at the end keeps `Keep-Alive` and
+ * `X-Key-Id` out; `Sec-WebSocket-Key`, a handshake nonce, is a declared over-match.
+ */
+export const SENSITIVE_HEADER_PATTERNS: readonly RegExp[] = [/authentication/iu, /(?:^|-)key$/iu];
+
+/**
+ * Whether a HEADER name carries a credential: a denylist BY DEFAULT for credential-bearing shapes,
+ * case-insensitive, and THE ONE answer for every header redaction and every credential refusal. It is
+ * every sensitive key name ({@link isSensitiveKeyName}: `Authorization`, `Proxy-Authorization`, `Cookie`,
+ * `Set-Cookie`, any `*-Token`, `X-Api-Key`, …) plus {@link SENSITIVE_HEADER_PATTERNS}. An over-match is
+ * harmless for a redaction or a refusal; a missed credential is never acceptable.
+ */
+export function isSensitiveHeaderName(name: string): boolean {
+  return isSensitiveKeyName(name) || SENSITIVE_HEADER_PATTERNS.some((pattern) => pattern.test(name));
+}
+
 export function secretLikeValuePaths(value: unknown, profile: SecretSignalProfile): readonly string[] {
   const paths: string[] = [];
   const visit = (current: unknown, path: string): void => {

@@ -3477,7 +3477,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-mcp-headers", path: "src/mcp/headers.ts", realm: "runtime", layer: "domain",
       owner: "mcp", publicApi: { exportCount: 3, namesSha256: "7fa0640456dd3106f01f1e6418ac6b321c73cada80e45859bb68b89a5a56fa38" },
-      dependencies: [],
+      dependencies: ["src/privacy/secret-signals.ts"],
     }),
     moduleContract({
       id: "src-mcp-index", path: "src/mcp/index.ts", realm: "runtime", layer: "domain",
@@ -4715,7 +4715,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-privacy-secret-signals", path: "src/privacy/secret-signals.ts", realm: "shared", layer: "domain",
-      owner: "privacy-and-redaction", publicApi: { exportCount: 17, namesSha256: "05f3ed6536ba054c1915f4ddb19354f350761676ed11a8cfa4da5e5894fee3df" },
+      owner: "privacy-and-redaction", publicApi: { exportCount: 19, namesSha256: "44087c093177834951312d3d63360a9c57b68ebc032f149f26d3200221bd668d" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts"],
     }),
     moduleContract({

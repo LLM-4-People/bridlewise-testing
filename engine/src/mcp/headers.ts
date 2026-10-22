@@ -6,8 +6,11 @@
  * Header names are canonicalized to `Content-Type` casing for deterministic
  * exposure (signals report headers by canonical name). Values are never
  * logged in full when they look like secrets — the exposure layer redacts
- * `Authorization` and `*-Key` / `*-Token` headers.
+ * every credential-bearing header the one owner names (`isSensitiveHeaderName`,
+ * src/privacy/secret-signals.ts), never a list of its own.
  */
+
+import { isSensitiveHeaderName } from "../privacy/secret-signals.ts";
 
 export function mergeHeaders(
   ...sources: readonly (Readonly<Record<string, string>> | undefined)[]
@@ -35,7 +38,7 @@ export function redactHeaders(
 ): Readonly<Record<string, string>> {
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(headers)) {
-    if (name === "Authorization" || /key/i.test(name) || /token/i.test(name)) {
+    if (isSensitiveHeaderName(name)) {
       out[name] = `<redacted:${value.length}>`;
     } else {
       out[name] = value;
