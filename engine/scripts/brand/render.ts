@@ -187,7 +187,7 @@ export function claimsPage(m: Words, judged: readonly JudgedClaim[], commit: str
     `<p class="floor-lede">${h(m.promise)} Each claim below is judged at <a href="${h(`{{ site.repository_url }}/commit/${commit}`)}">main@${h(commit.slice(0, 8))}</a> from the checks that ran on that commit. A claim whose check is red, or did not run there, is struck out until it passes again. Claims we do not make are listed too.</p>`,
     `<p class="floor-facts">${count("holds")} hold · ${count("retracted")} retracted · ${count("unchecked")} not checked · ${count("designed")} designed, not built · ${count("not-claimed")} not claimed</p>`,
     `<p class="floor-gap">${h(m.status)}</p>`,
-    `<table class="floor-table floor-claims-table"><thead><tr><th scope="col">Claim</th><th scope="col">Proof you can rerun</th><th scope="col">Verdict</th></tr></thead><tbody>${judged.map(row).join("")}</tbody></table>`,
+    `<table class="floor-claims-table"><thead><tr><th scope="col">Claim</th><th scope="col">Proof you can rerun</th><th scope="col">Verdict</th></tr></thead><tbody>${judged.map(row).join("")}</tbody></table>`,
     `</div>`,
   ].join("\n");
 }

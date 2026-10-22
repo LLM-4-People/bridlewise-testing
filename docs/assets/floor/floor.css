@@ -572,6 +572,8 @@ main#main .floor-status {
    A retracted claim is struck through until its check passes again. DESIGN owns this layer. */
 .floor-claims { max-width: 1180px; }
 .floor-claims-table td { vertical-align: top; }
+.floor-claims .floor-facts { font-family: var(--mono); font-size: 0.82rem; color: var(--ink-3); }
+.floor-claims .floor-gap { color: var(--warn); }
 .floor-claim { font-weight: 600; width: 38%; }
 .floor-claims-table tr[data-verdict="retracted"] .floor-claim { text-decoration: line-through; text-decoration-color: var(--alarm); }
 .floor-state { padding: 1px 6px; border: 1px solid currentColor; border-radius: var(--radius-sm); }
