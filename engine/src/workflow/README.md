@@ -58,17 +58,11 @@ and [§1c](../../../docs/process/MERGE-GUIDE.md#1c-feature--main-on-the-forge-ws
   which the forge deletes on merge. It lands only after its parent
   (`workspace_stack_parent_unlanded`).
 - **Records** use PER-VERSION STORAGE (`workspace-registry.ts`): this code
-  writes only the current store (`workspaces-v5/`); each older store
-  (`workspaces-v4/`, before the stacks; `workspaces-v3/`, before the land;
-  `workspaces/`, v2, before the forge), which older code still uses, is read
-  and migrated IN MEMORY through the one chain v2 → v3 → v4 → v5
-  (`migrateWorkspaceRecord`) and never written. A
-  workspace only an older store knows is READ-ONLY to this code until the
-  recorded P7 cutover: every saving or destructive verb (and the store's
-  save) refuses it (`workspace_owned_by_v<N>_checkout`, naming its record and worktree) before
-  touching anything, no current twin is ever made of it, and `sweep` never
-  ends it. `sweep` reports a live record whose worktree is gone (`orphaned`),
-  leaving it to its owner.
+  writes only the current store (`workspaces-v5/`) and reads the older ones
+  through the one in-memory chain (`migrateWorkspaceRecord`), under the rule of
+  [WS-RECORDS](../../../docs/decisions/WS-RECORDS-older-workspace-records-are-read-only.md).
+  `sweep` reports a live record whose worktree is gone (`orphaned`), leaving it
+  to its owner.
 - **Registry**: `<git common dir>/bridlewise/` (`repository-registry.ts`, the one derivation; the records in `workspace-registry.ts`):
   `workspaces-v5/<id>.json` (and the older stores), `locks/` (the admission and merge locks),
   `timeline/` (the shards and the integrator's ledger) — one per repository,
