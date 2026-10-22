@@ -125,17 +125,20 @@ function settled(result, code = "api-error") {
  * The floor status of this repository (its coordinates from package.json):
  * the required workflow runs and alert queues at the source commit, and the
  * `product` branch's tip. GitHub is read through the forge port with
- * `client` (the build's token); offline, nothing is asked.
+ * `client` (the build's token), each list up to `maxPages` pages (the
+ * configured `forge.request.maxPages`, from the caller that built the
+ * client); offline, nothing is asked.
  */
 export async function buildStatus({
   root,
   client = null,
+  maxPages = null,
   now = new Date(),
   counts = null,
   offline = false,
 }) {
   const source = repoInfo(root);
-  if (!offline && client === null) throw new Error("buildStatus needs the forge client unless offline");
+  if (!offline && (client === null || maxPages === null)) throw new Error("buildStatus needs the forge client and its page bound unless offline");
   const offlineResult = { status: "rejected", reason: Object.assign(new Error("offline"), { code: "offline" }) };
   const [runsResult, codeResult, dependencyResult, releasesResult, productResult] = offline
     ? [offlineResult, offlineResult, offlineResult, offlineResult, offlineResult]
@@ -143,7 +146,7 @@ export async function buildStatus({
         workflowRuns(client, REPOSITORY),
         countOpenAlerts(client, REPOSITORY, "code-scanning"),
         countOpenAlerts(client, REPOSITORY, "dependabot"),
-        listReleases(client, REPOSITORY),
+        listReleases(client, REPOSITORY, maxPages),
         branchTip(client, REPOSITORY, PROMOTION.target.slice("refs/heads/".length)),
       ]);
 
