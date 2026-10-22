@@ -53,7 +53,8 @@ const DOOR = "engine/src/shared/outbound-http.ts";
  * request and no credential; it only asks whether a port is taken.
  */
 const DECLARED: Readonly<Record<string, string>> = Object.freeze({
-  "scripts/dev-all.ts:net.createConnection": "a TCP connect probe on a local port: is it free? No request, no credential.",
+  "scripts/dev-processes.ts:net.createConnection": "the one local port probe (portAnswers): a TCP connect on a loopback port, is it free? No request, no credential.",
+  "scripts/capture/cockpit.ts:fetch": "code that runs INSIDE the browser page under test (page.evaluate): the cockpit's own same-origin API call, made as the signed-in page makes it. Not a harness request; no credential of the harness is held.",
 });
 const SOURCE_EXTENSIONS = [".ts", ".mts", ".cts", ".mjs", ".cjs", ".js"];
 const BODY_READERS: ReadonlySet<string> = new Set(["json", "text", "arrayBuffer", "blob"]);
