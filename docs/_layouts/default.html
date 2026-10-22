@@ -19,12 +19,12 @@
   <meta property="og:title" content="{% if page.url == '/' %}{{ page.title | default: words.name | default: site.title | escape }}: {{ words.promise | escape }}{% else %}{{ page.title | default: 'Bridlewise' }}{% endif %}">
   <meta property="og:description" content="{{ page_description | escape }}">
   <meta property="og:url" content="{{ page.url | absolute_url }}">
-  <meta property="og:image" content="{{ page.image | default: '/assets/hero.png' | absolute_url }}">
-  <meta property="og:image:alt" content="The Bridlewise cockpit: a run rendered as a causal stream.">
+  <meta property="og:image" content="{{ page.image | default: '/assets/social.png' | absolute_url }}">
+  <meta property="og:image:alt" content="{{ words.name | escape }}: {{ words.promise | escape }}">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="{% if page.url == '/' %}{{ page.title | default: words.name | default: site.title | escape }}: {{ words.promise | escape }}{% else %}{{ page.title | default: 'Bridlewise' }}{% endif %}">
   <meta name="twitter:description" content="{{ page_description | escape }}">
-  <meta name="twitter:image" content="{{ page.image | default: '/assets/hero.png' | absolute_url }}">
+  <meta name="twitter:image" content="{{ page.image | default: '/assets/social.png' | absolute_url }}">
 
   <link rel="icon" href="{{ '/assets/icon.svg' | relative_url }}" type="image/svg+xml">
   {% include design-head.html %}

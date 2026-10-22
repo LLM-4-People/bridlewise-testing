@@ -66,6 +66,10 @@ ships into the client bundle or the server runtime.
   and the head's in one browser in one run and compares the bytes, writing a
   side-by-side report with diffs. A changed picture needs the pull request's
   `visual-change` label. The Pages workflow's `visual` job runs it.
+  `social.ts` shoots the site's own social card page (`docs/social/card.html`)
+  in both themes after Jekyll, into `assets/social.png` and
+  `assets/social-dark.png`; it refuses a card that overflows its 1280x640
+  frame.
 - `floor/` — the testing-site toolchain. `site.mjs` assembles the Jekyll
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes

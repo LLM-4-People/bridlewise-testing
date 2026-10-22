@@ -112,13 +112,13 @@ Read the capability decisions, not just the boolean. Use a disposable copy. Trea
 
 ## 9. Social preview is manual
 
-**What it is.** [`docs/assets/social-preview.png`](assets/social-preview.png) exists, and the docs layout uses it as the default social image. The GitHub repository social preview is set in repository settings, not by a workflow. There is no automated check that it matches the current cockpit.
+**What it is.** The site's social card (`/assets/social.png`, and `/assets/social-dark.png` for Carbon) is generated on every site build. The site page `docs/social/card.html` is drawn from the claims register in the one design system and shot by `scripts/visual/social.ts`, so the card never drifts from the register. The GitHub repository's own social preview cannot be set by an API: it is uploaded in repository settings.
 
-**Impact.** The card shown when the repository is shared can drift from the current UI. A stale preview is a small credibility leak, not a security issue.
+**Impact.** The repository card can lag behind the site's card until the generated file is uploaded again. A stale preview is a small credibility leak, not a security issue.
 
-**Mitigation.** Recapture the social preview when a cockpit surface changes materially, and upload it in repository settings. The [design page]({{ '/design/' | relative_url }}#captures) documents the capture surfaces. This remains a manual step.
+**Mitigation.** Upload the published `/assets/social.png` in repository settings when the promise or the counts change materially.
 
-**Status:** Partial. The asset exists; the update path is manual.
+**Status:** Partial. The card is generated; only the upload to the repository settings is manual.
 
 ## 10. No hosted demo
 

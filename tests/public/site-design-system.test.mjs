@@ -47,6 +47,13 @@ const DURATION = /(?<![\w-])\d*\.?\d+m?s\b/u;
 export function siteStyleViolations(css) {
   const findings = [];
   const text = css.replace(/\/\*[\s\S]*?\*\//gu, "");
+  // A block left open swallows every rule after it, and the browser says nothing.
+  let depth = 0;
+  for (const char of text) {
+    if (char === "{") depth += 1;
+    else if (char === "}" && --depth < 0) break;
+  }
+  if (depth !== 0) findings.push(`unbalanced braces: ${depth > 0 ? "a block is never closed" : "a block is closed twice"}`);
   for (const block of text.matchAll(/([^{}]*)\{([^{}]*)\}/gu)) {
     const selector = block[1].trim();
     if (/:root\b|\[data-theme\b|\[data-cockpit-theme\b/u.test(selector)) findings.push(`theme block: ${selector}`);
@@ -91,6 +98,7 @@ test("the guard catches each violation, in a rule and in a media block, and pass
     ".f { transition: opacity 120ms ease; }",
     ".g { animation-duration: .2s; }",
     ".h { color: var(--ink-3); }",
+    "@media (max-width: 640px) { .i { display: block; }",
   ];
   for (const css of planted) assert.equal(siteStyleViolations(css).length, 1, `planted: ${css}`);
   const nearMisses = [

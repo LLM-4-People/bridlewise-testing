@@ -83,6 +83,19 @@ jobs:
           destination: ./_site
           build_revision: ${{ github.sha }}
 
+      # The social cards (every page's og:image) are the site's own card page,
+      # shot in both themes by the one browser (scripts/visual/social.ts).
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Shoot the social cards
+        env:
+          BASEURL: ${{ steps.pages.outputs.base_path }}
+        # Jekyll ran in a container: the runner takes ownership of its output first.
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" _site
+          node scripts/visual/social.ts --site _site --baseurl "$BASEURL"
+
       - name: Merge the snapshots and check links and design
         env:
           BASEURL: ${{ steps.pages.outputs.base_path }}

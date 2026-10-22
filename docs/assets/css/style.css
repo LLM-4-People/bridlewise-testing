@@ -1271,6 +1271,8 @@ figcaption {
     padding: var(--sp-1) 0;
     border: 0;
   }
+}
+
 /* ── Figures drawn inline from data (shared/figures.ts): inked by the live
    theme, like the page around them. ─────────────────────────────────────── */
 
@@ -1336,6 +1338,69 @@ figcaption {
 
 .fig-arrow-muted {
   fill: var(--ink-2);
+}
+
+/* ── The social card (docs/social/card.html): a 1280x640 frame, shot by the
+   site build into assets/social.png. The promise, the receipt, the status. */
+
+.social {
+  width: 1280px;
+  height: 640px;
+  overflow: hidden;
+}
+
+.social-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24rem;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--sp-6) var(--sp-7);
+  height: 100%;
+  padding: calc(var(--sp-7) + var(--sp-4));
+  border-top: calc(var(--rule-w) * 4) solid var(--ink-1);
+}
+
+.social-brand {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: 0;
+  font-size: var(--f-page-h2);
+  font-weight: 600;
+  letter-spacing: var(--f-page-heading-track);
+}
+
+.social-brand .brand-mark {
+  width: calc(var(--sp-6) + var(--sp-3));
+  height: calc(var(--sp-6) + var(--sp-3));
+}
+
+.social-promise {
+  align-self: end;
+  max-width: 11ch;
+  margin: 0;
+  font-size: var(--f-hero-size);
+  line-height: var(--f-hero-lh);
+  letter-spacing: var(--f-hero-track);
+}
+
+.social-receipt {
+  align-self: end;
+  margin: 0;
+  padding: var(--sp-5);
+  border-block: var(--hairline-w) dashed var(--line-2);
+  background: var(--ground-2);
+  font-size: var(--f-page-size);
+}
+
+.social-status {
+  grid-column: 1 / -1;
+  max-width: none;
+  margin: 0;
+  padding-top: var(--sp-4);
+  border-top: var(--hairline-w) solid var(--line-1);
+  color: var(--ink-2);
+  font-size: var(--f-page-size);
 }
 
 /* ── Footer: the index, then the colophon ───────────────────────────────── */

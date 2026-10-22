@@ -131,3 +131,10 @@ records. A figure on the site is declared as data (`docs/_data/figures/`) and
 drawn inline with `fig-*` classes, so it follows the theme switch. Parts are
 labelled directly with their counts, and a hatched part is hatched, so
 identity is never carried by colour alone.
+
+The social card is a page of the site (`docs/social/card.html`), not a drawing.
+It shows the promise at display size, the receipt with all four counts (a
+retracted count is never hidden from a preview) and the status line, framed
+at 1280x640 under a heavy ink rule. The site build shoots it in both themes
+(`scripts/visual/social.ts`), so every page's preview image is today's
+register.

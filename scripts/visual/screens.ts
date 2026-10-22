@@ -46,7 +46,7 @@ const TYPES: Readonly<Record<string, string>> = Object.freeze({
 });
 
 /** A static server for a built site under its base path, on a free loopback port. */
-async function serve(siteRoot: string, baseurl: string): Promise<{ server: Server; origin: string }> {
+export async function serve(siteRoot: string, baseurl: string): Promise<{ server: Server; origin: string }> {
   const base = baseurl.replace(/\/+$/u, "");
   const server = createServer((request, response) => {
     const path = decodeURIComponent(new URL(request.url ?? "/", "http://site").pathname);

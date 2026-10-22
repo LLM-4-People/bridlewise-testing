@@ -1,0 +1,41 @@
+---
+layout: null
+permalink: /social/card/
+sitemap: false
+---
+{%- comment -%}
+  THE SOCIAL CARD: the page every link preview and the repository's social
+  preview show, 1280x640. Drawn in the one design system from the judged
+  register (site.data.brand); the site build shoots it into
+  assets/social.png (Logbook) and assets/social-dark.png (Carbon) with
+  scripts/visual/social.ts. Nothing is typed here.
+{%- endcomment -%}
+{%- assign brand = site.data.brand -%}
+{%- assign words = brand.messaging -%}
+<!doctype html>
+<html lang="{{ site.lang | default: 'en' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1280">
+  <meta name="robots" content="noindex">
+  <title>{{ words.name | escape }}: {{ words.promise | escape }}</title>
+  {% include design-head.html %}
+  <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
+  <script>
+    try { if (new URLSearchParams(location.search).get("theme") === "carbon") document.documentElement.dataset.theme = "carbon"; } catch (error) {}
+  </script>
+</head>
+<body class="social">
+  <main class="social-card">
+    <p class="social-brand">{% include brand-mark.svg %}<span>{{ words.name | escape }}</span></p>
+    <h1 class="social-promise">{{ words.promise | escape }}</h1>
+    <dl class="social-receipt">
+      <div class="receipt-line"><dt>Claims that hold</dt><dd>{{ brand.counts.holds }}</dd></div>
+      <div class="receipt-line"><dt>Retracted until their check passes</dt><dd>{{ brand.counts.retracted }}</dd></div>
+      <div class="receipt-line"><dt>Designed, not built</dt><dd>{{ brand.counts.designed }}</dd></div>
+      <div class="receipt-line"><dt>Not claimed, on purpose</dt><dd>{{ brand.counts["not-claimed"] }}</dd></div>
+    </dl>
+    <p class="social-status">{{ words.status | escape }} Free and open source, {{ words.license | escape }}.</p>
+  </main>
+</body>
+</html>

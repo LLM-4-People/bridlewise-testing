@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (path) => readFileSync(join(ROOT, path), "utf8");
-const TEMPLATES = ["docs/index.md", "docs/floor/claims.md", "docs/_includes/claims-ledger.html", "docs/_includes/claims-receipt.html"];
+const TEMPLATES = ["docs/index.md", "docs/floor/claims.md", "docs/_includes/claims-ledger.html", "docs/_includes/claims-receipt.html", "docs/social/card.html"];
 const claims = JSON.parse(read("docs/brand/claims.json")).claims;
 const messaging = JSON.parse(read("docs/brand/messaging.json"));
 
@@ -19,7 +19,7 @@ export function unescapedOutputs(template) {
   return [...template.matchAll(/\{\{([^}]*)\}\}/gu)].map((match) => match[1].trim()).filter((expression) => {
     if (/\|\s*(?:escape|relative_url|absolute_url)\s*$/u.test(expression)) return false;
     if (/^brand\.counts(?:\.[\w-]+|\["[\w-]+"\])$/u.test(expression)) return false;
-    if (/^brand\.commit \| slice: 0, 8$/u.test(expression) || /^include\.id$/u.test(expression) || /^site\.repository_url$/u.test(expression)) return false;
+    if (/^brand\.commit \| slice: 0, 8$/u.test(expression) || /^include\.id$/u.test(expression) || /^site\.repository_url$/u.test(expression) || /^site\.lang \| default: 'en'$/u.test(expression)) return false;
     // A computed count, and a time printed through the date filter, carry no markup.
     if (/^total$/u.test(expression) || /\| date: "[%\w-]+"$/u.test(expression)) return false;
     return true;

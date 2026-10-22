@@ -23,7 +23,7 @@ defaults:
       type: pages
     values:
       layout: default
-      image: /assets/social-preview.png
+      image: /assets/social.png
 
 include:
   - .well-known
