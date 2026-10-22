@@ -844,6 +844,22 @@ export type HistoryImportOptions = Readonly<{
   onProgress?: (line: string) => void;
 }>;
 
+/**
+ * Refuses (`history_import_undecodable`) when `scan` holds an undecodable
+ * object the review does not exempt by id, writing each one's id, type,
+ * size and paths, with `stage`, to `undecodable.json` in the run folder:
+ * what a reviewer needs to exempt it, never its content.
+ */
+function refuseUnreviewedUndecodable(runFolder: string, inventory: HistoryInventory, scan: CatalogueScan, review: ImportReview, stage: string): void {
+  const unreviewed = scan.undecodable.filter((oid) => !review.binaries.has(oid));
+  if (unreviewed.length === 0) return;
+  const named = new Map<string, string[]>();
+  for (const { path, oid } of inventory.paths) named.set(oid, [...(named.get(oid) ?? []), path]);
+  const objects = new Map(inventory.objects.map((object) => [object.oid, object]));
+  writePrivate(join(runFolder, "undecodable.json"), `${JSON.stringify({ stage, undecodable: unreviewed.map((oid) => ({ oid, type: objects.get(oid)?.type, size: objects.get(oid)?.size, paths: named.get(oid) ?? [] })) }, null, 2)}\n`);
+  refuse(runFolder, `${String(unreviewed.length)} object(s) ${stage} no encoding decodes (UTF-8, UTF-16, UTF-32, by BOM or by shape) and no review exempts; they are listed with their ids and paths in undecodable.json`, "history_import_undecodable", { undecodable: unreviewed.length, stage });
+}
+
 /** A refusal that leaves the run folder for inspection (it holds the mirror and the values: private). */
 function refuse(runFolder: string, message: string, code: ForgeCode, details: ForgeFacts = {}): never {
   throw new ForgeError(code, `${message} (the run folder ${runFolder} is kept for inspection; it is private and holds secret values)`, { runFolder, ...details });
@@ -891,14 +907,7 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
     refuse(runFolder, `${String(scan.nameHits.length)} name(s) hold a secret (${Object.entries(countByEntry(scan.nameHits)).map(([entry, count]) => `${entry}: ${String(count)}`).join(", ")}; objects ${[...new Set(scan.nameHits.map((hit) => hit.oid))].slice(0, 8).join(", ")}); rename them in the source first`, "history_import_secret_in_name");
   }
 
-  const unreviewed = scan.undecodable.filter((oid) => !review.binaries.has(oid));
-  if (unreviewed.length > 0) {
-    const named = new Map<string, string[]>();
-    for (const { path, oid } of before.paths) named.set(oid, [...(named.get(oid) ?? []), path]);
-    const sizes = new Map(before.objects.map((object) => [object.oid, object.size]));
-    writePrivate(join(runFolder, "undecodable.json"), `${JSON.stringify({ undecodable: unreviewed.map((oid) => ({ oid, size: sizes.get(oid), paths: named.get(oid) ?? [] })) }, null, 2)}\n`);
-    refuse(runFolder, `${String(unreviewed.length)} object(s) no encoding decodes (UTF-8, UTF-16, UTF-32, by BOM or by shape) and no review exempts; they are listed with their paths in undecodable.json`, "history_import_undecodable", { undecodable: unreviewed.length });
-  }
+  refuseUnreviewedUndecodable(runFolder, before, scan, review, "before the rewrite");
   const values = [...new Set(scan.hits.map((hit) => hit.value))];
   const judgement = judgeOracle(both.oracle, values, review.dispositions);
   if (judgement.gaps.length > 0) {
@@ -926,8 +935,9 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   if (Object.keys(residue.left).length > 0) {
     refuse(runFolder, `the purged history still holds secrets: ${Object.entries(residue.left).map(([entry, count]) => `${entry}: ${String(count)}`).join(", ")}`, "history_import_residue");
   }
-  const stillUndecodable = rescanned.catalogue.undecodable.filter((oid) => !review.binaries.has(oid));
-  if (stillUndecodable.length > 0) refuse(runFolder, `${String(stillUndecodable.length)} undecodable object(s) appeared in the rewrite`, "history_import_residue");
+  // The rewrite gives a commit or tag a new id whenever anything it reaches changed: an undecodable one the
+  // review exempted by its old id is a NEW object to review (listed, with the stage, in undecodable.json).
+  refuseUnreviewedUndecodable(runFolder, after, rescanned.catalogue, review, "after the rewrite");
 
   const afterMappings = planRefs(after.refs);
   const receipt: HistoryImportReceipt = deepFreeze({

@@ -324,12 +324,13 @@ export type CpuBoundedRun = Readonly<{
  * sample counts; a member that has VANISHED keeps its last sample unless its
  * parent is a live member (whose reaped-child time now holds it), so the
  * leader reaped by this process, or an orphan reaped by init, never takes
- * its work out of the total. Monotonic by construction (a total never drops).
+ * its work out of the total. The total is a plain SUM over every member's
+ * last sample — never a running maximum, which would mask a member whose
+ * work went missing.
  */
 function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ cpuMs: number; members: number }> }> {
   const last = new Map<string, Readonly<{ ppid: number; cpuMs: number }>>();
   const gone = new Map<string, number>();
-  let total = 0;
   return {
     sample: () => {
       const members = processGroupMembers(pgid);
@@ -342,9 +343,8 @@ function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ c
         last.delete(key);
       }
       for (const [key, member] of live) last.set(key, { ppid: member.ppid, cpuMs: member.cpuMs });
-      const now = [...last.values()].reduce((sum, member) => sum + member.cpuMs, 0) + [...gone.values()].reduce((sum, cpuMs) => sum + cpuMs, 0);
-      total = Math.max(total, now);
-      return { cpuMs: total, members: members.length };
+      const cpuMs = [...last.values()].reduce((sum, member) => sum + member.cpuMs, 0) + [...gone.values()].reduce((sum, value) => sum + value, 0);
+      return { cpuMs, members: members.length };
     },
   };
 }
@@ -377,6 +377,13 @@ export async function runCpuBounded(
   options: Readonly<{ cwd: string; env: Readonly<Record<string, string>>; input?: Buffer; bounds: CpuBounds }>,
 ): Promise<CpuBoundedRun> {
   const { bounds } = options;
+  // A missing or meaningless bound is refused HERE, before anything runs: an absent budget compares
+  // false forever and a run under it would never stop (no fallback value is ever chosen).
+  const invalid = (["cpuBudgetMs", "stallMs", "pollMs", "killGraceMs", "outputBytes"] as const).filter((name) => {
+    const value = (bounds as Readonly<Record<string, unknown>> | undefined)?.[name];
+    return typeof value !== "number" || !Number.isFinite(value) || value <= 0;
+  });
+  if (invalid.length > 0) throw new InputError(`a work-bounded run needs every bound as a positive finite number; missing or invalid: ${invalid.join(", ")}`, "cpu_bounds_invalid");
   const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];

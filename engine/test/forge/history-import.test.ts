@@ -26,7 +26,7 @@
  *   - THE DOOR: credentials in a URL refused before anything runs; usage.
  */
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
@@ -411,7 +411,7 @@ function leaderWithGrandchild(pidFile: string, grandchild: string, leaderBurnMs 
     `const { spawn } = require("node:child_process");`,
     `const g = spawn(process.execPath, ["-e", ${JSON.stringify(grandchild)}], { stdio: "inherit" });`,
     `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(g.pid));`,
-    `const until = process.cpuUsage().user / 1000 + ${String(leaderBurnMs)}; while (process.cpuUsage().user / 1000 < until) {}`,
+    `const used = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; }; const until = used() + ${String(leaderBurnMs)}; while (used() < until) {}`,
     `process.exit(0);`,
   ].join(" ");
 }
@@ -435,4 +435,45 @@ test("the work-bounded run bounds the whole GROUP: a grandchild holding the pipe
   assert.equal(leaderSpent.ending, "cpu-exhausted");
   assert.ok((leaderSpent.cpuMs ?? 0) > TIGHT.cpuBudgetMs, `the total kept the exited leader's work (${String(leaderSpent.cpuMs)} ms)`);
   assert.equal(isProcessAlive(Number(readFileSync(spent, "utf8"))), false);
+});
+
+/**
+ * A node one-liner that burns `cpuMs` of its OWN CPU, user plus system (never a wall-clock wait), then runs
+ * `after`. Both halves count: the loop's own `cpuUsage()` calls are system time, and a user-only loop
+ * measured several times its intended work.
+ */
+function burn(cpuMs: number, after = ""): string {
+  return `const used = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; }; const until = used() + ${String(cpuMs)}; while (used() < until) {} ${after}`;
+}
+
+test("the work-bounded run's bounds, each pinned by a test a mutation turns red (S1, S2, P1, G1)", async () => {
+  const dir = createTempDir("bounded-bounds-");
+  // S1: a missing, non-finite or zero bound is refused at call time, before anything runs (never a hang).
+  const marker = join(dir, "ran");
+  for (const name of ["cpuBudgetMs", "stallMs", "pollMs", "killGraceMs", "outputBytes"] as const) {
+    for (const value of [undefined, Number.NaN, 0]) {
+      const bounds = { ...TIGHT, [name]: value } as unknown as CpuBounds;
+      await assert.rejects(runCpuBounded(NODE, ["-e", `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`], { cwd: dir, env: ENV, bounds }), (error: Error & { code?: string }) => error.code === "cpu_bounds_invalid" && error.message.includes(name), `${name}=${String(value)}`);
+    }
+  }
+  assert.equal(existsSync(marker), false, "nothing was spawned under an invalid bound");
+  // S2: CPU is progress: a child busy for four stall windows of CPU, printing nothing, exits; it is never stalled.
+  const busy = await runCpuBounded(NODE, ["-e", burn(1_200)], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 60_000, stallMs: 300 } });
+  assert.equal(busy.ending, "exited");
+  // P1: a child the leader forks in a group of its OWN (so no member sample ever sees it), which burns CPU, exits and is
+  //     reaped by the leader, counts — only through the leader's reaped-child time (proc(5) cutime/cstime).
+  const reaped = await runCpuBounded(NODE, ["-e", `require("node:child_process").spawnSync(process.execPath, ["-e", ${JSON.stringify(burn(700))}], { stdio: "ignore", detached: true }); setTimeout(() => {}, 120000);`], { cwd: dir, env: ENV, bounds: { ...TIGHT, stallMs: 5_000 } });
+  assert.equal(reaped.ending, "cpu-exhausted", "the reaped child's 700 ms passed the 400 ms budget");
+  // G1: two live grandchildren each burn under the budget (900 ms of work plus node's start, under 1,500 ms);
+  //     their SUM is over it (a maximum per member would never see the budget spent).
+  const pids = join(dir, "split");
+  const split = await runCpuBounded(NODE, ["-e", [
+    `const { spawn } = require("node:child_process");`,
+    `const a = spawn(process.execPath, ["-e", ${JSON.stringify(burn(900, "setTimeout(() => {}, 120000);"))}], { stdio: "inherit" });`,
+    `const b = spawn(process.execPath, ["-e", ${JSON.stringify(burn(900, "setTimeout(() => {}, 120000);"))}], { stdio: "inherit" });`,
+    `require("node:fs").writeFileSync(${JSON.stringify(pids)}, a.pid + " " + b.pid);`,
+    `process.exit(0);`,
+  ].join(" ")], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 1_500, stallMs: 5_000 } });
+  assert.equal(split.ending, "cpu-exhausted", "two members' work, each under the 1,500 ms budget, passed it together");
+  for (const pid of readFileSync(pids, "utf8").split(" ").map(Number)) assert.equal(isProcessAlive(pid), false, "both grandchildren were stopped with the group");
 });
