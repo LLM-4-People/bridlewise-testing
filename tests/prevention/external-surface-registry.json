@@ -160,6 +160,7 @@
         "version": "v1"
       },
       "usedIn": [
+        ".github/workflows/ci.yml",
         ".github/workflows/pages.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The action carries the Jekyll/Ruby builder image; its SHA is the only pin this tree can see for that image, so a moved tag or SHA is refused until this declaration moves with it."
@@ -431,6 +432,19 @@
       "drift": "The compiler comes from the runner image and is PROBED, never installed: a network install only ever waited on a package mirror (#333), and the guard refuses any apt install line. The exact version is runner-image-specific, so the runner label and this name are the pin; each job logs the version it found. The compiler itself is declared once, by engine/guardian/Makefile (CC := gcc-14), and both call sites (.github/workflows/ci.yml and .github/workflows/test-shards.yml) probe this package and invoke that owner without a CC= literal. This is listed in knownExceptions; the owner is the guardian build owner."
     },
     {
+      "id": "runner-image:google-chrome",
+      "kind": "system-package",
+      "pinned": {
+        "package": "google-chrome",
+        "version": "as shipped in the ubuntu-24.04 runner image (the job logs `google-chrome --version`)",
+        "probe": "command -v google-chrome"
+      },
+      "usedIn": [
+        ".github/workflows/ci.yml"
+      ],
+      "drift": "The browser the rendered judgement drives (scripts/rendered/, CI's \"Rendered pages\" job) is the runner image's Google Chrome, PROBED, never installed or downloaded: the rules judge computed styles, fonts and requests, not pixels, so a browser that floats with the image is the right instrument and no browser download enters the build. The exact version is runner-image-specific; the runner label and this name are the pin, and the job logs the version it found."
+    },
+    {
       "id": "apt:build-essential",
       "kind": "system-package",
       "pinned": {
@@ -469,6 +483,11 @@
       "surface": "runner-image:gcc-14",
       "reason": "An exact version string is runner-image-specific and would drift with the provider's image; the runner label plus the declared package name is the reproducible pin available to this tree, and each job logs the version it found.",
       "owner": "engine/guardian/Makefile"
+    },
+    {
+      "surface": "runner-image:google-chrome",
+      "reason": "An exact browser version is runner-image-specific and would drift with the provider's image; the runner label plus the declared package name is the reproducible pin available to this tree, and the job logs the version it found.",
+      "owner": "scripts/rendered/judge.ts"
     },
     {
       "surface": "apt:build-essential",

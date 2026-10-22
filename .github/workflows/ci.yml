@@ -190,20 +190,33 @@ jobs:
       - name: Enforce the self-protection config mode
         run: chmod 600 engine/bridlewise.config.json
 
-      - name: Build the guardian (the cockpit's custody and checks need it)
+      - name: Require the pinned compiler from the runner image
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-14
-          make -C engine/guardian all
+          # gcc-14 ships in the ubuntu-24.04 image; it is probed, never installed (#333).
+          command -v gcc-14 >/dev/null || { echo "::error::gcc-14 is not in the runner image; the guardian build needs it (#333)"; exit 1; }
+          gcc-14 --version
 
-      - name: Install the browser
-        run: npx playwright install --with-deps chromium
+      - name: Build the guardian (the cockpit's custody and checks need it)
+        run: make -C engine/guardian all
+
+      # The browser is the runner image's Google Chrome, probed like the
+      # compiler, never downloaded: the rendered rules need a real browser,
+      # not a pinned build (they judge computed styles, not pixels).
+      - name: Require the browser from the runner image
+        run: |
+          command -v google-chrome >/dev/null || { echo "::error::google-chrome is not in the runner image; the rendered judgement needs a browser"; exit 1; }
+          google-chrome --version
+          echo "RENDERED_BROWSER=$(command -v google-chrome)" >> "$GITHUB_ENV"
 
       - name: The rendered rules catch every planted break
-        run: node --experimental-strip-types scripts/rendered/proof.ts
+        run: node --experimental-strip-types scripts/rendered/proof.ts --browser "$RENDERED_BROWSER"
 
+      # The app runs from a scratch copy under a private temporary root, outside
+      # the safety floor's keep-out (D-19): never under /tmp beside the checkout.
       - name: Judge every cockpit view as rendered
-        run: node --experimental-strip-types scripts/capture/cockpit.ts --judge-only --demo-root "$RUNNER_TEMP/demo"
+        run: |
+          mkdir -p "$RUNNER_TEMP/capture"
+          TMPDIR="$RUNNER_TEMP/capture" node --experimental-strip-types scripts/capture/cockpit.ts --judge-only --browser "$RENDERED_BROWSER" --demo-root "$RUNNER_TEMP/demo"
 
       - name: Build the site source
         run: |
@@ -218,7 +231,7 @@ jobs:
           build_revision: ${{ github.sha }}
 
       - name: Judge every built page as rendered
-        run: node --experimental-strip-types scripts/rendered/judge.ts site --site _site --baseurl /rendered
+        run: node --experimental-strip-types scripts/rendered/judge.ts site --site _site --baseurl /rendered --browser "$RENDERED_BROWSER"
 
   shards:
     name: Full suite shards

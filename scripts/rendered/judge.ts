@@ -17,7 +17,7 @@ import { createServer, type Server } from "node:http";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
-import { chromium, type BrowserContext, type Page } from "playwright-core";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 
 import { isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { RENDERED_RULES, type PageRule, type RequestRule, type Surface } from "./rules.ts";
@@ -28,6 +28,16 @@ class RenderedRefusal extends Error {
     super(`${code}: ${message}`);
     this.code = code;
   }
+}
+
+/**
+ * The browser a judgement drives: the one at `executable` when given (CI
+ * passes the runner image's Google Chrome, probed, never downloaded), else
+ * Playwright's own Chromium. Either is a real browser; the rules judge
+ * computed styles, fonts and requests, not pixels.
+ */
+export function launchBrowser(executable: string | null, args: readonly string[] = []): Promise<Browser> {
+  return chromium.launch({ headless: true, args: [...args], ...(executable === null ? { channel: "chromium" } : { executablePath: executable }) });
 }
 
 const pageRules = (surface: Surface): readonly PageRule[] => RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && r.surfaces.includes(surface));
@@ -105,12 +115,12 @@ function sitePages(siteRoot: string, baseurl: string): readonly string[] {
 }
 
 /** Judges every page of a built site in both colour schemes; returns the findings, each with its page. */
-async function judgeSite(siteRoot: string, baseurl: string): Promise<readonly string[]> {
+async function judgeSite(siteRoot: string, baseurl: string, executable: string | null): Promise<readonly string[]> {
   if (!existsSync(siteRoot)) throw new RenderedRefusal("rendered_site_missing", `${siteRoot} is not a built site`);
   const pages = sitePages(siteRoot, baseurl);
   if (pages.length === 0) throw new RenderedRefusal("rendered_site_empty", `${siteRoot} holds no HTML page`);
   const { server, origin } = await serveSite(siteRoot, baseurl);
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchBrowser(executable);
   const findings = new Set<string>();
   try {
     for (const scheme of ["light", "dark"] as const) {
@@ -135,10 +145,10 @@ async function judgeSite(siteRoot: string, baseurl: string): Promise<readonly st
 
 async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
-  if (command !== "site") throw new RenderedRefusal("rendered_usage", "usage: judge.ts site --site <built site> --baseurl <base path>");
-  const { values } = parseArgs({ args: rest, options: { site: { type: "string" }, baseurl: { type: "string" } } });
+  if (command !== "site") throw new RenderedRefusal("rendered_usage", "usage: judge.ts site --site <built site> --baseurl <base path> [--browser <executable>]");
+  const { values } = parseArgs({ args: rest, options: { site: { type: "string" }, baseurl: { type: "string" }, browser: { type: "string" } } });
   if (values.site === undefined || values.baseurl === undefined) throw new RenderedRefusal("rendered_usage", "site needs --site and --baseurl");
-  const findings = await judgeSite(resolve(values.site), values.baseurl);
+  const findings = await judgeSite(resolve(values.site), values.baseurl, values.browser ?? null);
   const pages = sitePages(resolve(values.site), values.baseurl).length;
   for (const finding of findings) process.stdout.write(`${finding}\n`);
   const pending = RENDERED_RULES.flatMap((r) => (r.pending?.site === undefined ? [] : [{ id: r.id, why: r.pending.site }]));
