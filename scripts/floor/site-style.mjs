@@ -50,7 +50,9 @@
  *   `<script src>` or an element that loads media from another origin (a
  *   scheme or `//`): no font, sheet or script comes from elsewhere; and a
  *   fetching `<link>` to a `data:` resource (a second, hand-drawn mark).
- * - a `<meta http-equiv="refresh">` or a `<base>`.
+ * - a `<meta http-equiv="refresh">` or a `<base>`;
+ * - an inline `<script>` (a data block such as JSON-LD excepted) or an
+ *   `on…` event handler attribute.
  * This parse is fast feedback. The boundary is the Content-Security-Policy
  * every page carries (`site-design.mjs` `sitePolicy`), which the browser
  * enforces whatever spelling produced the markup.
@@ -248,6 +250,9 @@ export function siteStyleViolations(css, { tokens }) {
   return findings;
 }
 
+/** Script types that are data, never run (a structured-data block). */
+const DATA_SCRIPT_TYPES = new Set(["application/ld+json", "application/json"]);
+
 /** The `<link>` relations that make the browser fetch the target. */
 const FETCHING_RELS = new Set(["stylesheet", "icon", "shortcut", "apple-touch-icon", "mask-icon", "manifest", "preload", "modulepreload", "prefetch", "preconnect", "dns-prefetch", "prerender"]);
 /** Elements and the attributes through which they load a resource. */
@@ -265,6 +270,9 @@ export function siteMarkupViolations(html) {
       const at = line === undefined ? "" : `${String(line)} `;
       const tag = node.tagName.toLowerCase();
       const attributes = new Map(node.attrs.map((attribute) => [attribute.name.toLowerCase(), attribute.value]));
+      if (tag === "script" && !attributes.has("src") && !DATA_SCRIPT_TYPES.has((attributes.get("type") ?? "").trim().toLowerCase())) findings.push(`${at}an inline <script>: the site's scripts are its files`);
+      const handlers = [...attributes.keys()].filter((name) => name.startsWith("on"));
+      if (handlers.length > 0) findings.push(`${at}<${tag} ${handlers.join(" ")}>: an event handler in markup; the site's scripts are its files`);
       if (tag === "style") findings.push(`${at}<style>: the styles live in the token-reading stylesheets`);
       if (attributes.has("style")) findings.push(`${at}<${tag} style=…>: the styles live in the token-reading stylesheets`);
       if (tag === "meta" && (attributes.get("http-equiv") ?? "").trim().toLowerCase() === "refresh") findings.push(`${at}<meta http-equiv="refresh">: a moved page names its place (data-moved-to), and the site's script follows it`);
