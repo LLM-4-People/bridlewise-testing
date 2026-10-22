@@ -14,7 +14,7 @@ import { join } from "node:path";
 
 import { parseArgs } from "node:util";
 
-import { isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
+import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
 import { instrumentContext, judgePage, launchBrowser, serveSite } from "./judge.ts";
 import { CONTENT_SECURITY_POLICY, RENDERED_RULES, type PageRule } from "./rules.ts";
@@ -126,6 +126,7 @@ async function prove(executable: string | null): Promise<readonly string[]> {
 }
 
 if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   const { values } = parseArgs({ args: process.argv.slice(2), options: { browser: { type: "string" } } });
   prove(values.browser ?? null).then((failures) => {
     for (const failure of failures) process.stdout.write(`${failure}\n`);

@@ -31,12 +31,13 @@
 // The one checkout writer (the checkout write door + atomic rename): a
 // generator run under a test runner cannot rewrite the runner's checkout.
 import { atomicWriteFile } from "../engine/src/filesystem/atomic-write.ts";
+import { bootstrapProcess, isEntryPoint } from "../engine/src/runtime/cli-debug.ts";
 import { BRAND_MARK, strokePath } from "../src/cockpit/shell/brand-mark.ts";
 import { syncServiceWorker } from "./service-worker-cache.ts";
 import { deflateSync, crc32 } from "node:zlib";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TOKENS = resolve(ROOT, "src", "cockpit", "tokens.css");
@@ -152,7 +153,8 @@ export function markOutputs(colors = markColors()) {
   ]);
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   const check = process.argv.includes("--check");
   const drifted = [];
   for (const [out, bytes] of markOutputs()) {

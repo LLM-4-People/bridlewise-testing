@@ -24,10 +24,11 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import { atomicWriteFile } from "../engine/src/filesystem/atomic-write.ts";
 import { HarnessError } from "../engine/src/kernel/errors.ts";
+import { bootstrapProcess, isEntryPoint } from "../engine/src/runtime/cli-debug.ts";
 import { sourceViewOf } from "../engine/scripts/verification/source-view.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -143,7 +144,8 @@ export function serviceWorkerDigestPlugin(): { name: string; apply: "build"; wri
   };
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   const report = syncServiceWorker(ROOT, process.argv.includes("--check"));
   console.log(JSON.stringify(report));
   if (!report.allCurrent) process.exitCode = 1;
