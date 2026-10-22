@@ -720,7 +720,7 @@ async function stateAction(state: Run, browser: Browser, action: StateAction, su
 async function drive(state: Run, browser: Browser): Promise<void> {
   state.setup = await newSurface(browser, "carbon", "desktop", null);
   for (const viewport of VIEWPORT_IDS) for (const theme of THEMES) state.surfaces.push(await newSurface(browser, theme, viewport, null));
-  const gpu = descendantCommandLines(process.pid).filter((line) => line.includes("--type=gpu-process"));
+  const gpu = state.options.judgeOnly ? [] : descendantCommandLines(process.pid).filter((line) => line.includes("--type=gpu-process"));
   if (gpu.length > 0) throw new CaptureRefusal("gpu_process_spawned", `Chromium spawned a GPU process despite ${CHROMIUM_ARGS.join(" ")} (BL-GPU)`);
   for (const stage of SEQUENCE) {
     if (stage.kind === "once") await stateAction(state, browser, stage.action, []);
@@ -767,7 +767,9 @@ async function main(): Promise<void> {
     const repo = writeDemoRepository(options.demoRoot);
     demoCreated = true;
     sd(app, env, "start");
-    browser = await launchBrowser(options.browser, CHROMIUM_ARGS);
+    // The GPU-less flags make the images byte-stable (BL-GPU); a judgement reads computed styles, not
+    // pixels, and the runner image's Chrome aborts under --in-process-gpu, so it runs with its defaults.
+    browser = await launchBrowser(options.browser, options.judgeOnly ? [] : CHROMIUM_ARGS);
     const state: Run = {
       options, commit, out, repo, ffmpeg, scratch,
       password: (await import("node:crypto")).randomBytes(18).toString("base64url"),
