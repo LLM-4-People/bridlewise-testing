@@ -7,13 +7,18 @@
  * that burns CPU past a small ceiling is refused, the same work under a
  * larger class passes, and WAITING (wall time with no work) is never judged —
  * the load-independence this whole change exists for. The web door's wiring
- * is read from the config the runner loads.
+ * is read from the config the runner loads, and the runtime check that no
+ * test declares its own wall bound is driven by planted files in a real
+ * nested run (tests/setup/test-cpu-class.ts).
  */
-import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, test } from "vitest";
+
+import { testProcessSupervisorBinary } from "../../engine/guardian/build.ts";
+import { runBoundedTestProcess } from "../../engine/src/process/supervised-run.ts";
 
 import {
   cpuClassOf,
@@ -21,7 +26,9 @@ import {
   installTestCpuJudgement,
   type TestCpuClasses,
 } from "../../engine/scripts/tooling/test-cpu-class.ts";
-import { readTestCpuClasses, readTestHangBackstopMs, readWebSuiteWatchdog } from "../helpers/budget-config.ts";
+import { readTestCpuClasses, readTestHangBackstopMs, readWebSuiteWatchdog, webSuiteKillGraceMs } from "../helpers/budget-config.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
+import { NESTED_RUNNER_LAUNCH_MS } from "../test-budget.ts";
 
 const HERE = "tests/prevention/test-cpu-class.test.ts";
 const REPOSITORY_ROOT = process.cwd();
@@ -134,167 +141,64 @@ describe("the web door installs it", () => {
   });
 });
 
-const ts = createRequire(import.meta.url)("typescript5") as typeof import("typescript5");
-
-/** The runner's test and hook functions a per-test timeout can ride on (an alias of any of them too). */
-const TIMED_CALLS = new Set(["test", "it", "describe", "suite", "bench", "beforeAll", "afterAll", "beforeEach", "afterEach"]);
-/** Hooks take (fn, timeout); tests and suites take (name, [options,] fn, timeout). */
-const HOOKS = new Set(["beforeAll", "afterAll", "beforeEach", "afterEach"]);
-/** The option names that set a per-test or per-hook WALL bound, in a test's options or the runner's config. */
-const TIMEOUT_KEYS = new Set(["timeout", "testTimeout", "hookTimeout"]);
-
-type TsNode = import("typescript5").Node;
-type TsExpression = import("typescript5").Expression;
-
 /**
- * Every per-test WALL timeout a source declares, read from the TypeScript
- * AST (spelling-proof: a regular expression cannot win this):
- *
- * - a trailing timeout ARGUMENT to a test, suite or hook, or to an ALIAS of
- *   one (`const slow = test.extend(…)`, `const t = it`): the last argument
- *   after the name (tests) or the function (hooks), unless it is a function —
- *   a literal, an arrow, a function expression, or a name declared as a
- *   function in the file;
- * - a `timeout`/`testTimeout`/`hookTimeout` PROPERTY — bare, quoted or
- *   computed — in an options object passed to such a call, directly or
- *   through a variable declared in the file;
- * - any `setConfig(…)` call (`vi.setConfig`) that sets one of them.
+ * Runs the PLANTED test files through a real nested vitest run on this
+ * suite's own config (its setup files, its two projects), and returns each
+ * planted test's state and first error, by name. The planted files sit in a
+ * temporary folder; the run's own wall bound is the nested-runner backstop.
  */
-function declaredWallTimeouts(file: string, text: string): readonly string[] {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const found: string[] = [];
-  const at = (node: TsNode): string => `${file}:${String(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1)}`;
-  // Declarations by name, file-wide (the scope a test file's helpers live in).
-  const initializers = new Map<string, TsExpression>();
-  const functions = new Set<string>();
-  const declare = (node: TsNode): void => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
-      initializers.set(node.name.text, node.initializer);
-      if (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) functions.add(node.name.text);
-    }
-    if (ts.isFunctionDeclaration(node) && node.name !== undefined) functions.add(node.name.text);
-    ts.forEachChild(node, declare);
-  };
-  declare(source);
-  // The callee's base name (`test.skip.each(…)(…)` → test), through aliases declared in the file.
-  const base = (expression: TsExpression, seen = new Set<string>()): string | undefined => {
-    if (ts.isIdentifier(expression)) {
-      if (TIMED_CALLS.has(expression.text)) return expression.text;
-      const aliased = initializers.get(expression.text);
-      if (aliased === undefined || seen.has(expression.text)) return undefined;
-      seen.add(expression.text);
-      return base(aliased, seen);
-    }
-    if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) return base(expression.expression, seen);
-    if (ts.isCallExpression(expression)) return base(expression.expression, seen);
-    if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isNonNullExpression(expression)) return base(expression.expression, seen);
-    return undefined;
-  };
-  const isFunctionLike = (expression: TsExpression): boolean =>
-    ts.isArrowFunction(expression) || ts.isFunctionExpression(expression) || (ts.isIdentifier(expression) && functions.has(expression.text));
-  const keyOf = (property: import("typescript5").ObjectLiteralElementLike): string | undefined => {
-    const name = property.name;
-    if (name === undefined) return undefined;
-    if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name) || ts.isNumericLiteral(name)) return name.text;
-    if (ts.isComputedPropertyName(name)) {
-      const inner = name.expression;
-      if (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) return inner.text;
-      if (ts.isIdentifier(inner)) {
-        const value = initializers.get(inner.text);
-        if (value !== undefined && (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value))) return value.text;
-      }
-    }
-    return undefined;
-  };
-  // An options object, given directly or through a variable declared in the file.
-  const optionsObject = (expression: TsExpression): import("typescript5").ObjectLiteralExpression | undefined => {
-    if (ts.isObjectLiteralExpression(expression)) return expression;
-    if (ts.isIdentifier(expression)) {
-      const value = initializers.get(expression.text);
-      return value !== undefined && ts.isObjectLiteralExpression(value) ? value : undefined;
-    }
-    if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression)) return optionsObject(expression.expression);
-    return undefined;
-  };
-  const timeoutKeys = (object: import("typescript5").ObjectLiteralExpression): readonly string[] =>
-    object.properties.map(keyOf).filter((key): key is string => key !== undefined && TIMEOUT_KEYS.has(key));
-  const visit = (node: TsNode): void => {
-    if (ts.isCallExpression(node)) {
-      const callee = node.expression;
-      // `vi.setConfig({ testTimeout })` (or any setConfig): the runner-wide bound, set from a test.
-      if ((ts.isPropertyAccessExpression(callee) && callee.name.text === "setConfig") || (ts.isIdentifier(callee) && callee.text === "setConfig")) {
-        for (const argument of node.arguments) {
-          const object = optionsObject(argument);
-          if (object !== undefined && timeoutKeys(object).length > 0) found.push(`${at(node)} setConfig ${timeoutKeys(object).join(",")}`);
-        }
-      }
-      const name = base(callee);
-      // Only the CALL that runs a test or hook: `test.extend(…)` / `test.each(rows)` build one and are not it.
-      const builds = ts.isPropertyAccessExpression(callee) && ["extend", "each", "for", "skipIf", "runIf"].includes(callee.name.text);
-      if (name !== undefined && !builds) {
-        const args = node.arguments;
-        const firstAfter = HOOKS.has(name) ? 1 : 2;
-        if (args.length > firstAfter) {
-          const last = args[args.length - 1]!;
-          if (!isFunctionLike(last) && optionsObject(last) === undefined) found.push(`${at(node)} trailing ${last.getText(source)}`);
-        }
-        for (const argument of args) {
-          const object = optionsObject(argument);
-          if (object !== undefined && timeoutKeys(object).length > 0) found.push(`${at(node)} option ${timeoutKeys(object).join(",")}`);
-        }
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return found;
+function plantedRun(files: Readonly<Record<string, string>>): Map<string, Readonly<{ state: string; error: string }>> {
+  const directory = createTempDir("wall-bound-plants-");
+  symlinkSync(resolve("node_modules"), join(directory, "node_modules"), "dir");
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(directory, name), text);
+  const tests = Object.keys(files).filter((name) => name.endsWith(".test.ts")).map((name) => join(directory, name));
+  const dom = tests.filter((file) => /@vitest-environment jsdom/u.test(readFileSync(file, "utf8")));
+  const report = join(directory, "report.json");
+  const configuration = join(directory, "vitest.config.mjs");
+  writeFileSync(configuration, `import base from ${JSON.stringify(pathToFileURL(resolve("vitest.config.ts")).href)};
+const files={dom:${JSON.stringify(dom)},node:${JSON.stringify(tests.filter((file) => !dom.includes(file)))}};
+export default {...base,test:{...base.test,include:[],globalSetup:[],reporters:[['json',{outputFile:${JSON.stringify(report)}}]],
+ projects:base.test.projects.map(project=>({...project,test:{...project.test,include:files[project.test.name],exclude:[],globalSetup:[]}}))}};`);
+  const run = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, [resolve("node_modules/vitest/vitest.mjs"), "run", "--config", configuration],
+    { timeoutMs: NESTED_RUNNER_LAUNCH_MS, killGraceMs: webSuiteKillGraceMs() });
+  expect(run.error, run.stderr).toBeUndefined();
+  const parsed = JSON.parse(readFileSync(report, "utf8")) as { testResults: { assertionResults: { title: string; status: string; failureMessages: string[] }[] }[] };
+  return new Map(parsed.testResults.flatMap((file) => file.assertionResults).map((result) => [result.title, { state: result.status, error: result.failureMessages[0] ?? "" }]));
 }
 
-describe("no web test declares its own wall timeout", () => {
-  test("every tracked web test leaves its bound to the one hang backstop", () => {
-    const files = execFileSync("git", ["ls-files", "-z", "--", "tests/*.test.ts"], { cwd: REPOSITORY_ROOT, encoding: "utf8" })
-      .split("\0").filter((file) => file.length > 0);
-    expect(files.length, "the index yielded no web test file").toBeGreaterThan(300);
-    const declared = files.flatMap((file) => declaredWallTimeouts(file, readFileSync(join(REPOSITORY_ROOT, file), "utf8")));
-    expect(
-      declared,
-      "a per-test timeout is a WALL judgement (TEST-CPU-CLASSES): a test is judged by its CPU work against its file's class, " +
-        "and only the hang backstop (testExecution.testHangBackstopMs) ends it. Remove the timeout, or declare the file in a class",
-    ).toEqual([]);
+describe("no web test declares its own wall bound: the runtime check", () => {
+  test("PLANT: every spelling the review found fails the run naming its test, and the clean tests pass", () => {
+    const LIMIT = "5_000";
+    const results = plantedRun({
+      "helpers.ts": `import { test } from "vitest";
+export const slowTest = (name: string, fn: () => void) => test(name, fn, ${LIMIT});
+export const importedOptions = { timeout: ${LIMIT} };
+export function builtOptions() { return { timeout: ${LIMIT} }; }`,
+      "aliased-import.test.ts": `import { it as check } from "vitest";\ncheck("an aliased import", () => {}, ${LIMIT});`,
+      "namespace-import.test.ts": `import * as vt from "vitest";\nvt.test("a namespace import", () => {}, ${LIMIT});`,
+      "spread-options.test.ts": `import { test } from "vitest";\nconst base = { timeout: ${LIMIT} };\ntest("spread options", { ...base }, () => {});`,
+      "imported-options.test.ts": `import { test } from "vitest";\nimport { builtOptions, importedOptions } from "./helpers.ts";
+test("imported options", importedOptions, () => {});\ntest("options built by a call", builtOptions(), () => {});`,
+      "helper-wrapper.test.ts": `import { slowTest } from "./helpers.ts";\nslowTest("a wrapper in a helper", () => {});`,
+      "element-access-setconfig.test.ts": `import { test, vi } from "vitest";\ntest("setConfig by element access", () => { vi["setConfig"]({ testTimeout: ${LIMIT} }); });`,
+      "hook-bounds.test.ts": `import { afterEach, describe, test } from "vitest";
+describe("a bounded hook", () => { afterEach(() => {}, ${LIMIT}); test("under a bounded afterEach", () => {}); });
+describe("an unbounded hook", () => { afterEach(() => {}, 0); test("under an afterEach with no bound", () => {}); });`,
+      "no-bound.test.ts": `import { test } from "vitest";\ntest("a test with no bound at all", () => {}, 0);`,
+      "dom-aliased.test.ts": `// @vitest-environment jsdom\nimport { test as check } from "vitest";\ncheck("an aliased import in the DOM pool", () => {}, ${LIMIT});`,
+      "clean.test.ts": `import { afterEach, test } from "vitest";\nafterEach(() => {});\ntest("clean", () => {});\ntest("clean options", { retry: 0 }, () => {});`,
+    });
+    const refused = [
+      "an aliased import", "a namespace import", "spread options", "imported options", "options built by a call",
+      "a wrapper in a helper", "setConfig by element access", "under a bounded afterEach", "under an afterEach with no bound",
+      "a test with no bound at all", "an aliased import in the DOM pool",
+    ];
+    for (const title of refused) {
+      expect(results.get(title)?.state, `${title}: ${JSON.stringify(results.get(title))}`).toBe("failed");
+      expect(results.get(title)?.error, title).toMatch(/a per-test or per-hook wall timeout is not allowed: the only wall bound is the hang backstop/u);
+    }
+    expect(results.get("clean")?.state).toBe("passed");
+    expect(results.get("clean options")?.state).toBe("passed");
   });
 
-  test("PLANT: every spelling of a per-test wall bound is found, and nothing that is not one", () => {
-    const planted = [
-      /* 1 */ 'test("a", () => {}, 30_000);',
-      /* 2 */ 'it("b", async () => {}, LIMIT);',
-      /* 3 */ 'test("c", { timeout: 5000 }, () => {});',
-      /* 4 */ 'beforeAll(() => {}, 60_000);',
-      /* 5 */ 'describe.each([1])("d", () => {}, 1000);',
-      /* 6 */ 'function body() {}',
-      /* 7 */ 'test("named body", body, 2 * 1000);',
-      /* 8 */ 'const slow = test.extend({});',
-      /* 9 */ 'slow("an alias", () => {}, 9_000);',
-      /* 10 */ 'test("quoted", { "timeout": 1 }, () => {});',
-      /* 11 */ 'test("computed", { ["timeout"]: 1 }, () => {});',
-      /* 12 */ 'const KEY = "timeout";',
-      /* 13 */ 'test("computed by name", { [KEY]: 1 }, () => {});',
-      /* 14 */ 'const options = { timeout: 1 };',
-      /* 15 */ 'test("an options variable", options, () => {});',
-      /* 16 */ 'vi.setConfig({ testTimeout: 1 });',
-      /* 17 */ 'vi.setConfig({ "hookTimeout": 1 });',
-      /* 18 */ 'it.skip("e", () => {}, BACKSTOP);',
-      /* 19 */ 'afterEach(async function () {}, 1);',
-      /* 20 */ 'test("clean", () => {});',
-      /* 21 */ 'test("clean named body", body);',
-      /* 22 */ 'test("clean options", { retry: 0 }, () => {});',
-      /* 23 */ 'beforeEach(() => {});',
-      /* 24 */ 'const t = it;',
-      /* 25 */ 't("alias of it", () => {}, 5);',
-      /* 26 */ 'spawnSync("node", [], { timeout: 1 });',
-    ].join("\n");
-    expect(declaredWallTimeouts("planted.test.ts", planted).map((line) => Number(line.split(" ")[0]!.split(":")[1]))).toEqual([
-      1, 2, 3, 4, 5, 7, 9, 10, 11, 13, 15, 16, 17, 18, 19, 25,
-    ]);
-  });
 });
-

@@ -712,6 +712,7 @@
           "name": "nested-runner",
           "ceilingMs": 180000,
           "files": [
+            "tests/prevention/test-cpu-class.test.ts",
             "tests/prevention/test-isolation-contract.test.ts"
           ]
         }
