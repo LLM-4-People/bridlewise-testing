@@ -6,6 +6,7 @@ The `engine/test/` folder of the development surface.
 
 - `atomic-write.test.ts` — the `atomic-write.test` module.
 - `audit-matrix.test.ts` — the `audit-matrix.test` module.
+- `brand/`
 - `candidate-format.test.ts` — the `candidate-format.test` module.
 - `concurrency.test.ts` — the `concurrency.test` module.
 - `conversation-summary.test.ts` — eXP435 unit test — ConversationSummary.
@@ -66,6 +67,7 @@ The `engine/test/` folder of the development surface.
 - `quality-packs/`
 - `regression/`
 - `research/`
+- `roadmap/`
 - `runtime/`
 - `s1-scenarios/`
 - `safety/`

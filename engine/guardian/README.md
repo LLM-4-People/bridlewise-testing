@@ -110,6 +110,8 @@ harness-landlock-guardian --stamp
 | 8    | restrict_self_failed                                           |
 | 9    | exec_failed                                                     |
 | 10   | keep_out_exposed: THIS spawn's grant holds what decides a keep-out entry's content — a link's folder on the way, its target, a dangling link's would-be target's folder, or a mount below the grant that shows a kept-out place. The message names the link (or the mount) and the remedy. Other spawns are unaffected. |
+| 11   | network_refusal_failed: `network: "refused"` asked for the seccomp filter and the kernel refused to install it |
+| 12   | cpu_limit_failed: `cpu_seconds` asked for RLIMIT_CPU and it could not be set |
 | 64   | usage (bad CLI args)                                            |
 
 ## Ruleset spec
@@ -153,6 +155,16 @@ harness-landlock-guardian --stamp
   reached through a link is resolved one link at a time (at most 40): a
   grant holding a link's folder, the target or a dangling link's would-be
   target's folder refuses that spawn with exit 10 (GUARD-F5).
+- `network` (optional, only `"refused"`): after the Landlock domain, a
+  seccomp filter (under the same NO_NEW_PRIVS, inherited across exec, fork and
+  clone, every thread) answers `socket()` of EVERY family with `EACCES` and
+  `io_uring_setup()` with `ENOSYS` (an io_uring socket operation would bypass
+  the filter); a syscall made through another ABI (x32, a foreign arch) kills
+  the process. The payload can reach no network and no local socket server.
+  Absent: the network is not governed.
+- `cpu_seconds` (optional, 1..86400): RLIMIT_CPU, soft = hard. A payload that
+  spends that much CPU time is ended by the kernel — judged by CPU work, never
+  by wall time.
 - `keep_out_retries` (required with `keep_out`): how many times an entry that
   changed while it was located is located again (the root policy's
   `selfProtection.keepOutRetries`).
@@ -209,7 +221,11 @@ kernel that lacks Landlock entirely, it exits `3` (`landlock_unavailable`).
   devices, fifos are rejected). Device-file rules with `IOCTL_DEV` are a
   follow-up (device files are currently rejected; `IOCTL_DEV` is `dir only`
   and governs devices within an allowed dir subtree).
-- fs-only; no network / scoped rules.
+- The network is refused whole (`network: "refused"`), never scoped: no
+  per-port or per-host rule. The CLOCK cannot be refused or fixed by any
+  kernel mechanism here: `CLOCK_REALTIME` is read through the vDSO (a memory
+  read, no syscall for seccomp to see), and a time namespace offsets only the
+  monotonic and boot clocks.
 - Pattern A only (restrict-self + exec). Pattern B (a separate privileged
   guardian for self-evolution) is a follow-up slice.
 - No per-arch prebuilt binaries (future distribution via `optionalDependencies`).

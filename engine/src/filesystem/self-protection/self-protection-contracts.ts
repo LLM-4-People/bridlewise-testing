@@ -144,6 +144,10 @@ export const GUARDIAN_SPEC_SCHEMA = z.strictObject({
   default_deny_outside_allow_rules: z.boolean().optional(),
   temp_dir: z.string().min(1).max(4096).optional(),
   temp_dir_access: z.array(flagNameEnum).max(16).optional(),
+  /** `"refused"`: the payload and its descendants can make no socket of any family and cannot set up io_uring (a seccomp filter). Absent: the network is not governed. */
+  network: z.literal("refused").optional(),
+  /** The payload's CPU-time ceiling in seconds (RLIMIT_CPU): the kernel ends it by CPU work, never by wall time. */
+  cpu_seconds: z.number().int().min(1).max(86_400).optional(),
 }).superRefine((spec, ctx) => {
   if (spec.keep_out !== undefined && spec.keep_out_retries === undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["keep_out_retries"], message: "keep_out_retries is required with keep_out" });
@@ -191,7 +195,9 @@ export function flagValidForRuleKind(
  * 2=spec_parse, 3=landlock_unavailable, 4=spec_invalid, 5=prctl, 6=create_ruleset,
  * 7=add_rule, 8=restrict_self, 9=exec_failed, 10=keep_out_exposed (a keep-out
  * entry's link hop, target or would-be target, or a mount showing it, lies in
- * a grant of THIS spawn), 64=usage. Any other exit code is
+ * a grant of THIS spawn), 11=network_refusal_failed (the seccomp filter of
+ * `network: "refused"` could not be set), 12=cpu_limit_failed (`cpu_seconds`'s
+ * RLIMIT_CPU could not be set), 64=usage. Any other exit code is
  * the payload's exit code (the guardian execvp'd the payload).
  */
 export const GUARDIAN_BINARY_ERROR_CODES = deepFreeze({
@@ -204,6 +210,8 @@ export const GUARDIAN_BINARY_ERROR_CODES = deepFreeze({
   8: "restrict_self_failed",
   9: "exec_failed",
   10: "keep_out_exposed",
+  11: "network_refusal_failed",
+  12: "cpu_limit_failed",
   64: "usage",
 } as const);
 export type GuardianBinaryExitCode = keyof typeof GUARDIAN_BINARY_ERROR_CODES;

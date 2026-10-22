@@ -6,7 +6,7 @@ group: brand
 status: in-force
 implementation: partial
 route: MKT
-acted_in: [scripts/floor/roadmap-status.ts, docs/floor/roadmap.md, tests/prevention/roadmap-status-owner.test.ts]
+acted_in: [engine/scripts/roadmap/render.ts, engine/scripts/roadmap/graph.ts, engine/scripts/roadmap/cli.ts, docs/floor/roadmap.md, .github/workflows/pages.yml]
 ---
 # A roadmap that is easy to follow and generated from the records
 
@@ -25,11 +25,22 @@ good roadmap, we need to expose everything and it must be easy to follow".
   computed from evidence, as one easy page plus milestones, a Projects
   roadmap view and a feed.
 
-Done so far: the roadmap page (`docs/floor/roadmap.md`) has its status tables
-generated from the tracker and the evidence page's non-proofs
-(`scripts/floor/roadmap-status.ts`), guarded against hand edits by
-`tests/prevention/roadmap-status-owner.test.ts`.
+Done so far: the roadmap is rendered at publish from the one roadmap feed
+(`engine/scripts/tooling/roadmap-feed.ts`, every state computed from the
+tracker items' evidence, the decision records an input) by
+`engine/scripts/roadmap/` (`.github/workflows/pages.yml`). It produces:
 
-Still missing: the decision records are not yet an input; an item's state
-comes from the page's hand-written plan block, not from evidence; there is no
-Projects roadmap view and no feed.
+- the page: Now/Next/Later with the reason for each placement, what changed
+  this week, time travel through the feed's history, each milestone's
+  critical path, forecast (a band, or "unknown" when the data is too thin,
+  never a date) and burn-up, the dependency graph, how far each decision is
+  built, the risks and what is not planned;
+- a print one-pager, an Atom feed and the feed itself as JSON.
+
+The committed page (`docs/floor/roadmap.md`) keeps only its shell and the
+dated snapshot.
+
+Still missing: per-item checks with public retraction, in-flight pull
+requests, participation (RFC links, votes as a signal, good first items),
+and the GitHub milestones and Projects roadmap view, which wait on the feed
+and the projector (P5.2).

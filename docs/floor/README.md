@@ -16,7 +16,7 @@ This README is integration notes, not a site page. `published: false` keeps it o
 | `product.md` | `/product/` | Product documentation entry point |
 | `floor/index.md` | `/floor/` | Floor landing page |
 | `floor/help.md` | `/floor/help/` | Contribution lanes and review checklist |
-| `floor/roadmap.md` | `/floor/roadmap/` | Milestones, workstreams, exit criteria, and generated status blocks |
+| `floor/roadmap.md` | `/floor/roadmap/` | The roadmap, rendered from the roadmap feed at publish, and the dated snapshot |
 | `floor/promotion.md` | `/floor/promotion/` | Projection and gate contract |
 | `floor/atlas.md` | `/floor/atlas/` | Generated test atlas and filter UI |
 | `floor/evidence.md` | `/floor/evidence/` | Rerunnable checks and non-proofs |
@@ -45,7 +45,7 @@ The pages expect two static files, both generated at build or publication time. 
 
 Write them into the Jekyll source before the build, not into `_site` after it. Do not hand-edit either file; regenerate it from its source. The generators must produce deterministic, public, redacted JSON. No token, local path, host name, database key, private fixture name, or unreviewed hold text may enter either file.
 
-`floor/roadmap.md` also carries generated blocks, but they are authored into the page before the build. `npm run docs:roadmap` renders them from the page's `ROADMAP-PLAN` block, the open rows of `docs/trackers/TASKS.md`, and the non-proofs in `docs/floor/evidence.md`. Edit an owner, never a rendered table; `tests/prevention/roadmap-status-owner.test.ts` refuses drift.
+The roadmap page's body (`floor/roadmap.md`, between its `GENERATED AT PUBLISH` markers), `/floor/roadmap/print/`, `/floor/roadmap/feed.xml` and `/floor/roadmap/data/roadmap.json` are written into the Jekyll source after the floor data: `engine/scripts/tooling/roadmap-feed.ts` computes the feed (the one roadmap model) and `engine/scripts/roadmap/cli.ts build` renders it. The committed page keeps only its shell and the dated snapshot.
 
 ### Atlas schema
 
