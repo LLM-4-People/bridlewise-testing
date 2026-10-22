@@ -63,7 +63,8 @@ function main(): void {
 
   if (!existsSync(join(guardianDir, 'Makefile'))) {
     console.error(`landlock-guardian build: Makefile not found in ${guardianDir}`);
-    process.exit(2);
+    process.exitCode = 2;
+    return;
   }
 
   // 2. Run make all (inherit stdio so compiler errors are visible).
@@ -72,7 +73,8 @@ function main(): void {
     console.error(
       `landlock-guardian build: make failed with exit ${mk.status ?? 'null'}`,
     );
-    process.exit(3);
+    process.exitCode = 3;
+    return;
   }
 
   // 3. Verify the binary exists at the expected path.
@@ -80,7 +82,8 @@ function main(): void {
     console.error(
       `landlock-guardian build: binary not found at expected path ${binPath}`,
     );
-    process.exit(4);
+    process.exitCode = 4;
+    return;
   }
 
   let st: import('node:fs').Stats;
@@ -90,16 +93,17 @@ function main(): void {
     console.error(
       `landlock-guardian build: cannot stat ${binPath}: ${(e as Error).message}`,
     );
-    process.exit(4);
+    process.exitCode = 4;
+    return;
   }
   if (!st.isFile()) {
     console.error(`landlock-guardian build: ${binPath} is not a regular file`);
-    process.exit(5);
+    process.exitCode = 5;
+    return;
   }
 
   // 4. Report the absolute path of the built binary on stdout.
   console.log(binPath);
-  process.exit(0);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main();

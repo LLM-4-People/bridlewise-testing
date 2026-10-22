@@ -992,28 +992,31 @@ if (isEntryPoint(import.meta.url)) {
   const tree = readMeasuredTree(root);
   let execution: CompletedExecution | undefined;
   let result: TestCommandResult | undefined;
-  await asLockDoor(async () => { result = await runCli(invocationId, (observed) => { execution = observed; }); });
-  if (result === undefined) throw new Error("the engine runner answered nothing");
-  process.exitCode = result.exitCode;
-  process.stderr.write(`${sweepEndedRunTemporaries("run-tests")}\n`);
-  // Maintenance has no worker. Only explicit operation intent exempts it;
-  // a suite without an observed execution still refuses completion. Executions
-  // already carry the one live/replayed policy decision from their owner.
-  if (result.operation === "suite") {
-    if (execution === undefined) {
-      process.stderr.write("[run-tests] engine test command has no terminal proof\n");
-      process.exitCode = 1;
-    }
-    const history = resolve(root, TEST_RUN_HISTORY_PATH);
-    if (runForInvocation(history, invocationId) !== undefined) {
-      if (tree === null || readMeasuredTree(root) !== tree || execution?.terminal === undefined) {
-        process.stderr.write("[run-tests] current qualification lacks unchanged tree/terminal evidence\n");
+  const interrupted = await asLockDoor(async () => { result = await runCli(invocationId, (observed) => { execution = observed; }); });
+  if (interrupted !== null) process.exitCode = interrupted;
+  else if (result === undefined) throw new Error("the engine runner answered nothing");
+  else {
+    process.exitCode = result.exitCode;
+    process.stderr.write(`${sweepEndedRunTemporaries("run-tests")}\n`);
+    // Maintenance has no worker. Only explicit operation intent exempts it;
+    // a suite without an observed execution still refuses completion. Executions
+    // already carry the one live/replayed policy decision from their owner.
+    if (result.operation === "suite") {
+      if (execution === undefined) {
+        process.stderr.write("[run-tests] engine test command has no terminal proof\n");
         process.exitCode = 1;
-      } else {
-        try { finalizeQualifiedRun(history, invocationId, tree, qualificationTerminal(invocationId, tree, execution.terminal)); }
-        catch {
-          process.stderr.write("[run-tests] current qualification finalization refused\n");
+      }
+      const history = resolve(root, TEST_RUN_HISTORY_PATH);
+      if (runForInvocation(history, invocationId) !== undefined) {
+        if (tree === null || readMeasuredTree(root) !== tree || execution?.terminal === undefined) {
+          process.stderr.write("[run-tests] current qualification lacks unchanged tree/terminal evidence\n");
           process.exitCode = 1;
+        } else {
+          try { finalizeQualifiedRun(history, invocationId, tree, qualificationTerminal(invocationId, tree, execution.terminal)); }
+          catch {
+            process.stderr.write("[run-tests] current qualification finalization refused\n");
+            process.exitCode = 1;
+          }
         }
       }
     }

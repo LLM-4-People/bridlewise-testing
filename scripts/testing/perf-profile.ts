@@ -166,11 +166,11 @@ if (isEntryPoint(import.meta.url)) {
   const door = async (): Promise<number> => {
     if (process.env[INSIDE_INSTRUMENT_LOCK_VARIABLE] === "1") return runPerfProfile();
     let code = 1;
-    await asLockDoor(async () => {
+    const interrupted = await asLockDoor(async () => {
       code = (await runInsideInstrumentLock("perf profile", wholeInstrumentRun("profile"),
         [process.execPath, ...process.execArgv, fileURLToPath(import.meta.url)])).exitCode;
     });
-    return code;
+    return interrupted ?? code;
   };
   door().then(
     (code) => { process.exitCode = code; },

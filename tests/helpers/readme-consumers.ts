@@ -248,8 +248,8 @@ if (isEntryPoint(import.meta.url)) {
   const write = args.includes("--write");
   const bootstrap = args.includes("--bootstrap");
   if (check === write || (bootstrap && check)) {
-    console.error("usage: readme-consumers.ts --check|--write [--bootstrap] [--root=<repository root>] (harness sync runs --write, harness check runs --check)");
-    process.exit(2);
+    // A refusal is thrown, never `process.exit()`, which can deadlock at shutdown (Node #54918, #351).
+    throw new Error("usage: readme-consumers.ts --check|--write [--bootstrap] [--root=<repository root>] (harness sync runs --write, harness check runs --check)");
   }
   const rootFlag = args.find((a) => a.startsWith("--root="));
   if (rootFlag !== undefined) setReadmeRepoRoot(rootFlag.slice("--root=".length));
