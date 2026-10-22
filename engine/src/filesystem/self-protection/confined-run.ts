@@ -21,9 +21,10 @@
  *     ended by the kernel, judged by CPU work and never by wall time;
  *   - MEMORY (RLIMIT_AS, `memory_bytes`): an allocation past the ceiling
  *     fails in the kernel and the program ends;
- *   - SIGNALS (Landlock scoping, ABI 6, `scoped`): no signal to, and no
- *     abstract unix socket of, any process outside the program's own domain;
- *     a kernel without ABI 6 is a refusal, never a weaker run;
+ *   - SIGNALS (seccomp, `signals: "refused"`): no signal to any process, on
+ *     every kernel (Landlock's signal scoping needs ABI 6, which GitHub's
+ *     hosted runners lack); an abstract unix socket needs socket(), which the
+ *     network refusal refuses;
  *   - THE ENVIRONMENT: none (the environment projection of an empty allowlist):
  *     no `NODE_OPTIONS` preload, no locale, no zone reaches it;
  *   - ITS INPUT AND ITS OUTPUT: the program text arrives on stdin (with its
@@ -150,7 +151,7 @@ export function runConfinedNode(request: ConfinedNodeRequest): ConfinedNodeResul
       network: "refused",
       cpu_seconds: request.cpuSeconds,
       memory_bytes: request.memoryBytes,
-      scoped: true,
+      signals: "refused",
     };
     const specPath = join(scratch, "guardian-spec.json");
     writeFileSync(specPath, canonicalJson(GUARDIAN_SPEC_SCHEMA.parse(spec)), { mode: PRIVATE_STATE_FILE_MODE });

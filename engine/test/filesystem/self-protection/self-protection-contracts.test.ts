@@ -117,8 +117,8 @@ test("self-protection-contracts: schema rejects negative abi_version_hint", () =
 });
 
 test("self-protection-contracts: error codes table is complete and typed", () => {
-  assert.deepEqual(new Set(Object.keys(GUARDIAN_BINARY_ERROR_CODES)), new Set(["2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "64"]));
-  for (const code of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 64] as const) {
+  assert.deepEqual(new Set(Object.keys(GUARDIAN_BINARY_ERROR_CODES)), new Set(["2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "64"]));
+  for (const code of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 64] as const) {
     assert.equal(isGuardianPreExecFailure(code), true, `${code} should be a pre-exec failure`);
   }
   assert.equal(isGuardianPreExecFailure(0), false);
@@ -126,18 +126,17 @@ test("self-protection-contracts: error codes table is complete and typed", () =>
   assert.equal(isGuardianPreExecFailure(100), false);
 });
 
-test("self-protection-contracts: the network refusal, the CPU and memory ceilings and the scoped domain are typed spec fields", () => {
+test("self-protection-contracts: the network refusal, the CPU and memory ceilings and the signal refusal are typed spec fields", () => {
   assert.equal(GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, network: "refused", cpu_seconds: 30 }).network, "refused");
   assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, network: "open" }), "only \"refused\"");
   assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, cpu_seconds: 0 }));
   assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, cpu_seconds: 86_401 }));
   assert.equal(GUARDIAN_BINARY_ERROR_CODES[11], "network_refusal_failed");
   assert.equal(GUARDIAN_BINARY_ERROR_CODES[12], "cpu_limit_failed");
-  assert.equal(GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, memory_bytes: 1_610_612_736, scoped: true }).scoped, true);
+  assert.equal(GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, memory_bytes: 1_610_612_736, signals: "refused" }).signals, "refused");
   assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, memory_bytes: 1024 }), "at least 64 MiB");
-  assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, scoped: "yes" }));
+  assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, signals: "scoped" }));
   assert.equal(GUARDIAN_BINARY_ERROR_CODES[13], "memory_limit_failed");
-  assert.equal(GUARDIAN_BINARY_ERROR_CODES[14], "scope_unavailable");
 });
 
 test("self-protection-contracts: maskFlagNamesToAbi drops flags above the ABI", () => {

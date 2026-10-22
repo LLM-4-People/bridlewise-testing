@@ -44,6 +44,13 @@
 
 #include "landlock-guardian.h"
 
+/* pidfd_send_signal (Linux 5.1) has one number on every architecture's modern table; headers older than it lack the name. */
+#ifdef __NR_pidfd_send_signal
+#define GUARDIAN_NR_PIDFD_SEND_SIGNAL __NR_pidfd_send_signal
+#else
+#define GUARDIAN_NR_PIDFD_SEND_SIGNAL 424
+#endif
+
 /*
  * The reproducible build stamp, embedded by the Makefile from
  * build-stamp.spec. Empty when the binary was built outside the Makefile
@@ -811,15 +818,17 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
         memory_bytes = vmem->nval;
     }
 
-    /* 3b-iv. scoped (optional boolean). true: the domain is SCOPED (Landlock
-     * ABI 6): the payload can send no signal to, and connect to no abstract
-     * unix socket of, a process outside its own domain. A kernel without ABI
-     * 6 is a refusal (exit 14), never a weaker run. */
-    int scoped = 0;
-    const jval *vscoped = obj_get(&root, "scoped");
-    if (vscoped) {
-        if (vscoped->type != J_BOOL) fail(2, "scoped must be a boolean");
-        scoped = vscoped->bval;
+    /* 3b-iv. signals (optional string, only "refused"). When present, the
+     * payload and every descendant can send NO signal (kill, tkill, tgkill,
+     * rt_sigqueueinfo, rt_tgsigqueueinfo and pidfd_send_signal answer EPERM,
+     * from the same seccomp filter as the network refusal): on every kernel
+     * seccomp runs on, unlike Landlock's signal scoping (ABI 6). An abstract
+     * unix socket needs socket(), which `network: "refused"` refuses. */
+    int signals_refused = 0;
+    const jval *vsig = obj_get(&root, "signals");
+    if (vsig) {
+        if (vsig->type != J_STR || strcmp(vsig->sval, "refused") != 0) fail(2, "signals must be the string \"refused\"");
+        signals_refused = 1;
     }
 
     /* 3c. temp_dir (optional string) + temp_dir_access (optional array).
@@ -1192,11 +1201,6 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
         rule_access[i] = masked;
     }
 
-    /* 8a. A scoped domain needs Landlock ABI 6 (signal and abstract unix socket scoping). */
-    if (scoped && effective_abi < 6) {
-        fail(14, "scope_unavailable: scoped asks for Landlock ABI 6 and the effective ABI is %d; nothing ran", effective_abi);
-    }
-
     /* 9. PR_SET_NO_NEW_PRIVS (unprivileged self-restriction prerequisite). */
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
         fail(5, "prctl(PR_SET_NO_NEW_PRIVS) failed: %s", strerror(errno));
@@ -1208,9 +1212,7 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
     attr.handled_access_fs = masked_handled;
     attr.handled_access_net = 0;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-    attr.scoped = scoped ? (LANDLOCK_SCOPE_SIGNAL | LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET) : 0;
-#else
-    if (scoped) fail(14, "scope_unavailable: this guardian was built without Landlock scoping (kernel headers before 6.12); nothing ran");
+    attr.scoped = 0;
 #endif
     int ruleset_fd = (int)syscall(__NR_landlock_create_ruleset, &attr, sizeof(attr), 0);
     if (ruleset_fd < 0) {
@@ -1252,30 +1254,40 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
         if (setrlimit(RLIMIT_AS, &limit) != 0) fail(13, "setrlimit(RLIMIT_AS, %ld) failed: %s", memory_bytes, strerror(errno));
     }
 
-    /* 12b. The network refusal (network: "refused"): a seccomp filter, set
-     * under the NO_NEW_PRIVS of step 9, inherited across exec, fork and
-     * clone, irrevocable like the Landlock domain. Every thread is covered
-     * (TSYNC). */
-    if (network_refused) {
-        struct sock_filter filter[] = {
-            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, GUARDIAN_AUDIT_ARCH, 1, 0),
-            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
-            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+    /* 12b. The network and signal refusals (network: "refused", signals:
+     * "refused"): ONE seccomp filter, set under the NO_NEW_PRIVS of step 9,
+     * inherited across exec, fork and clone, irrevocable like the Landlock
+     * domain. Every thread is covered (TSYNC). A syscall made through another
+     * ABI (x32, a foreign arch) kills the process. */
+    if (network_refused || signals_refused) {
+        struct sock_filter filter[32];
+        unsigned short n = 0;
+        filter[n++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch));
+        filter[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, GUARDIAN_AUDIT_ARCH, 1, 0);
+        filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
+        filter[n++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr));
 #if defined(__x86_64__)
-            /* x32 syscalls carry this bit: another ABI, refused by killing. */
-            BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000, 0, 1),
-            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+        /* x32 syscalls carry this bit: another ABI, refused by killing. */
+        filter[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000, 0, 1);
+        filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
 #endif
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 1),
-            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_io_uring_setup, 0, 1),
-            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS),
-            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
-        };
-        struct sock_fprog program = { (unsigned short)(sizeof(filter) / sizeof(filter[0])), filter };
+        if (network_refused) {
+            filter[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 1);
+            filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES);
+            filter[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_io_uring_setup, 0, 1);
+            filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS);
+        }
+        if (signals_refused) {
+            const unsigned int senders[] = { __NR_kill, __NR_tkill, __NR_tgkill, __NR_rt_sigqueueinfo, __NR_rt_tgsigqueueinfo, GUARDIAN_NR_PIDFD_SEND_SIGNAL };
+            for (size_t k = 0; k < sizeof(senders) / sizeof(senders[0]); k++) {
+                filter[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, senders[k], 0, 1);
+                filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM);
+            }
+        }
+        filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+        struct sock_fprog program = { n, filter };
         if (syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &program) != 0) {
-            fail(11, "seccomp network refusal failed (errno=%d: %s)", errno, strerror(errno));
+            fail(11, "seccomp refusal failed (errno=%d: %s)", errno, strerror(errno));
         }
     }
 

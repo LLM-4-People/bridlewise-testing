@@ -132,7 +132,7 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   // with the ceiling gone it returns an answer and the assertion fails, never a hung file.
   const spin = planted("spin", "export function projectText(): string { let n = 0; for (let i = 0; i < 2e10; i += 1) n += i & 1; return String(n); }");
   refused(spin, "projection_cpu_exhausted", /CPU seconds/u, () => confinedCall(spin, "{}", { ...CONFINEMENT, cpuSeconds: 1 }));
-  // A SIGNAL to a process outside the projection's domain (here, a live child of this test): refused by the scoped domain, and it lives.
+  // A SIGNAL to any other process (here, a live child of this test): refused by the guardian's seccomp filter on every kernel, and it lives.
   const outsider = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], { stdio: "ignore" });
   try {
     refused(planted("signal", `export function projectText(): string { process.kill(${String(outsider.pid)}, "SIGTERM"); return "sent"; }`), "projection_impure", /EPERM/u);

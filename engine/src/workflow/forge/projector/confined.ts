@@ -6,8 +6,7 @@
  *   - no file but node's own binary and libraries is readable, none writable;
  *   - no socket of any family, no io_uring (the network is refused);
  *   - a CPU-time ceiling, judged by CPU work, and an address-space ceiling;
- *   - no signal to and no abstract socket of any process outside it (a
- *     scoped Landlock domain);
+ *   - no signal to any process (the guardian's seccomp signal refusal);
  *   - no environment;
  *   - the program and its input arrive on stdin; the one answer leaves on stdout.
  *
