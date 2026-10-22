@@ -433,6 +433,7 @@ export type LegitimateRawReader =
   | "web:scripts/floor/design-coverage.mjs"
   | "integration:scripts/verification/consumer-plants.ts"
   | "integration:src/git/working-copy.ts"
+  | "integration:src/workflow/community/health-files.ts"
   | "integration:test/git/flake-reproduction.test.ts"
   | "integration:test/timeline/timeline-recorder.test.ts"
   | "integration:test/prevention/no-unconfined-recursive-removal.test.ts"
@@ -458,6 +459,14 @@ export type LegitimateRawReader =
  * a reader who disagrees has something specific to disagree with.
  */
 export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
+  "integration:src/workflow/community/health-files.ts": {
+    why:
+      "The subject is a generated community file (Markdown or YAML that GitHub shows "
+      + "a contributor), never program text: the generator compares each file's bytes "
+      + "with the bytes it renders, and reads a file in a health-file location for its "
+      + "own generated notice to tell its stale output (deleted) from a person's file "
+      + "(refused). A code view would blank the very notice and prose it must compare.",
+  },
   "web:scripts/floor/site-pages.mjs": {
     why:
       "The subject is the assembled Markdown and its front matter, which is prose "
