@@ -69,11 +69,50 @@ export function configuredRepositoryIdentity(): RepositoryIdentity {
 }
 
 /** A Markdown reference to an identity link: `[text][repo:<path>]` (on GitHub) or `[text][site:<path>]` (on the Pages site). */
-const IDENTITY_LABEL = /\]\[((?:repo|site):[^\]\s]*)\]/gu;
+const IDENTITY_LABEL = /\]\[((?:repo|site):[^\]\s<>`]*)\]/gu;
+
+/** `text` with its code (fenced blocks and inline spans) blanked: a label quoted in code is an example, never a use. */
+function proseOf(text: string): string {
+  let prose = "";
+  let fence: string | undefined;
+  for (const line of text.split("\n")) {
+    const marker = /^\s*(`{3,}|~{3,})/u.exec(line)?.[1];
+    if (fence !== undefined) {
+      if (marker !== undefined && marker[0] === fence[0] && marker.length >= fence.length) fence = undefined;
+      prose += "\n";
+      continue;
+    }
+    if (marker !== undefined) { fence = marker; prose += "\n"; continue; }
+    let kept = "";
+    let open: number | undefined;
+    for (let at = 0; at < line.length; at += 1) {
+      if (line[at] !== "`") { if (open === undefined) kept += line[at]; continue; }
+      let run = 1;
+      while (line[at + run] === "`") run += 1;
+      if (open === undefined) { open = run; } else if (run === open) { open = undefined; }
+      at += run - 1;
+    }
+    prose += `${kept}\n`;
+  }
+  return prose;
+}
 const LINKS_BEGIN = "<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
 const LINKS_END = "<!-- END GENERATED: repository links -->";
 const CLONE_BEGIN = "<!-- BEGIN GENERATED: clone command, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
 const CLONE_END = "<!-- END GENERATED: clone command -->";
+const HEADING_BEGIN = "<!-- BEGIN GENERATED: repository name heading, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
+const HEADING_END = "<!-- END GENERATED: repository name heading -->";
+
+/** `text` with every block between `begin` and `end` holding `content` (a block without its end marker is refused). */
+function withBlockContent(text: string, begin: string, end: string, content: string, field: string): string {
+  let body = text;
+  for (let at = body.indexOf(begin); at !== -1; at = body.indexOf(begin, at + 1)) {
+    const close = body.indexOf(end, at);
+    if (close === -1) throw new ForgeError("forge_identity_copy_invalid", `A ${field} block has no end marker.`, { field });
+    body = `${body.slice(0, at + begin.length)}\n${content}\n${body.slice(close)}`;
+  }
+  return body;
+}
 
 /** The address an identity label names: `repo:<path>` under the repository's GitHub URL, `site:<path>` under its Pages site. */
 function identityLinkTarget(label: string, identity: RepositoryIdentity): string {
@@ -87,8 +126,9 @@ function identityLinkTarget(label: string, identity: RepositoryIdentity): string
  * A hand-written Markdown document with its identity links generated. The
  * prose names an address only by a reference label (`[text][repo:issues/57]`,
  * `[text][site:floor/help/]`). One block at the end defines exactly the
- * labels the text uses, and a clone block holds the clone command; both are
- * written from the identity. A document that uses no label carries no block.
+ * labels the text uses; a clone block holds the clone command, and a heading
+ * block the repository's name as a heading. All are written from the
+ * identity. A document that uses no label carries no block.
  */
 export function withIdentityLinks(text: string, identity: RepositoryIdentity): string {
   let body = text;
@@ -98,13 +138,9 @@ export function withIdentityLinks(text: string, identity: RepositoryIdentity): s
     if (end === -1) throw new ForgeError("forge_identity_copy_invalid", "A repository-links block has no end marker.", { field: "repository links" });
     body = `${body.slice(0, begin).replace(/\n+$/u, "\n")}${body.slice(end + LINKS_END.length).replace(/^\n+/u, "")}`;
   }
-  const clone = ["```bash", `git clone ${identity.gitUrl}`, `cd ${identity.name}`, "```"].join("\n");
-  for (let at = body.indexOf(CLONE_BEGIN); at !== -1; at = body.indexOf(CLONE_BEGIN, at + 1)) {
-    const end = body.indexOf(CLONE_END, at);
-    if (end === -1) throw new ForgeError("forge_identity_copy_invalid", "A clone-command block has no end marker.", { field: "clone command" });
-    body = `${body.slice(0, at + CLONE_BEGIN.length)}\n${clone}\n${body.slice(end)}`;
-  }
-  const labels = [...new Set([...body.matchAll(IDENTITY_LABEL)].map((match) => match[1]!))].sort();
+  body = withBlockContent(body, CLONE_BEGIN, CLONE_END, ["```bash", `git clone ${identity.gitUrl}`, `cd ${identity.name}`, "```"].join("\n"), "clone command");
+  body = withBlockContent(body, HEADING_BEGIN, HEADING_END, `# ${identity.name}`, "repository name heading");
+  const labels = [...new Set([...proseOf(body).matchAll(IDENTITY_LABEL)].map((match) => match[1]!))].sort();
   if (labels.length === 0) return body;
   const definitions = labels.map((label) => `[${label}]: ${identityLinkTarget(label, identity)}`);
   return `${body.replace(/\n*$/u, "\n")}\n${LINKS_BEGIN}\n${definitions.join("\n")}\n${LINKS_END}\n`;

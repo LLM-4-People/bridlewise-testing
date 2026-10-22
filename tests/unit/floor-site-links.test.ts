@@ -39,6 +39,10 @@ import { legacyAliases, prettyPermalink, publishedDocsPage, rewritePageLinks, si
 import { buildRedirectSite, buildSiteSource, finishSite, readVersions, redirectTarget } from "../../scripts/floor/site.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { checkSiteLinks } from "../../scripts/check-docs-links.mjs";
+// @ts-expect-error -- a .mjs module has no declaration file in the TS program.
+import { siteCoordinates } from "../../scripts/floor/repository.mjs";
+import { configuredForge } from "../../engine/src/workflow/forge/configured-forge.ts";
+import { repositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
 
 function write(root: string, path: string, text: string): void {
   const file = join(root, ...path.split("/"));
@@ -59,6 +63,12 @@ function tree(files: Readonly<Record<string, string>>): string {
 }
 
 const BASE = "/bridlewise";
+/**
+ * A fixture's coordinates: the repository identity of a forge section that
+ * names another organisation and trunk (a name unlike the real one proves
+ * every coordinate the site uses is derived from the identity it is given).
+ */
+const FIXTURE = siteCoordinates(repositoryIdentity({ ...configuredForge(), organization: "Example-Org", repositories: [{ name: "site-repo", kind: "trunk", visibility: "public" }] }));
 const REAL_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 /**
@@ -66,7 +76,7 @@ const REAL_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
  * so its floor data is a stand-in; the real tree's builds (the release
  * snapshot test here, the floor-data test) write the real atlas and status.
  */
-const source = (options: Record<string, unknown>) => buildSiteSource({ floorData: async () => ({ atlas: { fixture: true }, status: { fixture: true } }), ...options });
+const source = (options: Record<string, unknown>) => buildSiteSource({ floorData: async () => ({ atlas: { fixture: true }, status: { fixture: true } }), coordinates: FIXTURE, ...options });
 
 describe("A. the crawler resolves built pages, assets and external URLs", () => {
   test("a clean Jekyll-shaped fixture passes — pretty URLs, assets, relatives and externals", () => {
@@ -150,9 +160,7 @@ describe("A. the crawler resolves built pages, assets and external URLs", () => 
 function repository(extra: Readonly<Record<string, string>> = {}): string {
   return tree({
     "README.md": "# Repository\n",
-    // The repository's one declaration of where it lives: every coordinate
-    // the site uses is derived from it (a name unlike the real one proves it).
-    "package.json": JSON.stringify({ name: "fixture", repository: { type: "git", url: "https://github.com/Example-Org/site-repo.git" } }),
+    "package.json": JSON.stringify({ name: "fixture" }),
     "engine/x.ts": "export {};\n",
     "shared/markup.ts": readFileSync(join(REAL_ROOT, "shared/markup.ts"), "utf8"),
     "docs/_config.yml": "title: Fixture\nplugins:\n  - jekyll-sitemap\n",
@@ -174,7 +182,7 @@ describe("B. the publish plan: every docs page, one URL each", () => {
     expect(prettyPermalink("docs/decisions/README.md")).toBe("/decisions/");
     expect(prettyPermalink("docs/floor/index.md")).toBe("/floor/");
     expect(prettyPermalink("docs/trackers/TASKS.md")).toBe("/trackers/TASKS/");
-    const plan = sitePlan({ root: repository() });
+    const plan = sitePlan({ coordinates: FIXTURE, root: repository() });
     expect(plan.collisions).toEqual([]);
     expect([...plan.byPermalink.keys()].sort()).toEqual(["/", "/decisions/", "/floor/roadmap/", "/trackers/TASKS/"]);
     expect(plan.pages.get("docs/hidden.md").permalink).toBeNull();
@@ -187,7 +195,7 @@ describe("B. the publish plan: every docs page, one URL each", () => {
       "docs/README.md": "# Map\n",
       "docs/floor/other.md": "---\npermalink: /floor/roadmap/\n---\n\n# Other\n",
     });
-    const plan = sitePlan({ root });
+    const plan = sitePlan({ coordinates: FIXTURE, root });
     expect(plan.collisions).toEqual([
       "docs/floor/other.md and docs/floor/roadmap.md both publish /floor/roadmap/",
       "docs/index.md and docs/README.md both publish /",
@@ -195,19 +203,19 @@ describe("B. the publish plan: every docs page, one URL each", () => {
     await expect(source({ root, out: join(root, ".site"), baseurl: "/bridlewise" })).rejects.toThrow(/the site source refuses \(2\)/u);
     expect(checkSiteLinks({ root })).toHaveLength(2);
     // Near miss: the same names in different folders are different URLs.
-    expect(sitePlan({ root: repository({ "docs/floor/README.md": "# Floor\n", "docs/trackers/README.md": "# Trackers\n" }) }).collisions).toEqual([]);
+    expect(sitePlan({ coordinates: FIXTURE, root: repository({ "docs/floor/README.md": "# Floor\n", "docs/trackers/README.md": "# Trackers\n" }) }).collisions).toEqual([]);
   });
 
   test("a moved URL cannot also be a page", () => {
     const root = repository({ "docs/product.md": "# Product\n" });
-    expect(sitePlan({ root }).collisions).toEqual([expect.stringContaining("docs/product.md publishes /product/")]);
+    expect(sitePlan({ coordinates: FIXTURE, root }).collisions).toEqual([expect.stringContaining("docs/product.md publishes /product/")]);
   });
 });
 
 describe("C. the rewrite: site URL, GitHub URL, or a refusal", () => {
   test("pages, folders and assets become site URLs; repository files and unpublished pages become GitHub URLs", () => {
     const root = repository();
-    const plan = sitePlan({ root });
+    const plan = sitePlan({ coordinates: FIXTURE, root });
     const roadmap = rewritePageLinks(readFileSync(join(root, "docs/floor/roadmap.md"), "utf8"), { pageDocsPath: "docs/floor/roadmap.md", root, baseurl: "/bridlewise", plan });
     expect(roadmap.errors).toEqual([]);
     expect(roadmap.text).toContain("[TASKS](/bridlewise/trackers/TASKS/#open)");
@@ -224,7 +232,7 @@ describe("C. the rewrite: site URL, GitHub URL, or a refusal", () => {
       "docs/floor/broken.md": "# Broken\n\n[gone](../missing.md)\n",
       "docs/decisions/D-1.md": "---\nid: D-1\n---\n\n[out](../../../outside.md) and [script](../../scripts/none.mjs)\n",
     });
-    const violations = siteSourceViolations({ root });
+    const violations = siteSourceViolations({ coordinates: FIXTURE, root });
     expect(violations).toEqual([
       expect.stringContaining("docs/decisions/D-1.md: link '../../../outside.md' leaves the repository"),
       expect.stringContaining("docs/decisions/D-1.md: link '../../scripts/none.mjs' names scripts/none.mjs"),
@@ -232,7 +240,7 @@ describe("C. the rewrite: site URL, GitHub URL, or a refusal", () => {
     ]);
     await expect(source({ root, out: join(root, ".site"), baseurl: "/bridlewise" })).rejects.toThrow(/the site source refuses \(3\)/u);
     // The fenced example `[not a link](does-not-exist.md)` in TASKS.md is not judged.
-    expect(siteSourceViolations({ root: repository() })).toEqual([]);
+    expect(siteSourceViolations({ coordinates: FIXTURE, root: repository() })).toEqual([]);
   });
 });
 
@@ -277,7 +285,7 @@ describe("D. the source step", () => {
 
   test("old URL shapes are real redirect pages; a page's own source spelling is never shadowed", async () => {
     const root = repository();
-    const plan = sitePlan({ root });
+    const plan = sitePlan({ coordinates: FIXTURE, root });
     const aliases = new Map(legacyAliases(plan));
     expect(aliases.get("/product/")).toBe("/");
     expect(aliases.get("/roadmap/")).toBe("/floor/roadmap/");
@@ -383,7 +391,7 @@ describe("G. the site source names no coordinate of its own", () => {
       "docs/_layouts/default.html": "<html><body><a href=\"https://github.com/example-org/BRIDLEWISE-TESTING\">old</a>{{ content }}</body></html>\n",
       "docs/.well-known/security.txt": "Policy: https://github.com/Example-Org/bridlewise/blob/main/SECURITY.md\n",
     });
-    const violations = siteSourceViolations({ root });
+    const violations = siteSourceViolations({ coordinates: FIXTURE, root });
     expect(violations.filter((line: string) => line.includes("spells the repository's own URL")).map((line: string) => line.split(":")[0])).toEqual([
       "docs/_layouts/default.html",
       "docs/.well-known/security.txt",
@@ -393,7 +401,7 @@ describe("G. the site source names no coordinate of its own", () => {
     await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/spells the repository's own URL/u);
     // Near misses: another repository of the same owner, a name that only
     // starts like this one, and the configuration read through Liquid.
-    expect(siteSourceViolations({ root: repository({
+    expect(siteSourceViolations({ coordinates: FIXTURE, root: repository({
       "docs/floor/b.md": "---\ntitle: B\n---\n\n[evidence](https://github.com/Example-Org/site-repo-evidence) · [scorecard](https://scorecard.dev/viewer/?uri=github.com/{{ site.repository }}) · [source]({{ site.repository_url }})\n",
     }) })).toEqual([]);
   });
@@ -410,7 +418,7 @@ describe("G. the site source names no coordinate of its own", () => {
       // A site page may not even cite an issue by a spelled URL: it reads site.repository_url.
       "docs/floor/a.md": `---\ntitle: A\n---\n\n[#155](${issue})\n`,
     });
-    const found = siteSourceViolations({ root }).map((line: string) => `${line.split(": ")[0]} ${line.includes("a record cites") ? "record" : "page"}`);
+    const found = siteSourceViolations({ coordinates: FIXTURE, root }).map((line: string) => `${line.split(": ")[0]} ${line.includes("a record cites") ? "record" : "page"}`);
     expect(found).toEqual([
       "docs/decisions/D-2.md:5 record",
       "docs/decisions/D-2.md:5 record",
@@ -426,7 +434,7 @@ describe("G. the site source names no coordinate of its own", () => {
       "docs/floor/a.md": "---\ntitle: A\n---\n\n<a href=\"{{ '/v/' | relative_url }}\">Versions</a>\n",
       "docs/floor/b.md": "---\ntitle: B\n---\n\n[1.0]({{ \"/v/1.0.0/\" | relative_url }}) · [list]({{ '/versions.json' | relative_url }})\n",
     });
-    expect(siteSourceViolations({ root }).map((line: string) => line.split(": ")[0])).toEqual(["docs/floor/a.md:5", "docs/floor/b.md:5", "docs/floor/b.md:5"]);
+    expect(siteSourceViolations({ coordinates: FIXTURE, root }).map((line: string) => line.split(": ")[0])).toEqual(["docs/floor/a.md:5", "docs/floor/b.md:5", "docs/floor/b.md:5"]);
     // Every other spelling of the same link (the review's five), each in its own page.
     const forms = {
       "docs/floor/c.md": "{{ site.baseurl }}/v/",
@@ -437,8 +445,8 @@ describe("G. the site source names no coordinate of its own", () => {
       "docs/floor/h.md": "{{ site.url }}{{ site.baseurl }}/versions.json",
     };
     const planted = repository(Object.fromEntries(Object.entries(forms).map(([path, href]) => [path, `---\ntitle: P\n---\n\n<a href="${href}">Versions</a>\n`])));
-    expect(siteSourceViolations({ root: planted }).filter((line: string) => line.includes("versions folder")).map((line: string) => line.split(":")[0])).toEqual(Object.keys(forms).sort((a, b) => a.localeCompare(b)));
-    expect(siteSourceViolations({ root: repository({
+    expect(siteSourceViolations({ coordinates: FIXTURE, root: planted }).filter((line: string) => line.includes("versions folder")).map((line: string) => line.split(":")[0])).toEqual(Object.keys(forms).sort((a, b) => a.localeCompare(b)));
+    expect(siteSourceViolations({ coordinates: FIXTURE, root: repository({
       "docs/floor/c.md": "---\ntitle: C\n---\n\n[versions]({{ site.versions_url }}) · [very]({{ '/very/' | relative_url }}) · [vision]({{ '/vision/' | relative_url }}) · <a href=\"../vision/\">v</a>\n\n```html\n<a href=\"{{ '/v/' | relative_url }}\">quoted in a fence</a>\n```\n",
       "docs/very.md": "# Very\n",
       "docs/vision.md": "# Vision\n",
@@ -458,7 +466,7 @@ describe("G. the site source names no coordinate of its own", () => {
   });
 
   test("this repository's own tree passes, and builds as a WHOLE release snapshot: its floor data, and the live versions page", async () => {
-    expect(siteSourceViolations({ root: REAL_ROOT })).toEqual([]);
+    expect(siteSourceViolations({ coordinates: FIXTURE, root: REAL_ROOT })).toEqual([]);
     const out = join(createTempDir("site-release-"), "src");
     // The build itself refuses a snapshot whose pages name a path it does not build.
     await buildSiteSource({ root: REAL_ROOT, out, baseurl: "/bridlewise/v/0.1.0", release: "0.1.0" });
@@ -496,10 +504,10 @@ describe("G. the site source names no coordinate of its own", () => {
 
   test("an alias that is itself a page's URL is never redirected", () => {
     // `/a.md` is the `.md` spelling of docs/a.md's page AND the permalink of docs/b.md.
-    const plan = sitePlan({ root: repository({ "docs/a.md": "# A\n", "docs/b.md": "---\npermalink: /a.md\n---\n\n# B\n" }) });
+    const plan = sitePlan({ coordinates: FIXTURE, root: repository({ "docs/a.md": "# A\n", "docs/b.md": "---\npermalink: /a.md\n---\n\n# B\n" }) });
     expect(plan.byPermalink.has("/a.md")).toBe(true);
     expect(new Map(legacyAliases(plan)).has("/a.md")).toBe(false);
-    expect(new Map(legacyAliases(sitePlan({ root: repository({ "docs/a.md": "# A\n" }) }))).get("/a.md")).toBe("/a/");
+    expect(new Map(legacyAliases(sitePlan({ coordinates: FIXTURE, root: repository({ "docs/a.md": "# A\n" }) }))).get("/a.md")).toBe("/a/");
   });
 });
 

@@ -1,4 +1,6 @@
+<!-- BEGIN GENERATED: repository name heading, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
 # bridlewise-testing
+<!-- END GENERATED: repository name heading -->
 
 **The development floor for [Bridlewise](https://github.com/LLM-4-People/bridlewise): tests, prevention guards, benchmarks, design decisions, and verification machinery.**
 

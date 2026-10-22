@@ -92,5 +92,12 @@ test("identity links in a hand-written document: each label used gets its genera
   // A label no longer used loses its definition; a document with none carries no block.
   assert.equal(withIdentityLinks(linked.replace(" and [home][repo:]", ""), identity).includes("[repo:]:"), false);
   assert.equal(withIdentityLinks("# Plain\n", identity), "# Plain\n");
+  // A label quoted in code is an example, never a use: inline code and a fence define nothing.
+  const quoted = "Write `[text][repo:<path>]` or:\n\n```md\n[x][repo:issues/9]\n```\n";
+  assert.equal(withIdentityLinks(quoted, identity), quoted);
+  // The heading block holds the repository's name, and follows a rename.
+  const heading = "<!-- BEGIN GENERATED: repository name heading, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->\n<!-- END GENERATED: repository name heading -->\n\nText.\n";
+  assert.ok(withIdentityLinks(heading, identity).includes("-->\n# bridlewise-testing\n<!-- END GENERATED: repository name heading -->"));
+  assert.ok(withIdentityLinks(withIdentityLinks(heading, identity), repositoryIdentity({ ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, name: "bridlewise" } : repository) })).includes("\n# bridlewise\n"));
   assert.throws(() => withIdentityLinks("x\n<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->\n", identity), (error: unknown) => isForgeError(error, "forge_identity_copy_invalid"));
 });

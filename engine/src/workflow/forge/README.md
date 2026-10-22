@@ -60,8 +60,3 @@ upstream: an object store by API path with ETags and pagination, the App flow
 (installation lookup, token minting with JWT verification, manifest
 conversion), authentication, the pinned-version check, refusals on demand and
 routes of a test's own. Every lane tests against it.
-
-<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
-[repo:<path>]: https://github.com/LLM-4-People/bridlewise-testing/<path>
-[site:<path>]: https://llm-4-people.github.io/bridlewise-testing/<path>
-<!-- END GENERATED: repository links -->
