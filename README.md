@@ -49,7 +49,7 @@ The product repository is a **curated projection**: it contains what a user need
 - the test and design record can be inspected without pretending it is a stable SDK;
 - private fixtures and evidence are not published just to make a badge green.
 
-The projection is described in `promotion/testing-to-master.json`. It is maintainer tooling, not a public release process.
+The projection is described in `promotion/main-to-product.json`: the `product` branch of this repository is computed from `main` by it.
 
 ## Roadmap
 

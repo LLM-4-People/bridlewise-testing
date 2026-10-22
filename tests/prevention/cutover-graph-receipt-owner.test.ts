@@ -37,15 +37,24 @@ const GENERATOR = "docs/cutover/graph.mjs";
 const ARTIFACT_URL = "../../.bridlewise/cutover/graph.json";
 const ARTIFACT_PATH = ".bridlewise/cutover/graph.json";
 
-describe("the cutover graph receipt owns its landing place", () => {
-  // The payload's own binding is read out of the source and followed, so an
-  // import statement or an indirect print cannot stand in for the write —
-  // a version keyed to the bare names stayed green while the payload went to
-  // stdout beside an unused import.
+/**
+ * The generator's source (comments stripped) and its payload binding. The
+ * payload's own binding is read out of the source and followed, so an import
+ * statement or an indirect print cannot stand in for the write — a version
+ * keyed to the bare names stayed green while the payload went to stdout beside
+ * an unused import. READ INSIDE A TEST, never at collection: a read in the
+ * describe body ran when the suite was merely listed (`npx vitest list`, the
+ * checkout setup's module-cache step), so a tree without the generator could
+ * not list ANY test (#238). A missing generator now fails these tests, by name.
+ */
+function generatorSource(): Readonly<{ code: string; payloadName: string | undefined }> {
   const code = stripCommentsOnly(read(GENERATOR));
-  const payloadName = /const\s+(\w+)\s*=\s*JSON\.stringify\(\s*\{[^}]*\bedges\b/su.exec(code)?.[1];
+  return { code, payloadName: /const\s+(\w+)\s*=\s*JSON\.stringify\(\s*\{[^}]*\bedges\b/su.exec(code)?.[1] };
+}
 
+describe("the cutover graph receipt owns its landing place", () => {
   test("the generator writes the artifact to its own derived landing place, atomically", () => {
+    const { code, payloadName } = generatorSource();
     // Comments are stripped so a mention in prose — including the defect
     // narrative in the generator's own header — cannot satisfy the arm.
     expect(
@@ -72,6 +81,7 @@ describe("the cutover graph receipt owns its landing place", () => {
   });
 
   test("the generator's stdout carries a receipt line, never the payload", () => {
+    const { code, payloadName } = generatorSource();
     expect(
       payloadName !== undefined &&
         new RegExp(`console\\.log\\s*\\([^)]*\\b(?:JSON\\.stringify|${payloadName})`, "u").test(code),

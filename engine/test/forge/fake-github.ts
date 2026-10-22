@@ -17,7 +17,8 @@
  *   whose `iss` is the client id; the token is minted with exactly the asked
  *   permissions and repositories (a permission the installation lacks is 422);
  * - the MANIFEST FLOW: {@link FakeGithub.pendingConversion} plants a code;
- *   `POST /app-manifests/{code}/conversions` answers its material once;
+ *   `POST /app-manifests/{code}/conversions` answers its material once, as
+ *   GitHub does (owner, name, permissions, events, the key);
  * - AUTHENTICATION: every other request needs `Authorization: Bearer <token>`
  *   with a token this fake minted ({@link FakeGithub.userToken} or an
  *   installation token); anything else is 401;
@@ -191,7 +192,12 @@ export function fakeGithub(): FakeGithub {
       const app = conversions.get(conversion[1]!);
       if (app === undefined) return json(404, { message: "Not Found" });
       conversions.delete(conversion[1]!);
-      return json(201, { id: app.appId, slug: app.slug, client_id: app.clientId, client_secret: runtimeToken("secret"), webhook_secret: null, pem: app.pem, name: app.slug });
+      const owner = app.repositories[0]?.split("/")[0] ?? "LLM-4-People";
+      return json(201, {
+        id: app.appId, slug: app.slug, name: app.slug, owner: { login: owner, type: "Organization" },
+        permissions: app.permissions, events: [],
+        client_id: app.clientId, client_secret: runtimeToken("secret"), webhook_secret: null, pem: app.pem,
+      });
     }
     const installation = /^\/repos\/([^/]+)\/([^/]+)\/installation$/u.exec(request.path);
     if (request.method === "GET" && installation !== null) {
