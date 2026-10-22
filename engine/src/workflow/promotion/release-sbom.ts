@@ -13,15 +13,33 @@
  * link (`link: true`) is the product's own source, described by its root,
  * and is not a package of its own.
  *
- * Deterministic: the creation time is the product commit's committer time
- * and the namespace names the commit, so the same commit gives the same
- * bytes; no clock is read. Fail closed: a lockfile that is not a v2/v3
- * `packages` map, an installed entry with no version, or an integrity of an
- * unknown algorithm is `promotion_release_sbom_lockfile_invalid`.
+ * Deterministic: the creation time is the product commit's committer time,
+ * the namespace names the commit, and every order is by UTF-8 bytes
+ * (`compareUtf8Bytes`, never the host's locale), so the same commit gives
+ * the same bytes on any machine; no clock is read. Fail closed: a lockfile
+ * that is not a v2/v3 `packages` map, an installed entry with no version, or
+ * an integrity of an unknown algorithm is
+ * `promotion_release_sbom_lockfile_invalid`.
+ *
+ * The SBOM is a PUBLIC release asset, so a `resolved` location carrying a
+ * credential never reaches it. That is `promotion_release_sbom_credential`,
+ * naming the lockfile and the entry, never the value, for:
+ * - a URL whose userinfo (`user:pass@`, or a user alone: fail closed), query
+ *   or fragment carries a credential: `urlCredentialSpellings` over the URL
+ *   without its path (cut by the privacy owner's one splitter, `splitUrl`; a
+ *   package tarball's path is its name), read at the privacy owner's deepest
+ *   decode;
+ * - any location the one secret catalogue flags (`hasSecretTextSignal`).
+ * Nothing is stripped: a lockfile that records a credentialed registry is
+ * fixed on main.
  */
 import { createHash } from "node:crypto";
 
 import { deepFreeze } from "../../kernel/integrity.ts";
+import { compareUtf8Bytes } from "../../kernel/ordered.ts";
+import { MAXIMUM_PRIVACY_URL_DECODE_LEVELS } from "../../privacy/privacy-config.ts";
+import { splitUrl, urlCredentialSpellings } from "../../privacy/secret-parts.ts";
+import { hasSecretTextSignal } from "../../privacy/secret-signals.ts";
 import { PRODUCT_NAME } from "../../kernel/product-identity.ts";
 import { commitTreeReader, gitOutput, type GitRepository } from "../../git/tree-reader.ts";
 import { PromotionError } from "./codes.ts";
@@ -83,6 +101,17 @@ function checksums(path: string, integrity: unknown): { algorithm: string; check
   });
 }
 
+/** `resolved` as a public download location (see the header): the URL itself, or the refusal that names where a credential sits. */
+function downloadLocation(path: string, key: string, resolved: unknown): string {
+  if (typeof resolved !== "string" || resolved === "") return "NOASSERTION";
+  const split = splitUrl(resolved);
+  const offPath = split === undefined ? "" : `${resolved.slice(0, split.path.start)}/${resolved.slice(split.path.end)}`;
+  if ((offPath !== "" && urlCredentialSpellings(offPath, MAXIMUM_PRIVACY_URL_DECODE_LEVELS).length > 0) || hasSecretTextSignal(resolved, "classification")) {
+    throw new PromotionError("promotion_release_sbom_credential", `${path} resolves ${key} from a location that carries a credential: a public SBOM never publishes it`, { lockfile: path, entry: key });
+  }
+  return resolved;
+}
+
 /** The product commit's committer time as SPDX writes it (`YYYY-MM-DDThh:mm:ssZ`). */
 function committedAt(repository: GitRepository, commit: string): string {
   const seconds = Number(gitOutput(repository, ["show", "-s", "--format=%ct", commit]).stdout.toString("utf8").trim());
@@ -92,7 +121,7 @@ function committedAt(repository: GitRepository, commit: string): string {
 /** The SPDX 2.3 document of `plan`'s product commit (see the header), as its canonical bytes. */
 export function releaseSbom(repository: GitRepository, plan: ReleasePlan): string {
   const reader = commitTreeReader(repository, plan.product.commit);
-  const lockfiles = reader.paths().filter((path) => path === LOCKFILE || path.endsWith(`/${LOCKFILE}`)).sort();
+  const lockfiles = reader.paths().filter((path) => path === LOCKFILE || path.endsWith(`/${LOCKFILE}`)).sort(compareUtf8Bytes);
   if (lockfiles.length === 0) throw invalid(plan.product.commit, "holds no package-lock.json");
   const packages = new Map<string, SpdxPackage>();
   const relationships: SpdxRelationship[] = [];
@@ -118,11 +147,13 @@ export function releaseSbom(repository: GitRepository, plan: ReleasePlan): strin
       const name = typeof entry.name === "string" ? entry.name : key.slice(key.lastIndexOf(NODE_MODULES) + NODE_MODULES.length);
       if (typeof entry.version !== "string" || entry.version === "") throw invalid(path, `installs ${key} with no version`);
       const sums = checksums(path, entry.integrity);
+      // Every entry's location is judged, a duplicate's too: the first one kept is not the only one written to the lockfile.
+      const location = downloadLocation(path, key, entry.resolved);
       const id = spdxId("npm", `${name}-${entry.version}`, `${name}@${entry.version} ${sums.map((sum) => sum.checksumValue).join(" ")}`);
       if (!packages.has(id)) {
         packages.set(id, {
           SPDXID: id, name, versionInfo: entry.version,
-          downloadLocation: typeof entry.resolved === "string" && entry.resolved !== "" ? entry.resolved : "NOASSERTION",
+          downloadLocation: location,
           filesAnalyzed: false, licenseConcluded: "NOASSERTION", licenseDeclared: declaredLicense(entry.license), copyrightText: "NOASSERTION",
           ...(sums.length === 0 ? {} : { checksums: sums }),
           externalRefs: [{ referenceCategory: "PACKAGE-MANAGER", referenceType: "purl", referenceLocator: purl(name, entry.version) }],
@@ -134,7 +165,7 @@ export function releaseSbom(repository: GitRepository, plan: ReleasePlan): strin
     }
   }
   const unique = [...new Map(relationships.map((relationship) => [`${relationship.spdxElementId} ${relationship.relationshipType} ${relationship.relatedSpdxElement}`, relationship])).entries()]
-    .sort(([left], [right]) => left.localeCompare(right)).map(([, relationship]) => relationship);
+    .sort(([left], [right]) => compareUtf8Bytes(left, right)).map(([, relationship]) => relationship);
   const document = deepFreeze({
     spdxVersion: "SPDX-2.3",
     dataLicense: "CC0-1.0",
@@ -142,7 +173,7 @@ export function releaseSbom(repository: GitRepository, plan: ReleasePlan): strin
     name: `${PRODUCT_NAME}-${plan.version}`,
     documentNamespace: `https://spdx.org/spdxdocs/${PRODUCT_NAME}-${plan.version}-${plan.product.commit}`,
     creationInfo: { created: committedAt(repository, plan.product.commit), creators: [`Tool: ${PRODUCT_NAME}-harness`] },
-    packages: [...packages.values()].sort((left, right) => left.SPDXID.localeCompare(right.SPDXID)),
+    packages: [...packages.values()].sort((left, right) => compareUtf8Bytes(left.SPDXID, right.SPDXID)),
     relationships: unique,
   });
   return `${JSON.stringify(document, null, 2)}\n`;
