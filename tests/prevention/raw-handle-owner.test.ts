@@ -131,7 +131,7 @@ const LEGACY_RAW_HANDLE_SITES: ReadonlyArray<Readonly<{
   {
     file: modulePathMatching("process/supervised-run.ts"),
     what: "spawn(",
-    why: "THE ONE PROCESS SUPERVISOR, in the engine CLI and the test runners only (the web server never loads it, and those processes have no component registry): the test-run mode spawns the native subreaper, whose receipt accounts for every process of the run and which kills them all when the run ends; the work-bounded mode (runCpuBounded, the history importer's pinned tools) spawns its command in a process group of its own, stopped as a group through the owned-process terminate when its CPU budget or stall bound is reached",
+    why: "THE ONE PROCESS SUPERVISOR, in the engine CLI and the test runners only (the web server never loads it, and those processes have no component registry): the test-run mode spawns the native subreaper, whose receipt accounts for every process of the run and which kills them all when the run ends; the work-bounded mode (runCpuBounded: the history importer's pinned tools and the maintainer's `gh` in forge/maintainer-cli.ts, which spawns nothing of its own) spawns its command in a process group of its own, stopped as a group through the owned-process terminate when its CPU budget or stall bound is reached",
   },
   {
     file: modulePathMatching("process/supervised-run.ts"),

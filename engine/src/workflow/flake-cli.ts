@@ -295,7 +295,9 @@ export async function reproduceFlake(
   const attempt = settings.attemptId();
   const log = (outcomes: FlakeAttempt["outcomes"]): void => settings.appendAttempt({
     schemaVersion: FLAKE_ATTEMPT_SCHEMA_VERSION, attempt, suite: request.suite, fix, parent, conditions, mode, runs: settings.runs,
-    outputs: [...outputs], outcomes, recordedAt: settings.now().toISOString(),
+    outputs: [...outputs], recordedAt: settings.now().toISOString(),
+    // A refusal's why may carry a run's output and its paths: it is a record's text, through the one persistence redaction.
+    outcomes: outcomes.map((outcome) => "refused" in outcome ? { ...outcome, refused: persistableText(outcome.refused) } : outcome),
   });
   const failedOn = (tally: Tally | undefined): number => Object.values(tally?.failed ?? {}).reduce((sum, count) => sum + count, 0);
   try {
