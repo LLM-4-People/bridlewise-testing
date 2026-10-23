@@ -171,10 +171,23 @@ harness-landlock-guardian --stamp
 - `signals` (optional, only `"refused"`): the same seccomp filter answers
   every signal-sending syscall (`kill`, `tkill`, `tgkill`, `rt_sigqueueinfo`,
   `rt_tgsigqueueinfo`, `pidfd_send_signal`) with `EPERM`: the payload can
-  signal no process, on every kernel seccomp runs on (Landlock's signal
-  scoping needs ABI 6, which GitHub's hosted runners do not have). With
-  `network: "refused"`, an abstract unix socket is out of reach too (it needs
-  `socket()`).
+  signal no process at all. With `network: "refused"`, an abstract unix
+  socket is out of reach too (it needs `socket()`).
+
+  **Why seccomp and not Landlock's signal scoping.** Landlock scoping
+  (`LANDLOCK_SCOPE_SIGNAL | LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET`) was the
+  first route. It was replaced for three reasons:
+
+  - **Strength:** it is weaker than refusing every signal-sending syscall.
+    Scoping still lets a process signal others inside its own domain; the
+    refusal leaves nothing it can signal.
+  - **Reach:** scoping needs Landlock ABI 6 (kernel 6.12). GitHub's hosted
+    `ubuntu-24.04` runners build the guardian with older headers and run an
+    older ABI, so a scoped spawn was refused there, and the projector
+    could not run in CI, where it must run on every landing. Seccomp runs
+    on every kernel the guardian supports.
+  - **One mechanism:** there is ONE route, with no per-kernel branch and no
+    weaker fallback; a filter the kernel refuses to install is exit 11.
 - `keep_out_retries` (required with `keep_out`): how many times an entry that
   changed while it was located is located again (the root policy's
   `selfProtection.keepOutRetries`).
