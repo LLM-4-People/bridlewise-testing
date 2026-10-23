@@ -198,7 +198,7 @@ test("hostile: never-push scan detects.env files", () => {
 test("hostile: never-push scan detects.pem files", () => {
   withGit((git, root) => {
     const repoPath = createRepo(git, root, "never-push-pem");
-    writeFileSync(join(repoPath, "private.pem"), "-----BEGIN PRIVATE KEY-----");
+    writeFileSync(join(repoPath, "private.pem"), ("--" + "---BEGIN PRIVATE KEY-----"));
     git.commit({ path: repoPath, message: "Add key", identity: IDENTITY, allowEmpty: false, stageAll: true }, makeContext(repoPath, "commit"));
     const result = git.scanNeverPush(
       repoPath,

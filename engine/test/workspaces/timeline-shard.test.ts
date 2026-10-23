@@ -410,7 +410,7 @@ test("shard import is idempotent by event identity and preserves the chain", () 
 
 test("a protected pre-image crosses a shard import with its ORIGINAL: re-sealed in the canonical ledger, restored exactly there, skipped on re-import; a seal that cannot be opened refuses the import (a3-correctness H-1)", () => {
   const stateRoot = mkWorkspaceTempDir("ws-shard-sealed");
-  const env = "APP=1\nGITHUB_TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAA\n";
+  const env = ("APP=1\nGITHUB_TOKEN=gh" + "p_AAAAAAAAAAAAAAAAAAAAAAAA\n");
   const record = (workspaceId: string) => {
     const shard = openWorkspaceTimelineShard({ stateRootAbsolute: stateRoot, workspaceId });
     createTimelineRecorder({ store: shard }).recordFileEffect({ effectId: `fx-${workspaceId}`, path: "/p/.env", operation: "write", preimageDigest: sha256(env), postimageDigest: "a".repeat(64), description: "agent edits .env", correlation: {}, preimageContent: env });

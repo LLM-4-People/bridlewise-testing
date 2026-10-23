@@ -51,8 +51,8 @@ export const PLANNED_NODE_TEST_SOURCE_AUTHORITY = deepFreeze({
       oracle: {
         role: "domain-oracle",
         path: "test/support/repository-path-test-oracles.ts",
-        byteLength: 31_500,
-        sha256: "5edfdda8195ee91f261103d17652a2cc3cc143868a97e49ddb6cc88dc60e3687",
+        byteLength: 31_689,
+        sha256: "093aa7c205ae58e66eb84a8d0d2665b3f067f3b0dba5d2a4882791684d38a850",
       },
     },
   },

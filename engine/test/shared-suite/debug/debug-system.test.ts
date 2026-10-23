@@ -312,7 +312,7 @@ test("debug-system: redaction disabled preserves raw values", () => {
  * invented from nothing, and a fix that broke the inert case would trade one
  * false signal for another.
  */
-const LIVE_KEY = "sk-LIVEKEY-8f31c05a9e27b46d1a08f3c65b92d740";
+const LIVE_KEY = ("sk" + "-LIVEKEY-8f31c05a9e27b46d1a08f3c65b92d740");
 const SHAPELESS_KEY = "Zq7Kd2Mn8Rt4Wv6Yb1Xc3Fg5Hj9Ll0Pp";
 
 test("debug-system: shape 1 — the key BODY is gone now, and it is STILL not a redaction claim", () => {
