@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { expect } from "vitest";
 import { createTempDir } from "./temp-dir.ts";
 import { webSuiteKillGraceMs } from "./budget-config.ts";
-import { NESTED_RUNNER_LAUNCH_MS, TEST_TIMEOUT_MS } from "../test-budget.ts";
+import { NESTED_RUNNER_LAUNCH_MS, TEST_HANG_BACKSTOP_MS } from "../test-budget.ts";
 import { TEST_INCLUDE } from "../test-include.ts";
 
 type Event = { kind: string; pid: number; ppid?: number; thread?: number; file?: string; context?: number; value?: string; cause?: string; state?: string; errors?: string[]; tests?: string[]; cancelled?: boolean };
@@ -75,7 +75,7 @@ export function isolationWitness(): IsolationWitness {
 const ctx=await createVitest('test',{config:${JSON.stringify(resolve("vitest.config.ts"))},run:true});
 try{const groups=await Promise.all(ctx.projects.map(async project=>({name:project.name,files:(await project.globTestFiles()).testFiles})));console.log(JSON.stringify(groups));}finally{await ctx.close();}`);
   const discover = (): void => {
-    const discovered = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, [discovery], { timeoutMs: TEST_TIMEOUT_MS, killGraceMs: webSuiteKillGraceMs() });
+    const discovered = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, [discovery], { timeoutMs: TEST_HANG_BACKSTOP_MS, killGraceMs: webSuiteKillGraceMs() });
     expect(discovered.supervision.noOwnedChildren).toBe(true);
     expect(discovered.error).toBeUndefined();
     expect(discovered.status, discovered.stdout + discovered.stderr).toBe(0);

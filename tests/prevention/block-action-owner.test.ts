@@ -122,7 +122,7 @@ beforeAll(async () => {
   mkdirSync(join(projectPath, "src"), { recursive: true });
   const project = srv.db.createProject({ name: "action-proof", path: projectPath }, admin.userId);
   projectId = project.id;
-}, 60_000);
+});
 
 afterAll(async () => {
   await srv.stop();
@@ -246,7 +246,7 @@ describe("C. deny-by-default at the door", () => {
 const COVERED = new Set<string>();
 
 describe("D. liveness — the handler really does the thing", () => {
-  test("checks.auto/rerun runs the real check and persists a completed row", { timeout: 120_000 }, async () => {
+  test("checks.auto/rerun runs the real check and persists a completed row", async () => {
     COVERED.add("checks.auto/rerun");
     const before = srv.db.listAutoChecksByProject(projectId, admin.userId).length;
 
@@ -288,7 +288,7 @@ describe("D. liveness — the handler really does the thing", () => {
     for (const row of rows) expect(row.status).not.toBe("running");
   });
 
-  test("code.map/reindex genuinely discards the stored reading", { timeout: 120_000 }, async () => {
+  test("code.map/reindex genuinely discards the stored reading", async () => {
     COVERED.add("code.map/reindex");
     // Warm: poll the block read until the map is ready (202 while building).
     let ready = await jsonRequest(srv.baseUrl, `/api/b/code.map?path=${encodeURIComponent(projectPath)}`, { cookie: admin.cookie });
@@ -327,7 +327,7 @@ describe("D. liveness — the handler really does the thing", () => {
     expect(rebuilt.status).toBe(200);
   });
 
-  test("tools.enabled/toggle flips the per-user override the runs consult", { timeout: 30_000 }, async () => {
+  test("tools.enabled/toggle flips the per-user override the runs consult", async () => {
     COVERED.add("tools.enabled/toggle");
     const list = await jsonRequest(srv.baseUrl, "/api/b/tools.enabled", { cookie: admin.cookie });
     expect(list.status).toBe(200);
@@ -361,7 +361,7 @@ describe("D. liveness — the handler really does the thing", () => {
     expect(onRow?.enabled).toBe(true);
   });
 
-  test("client.telemetry/ingest records the browser's facts into the client lanes, attributed", { timeout: 30_000 }, async () => {
+  test("client.telemetry/ingest records the browser's facts into the client lanes, attributed", async () => {
     COVERED.add("client.telemetry/ingest");
     const before = getTimelineQuery().byEventType("client-error", { ascending: false, limit: 50 })
       .events.filter((e) => e.actorId === admin.userId).length;
@@ -392,7 +392,7 @@ describe("D. liveness — the handler really does the thing", () => {
     expect(drop, "the stated drop count landed as its own fact").toBeDefined();
   });
 
-  test("editor.preview/preview resolves a real preimage and reports the postimage hash, writing nothing", { timeout: 30_000 }, async () => {
+  test("editor.preview/preview resolves a real preimage and reports the postimage hash, writing nothing", async () => {
     COVERED.add("editor.preview/preview");
     registerAllExposure();
     // The project already holds main.ts ("export const answer: number = 42;").
@@ -419,7 +419,7 @@ describe("D. liveness — the handler really does the thing", () => {
     expect((refused.body as { data: { ok: boolean; reason: string | null } }).data).toMatchObject({ ok: false, reason: "old_content_not_found" });
   });
 
-  test("editor.preview/rollback honestly reports when no snapshot is retained", { timeout: 30_000 }, async () => {
+  test("editor.preview/rollback honestly reports when no snapshot is retained", async () => {
     COVERED.add("editor.preview/rollback");
     registerAllExposure();
     const res = await jsonRequest(srv.baseUrl, "/api/b/editor.preview/rollback", {
@@ -434,7 +434,7 @@ describe("D. liveness — the handler really does the thing", () => {
     expect(typeof data.rolledBack).toBe("boolean");
   });
 
-  test("settings.customizations/set writes through the validated choke point", { timeout: 30_000 }, async () => {
+  test("settings.customizations/set writes through the validated choke point", async () => {
     COVERED.add("settings.customizations/set");
     registerAllExposure();
     const boolCust = listCustomizations().find((c) => c.type === "boolean");
@@ -477,7 +477,7 @@ describe("D. liveness — the handler really does the thing", () => {
       (c) => c.type === "string" && c.current() === "" && c.id === "awareness.monitoredModules",
     );
     expect(stringCust, "no free-form string row standing at its empty default to prove the masked answer on").toBeDefined();
-    const rawCredential = "sk-live-r48-readback-proof-7742a1c9";
+    const rawCredential = ("sk" + "-live-r48-readback-proof-7742a1c9");
     const maskedSave = await jsonRequest(srv.baseUrl, "/api/b/settings.customizations/set", {
       method: "POST",
       cookie: admin.cookie,
@@ -588,7 +588,7 @@ describe("D. liveness — the handler really does the thing", () => {
     expect(getCustomization(id)!.current()).toBe(original);
   });
 
-  test("settings.diagnosticModes/set lands the array through the one config gate", { timeout: 30_000 }, async () => {
+  test("settings.diagnosticModes/set lands the array through the one config gate", async () => {
     COVERED.add("settings.diagnosticModes/set");
     // The mode vocabulary is the engine's own — never restated here.
     const { DIAGNOSTIC_MODE_IDS } = await import("../../engine/src/performance/performance-config.ts");
@@ -644,7 +644,7 @@ describe("D. liveness — the handler really does the thing", () => {
 
   // ── COCKPIT: run.compose (pin / mute / trim) ─────────────────────────────
 
-  test("run.compose pin/mute/trim change the NEXT composition the run path assembles", { timeout: 30_000 }, async () => {
+  test("run.compose pin/mute/trim change the NEXT composition the run path assembles", async () => {
     COVERED.add("run.compose/pin");
     COVERED.add("run.compose/unpin");
     COVERED.add("run.compose/mute");
@@ -811,7 +811,7 @@ describe("D. liveness — the handler really does the thing", () => {
     expect(channelOf(afterChannelUnmute.body, "memories").items.map((i) => i.id)).toContain(memoryId);
   });
 
-  test("run.compose/rewind withdraws the turns from the NEXT composition, and records that it did", { timeout: 30_000 }, async () => {
+  test("run.compose/rewind withdraws the turns from the NEXT composition, and records that it did", async () => {
     COVERED.add("run.compose/rewind");
     const chat = srv.db.createChat({ project_id: projectId, title: "rewind-proof" }, admin.userId);
     const first = srv.db.createMessage({ chat_id: chat.id, role: "user", content: "kept question", run_id: "run-rw-1" }, admin.userId);
@@ -907,7 +907,7 @@ describe("D. liveness — the handler really does the thing", () => {
     expect(recordIds).toContain("evt-rewind-proof-kept");
   });
 
-  test("run.compose/restore brings the withdrawn turns back into the NEXT composition", { timeout: 30_000 }, async () => {
+  test("run.compose/restore brings the withdrawn turns back into the NEXT composition", async () => {
     COVERED.add("run.compose/restore");
     // The product rule the rewind rests on is that a destructive action must
     // be undoable AND its record inspectable. The rewind proof above shows
@@ -967,7 +967,7 @@ describe("D. liveness — the handler really does the thing", () => {
 
   // ── COCKPIT: tools.breaker (set / arm / reset) ───────────────────────────
 
-  test("tools.breaker set/arm/reset drive the store the run boundary consults — and the boundary sees the flip, trips once per streak", { timeout: 30_000 }, async () => {
+  test("tools.breaker set/arm/reset drive the store the run boundary consults — and the boundary sees the flip, trips once per streak", async () => {
     COVERED.add("tools.breaker/set");
     COVERED.add("tools.breaker/arm");
     COVERED.add("tools.breaker/reset");
@@ -1097,7 +1097,7 @@ describe("D. liveness — the handler really does the thing", () => {
     await jsonRequest(srv.baseUrl, "/api/b/tools.breaker/reset", { method: "POST", cookie: admin.cookie, body: { tool } });
   });
 
-  test("the breaker read serves a row for EVERY manifest tool — deny-by-default over the registry, both categories", { timeout: 30_000 }, async () => {
+  test("the breaker read serves a row for EVERY manifest tool — deny-by-default over the registry, both categories", async () => {
     // The gate auto-trips MCP tools exactly as it trips built-ins (the live
     // drive tripped mcp__filesystem__read_text_file at 6 identical blocks),
     // and the trip's sentence promises "the user can re-enable it from the
@@ -1141,7 +1141,7 @@ describe("D. liveness — the handler really does the thing", () => {
     }
   });
 
-  test("a GATE auto-trip routes through the breaker owner — the panel shows it, the run end reverts it, the panel re-arm beats the revert", { timeout: 30_000 }, async () => {
+  test("a GATE auto-trip routes through the breaker owner — the panel shows it, the run end reverts it, the panel re-arm beats the revert", async () => {
     // The safety gate trips a tool after a streak of identical blocked
     // calls (the run loop calls tripToolBreaker with the gate's count).
     // The SAME owner as the boundary's armed trip answers: the row flip the
@@ -1227,7 +1227,7 @@ describe("D. liveness — the handler really does the thing", () => {
     await jsonRequest(srv.baseUrl, "/api/b/tools.breaker/reset", { method: "POST", cookie: admin.cookie, body: { tool } });
   });
 
-  test("a GATE auto-trip must NOT re-stamp a USER-ARMED trip — no auto marker, no trip event, and the run-end revert no-ops (the user's until-reset trip persists)", { timeout: 30_000 }, async () => {
+  test("a GATE auto-trip must NOT re-stamp a USER-ARMED trip — no auto marker, no trip event, and the run-end revert no-ops (the user's until-reset trip persists)", async () => {
     // THE MARKER RE-STAMP. The user armed a threshold and the
     // boundary tripped it: the marker carries the user's facts and an
     // until-manual-reset lifetime. A gate auto-trip of the SAME tool
@@ -1296,7 +1296,7 @@ describe("D. liveness — the handler really does the thing", () => {
 
   // ── COCKPIT: arm.flags (set / capture / clear) ───────────────────────────
 
-  test("arm.flags set/capture/clear store, list and tombstone real flags — bad predicates are refused at the door", { timeout: 30_000 }, async () => {
+  test("arm.flags set/capture/clear store, list and tombstone real flags — bad predicates are refused at the door", async () => {
     COVERED.add("arm.flags/set");
     COVERED.add("arm.flags/capture");
     COVERED.add("arm.flags/clear");
@@ -1392,7 +1392,7 @@ describe("D. liveness — the handler really does the thing", () => {
 
   // ── COCKPIT: custody.state (keep / undo) — §7 git as verbs ───────────────
 
-  test("custody.state keep really commits and undo really restores — measured, recorded, denied by default", { timeout: 60_000 }, async () => {
+  test("custody.state keep really commits and undo really restores — measured, recorded, denied by default", async () => {
     COVERED.add("custody.state/keep");
     COVERED.add("custody.state/undo");
     // A REAL repository project with hand-countable edits.

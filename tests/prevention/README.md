@@ -215,6 +215,7 @@ The `tests/prevention/` folder of the development surface.
 - `template-check-wired.test.ts` — @vitest-environment node.
 - `template-mode-lexing.test.ts` — @vitest-environment node.
 - `template-token-sanitization.test.ts` — @vitest-environment node.
+- `test-cpu-class.test.ts` — the per-test judgement is CPU work by class, and it can fail: plants over and under a ceiling, a child's work, waiting that is not work.
 - `test-helpers-dedup.test.ts` — @vitest-environment node.
 - `test-isolation-contract.test.ts` — @vitest-environment node.
 - `test-isolation-owner.test.ts` — @vitest-environment node.

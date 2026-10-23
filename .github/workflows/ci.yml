@@ -217,10 +217,19 @@ jobs:
           npm run corpus:fetch
           npm run corpus:verify
 
+      # The image sets kernel.apparmor_restrict_unprivileged_userns=1. The
+      # namespace proofs (keep-out aliases, the procfs-less door, S1-B04/B13)
+      # need unprivileged user and mount namespaces, and refuse by name
+      # without them (#149): the job provides the capability, never a skip.
+      - name: Allow unprivileged user and mount namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # D-19: a run's temporary root lies under the per-user cache, outside
+      # the safety floor (the instrument-lock proof places a checkout there).
       - name: Run the engine suite
         run: |
-          mkdir -p "$RUNNER_TEMP/bw"
-          TMPDIR="$RUNNER_TEMP/bw" npm --prefix engine test
+          mkdir -p "$HOME/.cache/bridlewise-tmp/ci"
+          TMPDIR="$HOME/.cache/bridlewise-tmp/ci" npm --prefix engine test
 
       # The runner writes its verdict to one summary file; the job prints the
       # failing tests and their reasons, so a red run is readable without a

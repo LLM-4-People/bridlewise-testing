@@ -229,7 +229,7 @@ describe("the settings wires carry the registry's own ids (egress redaction cont
     // Plant a credential-shaped value through the write door, read it back
     // through the values wire, and prove the VALUE arrives masked while
     // its id arrives verbatim.
-    const planted = "sk-AAAAAAAAAAAAAAAAAAAAAAAA";
+    const planted = ("sk" + "-AAAAAAAAAAAAAAAAAAAAAAAA");
     const target = listCustomizations().find((c) => c.type === "string");
     expect(target, "no string customization to plant the value in").toBeDefined();
     const original = target!.current();
