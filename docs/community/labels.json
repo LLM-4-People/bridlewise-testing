@@ -1,0 +1,9 @@
+{
+  "schema": "bridlewise-community-labels/v1",
+  "labels": [
+    { "name": "good first issue", "color": "5fc78e", "description": "Small, well-scoped, with a clear acceptance check" },
+    { "name": "help wanted", "color": "7c8cf8", "description": "Maintainers would welcome a contributor here" },
+    { "name": "dependencies", "color": "0366d6", "description": "Pull requests that update a dependency file" },
+    { "name": "javascript", "color": "168700", "description": "Pull requests that update javascript code" }
+  ]
+}
