@@ -19,7 +19,7 @@
  * the whole setup again there) and runs them again — every run under ONE set
  * of conditions (the environment entries, the setup command run first, the
  * command run alongside, the preloaded module, the order seed), all inside
- * the host's one instrument lock. Deterministic by default: one run on each
+ * one admitted heavy run under its per-run caps. Deterministic by default: one run on each
  * side; a test that FAILED on the parent and PASSED on the fix is recorded
  * with the digest it failed with. `--statistical` (a cause that needs load or
  * a race; it requires a condition: `--during`, the hog or the churner, or
@@ -56,7 +56,7 @@ import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, PRIVATE_STA
 import { flakeCauseContentKeys, judgeCauseChange, parseFlakeCause } from "../git/flake-cause-fixes.ts";
 import { gitOutput, type GitRepository } from "../git/tree-reader.ts";
 import { configuredGitRepository, configuredWorktreeGitPort } from "../git/worktree-port.ts";
-import { worktreeOperationTimeouts } from "./workflow-config.ts";
+import { SUBPROCESS_BOUNDS, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { resolveRepositoryRegistry, workspaceRootOf } from "./repository-registry.ts";
 import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
@@ -559,12 +559,12 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
   if (argv[0] === "move") {
     const move = parseFlakeMoveArgs(argv);
     // Each side's inventory is its own commit's generator output (its regenerate phase), in one private checkout (#221).
-    // Two checkout setups (each side's revision): heavy by kind, so the move holds the host's one lock.
+    // Two checkout setups (each side's revision): heavy by kind, so the move is admitted as a heavy run under its caps.
     const moveLock = readTestExecutionConfig(ENGINE_ROOT).instrumentLock;
-    if (moveLock === undefined) throw new InputError("testExecution.instrumentLock is not declared: a move sets up checkouts under the host's one lock", "instrument_lock_undeclared");
-    const lock = await holdInstrumentLock({
+    if (moveLock === undefined) throw new InputError("testExecution.instrumentLock is not declared: a move sets up checkouts as an admitted heavy run", "instrument_lock_undeclared");
+    const lock = holdInstrumentLock({
       config: moveLock, harnessRoot: ENGINE_ROOT, runner: "flake move (two inventories)",
-      testFileCount: wholeInstrumentTestFileCount(moveLock, "flake-reproduction"), onWait: (line) => process.stderr.write(`${line}\n`),
+      testFileCount: wholeInstrumentTestFileCount(moveLock, "flake-reproduction"), cpu: SUBPROCESS_BOUNDS,
     });
     const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake move", testProcessSupervisorBinary());
     try {
@@ -596,9 +596,9 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
   const preloadFile = request.preload === null ? null : join(top, request.preload);
   const preloadSha256 = preloadFile === null ? null : sha256(readFileSync(preloadFile));
   // A whole instrument (it runs suites at two revisions), heavy by kind.
-  const lock = await holdInstrumentLock({
+  const lock = holdInstrumentLock({
     config: declaredLock, harnessRoot: ENGINE_ROOT, runner: `flake reproduce (${String(request.tests.length)} test(s))`,
-    testFileCount: wholeInstrumentTestFileCount(declaredLock, "flake-reproduction"), onWait: (line) => process.stderr.write(`${line}\n`),
+    testFileCount: wholeInstrumentTestFileCount(declaredLock, "flake-reproduction"), cpu: SUBPROCESS_BOUNDS,
   });
   const supervisor = testProcessSupervisorBinary();
   const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake reproduce", supervisor);

@@ -21,6 +21,7 @@ import { join, relative } from "node:path";
 import test from "node:test";
 
 import { walk } from "../../scripts/verification/source-walk.ts";
+import { TEST_RUN_LOCK_FILE_NAME } from "../../scripts/tooling/test-run-lock.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 const ENGINE_ROOT = join(import.meta.dirname, "..", "..");
@@ -68,8 +69,9 @@ test("the three former copies publish through the owner: the folder is fsynced o
       body: `const {withConfigWriteLock}=await import(${JSON.stringify(join(ENGINE_ROOT, "src/kernel/config-write-lock.ts"))});withConfigWriteLock(${JSON.stringify(join(root, "config", "harness.json"))},()=>0);`,
     },
     {
+      // An admitted run's record is named in the run registry beside the lock path (src/process/instrument-lock.ts).
       what: "the test-run lock",
-      folder: join(root, "locks"),
+      folder: join(root, "locks", `${TEST_RUN_LOCK_FILE_NAME}.runs`),
       body: `const {enforceTestRunLock}=await import(${JSON.stringify(join(ENGINE_ROOT, "scripts/tooling/test-run-lock.ts"))});const lock=await enforceTestRunLock("probe",{lockDir:${JSON.stringify(join(root, "locks"))},testFileCount:Number.POSITIVE_INFINITY});lock.release();`,
     },
   ];
