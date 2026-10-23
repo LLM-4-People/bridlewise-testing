@@ -48,7 +48,9 @@ ships into the client bundle or the server runtime.
   dev-server boot against a served transform artifact.
 - `svelte-css-scope-probe.ts` — refuses a dev server that serves a
   component's CSS unscoped.
-- `generate-pwa-icons.mjs` — emits the PWA icons using only Node built-ins.
+- `generate-pwa-icons.mjs` — draws the brand mark's icons from its one geometry (`src/cockpit/shell/brand-mark.ts`) in the token owner's colours, using only Node built-ins.
+- `service-worker-cache.ts` — the service worker's cache version, derived once: the digest of every asset it caches, written into `public/sw.js` (`--write|--check`) and into the built worker by the build (`serviceWorkerDigestPlugin`, vite.config.ts).
+- `vendor-fonts.ts` — the one writer of `public/fonts/` and its pin (`fonts.lock.json`): copies IBM's Plex files from their npm releases after checking each tarball against the registry's integrity; `--check` (offline) and `--verify-upstream` (the receipt that the files are unmodified).
 - `db-archive.ts` — the conversation-archive shell (the development root package's `db-archive` script, with
   `--db <database> --chats-file <file>`; not installed in the product projection): a thin shell over the `database.conversations.archive` action (`server/db/conversation-archive.ts`); stop the server first.
 
@@ -62,10 +64,31 @@ ships into the client bundle or the server runtime.
   manifest; `cockpit-plan.ts` is its pure plan (sequence, masks, manifest)
   and `gif.ts` its PNG-to-GIF encoder. [Shipping](../docs/shipping.md#cockpit-captures)
   states what it guarantees.
+- `rendered/` — the rendered judgement: what the browser actually shows,
+  judged by ONE rule table. `rules.ts` holds these rows:
+  - the brand mark's computed paint and visibility;
+  - the families text renders in;
+  - the Content-Security-Policy meta tag, first and exactly once, and no
+    violation of it;
+  - no request leaving the origin;
+  - on the site, every colour and duration computing to a token's value.
+  `judge.ts` runs the table on a page and over every page of a built site
+  (`judge.ts site`); the capture walk calls it on every cockpit view
+  (`capture/cockpit.ts --judge-only`); `proof.ts` proves each rule on planted
+  breaks. CI's "Rendered pages" job runs all three.
 - `floor/` — the testing-site toolchain. `site.mjs` assembles the Jekyll
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes
   through the forge port (`engine/src/workflow/forge/repository-reads.ts`).
+  `site-design.mjs` writes the site's design assets at build time from the
+  one design system: the token sheet (only what the site's stylesheets read,
+  through `shared/token-reader.ts`), the self-hosted fonts, the icon, and the
+  mark from its one geometry. `site-style.mjs` then parses every stylesheet
+  the assembled source hands Jekyll (css-tree) and refuses the build on a
+  colour, duration or face that is not a token, a theme block, a fallback,
+  an `@import`, a remote `url()` or a Sass source, and parses every layout,
+  include and HTML page (parse5) to refuse a `<style>`, a `style=` or a
+  resource loaded from elsewhere.
   `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
   blocks: it renders them from the tracker items (`docs/trackers/items/`,
   states computed by `engine/src/workflow/tracker-status.ts`), the decision

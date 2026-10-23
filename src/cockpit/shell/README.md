@@ -4,7 +4,8 @@ The cockpit shell: the HORIZON, DESK, ROOMS, and SCOPE grammar — the keyboard 
 
 ## What each file does
 
-- `Brand.svelte` — shared existing bridlewise brand mark for account and registration surfaces.
+- `Brand.svelte` — the brand mark for account and registration surfaces, drawn inline from `brand-mark.ts` in the live theme's tokens.
+- `brand-mark.ts` — the one brand-mark geometry (rein, record lines, beam), shared with the icon generator `scripts/generate-pwa-icons.mjs`.
 
 - `annunciator-data.ts` — THE ANNUNCIATOR FEED — what lights the HORIZON.
 - `chords.ts` — THE chord formatter — the one owner of on-screen chord spelling.
@@ -49,6 +50,7 @@ The cockpit shell: the HORIZON, DESK, ROOMS, and SCOPE grammar — the keyboard 
 The folder lives at `src/cockpit/shell/`.
 
 - `annunciator-data.ts` is consumed by `src/cockpit/Cockpit.svelte`.
+- `brand-mark.ts` is consumed by `src/cockpit/shell/Brand.svelte`.
 - `chords.ts` is consumed by `src/cockpit/desk/ChannelStrip.svelte`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/flow/composer-router.ts`, `src/cockpit/rooms/SwitchRoom.svelte`, `src/cockpit/shell/keyboard.ts`, `src/cockpit/shell/room-chords.ts`.
 - `config.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/editor/editor-config.ts`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/main.ts`, `src/cockpit/rooms/custody-config.ts`, `src/cockpit/rooms/instruments-data.ts` and 3 more.
 - `contract.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/desk/BreakerRow.svelte`, `src/cockpit/desk/ChannelScope.svelte`, `src/cockpit/desk/ChannelStrip.svelte`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/desk/Gauge.svelte` and 34 more.

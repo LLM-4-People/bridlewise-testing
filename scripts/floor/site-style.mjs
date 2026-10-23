@@ -1,0 +1,344 @@
+/**
+ * THE SITE'S STYLE GUARD: every stylesheet the site build consumes reads the
+ * one design system (`src/cockpit/tokens.css`) and declares none of its own.
+ *
+ * This is the fast static half. The rendered pages are judged by the shared
+ * rendered-site checker (computed styles, faces and requests; #409).
+ *
+ * `siteStylesheets` lists what the build consumes: every stylesheet in the
+ * Jekyll source the builder assembled (`site.mjs` `buildSiteSource`), which
+ * Jekyll either copies (`.css`) or compiles (`.scss`, `.sass`, including the
+ * `_sass/` partials a front-mattered sheet imports). The generated token sheet
+ * is the owner's own projection and is judged by its generator.
+ *
+ * `siteStyleViolations` parses a sheet with a real CSS parser (css-tree) and
+ * refuses, by node, never by pattern, every name read as CSS reads it
+ * (escapes decoded, case folded):
+ *
+ * - a parse error, or braces that do not balance (a sheet the parser cannot
+ *   read whole cannot be judged);
+ * - a theme block (`:root`, `[data-theme]`, `[data-cockpit-theme]`): the
+ *   themes live in the owner;
+ * - a custom property, `@property` or `@font-face` declared here: tokens and
+ *   faces are declared once, in the owner;
+ * - any `@import` (a sheet is linked by the layout, never chained: a chained
+ *   fetch delays the first paint, and a remote one is a second source);
+ * - an at-rule outside the closed list below;
+ * - a colour literal anywhere in a value: a hex, a colour function (`rgb`,
+ *   `RGB`, `oklch`, `color`, …) or a colour keyword (named or system) in a
+ *   property whose grammar takes a colour; `transparent` and `currentColor`
+ *   carry no palette and pass;
+ * - a mixed colour (`color-mix()`, `light-dark()`): each mix the site needs
+ *   is a token in the owner, so a page computes only token values;
+ * - a duration literal (`120ms`, `.2S`) anywhere in a value;
+ * - a `var()` naming a token the owner does not declare, or carrying a
+ *   fallback (a fallback is a literal the token was meant to replace);
+ * - a `font-family` that is not one `--face-*` token, and the `font`
+ *   shorthand except a CSS-wide keyword: the faces are the owner's;
+ * - a `url()` or a string that leaves the site (a scheme or `//`; the text
+ *   of `content` and `quotes` is not an address);
+ * - text set in the faint inks (`--ink-3`, `--ink-4`), which fail AA;
+ * - a Sass source: the site's sheets are plain CSS, so one parser judges all
+ *   of them (Sass variables and functions can produce any literal, which a
+ *   parse of the source cannot see).
+ *
+ * `siteMarkupViolations` parses each HTML file the build consumes (every
+ * layout, every include and every `.html` page) with a real HTML parser
+ * (parse5) and refuses:
+ * - any `<style>` element and any `style=` attribute: the styles live in the
+ *   token-reading stylesheets only;
+ * - a `<link>` that fetches (stylesheet, icon, preload, preconnect, …), a
+ *   `<script src>` or an element that loads media from another origin (a
+ *   scheme or `//`): no font, sheet or script comes from elsewhere; and a
+ *   fetching `<link>` to a `data:` resource (a second, hand-drawn mark).
+ * - a `<meta http-equiv="refresh">` or a `<base>`;
+ * - an inline `<script>` (a data block such as JSON-LD excepted) or an
+ *   `on…` event handler attribute.
+ * This parse is fast feedback. The boundary is the Content-Security-Policy
+ * every page carries (`shared/site-page.ts` `sitePolicy`), which the browser
+ * enforces whatever spelling produced the markup.
+ * Markdown pages are judged where they render, by the rendered-site checker
+ * (#409): a parse of their source would read the prose's code spans as tags.
+ *
+ * The burn-down list (`shared/site-page.ts` `PALETTE_BURN_DOWN`) names the
+ * sheets that still carry a palette of their own; the build skips them. It
+ * only shrinks: each entry names the issue that removes it, and the design
+ * test fails an entry that is clean or gone
+ * (`tests/public/site-design-system.test.mjs`).
+ */
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, sep } from "node:path";
+
+import * as csstree from "css-tree";
+import { parse as parseHtml } from "parse5";
+
+import { PALETTE_BURN_DOWN } from "../../shared/site-page.ts";
+import { readTokenOwner } from "../../shared/token-reader.ts";
+import { SITE_TOKEN_SHEET } from "./site-design.mjs";
+
+export const STYLE_EXTENSIONS = Object.freeze([".css", ".scss", ".sass"]);
+
+/** The at-rules a site sheet may hold. */
+const AT_RULES = new Set(["media", "supports", "keyframes", "container", "layer", "charset"]);
+/** Colours composed from tokens: the owner declares each one as a token, so a page computes only token values. */
+const MIX_FUNCTIONS = new Set(["color-mix", "light-dark"]);
+const COLOUR_FUNCTIONS = new Set(["rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color", "device-cmyk"]);
+const COLOUR_TYPES = ["named-color", "system-color", "deprecated-system-color"];
+const NO_PALETTE = new Set(["transparent", "currentcolor"]);
+const WIDE_KEYWORDS = new Set(["inherit", "initial", "unset", "revert", "revert-layer"]);
+const FAINT_INKS = new Set(["--ink-3", "--ink-4"]);
+const THEME_ATTRIBUTES = new Set(["data-theme", "data-cockpit-theme"]);
+/** An address with a scheme or a protocol-relative one: it leaves the site. */
+const REMOTE = /^\s*(?:[a-z][a-z\d+.-]*:|\/\/)/iu;
+/** Properties whose strings are text the page shows, not addresses. */
+const TEXT_PROPERTIES = new Set(["content", "quotes"]);
+
+const COLOUR_KEYWORDS = (() => {
+  const words = new Set();
+  for (const type of COLOUR_TYPES) {
+    csstree.definitionSyntax.walk(csstree.lexer.types[type].syntax, (node) => {
+      if (node.type === "Keyword") words.add(node.name.toLowerCase());
+    });
+  }
+  return words;
+})();
+
+/** A name as CSS reads it: escapes decoded (`\\63 rimson` is crimson), case folded. */
+const plain = (name) => csstree.ident.decode(name).toLowerCase();
+
+const takesColourMemo = new Map();
+/** Whether a property's grammar accepts a colour (an unknown property is assumed to). */
+function takesColour(property) {
+  const name = plain(property);
+  if (takesColourMemo.has(name)) return takesColourMemo.get(name);
+  const definition = csstree.lexer.getProperty(name);
+  const result = definition === null || definition === undefined || syntaxTakesColour(definition.syntax, new Set());
+  takesColourMemo.set(name, result);
+  return result;
+}
+
+function syntaxTakesColour(syntax, seen) {
+  let found = false;
+  csstree.definitionSyntax.walk(syntax, (node) => {
+    if (found) return;
+    if (node.type === "Type") {
+      if (node.name === "color" || COLOUR_TYPES.includes(node.name)) found = true;
+      else if (!seen.has(`type:${node.name}`)) {
+        seen.add(`type:${node.name}`);
+        const type = csstree.lexer.types[node.name];
+        if (type?.syntax && syntaxTakesColour(type.syntax, seen)) found = true;
+      }
+    } else if (node.type === "Property" && !seen.has(`property:${node.name}`)) {
+      seen.add(`property:${node.name}`);
+      const property = csstree.lexer.properties[node.name];
+      if (property?.syntax && syntaxTakesColour(property.syntax, seen)) found = true;
+    }
+  });
+  return found;
+}
+
+/** Every token name the owner declares, in any theme or media remap. */
+export function declaredTokens(owner) {
+  return new Set([...owner.base.keys(), ...owner.logbook.keys(), ...owner.media.flatMap((remap) => [...remap.values.keys()])]);
+}
+
+/** The findings for one value of `property`. */
+function valueViolations(property, value, tokens) {
+  const findings = [];
+  const colourContext = takesColour(property);
+  const tokenOnly = (node) => node.type === "Function" && plain(node.name) === "var";
+  csstree.walk(value, (node) => {
+    switch (node.type) {
+      case "Hash":
+        findings.push(`colour literal: #${node.value}`);
+        break;
+      case "Function": {
+        const name = plain(node.name);
+        if (COLOUR_FUNCTIONS.has(name)) findings.push(`colour literal: ${node.name}()`);
+        if (MIX_FUNCTIONS.has(name)) findings.push(`a mixed colour: ${node.name}() is declared once, as a token in the owner`);
+        if (name === "var") {
+          const parts = node.children.toArray();
+          const token = parts[0]?.type === "Identifier" ? parts[0].name : null;
+          if (token === null) findings.push("var() names no token");
+          else if (!tokens.has(token)) findings.push(`var(${token}): the owner declares no such token`);
+          if (parts.some((part) => part.type === "Operator" && part.value === ",")) findings.push(`var(${token ?? ""}) carries a fallback`);
+        }
+        break;
+      }
+      case "Identifier":
+        if (colourContext && COLOUR_KEYWORDS.has(plain(node.name)) && !NO_PALETTE.has(plain(node.name))) findings.push(`colour literal: ${node.name}`);
+        break;
+      case "Dimension":
+        if (["s", "ms"].includes(plain(node.unit))) findings.push(`duration literal: ${node.value}${node.unit}`);
+        break;
+      case "String":
+        if (!TEXT_PROPERTIES.has(plain(property)) && REMOTE.test(node.value)) findings.push(`a string leaves the site: ${node.value}`);
+        break;
+      case "Url":
+        if (REMOTE.test(node.value)) findings.push(`url() leaves the site: ${node.value}`);
+        break;
+      default:
+        break;
+    }
+  });
+  const lower = plain(property);
+  const parts = value.type === "Value" ? value.children.toArray() : [];
+  const wide = parts.length === 1 && parts[0].type === "Identifier" && WIDE_KEYWORDS.has(plain(parts[0].name));
+  if (lower === "font-family" && !wide) {
+    const face = parts.length === 1 && tokenOnly(parts[0]) && parts[0].children.first?.type === "Identifier" && parts[0].children.first.name.startsWith("--face-");
+    if (!face) findings.push(`not one --face-* token: ${csstree.generate(value)}`);
+  }
+  if (lower === "font" && !wide) findings.push("the shorthand sets a family: use font-family: var(--face-*) and the longhands");
+  if (lower === "color") {
+    csstree.walk(value, (node) => {
+      if (tokenOnly(node) && node.children.first?.type === "Identifier" && FAINT_INKS.has(node.children.first.name)) findings.push(`faint ink as text: ${node.children.first.name}`);
+    });
+  }
+  return findings;
+}
+
+/**
+ * What a site stylesheet may not hold (see the header), each finding with its
+ * line. `tokens` is the owner's declared names ({@link declaredTokens}).
+ */
+export function siteStyleViolations(css, { tokens }) {
+  const findings = [];
+  const at = (node) => (node?.loc ? `${String(node.loc.start.line)}:${String(node.loc.start.column)} ` : "");
+  const ast = csstree.parse(css, {
+    positions: true,
+    parseCustomProperty: false,
+    onParseError: (error) => findings.push(`${String(error.line ?? "?")}:${String(error.column ?? "?")} unparseable: ${error.message}`),
+  });
+  // The parser closes an unclosed block at the end of the sheet; a sheet
+  // whose braces do not balance is refused here, on the tokens.
+  let depth = 0;
+  csstree.tokenize(css, (type, start) => {
+    if (type === csstree.tokenTypes.LeftCurlyBracket) depth += 1;
+    else if (type === csstree.tokenTypes.RightCurlyBracket && (depth -= 1) < 0) {
+      findings.push(`offset ${String(start)} unbalanced: a } closes nothing`);
+      depth = 0;
+    }
+  });
+  if (depth > 0) findings.push(`unbalanced: ${String(depth)} block(s) never closed`);
+  csstree.walk(ast, {
+    enter(node) {
+      if (node.type === "Rule" && node.prelude.type === "SelectorList") {
+        let theme = false;
+        csstree.walk(node.prelude, (part) => {
+          if (part.type === "PseudoClassSelector" && plain(part.name) === "root") theme = true;
+          if (part.type === "AttributeSelector" && THEME_ATTRIBUTES.has(plain(part.name.name))) theme = true;
+        });
+        if (theme) findings.push(`${at(node)}theme block: ${csstree.generate(node.prelude)}`);
+      } else if (node.type === "Atrule") {
+        const name = plain(node.name);
+        if (name === "import") findings.push(`${at(node)}@import: a sheet is linked by the layout, never chained`);
+        else if (name === "font-face") findings.push(`${at(node)}@font-face: the faces are declared once, in the owner`);
+        else if (name === "property") findings.push(`${at(node)}@property: a token is declared once, in the owner`);
+        else if (!AT_RULES.has(name)) findings.push(`${at(node)}@${node.name}: not an at-rule the site's sheets hold`);
+      } else if (node.type === "Declaration") {
+        if (plain(node.property).startsWith("--")) {
+          findings.push(`${at(node)}custom property declared: ${node.property}`);
+          return csstree.walk.skip;
+        }
+        if (node.value.type === "Raw") findings.push(`${at(node)}unparseable value: ${node.property}: ${node.value.value}`);
+        else for (const finding of valueViolations(node.property, node.value, tokens)) findings.push(`${at(node)}${node.property}: ${finding}`);
+        return csstree.walk.skip;
+      }
+      return undefined;
+    },
+  });
+  return findings;
+}
+
+/** Script types that are data, never run (a structured-data block). */
+const DATA_SCRIPT_TYPES = new Set(["application/ld+json", "application/json"]);
+
+/** The `<link>` relations that make the browser fetch the target. */
+const FETCHING_RELS = new Set(["stylesheet", "icon", "shortcut", "apple-touch-icon", "mask-icon", "manifest", "preload", "modulepreload", "prefetch", "preconnect", "dns-prefetch", "prerender"]);
+/** Elements and the attributes through which they load a resource. */
+const LOADING_ATTRIBUTES = new Map([
+  ["script", ["src"]], ["img", ["src", "srcset"]], ["source", ["src", "srcset"]], ["iframe", ["src"]], ["embed", ["src"]],
+  ["object", ["data"]], ["video", ["src", "poster"]], ["audio", ["src"]], ["track", ["src"]], ["image", ["href", "xlink:href"]], ["use", ["href", "xlink:href"]],
+]);
+
+/** What a site layout, include or HTML page may not hold (see the header), each finding with its line. */
+export function siteMarkupViolations(html) {
+  const findings = [];
+  const walk = (node) => {
+    if (node.tagName !== undefined) {
+      const line = node.sourceCodeLocation?.startLine;
+      const at = line === undefined ? "" : `${String(line)} `;
+      const tag = node.tagName.toLowerCase();
+      const attributes = new Map(node.attrs.map((attribute) => [attribute.name.toLowerCase(), attribute.value]));
+      if (tag === "script" && !attributes.has("src") && !DATA_SCRIPT_TYPES.has((attributes.get("type") ?? "").trim().toLowerCase())) findings.push(`${at}an inline <script>: the site's scripts are its files`);
+      const handlers = [...attributes.keys()].filter((name) => name.startsWith("on"));
+      if (handlers.length > 0) findings.push(`${at}<${tag} ${handlers.join(" ")}>: an event handler in markup; the site's scripts are its files`);
+      if (tag === "style") findings.push(`${at}<style>: the styles live in the token-reading stylesheets`);
+      if (attributes.has("style")) findings.push(`${at}<${tag} style=…>: the styles live in the token-reading stylesheets`);
+      if (tag === "meta" && (attributes.get("http-equiv") ?? "").trim().toLowerCase() === "refresh") findings.push(`${at}<meta http-equiv="refresh">: a moved page names its place (data-moved-to), and the site's script follows it`);
+      if (tag === "base") findings.push(`${at}<base>: every address is the page's own (the policy's base-uri is 'none')`);
+      if (tag === "link") {
+        const rels = (attributes.get("rel") ?? "").toLowerCase().split(/\s+/u).filter(Boolean);
+        const href = attributes.get("href") ?? "";
+        if (rels.some((rel) => FETCHING_RELS.has(rel))) {
+          if (/^\s*data:/iu.test(href)) findings.push(`${at}<link rel="${rels.join(" ")}"> inlines a data: resource: the site's mark and sheets are its generated files`);
+          else if (REMOTE.test(href)) findings.push(`${at}<link rel="${rels.join(" ")}"> fetches from elsewhere: ${href}`);
+        }
+      }
+      for (const name of LOADING_ATTRIBUTES.get(tag) ?? []) {
+        const value = attributes.get(name);
+        if (value === undefined) continue;
+        const remote = name === "srcset" ? value.split(",").some((candidate) => REMOTE.test(candidate.trim())) : REMOTE.test(value) && !/^\s*data:/iu.test(value);
+        if (remote) findings.push(`${at}<${tag} ${name}> loads from elsewhere: ${value}`);
+      }
+    }
+    for (const child of node.childNodes ?? []) walk(child);
+    if (node.content !== undefined) walk(node.content);
+  };
+  walk(parseHtml(html, { sourceCodeLocationInfo: true }));
+  return findings;
+}
+
+/** Every HTML file of the assembled source the build consumes: layouts, includes and `.html` pages. */
+export function siteMarkupFiles(sourceRoot) {
+  return readdirSync(sourceRoot, { recursive: true })
+    .map((path) => String(path).split(sep).join("/"))
+    .filter((path) => (/\.html?$/iu.test(path) || /^_includes\//u.test(path)) && statSync(join(sourceRoot, path)).isFile())
+    .sort();
+}
+
+/** Every stylesheet in the assembled site source the build consumes, source-relative. */
+export function siteStylesheets(sourceRoot) {
+  return readdirSync(sourceRoot, { recursive: true })
+    .map((path) => String(path).split(sep).join("/"))
+    .filter((path) => STYLE_EXTENSIONS.some((extension) => path.toLowerCase().endsWith(extension)) && statSync(join(sourceRoot, path)).isFile())
+    .filter((path) => path !== SITE_TOKEN_SHEET)
+    .sort();
+}
+
+/**
+ * Judges every stylesheet of the assembled source at `sourceRoot` against
+ * the owner at `root`, and every HTML file it consumes. Answers
+ * `{ sheets, markup, findings }`: the sheets and HTML files, and the findings
+ * of each (a sheet on the burn-down list is skipped; its upkeep, present and
+ * still failing, is the design test's).
+ */
+export function judgeSiteStyles({ root, sourceRoot }) {
+  const tokens = declaredTokens(readTokenOwner(readFileSync(join(root, "src/cockpit/tokens.css"), "utf8")));
+  const sheets = siteStylesheets(sourceRoot);
+  const findings = [];
+  for (const path of sheets) {
+    if (PALETTE_BURN_DOWN.has(path)) continue;
+    if (!path.toLowerCase().endsWith(".css")) {
+      findings.push(`${path}: a Sass source: the site's stylesheets are plain CSS, judged by one parser`);
+      continue;
+    }
+    const found = siteStyleViolations(readFileSync(join(sourceRoot, ...path.split("/")), "utf8"), { tokens });
+    findings.push(...found.map((finding) => `${path}:${finding}`));
+  }
+  const markup = siteMarkupFiles(sourceRoot);
+  for (const path of markup) {
+    findings.push(...siteMarkupViolations(readFileSync(join(sourceRoot, ...path.split("/")), "utf8")).map((finding) => `${path}:${finding}`));
+  }
+  return { sheets, markup, findings };
+}

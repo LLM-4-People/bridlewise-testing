@@ -155,6 +155,14 @@ function repository(extra: Readonly<Record<string, string>> = {}): string {
     "package.json": JSON.stringify({ name: "fixture", repository: { type: "git", url: "https://github.com/Example-Org/site-repo.git" } }),
     "engine/x.ts": "export {};\n",
     "shared/markup.ts": readFileSync(join(REAL_ROOT, "shared/markup.ts"), "utf8"),
+    // The design system the builder generates the site's design assets from
+    // (scripts/floor/site-design.mjs): the real token owner, the files its
+    // @font-face blocks name, and the shell's two stylesheets.
+    "src/cockpit/tokens.css": readFileSync(join(REAL_ROOT, "src/cockpit/tokens.css"), "utf8"),
+    ...Object.fromEntries([...readFileSync(join(REAL_ROOT, "src/cockpit/tokens.css"), "utf8").matchAll(/url\("\/(fonts\/[^"]+)"\)/gu)].map((match) => [`public/${match[1]}`, "woff2"])),
+    "public/fonts/OFL.txt": "licence\n",
+    "docs/assets/css/style.css": "body { color: var(--ink-1); background: var(--ground-0); }\n",
+    "docs/assets/floor/floor.css": "",
     "docs/_config.yml": "title: Fixture\nplugins:\n  - jekyll-sitemap\n",
     "docs/_layouts/default.html": "<html><body>{{ content }}</body></html>\n",
     "docs/index.md": "---\ntitle: Home\npermalink: /\n---\n\n# Home\n\n[Roadmap](floor/roadmap.md) · [Engine](../engine/x.ts)\n",
@@ -248,6 +256,18 @@ describe("D. the source step", () => {
     expect(tasks).toContain("{% raw %}\n# Tasks");
     expect(tasks.trimEnd().endsWith("{% endraw %}")).toBe(true);
     expect(readFileSync(join(out, "floor/roadmap.md"), "utf8")).toMatch(/^---\ntitle: Roadmap\npermalink: \/floor\/roadmap\/\n---/u);
+    // The design system's generated half: the sheet holds exactly what the
+    // shell reads (and what that reads), Logbook leads, the faces are served.
+    const sheet = readFileSync(join(out, "assets/css/tokens.css"), "utf8");
+    expect(sheet).toMatch(/^\/\* GENERATED from src\/cockpit\/tokens\.css/u);
+    expect(sheet).toMatch(/:root \{\n {2}color-scheme: light;\n/u);
+    expect(sheet).toContain("\n  --ground-0: #f6f4ef;\n");
+    // The mark's inks ride in the sheet, each part from its own token.
+    expect(sheet).toContain(".brand-mark > :nth-child(1) { fill: var(--ground-0); }");
+    expect(sheet).not.toContain("--cat-turn");
+    expect(readFileSync(join(out, "_includes/design-head.html"), "utf8")).toContain('<meta name="theme-color" content="#f6f4ef">');
+    expect(readFileSync(join(out, "_includes/brand-mark.svg"), "utf8")).toMatch(/^<svg class="brand-mark"/u);
+    expect(readFileSync(join(out, "assets/fonts/OFL.txt"), "utf8")).toBe("licence\n");
     const config = readFileSync(join(out, "_config.yml"), "utf8");
     // Every coordinate comes from package.json and the deployment's base path.
     expect(parse(config)).toMatchObject({
@@ -270,6 +290,47 @@ describe("D. the source step", () => {
     expect(JSON.parse(readFileSync(join(out, "versions.json"), "utf8"))).toEqual({ current: "main", versions: [] });
   });
 
+  test("a stylesheet that is not the design system's refuses the build (scripts/floor/site-style.mjs)", async () => {
+    const root = repository({
+      "docs/assets/css/style.css": "body { color: red; font-family: Georgia; }\n",
+      "docs/assets/css/extra.scss": "---\n---\n.a { color: #fff; }\n",
+    });
+    const refusal = await source({ root, out: join(root, ".site"), baseurl: "/b" }).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeInstanceOf(Error);
+    const lines = (refusal as Error).message.split("\n").map((line) => line.trim());
+    expect(lines[0]).toContain("3 style finding(s): ");
+    expect(lines).toContain("assets/css/extra.scss: a Sass source: the site's stylesheets are plain CSS, judged by one parser");
+    expect(lines.filter((line) => line.startsWith("assets/css/style.css:1:")).map((line) => line.replace(/^assets\/css\/style\.css:1:\d+ /u, ""))).toEqual([
+      "color: colour literal: red",
+      "font-family: not one --face-* token: Georgia",
+    ]);
+  });
+
+  test("a layout with a style of its own or a remote sheet refuses the build", async () => {
+    const root = repository({ "docs/_layouts/default.html": '<html><head><link rel="stylesheet" href="https://cdn.example/x.css"><style>p { color: var(--ink-1); }</style></head><body style="margin: 0">{{ content }}</body></html>\n' });
+    const refusal = await source({ root, out: join(root, ".site"), baseurl: "/b" }).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeInstanceOf(Error);
+    const lines = (refusal as Error).message.split("\n").map((line) => line.trim());
+    expect(lines[0]).toContain("3 style finding(s): ");
+    expect(lines.filter((line) => line.startsWith("_layouts/default.html:1 ")).map((line) => line.replace(/^_layouts\/default\.html:1 /u, ""))).toEqual([
+      '<link rel="stylesheet"> fetches from elsewhere: https://cdn.example/x.css',
+      "<style>: the styles live in the token-reading stylesheets",
+      "<body style=…>: the styles live in the token-reading stylesheets",
+    ]);
+  });
+
+  test("a page that wears no layout but renders as HTML is refused; a non-HTML page may", async () => {
+    const root = repository({
+      "docs/bare.md": "---\nlayout: null\ntitle: Bare\n---\n\n<style>p { color: red; }</style>\n",
+      "docs/app/index.html": "---\nlayout: none\npermalink: /app/\n---\n<!doctype html><html><head></head><body></body></html>\n",
+      "docs/feed.json": "---\nlayout: null\n---\n{}\n",
+      "docs/notes.txt": "---\nlayout: null\npermalink: /notes.txt\n---\nplain\n",
+    });
+    const refused = siteSourceViolations({ root }).filter((violation: string) => violation.includes("site_page_without_layout"));
+    expect(refused.map((violation: string) => violation.split(":")[0])).toEqual(["docs/app/index.html", "docs/bare.md"]);
+    await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/site_page_without_layout/u);
+  });
+
   test("a plain page holding {% endraw %} is refused (it would end the raw block early)", async () => {
     const root = repository({ "docs/process/x.md": "# X\n\n{% endraw %}\n" });
     await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/cannot contain \{% endraw %\}/u);
@@ -286,7 +347,8 @@ describe("D. the source step", () => {
     const out = join(root, ".site");
     await source({ root, out, baseurl: "/bridlewise" });
     const moved = readFileSync(join(out, "floor/trackers/TASKS.md/index.html"), "utf8");
-    expect(moved).toContain('location.replace("/bridlewise/trackers/TASKS/")');
+    expect(moved).toContain('<script src="moved.js"></script>');
+    expect(readFileSync(join(out, "floor/trackers/TASKS.md/moved.js"), "utf8")).toBe('location.replace("/bridlewise/trackers/TASKS/");\n');
     expect(moved).toContain('<a href="/bridlewise/trackers/TASKS/">');
     // `/trackers/TASKS.md` is the page's own source file in the Jekyll
     // source: the redirect folder cannot and does not take its name.

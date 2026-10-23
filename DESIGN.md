@@ -95,3 +95,50 @@ Motion is finite and event-bound through the existing motion owner. A confirmed
 change can receive one brief arrival treatment; idle surfaces do no decorative
 work. Honor reduced motion and keep feedback readable after movement ends.
 No continuous sparks, polling for animation, or new runtime dependencies.
+
+## Public surfaces
+
+The Pages site, the README images, the social cards and the icons wear the
+same system. They read `src/cockpit/tokens.css` through one reader,
+`shared/token-reader.ts`, and never restate a value. The site loads a sheet
+generated at build time: only the tokens its stylesheets read
+(`scripts/floor/site-design.mjs`). The owner's "public page" block adds the few
+measures a reading page needs: the page column, the prose measure, a fixed rem
+reading ramp and the one fluid display size.
+
+The public site leads in Logbook (paper); Carbon is the remembered alternative.
+A page is a logbook page. A section starts on a hairline, and a ledger starts
+on a heavy rule with dashed rules between its entries. A receipt is a white
+slip with dotted leaders and a mono stamp. A refusal pairs the model's call
+(the turn hue on its top edge) with the harness's answer (warn on its top edge,
+never the fill). A claim's state is a word in its state ink. Kickers are
+sentence case, never tracked capitals. Text is ink-1 or ink-2 only (ink-3 and
+ink-4 fail AA on paper). A page computes only token values: the few mixed
+inks a page needs (a link's underline, a limit's edge, a button's hover, the
+search scrim) are tokens in the owner's public-page block, never a mix in a
+site sheet.
+
+Three judges hold the site to this system, fastest first:
+- the build parses every stylesheet and every layout, include and HTML page
+  it hands Jekyll, and refuses what is not this system
+  (`scripts/floor/site-style.mjs`): a colour, duration or face that is not a
+  token `var()` (with no fallback), a theme or token declared outside the
+  owner, a mix, anything imported or fetched from elsewhere, a Sass source,
+  and a style or script written into markup;
+- the browser enforces the boundary: every page wears a layout (`default`,
+  or `standalone` for a page with its own body), and every layout carries
+  one Content-Security-Policy first (`shared/site-page.ts` `sitePolicy`).
+  Only the site's own scripts, sheets, fonts and images load, and there is
+  no inline script or `<style>`. The only style attributes are the Markdown
+  table alignments, allowed by hash;
+- the rendered judge (`scripts/rendered/`) loads every built page in both
+  themes and requires, in what the browser computed:
+  - the policy, first and exactly once, with no violation of it;
+  - no request leaving the origin;
+  - the mark drawn from its geometry;
+  - text only in the face stacks;
+  - every colour and duration a token's value.
+
+`tests/public/site-design-system.test.mjs` proves each static refusal and
+holds the text to 4.5:1 in both themes, and `scripts/rendered/proof.ts`
+proves each rendered row on planted breaks.

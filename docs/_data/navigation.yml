@@ -1,0 +1,75 @@
+# The site's one navigation source. The header, the phone menu and the
+# footer index are rendered from it (docs/_layouts/default.html); a page is
+# added to the site's navigation here and nowhere else. `path` is a site
+# permalink (the layout applies the base path); `url` is a project coordinate
+# from the builder-owned configuration.
+
+primary:
+  - title: Quickstart
+    path: /quickstart/
+  - title: Docs
+    path: /reading-map/
+  - title: Roadmap
+    path: /floor/roadmap/
+  - title: Decisions
+    path: /decisions/
+  - title: Evidence
+    path: /evidence/
+  - title: Limits
+    path: /security/
+
+sections:
+  - title: Use it
+    links:
+      - title: Quickstart
+        path: /quickstart/
+      - title: CLI reference
+        path: /cli/
+      - title: Codespaces
+        path: /codespaces/
+      - title: Run record
+        path: /run/
+      - title: Policy lab
+        path: /policy-lab/
+      - title: FAQ
+        path: /faq/
+  - title: Understand it
+    links:
+      - title: Reading map
+        path: /reading-map/
+      - title: Architecture
+        path: /architecture/
+      - title: Building on the harness
+        path: /extending/
+      - title: Design
+        path: /design/
+      - title: Design records
+        path: /design/records/
+      - title: Glossary
+        path: /glossary/
+  - title: Check it
+    links:
+      - title: Security and limits
+        path: /security/
+      - title: Known issues
+        path: /known-issues/
+      - title: Evidence
+        path: /evidence/
+      - title: Testing
+        path: /testing/
+      - title: Decision records
+        path: /decisions/
+      - title: Roadmap
+        path: /floor/roadmap/
+  - title: The project
+    links:
+      - title: Development floor
+        path: /floor/
+      - title: Contributor hub
+        path: /contribute/
+      - title: The repo as a run record
+        path: /github/
+      - title: Shipping
+        path: /shipping/
+      - title: llms.txt
+        path: /llms.txt
