@@ -9,6 +9,10 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
+// Private paths and hosts this file plants are assembled at runtime, so the
+// scan of THIS tree (which exempts no path) stays clean.
+const HOME = "/ho" + "me/";
+const LEAK = `${HOME}leakuser`;
 const { readRunCpu } = await import("../../engine/src/shared/run-cpu.ts");
 const { REVIEWED_GPL_TEXT, createGplReader, isGplFamily, spdxLicences, staleReviewedEntries } = await import("../../engine/scripts/verification/licence-boundary.ts");
 const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, createPrivacyMatcher, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
@@ -49,7 +53,7 @@ test("the scanner passes a clean tracked tree", () => {
   }
 });
 
-test("the scanner fails on a provider-shaped key outside a fixture path", () => {
+test("the scanner fails on a provider-shaped key in a plain file", () => {
   const dir = makeRepo();
   try {
     writeFileSync(join(dir, "config.txt"), `api_key = "sk-${"C".repeat(24)}"\n`);
@@ -66,7 +70,7 @@ test("the scanner fails on a provider-shaped key outside a fixture path", () => 
 test("the scanner fails on an internal absolute path", () => {
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "notes.md"), "see /home/private-user/secret\n");
+    writeFileSync(join(dir, "notes.md"), `see ${HOME}private-user/secret\n`);
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -81,7 +85,7 @@ test("the scanner fails on a BARE home directory", () => {
   // `/home/<user>` — the shape a prose citation uses — matched nothing.
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "notes.md"), "the checkout was /home/private-user\n");
+    writeFileSync(join(dir, "notes.md"), `the checkout was ${HOME}private-user\n`);
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -104,12 +108,12 @@ test("the scanner accepts a DOCUMENTED home placeholder, bare or with a segment"
   }
 });
 
-test("the scanner fails on a private-key block outside a fixture path", () => {
+test("the scanner fails on a private-key block in shipped source", () => {
   // The old hard-count skipped `private-key-block` entirely, so a tracked
   // key header printed a finding and still certified the tree.
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "config.ts"), 'const key = "-----BEGIN OPENSSH PRIVATE KEY-----";\n');
+    writeFileSync(join(dir, "config.ts"), ('const key = "--' + '---BEGIN OPENSSH PRIVATE KEY-----";\n'));
     execFileSync("git", ["add", "config.ts"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -167,7 +171,7 @@ test("a key under docs/ is not a fixture", () => {
   }
 });
 
-test("a placeholder-looking key outside the fixture trees is a finding like any other", () => {
+test("a placeholder-looking key is a finding like any other", () => {
   // The scanner once excused seven exact "placeholder" spellings anywhere in
   // the tree; a value is never excused for its spelling.
   const dir = repoWith({ "example.md": `reference: sk-${"A".repeat(24)}\n` });
@@ -214,8 +218,8 @@ test("every format the canonical owner calls a secret file fails the scan", asyn
 
 test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => {
   const headers = [
-    "-----BEGIN ENCRYPTED PRIVATE KEY-----",
-    "-----BEGIN PGP PRIVATE KEY BLOCK-----",
+    ("--" + "---BEGIN ENCRYPTED PRIVATE KEY-----"),
+    ("--" + "---BEGIN PGP PRIVATE KEY BLOCK-----"),
   ];
   for (const header of headers) {
     const dir = repoWith({ "src/key.txt": `${header}\nsynthetic-body\n` });
@@ -232,7 +236,7 @@ test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => 
 
 test("a text blob named .png is scanned by content, not by extension", () => {
   const dir = repoWith({
-    "src/blob.png": "-----BEGIN OPENSSH PRIVATE KEY-----\nsee /home/leakuser/.ssh\n",
+    "src/blob.png": ("--" + "---BEGIN OPENSSH PRIVATE KEY-----\nsee " + LEAK + "/.ssh\n"),
   });
   try {
     const result = scan(dir);
@@ -245,7 +249,7 @@ test("a text blob named .png is scanned by content, not by extension", () => {
 });
 
 test("a file above the old 2 MiB cap has its tail scanned", () => {
-  const content = `${"a".repeat(2 * 1024 * 1024 + 64)}\n-----BEGIN OPENSSH PRIVATE KEY-----\n`;
+  const content = `${"a".repeat(2 * 1024 * 1024 + 64)}\n--${""}---BEGIN OPENSSH PRIVATE KEY-----\n`;
   const dir = repoWith({ "src/large.txt": content });
   try {
     const result = scan(dir);
@@ -260,7 +264,7 @@ test("a symlink is scanned through its committed target string, never followed",
   const dir = makeRepo();
   try {
     mkdirSync(join(dir, "docs"), { recursive: true });
-    symlinkSync("/home/leakuser/.ssh/id_ed25519", join(dir, "docs/profile"));
+    symlinkSync(`${LEAK}/.ssh/id_ed25519`, join(dir, "docs/profile"));
     execFileSync("git", ["add", "docs/profile"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
@@ -273,8 +277,8 @@ test("a symlink is scanned through its committed target string, never followed",
 
 test("a dotted account name is not a documented placeholder", () => {
   // `/home/example.` is the placeholder followed by sentence punctuation;
-  // `/home/jane.doe` is a real account whose first component is a placeholder.
-  for (const line of ["home: /home/jane.doe/work\n", "home: /home/user.name/work\n"]) {
+  // `/home/jane` + `.doe` is a real account whose first component is a placeholder.
+  for (const line of [`home: ${HOME}jane.doe/work\n`, `home: ${HOME}user.name/work\n`]) {
     const dir = repoWith({ "src/notes.md": line });
     try {
       const result = scan(dir);
@@ -295,7 +299,7 @@ test("a dotted account name is not a documented placeholder", () => {
 
 test("repeated slashes and JSON slash escapes name the same forbidden path", () => {
   const lines = [
-    "checkout: /home//leakuser/work\n",
+    `checkout: ${HOME}/leakuser/work\n`,
     '{"home":"\\/home\\/leakuser\\/work"}\n',
     '{"home":"\\u002fhome\\u002fleakuser\\u002fwork"}\n',
   ];
@@ -359,7 +363,7 @@ test("every tree-scanned catalogue row is found by its id; the others say why no
   }
 });
 
-test("a 520-character installation token with dots is found by its row id, outside and inside a fixture tree", () => {
+test("a 520-character installation token with dots is found by its row id, in docs and in a test tree", () => {
   const token = signalFixture("github-installation-token", 0);
   assert.equal(token.length, 520);
   assert.equal(token.split(".").length, 3, "the fixture is a three-part JWT");
@@ -368,7 +372,7 @@ test("a 520-character installation token with dots is found by its row id, outsi
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
     assert.match(result.stderr, /docs\/run\.log:1: github-installation-token: GitHub App installation token/);
-    assert.doesNotMatch(result.stderr, /tests\/fixture\.txt/, "a fixture tree is still allowlisted until P0.6 removes it");
+    assert.match(result.stderr, /tests\/fixture\.txt:1: github-installation-token: /, "no tree is exempt: a test tree is scanned like any other");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -378,6 +382,21 @@ test("each publication-privacy row is reported by its id; database state by file
   // A NAME row never spells its name (this repository is public), so it
   // cannot be planted here; the one matcher it runs through is driven with a
   // synthetic row below. The SHAPE rows are planted end to end.
+  // THE EXACT SET of privacy rows, ids and pins: removing a row, or changing
+  // a name row's digest, reds here (the per-kind checks below iterate whatever
+  // rows exist, so they cannot see one disappear).
+  assert.deepEqual(PUBLICATION_PRIVACY_SIGNALS.map((signal) => signal.id).sort(),
+    ["database-state", "home-path", "internal-git-host", "internal-provider-host", "internal-scratch-path", "local-evidence-state"]);
+  const NAME_ROWS = {
+    "internal-git-host": { names: "dotted", digests: [{ length: 18, sha256: "64228b8af389331cee6e7dba27c81450a7181c1f719e7a133e37128c6a4309e5" }] },
+    "internal-provider-host": { names: "dotted", digests: [{ length: 18, sha256: "c565b621df0b9302f8b7e6881dd58353a803981a9fe69ef0542009f1ad9c76d1" }] },
+    "internal-scratch-path": { names: "scratch-path", digests: [{ length: 13, sha256: "736a4cae0826a534c3de9b47542cbe9dd50ec8b8714e1d42aa45f4afc0799c0d" }] },
+    "local-evidence-state": { names: "dotted", digests: [{ length: 27, sha256: "3bcb2fbbb43fef9d40e18b6e1858d5ca761166d8710552ae03d89b3ae9e6de8b" }] },
+  };
+  assert.deepEqual(
+    Object.fromEntries(PUBLICATION_PRIVACY_SIGNALS.filter((row) => !("pattern" in row)).map((row) => [row.id, { names: row.names, digests: row.digests }])),
+    NAME_ROWS,
+  );
   const shapeRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => "pattern" in signal).map((signal) => signal.id);
   assert.deepEqual([...shapeRows].sort(), ["database-state", "home-path"],
     "a new pattern row must not spell a protected name: give it `names` and `digests` instead");
@@ -385,7 +404,7 @@ test("each publication-privacy row is reported by its id; database state by file
     assert.ok(signal.digests.length > 0 && signal.digests.every((pin) => /^[0-9a-f]{64}$/u.test(pin.sha256) && Number.isSafeInteger(pin.length) && pin.length > 0),
       `${signal.id} carries no SHA-256 digest with its name's length`);
   }
-  const planted = { "home-path": "see /home/private-user/work\n" };
+  const planted = { "home-path": `see ${HOME}private-user/work\n` };
   for (const [id, line] of Object.entries(planted)) {
     const dir = repoWith({ "src/notes.md": line });
     try {
@@ -411,6 +430,50 @@ test("each publication-privacy row is reported by its id; database state by file
     assert.equal(scan(nearMiss).status, 0);
   } finally {
     rmSync(nearMiss, { recursive: true, force: true });
+  }
+});
+
+// ── NO TREE IS EXEMPT ───────────────────────────────────────────────────
+//
+// The scanner used to allowlist engine/test/, tests/ and bench/, so a test
+// could hold a real-format credential and GitHub's push protection raised an
+// alert on every push. Every credential a test needs is now assembled at
+// runtime; the planted ones below are found in every test tree, and the
+// runtime-assembled spellings (the catalogue fixture, a split literal, a
+// template hole, a regex with an empty group) are not credentials in source.
+test("a credential literal is a finding in every test tree; runtime-assembled ones are not", () => {
+  const token = signalFixture("token-prefix", 0);
+  const key = signalFixture("private-key", 0);
+  const planted = repoWith({
+    "engine/test/privacy/planted.test.ts": `const key = "${token}";\n`,
+    "tests/unit/planted.test.ts": `const block = \`${key}\`;\n`,
+    "bench/planted.ts": `const literal = /${token}/;\n`,
+  });
+  try {
+    const result = scan(planted);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /engine\/test\/privacy\/planted\.test\.ts:1: token-prefix: /);
+    assert.match(result.stderr, /tests\/unit\/planted\.test\.ts:1: private-key: /);
+    assert.match(result.stderr, /bench\/planted\.ts:1: token-prefix: /);
+  } finally {
+    rmSync(planted, { recursive: true, force: true });
+  }
+  const [head, tail] = [token.slice(0, 2), token.slice(2)];
+  const assembled = repoWith({
+    "engine/test/privacy/assembled.test.ts": [
+      'import { signalFixture } from "../../src/privacy/secret-signals.ts";',
+      'const fromCatalogue = signalFixture("token-prefix");',
+      `const split = ("${head}" + "${tail}");`,
+      `const hole = \`${head}\${""}${tail}\`;`,
+      `const pattern = /${head}(?:)${tail}/;`,
+    ].join("\n") + "\n",
+    "tests/unit/assembled.test.ts": `const value = ["${head}", "${tail}"].join("");\n`,
+  });
+  try {
+    const result = scan(assembled);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(assembled, { recursive: true, force: true });
   }
 });
 

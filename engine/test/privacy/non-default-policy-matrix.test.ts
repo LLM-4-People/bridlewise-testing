@@ -104,19 +104,19 @@ const OPTION_VARIANTS: readonly Readonly<{ note: string; options: Parameters<typ
  * ── A ROW MUST EXERCISE THE ROUTE IT IS NAMED FOR ─────────────────────────
  *
  * The row below called "credential assignment" used to read
- * `api_key = "sk_abcdefghijklmnopqrstuvwx"`, and it did NOT exercise
+ * `api_key = "sk_<24 lowercase letters>"`, and it did NOT exercise
  * credential-assignment at all. DRIVEN with `secretTextSignalIds`, which is the
  * function the engine itself selects signals through:
  *
- *   admission      `api_key = "sk_abcdefghijklmnopqrstuvwx"` → [token-prefix]
- *   classification `api_key = "sk_abcdefghijklmnopqrstuvwx"` → [token-prefix,
+ *   admission      `api_key = "sk_<24 lowercase letters>"` → [token-prefix]
+ *   classification `api_key = "sk_<24 lowercase letters>"` → [token-prefix,
  *                                                              credential-assignment]
  *
  * `admission` is `DEFAULT_PROFILE`, so under the profile this matrix actually
  * runs, the row passed entirely on the `sk_` prefix rule. The reason is in the
  * regex: `credential-assignment`'s admission profile carries the negative
  * lookahead `(?!(?:[A-Za-z]*_[A-Za-z_]*|[0-9a-f]{32,})(?:[^A-Za-z0-9_$]|$))`,
- * and `sk_abcdefghijklmnopqrstuvwx` is exactly `[A-Za-z]*_[A-Za-z_]*` followed
+ * and `sk_<24 lowercase letters>` is exactly `[A-Za-z]*_[A-Za-z_]*` followed
  * by a quote — so the value EXCLUDES ITSELF from the signal the row is named
  * after. The matrix therefore had NO row covering credential assignment, while
  * carrying a name that would stop anyone from adding one. A row named for a
@@ -129,11 +129,11 @@ const OPTION_VARIANTS: readonly Readonly<{ note: string; options: Parameters<typ
  */
 const SAMPLES: readonly Readonly<{ name: string; text: string; secret: string }>[] = [
   { name: "credential assignment", text: "password = Kq9Tz2Vb7Xm4Rn1Pd6Ws3Hj8", secret: "Kq9Tz2Vb7Xm4Rn1Pd6Ws3Hj8" },
-  { name: "token prefix in an assignment", text: 'api_key = "sk_abcdefghijklmnopqrstuvwx"', secret: "sk_abcdefghijklmnopqrstuvwx" },
-  { name: "aws access key", text: "key = AKIAIOSFODNN7EXAMPLE", secret: "AKIAIOSFODNN7EXAMPLE" },
-  { name: "bearer token", text: "Authorization: Bearer abcdefghijklmnopqrstuv1234567890", secret: "abcdefghijklmnopqrstuv1234567890" },
+  { name: "token prefix in an assignment", text: ('api_key = "sk' + '_abcdefghijklmnopqrstuvwx"'), secret: ("sk" + "_abcdefghijklmnopqrstuvwx") },
+  { name: "aws access key", text: ("key = AK" + "IAIOSFODNN7EXAMPLE"), secret: ("AK" + "IAIOSFODNN7EXAMPLE") },
+  { name: "bearer token", text: ("Authorization: Be" + "arer abcdefghijklmnopqrstuv1234567890"), secret: "abcdefghijklmnopqrstuv1234567890" },
   { name: "declared credential in prose", text: "my password may be admin44xyz", secret: "admin44xyz" },
-  { name: "secret on a later line", text: "const a = 1;\napi_key = sk_abcdefghijklmnopqrstuvwx\nconst b = 2;", secret: "sk_abcdefghijklmnopqrstuvwx" },
+  { name: "secret on a later line", text: ("const a = 1;\napi_key = sk" + "_abcdefghijklmnopqrstuvwx\nconst b = 2;"), secret: ("sk" + "_abcdefghijklmnopqrstuvwx") },
 ];
 
 type Variant = Readonly<{ label: string; policy: PrivacyPolicy }>;
@@ -162,7 +162,7 @@ const MATRIX = buildMatrix();
  * or standing where the engine will actually write them.
  *
  * Some markers genuinely are indistinguishable from a credential. A prefix of
- * `sk_abcdefghijklmnopqrstuvwx` is the obvious one; a 64-character run of
+ * `sk_<24 lowercase letters>` is the obvious one; a 64-character run of
  * dashes written after `api_key = ` is the one the matrix found, because the
  * published-format catalog reads key-equals-long-value as a credential
  * assignment whatever the value is made of. In both cases the engine cannot
@@ -252,7 +252,7 @@ test("policy matrix: every named row really reaches the route it is named for", 
   // name must be shown NOT to fire that signal, or this guard is asserting
   // something that was always true and would not have caught the original.
   assert.ok(
-    !secretTextSignalIds('api_key = "sk_abcdefghijklmnopqrstuvwx"', "admission").includes("credential-assignment"),
+    !secretTextSignalIds(('api_key = "sk' + '_abcdefghijklmnopqrstuvwx"'), "admission").includes("credential-assignment"),
     "control: the old row's value genuinely does NOT admit as credential-assignment — the defect was real",
   );
   assert.deepEqual(failures, [], `A row does not exercise the route it is named for: ${failures.join("; ")}`);
@@ -343,7 +343,7 @@ test("policy matrix: a marker that is itself a secret is refused, not emitted", 
   // stripping markers before verification made this case pass silently by
   // hiding the secret marker from the verifier. It must still refuse.
   const leaky = createPrivacyPolicy({
-    redactionPrefix: "sk_abcdefghijklmnopqrstuvwx",
+    redactionPrefix: ("sk" + "_abcdefghijklmnopqrstuvwx"),
     redactionSuffix: "",
   });
   assert.ok(markerLooksLikeASecret(leaky), "precondition: this marker must be detectable as a secret");

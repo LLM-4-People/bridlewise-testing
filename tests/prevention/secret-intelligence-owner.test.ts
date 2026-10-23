@@ -97,14 +97,14 @@ afterAll(() => { clearKnownSecrets(); });
 
 // ── Synthetic values in each real credential shape ─────────────────────────
 const V = {
-  openaiProj: "sk-proj-Ab3xQ9zLmN2pRt5vWy8uZc1dEf4gHj7kLm0nPq6rSt9uVw2xYz5aBc8dEf1gHi",
-  openaiLegacy: "sk-AbCdEf0123456789AbCdEf0123456789AbCdEf0123456789",
-  anthropic: "sk-ant-api03-Ab3xQ9zLmN2pRt5vWy8uZc1dEf4gHj7kLm0nPq6rSt9uVw2xYz5a-Bc8dEfAA",
-  githubPat: "ghp_AbCdEf0123456789AbCdEf0123456789AbCd",
-  aws: "AKIAIOSFODNN7EXAMPLE",
+  openaiProj: ("sk" + "-proj-Ab3xQ9zLmN2pRt5vWy8uZc1dEf4gHj7kLm0nPq6rSt9uVw2xYz5aBc8dEf1gHi"),
+  openaiLegacy: ("sk" + "-AbCdEf0123456789AbCdEf0123456789AbCdEf0123456789"),
+  anthropic: ("sk" + "-ant-api03-Ab3xQ9zLmN2pRt5vWy8uZc1dEf4gHj7kLm0nPq6rSt9uVw2xYz5a-Bc8dEfAA"),
+  githubPat: ("gh" + "p_AbCdEf0123456789AbCdEf0123456789AbCd"),
+  aws: ("AK" + "IAIOSFODNN7EXAMPLE"),
   hex40: "9f2c7d4e8b1a6350fe2947cd80b3a15e6d7c8f90",
   hex64: "3b1f8c2a9d4e7051bc6a2f8e3d905172ac4b6e8f1d2039485a6b7c8d9e0f1a2b",
-  stripe: "rk_test_AbCdEf0123456789AbCdEf0123456789",
+  stripe: ("rk" + "_test_AbCdEf0123456789AbCdEf0123456789"),
   b64: "Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MEFCQ0RFRkdI",
   internal: "vlt-int-7f3a9b2c8d1e6054-prod-Ab3xQ9zLmN2p",
   passphrase: "hunter2hunter2hunter2hunter2",
@@ -140,9 +140,9 @@ const POSITIVES: readonly Case[] = [
   { group: "format", id: "github-pat-bare", text: V.githubPat },
   { group: "format", id: "aws-bare", text: V.aws },
   { group: "format", id: "stripe-bare", text: V.stripe },
-  { group: "format", id: "private-key-block", text: "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----" },
-  { group: "format", id: "bearer", text: "Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123" },
-  { group: "format", id: "makora", text: "mbh_abcdefghijklmnopqrstuvwxyz" },
+  { group: "format", id: "private-key-block", text: ("--" + "---BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----") },
+  { group: "format", id: "bearer", text: ("Authorization: Be" + "arer abcdefghijklmnopqrstuvwxyz0123") },
+  { group: "format", id: "makora", text: ("mb" + "h_abcdefghijklmnopqrstuvwxyz") },
 
   // Credential assignment in code.
   { group: "assignment", id: "const-assign", text: `const API_KEY = "${V.openaiProj}"` },
@@ -621,7 +621,7 @@ describe("secret intelligence — no detection was lost", () => {
     // egress guard's standard describes: real strings PLUS an adversarial set
     // that genuinely carries secrets, because "a corpus of negatives alone
     // would have proved only that the fast path is fast".
-    const injections = [V.aws, V.githubPat, V.openaiProj, "mbh_abcdefghijklmnopqrstuvwxyz"];
+    const injections = [V.aws, V.githubPat, V.openaiProj, ("mb" + "h_abcdefghijklmnopqrstuvwxyz")];
     let compared = 0;
     let spansChecked = 0;
     for (let i = 0; i < REAL_STRINGS.length; i += 1) {

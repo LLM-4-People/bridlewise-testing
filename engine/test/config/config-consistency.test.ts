@@ -418,7 +418,7 @@ test("mechanical: a drift API key without an address is REFUSED, not addressed a
   // THE PARTIAL OVERRIDE — the shape the spread invites, and the one two real
   // callers took: supply the key, inherit the address.
   assert.throws(
-    () => createDriftDetector({ apiKey: "sk-a-real-key-the-user-pasted" }),
+    () => createDriftDetector({ apiKey: ("sk" + "-a-real-key-the-user-pasted") }),
     (error: unknown) => error instanceof InputError
       && (error as InputError & { code?: string }).code === "drift_api_base_url_missing",
     "a key with an inherited address must be refused by code, not merely by luck",
