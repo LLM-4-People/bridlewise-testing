@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
@@ -16,8 +16,11 @@ import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES } from "../ke
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
-import { PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256 } from "../kernel/architecture-external-commands.ts";
-import { verifyExternalCommands, type ArchitectureSource } from "../../scripts/verification/architecture.ts";
+import {
+  externalCommandSourceFinding,
+  PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256,
+} from "../kernel/architecture-external-commands.ts";
+import { readExternalCommandSources, verifyExternalCommands } from "../../scripts/verification/architecture.ts";
 import { currentConfigContractArtifact, generateAutoGeneratorReport, type AutoGeneratorReport } from "./auto-generator.ts";
 import {
   generatedOutputPaths,
@@ -1289,7 +1292,7 @@ export function communityFilesStep(communityFiles: CommunityFilesArm): CheckStep
  * module the IssueOps commands read too). A typed refusal is the arm's
  * `refused` answer, so `harness check` names it as a failing step.
  */
-export function regenerateCommunityFiles(root: string, write: boolean): CommunityFilesArm {
+function regenerateCommunityFiles(root: string, write: boolean): CommunityFilesArm {
   try {
     const report = syncCommunityFiles(trackedTop(root), write);
     return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed, refusal: "" });
@@ -2026,33 +2029,21 @@ function registrarDriftMessage(report: ModuleRegistrarReport): string {
  *
  * The verifier names a declared-absent `not-published` source on every run so
  * the boundary is never silent (the S1 tests assert exactly that list). For
- * the commit gate those names are the declaration itself; everything else the
- * verifier reports — a missing or drifted published source, an
- * unexpectedly-published `not-published` source, an unreadable source, or the
- * published POPULATION moving off its authored pin — refuses.
+ * the commit gate those names are the declaration itself — the ones
+ * `externalCommandSourceFinding` (the one publication rule) classes
+ * `declared-absent`; everything else the verifier or the one reader
+ * (`readExternalCommandSources`) reports — a missing or drifted published
+ * source, an unexpectedly-published `not-published` source, an unreadable
+ * source, or the published POPULATION moving off its authored pin — refuses.
  */
 function externalCommandCheckViolations(root: string): readonly string[] {
   const violations: string[] = [];
-  const sources: ArchitectureSource[] = [];
-  const maximumSourceBytes = ARCHITECTURE_MANIFEST.analysisLimits.maximumSourceBytes;
+  const sources = readExternalCommandSources(root, ARCHITECTURE_MANIFEST, violations);
+  const sourceByPath = new Map(sources.map((entry) => [entry.path, entry.source] as const));
   const declaredAbsence = new Set<string>();
   for (const command of ARCHITECTURE_MANIFEST.externalCommands) {
-    const absolute = resolve(root, command.path);
-    if (command.publication === "not-published" && !existsSync(absolute)) {
-      declaredAbsence.add(`architecture-external-command-source-not-published:${command.path}`);
-      continue;
-    }
-    try {
-      if (statSync(absolute).size > maximumSourceBytes) {
-        violations.push(`architecture-external-command-source-too-large:${command.path}`);
-        continue;
-      }
-      sources.push({ path: command.path, source: readFileSync(absolute, "utf8") });
-    } catch (error) {
-      violations.push(
-        `architecture-external-command-source-unreadable:${command.path}:${extractErrorMessage(error)}`,
-      );
-    }
+    const finding = externalCommandSourceFinding(command, sourceByPath.get(command.path));
+    if (finding.kind === "declared-absent") declaredAbsence.add(finding.violation);
   }
   const moduleByPath = new Map(ARCHITECTURE_MANIFEST.modules.map((module) => [module.path, module] as const));
   const verifierViolations: string[] = [];

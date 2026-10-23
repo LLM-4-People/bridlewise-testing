@@ -378,7 +378,7 @@ describe("responsive project rows, measurements and deliberate sorting", () => {
 
 describe("projectNameFromFolder — dir name + the day of the choice", () => {
   test("the last path segment plus the ISO day of the supplied instant", () => {
-    expect(projectNameFromFolder("/home/ada/bridlewise-testing", Date.parse("2026-08-25T15:04:00Z"))).toBe(
+    expect(projectNameFromFolder("/home/alice/bridlewise-testing", Date.parse("2026-08-25T15:04:00Z"))).toBe(
       "bridlewise-testing 2026-08-25",
     );
   });
@@ -415,10 +415,10 @@ describe("caps with colliding names get a path hint", () => {
   });
   test("the shortest distinguishing trailing path segments, per collider — unique names get none", () => {
     const hints = capPathHints([
-      { id: "a", name: "harness", path: "/home/ada/main/harness" },
-      { id: "b", name: "harness", path: "/home/ada/experiments/harness" },
+      { id: "a", name: "harness", path: "/home/alice/main/harness" },
+      { id: "b", name: "harness", path: "/home/alice/experiments/harness" },
       { id: "c", name: "harness", path: "/srv/checkouts/main/harness" },
-      { id: "d", name: "other", path: "/home/ada/other" },
+      { id: "d", name: "other", path: "/home/alice/other" },
     ]);
     // "harness" alone distinguishes nobody; one more segment does for a and
     // b; c's "main/harness" collides with a's, so a and c both need the
@@ -443,7 +443,7 @@ describe("caps with colliding names get a path hint", () => {
 
 describe("folderTail — last two segments of a project path", () => {
   test("two-or-more segments keep the last two", () => {
-    expect(folderTail("/home/ada/main/harness")).toBe("main/harness");
+    expect(folderTail("/home/alice/main/harness")).toBe("main/harness");
     expect(folderTail("/tmp/p2")).toBe("tmp/p2");
   });
 

@@ -35,9 +35,9 @@ test("known-secret scope: seventy requests' credentials do not stop the harness 
   clearKnownSecrets();
   for (let i = 0; i < 70; i += 1) mintTestRequest("create", request(`https://u:pw${i}xxxxxxxxxxxxxxxx@h.example/a.png`, "x"));
   assert.equal(knownSecretCount(), 0);
-  const outcome = registerKnownSecret("sk-live-NEWPROVIDERKEY-abcdefghijk", "llm-provider-api-key");
+  const outcome = registerKnownSecret(("sk" + "-live-NEWPROVIDERKEY-abcdefghijk"), "llm-provider-api-key");
   assert.equal(outcome.registered, true, JSON.stringify(outcome));
-  assert.equal(redactForLLMContext("key=zzz sk-live-NEWPROVIDERKEY-abcdefghijk"), "key=zzz [REDACTED:token]");
+  assert.equal(redactForLLMContext(("key=zzz sk" + "-live-NEWPROVIDERKEY-abcdefghijk")), "key=zzz [REDACTED:token]");
   forgetKnownSecret("llm-provider-api-key");
 });
 

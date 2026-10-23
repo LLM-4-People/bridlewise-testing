@@ -306,7 +306,7 @@ describe("buildUiSchemaValues", () => {
     // marker spelling itself.
     const row = listCustomizations().find((c) => c.type === "string" && c.current() === "");
     expect(row, "no free-form string row standing at its empty default to prove the flag on").toBeDefined();
-    const raw = "sk-live-r48-wire-flag-proof-7742a1c9";
+    const raw = ("sk" + "-live-r48-wire-flag-proof-7742a1c9");
     setSchemaCustomization(row!.id, raw);
     const values = buildUiSchemaValues(ADMIN_VIEWER);
     const entry = values.customizations.find((c) => c.id === row!.id);

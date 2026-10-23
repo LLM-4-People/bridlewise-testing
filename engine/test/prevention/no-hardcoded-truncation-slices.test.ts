@@ -36,8 +36,11 @@ const SRC_DIR = join(ROOT, "src");
  * the integration src (`.ts` + `.mjs`). Must only DECREASE. Update after a
  * cleanup round lowers the count. A new slice (count > baseline) fails the
  * test. The baseline was lowered when the dead `.mjs` smart-edit package was
- * deleted (its slices left with it) — re-derive by counting, never by hand. */
-const BASELINE_TRUNCATION_SLICE_COUNT = 111;
+ * deleted (its slices left with it) — re-derive by counting, never by hand.
+ * 108 (from 111): three of the snapshot's own slices now read named lengths at
+ * their config owners (#450: the workspace id's nonce, the tree writer's
+ * mismatch lists twice). */
+const BASELINE_TRUNCATION_SLICE_COUNT = 108;
 
 /** `.slice(0, <literal>=1` or `.slice(0, <literal>=10` — a numeric
  * truncation cap. Matches literals >= 1 (a cap of 0 is degenerate). */
