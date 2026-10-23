@@ -6,7 +6,7 @@
  * repositories. The source is the `forge` section: the organisation, the
  * web origin, and the repository of kind `trunk`.
  *
- * Renaming the repository (runbook P1.10: bridlewise-testing → bridlewise)
+ * Renaming the repository (runbook P1.10)
  * is then one value in `bridlewise.config.json`, landed together with the
  * GitHub-side rename. Code reads it here, and generated files are
  * regenerated from it.
@@ -23,7 +23,7 @@ import { trunkRepository, type ForgeSettings } from "./forge-config.ts";
 export type RepositoryIdentity = Readonly<{
   /** The organisation (`LLM-4-People`). */
   owner: string;
-  /** The repository's name (`bridlewise-testing`). */
+  /** The repository's name (the trunk's, in the forge section). */
   name: string;
   /** `owner/name`, as the API and `actions/checkout` name it. */
   fullName: string;

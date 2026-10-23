@@ -17,9 +17,10 @@
  *    internal link crawl over every page (snapshots included) and the design
  *    coverage over the pages this build rendered.
  *
- * `buildRedirectSite` writes the static site that answers the old
- * `/bridlewise-testing/` base path (Pages URLs do not follow a repository
- * rename): every old URL lands on the same path under the current site.
+ * `buildRedirectSite` writes the static site that answers the old base path
+ * (`LEGACY_BASEURL`, scripts/floor/repository.mjs; Pages URLs do not follow
+ * a repository rename): every old URL lands on the same path under the
+ * current site.
  *
  * Nothing here reads another repository or a network: the inputs are this
  * tree and the snapshot folder the workflow downloaded and verified.
