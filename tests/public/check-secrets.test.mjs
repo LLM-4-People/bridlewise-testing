@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
 const { readRunCpu } = await import("../../engine/src/shared/run-cpu.ts");
-const { REVIEWED_GPL_TEXT, staleReviewedEntries } = await import("../../engine/scripts/verification/licence-boundary.ts");
+const { REVIEWED_GPL_TEXT, createGplReader, isGplFamily, spdxLicences, staleReviewedEntries } = await import("../../engine/scripts/verification/licence-boundary.ts");
 const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, createPrivacyMatcher, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
@@ -581,13 +581,23 @@ test("a large JSON document costs the scanner about what its raw lines do: no pe
 // The GPL spellings are assembled at runtime, so this file carries none.
 const GPL_SPDX = "SPDX-License-" + "Identifier: GPL-2.0-only";
 const LGPL_TITLE = "GNU LESSER GENERAL " + "PUBLIC LICENSE";
-const GPL_NOTICE = " * it under the terms of the GNU General " + "Public License as published by\n * the Free Software Foundation.";
+// The licence's noun, never adjacent to its notice in this source (the scan reads words across lines).
+const L_WORD = ["Lic", "ense"].join("");
+const GPL_NOTICE = ` * it under the terms of the GNU General Public ${L_WORD} as published by\n * the Free Software Foundation.`;
 
 test("GPL-licensed text is refused in every tree, by its SPDX id, licence title or notice", () => {
   const dir = repoWith({
     "engine/test/fixtures/vendored.c": `/* ${GPL_SPDX} */\nint main(void) { return 0; }\n`,
     "docs/notices/lgpl.txt": `${LGPL_TITLE}\n`,
     "src/lib/notice.ts": `/*\n${GPL_NOTICE}\n */\nexport {};\n`,
+    // The canonical LGPL-2.1 notice split across lines, read through the file's one reader.
+    "src/lib/split.c": [
+      "/*",
+      " * This library is free software; you can redistribute it and/or",
+      " * modify it under the terms of the GNU Lesser General",
+      ` * Public ${L_WORD} as published by the Free Software Foundation.`,
+      " */",
+    ].join("\n") + "\n",
   });
   try {
     const result = scan(dir);
@@ -595,6 +605,7 @@ test("GPL-licensed text is refused in every tree, by its SPDX id, licence title 
     assert.match(result.stderr, /engine\/test\/fixtures\/vendored\.c:1: gpl-licence-text: GPL-licensed text \(spdx: GPL-2\.0-only\)/u, "a test tree is not exempt");
     assert.match(result.stderr, /docs\/notices\/lgpl\.txt:1: gpl-licence-text: GPL-licensed text \(title: /u);
     assert.match(result.stderr, /src\/lib\/notice\.ts:2: gpl-licence-text: GPL-licensed text \(notice: /u);
+    assert.match(result.stderr, /src\/lib\/split\.c:4: gpl-licence-text: GPL-licensed text \(notice: /u, "a notice split across lines is one notice");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -620,4 +631,48 @@ test("the reviewed GPL-text allowlist is explicit, and an entry with no GPL text
   const reviewed = new Map([["vendor/a.c", "reviewed: a reason"], ["vendor/b.c", "reviewed: another"]]);
   assert.deepEqual(staleReviewedEntries(new Set(["vendor/a.c"]), reviewed), ["vendor/b.c"]);
   assert.deepEqual(staleReviewedEntries(new Set(["vendor/a.c", "vendor/b.c"]), reviewed), []);
+});
+
+test("real GPL variants are read: split notices, title variants, lower-case and compound SPDX expressions", () => {
+  // Every spelling is assembled at runtime (this file carries none).
+  const G = "General " + "Public License";
+  const SPDX_ID = "SPDX-License-" + "Identifier:";
+  const markers = (lines) => {
+    const reader = createGplReader();
+    return lines.flatMap((line, index) => reader.push(line).map((found) => `${String(index + 1)}:${found.marker}:${found.text}`));
+  };
+  // (1) The canonical LGPL-2.1 notice, split across four comment lines: one notice, at the line that completes it.
+  assert.deepEqual(markers([
+    " * This library is free software; you can redistribute it and/or",
+    ` * modify it under the terms of the GNU Lesser ${G.split(" ")[0]} ${G.split(" ")[1]}`,
+    ` * ${G.split(" ")[2]} as published by the Free Software Foundation; either`,
+    " * version 2.1 of the License, or (at your option) any later version.",
+  ]), ["3:notice:the GNU General Public License notice"]);
+  // (2) Title variants: a heading leader, title case, the version on the same line, and the library form.
+  for (const title of [`# GNU ${G.toUpperCase()}`, `GNU ${G}`, `GNU ${G.toUpperCase()} Version 2, June 1991`, `   GNU LIBRARY ${G.toUpperCase()}`, `## GNU Lesser ${G}, version 2.1`]) {
+    assert.deepEqual(markers([title]).map((found) => found.split(":")[1]), ["title"], title);
+  }
+  // (3) Lower-case and compound SPDX expressions.
+  for (const [line, ids] of [
+    [`// ${SPDX_ID} gpl-2.0-only`, ["gpl-2.0-only"]],
+    [`# ${SPDX_ID} MIT AND GPL-2.0-only`, ["GPL-2.0-only"]],
+    [`/* ${SPDX_ID} (MIT OR GPL-2.0-or-later) */`, ["GPL-2.0-or-later"]],
+    [`${SPDX_ID} GPL-2.0-only WITH Linux-syscall-note`, ["GPL-2.0-only"]],
+    [`${SPDX_ID} LGPL-2.1+`, ["LGPL-2.1+"]],
+  ]) {
+    assert.deepEqual(markers([line]).map((found) => found.split(":").slice(2).join(":")), ids, line);
+  }
+  // (4) A lower-case notice on one line.
+  assert.deepEqual(markers([`it under the terms of the gnu ${G.toLowerCase()} as published by the foundation`]).map((found) => found.split(":")[1]), ["notice"]);
+  // Near misses: the project's own AGPL, permissive expressions, an exception name, prose.
+  for (const line of [
+    `${SPDX_ID} AGPL-3.0-only`, `${SPDX_ID} MIT OR Apache-2.0`, `${SPDX_ID} Apache-2.0 WITH LLVM-exception`,
+    `GNU AFFERO ${G.toUpperCase()}`, `under the terms of the GNU Affero ${G} as published by`,
+    "git's path.c is GPL-2.0-only, fetched for testing", "the GNU project", `see the GNU ${G} for details`,
+  ]) {
+    assert.deepEqual(markers([line]), [], line);
+  }
+  assert.deepEqual(spdxLicences("(MIT OR GPL-2.0-only) AND Apache-2.0 WITH LLVM-exception"), ["MIT", "GPL-2.0-only", "Apache-2.0"]);
+  assert.equal(isGplFamily("gpl-3.0-or-later"), true);
+  assert.equal(isGplFamily("AGPL-3.0-only"), false);
 });

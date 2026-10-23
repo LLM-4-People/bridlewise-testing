@@ -5714,7 +5714,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-verification-licence-boundary", path: "scripts/verification/licence-boundary.ts", realm: "builder", layer: "verification",
-      owner: "verification-foundation", publicApi: { exportCount: 4, namesSha256: "af1d1168297ed5790649cb7161311bda5f9fd1b5b2fc97b1606c238f6aea07a8" },
+      owner: "verification-foundation", publicApi: { exportCount: 6, namesSha256: "b49b635e37bb38efeb5819fbf927ccc937c9d2a1e4995eaab0014398a57736b1" },
       dependencies: [],
     }),
   ],

@@ -63,7 +63,7 @@ import { publicationPrivacyFindings, treeScannedSignals } from "../engine/src/pr
 // The licence boundary over the tree (no GPL-licensed bytes committed): the
 // same walk asks it about every line, and its reviewed allowlist is the only
 // admission.
-import { gplMarkers, REVIEWED_GPL_TEXT, staleReviewedEntries } from "../engine/scripts/verification/licence-boundary.ts";
+import { createGplReader, REVIEWED_GPL_TEXT, staleReviewedEntries } from "../engine/scripts/verification/licence-boundary.ts";
 
 const ROOT = resolve(process.cwd());
 // At or below this size a file is read in one pass. Above it, it is streamed
@@ -193,10 +193,14 @@ function scanJsonDocument(path, text, fixture) {
 
 /** Paths whose text carried a GPL-licence marker (for the allowlist's staleness check). */
 const gplCarriers = new Set();
+// One GPL reader per file, in line order (a notice can span lines): a new
+// path starts a new reader.
+let gplReading = { path: undefined, reader: undefined };
 
 /** Run the path rules and the content rules over one line of text. */
 function scanText(path, lineNumber, line, fixture) {
-  for (const marker of gplMarkers(line)) {
+  if (gplReading.path !== path) gplReading = { path, reader: createGplReader() };
+  for (const marker of gplReading.reader.push(line)) {
     gplCarriers.add(path);
     // Never a fixture exemption: a test tree may not carry GPL text either.
     if (!REVIEWED_GPL_TEXT.has(path)) report(path, lineNumber, "gpl-licence-text", `GPL-licensed text (${marker.marker}: ${marker.text}); this AGPL tree carries no GPL bytes — fetch it for testing (the corpus) or add a reviewed entry to engine/scripts/verification/licence-boundary.ts`, false);
