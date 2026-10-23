@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLAKY-LIVE-MCP-ARMS-RETIRE
 type: Task
 title: Retire the two hermetic live MCP arms from the flaky list

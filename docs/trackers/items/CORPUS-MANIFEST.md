@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: CORPUS-MANIFEST
 type: Task
 title: Publish the corpus manifest
