@@ -1869,14 +1869,6 @@
       "blocksFullRepositoryClaim": false
     },
     {
-      "path": "test/prevention/integration-manifest-consistency.test.ts",
-      "language": "javascript-typescript",
-      "disposition": "canonical-node-test",
-      "rationale": "Auto-registered by npm test auto-heal.",
-      "evidenceLinks": [],
-      "blocksFullRepositoryClaim": false
-    },
-    {
       "path": "test/prevention/integration-memory-owner.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4285,5 +4277,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "a707ce22c66fb34474e05318c9da0a39b083cc4990ca31976e07ce6b0b51ebe9"
+  "integrityHash": "b73e91c5e90a1057405f133e232547d76f193d862f9184051d44b33f1301c860"
 }

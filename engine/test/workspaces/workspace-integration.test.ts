@@ -72,7 +72,7 @@ const PIN_B = "b".repeat(64);
 const PIN_C = "c".repeat(64);
 /** A pin-bearing generated output (a hash-binding target) and a wholly generated one, repository-relative. */
 const PIN_BEARING = "engine/src/kernel/root-policy.ts";
-const WHOLESALE = "engine/src/architecture-manifest.ts";
+const WHOLESALE = "engine/traceability/artifacts/manifest.json";
 /**
  * The pin-bearing file's text: a REAL binding's pin (the config contract's
  * `sourceSha256`, located by its registry `findRegex`) and an authored body.
@@ -707,7 +707,7 @@ test("never-leasable: a wholly generated output or a state path cannot enter a w
   const workspaceRoot = mkWorkspaceTempDir("ws-neverlease-wt");
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
   await assert.rejects(() => manager.create({ agentName: "agentA", mode: "feature", writeSet: [WHOLESALE] }), throwsCode("workspace_write_set_never_leasable"));
-  await assert.rejects(() => manager.create({ agentName: "agentA", mode: "feature", writeSet: ["engine/src"] }), throwsCode("workspace_write_set_never_leasable"), "a directory covering a generated output is refused too");
+  await assert.rejects(() => manager.create({ agentName: "agentA", mode: "feature", writeSet: ["engine/traceability"] }), throwsCode("workspace_write_set_never_leasable"), "a directory covering a generated output is refused too");
   await assert.rejects(() => manager.create({ agentName: "agentA", mode: "feature", writeSet: ["engine/.bridlewise/state"] }), throwsCode("workspace_write_set_never_leasable"));
   const record = await manager.create({ agentName: "agentA", mode: "feature", writeSet: [PIN_BEARING] });
   assert.deepEqual(record.lease.writeSet, [PIN_BEARING]);

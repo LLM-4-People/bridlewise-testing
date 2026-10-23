@@ -254,9 +254,7 @@ export function registeredOpenArchitectureDiagnostics(): readonly string[] {
 }
 
 export function isMovingProjectionDiagnostic(diagnostic: string): boolean {
-  return diagnostic.startsWith("architecture-public-api-drift:") ||
-    diagnostic.startsWith("architecture-dependency-drift:") ||
-    diagnostic === "architecture-module-registration-drift" ||
+  return diagnostic === "architecture-module-registration-drift" ||
     diagnostic === "production-graph-incomplete-or-extra" ||
     diagnostic.startsWith("artifact-") ||
     diagnostic.startsWith("s2-behavior-test-missing:") ||
@@ -341,8 +339,8 @@ export function assertArchitectureBaselineClean(): void {
   assert.ok(gitOwnerFacts.directEffectFacts.some((fact) =>
     fact.ownerLabel === "git-invocation" && fact.effects.includes("git")));
   assert.ok(ARCHITECTURE_MANIFEST.modules.find((module) => module.path === gitOwner)!.effects.includes("git"));
-  assert.ok(ARCHITECTURE_MANIFEST.modules.find((module) =>
-    module.path === "scripts/tooling/candidate-manifest.ts")!.dependencies.includes(gitOwner));
+  const candidateManifest = "scripts/tooling/candidate-manifest.ts";
+  assert.ok(analyzeArchitectureSource(candidateManifest, readFileSync(join(REPOSITORY_ROOT, candidateManifest), "utf8")).dependencies.includes(gitOwner));
   // The architecture-manifest changes fixed ALL architecture-effect-owner /
   // architecture-effect-unmodeled / architecture-reverse-layer /
   // architecture-realm-direction / architecture-open-blocking-finding
