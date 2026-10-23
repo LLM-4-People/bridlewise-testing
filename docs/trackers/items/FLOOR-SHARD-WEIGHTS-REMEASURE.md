@@ -1,11 +1,13 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-SHARD-WEIGHTS-REMEASURE
 type: Task
 title: Re-measure the shard weights at the manifest's own head
 state: closed
 resolution: completed
 lane: floor
+evidence: https://github.com/LLM-4-People/bridlewise-testing/actions/runs/39470087124
 opened: 2026-10-20
 closed: 2026-10-20
 ---
