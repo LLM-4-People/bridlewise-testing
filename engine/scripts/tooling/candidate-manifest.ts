@@ -930,19 +930,26 @@ function safePathLabel(path: string): string {
   }
 }
 
-function parseRootArgument(argv: readonly string[]): string {
-  if (argv.length !== 2 || argv[0] !== "--root" || argv[1] !== ".") {
-    throw new Error("Usage: candidate-manifest --root .");
+/**
+ * `--root .` prints the manifest; `--root . --verdict` prints only whether the
+ * engine runner would accept the tree (`{"accepted":true,"files":N}`), the
+ * question `harness check`'s candidate-format step asks. A refusal is the same
+ * either way: its violations on stderr, exit 1.
+ */
+function parseArguments(argv: readonly string[]): Readonly<{ root: string; verdict: boolean }> {
+  const verdict = argv.length === 3 && argv[2] === "--verdict";
+  if ((argv.length !== 2 && !verdict) || argv[0] !== "--root" || argv[1] !== ".") {
+    throw new Error("Usage: candidate-manifest --root . [--verdict]");
   }
-  return resolve(argv[1]);
+  return { root: resolve(argv[1]), verdict };
 }
 
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
   try {
-    process.stdout.write(`${canonicalJson(buildCandidateManifest(
-      rawSafeRepositoryRootAccess(parseRootArgument(process.argv.slice(2))),
-    ))}\n`);
+    const { root, verdict } = parseArguments(process.argv.slice(2));
+    const manifest = buildCandidateManifest(rawSafeRepositoryRootAccess(root));
+    process.stdout.write(`${canonicalJson(verdict ? { accepted: true, files: manifest.files.length } : manifest)}\n`);
   } catch (error) {
     const violations = candidateFormatErrorViolations(error) ?? ["candidate-manifest-unavailable"];
     process.stderr.write(`${canonicalJson({

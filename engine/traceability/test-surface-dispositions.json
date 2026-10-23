@@ -3845,6 +3845,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/candidate-format-check.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/community-health-files.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4301,5 +4309,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "bcfd2d8acdb691f6ed223d620a5ae00b645265c4305c5f25f893fea856dcc1b5"
+  "integrityHash": "6ed64d6951c0a4592b491fa9297e424f26a3edc64f768ac682275de1eee100bb"
 }
