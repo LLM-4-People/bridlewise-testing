@@ -45,7 +45,8 @@ import { stageInCopy } from "../../src/git/working-copy.ts";
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { movePath } from "../../src/filesystem/move-path.ts";
 import { regenerateHandoffManifest } from "../../scripts/regenerate-handoff-manifest.ts";
-import { writeTestInventoryTransaction } from "../../scripts/test-inventory.ts";
+import { buildTestInventory, writeTestInventoryTransaction } from "../../scripts/test-inventory.ts";
+import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { experimentExclusion, walk } from "../../scripts/verification/source-walk.ts";
@@ -662,14 +663,16 @@ test("prevention: a checkout-owned LINK pointing outside is judged where it is, 
 });
 
 test("prevention: the raw-rename and raw-write generators are refused too (test inventory transaction, handoff manifest)", () => {
-  const inventoryPath = join(ROOT, "traceability", "s1-test-inventory.json");
-  const before = readFileSync(inventoryPath);
+  // The inventory is a cache of the tree, never committed (#279): a fresh checkout (every CI job) holds no file, so
+  // the inventory written is the owner's own build, and the cache is unchanged — still absent, or still its bytes.
+  const inventoryPath = join(ROOT, VERIFICATION_PATHS.testInventory);
+  const before = existsSync(inventoryPath) ? readFileSync(inventoryPath) : null;
   assert.throws(
-    () => writeTestInventoryTransaction(ROOT, JSON.parse(before.toString("utf8"))),
+    () => writeTestInventoryTransaction(ROOT, buildTestInventory(ROOT)),
     (error: unknown) => (error as { code?: string }).code === CHECKOUT_WRITE_REFUSAL_CODE,
     "the inventory's renameSync commit asks the door before staging anything",
   );
-  assert.ok(readFileSync(inventoryPath).equals(before));
+  assert.deepEqual(existsSync(inventoryPath) ? readFileSync(inventoryPath) : null, before, "the refused write left the cache as it was");
   const manifest = join(ROOT, "traceability", "canonical", "handoff-protocol-manifest.json");
   const manifestBefore = readFileSync(manifest);
   assert.throws(() => regenerateHandoffManifest(manifest),
