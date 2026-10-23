@@ -962,7 +962,7 @@ test("test discovery policy centrally binds recursive traversal and explicit exe
     },
     dispositionRegistry: {
       manifestPath: "traceability/test-surface-dispositions.json",
-      schemaVersion: "bridlewise-test-surface-dispositions/v1",
+      schemaVersion: "bridlewise-test-surface-dispositions/v2",
       allowedDispositions: [
         "canonical-node-test",
         "qualified-external-oracle",
@@ -970,7 +970,8 @@ test("test discovery policy centrally binds recursive traversal and explicit exe
         "non-test-fixture",
         "unsupported-blocking",
       ],
-      everyRecognizableSourceRequiresExactEntry: true,
+      everyRecognizableSourceRequiresExactEntry: false,
+      qualifiedNodeSourceDefault: "canonical-node-test",
       benchmarkLocationImpliesDisposition: false,
       pythonImplicitExecutionAllowed: false,
       unqualifiedDisposition: "block-and-report-exact-source-and-disposition",

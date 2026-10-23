@@ -854,7 +854,7 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
   prunedPaths: readonly string[];
 }> {
   const { join } = await import("node:path");
-  const { createTestSurfaceDispositionManifest, isQualifiedCanonicalNodeTestSource, parseTestSurfaceDispositionManifestText, recognizableTestSourceLanguage } = await import("../verification/test-surface.ts");
+  const { createTestSurfaceDispositionManifest, defaultDispositionEntry, parseTestSurfaceDispositionManifestText, recognizableTestSourceLanguage, serializeTestSurfaceDispositionManifest } = await import("../../src/kernel/test-surface-manifest.ts");
   const { ROOT_POLICY } = await import("../../src/kernel/root-policy.ts");
   const { listUntrackedRecognizableTestPaths, listRecognizableTestPaths } = await import("../test-inventory.ts");
 
@@ -889,8 +889,9 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
   const recognizablePaths = listRecognizableTestPaths(root);
   const recognizableSet = new Set(recognizablePaths);
 
+  // A qualified Node test source is canonical without an entry: only a source outside the qualified patterns needs one.
   const missingPaths = recognizablePaths
-    .filter((path) => !registeredPaths.has(path))
+    .filter((path) => !registeredPaths.has(path) && defaultDispositionEntry(path) === undefined)
     .sort();
   const stalePaths = [...registeredPaths]
     .filter((path) => !recognizableSet.has(path))
@@ -953,16 +954,6 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
       // unreachable; guard for exhaustiveness.
       throw new Error(`auto-add encountered a non-recognizable path: ${path}`);
     }
-    if (language === "javascript-typescript" && isQualifiedCanonicalNodeTestSource(path)) {
-      return {
-        path,
-        language,
-        disposition: "canonical-node-test" as const,
-        rationale: "Auto-registered by npm test auto-heal.",
-        evidenceLinks: [] as string[],
-        blocksFullRepositoryClaim: false,
-      };
-    }
     return {
       path,
       language,
@@ -977,7 +968,7 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
 
   const newEntries = [...keptEntries, ...addedEntries];
   const regenerated = createTestSurfaceDispositionManifest(newEntries);
-  const written = atomicWriteFile(manifestPath, JSON.stringify(regenerated, null, 2) + "\n");
+  const written = atomicWriteFile(manifestPath, serializeTestSurfaceDispositionManifest(regenerated));
   if (!written.success) {
     throw new HarnessError(`Failed to write the disposition manifest ${manifestPath}: ${written.reason ?? "unknown error"}`, "disposition_manifest_write_failed");
   }

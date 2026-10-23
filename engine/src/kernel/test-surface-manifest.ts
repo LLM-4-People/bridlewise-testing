@@ -39,8 +39,9 @@ import { shouldExcludeExperiment } from "../shared/source-scan.ts";
  * ── WHAT IS HERE, AND WHAT DELIBERATELY IS NOT ────────────────────────────
  *
  * Here: what a disposition entry IS, what a manifest IS, how a path is
- * recognized and qualified, and the only two doors — `create…` (which signs)
- * and `parse…` (which verifies). Both go through the same schema, so there is
+ * recognized and qualified, the default every qualified Node test source
+ * takes without an entry, and the only two doors — `create…` (which writes
+ * the one form) and `parse…` (which verifies). Both go through the same schema, so there is
  * no shape a writer can produce that a reader would not accept, and no field
  * a writer can set that the schema does not declare.
  *
@@ -53,9 +54,22 @@ import { shouldExcludeExperiment } from "../shared/source-scan.ts";
  *
  * `policyHash` is written by `createTestSurfaceDispositionManifest` and
  * verified by `parseTestSurfaceDispositionManifest`, and there is no third
- * path. A caller that wants to heal a stale integrity hash must round-trip
- * through both — so a manifest whose policy has genuinely moved on REFUSES
- * instead of being quietly re-signed, which is the whole point of pinning it.
+ * path. A caller that rewrites the manifest round-trips through both — so a
+ * manifest whose policy has genuinely moved on REFUSES instead of being
+ * quietly re-blessed, which is the whole point of pinning it.
+ *
+ * ── ONLY THE EXCEPTIONS ARE WRITTEN (#221) ────────────────────────────────
+ *
+ * A recognizable Node test source under a qualified pattern is
+ * `canonical-node-test` BY DEFAULT: it has no entry. Every other disposition
+ * (an external oracle, a pending or unsupported source, a fixture) and a
+ * canonical source that carries evidence is an entry. The manifest used to
+ * hold one entry per test file plus a whole-file `integrityHash`, so every
+ * branch that added a test rewrote it and two unrelated PRs collided in the
+ * merge queue; adding a canonical test now changes nothing here. The
+ * conservation identity (`assertTestSurfaceConservation`, pinned counts and
+ * hashes of the non-canonical and excluded sets) still refuses a rename that
+ * moves sources out of the qualified patterns.
  */
 const DISCOVERY = ROOT_POLICY.verification.testDiscovery;
 
@@ -99,10 +113,9 @@ const ENTRY_SCHEMA = z.strictObject({
 });
 const MANIFEST_SCHEMA = z.strictObject({
   schemaVersion: z.literal(DISCOVERY.dispositionRegistry.schemaVersion),
-  role: z.literal("complete-recognizable-test-surface-disposition"),
+  role: z.literal("recognizable-test-surface-disposition-exceptions"),
   policyHash: z.string().regex(/^[0-9a-f]{64}$/u),
   entries: z.array(ENTRY_SCHEMA),
-  integrityHash: z.string().regex(/^[0-9a-f]{64}$/u),
 });
 
 export type TestSurfaceDispositionEntry = Readonly<z.infer<typeof ENTRY_SCHEMA>>;
@@ -110,6 +123,47 @@ export type TestSurfaceDispositionManifest = Readonly<z.infer<typeof MANIFEST_SC
 
 export function isQualifiedCanonicalNodeTestSource(path: string): boolean {
   return QUALIFIED_TEST_SOURCE_MATCHERS.some((matcher) => matcher.test(path));
+}
+
+/** The rationale of a qualified Node test source that has no entry. */
+const DEFAULT_CANONICAL_RATIONALE = "Qualified by the central Node test pattern: canonical by default, with no entry.";
+
+/** The disposition a recognizable `path` takes WITHOUT an entry: canonical for a qualified Node test source, none otherwise. */
+export function defaultDispositionEntry(path: string): TestSurfaceDispositionEntry | undefined {
+  if (recognizableTestSourceLanguage(path) !== "javascript-typescript" || !isQualifiedCanonicalNodeTestSource(path)) return undefined;
+  return deepFreeze({ path, language: "javascript-typescript", disposition: "canonical-node-test", rationale: DEFAULT_CANONICAL_RATIONALE, evidenceLinks: [], blocksFullRepositoryClaim: false });
+}
+
+/** Is `entry` exactly what its path takes by default (a canonical qualified source with no evidence)? Such an entry is never written. */
+function isDefaultDisposition(entry: TestSurfaceDispositionEntry): boolean {
+  return entry.disposition === "canonical-node-test" && entry.evidenceLinks.length === 0 && defaultDispositionEntry(entry.path) !== undefined;
+}
+
+/**
+ * EVERY RECOGNIZABLE SOURCE'S DISPOSITION: its entry, or the default it takes
+ * without one. Refuses (`test_surface_disposition_coverage_incomplete`) when a
+ * source has neither (it lies outside the qualified patterns and nobody
+ * decided what it is) or an entry names a source that is not on the surface.
+ */
+export function effectiveDispositionEntries(
+  recognizablePaths: readonly string[],
+  manifest: TestSurfaceDispositionManifest,
+): readonly TestSurfaceDispositionEntry[] {
+  const byPath = new Map(manifest.entries.map((entry) => [entry.path, entry] as const));
+  const surface = new Set(recognizablePaths);
+  const undecided = recognizablePaths.filter((path) => !byPath.has(path) && defaultDispositionEntry(path) === undefined);
+  const stale = manifest.entries.map((entry) => entry.path).filter((path) => !surface.has(path));
+  if (undecided.length > 0 || stale.length > 0) {
+    throw new HarnessError(
+      "test-surface disposition coverage is incomplete" +
+        (undecided.length === 0 ? "" : `: ${String(undecided.length)} recognizable source(s) outside the qualified patterns have no entry (${undecided.slice(0, 10).join(", ")})`) +
+        (stale.length === 0 ? "" : `; ${String(stale.length)} entr${stale.length === 1 ? "y names a source" : "ies name sources"} not on the surface (${stale.slice(0, 10).join(", ")})`),
+      "test_surface_disposition_coverage_incomplete",
+      false,
+      { undecided: String(undecided.length), stale: String(stale.length) },
+    );
+  }
+  return deepFreeze(recognizablePaths.map((path) => byPath.get(path) ?? defaultDispositionEntry(path)!).toSorted((left, right) => compareUtf8Bytes(left.path, right.path)));
 }
 
 // Foundation-cascade tests create temporary UUID-based .test.ts files in
@@ -170,32 +224,17 @@ export function parseTestSurfaceDispositionManifestText(text: string): TestSurfa
   return parseTestSurfaceDispositionManifest(JSON.parse(text) as unknown);
 }
 
+/** The manifest in its one form: the exceptions only (an entry a path takes by default is dropped), sorted by path. */
 export function createTestSurfaceDispositionManifest(
   entries: readonly TestSurfaceDispositionEntry[],
 ): TestSurfaceDispositionManifest {
-  const unsigned = {
-    schemaVersion: DISCOVERY.dispositionRegistry.schemaVersion,
-    role: "complete-recognizable-test-surface-disposition",
-    policyHash: testSurfacePolicyHash(),
-    entries: [...entries].toSorted((left, right) => compareUtf8Bytes(left.path, right.path)),
-  } as const;
   return parseTestSurfaceDispositionManifest({
-    ...unsigned,
-    integrityHash: canonicalHash(unsigned),
+    schemaVersion: DISCOVERY.dispositionRegistry.schemaVersion,
+    role: "recognizable-test-surface-disposition-exceptions",
+    policyHash: testSurfacePolicyHash(),
+    entries: entries.filter((entry) => !isDefaultDisposition(entry)).toSorted((left, right) => compareUtf8Bytes(left.path, right.path)),
   });
 }
-
-/**
- * The manifest's shape WITHOUT its signature — the only form a re-signing
- * caller may read.
- */
-const UNSIGNED_MANIFEST_SCHEMA = z.strictObject({
-  schemaVersion: z.literal(DISCOVERY.dispositionRegistry.schemaVersion),
-  role: z.literal("complete-recognizable-test-surface-disposition"),
-  policyHash: z.string().regex(/^[0-9a-f]{64}$/u),
-  entries: z.array(ENTRY_SCHEMA),
-  integrityHash: z.string().regex(/^[0-9a-f]{64}$/u),
-});
 
 /** The manifest as bytes, in the one format every writer of it produces. */
 export function serializeTestSurfaceDispositionManifest(
@@ -205,66 +244,23 @@ export function serializeTestSurfaceDispositionManifest(
 }
 
 /**
- * RE-SIGN A MANIFEST WHOSE ENTRIES WERE EDITED BY HAND — and refuse one whose
- * POLICY has moved.
+ * REWRITE A MANIFEST IN ITS ONE FORM — and refuse one whose POLICY has moved.
  *
- * ── THE DISTINCTION THIS FUNCTION EXISTS TO MAKE ──────────────────────────
- *
- * Two things can be stale in this file and they are not the same thing.
- *
- *   `integrityHash` goes stale when somebody edits an entry. That is an
- *   ordinary, recoverable state: the entries are still the truth, the
- *   signature simply has to be recomputed over them. Healing it is a
- *   convenience with no authority attached.
- *
- *   `policyHash` goes stale when the DISCOVERY POLICY changed — a renamed
- *   directory, an altered pattern. The manifest then records dispositions
- *   made under rules that no longer apply, and re-signing it would launder
- *   that: the pin would agree with the new policy while describing the old
- *   world. A pin a generator can silently rewrite refuses nothing.
- *
- * So this heals the first and REFUSES the second, and it re-signs through
- * `createTestSurfaceDispositionManifest` — the one writer — rather than
- * assembling the signed object itself. The entries are validated by the same
- * schema the reader uses, so a hand edit that invented a field or a
- * disposition is rejected here rather than at the next reader.
- *
- * The previous implementation of this heal lived inlined in the command
- * layer, parsed with a raw `JSON.parse`, checked two fields by hand, and set
- * `policyHash` to the CURRENT policy unconditionally. It was the only path in
- * the repository that could re-bless a stale pin.
+ * A hand edit (an entry out of order, a default entry written out) is an
+ * ordinary, recoverable state: the entries are the truth and the file is
+ * rewritten through `createTestSurfaceDispositionManifest`, the one writer.
+ * A stale `policyHash` is not: the dispositions were made under discovery
+ * rules that no longer apply, and rewriting would launder them, so it
+ * refuses. The entries are validated by the reader's schema, so a hand edit
+ * that invented a field or a disposition is rejected here.
  */
-export function resignTestSurfaceDispositionManifest(text: string): Readonly<{
+export function rewriteTestSurfaceDispositionManifest(text: string): Readonly<{
   status: "current" | "regenerated";
-  integrityHash: string;
   text: string;
 }> {
-  assertNoDuplicateJsonObjectKeys(
-    text,
-    "Test-surface disposition manifest contains a duplicate key",
-    "test_surface_disposition_key_duplicate",
-  );
-  const parsed = UNSIGNED_MANIFEST_SCHEMA.parse(JSON.parse(text) as unknown);
-  const currentPolicyHash = testSurfacePolicyHash();
-  // A STALE POLICY REFUSES: the dispositions were made under rules that no
-  // longer apply (the conservation pins are not part of it: see
-  // `testSurfacePolicyHash`).
-  if (parsed.policyHash !== currentPolicyHash) {
-    throw new HarnessError(
-      "test-surface disposition manifest policyHash is stale relative to current discovery policy: the discovery " +
-        "rules changed under the recorded dispositions, so they are refused, never re-signed",
-      "test_surface_disposition_policy_stale",
-      false,
-      { manifestPolicyHash: parsed.policyHash, currentPolicyHash },
-    );
-  }
-  for (const entry of parsed.entries) assertDispositionSemantics(entry);
-  const resigned = createTestSurfaceDispositionManifest(parsed.entries);
-  return deepFreeze({
-    status: resigned.integrityHash === parsed.integrityHash ? "current" : "regenerated",
-    integrityHash: resigned.integrityHash,
-    text: serializeTestSurfaceDispositionManifest(resigned),
-  });
+  const parsed = parseTestSurfaceDispositionManifestText(text);
+  const rewritten = serializeTestSurfaceDispositionManifest(createTestSurfaceDispositionManifest(parsed.entries));
+  return deepFreeze({ status: rewritten === text ? "current" : "regenerated", text: rewritten });
 }
 
 export function parseTestSurfaceDispositionManifest(value: unknown): TestSurfaceDispositionManifest {
@@ -275,15 +271,6 @@ export function parseTestSurfaceDispositionManifest(value: unknown): TestSurface
       "test_surface_disposition_policy_stale",
       false,
       { manifestPolicyHash: parsed.policyHash, currentPolicyHash: testSurfacePolicyHash() },
-    );
-  }
-  const { integrityHash, ...unsigned } = parsed;
-  if (canonicalHash(unsigned) !== integrityHash) {
-    throw new HarnessError(
-      "test-surface disposition manifest integrity is invalid",
-      "test_surface_disposition_integrity_invalid",
-      false,
-      { declared: integrityHash, recomputed: canonicalHash(unsigned) },
     );
   }
   const sorted = [...parsed.entries].toSorted((left, right) => compareUtf8Bytes(left.path, right.path));

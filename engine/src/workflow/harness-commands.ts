@@ -10,7 +10,7 @@ import { canonicalJson, deepFreeze, sha256 } from "../kernel/integrity.ts";
 import { HarnessError, InputError, extractErrorContext, extractErrorMessage } from "../kernel/errors.ts";
 import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
-import { resignTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
+import { rewriteTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
 import { DECISION_INDEX, SHIPPED_HOOK_FILES, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
@@ -182,10 +182,9 @@ export type HarnessRegenerateOutput = Readonly<{
     inventoryHash: string | null;
   }>;
   dispositionAutoAdd: DispositionAutoAddResult;
+  /** The disposition manifest in its one form (the exceptions only, sorted); `absent` on a tree without a test surface. */
   dispositionManifest: Readonly<{
     status: "current" | "regenerated" | "absent";
-    /** The manifest's own identity; null when the tree carries no test surface (`absent`). */
-    integrityHash: string | null;
   }>;
   /**
    * Config-document schema artifact regeneration (EXP468 finding fix).
@@ -884,7 +883,7 @@ export function harnessRegenerate(
   // the strict manifest parse in the auto-add step below refuses a
   // stale-hash manifest. Healing the hash first keeps manual edits
   // recoverable through `harness regenerate` alone.
-  const dispositionManifest = recomputeDispositionManifestIntegrityHash(root, write);
+  const dispositionManifest = rewriteDispositionManifest(root, write);
   // Auto-add missing disposition entries for recognizable test files so
   // agents never have to register new test files manually. This runs as a
   // subprocess (scripts/run-tests.ts --auto-add-dispositions) to keep the
@@ -1029,53 +1028,32 @@ export function autoAddDispositionEntries(root: string, write: boolean, prune: r
 }
 
 /**
- * Heal a stale disposition-manifest signature — through the manifest's ONE
- * owner, never beside it.
- *
- * When entries are edited by hand the `integrityHash` field goes stale and the
- * strict parse in the auto-add step below refuses the manifest, so healing it
- * first keeps a manual edit recoverable through `harness regenerate` alone.
- *
- * WHAT THIS USED TO BE, AND WHY IT MATTERED. It was an inlined copy of the
- * manifest logic, sitting here because importing the builder-layer
- * verification module would have put `src/ -> scripts/` into the runtime
- * import graph. The constraint was real; the copy was not the only way to
- * satisfy it. The copy read the file with a raw `JSON.parse`, checked two
- * fields by hand instead of against the schema, and wrote `policyHash` from
- * the CURRENT policy unconditionally — so a manifest whose discovery policy
- * had moved on was silently re-blessed here, and the refusal that exists to
- * catch exactly that could be walked straight past. It was the only such path
- * in the repository.
- *
- * The shared half now lives in the runtime layer, where both this command and
- * the builder module may import it, and the distinction the copy erased is
- * enforced there: a stale SIGNATURE heals, a stale POLICY refuses.
+ * Rewrite the disposition manifest in its one form — through the manifest's
+ * ONE owner (`rewriteTestSurfaceDispositionManifest`), never beside it: a
+ * hand edit (an entry out of order, a default entry written out) heals; a
+ * manifest whose discovery policy moved refuses, never re-blessed.
  */
-function recomputeDispositionManifestIntegrityHash(
+function rewriteDispositionManifest(
   root: string,
   write: boolean,
 ): Readonly<{
   status: "current" | "regenerated" | "absent";
-  integrityHash: string | null;
 }> {
   const manifestPath = resolve(root, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath);
   if (!existsSync(manifestPath)) {
     if (!testSurfacePresent(root)) {
       // A product-only tree carries no test surface to recompute against: the manifest's subject is absent.
-      return deepFreeze({ status: "absent", integrityHash: null });
+      return deepFreeze({ status: "absent" });
     }
     throw new InputError("test-surface disposition manifest file not found", "input_error");
   }
-  const current = readFileSync(manifestPath, "utf8");
-  const resigned = resignTestSurfaceDispositionManifest(current);
-  if (resigned.status === "current" || !write) {
-    return deepFreeze({ status: resigned.status, integrityHash: resigned.integrityHash });
-  }
-  const writeResult = atomicWriteFile(manifestPath, resigned.text);
+  const rewritten = rewriteTestSurfaceDispositionManifest(readFileSync(manifestPath, "utf8"));
+  if (rewritten.status === "current" || !write) return deepFreeze({ status: rewritten.status });
+  const writeResult = atomicWriteFile(manifestPath, rewritten.text);
   if (!writeResult.success) {
     throw new InputError(`Could not write disposition manifest: ${writeResult.reason ?? "unknown"}`, "input_error");
   }
-  return deepFreeze({ status: "regenerated", integrityHash: resigned.integrityHash });
+  return deepFreeze({ status: "regenerated" });
 }
 
 export function regenerateTestInventory(root: string, write: boolean): Readonly<{

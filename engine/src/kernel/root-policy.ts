@@ -2276,7 +2276,7 @@ const ROOT_POLICY_VALUE = {
       },
       dispositionRegistry: {
         manifestPath: "traceability/test-surface-dispositions.json",
-        schemaVersion: schemaId("test-surface-dispositions", 1),
+        schemaVersion: schemaId("test-surface-dispositions", 2),
         allowedDispositions: [
           "canonical-node-test",
           "qualified-external-oracle",
@@ -2284,7 +2284,10 @@ const ROOT_POLICY_VALUE = {
           "non-test-fixture",
           "unsupported-blocking",
         ],
-        everyRecognizableSourceRequiresExactEntry: true,
+        // A qualified Node test source is canonical WITHOUT an entry; only the
+        // exceptions are recorded (#221: adding a test rewrites nothing).
+        everyRecognizableSourceRequiresExactEntry: false,
+        qualifiedNodeSourceDefault: "canonical-node-test",
         benchmarkLocationImpliesDisposition: false,
         pythonImplicitExecutionAllowed: false,
         unqualifiedDisposition: "block-and-report-exact-source-and-disposition",
