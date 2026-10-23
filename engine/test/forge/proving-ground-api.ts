@@ -150,4 +150,3 @@ export function v14Verdict(input: Readonly<{
     "the child landed only its own change": input.childChangedPaths.length === 1 && input.childChangedPaths[0] === input.childPath,
   }, evidence);
 }
-

@@ -965,6 +965,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/forge/projector.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/forge/proving-ground-api.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4317,5 +4325,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "f38ca9a3c61b9cb730b3b786ab29409dc212cc20a4870e87a6b69f02b829d269"
+  "integrityHash": "ca9b593447bf1b23e53daf9e243930693c8ee9475cf1a312eab84dc9a8d2ce75"
 }
