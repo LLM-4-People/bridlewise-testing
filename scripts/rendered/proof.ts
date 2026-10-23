@@ -16,8 +16,8 @@ import { parseArgs } from "node:util";
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
-import { instrumentContext, judgePage, launchBrowser, serveSite } from "./judge.ts";
-import { CONTENT_SECURITY_POLICY, RENDERED_RULES, type PageRule } from "./rules.ts";
+import { instrumentContext, judgeAgainIfChanged, judgeStates, launchBrowser, serveSite } from "./judge.ts";
+import { CONTENT_SECURITY_POLICY, RENDER_STATES, RENDERED_RULES, type PageRule } from "./rules.ts";
 
 /** The mark as Brand.svelte draws it, from the one geometry and its tokens (never a copy of its coordinates). */
 function markSvg(): string {
@@ -68,6 +68,16 @@ const PLANTS: readonly Plant[] = [
   { name: "a remote font through @import", head: '<style>@import url("https://fonts.example.invalid/face");</style>', rule: "same-origin" },
   { name: "a remote font face", head: '<style>@font-face { font-family: "Proof Sans"; src: url("https://fonts.example.invalid/proof.woff2") } </style>', rule: "same-origin" },
   { name: "a remote script", head: '<script src="https://cdn.example.invalid/loader.js"></script>', rule: "same-origin" },
+  { name: "a canvas font set by assignment", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = "12px Georgia"</script>', rule: "font-families" },
+  { name: "a canvas font set by a bracketed key", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d")["font"] = "bold 14px Georgia"</script>', rule: "font-families" },
+  { name: "a canvas font set through Object.assign", body: '<canvas id="c"></canvas><script>Object.assign(document.getElementById("c").getContext("2d"), { font: "12px Georgia" })</script>', rule: "font-families" },
+  { name: "a canvas font appended with +=", body: '<canvas id="c"></canvas><script>const x = document.getElementById("c").getContext("2d"); x.font += ", Georgia"</script>', rule: "font-families" },
+  { name: "an offscreen canvas font", body: '<script>new OffscreenCanvas(10, 10).getContext("2d").font = "12px Georgia"</script>', rule: "font-families" },
+  { name: "a family a script adds 1.5 s after load", body: '<script>setTimeout(() => { const s = document.createElement("style"); s.textContent = "#prose{font-family:Georgia}"; document.head.append(s); }, 1500)</script>', rule: "font-families" },
+  { name: "a remote stylesheet a script adds 1.5 s after load", body: '<script>setTimeout(() => { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "https://cdn.example.invalid/late"; document.head.append(l); }, 1500)</script>', rule: "same-origin" },
+  { name: "the mark hidden only at a narrow width", head: "<style>@media (max-width: 600px) { .brand svg { display: none } }</style>", rule: "brand-mark" },
+  { name: "a part hidden only in print", head: "<style>@media print { svg circle { opacity: 0 } }</style>", rule: "brand-mark" },
+  { name: "a family only under reduced motion", head: "<style>@media (prefers-reduced-motion: reduce) { #prose { font-family: Georgia } }</style>", rule: "font-families" },
   { name: "the Content-Security-Policy meta tag missing", rule: "csp-meta", only: ["csp-meta"] },
   { name: "a loosened Content-Security-Policy", head: cspMeta(`${CONTENT_SECURITY_POLICY.replace("'self'", "'self' 'unsafe-inline'")}`), rule: "csp-meta", only: ["csp-meta"] },
   { name: "a second Content-Security-Policy meta tag", head: `${cspMeta(CONTENT_SECURITY_POLICY)}${cspMeta("default-src *")}`, rule: "csp-meta", only: ["csp-meta"] },
@@ -76,6 +86,7 @@ const PLANTS: readonly Plant[] = [
 
 /** Near-misses each row must pass: the exact policy, in another spacing. */
 const CLEAN_TOO: readonly Plant[] = [
+  { name: "a canvas given a token family", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = "12px \'Proof Mono\', monospace"</script>', rule: "font-families" },
   { name: "the exact policy, spaced differently", head: cspMeta(CONTENT_SECURITY_POLICY.replace("; ", " ;  ")), rule: "csp-meta", only: ["csp-meta"] },
 ];
 
@@ -93,15 +104,19 @@ async function prove(executable: string | null): Promise<readonly string[]> {
     const { server, origin } = await serveSite(dir, "/proof");
     const browser = await launchBrowser(executable);
     try {
+      // Every page is judged as the site is: every row (as on the cockpit) in every site render state, once quiet,
+      // and again if it changed after its judgement; the request rows listen for the whole visit.
+      const states = RENDER_STATES.filter((s) => s.surfaces.includes("site"));
       const judge = async (file: string, only?: readonly string[]): Promise<readonly string[]> => {
         const context = await browser.newContext({ serviceWorkers: "block" });
         const requests: string[] = [];
         await instrumentContext(context, "cockpit", origin, (finding) => requests.push(finding));
         const view = await context.newPage();
         await view.goto(`${origin}/proof/${file}`, { waitUntil: "load" });
-        await view.waitForTimeout(300);
         const selected = rows(only);
-        const findings = selected === undefined ? [...(await judgePage(view, "cockpit")), ...requests] : await judgePage(view, "cockpit", selected);
+        const judged = await judgeStates(view, "cockpit", null, selected, states);
+        const later = await judgeAgainIfChanged(view, "cockpit", judged.mutations, selected);
+        const findings = [...judged.findings, ...later, ...judged.busy.map((s) => `(${s}) never went quiet`), ...(selected === undefined ? requests : [])];
         await context.close();
         return findings;
       };
@@ -109,7 +124,7 @@ async function prove(executable: string | null): Promise<readonly string[]> {
       if (clean.length > 0) failures.push(`the clean page is not clean:\n    ${clean.join("\n    ")}`);
       for (const [i, plant] of PLANTS.entries()) {
         const findings = await judge(`plant-${i}.html`, plant.only);
-        if (!findings.some((f) => f.startsWith(`[${plant.rule}]`))) failures.push(`${plant.name}: not caught by ${plant.rule} (found: ${findings.join("; ") || "nothing"})`);
+        if (!findings.some((f) => f.includes(`[${plant.rule}]`))) failures.push(`${plant.name}: not caught by ${plant.rule} (found: ${findings.join("; ") || "nothing"})`);
       }
       for (const [i, plant] of CLEAN_TOO.entries()) {
         const findings = await judge(`clean-${i}.html`, plant.only);

@@ -16,6 +16,15 @@
  * walk reaches, scripts/capture/cockpit.ts) and the site (every built page,
  * judge.ts `site`). A row that does not hold on a surface YET says why in
  * `pending`, and is not run there until the owner of that surface flips it.
+ *
+ * Every page row runs in every RENDER STATE of its surface (the second table,
+ * below): a mark hidden only at a narrow width, a family only in print, a
+ * remote sheet only under reduced motion are each a state of their own. And a
+ * state is judged only once the page is QUIET (judge.ts `settle`): no request
+ * in flight, no short timer pending, and no DOM mutation for the quiet window
+ * — measured from those events, never a fixed sleep — so a family or a sheet
+ * a script adds after load is judged too. The request rows and the
+ * Content-Security-Policy listener stay on for the whole session.
  */
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
 
@@ -150,6 +159,18 @@ function judgeFonts(args: { input: { faceTokens: readonly string[] }; surface: S
     const family = face.family.replace(/^["']|["']$/gu, "");
     if (face.status === "loaded" && !families.has(family)) findings.push(`the document loaded the font face "${family}", not a token family`);
   }
+  // Every font a canvas was given (recorded at the context's setter by judge.ts), parsed by the browser itself:
+  // each family it names must be a token family.
+  const canvasFonts = (window as unknown as { __renderedCanvasFonts?: string[] }).__renderedCanvasFonts;
+  if (canvasFonts === undefined) findings.push("the page was not instrumented for canvas fonts");
+  for (const value of new Set(canvasFonts ?? [])) {
+    const probe = document.createElement("span");
+    probe.style.font = value;
+    const named = probe.style.fontFamily === "" ? [] : normal(probe.style.fontFamily).split(", ");
+    if (named.length === 0) findings.push(`a canvas was given the font "${value}", which names no family the browser can read`);
+    const foreign = named.filter((family) => !families.has(family));
+    if (foreign.length > 0) findings.push(`a canvas was given the font "${value}": ${foreign.join(", ")} is not a token family`);
+  }
   return findings;
 }
 
@@ -189,6 +210,43 @@ function judgeOrigin(url: string, resourceType: string, origin: string): string 
   }
   return at === origin ? null : `a ${resourceType} request left the origin: ${url}`;
 }
+
+/** One state a page is judged in: its media, its motion preference, and (on the site, where the judge owns the window) its viewport and colour scheme. */
+export type RenderState = Readonly<{
+  id: string;
+  surfaces: readonly Surface[];
+  media: "screen" | "print";
+  reducedMotion: "reduce" | "no-preference";
+  /** Set by the judge on the site; on the cockpit the capture walk's surfaces already span desktop and mobile, Carbon and Logbook. */
+  viewport?: Readonly<{ width: number; height: number }>;
+  colorScheme?: "light" | "dark";
+}>;
+
+const DESKTOP = { width: 1280, height: 900 } as const;
+/** The narrow width a phone gives (the capture's mobile viewport). */
+const NARROW = { width: 390, height: 844 } as const;
+
+/**
+ * THE STATES, in the order a page goes through them. Every page row of a
+ * surface runs in each of that surface's states. A state without a viewport or
+ * scheme keeps the one before it (the cockpit's come from the capture walk's
+ * surfaces: desktop and mobile, Carbon and Logbook).
+ */
+export const RENDER_STATES: readonly RenderState[] = [
+  { id: "desktop", surfaces: ["site"], media: "screen", reducedMotion: "no-preference", viewport: DESKTOP, colorScheme: "light" },
+  { id: "desktop-dark", surfaces: ["site"], media: "screen", reducedMotion: "no-preference", viewport: DESKTOP, colorScheme: "dark" },
+  { id: "screen", surfaces: ["cockpit"], media: "screen", reducedMotion: "no-preference" },
+  { id: "reduced-motion", surfaces: ["cockpit", "site"], media: "screen", reducedMotion: "reduce" },
+  { id: "print", surfaces: ["cockpit", "site"], media: "print", reducedMotion: "no-preference" },
+  { id: "narrow", surfaces: ["site"], media: "screen", reducedMotion: "no-preference", viewport: NARROW, colorScheme: "light" },
+];
+
+/** A page is quiet once nothing happened for this long: no request, no short timer firing, no DOM mutation. */
+export const QUIET_WINDOW_MS = 400;
+/** A timer longer than this is a schedule, not part of loading (a poll, a reminder); shorter ones are waited for. */
+export const TIMER_HORIZON_MS = 5000;
+/** The longest a page may take to go quiet; a page still busy then is judged as it stands, and the run says so. */
+export const SETTLE_LIMIT_MS = 15_000;
 
 /** THE TABLE. */
 export const RENDERED_RULES: readonly RenderedRule[] = [

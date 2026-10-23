@@ -80,7 +80,7 @@ import {
   type ViewportId,
 } from "./cockpit-plan.ts";
 import { decodePngRgb, encodeGif } from "./gif.ts";
-import { instrumentContext, judgePage, launchBrowser } from "../rendered/judge.ts";
+import { instrumentContext, judgeAgainIfChanged, judgeStates, launchBrowser, type RenderRestore } from "../rendered/judge.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -570,17 +570,27 @@ interface Run {
 /** Views whose subject is what the pointer is over: the capture leaves the pointer where the view put it. */
 const POINTER_HELD: ReadonlySet<ViewAction> = new Set(["openLensCallout"]);
 
-async function capture(state: Run, surface: Surface, stage: ShotStage, parkPointer: boolean): Promise<void> {
+/** How the walk's own contexts are set (newSurface): a judgement puts each view back this way. */
+const restoreOf = (surface: Surface): RenderRestore => ({ media: "screen", reducedMotion: "reduce", colorScheme: "dark", viewport: { width: VIEWPORTS[surface.viewport].width, height: VIEWPORTS[surface.viewport].height } });
+
+/** THE RENDERED JUDGEMENT of one view: every cockpit row in every cockpit render state, once quiet; returns the mutation mark to judge again on leaving. */
+async function judgeView(state: Run, surface: Surface, label: string): Promise<number> {
+  const judged = await judgeStates(surface.page, "cockpit", restoreOf(surface));
+  for (const finding of judged.findings) state.violations.push(`${label}: ${finding}`);
+  if (judged.busy.length > 0) log(`${label}: never went quiet within the settle limit in ${judged.busy.join(", ")} (judged as it stood)`);
+  return judged.mutations;
+}
+
+async function capture(state: Run, surface: Surface, stage: ShotStage, parkPointer: boolean): Promise<number> {
   const { page } = surface;
   const file = captureFileName(stage, surface.theme, surface.viewport);
   const spec = VIEWPORTS[surface.viewport];
   if (parkPointer) await page.mouse.move(1, spec.height - 1);
   await settle(page, 400, 4000);
-  // THE RENDERED JUDGEMENT: the mark and the fonts, as the browser computed them on this view.
-  for (const finding of await judgePage(page, "cockpit")) state.violations.push(`${file}: ${finding}`);
+  const mark = await judgeView(state, surface, file);
   if (state.options.judgeOnly) {
     log(`judged ${file}`);
-    return;
+    return mark;
   }
   const readText = (): Promise<string> => page.evaluate(() => (window as unknown as { __capture: { pageText: () => string } }).__capture.pageText());
   const regionsMasked = await page.locator("[data-capture-mask]:visible").count();
@@ -622,6 +632,7 @@ async function capture(state: Run, surface: Surface, stage: ShotStage, parkPoint
     textSha256: sha256(text),
   });
   log(`shot ${file}`);
+  return mark;
 }
 
 /** The fixture run, recorded: a fresh signed-in desktop page with video on. */
@@ -648,7 +659,8 @@ async function fixtureRun(state: Run, browser: Browser): Promise<void> {
   const clipEnd = Date.now() - recordStart;
   if (state.options.judgeOnly) {
     // The run's own page, judged as rendered, with no recording.
-    for (const finding of await judgePage(page, "cockpit")) state.violations.push(`fixture run: ${finding}`);
+    const mark = await judgeView(state, surface, "fixture run");
+    for (const finding of await judgeAgainIfChanged(page, "cockpit", mark)) state.violations.push(`fixture run: ${finding}`);
     await surface.context.close();
     log("judged the fixture run");
     return;
@@ -731,7 +743,9 @@ async function drive(state: Run, browser: Browser): Promise<void> {
         const file = captureFileName(stage, surface.theme, surface.viewport);
         try {
           const leave = await VIEW[stage.action](surface);
-          await capture(state, surface, stage, !POINTER_HELD.has(stage.action));
+          const mark = await capture(state, surface, stage, !POINTER_HELD.has(stage.action));
+          // A view that changed after its judgement is judged again before the walk leaves it.
+          for (const finding of await judgeAgainIfChanged(surface.page, "cockpit", mark)) state.violations.push(`${file}: ${finding}`);
           if (leave) await leave();
         } catch (error) {
           throw new CaptureRefusal("view_failed", `${file}: ${error instanceof Error ? error.message : String(error)}`);
