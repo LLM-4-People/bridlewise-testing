@@ -132,20 +132,9 @@ server has no DNS.
   temporaries: a leftover the sweep cannot remove is skipped and reported,
   never a refusal of the next spawn.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/safety/`.
-
-- `artifact-check.ts` is consumed by `server/tools/tool-executor.ts`, `server/tools/tools-bridge.ts`.
-- `host-facts.ts` is consumed by `server/filesystem/fs-gate.ts`, `server/index.ts`, `server/safety/landlock-runner.ts`.
-- `landlock-runner.ts` is consumed by `server/awareness/auto-check-runner.ts`, `server/blocks/tools.ts`, `server/integrations/mcp-bridge.ts`, `server/integrations/mcp-runtime-bridge.ts`, `server/intelligence/git-bridge.ts`, `server/tools/tool-executor.ts`.
-- `safety-bridge.ts` is consumed by `server/routes/safety.ts`, `server/run/run-executor.ts`, `server/tools/tool-executor.ts`.
-- `safety-invariants.ts` is consumed by `server/auth/auth.ts`, `server/index.ts`.
-- `safety-runtime-bridge.ts` is consumed by `server/index.ts`, `server/run/run-executor.ts`, `server/tools/tool-executor.ts`.
-
-<!-- /consumers:generated -->
 
 Captured planned commands register their native child with the existing
 component registry at creation and retire it at capture completion, including

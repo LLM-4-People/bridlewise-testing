@@ -10,7 +10,7 @@ import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { landCommit } from "../../src/workflow/tree-landing.ts";
 import { WEB_RUN_HISTORY_PATH, suiteLedgerPaths, type SuiteLedgerName } from "../../src/shared/run-history.ts";
-import { README_CONSUMER_BLOCK } from "../../src/kernel/verification-paths.ts";
+import { DECISION_INDEX } from "../../src/kernel/verification-paths.ts";
 import { acquireLock } from "../../src/workflow/resource-lock.ts";
 import { createWorkspaceRecordStore, workspaceRecordStores } from "../../src/workflow/workspace-registry.ts";
 import { createTimelineStore } from "../../src/timeline/timeline-store.ts";
@@ -352,28 +352,28 @@ test("generated-output conflicts: a pin-only change and a wholly generated file 
   assert.equal(rawGit(authored.lease.worktreePath, ["status", "--porcelain"]), "", "nothing was merged in the worktree");
 });
 
-test("the lease exempts a regeneration, never a path: an authored edit of a pin-bearing file or a README's prose needs a lease, a pin or consumer-block change does not, and another workspace's lease on it holds", async () => {
+test("the lease exempts a regeneration, never a path: an authored edit of a pin-bearing file or the decision index's prose needs a lease, a pin or index-block change does not, and another workspace's lease on it holds", async () => {
   const { root } = initTempRepo("ws-genonly");
   const workspaceRoot = mkWorkspaceTempDir("ws-genonly-wt");
-  const readme = (prose: string, block: string): string => `# Module\n\n${prose}\n\n${README_CONSUMER_BLOCK.begin}\n${block}\n${README_CONSUMER_BLOCK.end}\n`;
+  const index = (prose: string, block: string): string => `# Decisions\n\n${prose}\n\n${DECISION_INDEX.begin}\n${block}\n${DECISION_INDEX.end}\n`;
   commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
-  commitFile(root, "src/mod/README.md", readme("Hand-written prose.", "- consumer a"));
+  commitFile(root, DECISION_INDEX.path, index("Hand-written prose.", "| a |"));
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
 
-  // Regeneration only: the pin and the consumer block change with a leased source edit.
+  // Regeneration only: the pin and the index block change with a leased source edit.
   const regenerating = await manager.create({ agentName: "regen", mode: "feature", writeSet: ["src/mod/a.ts"] });
   commitFile(regenerating.lease.worktreePath, "src/mod/a.ts", "export const a = 1;\n");
   commitFile(regenerating.lease.worktreePath, PIN_BEARING, pinned(PIN_B, "base"));
-  commitFile(regenerating.lease.worktreePath, "src/mod/README.md", readme("Hand-written prose.", "- consumer a\n- consumer b"));
+  commitFile(regenerating.lease.worktreePath, DECISION_INDEX.path, index("Hand-written prose.", "| a |\n| b |"));
   assert.equal((await manager.validate(regenerating.workspaceId)).status, "pass", "a pin and a generated block re-derived need no lease");
 
   // Authored edits of the same files are source edits.
   const authoring = await manager.create({ agentName: "author", mode: "feature", writeSet: ["src/mod/b.ts"] });
   commitFile(authoring.lease.worktreePath, PIN_BEARING, pinned(PIN_A, "policy text edited by hand"));
-  commitFile(authoring.lease.worktreePath, "src/mod/README.md", readme("Prose edited by hand.", "- consumer a"));
+  commitFile(authoring.lease.worktreePath, DECISION_INDEX.path, index("Prose edited by hand.", "| a |"));
   const proof = (await manager.validate(authoring.workspaceId)).gates.find((gate) => gate.gate === "write-set-proof")!;
   assert.equal(proof.status, "fail");
-  assert.deepEqual(proof.details, [`unleased: ${PIN_BEARING}`, "unleased: src/mod/README.md"]);
+  assert.deepEqual(proof.details, [`unleased: ${DECISION_INDEX.path}`, `unleased: ${PIN_BEARING}`].toSorted());
 
   // A workspace that LEASES the pin-bearing file blocks another's authored
   // edit of it (admission), and the merge's pending-lease check judges the

@@ -38,13 +38,6 @@ folder owns what they are told and who may do what.
   `syncCommunityFiles` is the `community-files` arm of `harness sync` and
   `harness check` (a refusal is the step's failure, never a crash).
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/workflow/community/`.
-
-- `health-files.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `sources.ts` is consumed by `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/forge/cli.ts`.
-
-<!-- /consumers:generated -->

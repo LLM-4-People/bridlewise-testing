@@ -39,7 +39,6 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { codeStructureOnly, read } from "../helpers/source-scan.ts";
 import { lexSpans } from "../../engine/scripts/verification/source-view.ts";
 import { modulePath, modulePathMatching } from "../helpers/module-resolver.ts";
-import { refreshReadmeConsumers } from "../helpers/readme-consumers.ts";
 import { presentTrackedFiles } from "../../engine/src/git/repository-ownership.ts";
 import { promotionView } from "../helpers/promotion-view.ts";
 
@@ -711,38 +710,6 @@ describe("source-root organization — README freshness (deny-by-default)", () =
       ).toEqual({ stale: [], missing: [] });
     });
   }
-});
-
-describe("source-root organization — README consumer lists cannot drift", () => {
-  // The `## Where it lives and what consumes it` section is a GENERATED
-  // projection of the import graph (the markers `<!-- consumers:generated -->`
-  // delimit it). A consumer added or removed without regenerating leaves the
-  // README describing a tree that no longer exists — a static list that rots.
-  // This arm regenerates every marked section in memory and requires it to
-  // match the committed bytes, so a stale consumer list reds here.
-  test("each generated consumer list matches the import graph", () => {
-    const stale: string[] = [];
-    for (const { root } of censusRootsMemo()) {
-      const abs = join(REPO, root);
-      if (!existsSync(abs)) continue;
-      // Walk EVERY folder carrying a README under the root (any depth), not
-      // only the first level: a populated subfolder of a container
-      // (cockpit/flow, modules/tasks-agents) is subject to the same projection
-      // as a domain folder at the root.
-      for (const dir of readmeFolders(root)) {
-        const readmeAbs = join(REPO, dir, "README.md");
-        if (!existsSync(readmeAbs)) continue;
-        const next = refreshReadmeConsumers(readmeAbs, dir, dir);
-        if (next === null) continue; // no generated markers — prose section, not this arm's subject
-        if (next !== read(relative(REPO, readmeAbs).split(sep).join("/"))) stale.push(dir);
-      }
-    }
-    expect(
-      stale,
-      `README consumer list(s) out of date with the import graph: ${stale.join(", ")}. ` +
-        `Regenerate with: cd engine && node src/cli.ts harness sync (the blocks are generated outputs of the sync pass)`,
-    ).toEqual([]);
-  });
 });
 
 describe("source-root organization — READMEs carry substance, not only a file list", () => {

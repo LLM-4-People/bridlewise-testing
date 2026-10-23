@@ -7,19 +7,6 @@ export const VERIFICATION_PATHS = deepFreeze({
 } as const);
 
 /**
- * THE GENERATED README CONSUMER BLOCKS: every README.md carrying `begin`
- * holds one block, up to `end`, that `generator` (repository-relative)
- * projects from the import graph. `harness sync` writes them, `harness check`
- * reports their drift, and every such README is a generated output
- * (`generatedOutputPaths`, src/workflow/hash-binding-registry.ts).
- */
-export const README_CONSUMER_BLOCK = deepFreeze({
-  generator: "tests/helpers/readme-consumers.ts",
-  begin: "<!-- consumers:generated -->",
-  end: "<!-- /consumers:generated -->",
-} as const);
-
-/**
  * THE SOURCE-AUTHORITY PIN TARGETS (engine-relative): the files whose byte
  * pins `scripts/pin-authority-regeneration.ts` re-derives in a sync pass, and
  * the projection it rewrites beside one. Named here, below the scripts layer,
@@ -103,7 +90,7 @@ export const TRACKER_BOARD = deepFreeze({
 } as const);
 
 /** Every generated BLOCK a hand-written file can carry (its generator owns the text between `begin` and `end`). */
-export const GENERATED_BLOCKS = deepFreeze([README_CONSUMER_BLOCK, DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD] as const);
+export const GENERATED_BLOCKS = deepFreeze([DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD] as const);
 
 /** A generated block's markers. */
 export type GeneratedBlockMarkers = Readonly<{ begin: string; end: string }>;

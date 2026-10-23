@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, rmSync, writeFileSync, mkdirSync, readFileSync, appendFileSync, symlinkSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync, mkdirSync, readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -12,7 +12,6 @@ import {
   harnessSync,
   runBundleBuildStep,
   syncPassVerdict,
-  regenerateReadmeConsumers,
   regenerateWebBudgetPopulation,
   webBudgetPopulationStep,
   harnessNewModule,
@@ -40,7 +39,7 @@ import { createTempDir } from "../support/temp-dir.ts";
 import { relaxSafeReadFloorForThisFile } from "../support/test-env-helpers.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import { ROOT_POLICY as ROOT_POLICY_AT_LOAD } from "../../src/kernel/root-policy.ts";
-import { README_CONSUMER_BLOCK, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../../src/kernel/verification-paths.ts";
+import { VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../../src/kernel/verification-paths.ts";
 import {
   createRepositoryWorkingCopy,
   engineGeneratorPopulation,
@@ -226,61 +225,6 @@ test("HarnessCommands: harnessRegenerate produces valid result", () => {
   // against its guard's scan, and on a synced tree none holds debt that fell.
   assert.deepEqual(result.result.ratchetBaselines.results.map((arm) => arm.id), Object.keys(ROOT_POLICY_AT_LOAD.verification.ratchetBaselines));
   assert.equal(result.result.ratchetBaselines.converged, true, `the ratchet arm must converge on this tree: ${JSON.stringify(result.result.ratchetBaselines.results)}`);
-  // The README consumer arm (WF-DEL leftover): the generator really runs as
-  // the sync's subprocess, over every marked README, and a synced tree is current.
-  assert.equal(result.result.readmeConsumers.status, "current", `the README consumer arm must converge on this tree: ${JSON.stringify(result.result.readmeConsumers)}`);
-  assert.ok(result.result.readmeConsumers.readmes > 0, "the README consumer arm judged no README");
-});
-
-test("HarnessCommands: the README consumer arm drives the generator — a check finds a stale block and names it, a write regenerates it, and a missing generator with marked READMEs is STALE, never converged by absence", () => {
-  // A synthetic repository: `engine/src/feature/` holds a module, its
-  // consumer, and a README whose generated block is empty (stale); the
-  // generator is the real one (its folder linked in, so it resolves its own
-  // imports from this checkout).
-  const repository = createTempDir("readme-consumers-arm-");
-  try {
-    const feature = join(repository, "engine", "src", "feature");
-    mkdirSync(feature, { recursive: true });
-    writeFileSync(join(feature, "provider.ts"), "export const provided = 1;\n");
-    writeFileSync(join(feature, "user.ts"), 'import { provided } from "./provider.ts";\nexport const used = provided;\n');
-    const readme = join(feature, "README.md");
-    const before = `# feature\n\n${README_CONSUMER_BLOCK.begin}\n${README_CONSUMER_BLOCK.end}\n`;
-    writeFileSync(readme, before);
-    // A marked README OUTSIDE the resolver's product roots (wf-del2-design D2:
-    // `shared/README.md` was a generated output nobody regenerated): the one
-    // selection makes the generator project it too.
-    mkdirSync(join(repository, "shared"), { recursive: true });
-    writeFileSync(join(repository, "shared", "lib.ts"), "export const shared = 1;\n");
-    writeFileSync(join(feature, "shared-user.ts"), 'import { shared } from "../../../shared/lib.ts";\nexport const again = shared;\n');
-    const sharedReadme = join(repository, "shared", "README.md");
-    writeFileSync(sharedReadme, before.replace("feature", "shared"));
-    execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
-    const engineRoot = join(repository, "engine");
-
-    // THE POPULATION, NOT THE CHECKER'S EXISTENCE: two marked READMEs wait,
-    // and the generator is absent. The old arm asserted `absent`/converged
-    // here — the checker's absence read as the subject's absence.
-    const missing = regenerateReadmeConsumers(engineRoot, false);
-    assert.deepEqual(
-      [missing.status, missing.converged, missing.readmes],
-      ["stale", false, 2],
-      "a missing generator with marked READMEs must be STALE and name the population it abandons",
-    );
-    assert.match(missing.changed[0] ?? "", /tests\/helpers\/readme-consumers\.ts \(missing; 2 marked README\(s\) still need it\)/u);
-
-    mkdirSync(join(repository, "tests"), { recursive: true });
-    symlinkSync(join(ROOT, "..", "tests", "helpers"), join(repository, "tests", "helpers"));
-    const stale = regenerateReadmeConsumers(engineRoot, false);
-    assert.deepEqual([stale.status, stale.converged, [...stale.changed].sort()], ["stale", false, ["engine/src/feature/README.md", "shared/README.md"]], JSON.stringify(stale));
-    assert.equal(readFileSync(readme, "utf8"), before, "a check wrote the README");
-    const written = regenerateReadmeConsumers(engineRoot, true);
-    assert.deepEqual([written.status, written.converged, [...written.changed].sort()], ["regenerated", true, ["engine/src/feature/README.md", "shared/README.md"]], JSON.stringify(written));
-    assert.match(readFileSync(readme, "utf8"), /`provider\.ts` is consumed by `engine\/src\/feature\/user\.ts`/u);
-    assert.match(readFileSync(sharedReadme, "utf8"), /`lib\.ts` is consumed by `engine\/src\/feature\/shared-user\.ts`/u);
-    assert.deepEqual(regenerateReadmeConsumers(engineRoot, false), { status: "current", converged: true, readmes: 2, changed: [] });
-  } finally {
-    rmSync(repository, { recursive: true, force: true });
-  }
 });
 
 test("HarnessCommands: the web budget population arm — check refuses a stale count by name, sync writes the derived count, then check passes", () => {
@@ -331,45 +275,6 @@ test("HarnessCommands: the web budget population arm — check refuses a stale c
     // No generator in the tree (a product-only tree): converged by absence.
     rmSync(generator);
     assert.deepEqual(regenerateWebBudgetPopulation(engineRoot, false), { status: "absent", converged: true, changed: [] });
-  } finally {
-    rmSync(repository, { recursive: true, force: true });
-  }
-});
-
-test("HarnessCommands: the README consumer arm is absent ONLY when the tree carries no marked README at all", () => {
-  // The positive absence: no marked README is a population of zero, so there
-  // is nothing to generate. This is the one state `absent` may describe; it
-  // is not the state a missing generator describes when READMEs are waiting.
-  const repository = createTempDir("readme-consumers-none-");
-  try {
-    mkdirSync(join(repository, "engine"), { recursive: true });
-    execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
-    assert.deepEqual(
-      regenerateReadmeConsumers(join(repository, "engine"), false),
-      { status: "absent", converged: true, readmes: 0, changed: [] },
-      "a tree with no marked README has nothing to converge",
-    );
-  } finally {
-    rmSync(repository, { recursive: true, force: true });
-  }
-});
-
-test("HarnessCommands: the README consumer arm reads the generator's LAST line; no JSON result line is the typed readme_consumers_no_result", () => {
-  // wf-del2-correctness NEW-11: `JSON.parse(stdout)` of the whole output
-  // turned any line an import printed into an untyped SyntaxError.
-  const repository = createTempDir("readme-consumers-protocol-");
-  try {
-    mkdirSync(join(repository, "engine"), { recursive: true });
-    mkdirSync(join(repository, "tests", "helpers"), { recursive: true });
-    execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
-    const generator = join(repository, README_CONSUMER_BLOCK.generator);
-    const answer = { allCurrent: true, status: "current", readmes: 3, bootstrapped: 0, changed: [] };
-    writeFileSync(generator, `console.log("an import said something");\nconsole.log(${JSON.stringify(JSON.stringify(answer))});\n`);
-    assert.deepEqual(regenerateReadmeConsumers(join(repository, "engine"), false), { status: "current", converged: true, readmes: 3, changed: [] });
-    writeFileSync(generator, `console.log("no result at all");\n`);
-    assert.throws(() => regenerateReadmeConsumers(join(repository, "engine"), false), (error: unknown) => (error as { code?: string }).code === "readme_consumers_no_result");
-    writeFileSync(generator, `console.log("[1, 2]");\n`);
-    assert.throws(() => regenerateReadmeConsumers(join(repository, "engine"), false), (error: unknown) => (error as { code?: string }).code === "readme_consumers_no_result");
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }

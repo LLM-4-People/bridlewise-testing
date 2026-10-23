@@ -263,45 +263,9 @@ pull-request template and the issue and Discussion forms from them.
 - `checkout-setup.ts` — the ONE owner of what a private checkout runs: the checkout files (`links`, the config mode: `applyCheckoutFiles`, also the commit guard's), the ONE supervised command runner (`runCheckoutCommand`: `{changed}`, the ceiling; a failed step's class, `errored` — the environment ended it, or a line of its output REPORTS an environmental error (`ROOT_POLICY.workflow.commandRunner.environmentalErrorCodes`: npm's `code`/`errno` line, an uncaught `Error: <code>`) — or `failed`; an errored run retried by the runner's own policy with a doubling backoff; every attempt logged once), its ONE construction `configuredCheckoutCommandRunner` (the supervisor, the kill grace, the gate tail and `commandRetryPolicy(document)`: `harness.commandErroredRetries` / `commandRetryBackoffMs` — used by the workspace CLI, the candidate checkout and the promotion, so every phase, gate and lockfile derivation rides out an errored run alike), the dead-command rule (`unconsumedCommands`: run by no phase and no promotion profile; judged by `harness check`'s `dead-commands` step), fail-fast sequences of declared commands (`runDeclaredCommands`, the one sequencer: a workspace phase `runCheckoutPhase`, a promotion profile's phases), the setup (`prepareCheckout`) and its re-run on changed `inputs` (`rerunChangedSetup`, optionally narrowed: the promoter home runs the engine's own), and where a private checkout may live (`assertSameFilesystem`: the candidate checkout, the workspace root, a promotion's candidate and home); used by `harness workspace`, the candidate checkout and the promotion. It owns the ONE fixed-point loop (`convergeUntilStable`, its bound `convergeBound`, `NotConvergedError`, the convergence report) the candidate's settle and `harness sync` both run, and each step's evidence (argv, cwd, attempts, duration, the load it met).
 - Generators write through the shared write primitive `atomicWriteFile`, whose checkout write door (`src/filesystem/checkout-write-door.ts`) refuses a test process — or any descendant of one — writing a file the checkout under test owns.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/workflow/`.
-
-- `architecture-module-entries.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-worker.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/hash-binding-registry.ts`, `engine/src/workflow/module-registrar.ts`.
-- `auto-generator.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `byte-pin-objects.ts` is consumed by `engine/scripts/pin-authority-regeneration.ts`, `engine/src/workflow/hash-binding-registry.ts`.
-- `checkout-setup.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts` and 8 more.
-- `command-result.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/evaluation/cli.ts`, `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/flake-cli.ts` and 7 more.
-- `evidence-store.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/forge/cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/record-links.ts`.
-- `failure-owners.ts` is consumed by `engine/scripts/tooling/lessons.ts`, `engine/scripts/verification/decision-index.ts`, `engine/scripts/verification/lesson-trailers.ts`, `engine/scripts/verification/tracker-entries.ts`, `engine/src/workflow/flaky-burn-down.ts`, `engine/src/workflow/forge/projector/projection.ts` and 3 more.
-- `flake-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `flaky-burn-down.ts` is consumed by nothing yet.
-- `format-command.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `harness-commands.ts` is consumed by `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/cli.ts`.
-- `hash-binding-registry.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/shared/tree-identity.ts`, `engine/src/workflow/auto-generator.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/context.ts` and 4 more.
-- `markdown-links.ts` is consumed by `engine/src/workflow/failure-owners.ts`, `engine/src/workflow/forge/projector/project.ts`.
-- `module-registrar.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `reachability.ts` is consumed by `engine/src/workflow/promotion/projection.ts`, `engine/src/workflow/promotion/transforms.ts`.
-- `record-links.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/verification/ratchet-baselines.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/workspace-manager.ts`.
-- `repository-registry.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/workspace-cli.ts` and 2 more.
-- `resource-lock.ts` is consumed by `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/workspace-manager.ts`.
-- `slot-cli.ts` is consumed by `engine/scripts/tooling/coverage.ts`, `engine/src/workflow/harness-commands.ts`.
-- `subprocess-bounds.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/workflow/harness-commands.ts`.
-- `test-inventory-binding.ts` is consumed by `engine/src/workflow/test-result-collector.ts`.
-- `test-result-collector.ts` is consumed by `engine/scripts/tooling/flake-reproduction-reporter.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-guards.ts`, `engine/scripts/tooling/test-receipt.ts`, `engine/scripts/tooling/test-run-lock.ts` and 6 more.
-- `timeline-shard.ts` is consumed by `engine/src/workflow/workspace-manager.ts`.
-- `tree-landing.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/workspace-manager.ts`.
-- `workflow-config.ts` is consumed by `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`, `engine/src/git/worktree-port.ts` and 21 more.
-- `workspace-cli.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
-- `workspace-contracts.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`, `engine/src/workflow/workspace-registry.ts`.
-- `workspace-forge-github.ts` is consumed by `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/workspace-cli.ts`.
-- `workspace-forge.ts` is consumed by `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-forge-github.ts`, `engine/src/workflow/workspace-manager.ts`.
-- `workspace-manager.ts` is consumed by `engine/src/workflow/workspace-cli.ts`.
-- `workspace-registry.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/workspace-manager.ts`.
-
-<!-- /consumers:generated -->
 
 Workspace shard import supports standalone events only. It captures the initial last
 sequence, walks ascending keyset pages through that tip using the existing timeline

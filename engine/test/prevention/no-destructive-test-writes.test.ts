@@ -881,7 +881,7 @@ test("prevention: a nested runner in a working copy protects THAT copy — gener
     // The copy's OWN index (never the live one) stages the tree as it stands,
     // so the generators judge a coherent checkout and reach their writes.
     stageInCopy(copy.root, ["engine", "shared"]);
-    const watched = [...generatedOutputPaths(copy.root)].map((path) => join(copy.root, path)).filter((path) => existsSync(path));
+    const watched = [...generatedOutputPaths()].map((path) => join(copy.root, path)).filter((path) => existsSync(path));
     const before = watched.map((path) => readFileSync(path, "utf8"));
     const probe = plantProbe(copy.engineRoot, "generators", [
       `const env = ${JSON.stringify(scrubbedEnvironment())};`,

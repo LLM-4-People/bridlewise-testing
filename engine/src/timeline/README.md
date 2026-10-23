@@ -55,26 +55,6 @@ The migration registry read and every pending migration run inside ONE `BEGIN IM
 
 The plan pages ascending through the tip fixed at planning time, so it covers every later event (a single query used to stop at the default page and leave older effects in place while reporting success); a gap, repeat or empty page refuses (`timeline_rollback_plan_incomplete`). Before any callback the whole batch is admitted: each file effect's exact documents are resolved — a protected pre-image from its sealed original — and a missing or digest-only pre-image refuses before anything is touched or recorded. An intent is appended before the callbacks and a terminal after them, carrying the `rolled-back-by` edges; a thrown callback or a failed terminal append leaves the intent pending. The plan itself carries the masked projection, never a sealed original.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/timeline/`.
-
-- `effect-documents.ts` is consumed by `engine/src/timeline/effect-sink.ts`, `server/kernel/canonical.ts`.
-- `effect-sink.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `server/kernel/canonical.ts`.
-- `ledger-dig.ts` is consumed by nothing yet.
-- `ledger-primitives.ts` is consumed by `engine/src/cli.ts`, `engine/src/kernel/execution-closure.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/effect-sink.ts`, `engine/src/timeline/recorded-effect.ts`, `engine/src/timeline/timeline-query.ts` and 4 more.
-- `provider-recording.ts` is consumed by nothing yet.
-- `recorded-effect.ts` is consumed by `engine/src/performance/engine-instrumentation.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/shared/exposure/action.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/effect-sink.ts`, `engine/src/timeline/provider-recording.ts` and 1 more.
-- `recording-context.ts` is consumed by `engine/src/cli.ts`, `engine/src/performance/engine-instrumentation.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/provider-http.ts`, `engine/src/timeline/effect-sink.ts` and 5 more.
-- `rollback.ts` is consumed by `engine/src/timeline/timeline-recorder.ts`, `engine/src/workflow/harness-commands.ts`.
-- `timeline-config.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/timeline-store.ts`, `server/kernel/canonical.ts`.
-- `timeline-query.ts` is consumed by `engine/src/timeline/timeline-recorder.ts`, `server/kernel/canonical.ts`.
-- `timeline-recorder.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/agents/agent-state.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/evaluation/cli.ts`, `engine/src/evaluation/matrix-executor.ts`, `engine/src/evaluation/scenario-runner.ts` and 8 more.
-- `timeline-schema.ts` is consumed by `engine/src/timeline/timeline-store.ts`.
-- `timeline-sealing.ts` is consumed by `engine/src/timeline/timeline-store.ts`.
-- `timeline-store.ts` is consumed by `engine/src/evaluation/cli.ts`, `engine/src/index.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/timeline-shard.ts`, `engine/src/workflow/workspace-manager.ts` and 1 more.
-- `timeline-types.ts` is consumed by `engine/src/agents/agent-state.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/agents/workspace-peek.ts`, `engine/src/memory/memory-store.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/runtime/orchestrator-tools.ts` and 11 more.
-
-<!-- /consumers:generated -->

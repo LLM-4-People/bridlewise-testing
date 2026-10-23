@@ -12,7 +12,7 @@ import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { resignTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, SHIPPED_HOOK_FILES, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
@@ -25,7 +25,6 @@ import { readExternalCommandSources, verifyExternalCommands } from "../../script
 import { currentConfigContractArtifact, generateAutoGeneratorReport, type AutoGeneratorReport } from "./auto-generator.ts";
 import {
   generatedOutputPaths,
-  generatedReadmePaths,
   repairAllBindings,
   verifyAllBindings,
   type BindingRepairReport,
@@ -126,8 +125,6 @@ export type HarnessCheckOutput = Readonly<{
   pinAuthorities: CheckStepResult;
   /** Would `harness regenerate` prune a ratchet baseline (debt that fell)? */
   ratchetBaselines: CheckStepResult;
-  /** Would `harness regenerate` rewrite a README's generated consumer block (the import graph moved)? */
-  readmeConsumers: CheckStepResult;
   /** Would `harness regenerate` rewrite the decision index (a decision file's front matter changed)? */
   decisionIndex: CheckStepResult;
   /** Would `harness regenerate` rewrite the task board (a tracker item changed)? */
@@ -221,12 +218,6 @@ export type HarnessRegenerateOutput = Readonly<{
    */
   ratchetBaselines: RatchetBaselinesArm;
   /**
-   * The README consumer blocks (`README_CONSUMER_BLOCK`): every marked
-   * README's block re-projected from the import graph, so a moved import
-   * never leaves a writer to run the generator by hand (WF-DEL leftover).
-   */
-  readmeConsumers: ReadmeConsumersArm;
-  /**
    * The decision index (`docs/decisions/README.md`), generated from the
    * decision files' front matter (`scripts/verification/decision-index.ts`),
    * so a state flip in a decision never leaves its index row lying.
@@ -306,14 +297,6 @@ export type CommunityFilesArm = Readonly<{
   changed: readonly string[];
   /** The refusal's `code: message`, empty otherwise. */
   refusal: string;
-}>;
-
-/** What the README consumer arm did: `changed` is what a write rewrote, or what a check found stale. */
-export type ReadmeConsumersArm = Readonly<{
-  status: "current" | "regenerated" | "stale" | "absent";
-  converged: boolean;
-  readmes: number;
-  changed: readonly string[];
 }>;
 
 /**
@@ -464,17 +447,6 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the ratchet baselines...");
   steps.push(ratchetBaselinesStep(regenerateRatchetBaselines(root, false)));
 
-  emitProgress(onProgress, "Checking the README consumer blocks...");
-  const readmeConsumers = regenerateReadmeConsumers(root, false);
-  steps.push(deepFreeze({
-    step: "readme-consumers",
-    status: readmeConsumers.converged ? "pass" : "fail",
-    message: readmeConsumers.converged
-      ? `every generated README consumer block matches the import graph (${String(readmeConsumers.readmes)} README(s)${readmeConsumers.status === "absent" ? "; this tree carries no generator" : ""})`
-      : `README consumer blocks are stale against the import graph (run harness sync): ${readmeConsumers.changed.join(", ")}`,
-    details: readmeConsumers,
-  }));
-
   emitProgress(onProgress, "Checking the decision index...");
   const decisionIndex = regenerateDecisionIndex(root, false);
   steps.push(deepFreeze({
@@ -575,22 +547,21 @@ export async function harnessCheck(
     configSchemaArtifact: steps[6]!,
     pinAuthorities: steps[7]!,
     ratchetBaselines: steps[8]!,
-    readmeConsumers: steps[9]!,
-    decisionIndex: steps[10]!,
-    liveIndex: steps[11]!,
-    journals: steps[12]!,
-    deadCommands: steps[13]!,
-    promotions: steps[14]!,
-    shippedHooks: steps[15]!,
-    evidenceIgnore: steps[16]!,
-    forgeFiles: steps[17]!,
-    frozenRecords: steps[18]!,
-    guardianSpecArtifact: steps[19]!,
-    trackerBoard: steps[20]!,
-    artifactManifest: steps[21]!,
-    communityFiles: steps[22]!,
-    webBudgetPopulation: steps[23]!,
-    bundle: steps[24]!,
+    decisionIndex: steps[9]!,
+    liveIndex: steps[10]!,
+    journals: steps[11]!,
+    deadCommands: steps[12]!,
+    promotions: steps[13]!,
+    shippedHooks: steps[14]!,
+    evidenceIgnore: steps[15]!,
+    forgeFiles: steps[16]!,
+    frozenRecords: steps[17]!,
+    guardianSpecArtifact: steps[18]!,
+    trackerBoard: steps[19]!,
+    artifactManifest: steps[20]!,
+    communityFiles: steps[21]!,
+    webBudgetPopulation: steps[22]!,
+    bundle: steps[23]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -963,9 +934,6 @@ export function harnessRegenerate(
   // The ratchet arm: every shrink-only baseline pruned against its guard's
   // scan, so a debt that fell leaves its list without a hand edit (a2b-design H2).
   const ratchetBaselines = regenerateRatchetBaselines(root, write);
-  // The README consumer arm, last: its blocks project the import graph of
-  // the tree every arm above has finished writing.
-  const readmeConsumers = regenerateReadmeConsumers(root, write);
   // The decision index: rebuilt from the decision files' front matter.
   const decisionIndex = regenerateDecisionIndex(root, write);
   // The task board: rendered from the structured tracker items.
@@ -983,10 +951,10 @@ export function harnessRegenerate(
   // The web test budget's population, from the live supported test files (before the inventory digests the settings).
   const webBudgetPopulation = regenerateWebBudgetPopulation(root, write);
   // The canonical artifact inventory, LAST: every governed file the arms above
-  // rewrote (a README in a governed root, the test inventory, the traces) must
+  // rewrote (the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, webBudgetPopulation, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, webBudgetPopulation, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -1001,7 +969,7 @@ export function harnessRegenerate(
     ? (hashBindings.allMatch && autoGenerator.allMatch &&
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1424,41 +1392,6 @@ export function generatorReport<Status extends string>(root: string, generator: 
 }
 
 /**
- * The README consumer arm: the generator (`README_CONSUMER_BLOCK.generator`,
- * relative to the repository git names for `root`) as a subprocess like the
- * other builder-layer arms — it walks the whole repository's import graph
- * with the web suite's resolver, which the runtime must not import. With
- * `write` every marked README's block is rewritten; without, a stale block is
- * drift. The generator projects exactly `generatedReadmePaths` (one
- * selection, hash-binding-registry.ts). A tree without the generator — a product-only tree has no test
- * surface; its READMEs are byte-locked to the testing tree, where this arm
- * runs — or outside a work tree is converged by absence.
- */
-export function regenerateReadmeConsumers(root: string, write: boolean): ReadmeConsumersArm {
-  const absent = deepFreeze({ status: "absent" as const, converged: true, readmes: 0, changed: [] });
-  const repositoryRoot = repositoryToplevel(root, "directory");
-  if (repositoryRoot === undefined) return absent;
-  // THE POPULATION IS THE MARKED READMES, NOT THE GENERATOR'S EXISTENCE. A
-  // missing generator used to answer `absent`/converged no matter how many
-  // marked READMEs were waiting — the checker's absence was read as the
-  // subject's absence. Only a tree with NO marked README has nothing to
-  // generate; a tree that has them and lost the generator is stale, named.
-  const readmes = generatedReadmePaths(repositoryRoot);
-  const generator = resolve(repositoryRoot, README_CONSUMER_BLOCK.generator);
-  if (!existsSync(generator)) {
-    if (readmes.length === 0) return absent;
-    return deepFreeze({
-      status: "stale" as const,
-      converged: false,
-      readmes: readmes.length,
-      changed: [`${README_CONSUMER_BLOCK.generator} (missing; ${String(readmes.length)} marked README(s) still need it)`],
-    });
-  }
-  const report = generatorReport<"current" | "regenerated" | "stale">(root, generator, [write ? "--write" : "--check", `--root=${repositoryRoot}`], "the README consumer generator", "readme_consumers_no_result");
-  return deepFreeze({ status: report.status, converged: report.allCurrent, readmes: typeof report["readmes"] === "number" ? report["readmes"] : 0, changed: report.changed });
-}
-
-/**
  * Regenerate `traceability/config-document-schema.json` from the artifact the
  * ON-DISK root policy declares (`currentConfigContractArtifact`), in
  * canonical-JSON form.
@@ -1598,7 +1531,7 @@ export async function harnessSync(
   options: Readonly<{ withBundle?: boolean; prune?: readonly string[]; onProgress?: (message: string) => void }> = {},
 ): Promise<HarnessCommandResult<HarnessSyncOutput>> {
   const repositoryRoot = repositoryToplevel(root, "directory") ?? resolve(root, "..");
-  const outputs = [...generatedOutputPaths(repositoryRoot)];
+  const outputs = [...generatedOutputPaths()];
   const fingerprint = (): ReadonlyMap<string, string> => new Map(outputs.map((path) => {
     const absolute = join(repositoryRoot, path);
     return [path, existsSync(absolute) ? sha256(readFileSync(absolute)) : "absent"] as const;

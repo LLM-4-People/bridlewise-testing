@@ -35,31 +35,6 @@ pair is a second profile file. The design is
 - `release-cli.ts` — `harness release <records|plan|notes|assemble>`: the release train's door, answering this folder's envelope (`codes.ts`); `records` reads every release of the trunk through the forge as the publisher App (`listReleases`) and writes the records file the other verbs read (`--releases`), its one writer and reader; the clock is read here only (`--now` replaces it); `notes` and `assemble` build nothing for a train that waits.
 - `promote-cli.ts` — the command door: reads argv through the grammar (`promote-arguments.ts`), answers the envelope (`../command-result.ts`, never the command table) with its `--text` report (the harness dispatch's one output option renders it), and maps the answer's class to the exit code; the verbs are `context.ts`'s.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/workflow/promotion/`.
-
-- `apply.ts` is consumed by `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/rollback.ts`.
-- `codes.ts` is consumed by `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/last-run.ts`, `engine/src/workflow/promotion/profile.ts` and 12 more.
-- `context.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/promote-cli.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/promotion/publication.ts` and 3 more.
-- `last-run.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/promotion/rollback.ts`, `engine/src/workflow/promotion/trigger.ts`.
-- `profile.ts` is consumed by `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/projection.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/promotion/publication.ts` and 3 more.
-- `projection.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promotion-run.ts`.
-- `promote-arguments.ts` is consumed by `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promote-cli.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/trigger.ts`.
-- `promote-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/release-cli.ts`.
-- `promoter-home.ts` is consumed by `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/promotion/trigger.ts`.
-- `promotion-run.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/promotion/rollback.ts`, `engine/src/workflow/promotion/trigger.ts`.
-- `publication.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/rollback.ts`.
-- `release-assets.ts` is consumed by `engine/src/workflow/promotion/release-cli.ts`.
-- `release-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `release-notes.ts` is consumed by `engine/src/workflow/promotion/release-cli.ts`.
-- `release-train.ts` is consumed by `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/release-assets.ts`, `engine/src/workflow/promotion/release-cli.ts`, `engine/src/workflow/promotion/release-notes.ts`.
-- `rollback.ts` is consumed by `engine/src/workflow/promotion/context.ts`.
-- `trailers.ts` is consumed by `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/projection.ts`, `engine/src/workflow/promotion/release-train.ts`, `engine/src/workflow/promotion/rollback.ts` and 1 more.
-- `transforms.ts` is consumed by `engine/src/workflow/promotion/projection.ts`.
-- `trigger-hook.ts` is consumed by `engine/scripts/bootstrap-hooks.ts`, `engine/scripts/verification/staged-move-loss.ts`.
-- `trigger.ts` is consumed by `engine/src/workflow/promotion/context.ts`, `engine/src/workflow/promotion/promote-cli.ts`.
-
-<!-- /consumers:generated -->

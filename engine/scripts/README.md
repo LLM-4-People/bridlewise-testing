@@ -82,18 +82,6 @@ authenticity. Historical v2 artifacts remain retained and are refused by the
 current reader; no native proof is invented for them. Maintenance commands remain
 explicitly separate from suites that failed before producing an execution.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/scripts/`.
-
-- `bootstrap-hooks.ts` is consumed by nothing yet.
-- `build-bundle.ts` is consumed by nothing yet.
-- `commit-guard.ts` is consumed by nothing yet.
-- `pin-authority-regeneration.ts` is consumed by nothing yet.
-- `post-commit.ts` is consumed by nothing yet.
-- `regenerate-handoff-manifest.ts` is consumed by `engine/scripts/pin-authority-regeneration.ts`.
-- `test-inventory.ts` is consumed by `engine/scripts/tooling/coverage.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-receipt.ts` and 4 more.
-
-<!-- /consumers:generated -->

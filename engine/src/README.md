@@ -60,17 +60,6 @@ from the import graph.
 - `tools/` — the tool registry, adapters, and concurrent dispatch.
 - `workflow/` — the harness commands: register, regenerate, check, sync.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/`.
-
-- `architecture-manifest.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/effect-surface.ts`, `engine/src/architecture-modules.ts`, `engine/src/kernel/architecture-external-commands.ts` and 4 more.
-- `architecture-modules.ts` is consumed by `engine/src/architecture-manifest.ts`.
-- `bundle-entry.ts` is consumed by nothing yet.
-- `cli.mjs` is consumed by nothing yet.
-- `cli.ts` is consumed by `engine/src/bundle-entry.ts`, `engine/src/index.ts`.
-- `index.ts` is consumed by nothing yet.
-
-<!-- /consumers:generated -->

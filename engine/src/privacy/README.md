@@ -37,36 +37,6 @@ The privacy domain: PII and secret detection, classification, the data-egress po
 
 The domain redaction engine owns full-text detection and context candidate adjustment. Ordinary context keeps its existing overlap order. The operational infrastructure requests unselected candidates, authenticates complete encrypted-field tokens, subtracts only those proven intervals and then reuses the shared overlap/application owners. This redacts secrets in adjacent plaintext while preserving authenticated ciphertext, even when the detection candidates overlap. Invalid tags, malformed padding and an `enc:` prefix alone grant no protection. No public redaction option accepts arbitrary safe ranges. Nothing here decrypts the ledger's sealed originals: their one door is the timeline store's `originalDocuments` (opened with the store key, verified against the recorded digest), which rollback uses to restore a masked pre-image exactly.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/privacy/`.
-
-- `benign-grammars.ts` is consumed by `engine/src/privacy/secret-intelligence.ts`, `engine/src/privacy/value-intrinsic.ts`, `server/llm/redaction.ts`.
-- `classification-catalog.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/src/kernel/config-contracts.ts`, `engine/src/kernel/root-policy.ts`, `engine/src/privacy/data-policy.ts`, `engine/src/privacy/privacy-config-section.ts`, `engine/src/privacy/privacy-config.ts` and 2 more.
-- `credential-lexicon.ts` is consumed by `engine/src/privacy/benign-grammars.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/secret-intelligence.ts`, `engine/src/shared/exposure/registrations/privacy.ts`.
-- `data-policy.ts` is consumed by `engine/src/kernel/preflight.ts`, `engine/src/privacy/secret-parts.ts`, `engine/src/workflow/forge/github.ts`, `engine/src/workflow/record-links.ts`.
-- `detection-span.ts` is consumed by `engine/src/privacy/identity-grammars.ts`, `engine/src/privacy/pii-registry.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/secret-intelligence.ts`, `engine/src/privacy/value-intrinsic.ts`.
-- `encrypted-field.ts` is consumed by `engine/src/privacy/operational-redaction.ts`, `server/kernel/canonical.ts`.
-- `evidence-handler.ts` is consumed by `engine/src/workflow/checkout-setup.ts`, `engine/src/workflow/flake-cli.ts`.
-- `file-viewer.ts` is consumed by `engine/src/runtime/tool-registry.ts`.
-- `held-set.ts` is consumed by `engine/src/privacy/redacted-messages.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/responses-observation.ts`, `engine/src/privacy/responses-redaction.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/failover.ts` and 6 more.
-- `identity-grammars.ts` is consumed by `engine/src/privacy/pii-registry.ts`, `engine/src/privacy/redaction-engine.ts`.
-- `operational-redaction.ts` is consumed by `engine/src/timeline/timeline-store.ts`.
-- `pii-registry.ts` is consumed by `engine/src/privacy/held-set.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/shared/exposure/registrations/privacy.ts`, `engine/src/shared/llm/responses-preparation.ts`, `server/llm/redaction.ts`.
-- `privacy-config-section.ts` is consumed by `engine/src/kernel/config-contracts.ts`, `engine/src/performance/benchmark-cli.ts`, `server/kernel/canonical.ts`.
-- `privacy-config.ts` is consumed by `engine/src/privacy/pii-registry.ts`, `engine/src/privacy/privacy-config-section.ts`, `engine/src/privacy/privacy-policy.ts`, `engine/src/shared/exposure/registrations/privacy.ts`.
-- `privacy-policy.ts` is consumed by `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/benchmark-runner.ts`, `engine/src/privacy/evidence-handler.ts`, `engine/src/privacy/file-viewer.ts`, `engine/src/privacy/operational-redaction.ts`, `engine/src/privacy/pii-registry.ts` and 15 more.
-- `redacted-messages.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/provider-http.ts`, `engine/src/shared/llm/responses-preparation.ts`, `engine/src/shared/llm/responses-tracking.ts`.
-- `redaction-engine.ts` is consumed by `engine/src/performance/benchmark-runner.ts`, `engine/src/privacy/evidence-handler.ts`, `engine/src/privacy/file-viewer.ts`, `engine/src/privacy/operational-redaction.ts`, `engine/src/privacy/redacted-messages.ts`, `engine/src/privacy/responses-observation.ts` and 8 more.
-- `responses-observation.ts` is consumed by `engine/src/runtime/provider-adapter.ts`, `engine/src/runtime/response-turn.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/provider-http.ts`, `server/context/context-bridge.ts`.
-- `responses-redaction.ts` is consumed by `engine/src/privacy/redacted-messages.ts`, `engine/src/privacy/responses-observation.ts`, `engine/src/shared/llm/provider-observation.ts`.
-- `secret-files.ts` is consumed by `engine/src/privacy/file-viewer.ts`, `engine/src/timeline/timeline-store.ts`, `server/intelligence/content-search.ts`, `server/tools/tool-executor.ts`.
-- `secret-intelligence.ts` is consumed by `engine/src/privacy/held-set.ts`, `engine/src/privacy/privacy-config-section.ts`, `engine/src/privacy/privacy-policy.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/responses-observation.ts`, `engine/src/privacy/responses-redaction.ts` and 3 more.
-- `secret-parts.ts` is consumed by `engine/src/privacy/responses-redaction.ts`, `engine/src/privacy/secret-intelligence.ts`, `server/integrations/mcp-bridge.ts`, `server/routes/config.ts`.
-- `secret-signals.ts` is consumed by `engine/scripts/tooling/verification/artifact-admission.ts`, `engine/src/kernel/requirements.ts`, `engine/src/mcp/headers.ts`, `engine/src/performance/performance-config.ts`, `engine/src/privacy/data-policy.ts`, `engine/src/privacy/privacy-policy.ts` and 8 more.
-- `text-normalize.ts` is consumed by `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/secret-intelligence.ts`.
-- `value-intrinsic.ts` is consumed by `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/secret-intelligence.ts`, `engine/src/shared/exposure/registrations/privacy.ts`.
-
-<!-- /consumers:generated -->

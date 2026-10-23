@@ -20,27 +20,6 @@ The `engine/test/workflow/promotion/` folder of the development surface: the pro
 - `context.test.ts` — the context and the verbs: the pending signal counting an overlay file's change as changing what ships; two declared profiles (every signal answers each; a verb with no `--profile` names the choice), the source's own profile over a stale HEAD, the target-trailer route, `status`/`explain`/`plan --diff` and each refusal's class, the audit line of every verb, the exit code of every class (usage errors are answers, `apply`'s override and reason rules included), the `--text` report, and the grammar's round trip (a request spelled back parses to itself).
 - `exposure.test.ts` — the exposure (T-E2): unmeasured signals and typed refusals without a source, the source's answers with one, and a registration that imports no process code.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/test/workflow/promotion/`.
-
-- `apply-support.ts` is consumed by nothing yet.
-- `apply.test.ts` is consumed by nothing yet.
-- `context.test.ts` is consumed by nothing yet.
-- `crash-child.ts` is consumed by nothing yet.
-- `crash.test.ts` is consumed by nothing yet.
-- `exposure.test.ts` is consumed by nothing yet.
-- `merge-guide.test.ts` is consumed by nothing yet.
-- `profile.test.ts` is consumed by nothing yet.
-- `projection.test.ts` is consumed by nothing yet.
-- `promoter-home.test.ts` is consumed by nothing yet.
-- `promotion-fixture.ts` is consumed by nothing yet.
-- `publish.test.ts` is consumed by nothing yet.
-- `release.test.ts` is consumed by nothing yet.
-- `rollback.test.ts` is consumed by nothing yet.
-- `transforms.test.ts` is consumed by nothing yet.
-- `trigger.test.ts` is consumed by nothing yet.
-
-<!-- /consumers:generated -->
