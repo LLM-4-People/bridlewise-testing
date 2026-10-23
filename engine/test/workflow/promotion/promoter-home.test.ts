@@ -357,9 +357,9 @@ const PLANTED: Readonly<Record<string, string>> = {
 };
 
 test("SECURITY: the home's child inherits no credential — the one projection (COMMAND_ENVIRONMENT), the proxy without its userinfo, and the variable naming it the home's child", () => {
-  const environment = promoterHomeEnvironment({ PATH: "/usr/bin", HOME: "/home/someone", LANG: "C.UTF-8", ...PLANTED }, "/the/home/engine");
+  const environment = promoterHomeEnvironment({ PATH: "/usr/bin", HOME: "/srv/test-home", LANG: "C.UTF-8", ...PLANTED }, "/srv/promoter-engine");
   assert.deepEqual(Object.keys(environment).sort(), ["HOME", "LANG", "PATH", VARIABLE, "https_proxy"].sort());
-  assert.equal(environment[VARIABLE], "/the/home/engine");
+  assert.equal(environment[VARIABLE], "/srv/promoter-engine");
   assert.ok(!JSON.stringify(environment).includes("planted-proxy-password") && !JSON.stringify(environment).includes("proxyuser"), "the proxy leaves without its userinfo");
 });
 
@@ -405,7 +405,7 @@ function assertNothingPlanted(seen: Readonly<Record<string, string>>, where: str
 }
 
 test("SECURITY: every checkout command's environment is the one projection, plus only the harness's credential-free coordination values", () => {
-  const environment = checkoutCommandEnvironment({ PATH: "/usr/bin", HOME: "/home/someone", TMPDIR: "/var/tmp/run", ...PLANTED, HARNESS_INSTRUMENT_LOCK_TOKEN: "nonce-1", GIT_DIR: "/elsewhere/.git" }, "invocation-1");
+  const environment = checkoutCommandEnvironment({ PATH: "/usr/bin", HOME: "/srv/test-home", TMPDIR: "/var/tmp/run", ...PLANTED, HARNESS_INSTRUMENT_LOCK_TOKEN: "nonce-1", GIT_DIR: "/elsewhere/.git" }, "invocation-1");
   assert.deepEqual(Object.keys(environment).sort(), ["HARNESS_INSTRUMENT_LOCK_TOKEN", "HARNESS_RUN_INVOCATION", "HOME", "PATH", "TMPDIR", "https_proxy"].sort());
   assert.equal(environment["TMPDIR"], "/var/tmp/run", "the operator's temp root stays");
   assert.equal(environment["HARNESS_INSTRUMENT_LOCK_TOKEN"], "nonce-1", "the command runs inside the hold the runner took");
