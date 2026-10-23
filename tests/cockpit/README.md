@@ -10,6 +10,7 @@ The `tests/cockpit/` folder of the development surface.
 - `artifact-containment.test.ts` — @vitest-environment jsdom.
 - `artifact-runtime-errors.test.ts` — @vitest-environment jsdom.
 - `boot-waves-owner.test.ts` — @vitest-environment node.
+- `brand-mark-owner.test.ts` — @vitest-environment node. One geometry, one palette: `Brand.svelte` draws exactly the parts of `brand-mark.ts`, each with its own ink, and takes no styling but its declared rules (judged on Svelte's own parse; no other cockpit stylesheet may style it). The icon generator paints every part with its own token's value, driven with a planted palette through `markOutputs` (the SVG, and a pixel of each part in every PNG), and restates no colour in any spelling. No other file copies the mark's geometry. Each rule has planted violations and near-misses.
 - `canvas-release-on-hide.test.ts` — @vitest-environment jsdom.
 - `cockpit-boot-owner.test.ts` — @vitest-environment jsdom.
 - `cockpit-chart-owner.test.ts` — @vitest-environment jsdom.
