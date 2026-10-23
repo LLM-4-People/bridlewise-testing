@@ -5,9 +5,10 @@
  * links, never code); this module only replaces the destinations it found.
  * Pure (no I/O, no clock, imports only the parser, itself pure): the tracker's
  * board render (src/workflow/failure-owners.ts) and the GitHub projector's
- * sealed realm (src/workflow/forge/projector/) both load it, so a link is
- * resolved one way whether it lands on the board or in a projected issue.
- * Its path helpers are the realm's (no `node:path` exists there).
+ * confined program (src/workflow/forge/projector/confined.ts, which links only
+ * declared pure modules) both load it, so a link is resolved one way whether
+ * it lands on the board or in a projected issue. Its path helpers are its own:
+ * the confined program imports no built-in (`node:path` included).
  */
 import { extractMarkdown } from "../../../shared/markdown.ts";
 

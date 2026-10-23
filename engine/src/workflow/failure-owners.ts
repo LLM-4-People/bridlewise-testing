@@ -239,14 +239,16 @@ const TRACKER_ITEM_STATES = Object.freeze(["open", "closed"] as const);
 const TRACKER_ITEM_RESOLUTIONS = Object.freeze(["completed", "not-planned", "duplicate"] as const);
 const TRACKER_ITEM_SEVERITIES = Object.freeze(["P0", "P1", "P2", "P3"] as const);
 /**
- * The board's lanes, in board order, with their section headings (the open
- * rows of a lane; every closed row is under `DONE_HEADING`). A heading is the
- * section name the roadmap's ROADMAP-PLAN `taskSections` state rules key on.
+ * The board's lanes, in board order: each one's section heading (the open
+ * rows of a lane; every closed row is under `DONE_HEADING`) — the section
+ * name the roadmap's ROADMAP-PLAN `taskSections` state rules key on — and the
+ * GitHub label its items carry (`lane:<lane>`, this colour and description;
+ * the projector writes the label, src/workflow/forge/projector/).
  */
-const TRACKER_LANES = Object.freeze({
-  floor: "Open",
-  "flaky-burn-down": "Flaky burn-down owners",
-  "private-web": "Private web lanes (retained as ordinary work)",
+export const TRACKER_LANES = Object.freeze({
+  floor: Object.freeze({ heading: "Open", color: "1d76db", description: "Tracker lane: the public floor's open work" }),
+  "flaky-burn-down": Object.freeze({ heading: "Flaky burn-down owners", color: "d93f0b", description: "Tracker lane: owns an entry of a flaky burn-down list" }),
+  "private-web": Object.freeze({ heading: "Private web lanes (retained as ordinary work)", color: "c5def5", description: "Tracker lane: a private web workstream kept as ordinary work" }),
 } as const);
 const DONE_HEADING = "Done";
 
@@ -431,7 +433,7 @@ export function itemRow(item: TrackerItem): string {
 export function renderTrackerBoard(items: readonly TrackerItem[]): string {
   const byId = (left: TrackerItem, right: TrackerItem): number => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
   const section = (heading: string, rows: readonly TrackerItem[]): string[] => (rows.length === 0 ? [] : [`## ${heading}\n\n${rows.map(itemRow).join("\n")}\n`]);
-  const open = (Object.entries(TRACKER_LANES) as [TrackerLane, string][]).flatMap(([lane, heading]) =>
+  const open = (Object.entries(TRACKER_LANES) as [TrackerLane, typeof TRACKER_LANES[TrackerLane]][]).flatMap(([lane, { heading }]) =>
     section(heading, items.filter((item) => item.state === "open" && item.lane === lane).sort((left, right) => left.opened.localeCompare(right.opened) || byId(left, right))));
   const done = section(DONE_HEADING, items.filter((item) => item.state === "closed").sort((left, right) => right.closed!.localeCompare(left.closed!) || byId(left, right)));
   return [...open, ...done].join("\n");
