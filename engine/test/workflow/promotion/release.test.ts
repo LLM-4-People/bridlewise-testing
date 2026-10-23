@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
@@ -21,8 +21,10 @@ import { memoryCredential } from "../../../src/workflow/forge/credentials.ts";
 import { githubClient } from "../../../src/workflow/forge/github.ts";
 import { fakeGithub } from "../../forge/fake-github.ts";
 import { creditedName, creditedPeople, decisionChanges, landedPullRequests, renderReleaseNotes } from "../../../src/workflow/promotion/release-notes.ts";
+import { releaseSbom } from "../../../src/workflow/promotion/release-sbom.ts";
 import { planRelease, type ReleasePlan, type ReleaseRecord, type ReleaseSettings } from "../../../src/workflow/promotion/release-train.ts";
 import { escapeMarkdownText } from "../../../../shared/markup.ts";
+import { signalFixture } from "../../../src/privacy/secret-signals.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
 import { PROFILE_DIRECTORY, PROFILE_NAME, SOURCE, TARGET, json, promotionFixture, type PromotionFixture } from "./promotion-fixture.ts";
 
@@ -279,6 +281,115 @@ test("records: every release of the trunk, read page by page through the forge a
   assert.throws(() => readFileSync(bounded), "nothing was written");
 });
 
+/** An npm integrity of `text`'s bytes. */
+const integrity = (text: string): string => `sha512-${createHash("sha512").update(text).digest("base64")}`;
+
+test("the SBOM: SPDX 2.3 of exactly the product commit's own lockfiles — every installed package, its purl, checksum, licence and how it is depended on; deterministic", () => {
+  const fixture = promotionFixture("release-sbom");
+  const rootLock = { name: "fixture", lockfileVersion: 3, requires: true, packages: {
+    "": { name: "fixture", version: "1.0.0", license: "AGPL-3.0-only" },
+    "node_modules/zod": { version: "1.0.0", resolved: "https://registry.npmjs.org/zod/-/zod-1.0.0.tgz", integrity: integrity("zod"), license: "MIT" },
+    "node_modules/@scope/kit": { version: "2.1.0", resolved: "https://registry.npmjs.org/@scope/kit/-/kit-2.1.0.tgz", integrity: integrity("kit"), license: "(MIT OR Apache-2.0)" },
+    "node_modules/@babel/helper-string-parser": { version: "8.0.0", resolved: "https://registry.npmjs.org/@babel/helper-string-parser/-/helper-string-parser-8.0.0.tgz", integrity: integrity("hsp"), dev: true },
+    "node_modules/vite": { version: "1.0.0", integrity: integrity("vite"), dev: true, license: "SEE LICENSE IN LICENSE.md" },
+    "node_modules/fsevents": { version: "2.3.3", integrity: integrity("fsevents"), optional: true, license: "UNLICENSED" },
+    "node_modules/vite/node_modules/zod": { version: "0.9.0", integrity: integrity("old zod"), dev: true },
+    "node_modules/local": { resolved: "packages/local", link: true },
+    "packages/local": { name: "local", version: "0.0.1" },
+  } };
+  const engineLock = { name: "engine", lockfileVersion: 3, requires: true, packages: {
+    "": { name: "engine", version: "1.0.0" },
+    "node_modules/zod": { version: "1.0.0", resolved: "https://registry.npmjs.org/zod/-/zod-1.0.0.tgz", integrity: integrity("zod"), license: "MIT" },
+  } };
+  const commit = project(fixture, { "package.json": manifest(fixture, "1.0.0"), "package-lock.json": json(rootLock), "engine/package-lock.json": json(engineLock) });
+  const due = plan(fixture);
+  assert.equal(due.due, true);
+  const text = releaseSbom(fixture.repository, due);
+  assert.equal(releaseSbom(fixture.repository, due), text, "the same commit gives the same bytes");
+  const sbom = JSON.parse(text) as { spdxVersion: string; dataLicense: string; SPDXID: string; name: string; documentNamespace: string; creationInfo: { created: string; creators: string[] };
+    packages: { SPDXID: string; name: string; versionInfo: string; downloadLocation: string; licenseDeclared: string; checksums?: { algorithm: string; checksumValue: string }[]; externalRefs?: { referenceLocator: string }[] }[];
+    relationships: { spdxElementId: string; relationshipType: string; relatedSpdxElement: string }[] };
+  assert.deepEqual([sbom.spdxVersion, sbom.dataLicense, sbom.SPDXID, sbom.name], ["SPDX-2.3", "CC0-1.0", "SPDXRef-DOCUMENT", "bridlewise-1.0.0"]);
+  assert.equal(sbom.documentNamespace, `https://spdx.org/spdxdocs/bridlewise-1.0.0-${commit}`);
+  assert.equal(sbom.creationInfo.created, new Date(Number(fixture.git(["show", "-s", "--format=%ct", commit])) * 1000).toISOString().replace(/\.\d{3}Z$/u, "Z"), "the commit's time, not the clock");
+  const byName = (name: string, version: string) => sbom.packages.find((entry) => entry.name === name && entry.versionInfo === version)!;
+  assert.deepEqual(sbom.packages.map((entry) => `${entry.name}@${entry.versionInfo}`).sort(), ["@babel/helper-string-parser@8.0.0", "@scope/kit@2.1.0", "engine@1.0.0", "fixture@1.0.0", "fsevents@2.3.3", "vite@1.0.0", "zod@0.9.0", "zod@1.0.0"], "every installed package once, the roots, and no workspace link");
+  assert.deepEqual(byName("@scope/kit", "2.1.0").externalRefs!.map((ref) => ref.referenceLocator), ["pkg:npm/%40scope/kit@2.1.0"]);
+  assert.deepEqual(byName("zod", "1.0.0").checksums, [{ algorithm: "SHA512", checksumValue: createHash("sha512").update("zod").digest("hex") }]);
+  assert.equal(byName("zod", "1.0.0").downloadLocation, "https://registry.npmjs.org/zod/-/zod-1.0.0.tgz");
+  assert.equal(byName("vite", "1.0.0").downloadLocation, "NOASSERTION");
+  assert.equal(byName("@babel/helper-string-parser", "8.0.0").downloadLocation, "https://registry.npmjs.org/@babel/helper-string-parser/-/helper-string-parser-8.0.0.tgz", "a registry tarball's long name is a name, not a credential");
+  assert.deepEqual(["zod@1.0.0", "@scope/kit@2.1.0", "vite@1.0.0", "fsevents@2.3.3", "fixture@1.0.0"].map((key) => byName(key.slice(0, key.lastIndexOf("@")), key.slice(key.lastIndexOf("@") + 1)).licenseDeclared), ["MIT", "(MIT OR Apache-2.0)", "NOASSERTION", "NOASSERTION", "AGPL-3.0-only"], "a licence is an SPDX expression or NOASSERTION, never guessed");
+  const ids = new Set(sbom.packages.map((entry) => entry.SPDXID));
+  assert.equal(ids.size, sbom.packages.length, "unique element ids");
+  for (const relationship of sbom.relationships) assert.ok((relationship.spdxElementId === "SPDXRef-DOCUMENT" || ids.has(relationship.spdxElementId)) && ids.has(relationship.relatedSpdxElement), JSON.stringify(relationship));
+  const rel = (name: string, version: string, root: string) => sbom.relationships.filter((relationship) => relationship.spdxElementId === byName(name, version).SPDXID && relationship.relatedSpdxElement === byName(root, "1.0.0").SPDXID).map((relationship) => relationship.relationshipType);
+  assert.deepEqual([rel("zod", "1.0.0", "fixture"), rel("zod", "1.0.0", "engine"), rel("vite", "1.0.0", "fixture"), rel("fsevents", "2.3.3", "fixture"), rel("zod", "0.9.0", "fixture")], [["DEPENDENCY_OF"], ["DEPENDENCY_OF"], ["DEV_DEPENDENCY_OF"], ["OPTIONAL_DEPENDENCY_OF"], ["DEV_DEPENDENCY_OF"]]);
+  assert.deepEqual(sbom.relationships.filter((relationship) => relationship.relationshipType === "DESCRIBES").map((relationship) => relationship.relatedSpdxElement).sort(), [byName("engine", "1.0.0").SPDXID, byName("fixture", "1.0.0").SPDXID].sort(), "the document describes each lockfile's root");
+});
+
+test("the SBOM's bytes do not depend on the host's locale: every order is by UTF-8 bytes", () => {
+  const fixture = promotionFixture("release-sbom-locale");
+  const lock = { name: "fixture", lockfileVersion: 3, packages: { "": { name: "fixture", version: "1.0.0" },
+    ...Object.fromEntries(["zod", "tar", "šrift", "Ärk", "ab", "a-b", "z"].map((name) => [`node_modules/${name}`, { version: "1.0.0", integrity: integrity(name) }])) } };
+  project(fixture, { "package.json": manifest(fixture, "1.0.0"), "package-lock.json": json(lock) });
+  const due = plan(fixture);
+  const here = releaseSbom(fixture.repository, due);
+  // Estonian collation puts z before t, so a locale-aware order would reorder these.
+  const script = `import { releaseSbom } from ${JSON.stringify(new URL("../../../src/workflow/promotion/release-sbom.ts", import.meta.url).href)};
+const [root, version, commit] = process.argv.slice(1);
+process.stdout.write(releaseSbom({ root, executable: "git", timeoutMs: 60000 }, { version, product: { commit } }));`;
+  for (const locale of ["en_US.UTF-8", "et_EE.UTF-8"]) {
+    const run = spawnSync(process.execPath, ["--input-type=module", "-e", script, fixture.root, due.version, due.product.commit], { encoding: "utf8", env: { ...process.env, LC_ALL: locale, LANG: locale } });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout, here, `${locale}: the same bytes`);
+  }
+});
+
+test("the SBOM never publishes a credential: a resolved location carrying one is refused by name, never stripped, never echoed", () => {
+  const token = signalFixture("github-personal-token");
+  const cases: readonly (readonly [string, string])[] = [
+    ["userinfo", "https://deploy:hunter2-secret@registry.example/zod/-/zod-1.0.0.tgz"],
+    ["username only", "https://ci-token-user@registry.example/zod/-/zod-1.0.0.tgz"],
+    ["token query", "https://registry.example/zod/-/zod-1.0.0.tgz?token=a8f5f167f44f4964e6c998dee827110c"],
+    ["auth query", "https://registry.example/zod/-/zod-1.0.0.tgz?_authToken=a8f5f167f44f4964e6c998dee827110c"],
+    ["a catalogued secret in the path", `https://registry.example/${token}/zod-1.0.0.tgz`],
+    ["a catalogued secret in a location that is no URL", `../vendor/${token}/zod-1.0.0.tgz`],
+    ["a user alone (fail closed: git+ssh too)", "git+ssh://git@github.com/owner/zod.git#0123456789abcdef0123456789abcdef01234567"],
+  ];
+  for (const [why, resolved] of cases) {
+    const fixture = promotionFixture("release-sbom-credential");
+    project(fixture, { "package.json": manifest(fixture, "1.0.0"), "package-lock.json": json({ name: "fixture", lockfileVersion: 3, packages: { "": { name: "fixture", version: "1.0.0" },
+      "node_modules/zod": { version: "1.0.0", resolved: "https://registry.example/zod/-/zod-1.0.0.tgz", integrity: integrity("zod") },
+      "node_modules/vite/node_modules/zod": { version: "1.0.0", resolved, integrity: integrity("zod") } } }) });
+    const due = plan(fixture);
+    assert.throws(() => releaseSbom(fixture.repository, due), (error: unknown) => {
+      assert.ok(error instanceof PromotionError && error.promotionCode === "promotion_release_sbom_credential", `${why}: ${String(error)}`);
+      assert.deepEqual(error.facts, { lockfile: "package-lock.json", entry: "node_modules/vite/node_modules/zod" }, `${why}: the lockfile and the entry, the duplicate of a clean one included`);
+      for (const secret of ["hunter2", "ci-token-user", "a8f5f167", token]) assert.ok(!error.message.includes(secret) && !JSON.stringify(error.facts).includes(secret), `${why}: the value is never echoed`);
+      return true;
+    }, why);
+  }
+});
+
+test("the SBOM fails closed: a lockfile it cannot read exactly is refused by name, never described in part", () => {
+  const refusedSbom = (lock: unknown, extra: Readonly<Record<string, string | null>> = {}): void => {
+    const fixture = promotionFixture("release-sbom-refused");
+    project(fixture, { "package.json": manifest(fixture, "1.0.0"), "package-lock.json": lock === null ? null : json(lock), ...extra });
+    const due = plan(fixture);
+    assert.throws(() => releaseSbom(fixture.repository, due), (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_release_sbom_lockfile_invalid", JSON.stringify(lock).slice(0, 80));
+  };
+  const root = { "": { name: "fixture", version: "1.0.0" } };
+  refusedSbom({ lockfileVersion: 1, dependencies: {} });
+  refusedSbom({ lockfileVersion: 4, packages: { "": { name: "fixture", version: "1.0.0" } } });
+  refusedSbom({ lockfileVersion: 3, packages: { "": { name: "fixture" } } });
+  refusedSbom({ lockfileVersion: 3, packages: { ...root, "node_modules/zod": { resolved: "x" } } });
+  refusedSbom({ lockfileVersion: 3, packages: { ...root, "node_modules/zod": { version: "1.0.0", integrity: "md5-AAAA" } } });
+  refusedSbom({ lockfileVersion: 3, packages: { ...root, "node_modules/zod": { version: "1.0.0", integrity: 7 } } });
+  refusedSbom(null);
+  refusedSbom({ lockfileVersion: 3, packages: root }, { "engine/package-lock.json": "{ not json" });
+});
+
 test("a credited value never publishes an address", () => {
   const cases: ReadonlyArray<readonly [string, string | null]> = [
     ["Ada Writer <ada@example.invalid>", "Ada Writer"],
@@ -320,7 +431,7 @@ test("the assets: every input required, canonical names, the source archive of t
 });
 
 test("the door: its grammar refuses typed, and a due plan writes the notes while a waiting one builds nothing", async () => {
-  for (const argv of [["records"], ["records", "--releases", "r", "--out", "x"], [], ["publish"], ["plan", "--out", "x"], ["notes", "--out", "x"], ["notes", "--releases", "r", "--repository", "owner/name", "--out", "x"], ["notes", "--releases", "r", "--repository", "http://forge.example/owner/name", "--out", "x"], ["plan", "--releases", "r", "--now", "yesterday"], ["assemble", "--out", "x"], ["plan", "--now"]]) {
+  for (const argv of [["records"], ["records", "--releases", "r", "--out", "x"], ["sbom", "--out", "x"], ["sbom", "--releases", "r"], ["sbom", "--releases", "r", "--out", "x", "--repository", "https://forge.example/o/r"], [], ["publish"], ["plan", "--out", "x"], ["notes", "--out", "x"], ["notes", "--releases", "r", "--repository", "owner/name", "--out", "x"], ["notes", "--releases", "r", "--repository", "http://forge.example/owner/name", "--out", "x"], ["plan", "--releases", "r", "--now", "yesterday"], ["assemble", "--out", "x"], ["plan", "--now"]]) {
     assert.throws(() => parseReleaseArguments(argv), (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_release_usage", argv.join(" "));
   }
   assert.equal(parseReleaseArguments(["plan", "--releases", "r.jsonl", "--manual", "--now", "2026-10-21T00:00:00Z"]).manual, true);
@@ -331,12 +442,19 @@ test("the door: its grammar refuses typed, and a due plan writes the notes while
   const fixture = promotionFixture("release-door");
   const withRelease = { ...fixture.document, promotion: { ...fixture.document.promotion!, release: SETTINGS } } as Pick<ConfigDocument, "workspaceIsolation" | "promotion" | "workspaceGit" | "harness" | "resourceLock">;
   assert.equal((await runReleaseCli(fixture.root, ["plan", "--releases", none], fixture.document)).result.result.code, "promotion_release_settings_missing");
-  const released = project(fixture, { "package.json": manifest(fixture, "1.0.0") });
+  const released = project(fixture, { "package.json": manifest(fixture, "1.0.0"), "package-lock.json": json({ name: "fixture", lockfileVersion: 3, packages: { "": { name: "fixture", version: "1.0.0" }, "node_modules/zod": { version: "1.0.0", integrity: integrity("zod") } } }) });
   const notesOut = join(createTempDir("release-door-"), "notes.md");
   const due = await runReleaseCli(fixture.root, ["notes", "--releases", none, "--repository", "https://forge.example/owner/name", "--out", notesOut], withRelease);
   assert.deepEqual([due.result.result.code, due.exitCode], ["promotion_release_notes_written", 0]);
   assert.match(readFileSync(notesOut, "utf8"), /gh release verify v1\.0\.0/u);
+  const sbomOut = join(createTempDir("release-door-sbom-"), "sbom.spdx.json");
+  const sbom = await runReleaseCli(fixture.root, ["sbom", "--releases", none, "--out", sbomOut], withRelease);
+  assert.deepEqual([sbom.result.result.code, sbom.exitCode], ["promotion_release_sbom_written", 0]);
+  assert.equal((JSON.parse(readFileSync(sbomOut, "utf8")) as { spdxVersion: string }).spdxVersion, "SPDX-2.3");
   releaseTag(fixture, "v1.0.0", released);
+  const waitingSbom = join(createTempDir("release-door-sbom-waiting-"), "sbom.spdx.json");
+  assert.equal((await runReleaseCli(fixture.root, ["sbom", "--releases", none, "--out", waitingSbom], withRelease)).result.result.code, "promotion_release_not_due");
+  assert.throws(() => readFileSync(waitingSbom), "a waiting train writes no SBOM");
   const waiting = await runReleaseCli(fixture.root, ["assemble", "--releases", none, "--out", join(createTempDir("release-door-out-"), "x"), "--bundle", "a", "--guardian", "b", "--sbom", "c", "--docs-site", "d"], withRelease);
   assert.deepEqual([waiting.result.result.code, waiting.exitCode], ["promotion_release_not_due", 0], "a waiting train assembles nothing");
   assert.match(waiting.text!(), /declare the next version/u);
