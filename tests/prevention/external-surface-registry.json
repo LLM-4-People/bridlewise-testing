@@ -201,6 +201,23 @@
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The scorecard checks it runs are upstream data, not a pin; a moved tag or SHA is refused until this declaration moves with it."
     },
     {
+      "id": "./.github/actions/end-job-processes",
+      "kind": "local-action",
+      "pinned": {
+        "path": ".github/actions/end-job-processes"
+      },
+      "usedIn": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/dependency-review.yml",
+        ".github/workflows/docs-links.yml",
+        ".github/workflows/pages.yml",
+        ".github/workflows/secret-scan.yml",
+        ".github/workflows/test-shards.yml"
+      ],
+      "drift": "Local action, not an external one: this repository's own code (#421), run on the runner's Node. The guard requires its action.yml to exist and every file that uses it to be declared here."
+    },
+    {
       "id": "./.github/workflows/test-shards.yml",
       "kind": "local-workflow",
       "pinned": {

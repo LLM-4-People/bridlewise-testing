@@ -2429,6 +2429,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/process/job-reaper.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/process/launcher-watch.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4301,5 +4309,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "bcfd2d8acdb691f6ed223d620a5ae00b645265c4305c5f25f893fea856dcc1b5"
+  "integrityHash": "76defef7b6b3cc6f68b9da5d65dc5172711697d1d15cdf6c379b201997e9f208"
 }

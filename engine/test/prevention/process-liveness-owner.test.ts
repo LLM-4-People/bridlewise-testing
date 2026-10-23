@@ -62,7 +62,7 @@ const ANNOUNCEMENT_CALLERS = [
 /** A process-list scrape: `ps`, `ss`, `pgrep`, `pkill`, `lsof`, `fuser` or `netstat` run as a command (the owner answers from procfs). */
 const PROCESS_SCRAPE = /\b(?:exec|execSync|execFile|execFileSync|spawn|spawnSync)\(\s*["'`](?:ps|ss|pgrep|pkill|lsof|fuser|netstat)\b/u;
 /** Where a pid-addressed signal is refused: the product and its tooling (a test may crash itself or kill its own fixture). */
-const PID_SIGNAL_ROOTS = ["engine/src/", "engine/scripts/", "server/", "scripts/", "bench/", "shared/", "src/"] as const;
+const PID_SIGNAL_ROOTS = ["engine/src/", "engine/scripts/", "server/", "scripts/", "bench/", "shared/", "src/", ".github/"] as const;
 /** Pid-addressed signals and process-list scrapes outside the owner, each with its reason. */
 const DECLARED_SIGNALLERS: Readonly<Record<string, string>> = {
   "bench/lib/machine.ts": "the machine report prints the top CPU consumers as `ps` formats them: a diagnostic line for a human, no pid is read back or acted on",
@@ -79,7 +79,8 @@ const DECLARED_RAW_PROCFS_READERS: Readonly<Record<string, string>> = {
 };
 
 function scannedFiles(): readonly string[] {
-  const roots = ["engine/src", "engine/scripts", "engine/test", "server", "scripts", "bench", "tests", "shared", "src"].map((root) => join(REPOSITORY_ROOT, root));
+  // `.github/` too: a workflow's own action is code that can read procfs or signal a process (#422 review).
+  const roots = ["engine/src", "engine/scripts", "engine/test", "server", "scripts", "bench", "tests", "shared", "src", ".github"].map((root) => join(REPOSITORY_ROOT, root));
   return roots.flatMap((root) => walk(root, { exts: [".ts", ".mts", ".mjs", ".js"] }))
     .map((file) => relative(REPOSITORY_ROOT, file).split("\\").join("/"))
     .filter((path) => path !== OWNER && !/^engine\/scripts\/exp/u.test(path) && !path.includes("/node_modules/") && !path.includes("/fixtures/"));

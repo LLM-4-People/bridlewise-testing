@@ -367,6 +367,53 @@ function networkInstallViolations(workflow) {
   return violations;
 }
 
+/** The local action whose post step ends a job's own leftover processes, after every other step (#421). */
+const REAPER = "./.github/actions/end-job-processes";
+
+/**
+ * Jobs that run steps without the reaper, each with its reason. Nothing else
+ * may be listed: a stale entry fails the live test.
+ */
+const REAPERLESS_JOBS = new Map([
+  ["scorecard.yml#analysis", "OpenSSF Scorecard publishes results only from a workflow whose job runs nothing but its allowed actions; a local action would void the publication"],
+  ["pages.yml#approve-override", "an approval gate: it checks out nothing and runs one echo, so there is no repository code to reap with and nothing it starts outlives it"],
+  ["reusable-workflow-failure.yml#report", "the failure reporter checks out nothing (it runs on a privileged event and must never fetch a pull request's code); its one step calls gh and ends"],
+]);
+
+/**
+ * A job that runs steps ends its own process tree: it uses the reaper action
+ * (`.github/actions/end-job-processes`) immediately after its checkout, before
+ * any other step, so the reaper's post step runs after every other step and
+ * every other action's post step (post steps run in reverse order). A job
+ * calling a reusable workflow (`uses:` at job level) runs no steps of its own.
+ */
+function reaperViolations(workflow) {
+  const { unreadable } = readWorkflow(workflow);
+  if (unreadable.length > 0) return unreadable;
+  const document = parseDocument(workflow.text).toJS() ?? {};
+  const name = workflow.path.slice(`${WORKFLOW_DIRECTORY}/`.length);
+  const violations = [];
+  for (const [jobName, job] of Object.entries(document.jobs ?? {})) {
+    if (!Array.isArray(job?.steps)) continue;
+    const key = `${name}#${jobName}`;
+    const steps = job.steps;
+    const reaper = steps.findIndex((step) => step?.uses === REAPER);
+    if (REAPERLESS_JOBS.has(key)) {
+      if (reaper >= 0) violations.push(`${workflow.path}: jobs.${jobName} is declared reaperless but uses ${REAPER}: delete its declaration`);
+      continue;
+    }
+    if (reaper < 0) {
+      violations.push(`${workflow.path}: jobs.${jobName} does not end its own process tree: use ${REAPER} right after its checkout (#421)`);
+      continue;
+    }
+    const checkout = steps.findIndex((step) => typeof step?.uses === "string" && CHECKOUT.test(step.uses));
+    if (checkout < 0 || reaper !== checkout + 1) {
+      violations.push(`${workflow.path}: jobs.${jobName} uses ${REAPER} at step ${String(reaper)}, not right after its checkout: an earlier step's post would run after the reaper`);
+    }
+  }
+  return violations;
+}
+
 /** Literal group prefixes shared by two workflows cancel each other's pull-request runs. */
 function sharedGroupPrefixes(workflows) {
   const owners = new Map();
@@ -679,4 +726,26 @@ test("network installs are refused in any spelling; probes and near misses pass"
   ]) {
     assert.deepEqual(plant(run), [], run);
   }
+});
+
+test("every live job ends its own process tree with the reaper, right after its checkout; the reaperless jobs are declared (#421)", () => {
+  const workflows = liveWorkflows();
+  assert.deepEqual(workflows.flatMap(reaperViolations), []);
+  // A declaration names a live job: a stale one is refused.
+  const liveKeys = new Set(workflows.flatMap((workflow) => Object.keys(parseDocument(workflow.text).toJS()?.jobs ?? {}).map((job) => `${workflow.path.slice(WORKFLOW_DIRECTORY.length + 1)}#${job}`)));
+  assert.deepEqual([...REAPERLESS_JOBS.keys()].filter((key) => !liveKeys.has(key)), [], "a declared reaperless job no longer exists");
+  for (const [key, why] of REAPERLESS_JOBS) assert.ok(why.length > 60, `${key}: a reaperless job needs its reason`);
+});
+
+test("a job without the reaper, or with it after another step, is refused; a reusable-workflow call and a declared job pass", () => {
+  const plant = (steps, jobName = "j", file = "plant.yml") => reaperViolations({ path: `${WORKFLOW_DIRECTORY}/${file}`, text: `on: push\njobs:\n  ${jobName}:\n    runs-on: x\n    steps:\n${steps}` });
+  const checkout = "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n";
+  const reaper = `      - uses: ${REAPER}\n`;
+  const work = "      - run: npm test\n";
+  assert.deepEqual(plant(checkout + reaper + work), [], "right after the checkout passes (liveness)");
+  assert.equal(plant(checkout + work).length, 1, "no reaper is refused");
+  assert.equal(plant(checkout + work + reaper).length, 1, "a reaper after another step is refused");
+  assert.equal(plant(reaper + checkout + work).length, 1, "a reaper before the checkout is refused (it cannot run the repository's code)");
+  assert.deepEqual(reaperViolations({ path: `${WORKFLOW_DIRECTORY}/plant.yml`, text: "on: push\njobs:\n  j:\n    uses: ./.github/workflows/test-shards.yml\n" }), [], "a reusable-workflow call runs no steps of its own");
+  assert.deepEqual(plant(work, "analysis", "scorecard.yml"), [], "a declared reaperless job passes");
 });
