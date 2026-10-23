@@ -1,0 +1,12 @@
+{
+  "kind": "custom-property-values",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-coordination"
+  },
+  "key": "kind",
+  "unavailableOnPlan": [],
+  "desired": {
+    "kind": "notes"
+  }
+}

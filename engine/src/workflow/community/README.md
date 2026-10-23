@@ -56,6 +56,6 @@ The folder lives at `engine/src/workflow/community/`.
 - `categories.ts` is consumed by `engine/src/workflow/community/community-cli.ts`.
 - `community-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
 - `health-files.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `sources.ts` is consumed by `engine/src/workflow/community/categories.ts`, `engine/src/workflow/community/community-cli.ts`, `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/forge/cli.ts`.
+- `sources.ts` is consumed by `engine/src/workflow/community/categories.ts`, `engine/src/workflow/community/community-cli.ts`, `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/forge/cli.ts`, `engine/src/workflow/forge/declarations.ts` and 2 more.
 
 <!-- /consumers:generated -->

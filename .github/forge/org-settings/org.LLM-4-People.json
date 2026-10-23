@@ -1,0 +1,14 @@
+{
+  "kind": "org-settings",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "LLM-4-People",
+  "unavailableOnPlan": [],
+  "desired": {
+    "members_can_create_public_repositories": false,
+    "members_can_create_private_repositories": false,
+    "members_can_fork_private_repositories": false,
+    "web_commit_signoff_required": true
+  }
+}
