@@ -29,7 +29,7 @@ The folder lives at `engine/src/git/`.
 - `flake-cause-fixes.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/flaky-burn-down.ts`.
 - `git-adapter.ts` is consumed by `engine/src/git/worktree-port.ts`, `engine/src/runtime/git-tools.ts`.
 - `git-config.ts` is consumed by `engine/src/git/git-adapter.ts`, `engine/src/git/tree-reader.ts`, `engine/src/git/worktree-port.ts`, `engine/src/runtime/git-tools.ts`, `engine/src/shared/exposure/registrations/workspace-git.ts`.
-- `git-port.ts` is consumed by `engine/src/git/declared-deletions.ts`, `engine/src/git/git-adapter.ts`, `engine/src/git/index-baseline.ts`, `engine/src/git/index-entries.ts`, `engine/src/git/workspace-lifecycle.ts`, `engine/src/git/worktree-port.ts` and 10 more.
+- `git-port.ts` is consumed by `engine/src/git/declared-deletions.ts`, `engine/src/git/git-adapter.ts`, `engine/src/git/index-baseline.ts`, `engine/src/git/index-entries.ts`, `engine/src/git/workspace-lifecycle.ts`, `engine/src/git/worktree-port.ts` and 9 more.
 - `ignored-copies.ts` is consumed by `engine/scripts/verification/staged-move-loss.ts`, `engine/src/git/declared-deletions.ts`, `engine/src/workflow/workspace-manager.ts`.
 - `index-baseline.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/publication.ts`.
 - `index-entries.ts` is consumed by `engine/scripts/tooling/candidate-manifest.ts`, `engine/src/git/index-baseline.ts`, `engine/src/git/working-copy.ts`.

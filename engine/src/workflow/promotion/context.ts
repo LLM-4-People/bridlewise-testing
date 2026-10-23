@@ -33,9 +33,8 @@ import { deepFreeze } from "../../kernel/integrity.ts";
 import { loadPinnedConfigSnapshot } from "../../kernel/config.ts";
 import type { ConfigDocument, WorkspaceIsolationConfig } from "../../kernel/config-contracts.ts";
 import { ensurePrivateStateDirectory } from "../../filesystem/private-state.ts";
-import { configuredGitRepository, configuredWorktreeGitPort, type WorktreeGitPort } from "../../git/worktree-port.ts";
+import { WorktreeGitError, WorktreeGitTimeout, configuredGitRepository, configuredWorktreeGitPort, type RemoteListing, type WorktreeGitPort } from "../../git/worktree-port.ts";
 import { commitTreeReader, gitOutput, resolveRevision, type GitRepository } from "../../git/tree-reader.ts";
-import { remoteTrackingRef } from "../../git/git-port.ts";
 import { auditEvent, debugLog } from "../../shared/debug/debug-system.ts";
 import type { PromotionSource } from "../../shared/exposure/registrations/promotion.ts";
 import { qualificationEvidence, diffRunFailures, latestRunOfTree, readRunHistory, suiteLedgerPaths, SUITE_LEDGER_NAMES } from "../../shared/run-history.ts";
@@ -437,13 +436,18 @@ export async function verifyBuiltProjection(context: PromotionContext, run: Appl
  * source branch. TRUST comes from this checkout, never from the commit under
  * check or from the source it names: the profile is the one this checkout
  * declares at HEAD, and the source branch is that profile's, as this
- * repository holds it AND as its remote published it: the local branch must
- * equal the fetched remote-tracking ref (`promotion_verify_source_unconfirmed`
- * otherwise). The commit's trailer must name that profile, and its source
- * must be on that branch's FIRST-PARENT line. Every landing on the source
- * branch is a merge commit, so the first-parent line is exactly its
- * published history; a commit merged in from a side branch is not a
- * landing. Only then is the source's own content (its profile, its
+ * repository holds it AND as its remote publishes it NOW: the remote is
+ * listed (`ls-remote` through the one git port, as the publication lists it)
+ * and the local branch must equal the remote's
+ * (`promotion_verify_source_unconfirmed`). No local tracking ref is trusted
+ * for it, and an unreachable remote is `promotion_verify_remote_unreachable`,
+ * never a fallback to what this repository last fetched. The commit's
+ * trailer must name that profile, and its source must be on that branch's
+ * FIRST-PARENT line. Every landing on the source branch is a merge commit,
+ * so the first-parent line is exactly its published history; a commit
+ * merged in from a side branch is not a landing. That holds because the
+ * trunk's ruleset allows the merge method only, pinned in settings-as-code
+ * (#486): a squash or rebase landing would weaken this rule. Only then is the source's own content (its profile, its
  * promoter) read. A branch whose own profile names itself the source proves
  * nothing.
  */
@@ -453,11 +457,12 @@ export function verifyTarget(repository: RepositoryContext, request: PromotionRe
   const trusted = selectPromotionProfile(declared, request.profile, `HEAD:${repository.profileDirectory}`).profile;
   const trustedTip = resolveRevision(repository.repository, trusted.source.ref);
   if (trustedTip === null) throw new PromotionError("promotion_source_missing", `the source branch ${trusted.source.ref} of profile ${trusted.name} does not exist here`, { source: trusted.source.ref });
-  const published = trusted.remote === null ? null : resolveRevision(repository.repository, remoteTrackingRef(trusted.remote, branchOf(trusted.source.ref)));
+  if (trusted.remote === null) {
+    throw new PromotionError("promotion_verify_source_unconfirmed", `profile ${trusted.name} names no remote, so ${trusted.source.ref} here cannot be confirmed as the published one`, { sourceRef: trusted.source.ref, local: trustedTip, published: null });
+  }
+  const published = publishedSourceTip(repository, trusted.remote, trusted.source.ref);
   if (published !== trustedTip) {
-    throw new PromotionError("promotion_verify_source_unconfirmed", trusted.remote === null
-      ? `profile ${trusted.name} names no remote, so ${trusted.source.ref} here cannot be confirmed as the published one`
-      : `${trusted.source.ref} here is ${trustedTip}, but the fetched ${trusted.remote}/${branchOf(trusted.source.ref)} is ${String(published)}: fetch, and verify from the published source branch`, { sourceRef: trusted.source.ref, local: trustedTip, published });
+    throw new PromotionError("promotion_verify_source_unconfirmed", `${trusted.source.ref} here is ${trustedTip}, but the remote ${trusted.remote} publishes ${String(published)}: fetch, and verify from the source branch as published`, { sourceRef: trusted.source.ref, local: trustedTip, published });
   }
   const named = request.commit ?? targetTip(repository.repository, trusted);
   if (named === null) throw new PromotionError("promotion_target_missing", "the profile's target branch does not exist here: fetch it, or name the product commit with --commit", {});
@@ -476,6 +481,19 @@ export function verifyTarget(repository: RepositoryContext, request: PromotionRe
     throw new PromotionError("promotion_verify_off_source", `${commit} names the source ${trailers.projectedFrom}, which is not on the first-parent line of ${trusted.source.ref} (a commit merged in from a side branch is not a landing)`, { commit, source: trailers.projectedFrom, sourceRef: trusted.source.ref });
   }
   return deepFreeze({ context: contextFor(repository, trusted.name, source), commit, profile: trailers.profile! });
+}
+
+/** `ref` as `remote` publishes it now (`ls-remote` through the one git port, bounded as every remote listing is), or `null` when the remote holds no such ref; an unreachable remote is a typed refusal. */
+function publishedSourceTip(repository: RepositoryContext, remote: string, ref: string): string | null {
+  let listing: RemoteListing;
+  try {
+    listing = configuredWorktreeGitPort(repository.document).lsRemote(repository.top, remote, [ref], worktreeOperationTimeouts(repository.document).fetchMs);
+  } catch (error) {
+    if (!(error instanceof WorktreeGitError) && !(error instanceof WorktreeGitTimeout)) throw error;
+    throw new PromotionError("promotion_verify_remote_unreachable", `the remote ${remote} could not be listed (${error.message}): verify confirms the source branch against the remote, never against what this repository last fetched`, { remote, ref });
+  }
+  if (listing.refusal !== null) throw new PromotionError("promotion_verify_remote_unreachable", `the remote ${remote} could not be listed (${listing.refusal}): verify confirms the source branch against the remote, never against what this repository last fetched`, { remote, ref });
+  return listing.refs.get(ref) ?? null;
 }
 
 /** The commits of `tip`'s first-parent line: a branch's landings, each a merge on it. */
@@ -498,9 +516,10 @@ export async function verifyProductCommit(context: PromotionContext, commit: str
  *     `Promotion-Profile` the profile and its blob
  *     (`promotion_source_unproven_commit` otherwise);
  *   - its profile is the one THIS checkout declares at HEAD; that profile's
- *     source branch here must equal its remote's, as fetched
- *     (`promotion_verify_source_unconfirmed`); and S must be on that
- *     branch's first-parent line, its landings (`promotion_verify_off_source`). Trust never comes from the commit
+ *     source branch here must equal what its remote publishes now
+ *     (`promotion_verify_source_unconfirmed`, `promotion_verify_remote_unreachable`);
+ *     and S must be on that branch's first-parent line, its landings
+ *     (`promotion_verify_off_source`; merge-only landings, #486). Trust never comes from the commit
  *     under check or from S's own content, which is read only afterwards
  *     ({@link verifyTarget});
  *   - its tree EQUALS the projection recomputed from S alone by S's own
