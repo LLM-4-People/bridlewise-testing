@@ -12,7 +12,7 @@ import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { resignTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
@@ -153,6 +153,8 @@ export type HarnessCheckOutput = Readonly<{
   artifactManifest: CheckStepResult;
   /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
   communityFiles: CheckStepResult;
+  /** Would `harness regenerate` rewrite the web test budget's accumulation population (scripts/testing/measure-web-budget.ts --population)? */
+  webBudgetPopulation: CheckStepResult;
   /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
   bundle: CheckStepResult;
   allPassed: boolean;
@@ -262,6 +264,8 @@ export type HarnessRegenerateOutput = Readonly<{
    * (src/workflow/community/health-files.ts), never edited by hand.
    */
   communityFiles: CommunityFilesArm;
+  /** The web test budget's accumulation population, from the live supported test files (scripts/testing/measure-web-budget.ts --population). */
+  webBudgetPopulation: DecisionIndexArm;
   /**
    * The guardian spec-schema artifact, rebuilt from the live Zod schema
    * (`scripts/verification/guardian-spec-artifact.ts`) BEFORE the binding
@@ -553,6 +557,9 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the community health files and forms...");
   steps.push(communityFilesStep(regenerateCommunityFiles(root, false)));
 
+  emitProgress(onProgress, "Checking the web test budget's population...");
+  steps.push(webBudgetPopulationStep(regenerateWebBudgetPopulation(root, false)));
+
   emitProgress(onProgress, "Checking the bundle against a rebuild of the source...");
   steps.push(bundleFreshnessStep(root));
 
@@ -581,7 +588,8 @@ export async function harnessCheck(
     trackerBoard: steps[20]!,
     artifactManifest: steps[21]!,
     communityFiles: steps[22]!,
-    bundle: steps[23]!,
+    webBudgetPopulation: steps[23]!,
+    bundle: steps[24]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -971,11 +979,13 @@ export function harnessRegenerate(
   const frozenRecords = syncFrozenRecords(trackedTop(root), write);
   // The community health files and forms, from their sources (before the inventory digests them).
   const communityFiles = regenerateCommunityFiles(root, write);
+  // The web test budget's population, from the live supported test files (before the inventory digests the settings).
+  const webBudgetPopulation = regenerateWebBudgetPopulation(root, write);
   // The canonical artifact inventory, LAST: every governed file the arms above
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, webBudgetPopulation, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -991,7 +1001,7 @@ export function harnessRegenerate(
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
         moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1274,6 +1284,36 @@ export function evidenceIgnoreStep(evidenceIgnore: DecisionIndexArm): CheckStepR
 }
 
 /** `harness check`'s community-files step: a stale generated health file or form FAILS the check, naming each path. */
+/**
+ * The web test budget's population arm, as a subprocess like the README
+ * consumer arm (a repository-root generator the runtime must not import):
+ * the accumulation-phase `derivedAtTestFileCount` is the live supported
+ * population, written on sync and judged on check, so no pull request types
+ * it. A tree without the generator (a product-only tree) is converged by
+ * absence.
+ */
+export function regenerateWebBudgetPopulation(root: string, write: boolean): DecisionIndexArm {
+  const absent = deepFreeze({ status: "absent" as const, converged: true, changed: [] });
+  const repositoryRoot = repositoryToplevel(root, "directory");
+  if (repositoryRoot === undefined) return absent;
+  const generator = resolve(repositoryRoot, WEB_BUDGET_POPULATION.generator);
+  if (!existsSync(generator)) return absent;
+  const report = generatorReport<"current" | "regenerated" | "stale">(root, generator, ["--population", write ? "--write" : "--check"], "the web budget population generator", "web_budget_population_no_result");
+  return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed });
+}
+
+/** `harness check`'s web-budget-population step: a population that differs from the live supported test files FAILS the check. */
+export function webBudgetPopulationStep(arm: DecisionIndexArm): CheckStepResult {
+  return deepFreeze({
+    step: "web-budget-population",
+    status: arm.converged ? "pass" : "fail",
+    message: arm.converged
+      ? `the web test budget's population is the live supported population${arm.status === "absent" ? " (this tree carries no web budget tool)" : ""}`
+      : "the web test budget's accumulation population differs from the live supported test files (run harness sync)",
+    details: arm,
+  });
+}
+
 export function communityFilesStep(communityFiles: CommunityFilesArm): CheckStepResult {
   return deepFreeze({
     step: "community-files",
@@ -2154,7 +2194,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 export const HARNESS_SUBCOMMANDS = deepFreeze([
   "check", "test", "register", "regenerate", "sync", "new-module", "eval",
   "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge",
+  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge", "community",
 ] as const);
 
 export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
@@ -2292,6 +2332,9 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
     } else if (subcommand === "slot") {
       const { runSlotCli } = await import("./slot-cli.ts");
       answer = await runSlotCli(rest);
+    } else if (subcommand === "community") {
+      const { runCommunityCli } = await import("./community/community-cli.ts");
+      answer = await runCommunityCli(root, rest);
     } else if (subcommand === "forge") {
       // GitHub, the one forge (src/workflow/forge/): its own answers and codes.
       const { runForgeCli } = await import("./forge/cli.ts");
