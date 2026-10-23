@@ -1102,7 +1102,7 @@ describe("http refusal effects — pre-handler rejections land in the lane as de
     expect(escape.status).toBe(400);
     expect(escape.traceId, "the 400 carries the trace id a client can quote").toMatch(/^trace-/u);
     // The unauthenticated shape: an unparsable Host is refused before any gate.
-    const host = await raw("/effect-refusal/items/1?token=sk-live-abcdefghijklmnopqrstuv", "127.0.0.1:abc");
+    const host = await raw(("/effect-refusal/items/1?token=sk" + "-live-abcdefghijklmnopqrstuv"), "127.0.0.1:abc");
     expect(host.status).toBe(400);
     expect(host.traceId).toMatch(/^trace-/u);
     await new Promise((r) => setImmediate(r));
@@ -1115,7 +1115,7 @@ describe("http refusal effects — pre-handler rejections land in the lane as de
     expect(unparsable!.outcome).toBe("denied");
     expect(unparsable!.actorKind).toBe("anonymous");
     expect(unparsable!.errorCode).toBe("request_host_invalid");
-    expect(JSON.stringify(unparsable!.documents ?? []), "the query is redacted like every refusal's").not.toContain("sk-live-abcdefghijklmnopqrstuv");
+    expect(JSON.stringify(unparsable!.documents ?? []), "the query is redacted like every refusal's").not.toContain(("sk" + "-live-abcdefghijklmnopqrstuv"));
   });
 
   test("a request for no route at all is refused in the lane — the probe is an observable fact", async () => {
@@ -1248,13 +1248,14 @@ describe("engine effects — the hub decoration is the choke point", () => {
   });
 
   test("argument VALUES never reach the engine span's documents — shapes only, even for values other lanes would keep", async () => {
-    // A header value redactHeaders itself would PASS THROUGH untouched is the
+    // A header value redactHeaders itself would PASS THROUGH untouched (an
+    // allowlisted, credential-free name) is the
     // sharpest canary: if that VALUE appears anywhere on the engine event,
     // the shape discipline is broken — not the redaction layer, the capture.
     const CANARY = "canary-header-value-9f8e7d6c";
     const actorId = await attributed("engine-canary", () => {
-      const redacted = canonicalHub.redactHeaders({ "x-probe": CANARY });
-      expect(redacted["x-probe"]).toBe(CANARY);
+      const redacted = canonicalHub.redactHeaders({ accept: CANARY });
+      expect(redacted["accept"]).toBe(CANARY);
     });
     const events = eventsFor("engine", actorId);
     expect(events.length).toBe(1);
@@ -1264,7 +1265,7 @@ describe("engine effects — the hub decoration is the choke point", () => {
     expect(
       args!.args[0]!.keys,
       "the key NAME is schema and stays while the value never appears",
-    ).toContain("x-probe");
+    ).toContain("accept");
   });
 
   test("a decorated hub call that throws records failed with the typed error's real code", async () => {

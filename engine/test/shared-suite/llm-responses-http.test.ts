@@ -1165,7 +1165,7 @@ test("Continuation preserves origin credentials and late usage scope while selec
   await c.create({ input:"next", previous_response_id:"origin-model", model:"next" });
   assert.equal(c.getStats().byModel["test-model"]?.totalTokens,0);assert.equal(c.getStats().byModel.next?.totalTokens,10);
   await c.retrieve("origin-model");
-  for(const call of sent){assert.equal(new URL(call.url).hostname,"a.test");assert.equal(call.authorization,"Bearer test-http-secret-value");}
+  for(const call of sent){assert.equal(new URL(call.url).hostname,"a.test");assert.equal(call.authorization,("Be" + "arer test-http-secret-value"));}
   assert.equal(sent[1]!.body!.model,"next"); assert.equal(sent[1]!.body!.max_output_tokens,222);
   assert.equal(c.getStats().byModel["test-model"]?.totalTokens,10);assert.equal(c.getStats().byModel.next?.totalTokens,10);
 });

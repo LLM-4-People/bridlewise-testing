@@ -360,7 +360,7 @@ beforeAll(async () => {
     if (warrant === undefined) throw new Error("the router handed the handler no warrant");
     return warrant;
   };
-}, 60_000);
+});
 
 afterEach(() => {
   expect(providerProblems.splice(0), "every provider request uses the actual native protocol").toEqual([]);
@@ -588,7 +588,6 @@ describe("a run executes exactly once", () => {
         if (runId !== "") await runToCompletion(runId).catch(() => undefined);
       }
     },
-    30_000,
   );
 
   test.each(["assistant", "tool"] as const)("%s row persistence gates its published start and preserves a truthful failure", async (role) => {
@@ -691,7 +690,7 @@ describe("a run executes exactly once", () => {
         }
       }
     }
-  }, 30_000);
+  });
 
   test(
     "a second execution of one run is refused by the database, not by a check",
@@ -787,7 +786,6 @@ describe("a run executes exactly once", () => {
       expect(refused[0]!.code).toBe("run_already_executing");
       expect(outcomes.filter((o) => o.status === 200).length).toBe(1);
     },
-    30_000,
   );
 
   test("a warrant authorises ONE operation — honouring it twice is refused the second time", async () => {
@@ -862,7 +860,6 @@ describe("a run executes exactly once", () => {
       expect(runFeedState(runId)).toBeUndefined();
       expect(getActiveRun(runId)).toBeUndefined();
     },
-    30_000,
   );
 
   test(
@@ -931,7 +928,6 @@ describe("a run executes exactly once", () => {
         if (runId !== "") await runToCompletion(runId);
       }
     },
-    30_000,
   );
 
   test(
@@ -964,7 +960,6 @@ describe("a run executes exactly once", () => {
       // precisely the state a reconnect depends on.
       expect(after!.subscribers).toBe(0);
     },
-    30_000,
   );
 
   test(
@@ -993,7 +988,6 @@ describe("a run executes exactly once", () => {
       // …and it is a SUFFIX of the full stream, not a different stream.
       expect(resumedIds).toEqual(freshIds.filter((id) => id > 3));
     },
-    30_000,
   );
 
   test("the 404 and 403 gates still hold on the subscriber", async () => {
@@ -1013,7 +1007,7 @@ describe("a run executes exactly once", () => {
     // sleeping a constant long enough for it. The constant was paid in full
     // on every run of the suite, and the suite is judged on wall clock.
     await runToCompletion(runId);
-  }, 30_000);
+  });
 
   test(
     "ONE live run per conversation — a second start on the same chat is refused with its remedy",
@@ -1091,7 +1085,6 @@ describe("a run executes exactly once", () => {
         if (first.runId !== "") await runToCompletion(first.runId);
       }
     },
-    30_000,
   );
 
   test(
@@ -1201,7 +1194,6 @@ describe("a run executes exactly once", () => {
         raceServer.closeAllConnections?.();
       }
     },
-    30_000,
   );
 
   test(
@@ -1364,7 +1356,6 @@ describe("a run executes exactly once", () => {
         gateServer.closeAllConnections?.();
       }
     },
-    30_000,
   );
 
   test(
@@ -1520,7 +1511,6 @@ describe("a run executes exactly once", () => {
         gateServer.closeAllConnections?.();
       }
     },
-    30_000,
   );
 
   test(
@@ -1608,7 +1598,6 @@ describe("a run executes exactly once", () => {
         if (slowRun.runId !== "") await runToCompletion(slowRun.runId);
       }
     },
-    30_000,
   );
 
   test(
@@ -1694,7 +1683,6 @@ describe("a run executes exactly once", () => {
         if (runId !== "") await runToCompletion(runId);
       }
     },
-    30_000,
   );
 
   test(
@@ -1822,7 +1810,6 @@ describe("a run executes exactly once", () => {
         }
       }
     },
-    30_000,
   );
 
   test("a fast failure can settle before a late observer reads the accepted run", async () => {
@@ -1843,7 +1830,7 @@ describe("a run executes exactly once", () => {
     } finally {
       late?.unsubscribe();
     }
-  }, 30_000);
+  });
 
   test(
     "the executor's crash path clears the entry — a provider that fails mid-run still settles the registry",
@@ -1921,7 +1908,6 @@ describe("a run executes exactly once", () => {
         if (reopenedId !== "") await runToCompletion(reopenedId);
       }
     },
-    30_000,
   );
 
   test(
@@ -2051,7 +2037,6 @@ describe("a run executes exactly once", () => {
         await subject.stop();
       }
     },
-    30_000,
   );
 
   test(
@@ -2132,7 +2117,6 @@ describe("a run executes exactly once", () => {
         await subject.stop();
       }
     },
-    30_000,
   );
 });
 

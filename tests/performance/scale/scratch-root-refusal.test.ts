@@ -162,7 +162,7 @@ test("cockpit preparation refuses existing data before opening a writer", async 
 });
 
 
-test("cockpit preparation adopts the migration-seeded admin instead of colliding on it", { timeout: 60_000 }, async () => {
+test("cockpit preparation adopts the migration-seeded admin instead of colliding on it", async () => {
   // ── THE DEFECT, WHICH WAS REPRODUCED AT THE CURRENT BYTES ────────────
   //
   // Receipt: docs/findings/recovery/evidence/fix06-runtime/profile/

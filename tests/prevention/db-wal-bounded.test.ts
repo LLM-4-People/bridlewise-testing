@@ -96,5 +96,5 @@ describe("the read pool cannot write, and the WAL stays bounded", () => {
     // cache. 24MB is a generous ceiling that still fails an un-checkpointed WAL.
     expect(walBytes).toBeLessThan(24 * 1024 * 1024);
     expect(await db.countMessages(chat.id, user.id)).toBe(3000);
-  }, 60_000);
+  });
 });

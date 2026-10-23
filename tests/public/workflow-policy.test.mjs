@@ -701,10 +701,29 @@ test("network installs are refused in any spelling; probes and near misses pass"
     "sudo apt-get \\\n  install -y gcc-14",
     "env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-14",
     "/usr/bin/apt-get install -y gcc-14",
+    // A command word the reader cannot see through: a variable or a substitution (review of #335).
+    "$PM install -y gcc-14",
+    "${PM} install -y gcc-14",
+    "sudo $PM add gcc",
+    "$(command -v apt-get) install -y gcc-14",
+    // Any expansion form, after any prefix, and inside eval or a shell's -c (second review of #415).
+    "${PM:-apt-get} install -y gcc-14",
+    "${PM[0]} install -y gcc-14",
+    "timeout 60 $PM install -y gcc-14",
+    "nice -n 5 $PM install -y gcc-14",
+    "doas $PM add gcc",
+    "echo gcc-14 | xargs $PM install -y",
+    "eval \"$PM install -y gcc-14\"",
+    "bash -c \"$PM install -y gcc-14\"",
+    "sh -ec \"apt-get update\"",
   ]) {
     assert.equal(plant(run).length, 1, run);
   }
-  for (const run of ["command -v gcc-14 >/dev/null || exit 1", "gcc-14 --version | head -n 1", "echo apt-get is not used here", "npm ci --no-audit --no-fund", "make -C engine/guardian all"]) {
+  for (const run of [
+    "command -v gcc-14 >/dev/null || exit 1", "gcc-14 --version | head -n 1", "echo apt-get is not used here", "npm ci --no-audit --no-fund", "make -C engine/guardian all",
+    // Expansions that are not the command word, or not followed by a subcommand.
+    "TMPDIR=\"$RUNNER_TEMP/bw\" npm --prefix engine test", "npm install $PACKAGE", "cd \"$WORKDIR\" || exit 1", "$CC -o out file.c",
+  ]) {
     assert.deepEqual(plant(run), [], run);
   }
 });

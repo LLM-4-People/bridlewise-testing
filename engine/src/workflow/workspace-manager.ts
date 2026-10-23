@@ -36,7 +36,7 @@ import { createWorkspaceRecordStore, refuseOwnedByOlder, workspaceRecordStores, 
 import { remoteTrackingRef } from "../git/git-port.ts";
 import { fetchForgeBranches, publishBranch, remoteUrlOf, resolveForgeTarget, type ForgePullRequest, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry, workspaceRootOf, type RepositoryRegistry } from "./repository-registry.ts";
-import { DEFAULT_MAXIMUM_PERSISTED_GATE_STRING_CHARACTERS } from "./workflow-config.ts";
+import { DEFAULT_MAXIMUM_PERSISTED_GATE_STRING_CHARACTERS, WORKSPACE_NONCE_CHARACTERS, WORKSPACE_REFUSAL_PATHS_NAMED, WORKSPACE_SHORT_ID_CHARACTERS } from "./workflow-config.ts";
 import {
   assertLeasableWriteSet,
   assertWorkspaceAgentName,
@@ -125,6 +125,12 @@ export { createWorkspaceRecordStore, type WorkspaceRecordStore } from "./workspa
  *   inside the lease, moves the local branch to them, and opens the DRAFT pull
  *   request on the first round (regenerating its body on every one); `ready`
  *   takes it out of draft once the published tree passed `validate`.
+ * STACKS (`create --stack-on`): a workspace started at a live, published
+ *   workspace's head is judged from it (validate, publish) while that parent
+ *   is open, publishes only its own commits, opens its pull request against
+ *   the trunk (never the parent's branch: the forge deletes a landed branch),
+ *   and lands (`land`, `merge`) only after its parent did. A stack is ordered
+ *   by construction, so its members' leases never rival each other.
  * LEDGER GATES (a command that declares its suite `ledger`) are judged like
  *   a qualification: the run's row against the BASELINE of the target's tip —
  *   a non-mutation run of the target's TREE (a row's `treeId`, the tree the
@@ -240,6 +246,12 @@ export type WorkspaceCreateRequest = Readonly<{
   base?: string;
   /** The branch a feature workspace lands on (default: the branch checked out where the command runs). */
   target?: string;
+  /**
+   * STACKS the new feature workspace on another one (see {@link create}): it
+   * starts at that workspace's published head, lands on the same target, and
+   * lands only after it.
+   */
+  stackOn?: string;
 }>;
 
 export type WorkspaceManager = Readonly<{
@@ -894,9 +906,11 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    * from. A merging record always counts: its integrator owns its paths until
    * the land, whatever the clock says.
    */
-  function featureLeases(workspaceId: string): Readonly<{ pending: readonly WorkspaceRecord[]; expired: readonly WorkspaceRecord[] }> {
+  function featureLeases(workspaceId: string, stackedOn: string | null = stackParentOf(store.load(workspaceId))): Readonly<{ pending: readonly WorkspaceRecord[]; expired: readonly WorkspaceRecord[] }> {
     const nowMs = now().getTime();
-    const others = store.list().filter((record) => record.workspaceId !== workspaceId && !isTerminalWorkspaceState(record.state) && record.lease.kind === "feature");
+    // A workspace's own stack (its ancestors and descendants) is ordered by construction: never its rival.
+    const stack = stackRelatives(workspaceId, stackedOn);
+    const others = store.list().filter((record) => record.workspaceId !== workspaceId && !stack.has(record.workspaceId) && !isTerminalWorkspaceState(record.state) && record.lease.kind === "feature");
     const holds = (record: WorkspaceRecord): boolean => record.state === "merging" || !leaseExpired(record, nowMs);
     return deepFreeze({ pending: others.filter(holds), expired: others.filter((record) => !holds(record)) });
   }
@@ -913,8 +927,8 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    * paths (`workspace-admitted-over-expired`), so its owner learns why its
    * next verb will end it, before a merge does.
    */
-  function assertAdmissible(workspaceId: string, writeSet: readonly string[]): void {
-    const { pending, expired } = featureLeases(workspaceId);
+  function assertAdmissible(workspaceId: string, writeSet: readonly string[], stackedOn: string | null): void {
+    const { pending, expired } = featureLeases(workspaceId, stackedOn);
     for (const record of expired) {
       const paths = [...new Set(detectWriteSetConflictAmong([deepFreeze({ name: record.workspaceId, writeSet: record.lease.writeSet }), deepFreeze({ name: workspaceId, writeSet })])
         .conflicts.map((conflict) => conflict.path))].toSorted();
@@ -987,10 +1001,94 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     return deepFreeze({ overlay: deepFreeze({ commit: taken.commit, tree: taken.tree, checkout: checkoutRoot, indexDigest: digest }), changed });
   }
 
+  /**
+   * The parent a `create --stack-on` names (see {@link create}): a feature
+   * workspace this version owns, live (active or validating: not landing,
+   * landed or ended) and published (its head is on the forge). The child
+   * takes its target; it names no target, base or overlay of its own.
+   */
+  function stackParentForCreate(request: WorkspaceCreateRequest): WorkspaceRecord {
+    if (request.mode !== "feature" || request.target !== undefined || request.base !== undefined) {
+      throw new InputError("a stacked workspace is a feature workspace that starts at its parent's published head and lands on its parent's target: it takes no --target, --base or --overlay", "workspace_stack_invalid");
+    }
+    const parent = requireOwnedRecord(request.stackOn!);
+    if (parent.lease.kind !== "feature") {
+      throw new InputError(`workspace ${parent.workspaceId} is read-only: it never publishes, so nothing can be stacked on it`, "workspace_stack_invalid");
+    }
+    if (parent.lease.overlay !== null) {
+      throw new InputError(`workspace ${parent.workspaceId} is an overlay: it lands by adoption into the checkout it snapshotted, so nothing can be stacked on it`, "workspace_stack_invalid");
+    }
+    // A feature record this version owns has a live forge state (the record's schema; an older store's legacy marker was refused above).
+    const state = parent.forge as WorkspaceForgeState;
+    if (parent.state !== "active" && parent.state !== "validating") {
+      throw new InputError(`workspace ${parent.workspaceId} is ${parent.state}: a workspace is stacked only on a live one`, "workspace_stack_parent_ended");
+    }
+    if (state.publishedHead === null) {
+      throw new InputError(`workspace ${parent.workspaceId} has published nothing yet: publish it first (its head is the stacked workspace's base)`, "workspace_not_published");
+    }
+    return parent;
+  }
+
+  /** The workspace a record is stacked on, or null. */
+  function stackParentOf(record: WorkspaceRecord | null): string | null {
+    const state = record?.forge;
+    return state === null || state === undefined || isLegacyForgeState(state) ? null : state.stackedOn;
+  }
+
+  /** `workspaceId`'s stack (but itself): every workspace it is stacked on, transitively, and every one stacked on it. */
+  function stackRelatives(workspaceId: string, stackedOn: string | null): ReadonlySet<string> {
+    const relatives = new Set<string>();
+    for (let parent = stackedOn; parent !== null && !relatives.has(parent); parent = stackParentOf(store.load(parent))) relatives.add(parent);
+    const records = store.list();
+    const descends = (record: WorkspaceRecord): boolean => {
+      const seen = new Set<string>();
+      for (let parent = stackParentOf(record); parent !== null && !seen.has(parent); parent = stackParentOf(records.find((other) => other.workspaceId === parent) ?? null)) {
+        if (parent === workspaceId) return true;
+        seen.add(parent);
+      }
+      return false;
+    };
+    for (const record of records) if (descends(record)) relatives.add(record.workspaceId);
+    return relatives;
+  }
+
+  /**
+   * THE BASE A STACKED WORKSPACE IS JUDGED FROM while its parent has not
+   * landed: the parent's published head (its validate, publish and pull
+   * request see only what the branch adds beyond it), or null — no parent,
+   * or a parent that landed (the trunk holds its head: the ordinary fork
+   * point). The parent's published head must be in the branch's history
+   * (`workspace_stack_parent_moved`: the parent published another head —
+   * rebase onto it); a parent that ended without landing leaves nothing to
+   * stand on (`workspace_stack_parent_ended`).
+   */
+  function stackBase(record: WorkspaceRecord, head: string): string | null {
+    const parentId = stackParentOf(record);
+    if (parentId === null) return null;
+    const parent = store.load(parentId);
+    if (parent === null || parent.state === "aborted" || parent.state === "quarantined") {
+      throw new InputError(`workspace ${record.workspaceId} is stacked on ${parentId}, which ended without landing: nothing it stands on will land — abort it, or move its work onto the trunk in a new workspace`, "workspace_stack_parent_ended");
+    }
+    const published = (parent.forge as WorkspaceForgeState).publishedHead!;
+    if (!git.isAncestor(record.lease.worktreePath, published, head, timeouts.inspectMs)) {
+      throw new InputError(`workspace ${record.workspaceId} is stacked on ${parentId}, whose published head ${published} is not in its history: rebase onto it (git -C ${record.lease.worktreePath} rebase ${published})`, "workspace_stack_parent_moved");
+    }
+    return parent.state === "merged" ? null : published;
+  }
+
+  /** `ws land` and `ws merge` of a stacked workspace wait for its parent: refused while the parent has not landed. */
+  function assertStackLanded(record: WorkspaceRecord, head: string): void {
+    if (stackBase(record, head) !== null) {
+      const parent = store.load(stackParentOf(record)!)!;
+      const number = (parent.forge as WorkspaceForgeState).pullRequest?.number;
+      throw new InputError(`workspace ${record.workspaceId} is stacked on ${parent.workspaceId}${number === undefined ? "" : ` (pull request #${String(number)})`}, which has not landed: land it first`, "workspace_stack_parent_unlanded");
+    }
+  }
+
   async function create(request: WorkspaceCreateRequest): Promise<WorkspaceRecord> {
     assertWorkspaceAgentName(request.agentName);
     const readOnly = request.mode === "read-only";
-    const nonce = generateId("nonce").replaceAll("-", "").slice(-12);
+    const nonce = generateId("nonce").replaceAll("-", "").slice(-WORKSPACE_NONCE_CHARACTERS);
     const workspaceId = `${request.agentName}-${nonce}`;
     const worktreePath = join(workspaceRoot, workspaceId);
     assertWorkspaceRootPlacement();
@@ -999,6 +1097,8 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
 
     let targetBranch: string | null = null;
     let forgeState: WorkspaceForgeState | null = null;
+    const parent = request.stackOn === undefined ? null : stackParentForCreate(request);
+    const stackedOn = parent?.workspaceId ?? null;
     let baseSha: string;
     let overlay: WorkspaceOverlay | null = null;
     let writeSet: readonly string[] = [];
@@ -1008,7 +1108,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       }
       baseSha = git.revParse(checkoutRoot, request.base ?? "HEAD", timeouts.inspectMs);
     } else {
-      targetBranch = request.target ?? invokingBranch;
+      targetBranch = parent?.lease.targetBranch ?? request.target ?? invokingBranch;
       if (targetBranch === null) {
         throw new InputError("the checkout's HEAD is detached: name the branch the workspace lands on (--target <branch>)", "workspace_target_missing");
       }
@@ -1019,7 +1119,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       // host's) is refused first, at create, naming the forge's trunk — not at the first publish.
       options.forge?.(upstream);
       assertLandable(upstream.trunk);
-      forgeState = deepFreeze({ remote: upstream.remote, trunk: upstream.trunk, pullRequest: null, publishedHead: null, ready: false, land: null });
+      forgeState = deepFreeze({ remote: upstream.remote, trunk: upstream.trunk, pullRequest: null, publishedHead: null, ready: false, land: null, stackedOn });
       const tip = git.revParse(checkoutRoot, `refs/heads/${targetBranch}`, timeouts.inspectMs);
       if (request.mode === "overlay") {
         if (targetBranch !== invokingBranch || request.base !== undefined) {
@@ -1032,6 +1132,10 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
         if (taken.changed.length === 0) {
           throw new InputError(`the checkout ${checkoutRoot} holds nothing HEAD does not: there is nothing to adopt`, "workspace_overlay_clean");
         }
+      } else if (parent !== null) {
+        // A stacked workspace starts at its parent's published head: what the parent carries is the parent's, judged and landed by it.
+        baseSha = (parent.forge as WorkspaceForgeState).publishedHead!;
+        writeSet = [...new Set(request.writeSet.map(canonicalizeWriteSetPath))].toSorted();
       } else {
         baseSha = request.base === undefined ? tip : git.revParse(checkoutRoot, request.base, timeouts.inspectMs);
         // A base off the target's history would bring its own delta along
@@ -1081,7 +1185,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     // ADMISSION: the static check and the reservation are one step under the
     // admission lock, so two creates can never both pass the check.
     record = await withRepositoryLock(config.admissionLock, `workspace-create:${workspaceId}`, () => {
-      if (!readOnly) assertAdmissible(workspaceId, writeSet);
+      if (!readOnly) assertAdmissible(workspaceId, writeSet, stackedOn);
       return store.save(record);
     });
 
@@ -1102,7 +1206,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     }
     record = saveTransition(record, "active", overlay === null ? "workspace created" : `workspace created from the overlay ${overlay.commit}`);
     recordTimelineEvent("shard", record, `workspace-created base=${baseSha}`, "succeeded");
-    auditEvent("workspace-created", { workspaceId, kind: record.lease.kind, targetBranch, baseSha, overlay: overlay?.commit ?? null, writeSet });
+    auditEvent("workspace-created", { workspaceId, kind: record.lease.kind, targetBranch, baseSha, overlay: overlay?.commit ?? null, writeSet, stackedOn });
     return record;
   }
 
@@ -1116,7 +1220,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       await assertLeaseLive(record);
       const writeSet = [...new Set([...record.lease.writeSet, ...paths.map(canonicalizeWriteSetPath)])].toSorted();
       assertLeasableWriteSet(writeSet);
-      assertAdmissible(workspaceId, writeSet);
+      assertAdmissible(workspaceId, writeSet, stackParentOf(record));
       const renewed = now();
       const updated: WorkspaceRecord = deepFreeze({
         ...record,
@@ -1154,8 +1258,10 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const targetTip = target === null ? null : git.revParse(checkoutRoot, `refs/heads/${target}`, timeouts.inspectMs);
     const judge: LedgerJudge = { record, targetTip };
     // What `git merge` would bring: the change since the fork point with the
-    // target (a read-only workspace: since its base).
-    const { changed: changedPaths, exempt } = branchChange(worktreePath, targetTip === null ? record.lease.baseSha : git.mergeBase(checkoutRoot, targetTip, headSha, timeouts.inspectMs), headSha);
+    // target (a read-only workspace: since its base; a stacked one whose
+    // parent has not landed: since the parent's published head).
+    const stacked = stackBase(record, headSha);
+    const { changed: changedPaths, exempt } = branchChange(worktreePath, stacked ?? (targetTip === null ? record.lease.baseSha : git.mergeBase(checkoutRoot, targetTip, headSha, timeouts.inspectMs)), headSha);
     const backToBranch = (): void => moveWorktree(worktreePath, () => git.checkoutBranch(worktreePath, record.lease.branch!, timeouts.worktreeMs, true));
     const gates: WorkspaceGateResult[] = [];
     if (record.lease.kind === "read-only") {
@@ -1302,6 +1408,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       assertLandable((record.forge as WorkspaceForgeState).trunk);
       await assertLeaseLive(record);
       assertWorktreeIntact(record);
+      assertStackLanded(record, git.revParse(record.lease.worktreePath, "HEAD", timeouts.inspectMs));
       record = saveTransition(record, "merging", "the integrator took the merge lock");
 
       const worktreePath = record.lease.worktreePath;
@@ -1640,7 +1747,9 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
 
   /** The land receipt of a record the forge landed (`merged` through `land`), or null. */
   function landedReceipt(record: WorkspaceRecord): LandReceipt | null {
-    return record.state === "merged" && record.mergeReceipt !== null && "kind" in record.mergeReceipt ? record.mergeReceipt : null;
+    const receipt = record.mergeReceipt;
+    // An older version's land receipt belongs to a record this version never changes (its store is read-only).
+    return record.state === "merged" && receipt !== null && "kind" in receipt && receipt.schemaVersion === WORKSPACE_SCHEMA_VERSION ? receipt as LandReceipt : null;
   }
 
   /** The land in flight of a record (the head the queue was asked for), or null. */
@@ -1671,6 +1780,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     if (git.revParse(worktreePath, `${head}^{tree}`, timeouts.inspectMs) !== validated.tree) {
       throw new InputError(`workspace ${workspaceId}'s validation is of another tree than its published head: validate it again`, "workspace_validation_stale");
     }
+    assertStackLanded(record, head);
 
     // The harness's judgement, against the trunk as the forge holds it now.
     fetchForgeBranches(git, worktreePath, target.remote, [target.trunk], timeouts.fetchMs);
@@ -1939,23 +2049,24 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const { forge, target, state } = forgeOf(record);
     const dirty = git.status(worktreePath, timeouts.inspectMs);
     if (dirty.length > 0) {
-      throw new InputError(`workspace ${workspaceId} has uncommitted changes (${statusPaths(dirty).slice(0, 8).join(", ")}): a round publishes commits`, "workspace_publish_dirty");
+      throw new InputError(`workspace ${workspaceId} has uncommitted changes (${statusPaths(dirty).slice(0, WORKSPACE_REFUSAL_PATHS_NAMED).join(", ")}): a round publishes commits`, "workspace_publish_dirty");
     }
     fetchForgeBranches(git, worktreePath, target.remote, [target.trunk], timeouts.fetchMs);
     const head = git.revParse(worktreePath, "HEAD", timeouts.inspectMs);
-    const { changed, exempt } = branchChange(worktreePath, git.mergeBase(worktreePath, trunkTip(record, target), head, timeouts.inspectMs), head);
+    const stacked = stackBase(record, head);
+    const { changed, exempt } = branchChange(worktreePath, stacked ?? git.mergeBase(worktreePath, trunkTip(record, target), head, timeouts.inspectMs), head);
     const unleased = computeUnleasedPaths(changed, record.lease.writeSet, exempt);
     if (unleased.length > 0) {
       throw new WorkspaceConflictError(buildConflictReport("dynamic-overlap", workspaceId, unleased.map((path) => deepFreeze({ path, otherWorkspaceId: null, reason: "changed path is outside the declared write set" }))));
     }
     progress(`publish: ${branch} to ${target.remote}`);
-    const round = await publishBranch({ forge, repository: options.repository(worktreePath), git, target, branch, expectedHead: state.publishedHead, fetchMs: timeouts.fetchMs });
+    const round = await publishBranch({ forge, repository: options.repository(worktreePath), git, target, branch, expectedHead: state.publishedHead, stackBase: stacked, fetchMs: timeouts.fetchMs });
     // THE READY GATE HOLDS ON EVERY ROUND: a new head is not what was made
     // ready (its tree was never judged ready), so a ready pull request goes
     // back to draft and the record forgets `ready` until `ready` is earned again.
     const newHead = round.head !== state.publishedHead;
     const published: WorkspaceRecord = deepFreeze({ ...record, forge: deepFreeze({ ...state, publishedHead: round.head, ready: state.ready && !newHead }) });
-    const { title, body } = pullRequestText(published, round.head, target);
+    const { title, body } = pullRequestText(published, round.head, target, stacked);
     let pullRequest = state.pullRequest;
     if (pullRequest === null) {
       const found = await forge.findPullRequest(branch);
@@ -1975,16 +2086,28 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     return deepFreeze({ record: saved, round });
   }
 
+  /** The body's stack lines: the parent this pull request waits for, and where its own diff begins. */
+  function stackNotice(record: WorkspaceRecord, stacked: string | null): readonly string[] {
+    if (stacked === null) return [];
+    const parent = store.load(stackParentOf(record)!)!;
+    const number = (parent.forge as WorkspaceForgeState).pullRequest?.number;
+    return [
+      `**Stacked on** ${number === undefined ? `\`${parent.workspaceId}\`` : `#${String(number)}`} (workspace \`${parent.workspaceId}\`): until it lands, this pull request also carries its commits. This one's own change begins after \`${stacked.slice(0, WORKSPACE_SHORT_ID_CHARACTERS)}\`, and it lands only after its parent.`,
+      "",
+    ];
+  }
+
   /**
    * The pull request's generated title and body: the branch's first commit
    * subject; the workspace, its lease, its commits and the local validation of
    * the published tree. Gate names and verdicts only, never a gate's words (a
    * message may name a local path).
    */
-  function pullRequestText(record: WorkspaceRecord, head: string, target: ForgeTarget): Readonly<{ title: string; body: string }> {
+  function pullRequestText(record: WorkspaceRecord, head: string, target: ForgeTarget, stacked: string | null): Readonly<{ title: string; body: string }> {
     const worktreePath = record.lease.worktreePath;
     const repository = options.repository(worktreePath);
-    const commits = gitOutput(repository, ["log", "--reverse", "--format=%h%x09%s", `${remoteTrackingRef(target.remote, target.trunk)}..${head}`]).stdout.toString("utf8")
+    // A stacked workspace's own commits: what it adds beyond its parent's published head.
+    const commits = gitOutput(repository, ["log", "--reverse", "--format=%h%x09%s", `${remoteTrackingRef(target.remote, target.trunk)}..${head}`, ...(stacked === null ? [] : [`^${stacked}`])]).stdout.toString("utf8")
       .split("\n").filter((line) => line.length > 0).map((line) => line.split("\t") as [string, string]);
     const tree = git.revParse(worktreePath, `${head}^{tree}`, timeouts.inspectMs);
     const validated = record.validationReport;
@@ -1994,8 +2117,9 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
         ...validated.gates.map((gate) => `| \`${gate.gate}\` | ${gate.status} |`)];
     const body = [
       `<!-- bridlewise:workspace ${record.workspaceId} — generated by \`ws publish\` on every round; edits are overwritten -->`,
-      `**Workspace** \`${record.workspaceId}\` · **agent** \`${record.agentName}\` · **base** \`${record.lease.baseSha.slice(0, 12)}\` on \`${target.trunk}\` · **head** \`${head.slice(0, 12)}\` (tree \`${tree.slice(0, 12)}\`)`,
+      `**Workspace** \`${record.workspaceId}\` · **agent** \`${record.agentName}\` · **base** \`${record.lease.baseSha.slice(0, WORKSPACE_SHORT_ID_CHARACTERS)}\` on \`${target.trunk}\` · **head** \`${head.slice(0, WORKSPACE_SHORT_ID_CHARACTERS)}\` (tree \`${tree.slice(0, WORKSPACE_SHORT_ID_CHARACTERS)}\`)`,
       "",
+      ...stackNotice(record, stacked),
       "### Write set",
       ...record.lease.writeSet.map((path) => `- \`${path}\``),
       "",
@@ -2016,13 +2140,19 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    */
   /**
    * THE ONE CHECK that a workspace's pull request (read once, `current`) is
-   * open at exactly the head it published: a closed one is refused
-   * (`workspace_pull_request_closed`), and so is one whose head another
-   * writer moved (`workspace_published_head_moved`). `ready` and `land` both
-   * ask it before they act on the forge.
+   * open at exactly the head it published, against the trunk: a closed one is
+   * refused (`workspace_pull_request_closed`), and so are one whose head
+   * another writer moved (`workspace_published_head_moved`) and one whose
+   * base was changed away from the trunk (`workspace_pull_request_base_mismatch`:
+   * a merge into any other branch is no land). `ready` and `land` both ask it
+   * before they act on the forge.
    */
   function assertOpenAtPublishedHead(record: WorkspaceRecord, current: ForgePullRequest, head: string): void {
     if (current.state !== "open") throw new InputError(`pull request #${String(current.number)} is ${current.state}`, "workspace_pull_request_closed");
+    const trunk = (record.forge as WorkspaceForgeState).trunk;
+    if (current.base !== trunk) {
+      throw new InputError(`pull request #${String(current.number)} is opened against ${current.base}, not the trunk ${trunk}: set its base back to ${trunk}`, "workspace_pull_request_base_mismatch");
+    }
     if (current.headSha !== head) {
       throw new InputError(`pull request #${String(current.number)}'s head is ${current.headSha}, not the published ${head}: someone else pushed to ${record.lease.branch!}`, "workspace_published_head_moved");
     }

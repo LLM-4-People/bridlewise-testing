@@ -1340,6 +1340,11 @@ describe("external surfaces — plants fail for the defect they name", () => {
       "sudo apt-get -o Acquire::Retries=3 install -y gcc-14",
       "sudo apt-get \\\n            install -y gcc-14",
       "env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-14",
+      // A package manager named through a variable (review of #335).
+      "sudo $PM install -y gcc-14",
+      "timeout 60 ${PM:-apt-get} install -y gcc-14",
+      "bash -c \"$PM install -y gcc-14\"",
+      "eval \"apt-get install -y gcc-14\"",
     ]) {
       const installed = original.replace("command -v gcc-14 >/dev/null ||", `${install} && command -v gcc-14 >/dev/null ||`);
       expect(installed).not.toBe(original);
