@@ -38,11 +38,14 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import test from "node:test";
+
+import { ARCHITECTURE_MODULES_PATH, readArchitectureModuleEntries } from "../../src/workflow/architecture-module-entries.ts";
 import { walk } from "../../scripts/verification/source-walk.ts";
 
 const ROOT = process.cwd();
 const AWARENESS_DIR = join(ROOT, "src", "awareness");
-const MANIFEST_PATH = join(ROOT, "src", "architecture-manifest.ts");
+/** The architecture's module entries, read as data through their one reader. */
+const MODULE_ENTRIES = () => readArchitectureModuleEntries(read(join(ROOT, ARCHITECTURE_MODULES_PATH)));
 
 // ── Dynamic file discovery ──────────
 
@@ -279,15 +282,8 @@ test("R48-F: GENERIC_TEXT_EXTENSIONS is owned in languages/generic.ts + imported
 // ── Class H: architecture-manifest consistency (deny-by-default, dynamic) ─
 
 test("R48-H: every src/.ts file is registered in architecture-manifest modules[] (deny-by-default)", () => {
-  assert.ok(existsSync(MANIFEST_PATH), "src/architecture-manifest.ts must exist");
-  const manifest = read(MANIFEST_PATH);
-  // Discover every registered module path dynamically (no hardcoded list).
-  const pathRegex = /path:\s*"([^"]+)"/g;
-  const registeredPaths = new Set<string>();
-  let m: RegExpExecArray | null;
-  while ((m = pathRegex.exec(manifest)) !== null) registeredPaths.add(m[1]!);
-
-  // Discover every src/.ts file on disk (non-test, non-.d.ts).
+  // Every registered module path, read from the entries (the one reader; no hardcoded list).
+  const registeredPaths = new Set(MODULE_ENTRIES().map((entry) => entry.path));
   const srcFiles: string[] = listTsFiles(join(ROOT, "src"));
   const unregistered: string[] = [];
   for (const f of srcFiles) {
@@ -297,21 +293,14 @@ test("R48-H: every src/.ts file is registered in architecture-manifest modules[]
   if (unregistered.length > 0) {
     assert.fail(
       `R48-H: ${unregistered.length} src/ .ts file(s) NOT registered in architecture-manifest modules[] (deny-by-default — a new module MUST be registered):\n${unregistered.map(u => `  ${u}`).join("\n")}\n` +
-        `Fix: add a moduleContract({...}) entry for each (the manifest is the single owner of module registration).`,
+        `Fix: run \`harness sync\`: it adds each one's entry to ${ARCHITECTURE_MODULES_PATH} (the single owner of module registration).`,
     );
   }
 });
 
 test("R48-H: no duplicate module ids in architecture-manifest (one id per module)", () => {
-  const manifest = read(MANIFEST_PATH);
-  const idRegex = /id:\s*"([^"]+)"/g;
-  const ids: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = idRegex.exec(manifest)) !== null) ids.push(m[1]!);
-  // Exclude finding ids (ARCH-/SEC-/COORD-/CAP-/FOUNDATION- prefixes).
-  const moduleIds = ids.filter((id) => !/^(ARCH-|SEC-|COORD-|CAP-|FOUNDATION-)/.test(id));
   const counts = new Map<string, number>();
-  for (const id of moduleIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+  for (const { id } of MODULE_ENTRIES()) counts.set(id, (counts.get(id) ?? 0) + 1);
   const dups = [...counts.entries()].filter(([, c]) => c > 1);
   if (dups.length > 0) {
     assert.fail(
@@ -322,20 +311,11 @@ test("R48-H: no duplicate module ids in architecture-manifest (one id per module
 });
 
 test("R48-H: every registered module path exists on disk (no stale/dead entries)", () => {
-  const manifest = read(MANIFEST_PATH);
-  const pathRegex = /path:\s*"([^"]+)"/g;
-  const missing: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = pathRegex.exec(manifest)) !== null) {
-    const p = m[1]!;
-    // Only check src/ + scripts/ + verification/ paths (skip external packages + node:).
-    if (!p.startsWith("src/") && !p.startsWith("scripts/") && !p.startsWith("verification/")) continue;
-    if (!existsSync(join(ROOT, p))) missing.push(p);
-  }
+  const missing = MODULE_ENTRIES().map((entry) => entry.path).filter((p) => !existsSync(join(ROOT, p)));
   if (missing.length > 0) {
     assert.fail(
       `R48-H: ${missing.length} registered module path(s) MISSING from disk (stale/dead entries):\n${missing.map(p => `  ${p}`).join("\n")}\n` +
-        `Fix: remove the stale moduleContract entry OR restore the file.`,
+        `Fix: run \`harness sync\` (it removes the stale entry) OR restore the file.`,
     );
   }
 });

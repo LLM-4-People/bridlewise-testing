@@ -1241,13 +1241,6 @@ export function verifyArchitectureSources(
     if (!sameOrderedValues(facts.exportedNames, lexical.exportedNames)) {
       violations.push(`architecture-independent-export-disagreement:${module.path}`);
     }
-    if (!sameOrderedValues(facts.dependencies, [...module.dependencies].toSorted())) {
-      violations.push(`architecture-dependency-drift:${module.path}`);
-    }
-    if (facts.exportedNames.length !== module.publicApi.exportCount ||
-      canonicalHash(facts.exportedNames) !== module.publicApi.namesSha256) {
-      violations.push(`architecture-public-api-drift:${module.path}`);
-    }
     const internalDependencies = facts.dependencies.filter((dependency) => moduleByPath.has(dependency));
     graph.set(module.path, internalDependencies);
     verifyDependencyUniverse(

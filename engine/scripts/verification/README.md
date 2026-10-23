@@ -108,7 +108,7 @@ The folder lives at `engine/scripts/verification/`.
 - `source-view.ts` is consumed by `engine/scripts/tooling/verification/raw-source-readers.ts`, `engine/scripts/verification/catch-blocks.ts`, `engine/scripts/verification/declared-universe.ts`, `engine/scripts/verification/measurement-contract.ts`, `engine/scripts/verification/ratchet-baselines.ts`.
 - `source-walk.ts` is consumed by `engine/scripts/verification/consumer-plants.ts`, `engine/scripts/verification/event-loop-callbacks.ts`, `engine/scripts/verification/hermetic-skips.ts`, `engine/scripts/verification/measurement-contract.ts`, `engine/scripts/verification/ratchet-baselines.ts`.
 - `staged-move-loss.ts` is consumed by `engine/scripts/bootstrap-hooks.ts`, `engine/scripts/commit-guard.ts`, `engine/scripts/verification/shipped-hooks.ts`.
-- `static-source.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/architecture.ts`, `engine/src/workflow/module-registrar.ts`.
+- `static-source.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/architecture.ts`.
 - `test-surface.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-receipt.ts`.
 - `tracker-entries.ts` is consumed by `engine/scripts/tooling/lessons.ts`, `engine/scripts/verification/decision-index.ts`, `engine/scripts/verification/lesson-trailers.ts`.
 - `tsconfig-include-liveness.ts` is consumed by nothing yet.

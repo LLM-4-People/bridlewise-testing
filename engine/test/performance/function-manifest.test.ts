@@ -18,12 +18,12 @@ import { makePerfConfig } from "../support/factories.ts";
 const sampleModules: readonly ArchitectureModule[] = [
   { id: "mod-a", path: "src/a.ts", realm: "shared", layer: "domain", owner: "owner-a",
     allowedDependencyLayers: ["domain"], compositionRoot: false, executionBoundary: "pure" as const,
-    dependencies: [], publicApi: { exportCount: 1, namesSha256: "x" }, ports: { requires: [], provides: ["port-a"] },
+    ports: { requires: [], provides: ["port-a"] },
     effects: ["filesystem-read" as const], configPaths: [], stateOwners: [], projectionOwners: [],
     authorityFamilies: [], authorityIdentifiers: ["AUTH_A"], responsibilities: ["resp-a"] },
   { id: "mod-b", path: "src/b.ts", realm: "runtime", layer: "infrastructure", owner: "owner-b",
     allowedDependencyLayers: ["infrastructure"], compositionRoot: false, executionBoundary: "effect-adapter" as const,
-    dependencies: [], publicApi: { exportCount: 1, namesSha256: "y" }, ports: { requires: [], provides: ["port-b"] },
+    ports: { requires: [], provides: ["port-b"] },
     effects: ["network" as const], configPaths: [], stateOwners: [], projectionOwners: [],
     authorityFamilies: [], authorityIdentifiers: ["AUTH_B"], responsibilities: ["resp-b"] },
 ];
@@ -346,7 +346,6 @@ test("function-manifest: a module with known exports yields those exports as fun
   const module: ArchitectureModule = {
     id: "exported-fns", path: "src/exported-fns.ts", realm: "shared", layer: "domain", owner: "owner",
     allowedDependencyLayers: ["domain"], compositionRoot: false, executionBoundary: "pure" as const,
-    dependencies: [], publicApi: { exportCount: 2, namesSha256: "x" },
     ports: { requires: [], provides: [] }, effects: [], configPaths: [], stateOwners: [],
     projectionOwners: [], authorityFamilies: [], authorityIdentifiers: [], responsibilities: ["exported-fns"],
   };
@@ -366,7 +365,6 @@ test("function-manifest: a module with no exports yields zero functions", () => 
   const module: ArchitectureModule = {
     id: "no-exports", path: "src/no-exports.ts", realm: "shared", layer: "domain", owner: "owner",
     allowedDependencyLayers: ["domain"], compositionRoot: false, executionBoundary: "pure" as const,
-    dependencies: [], publicApi: { exportCount: 0, namesSha256: "y" },
     ports: { requires: [], provides: [] }, effects: [], configPaths: [], stateOwners: [],
     projectionOwners: [], authorityFamilies: [], authorityIdentifiers: [], responsibilities: ["no-exports"],
   };

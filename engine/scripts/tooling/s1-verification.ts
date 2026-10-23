@@ -11,7 +11,7 @@ import { configuredExecutionAuthority, loadTestResultFromExecution } from "./tes
 import { candidateFormatErrorViolations } from "../verification/candidate-format.ts";
 import { loadTestInventory } from "../test-inventory.ts";
 import { validateTestReceipt } from "./test-receipt.ts";
-import { verifyArchitectureSources, type ArchitectureSource } from "../verification/architecture.ts";
+import { analyzeArchitectureSource, verifyArchitectureSources, type ArchitectureSource } from "../verification/architecture.ts";
 import { verifyArtifactAdmission } from "../tooling/verification/artifact-admission.ts";
 import {
   inspectSafeRepositoryRootBoundary,
@@ -41,6 +41,7 @@ import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { reportBestEffortFailure } from "../../src/shared/debug/debug-system.ts";
 import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
+import { ARCHITECTURE_MODULES_PATH } from "../../src/workflow/architecture-module-entries.ts";
 import { DATA_CLASSIFICATION, FORENSIC_CLASSIFICATIONS } from "../../src/privacy/classification-catalog.ts";
 import { configDocumentPath, getConfigDocumentSchema, inspectConfigDocument } from "../../src/kernel/config.ts";
 import {
@@ -186,7 +187,6 @@ const HISTORICAL_RESEARCH_EVIDENCE_ALLOWLIST = new Set<string>(
 const EXPECTED_SOURCE_FILES = Object.freeze(ARCHITECTURE_MANIFEST.modules.flatMap((module) =>
   /^src\/[^/]+\.ts$/u.test(module.path) ? [module.path.slice("src/".length)] : []
 ).toSorted());
-const EXPECTED_RUNTIME_SOURCE_FILES = registeredRuntimeProductionSourceFiles();
 const TRUSTED_BOOTSTRAP_PATH = registeredArchitectureModulePath("bootstrap-permissions");
 const REQUIREMENTS_REGISTRY_REFERENCE_SCHEMA = z.strictObject({
   path: z.literal(ROOT_POLICY.requirements.registryFile),
@@ -1141,7 +1141,7 @@ function allowedEffectIdentifiersForPath(path: string): ReadonlySet<string> {
 }
 
 function architectureRegistryProductBoundaryProjection(path: string, source: string): string {
-  if (path !== "src/architecture-manifest.ts") return source;
+  if (path !== ARCHITECTURE_MODULES_PATH) return source;
   let projected = source;
   const allowedReferences = ARCHITECTURE_MANIFEST.modules
     .map((module) => module.path)
@@ -2036,7 +2036,7 @@ function verifyProductionGraph(root: string, violations: string[]): void {
     }
   }
   const reached = [...visited].map((path) => relative(join(root, "src"), path).split(sep).join("/")).toSorted();
-  if (!sameOrderedValues(reached, [...EXPECTED_RUNTIME_SOURCE_FILES].toSorted())) {
+  if (!sameOrderedValues(reached, [...registeredRuntimeProductionSourceFiles(root)].toSorted())) {
     violations.push("production-graph-incomplete-or-extra");
   }
 }
@@ -2286,7 +2286,13 @@ function sameRecord(left: Record<string, string> | undefined, right: Record<stri
   return left !== undefined && right !== undefined && canonicalHash(left) === canonicalHash(right);
 }
 
-function registeredRuntimeProductionSourceFiles(): readonly string[] {
+/**
+ * The src/ modules the runtime composition roots reach through the registered
+ * modules, each module's imports derived from its source by the architecture
+ * analyzer (babel) — the independent oracle of the lexical walk in
+ * {@link verifyProductionGraph}.
+ */
+function registeredRuntimeProductionSourceFiles(root: string): readonly string[] {
   const moduleByPath = new Map(ARCHITECTURE_MANIFEST.modules.map((module) => [module.path, module]));
   const pending = [...ARCHITECTURE_MANIFEST.compositionRoots.runtime];
   const reached = new Set<string>();
@@ -2296,7 +2302,16 @@ function registeredRuntimeProductionSourceFiles(): readonly string[] {
     const module = moduleByPath.get(path);
     if (module === undefined) throw new Error(`Runtime composition root dependency is unregistered: ${path}`);
     reached.add(path);
-    for (const dependency of module.dependencies) {
+    // An unreadable or unparsable module is reached and expands no further: the
+    // lexical walk names the first (`production-import-unreadable`), the
+    // architecture verifier the second (`architecture-source-parse`).
+    let dependencies: readonly string[];
+    try {
+      dependencies = analyzeArchitectureSource(path, readFileSync(join(root, path), "utf8")).dependencies;
+    } catch {
+      continue;
+    }
+    for (const dependency of dependencies) {
       if (moduleByPath.has(dependency)) pending.push(dependency);
     }
   }

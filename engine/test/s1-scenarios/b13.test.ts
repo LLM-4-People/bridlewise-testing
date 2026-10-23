@@ -5,7 +5,6 @@ import test from "node:test";
 import { verifyS1Structure } from "../../scripts/tooling/s1-verification.ts";
 import { analyzeArchitectureSource, verifyArchitectureSources } from "../../scripts/verification/architecture.ts";
 import { ARCHITECTURE_MANIFEST, EMPTY_COMPOSITION_ROOTS, type ArchitectureManifest } from "../../src/architecture-manifest.ts";
-import { canonicalHash } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { ARCHITECTURE_SOURCE_EXTENSIONS } from "../../src/shared/source-extensions.ts";
 import { makeRuntimeCandidate, createOwnedTemporaryDirectory, removeOwnedTemporaryDirectories, historicalApplicationName, appendCandidateSource, mountedRootBoundaryEvidence, repositoryArchitectureSources, REPOSITORY_ROOT, candidateModulePath, assertArchitectureBaselineClean } from "../support/s1-scenario-shared.ts";
@@ -15,18 +14,14 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
   "S1-B13-FAILURE": () => {
     const cycleRoot = makeRuntimeCandidate();
     const kernelErrors = candidateModulePath("kernel/errors.ts");
-    // The dependency-drift mutant imports cli.ts from the kernel folder, so
-    // the specifier must reach `src/cli.ts` from `src/kernel/` — "../cli.ts".
+    // The cycle mutant imports cli.ts from the kernel folder, so the specifier
+    // must reach `src/cli.ts` from `src/kernel/` — "../cli.ts".
     appendCandidateSource(cycleRoot, kernelErrors, [
       'import { runCli } from "../cli.ts";',
       "void runCli;",
     ].join("\n"));
     const cycle = verifyS1Structure(cycleRoot).violations;
-    assert.ok(
-      cycle.includes(`architecture-dependency-drift:${kernelErrors}`),
-      JSON.stringify(cycle),
-    );
-    assert.ok(cycle.some((entry) => entry.startsWith("architecture-import-cycle:")));
+    assert.ok(cycle.some((entry) => entry.startsWith("architecture-import-cycle:")), JSON.stringify(cycle));
 
     const reverseRoot = makeRuntimeCandidate();
     // root-policy.ts lives at src/kernel/ post-fold, so reaching src/cli.ts
@@ -37,7 +32,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       "void runCli;",
     ].join("\n"));
     const reverse = verifyS1Structure(reverseRoot).violations;
-    assert.ok(reverse.includes(`architecture-dependency-drift:${ROOT_POLICY.sourcePath}`));
     assert.ok(reverse.includes(`architecture-reverse-layer:${ROOT_POLICY.sourcePath}->src/cli.ts`));
 
     const adapterRoot = makeRuntimeCandidate();
@@ -57,7 +51,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       "void directArchitectureRead;",
     ].join("\n"));
     const effect = verifyS1Structure(effectRoot).violations;
-    assert.ok(effect.includes(`architecture-dependency-drift:${kernelContracts}`));
     assert.ok(effect.includes(`architecture-effect-owner:${kernelContracts}:node:fs:filesystem-read`));
 
     const existingFilesystemDependencyRoot = makeRuntimeCandidate();
@@ -67,7 +60,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       'void architectureWriteMutant("architecture-mutant", "must-not-execute");',
     ].join("\n"));
     const existingFilesystemDependency = verifyS1Structure(existingFilesystemDependencyRoot).violations;
-    assert.equal(existingFilesystemDependency.includes(`architecture-dependency-drift:${kernelConfig}`), false);
     // The appended write merges with config.ts's pre-existing filesystem-read,
     // so the owner effect-set is read+write. The invariant: the appended write
     // IS detected and attributed to the module (not dropped, not misattributed).
@@ -83,7 +75,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       'process.getBuiltinModule("node:fs").writeFileSync("architecture-mutant", "must-not-execute");',
     ].join("\n"));
     const builtinFilesystem = verifyS1Structure(builtinFilesystemRoot).violations;
-    assert.equal(builtinFilesystem.includes(`architecture-dependency-drift:${kernelConfig}`), false);
     assert.ok(builtinFilesystem.includes(
       `architecture-effect-owner:${kernelConfig}:node:fs:filesystem-read,filesystem-write`,
     ));
@@ -115,7 +106,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     for (const extension of [".jsx", ".tsx"] as const) {
       const path = `verification/registered-extension${extension}`;
       const source = 'export const registeredExtension = <Widget value={1} />;';
-      const facts = analyzeArchitectureSource(path, source);
       const template = ARCHITECTURE_MANIFEST.modules.find((module) => module.path === kernelErrors)!;
       const fixtureManifest: ArchitectureManifest = {
         ...ARCHITECTURE_MANIFEST,
@@ -124,16 +114,10 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
           ...template,
           id: `registered-extension-${extension.slice(1)}`,
           path,
-          dependencies: [],
-          publicApi: {
-            exportCount: facts.exportedNames.length,
-            namesSha256: canonicalHash(facts.exportedNames),
-          },
         }],
       };
       const registered = verifyArchitectureSources([{ path, source }], fixtureManifest).violations;
       assert.equal(registered.includes(`architecture-source-parse:${path}`), false);
-      assert.equal(registered.includes(`architecture-public-api-drift:${path}`), false);
       assert.equal(registered.includes(`architecture-independent-export-disagreement:${path}`), false);
       assert.equal(registered.includes(`architecture-independent-import-disagreement:${path}`), false);
     }
@@ -333,11 +317,13 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       assert.ok(verifyS1Structure(root).violations.includes(diagnostic));
     }
 
+    // A module's public API is derived from its source, never committed
+    // (#221): a new export is no architecture violation of its own.
+    const ofDataPolicy = (violations: readonly string[]): readonly string[] =>
+      violations.filter((violation) => violation.startsWith("architecture-") && violation.includes(dataPolicyPath));
     const exportRoot = makeRuntimeCandidate();
     appendCandidateSource(exportRoot, dataPolicyPath, "export const unregisteredSurface = true;");
-    assert.ok(verifyS1Structure(exportRoot).violations.includes(
-      `architecture-public-api-drift:${dataPolicyPath}`,
-    ));
+    assert.deepEqual(ofDataPolicy(verifyS1Structure(exportRoot).violations), ofDataPolicy(verifyS1Structure(makeRuntimeCandidate()).violations));
 
     const sqliteRoot = makeRuntimeCandidate();
     appendCandidateSource(sqliteRoot, contractsPath, [
@@ -345,7 +331,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       "void HiddenDatabase;",
     ].join("\n"));
     const sqlite = verifyS1Structure(sqliteRoot).violations;
-    assert.ok(sqlite.includes(`architecture-dependency-drift:${contractsPath}`));
     assert.ok(sqlite.includes(
       `architecture-effect-owner:${contractsPath}:node:sqlite:filesystem-read,filesystem-write`,
     ));
@@ -383,9 +368,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       'void spawn("git", ["status", "--short"]);',
     ].join("\n"));
     const existingChildProcess = verifyS1Structure(existingChildProcessRoot).violations;
-    assert.equal(existingChildProcess.includes(
-      `architecture-dependency-drift:${spawner}`,
-    ), false);
     assert.ok(existingChildProcess.includes(
       `architecture-effect-owner:${spawner}:git-invocation:git`,
     ));
@@ -397,9 +379,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       'void architectureExecFile(architectureGitExecutable, ["status", "--short"]);',
     ].join("\n"));
     const aliasedGitPath = verifyS1Structure(aliasedGitPathRoot).violations;
-    assert.equal(aliasedGitPath.includes(
-      `architecture-dependency-drift:${spawner}`,
-    ), false);
     assert.ok(aliasedGitPath.includes(
       `architecture-effect-owner:${spawner}:git-invocation:git`,
     ));

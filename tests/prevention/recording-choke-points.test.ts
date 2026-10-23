@@ -54,14 +54,14 @@ import { walk, read, relpath, stripCommentsOnly } from "../helpers/source-scan.t
 import { callArgumentsOf } from "../helpers/function-scope.ts";
 import { hubDecoratedPopulation, hubEngineSpanCalls, hubNamespaceSourcePaths, bareEngineValueReExports } from "../helpers/hub-population.ts";
 import { ENGINE_SPAN_EXCLUSIONS } from "../../engine/src/performance/engine-instrumentation.ts";
-import { declaredModuleContracts } from "../../engine/src/workflow/module-contract-blocks.ts";
+import { readArchitectureModuleEntries } from "../../engine/src/workflow/architecture-module-entries.ts";
 
 import { modulePath } from "../helpers/module-resolver.ts";
 const TIMELINE_BRIDGE = modulePath("timeline-bridge.ts");
-let manifestModulesCache: ReturnType<typeof declaredModuleContracts> | undefined;
-/** The architecture manifest's module blocks, parsed once per file run. */
-const manifestModules = (): ReturnType<typeof declaredModuleContracts> =>
-  (manifestModulesCache ??= declaredModuleContracts(read(modulePath("architecture-manifest.ts"))));
+let manifestModulesCache: ReturnType<typeof readArchitectureModuleEntries> | undefined;
+/** The architecture's module entries, read once per file run (as data: the module is not executed). */
+const manifestModules = (): ReturnType<typeof readArchitectureModuleEntries> =>
+  (manifestModulesCache ??= readArchitectureModuleEntries(read(modulePath("architecture-modules.ts"))));
 const CANONICAL_HUB = modulePath("canonical.ts");
 const ROUTER = modulePath("router.ts");
 /** The engine module that owns the effect-kind → ledger-lane table. */
