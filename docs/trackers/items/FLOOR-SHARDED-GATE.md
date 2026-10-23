@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-SHARDED-GATE
 type: Task
 title: Activate the sharded full-suite gate

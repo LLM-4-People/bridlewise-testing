@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLAKY-WEB-ARTIFACT-CENSUS
 type: Flake
 state: closed

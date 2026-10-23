@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: REWIND-TEST-SPLIT
 type: Task
 title: Split the slow rewind test
