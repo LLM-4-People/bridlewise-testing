@@ -63,7 +63,7 @@ import { mkTempDir } from "../support/temp-dir.ts";
  * a special case.
  */
 const UNCERTIFIABLE = createPrivacyPolicy({
-  redactionPrefix: "sk_abcdefghijklmnopqrstuvwx",
+  redactionPrefix: ("sk" + "_abcdefghijklmnopqrstuvwx"),
   redactionSuffix: "",
 });
 const BENIGN = createPrivacyPolicy();

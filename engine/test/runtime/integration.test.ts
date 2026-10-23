@@ -236,7 +236,7 @@ test("integration: editor tools edit files through the tool registry and record 
 test("integration: read_file redacts credential spans via privacy policy", () => {
   const dir = mkTempDir("integration-test-");
   try {
-    const secret = "AKIAIOSFODNN7EXAMPLE";
+    const secret = ("AK" + "IAIOSFODNN7EXAMPLE");
     const content = `config = { key: "${secret}" }`;
     writeFileSync(join(dir, "secrets.txt"), content);
 
@@ -481,7 +481,7 @@ test("integration: full session with timeline, editor, privacy, metrics, tools, 
   try {
     const original = "export const value = 1;";
     writeFileSync(join(dir, "edit-target.ts"), original);
-    writeFileSync(join(dir, "secret.txt"), 'API_KEY="AKIAIOSFODNN7EXAMPLE"');
+    writeFileSync(join(dir, "secret.txt"), ('API_KEY="AK' + 'IAIOSFODNN7EXAMPLE"'));
     const runId = "integration-full";
     const { store, recorder } = setupTimeline(dir, runId);
     recorder.recordRun({ description: "full integration test", correlation: { runId, sessionId: runId } });

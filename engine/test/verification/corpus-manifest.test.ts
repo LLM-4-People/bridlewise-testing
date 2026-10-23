@@ -13,6 +13,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { once } from "node:events";
+import { createServer } from "node:net";
 import test from "node:test";
 
 import { createTempDir } from "../support/temp-dir.ts";
@@ -23,6 +25,7 @@ import {
   MANIFEST_PATH,
   PERMITTED_LICENSES,
   cacheReadme,
+  CORPUS_NETWORK_BOUND,
   fetchCorpus,
   linkCorpus,
   manifestDigest,
@@ -275,6 +278,65 @@ test("corpus: the generated README names the manifest, its digest and the remova
   assert.ok(readme.includes(manifest.manifestSha256));
   assert.ok(readme.includes("npm run corpus:verify"));
   assert.ok(readme.includes("unlink engine/large-codebases"));
+});
+
+// ── THE NETWORK BOUND (no unbounded wait) ──────────────────────────────────
+// A silent host: it accepts the connection and never answers. git's stall
+// detector ends the fetch in a typed refusal naming the host. A refused
+// connection is a typed failure naming the host too. The bound is the
+// fetch's own, shortened for the test.
+
+async function silentHost(): Promise<Readonly<{ url: string; close: () => void }>> {
+  const server = createServer(() => { /* accept and say nothing */ });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    server.close();
+    throw new Error("the silent host did not bind");
+  }
+  // The kernel accepts while the synchronous fetch blocks this event loop:
+  // nothing is ever read or written, which is the silence under test.
+  return { url: `http://127.0.0.1:${String(address.port)}/member.git`, close: () => server.close() };
+}
+
+function oneMemberManifest(upstream: string): CorpusManifest {
+  const member: CorpusMember = { name: "member", upstream, commit: "a".repeat(40), license: "MIT", files: [{ path: "index.js", sizeBytes: 1, sha256: "b".repeat(64) }] };
+  const payload = { schemaVersion: "bridlewise-corpus-manifest/v1", generatorRevision: "corpus-ts-1", root: CORPUS_ROOT, members: [member], derived: [], notIncluded: "a synthetic member that exists only for this test" };
+  return { ...payload, manifestSha256: manifestDigest(payload) };
+}
+
+test("corpus: a host that never answers is a typed stall naming the host, and writes no cache", async () => {
+  const base = createTempDir("corpus-stall-");
+  const host = await silentHost();
+  try {
+    const repo = join(base, "repo");
+    mkdirSync(repo, { recursive: true });
+    const cache = join(base, "cache");
+    assert.throws(
+      () => fetchCorpus(oneMemberManifest(host.url), { cacheDir: cache, repoRoot: repo, network: { stallBytesPerSecond: 1, stallSeconds: 2 } }),
+      (error: unknown) => error instanceof CorpusError && error.code === "corpus_fetch_stalled" && error.message.includes("127.0.0.1"),
+    );
+    assert.equal(existsSync(cache), false, "a stalled fetch wrote a cache");
+  } finally {
+    host.close();
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("corpus: a refused connection is a typed fetch failure naming the host", () => {
+  const base = createTempDir("corpus-refused-");
+  try {
+    const repo = join(base, "repo");
+    mkdirSync(repo, { recursive: true });
+    // Port 9 (discard) on loopback: nothing listens in a test environment.
+    assert.throws(
+      () => fetchCorpus(oneMemberManifest("http://127.0.0.1:9/member.git"), { cacheDir: join(base, "cache"), repoRoot: repo, network: { ...CORPUS_NETWORK_BOUND, stallSeconds: 2 } }),
+      (error: unknown) => error instanceof CorpusError && (error.code === "corpus_fetch_failed" || error.code === "corpus_fetch_stalled") && error.message.includes("127.0.0.1:9"),
+    );
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
 });
 
 test("corpus: the git member is derived from the path-policy pins — three files, one copy of each pin, reference-only", () => {
