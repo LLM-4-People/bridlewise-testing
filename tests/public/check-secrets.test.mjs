@@ -727,6 +727,21 @@ test("real GPL variants are read: split notices, title variants, lower-case and 
   }
   // (4) A lower-case notice on one line.
   assert.deepEqual(markers([`it under the terms of the gnu ${G.toLowerCase()} as published by the foundation`]).map((found) => found.split(":")[1]), ["notice"]);
+  // (5) The GPL-3.0 notice re-wrapped at 20, 26 and 32 columns: the completing
+  // line ("published by the …") carries no trigger word of its own.
+  const notice = ["This program is free software: you can redistribute it and/or modify it under the terms of the GNU", G, "as published by the Free Software Foundation, either version 3 of the", L_WORD, "or (at your option) any later version."].join(" ");
+  const wrap = (text, columns) => {
+    const lines = [];
+    let current = "";
+    for (const word of text.split(" ")) {
+      if (current.length > 0 && current.length + 1 + word.length > columns) { lines.push(current); current = word; } else current = current.length > 0 ? `${current} ${word}` : word;
+    }
+    return [...lines, current];
+  };
+  for (const columns of [20, 26, 32]) {
+    const found = markers(wrap(notice, columns).map((line) => `# ${line}`));
+    assert.deepEqual(found.map((entry) => entry.split(":")[1]), ["notice"], `re-wrapped at ${String(columns)} columns: ${JSON.stringify(found)}`);
+  }
   // Near misses: the project's own AGPL, permissive expressions, an exception name, prose.
   for (const line of [
     `${SPDX_ID} AGPL-3.0-only`, `${SPDX_ID} MIT OR Apache-2.0`, `${SPDX_ID} Apache-2.0 WITH LLVM-exception`,
