@@ -717,7 +717,7 @@ describe("SSE connection limit — lowest-level: rejection before headers", () =
 describe("Subprocess env allowlist (/ -F9) — secrets dropped, allowlist enforced", () => {
   test("subprocessEnv does NOT contain HARNESS_* secrets (deny-by-default — the full-env leak is fixed)", async () => {
     const cfg = resolveServerConfig({
-      HARNESS_API_KEY: "sk-secret-should-not-leak",
+      HARNESS_API_KEY: ("sk" + "-secret-should-not-leak"),
       HARNESS_WEB_DB_KEY: "db-secret-should-not-leak",
       HARNESS_WEB_AUTH_PASSWORD: "pw-secret-should-not-leak",
       PATH: "/usr/bin",

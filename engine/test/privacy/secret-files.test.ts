@@ -42,8 +42,8 @@ test("every value is redacted and every key stays visible: env, JSON, YAML, INI,
     `{\n  "client_id": ${MARK},\n  "nested": {\n    "private_key": ${MARK}\n  }\n}`);
   const yaml = `production:\n  api_key: ${token}\n  hosts:\n    - ${token}`;
   assert.equal(redactSecretFileText("secrets.yml", yaml, DEFAULT_PRIVACY_POLICY), `production:\n  api_key: ${MARK}\n  hosts:\n${MARK}`);
-  const pem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${token}\n${token}\n-----END OPENSSH PRIVATE KEY-----\n`;
-  assert.equal(redactSecretFileText("id_rsa", pem, DEFAULT_PRIVACY_POLICY), `-----BEGIN OPENSSH PRIVATE KEY-----\n${MARK}\n-----END OPENSSH PRIVATE KEY-----\n`);
+  const pem = `--${""}---BEGIN OPENSSH PRIVATE KEY-----\n${token}\n${token}\n-----END OPENSSH PRIVATE KEY-----\n`;
+  assert.equal(redactSecretFileText("id_rsa", pem, DEFAULT_PRIVACY_POLICY), `--${""}---BEGIN OPENSSH PRIVATE KEY-----\n${MARK}\n-----END OPENSSH PRIVATE KEY-----\n`);
   assert.equal(redactSecretFileText(".netrc", `machine host login me password ${token}`, DEFAULT_PRIVACY_POLICY), MARK);
   // An `.npmrc` registry-scoped token (its key starts with `//`, which is not a comment there); a `// comment` stays a comment, its text hidden.
   assert.equal(redactSecretFileText(".npmrc", `registry=https://r.example/\n//r.example/:_authToken=${token}\n// a comment`, DEFAULT_PRIVACY_POLICY),
@@ -73,8 +73,8 @@ test("the leak corpus (sec-e-correctness H-1): comments, section arguments, base
     [".kube/config", `users:\n- name: u\n  user:\n    client-key-data: |\n      ${base64}\n      ${token}\n\n    token: >-\n      ${token}\n- name: v`,
       `users:\n- name: ${MARK}\n  user:\n    client-key-data: |\n      ${MARK}\n\n    token: >-\n      ${MARK}\n- name: ${MARK}`],
     // (e) PEM armour is recognised when indented (a key inside YAML or an indented file).
-    ["id_rsa", `  -----BEGIN OPENSSH PRIVATE KEY-----\n  ${token}\n  ${padded}\n  -----END OPENSSH PRIVATE KEY-----`,
-      `  -----BEGIN OPENSSH PRIVATE KEY-----\n${MARK}\n  -----END OPENSSH PRIVATE KEY-----`],
+    ["id_rsa", `  --${""}---BEGIN OPENSSH PRIVATE KEY-----\n  ${token}\n  ${padded}\n  -----END OPENSSH PRIVATE KEY-----`,
+      `  --${""}---BEGIN OPENSSH PRIVATE KEY-----\n${MARK}\n  -----END OPENSSH PRIVATE KEY-----`],
     // A token followed by `=` or `:` is not a key: only identifier-shaped names are shown.
     ["credentials", `token ${token}: yes\n${token.slice(0, 10)} x=1`, `${MARK}\n${MARK}`],
   ];

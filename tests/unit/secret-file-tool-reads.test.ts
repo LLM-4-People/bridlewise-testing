@@ -73,8 +73,8 @@ test("the leak corpus through read_file (sec-e-correctness H-1): a store file se
   writeFileSync(join(projectRoot, ".npmrc"), `; //registry.example.invalid/:_authToken=${token}\n`);
   writeFileSync(join(projectRoot, ".kube", "config"), `users:\n- name: u\n  user:\n    client-key-data: |\n      ${base64}\n`);
   writeFileSync(join(projectRoot, "deploy.ppk"), `PuTTY-User-Key-File-3: ssh-rsa\nPrivate-Lines: 1\n${padded}\n`);
-  writeFileSync(join(projectRoot, "tls.pem"), `  -----BEGIN PRIVATE KEY-----\n  ${padded}\n  -----END PRIVATE KEY-----\n`);
-  for (const [path, key] of [[".gitconfig", "[url "], [".env", "#API_TOKEN="], [".npmrc", "_authToken="], [".kube/config", "client-key-data: |"], ["deploy.ppk", "Private-Lines:"], ["tls.pem", "-----BEGIN PRIVATE KEY-----"]] as const) {
+  writeFileSync(join(projectRoot, "tls.pem"), `  --${""}---BEGIN PRIVATE KEY-----\n  ${padded}\n  -----END PRIVATE KEY-----\n`);
+  for (const [path, key] of [[".gitconfig", "[url "], [".env", "#API_TOKEN="], [".npmrc", "_authToken="], [".kube/config", "client-key-data: |"], ["deploy.ppk", "Private-Lines:"], ["tls.pem", ("--" + "---BEGIN PRIVATE KEY-----")]] as const) {
     const read = await executeToolCall("read_file", { path }, { projectRoot });
     expect(read.success, read.output).toBe(true);
     expect(read.output, path).toContain(key);

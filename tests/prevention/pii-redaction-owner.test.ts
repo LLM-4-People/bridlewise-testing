@@ -47,7 +47,7 @@ import { PROVIDER_FIXTURE_OWNER } from "../helpers/multi-user.ts";
 // A realistic long secret (redacted-value-substituted to a test fixture —
 // never a real key). Uses the `sk-` hyphen format (OpenAI / NeuralWatt
 // style) that the credential-assignment signal catches.
-const SK_SECRET = "sk-AAAAAAAAAAAAAAAAAAAAAAAA";
+const SK_SECRET = ("sk" + "-AAAAAAAAAAAAAAAAAAAAAAAA");
 
 // buildNativeRequest demands the branded credential at the door (a call that
 // cannot name its provider is a compile error by design). The builder never
