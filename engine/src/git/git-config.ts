@@ -15,3 +15,7 @@ export const DEFAULT_MAXIMUM_INPUT_BYTES = 1_048_576;
 export const DEFAULT_MAXIMUM_OUTPUT_BYTES = 8_388_608;
 /** Worktree error-output character cap (sanitized stderr slice length). */
 export const DEFAULT_MAXIMUM_ERROR_OUTPUT_CHARACTERS = 4_096;
+/** How much of a malformed raw-diff record a tree-reader refusal quotes. */
+export const RAW_DIFF_RECORD_QUOTE_CHARACTERS = 80;
+/** How many entries of each kind a tree-writer mismatch refusal names. */
+export const TREE_MISMATCH_ENTRIES_NAMED = 8;
