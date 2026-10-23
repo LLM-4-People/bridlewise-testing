@@ -1678,7 +1678,12 @@ function bundleFreshnessStep(root: string): CheckStepResult {
  * (#417). Asked here, it is refused before it lands.
  */
 function candidateFormatStep(root: string): CheckStepResult {
-  const answer = runScriptSubprocess(root, "scripts/tooling/candidate-manifest.ts", ["--root", ".", "--verdict"]);
+  let answer: ScriptAnswer;
+  try {
+    answer = runScriptSubprocess(root, "scripts/tooling/candidate-manifest.ts", ["--root", ".", "--verdict"]);
+  } catch (error) {
+    return deepFreeze({ step: "candidate-format", status: "fail", message: `the engine runner's candidate check did not answer: ${error instanceof Error ? error.message : String(error)}`, details: null });
+  }
   if (answer.ok) {
     const verdict = JSON.parse(answer.payload) as { accepted?: unknown; files?: unknown };
     return deepFreeze({ step: "candidate-format", status: "pass", message: `the engine runner accepts the tree (${String(verdict.files)} files)`, details: verdict });

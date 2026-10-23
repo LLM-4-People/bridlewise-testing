@@ -931,10 +931,11 @@ function safePathLabel(path: string): string {
 }
 
 /**
- * `--root .` prints the manifest; `--root . --verdict` prints only whether the
- * engine runner would accept the tree (`{"accepted":true,"files":N}`), the
- * question `harness check`'s candidate-format step asks. A refusal is the same
- * either way: its violations on stderr, exit 1.
+ * `--root .` prints the manifest, or a refusal (its violations) on stderr and
+ * exit 1. `--root . --verdict` answers only whether the engine runner would
+ * accept the tree, the question `harness check`'s candidate-format step asks:
+ * `{"accepted":true,"files":N}`, or `{"accepted":false,"violations":[…]}` and
+ * exit 1 — on stdout either way, since the verdict IS the answer.
  */
 function parseArguments(argv: readonly string[]): Readonly<{ root: string; verdict: boolean }> {
   const verdict = argv.length === 3 && argv[2] === "--verdict";
@@ -946,13 +947,14 @@ function parseArguments(argv: readonly string[]): Readonly<{ root: string; verdi
 
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
+  const { root, verdict } = parseArguments(process.argv.slice(2));
   try {
-    const { root, verdict } = parseArguments(process.argv.slice(2));
     const manifest = buildCandidateManifest(rawSafeRepositoryRootAccess(root));
     process.stdout.write(`${canonicalJson(verdict ? { accepted: true, files: manifest.files.length } : manifest)}\n`);
   } catch (error) {
     const violations = candidateFormatErrorViolations(error) ?? ["candidate-manifest-unavailable"];
-    process.stderr.write(`${canonicalJson({
+    if (verdict) process.stdout.write(`${canonicalJson({ accepted: false, violations, message: extractErrorMessage(error) })}\n`);
+    else process.stderr.write(`${canonicalJson({
       error: "candidate_manifest_failed",
       violations,
       message: extractErrorMessage(error),

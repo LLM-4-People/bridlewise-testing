@@ -17,7 +17,9 @@ import { harnessCheck } from "../../src/workflow/harness-commands.ts";
 import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 
 test("harness check refuses a tree the engine runner would refuse at setup, naming the file; the clean tree passes", async () => {
-  const copy = createRepositoryWorkingCopy("candidate-format-check-", { include: engineGeneratorPopulation });
+  // The root ignore file comes too: the linked dependencies (a symlinked `node_modules`) are ignored by its every-depth
+  // rule, as in the checkout and the commit guard's staged tree.
+  const copy = createRepositoryWorkingCopy("candidate-format-check-", { include: (path) => engineGeneratorPopulation(path) || path === ".gitignore" });
   try {
     const options = { skipTypecheck: true, skipArchitecture: true, skipInventory: true } as const;
     const clean = (await harnessCheck(copy.engineRoot, options)).result.candidateFormat;
