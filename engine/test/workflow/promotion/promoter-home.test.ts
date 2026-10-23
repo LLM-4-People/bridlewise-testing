@@ -13,7 +13,7 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import test from "node:test";
 
@@ -28,6 +28,8 @@ import { engineCheckout, promoterHomeEnvironment, promoterPlacement, runInPromot
 import { unattendedEnvironment, withUnattendedChain } from "../../../src/workflow/promotion/trigger.ts";
 import type { PromotionRequest } from "../../../src/workflow/promotion/promote-arguments.ts";
 import { promotionFolder } from "../../../src/workflow/promotion/promotion-run.ts";
+import { checkoutCommandEnvironment, runCheckoutCommand } from "../../../src/workflow/checkout-setup.ts";
+import { createTempDir } from "../../support/temp-dir.ts";
 import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
 import { PROFILE_NAME, SOURCE, promotionFixture, type FixtureOptions, type PromotionFixture } from "./promotion-fixture.ts";
 
@@ -386,4 +388,62 @@ test("SECURITY (planted): S's committed engine, run in the home, sees none of th
       else process.env[name] = value;
     }
   }
+});
+
+/** A command (node) that writes every variable it inherited, name and value, to `report`. */
+function envReporter(directory: string, report: string): string {
+  const script = join(directory, "report-env.mjs");
+  writeFileSync(script, `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(report)}, JSON.stringify(process.env));\n`);
+  return script;
+}
+
+function assertNothingPlanted(seen: Readonly<Record<string, string>>, where: string): void {
+  for (const name of Object.keys(PLANTED).filter((name) => name !== "https_proxy")) assert.ok(!(name in seen), `${where}: ${name} never reaches it`);
+  const values = Object.values(seen).join("\n");
+  for (const value of Object.values(PLANTED).filter((value) => !value.startsWith("http"))) assert.ok(!values.includes(value), `${where}: no planted value, under any name`);
+  assert.ok(!values.includes("planted-proxy-password") && !values.includes("proxyuser"), `${where}: nor the proxy's credentials`);
+}
+
+test("SECURITY: every checkout command's environment is the one projection, plus only the harness's credential-free coordination values", () => {
+  const environment = checkoutCommandEnvironment({ PATH: "/usr/bin", HOME: "/home/someone", TMPDIR: "/var/tmp/run", ...PLANTED, HARNESS_INSTRUMENT_LOCK_TOKEN: "nonce-1", GIT_DIR: "/elsewhere/.git" }, "invocation-1");
+  assert.deepEqual(Object.keys(environment).sort(), ["HARNESS_INSTRUMENT_LOCK_TOKEN", "HARNESS_RUN_INVOCATION", "HOME", "PATH", "TMPDIR", "https_proxy"].sort());
+  assert.equal(environment["TMPDIR"], "/var/tmp/run", "the operator's temp root stays");
+  assert.equal(environment["HARNESS_INSTRUMENT_LOCK_TOKEN"], "nonce-1", "the command runs inside the hold the runner took");
+  assertNothingPlanted(environment, "the projection");
+});
+
+test("SECURITY (planted): a checkout command run by the ONE runner sees none of the credentials this process holds", async () => {
+  const directory = createTempDir("checkout-command-env-");
+  const report = join(directory, "env.json");
+  const saved = Object.fromEntries(Object.keys(PLANTED).map((name) => [name, process.env[name]]));
+  Object.assign(process.env, PLANTED);
+  try {
+    const step = await runCheckoutCommand(directory, "report-env", { cwd: ".", argv: [process.execPath, envReporter(directory, report)], timeoutMs: 30_000 }, RUNNER());
+    assert.equal(step.status, "pass", step.message);
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+  assertNothingPlanted(JSON.parse(readFileSync(report, "utf8")) as Record<string, string>, "a checkout command");
+});
+
+test("SECURITY (planted): the promoter home's SETUP (S's engine dependencies, run in S's tree) sees none of the credentials this process holds", async () => {
+  const { fixture, engine, document } = hostedFixture("promotion-home-setup-environment");
+  const report = join(fixture.commandsDirectory, "setup-env.json");
+  // The engine's dependency install, as S's tree runs it: it reports what it inherited.
+  writeFileSync(join(fixture.commandsDirectory, "tool-deps.mjs"), `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(report)}, JSON.stringify(process.env));\n`);
+  const saved = Object.fromEntries(Object.keys(PLANTED).map((name) => [name, process.env[name]]));
+  Object.assign(process.env, PLANTED);
+  try {
+    const { git, context, placement } = homePlacement(fixture, engine, document);
+    await runInPromoterHome(context, git, placement, APPLY, RUNNER(), engine);
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+  assertNothingPlanted(JSON.parse(readFileSync(report, "utf8")) as Record<string, string>, "the home's setup");
 });
