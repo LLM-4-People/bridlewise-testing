@@ -384,7 +384,6 @@ test("architecture denies generated internal and mechanism-test imports while al
     const processDenied = architectureFixture(
       processAttacker,
       `import { runPinnedProcess } from "./pinned-process-internal.ts";\n`,
-      "src/process/pinned-process-internal.ts",
     );
     assert.ok(processDenied.includes(`architecture-pinned-process-internal-import-denied:${processAttacker}`));
   }
@@ -400,11 +399,7 @@ function hasCode(code: string): (error: unknown) => boolean {
   return (error) => error !== null && typeof error === "object" && "code" in error && error.code === code;
 }
 
-function architectureFixture(
-  path: string,
-  source: string,
-  dependency = "src/filesystem/durable-filesystem-internal.ts",
-): readonly string[] {
+function architectureFixture(path: string, source: string): readonly string[] {
   const module: ArchitectureModule = {
     id: `fixture-${path}`,
     path,
@@ -413,11 +408,9 @@ function architectureFixture(
     owner: "fixture",
     executionBoundary: "pure",
     compositionRoot: false,
-    dependencies: [dependency],
     allowedDependencyLayers: [
       "trusted-kernel", "domain", "ports", "application", "infrastructure", "interface", "verification",
     ],
-    publicApi: { exportCount: 0, namesSha256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
     ports: { requires: [], provides: [] },
     effects: [],
     configPaths: [],
@@ -428,10 +421,10 @@ function architectureFixture(
     responsibilities: [`fixture-${path}`],
   };
   const manifest: ArchitectureManifest = {
-    schemaVersion: "bridlewise-architecture-manifest/v3",
+    schemaVersion: "bridlewise-architecture-manifest/v4",
     sourceRoots: ["scripts/", "src/", "verification/"],
-    graphPolicy: "exact-registered-edges-no-cycles",
-    publicApiPolicy: "exact-declared-export-name-hash",
+    graphPolicy: "derived-edges-no-cycles",
+    publicApiPolicy: "derived-from-source-never-committed",
     analysisLimits: { maximumSourceBytes: 1_048_576, maximumAstNodes: 100_000 },
     responsibilityPolicy: "one-registered-cohesive-owner-per-responsibility",
     physicalLayoutStatus: "open-blocking-architecture-v1-migration-required",

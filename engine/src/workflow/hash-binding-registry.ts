@@ -13,6 +13,7 @@ import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_
 import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
 import { ownedFiles } from "../git/repository-ownership.ts";
 import { ARCHITECTURE_EXTERNAL_COMMANDS } from "../kernel/architecture-external-commands.ts";
+import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
 import { bytePinSha256Ranges } from "./byte-pin-objects.ts";
 
 /**
@@ -129,9 +130,8 @@ function escapeForRegex(literal: string): string {
  * declarations instead of hand-kept beside them.
  *
  * `externalCommands[].sourceSha256` is a byte-lock of a tracked
- * `verification/` source. The module registrar rewrites only the per-module
- * fields (`exportCount`/`namesSha256`/`dependencies`/`compositionRoot`), so
- * these pins had no generator at all: appending one line to a benchmark
+ * `verification/` source. The module registrar writes only module entries
+ * (src/architecture-modules.ts), so these pins had no generator at all: appending one line to a benchmark
  * command left `harness check` green ("architecture manifest is in sync"),
  * `harness register --write` clean, while `verifyArchitectureSources` reported
  * `architecture-external-command-source-hash-drift`. A source change now
@@ -424,8 +424,13 @@ export function suiteRegeneratedPaths(): ReadonlySet<string> {
   ]);
 }
 
-/** The architecture manifest, repository-relative: the registrar rewrites it wholesale; it carries no pin. */
-const GENERATED_ARCHITECTURE_MANIFEST = `engine/${ROOT_POLICY.universalPolicyArchitecture.moduleArchitecture.manifest}`;
+/**
+ * The architecture's module entries, repository-relative: AUTHORED decisions,
+ * one entry per line, that the registrar adds to, removes from and marks (and
+ * writes in their one form). It carries no pin and is never wholesale: its
+ * authored lines must survive a merge.
+ */
+const GENERATED_ARCHITECTURE_MODULES = `engine/${ARCHITECTURE_MODULES_PATH}`;
 /** The config-contract schema artifact, repository-relative: one canonical-JSON blob of the contract. */
 const GENERATED_CONFIG_SCHEMA_ARTIFACT = `engine/${ROOT_POLICY.configuration.contract.generatedSchemaPath}`;
 /** The guardian spec schema artifact, repository-relative: written by the bundle build from the spec schema. */
@@ -448,7 +453,6 @@ const GENERATED_ARTIFACT_MANIFEST = `engine/${ROOT_POLICY.artifactGovernance.can
  */
 export function wholesaleGeneratedPaths(): ReadonlySet<string> {
   return new Set([
-    GENERATED_ARCHITECTURE_MANIFEST,
     GENERATED_CONFIG_SCHEMA_ARTIFACT,
     GENERATED_SPEC_SCHEMA_ARTIFACT,
     GENERATED_ARTIFACT_MANIFEST,
@@ -463,8 +467,8 @@ const SHIPPED_HOOK_PATHS: readonly string[] = Object.freeze([...SHIPPED_HOOK_FIL
  * EVERY PATH A REGENERATE/SYNC PASS MAY WRITE, repository-relative — the one
  * list of generated outputs. It is {@link suiteRegeneratedPaths} (the
  * pin-bearing targets and the wholesale inventory, dispositions and schema
- * artifact) plus the architecture manifest, which the registrar rewrites
- * wholesale and which carries no pin, the guardian spec schema artifact the
+ * artifact) plus the architecture's module entries, which the registrar
+ * adds to, removes from and marks and which carry no pin, the guardian spec schema artifact the
  * bundle build writes, the ratchet baselines the pass prunes, the
  * source-authority pins it re-derives (`PIN_AUTHORITY_PATHS`), and the READMEs
  * of `repositoryRoot` whose consumer block the pass regenerates
@@ -488,7 +492,7 @@ function generatedOutputPathsOfReadmes(readmes: readonly string[]): ReadonlySet<
   return new Set([
     ...readmes,
     ...suiteRegeneratedPaths(),
-    GENERATED_ARCHITECTURE_MANIFEST,
+    GENERATED_ARCHITECTURE_MODULES,
     // Written by the bundle build (`scripts/build-bundle.ts`, run by
     // `harness sync --with-bundle` and the checkout setup) from the guardian
     // spec schema: a generated output like the others, so a candidate's

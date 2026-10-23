@@ -15,6 +15,7 @@ import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
 import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
+import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
 import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
 import {
   externalCommandSourceFinding,
@@ -998,8 +999,7 @@ export function harnessRegenerate(
   const testInventoryConverged = testSurfacePresent(root) ? testInventory.status !== "skipped" : true;
   const status = write
     ? (hashBindings.allMatch && autoGenerator.allMatch &&
-        moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
-        moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
+        moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
         pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
@@ -1531,8 +1531,7 @@ export function harnessRegister(
   // top-level counts describe the pre-fix drift. In read-only mode the
   // predicate fallback derives the status from the unmodified report.
   const status = write
-    ? (registrarReport.postWrite !== null && registrarReport.postWrite.clean &&
-        registrarReport.postWrite.unregisteredModules === 0 ? "pass" : "fail")
+    ? (registrarReport.postWrite !== null && registrarReport.postWrite.clean ? "pass" : "fail")
     : undefined;
   return wrapResult("register", output, status === undefined ? {} : { status });
 }
@@ -2008,7 +2007,7 @@ export function harnessNewModule(
       throw new InputError(`Could not write module file: ${writeResult.reason ?? "unknown"}`, "input_error");
     }
   }
-  const manifestExists = existsSync(resolve(root, "src/architecture-manifest.ts"));
+  const manifestExists = existsSync(resolve(root, ARCHITECTURE_MODULES_PATH));
   const registrarReport = generateModuleRegistrarReport(root, { write: created && manifestExists });
   const output: HarnessNewModuleOutput = deepFreeze({
     modulePath: normalizedPath,
@@ -2040,14 +2039,14 @@ export async function runTypecheck(root: string, bounds: SubprocessBounds = SUBP
   return deepFreeze({ step: "typecheck", status: "fail", message: `typecheck failed: ${ending}${said.length === 0 ? "" : `\n${said}`}`, details: null });
 }
 
-/** The registrar's verdict: every module registered, none drifted, the composition-root lists derived. */
+/** The registrar's verdict: every module registered, none drifted, the entries file in its one form. */
 function registrarInSync(report: ModuleRegistrarReport): boolean {
-  return report.unregisteredModules === 0 && report.driftedModules === 0 && report.compositionRootsCurrent;
+  return report.unregisteredModules === 0 && report.driftedModules === 0 && report.entriesCurrent;
 }
 
 function registrarDriftMessage(report: ModuleRegistrarReport): string {
   return `${report.unregisteredModules} unregistered, ${report.driftedModules} drifted` +
-    (report.compositionRootsCurrent ? "" : ", composition-root lists stale (run harness sync)");
+    (report.entriesCurrent ? "" : `, ${ARCHITECTURE_MODULES_PATH} not in its one form (sorted, one entry per line: run harness sync)`);
 }
 
 /**

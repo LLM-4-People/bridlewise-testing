@@ -25,7 +25,7 @@ import { analyzeStaticSource, analyzeStaticModuleShape, clearStaticModuleShapeCa
 import { analysisSemanticsId, createFilesystemCache } from "../../scripts/verification/filesystem-cache.ts";
 import { ARCHITECTURE_MANIFEST, EMPTY_COMPOSITION_ROOTS, type ArchitectureManifest } from "../../src/architecture-manifest.ts";
 import { ARCHITECTURE_SOURCE_EXTENSIONS } from "../../src/shared/source-extensions.ts";
-import { canonicalHash, sha256 } from "../../src/kernel/integrity.ts";
+import { sha256 } from "../../src/kernel/integrity.ts";
 import { withTempDir } from "../support/temp-dir.ts";
 import { DEFAULT_STATIC_MODULE_SHAPE_FILESYSTEM_CACHE_MAX_ENTRIES } from "../../src/workflow/workflow-config.ts";
 import { experimentExclusion, walk } from "../../scripts/verification/source-walk.ts";
@@ -518,14 +518,13 @@ test("Architecture references: runtime wrappers preserve cycles, layers and effe
     const source = `${erased ? 'import type { U }' : 'import { type U }'} from "../cli.ts"; export type T = string;`;
     const sources = [{ path: kernel.path, source }, { path: cli.path, source: target }];
     const manifest: ArchitectureManifest = { ...ARCHITECTURE_MANIFEST, compositionRoots: EMPTY_COMPOSITION_ROOTS, modules: [
-      { ...kernel, dependencies: erased ? [] : [cli.path], publicApi: { exportCount: 1, namesSha256: canonicalHash(["T"]) } },
-      { ...cli, dependencies: [kernel.path], publicApi: { exportCount: 1, namesSha256: canonicalHash(["U"]) } },
+      kernel,
+      cli,
     ] };
     const violations = verifyArchitectureSources(sources, manifest).violations;
     assert.equal(violations.some(value => value.startsWith("architecture-import-cycle:")), !erased);
     assert.equal(violations.includes(`architecture-reverse-layer:${kernel.path}->${cli.path}`), !erased);
     assert.equal(violations.some(value => value.startsWith("architecture-independent-")), false);
-    assert.equal(violations.some(value => value.startsWith("architecture-dependency-drift:")), false);
   }
   for (const erased of [true, false]) {
     const source = erased ? 'import type { Stats } from "node:fs";' : 'import { type Stats, readFileSync } from "node:fs"; void readFileSync;';

@@ -16,9 +16,14 @@ from the import graph.
   option/result types, so the harness can be embedded as a library.
 - `bundle-entry.ts` — the bundle entry point for the Landlock
   self-protection production payload (`dist/bundle.js`).
-- `architecture-manifest.ts` — the generated dependency-edge manifest: the
-  module graph the regenerator and the architecture
-  verifiers reference by path.
+- `architecture-manifest.ts` — the architecture manifest: its policies,
+  layers, external commands and findings, with the modules built from
+  `architecture-modules.ts`. Nothing in it is generated.
+- `architecture-modules.ts` — the authored module entries, one per line,
+  sorted by path (realm, layer, owner, roles, effects, ports): two branches
+  touching different modules merge. A module's exports and imports are
+  derived by the architecture check, never committed (#221); `harness sync`
+  adds, removes and marks entries (`workflow/module-registrar.ts`).
 
 ## The domains
 
@@ -61,7 +66,8 @@ from the import graph.
 
 The folder lives at `engine/src/`.
 
-- `architecture-manifest.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/effect-surface.ts`, `engine/src/kernel/architecture-external-commands.ts`, `engine/src/performance/function-manifest.ts` and 2 more.
+- `architecture-manifest.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/effect-surface.ts`, `engine/src/architecture-modules.ts`, `engine/src/kernel/architecture-external-commands.ts` and 4 more.
+- `architecture-modules.ts` is consumed by `engine/src/architecture-manifest.ts`.
 - `bundle-entry.ts` is consumed by nothing yet.
 - `cli.mjs` is consumed by nothing yet.
 - `cli.ts` is consumed by `engine/src/bundle-entry.ts`, `engine/src/index.ts`.

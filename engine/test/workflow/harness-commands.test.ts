@@ -31,6 +31,7 @@ import {
   frozenRecordsStep,
 } from "../../src/workflow/harness-commands.ts";
 import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
+import { ARCHITECTURE_MODULES_PATH, architectureModulesText } from "../../src/workflow/architecture-module-entries.ts";
 import { HARNESS_COMMAND_SCHEMA_VERSION, parseHarnessCommandResult, resultHasFail, type HarnessCommandResult } from "../../src/workflow/command-result.ts";
 import { collectTestResults } from "../../src/workflow/test-result-collector.ts";
 import { HarnessError, InputError } from "../../src/kernel/errors.ts";
@@ -389,8 +390,16 @@ test("HarnessCommands: harnessNewModule throws on empty path", () => {
   assert.throws(() => harnessNewModule(ROOT, ""), /module path/);
 });
 
+/** A scratch engine root for `harness new-module`: it carries the (empty) architecture module entries the registrar reads. */
+function newModuleRoot(prefix: string): string {
+  const root = createTempDir(prefix);
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, ARCHITECTURE_MODULES_PATH), architectureModulesText([]));
+  return root;
+}
+
 test("HarnessCommands: harnessNewModule creates a module file", () => {
-  const tmpDir = createTempDir("harness-newmod-");
+  const tmpDir = newModuleRoot("harness-newmod-");
   try {
     const result = harnessNewModule(tmpDir, "src/test-module.ts");
     assert.equal(result.command, "new-module");
@@ -404,7 +413,7 @@ test("HarnessCommands: harnessNewModule creates a module file", () => {
 });
 
 test("HarnessCommands: harnessNewModule with existing file does not create", () => {
-  const tmpDir = createTempDir("harness-newmod-exist-");
+  const tmpDir = newModuleRoot("harness-newmod-exist-");
   try {
     mkdirSync(join(tmpDir, "src"), { recursive: true });
     writeFileSync(join(tmpDir, "src", "existing.ts"), `export const X = 1;\n`);
@@ -416,7 +425,7 @@ test("HarnessCommands: harnessNewModule with existing file does not create", () 
 });
 
 test("HarnessCommands: harnessNewModule prepends src/ when not prefixed", () => {
-  const tmpDir = createTempDir("harness-newmod-prefix-");
+  const tmpDir = newModuleRoot("harness-newmod-prefix-");
   try {
     const result = harnessNewModule(tmpDir, "my-module.ts");
     assert.equal(result.result.modulePath, "src/my-module.ts");
@@ -426,7 +435,7 @@ test("HarnessCommands: harnessNewModule prepends src/ when not prefixed", () => 
 });
 
 test("HarnessCommands: harnessNewModule does not prepend for scripts/ or verification/", () => {
-  const tmpDir = createTempDir("harness-newmod-scripts-");
+  const tmpDir = newModuleRoot("harness-newmod-scripts-");
   try {
     const result = harnessNewModule(tmpDir, "scripts/my-script.ts");
     assert.equal(result.result.modulePath, "scripts/my-script.ts");
@@ -714,7 +723,7 @@ test("HarnessCommands: 2 consecutive harnessRegenerate calls are consistent (det
 });
 
 test("HarnessCommands: harnessNewModule template has valid TypeScript", () => {
-  const tmpDir = createTempDir("harness-template-");
+  const tmpDir = newModuleRoot("harness-template-");
   try {
     harnessNewModule(tmpDir, "src/my-mod.ts");
     const content = readFileSync(join(tmpDir, "src", "my-mod.ts"), "utf8");
@@ -726,7 +735,7 @@ test("HarnessCommands: harnessNewModule template has valid TypeScript", () => {
 });
 
 test("HarnessCommands: harnessNewModule handles nested paths", () => {
-  const tmpDir = createTempDir("harness-nested-");
+  const tmpDir = newModuleRoot("harness-nested-");
   try {
     harnessNewModule(tmpDir, "src/deep/nested/module.ts");
     assert.ok(readFileSync(join(tmpDir, "src", "deep", "nested", "module.ts"), "utf8").length > 0);
@@ -769,9 +778,9 @@ test("HarnessCommands: harnessRegister structure, integrity, timestamp, and zero
 });
 
 test("HarnessCommands: harnessRegister write=false does not modify manifest", () => {
-  const before = readFileSync(join(ROOT, "src/architecture-manifest.ts"), "utf8");
+  const before = readFileSync(join(ROOT, ARCHITECTURE_MODULES_PATH), "utf8");
   registerReadOnly();
-  const after = readFileSync(join(ROOT, "src/architecture-manifest.ts"), "utf8");
+  const after = readFileSync(join(ROOT, ARCHITECTURE_MODULES_PATH), "utf8");
   assert.equal(before, after);
 });
 
@@ -779,6 +788,7 @@ test("HarnessCommands: harnessRegister on temp project detects unregistered modu
   const tmpDir = createTempDir("harness-register-");
   try {
     mkdirSync(join(tmpDir, "src"), { recursive: true });
+    writeFileSync(join(tmpDir, ARCHITECTURE_MODULES_PATH), architectureModulesText([]));
     writeFileSync(join(tmpDir, "src", "mod.ts"), `export const X = 1;\n`);
     mkdirSync(join(tmpDir, "test"), { recursive: true });
     writeFileSync(join(tmpDir, "test", "t.test.ts"), `import test from "node:test";\ntest("t", () => {});\n`);
@@ -807,43 +817,28 @@ test("HarnessCommands: harnessRegister determinism - same root produces same rep
 // reported "fail". The status must come from the POST-WRITE outcome.
 // ---------------------------------------------------------------------------
 
-test("HarnessCommands: harnessRegister write passes after fully correcting drift and auto-registering new modules", () => {
-  // Full working copy: every manifest module present, so the only drift is
-  // the one mutation introduced below and it is field-correctable.
+test("HarnessCommands: harnessRegister write passes after auto-registering a new module; a changed export is no drift", () => {
   const copy = createRepositoryWorkingCopy("harness-register-write-", { include: engineGeneratorPopulation });
   const tmpDir = copy.engineRoot;
   try {
-    // Introduce exactly one drifted module: an extra export makes the
-    // computed registration disagree with the (copied) manifest entry.
+    const entriesPath = join(tmpDir, ARCHITECTURE_MODULES_PATH);
+    const before = readFileSync(entriesPath, "utf8");
+    // A module's exports are derived by the check, never registered (#221):
+    // a new export changes nothing the registrar owns.
     appendFileSync(join(tmpDir, "src", "kernel/errors.ts"), "export const REGISTER_WRITE_DRIFT_PROBE = 1;\n");
+    const unchanged = harnessRegister(tmpDir, { write: true });
+    assert.equal(unchanged.result.registrarReport.driftedModules, 0);
+    assert.equal(unchanged.status, "pass");
+    assert.equal(readFileSync(entriesPath, "utf8"), before);
 
-    const corrected = harnessRegister(tmpDir, { write: true });
-    assert.equal(corrected.result.registrarReport.driftedModules, 1);
-    assert.ok(corrected.result.registrarReport.postWrite !== null);
-    assert.equal(corrected.result.registrarReport.postWrite!.clean, true);
-    assert.equal(corrected.result.registrarReport.postWrite!.driftedModules, 0);
-    // The core regression: pre-fix drift (1 module) must NOT fail the run —
-    // the correction succeeded, so the status is pass.
-    assert.equal(corrected.status, "pass");
-    // The manifest on disk now carries the corrected export count.
-    const manifestAfter = readFileSync(join(tmpDir, "src", "architecture-manifest.ts"), "utf8");
-    const driftedEntry = corrected.result.registrarReport.drift.find((entry) => entry.path === engineModuleSourceRelative("kernel/errors.ts"));
-    assert.ok(driftedEntry);
-    assert.ok(manifestAfter.includes(`exportCount: ${driftedEntry!.exportCount}`));
-
-    // An unregistered module is now AUTO-REGISTERED by the write — the run
-    // must pass because the auto-registration adds the missing entry.
+    // An unregistered module is AUTO-REGISTERED by the write, and the run passes.
     writeFileSync(join(tmpDir, "src", "register-write-unregistered.ts"), "export const UNREGISTERED_PROBE = 2;\n");
     const withUnregistered = harnessRegister(tmpDir, { write: true });
     assert.equal(withUnregistered.result.registrarReport.unregisteredModules, 1);
-    assert.ok(withUnregistered.result.registrarReport.postWrite !== null);
-    assert.equal(withUnregistered.result.registrarReport.postWrite!.addedModules, 1);
-    assert.equal(withUnregistered.result.registrarReport.postWrite!.unregisteredModules, 0);
-    assert.equal(withUnregistered.result.registrarReport.postWrite!.clean, true);
+    assert.equal(withUnregistered.result.registrarReport.postWrite?.addedModules, 1);
+    assert.equal(withUnregistered.result.registrarReport.postWrite?.clean, true);
     assert.equal(withUnregistered.status, "pass");
-    // The manifest now contains a block for the auto-registered file.
-    const manifestAfterAdd = readFileSync(join(tmpDir, "src", "architecture-manifest.ts"), "utf8");
-    assert.ok(manifestAfterAdd.includes(`path: "src/register-write-unregistered.ts"`), "unregistered file must be auto-registered");
+    assert.ok(readFileSync(entriesPath, "utf8").includes(`path: "src/register-write-unregistered.ts"`), "the unregistered file is registered");
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
   }
@@ -856,19 +851,19 @@ test("HarnessCommands: harnessRegister write on a zero-drift project passes and 
   // can only be proven by running the real writer over the real manifest. It
   // used to run at this repository's own root, snapshotting and restoring
   // what it touched — and when the property broke it rewrote
-  // `src/architecture-manifest.ts`, the root policy and a traceability
+  // the architecture manifest, the root policy and a traceability
   // manifest for every concurrent test to read until the restore landed. A
   // working copy holds exactly the owned bytes, so it proves the same
   // property, and a write it makes lands where nothing else reads it.
   const copy = createRepositoryWorkingCopy("harness-register-zero-drift-", { include: engineGeneratorPopulation });
   try {
-    const manifestPath = join(copy.engineRoot, "src", "architecture-manifest.ts");
-    const before = readFileSync(manifestPath, "utf8");
+    const entriesPath = join(copy.engineRoot, ARCHITECTURE_MODULES_PATH);
+    const before = readFileSync(entriesPath, "utf8");
     const result = harnessRegister(copy.engineRoot, { write: true });
-    assert.equal(readFileSync(manifestPath, "utf8"), before);
+    assert.equal(readFileSync(entriesPath, "utf8"), before);
     assert.equal(result.result.registrarReport.driftedModules, 0);
     assert.equal(result.result.registrarReport.unregisteredModules, 0);
-    assert.deepEqual(result.result.registrarReport.postWrite, { addedModules: 0, removedModules: 0, driftedModules: 0, unregisteredModules: 0, clean: true });
+    assert.deepEqual(result.result.registrarReport.postWrite, { addedModules: 0, removedModules: 0, markedModules: 0, clean: true });
     assert.equal(result.status, "pass");
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);

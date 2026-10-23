@@ -54,10 +54,10 @@ function makeExternalCommand(overrides: Partial<ArchitectureExternalCommand> = {
 
 function makeManifest(externalCommands: readonly ArchitectureExternalCommand[]): ArchitectureManifest {
   return {
-    schemaVersion: "bridlewise-architecture-manifest/v3",
+    schemaVersion: "bridlewise-architecture-manifest/v4",
     sourceRoots: ["scripts/", "src/", "verification/"],
-    graphPolicy: "exact-registered-edges-no-cycles",
-    publicApiPolicy: "exact-declared-export-name-hash",
+    graphPolicy: "derived-edges-no-cycles",
+    publicApiPolicy: "derived-from-source-never-committed",
     analysisLimits: { maximumSourceBytes: 1_048_576, maximumAstNodes: 100_000 },
     responsibilityPolicy: "one-registered-cohesive-owner-per-responsibility",
     physicalLayoutStatus: "open-blocking-architecture-v1-migration-required",

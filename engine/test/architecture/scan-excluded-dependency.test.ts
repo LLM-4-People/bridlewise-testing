@@ -34,6 +34,7 @@ import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { repositoryScanExclusionFor } from "../../src/shared/source-scan.ts";
 import {
+  analyzeArchitectureSource,
   clearArchitectureSourceCache,
   verifyArchitectureSources,
 } from "../../scripts/verification/architecture.ts";
@@ -76,10 +77,10 @@ function boundaryViolations(sources: readonly Readonly<{ path: string; source: s
  * change the plant makes.
  */
 function plantHost(): Readonly<{ path: string; source: string }> {
-  const host = ARCHITECTURE_MANIFEST.modules.find((module) =>
-    module.path.startsWith("src/") && module.path.endsWith(".ts") && module.dependencies.length === 0);
+  const host = repositorySources().find((module) =>
+    module.path.startsWith("src/") && module.path.endsWith(".ts") && analyzeArchitectureSource(module.path, module.source).dependencies.length === 0);
   assert.ok(host, "expected at least one dependency-free src/ module to host a plant");
-  return { path: host.path, source: readFileSync(join(REPOSITORY_ROOT, host.path), "utf8") };
+  return host;
 }
 
 test("scan census: the clean tree has no dependency the scan refuses to walk", () => {
@@ -95,8 +96,8 @@ test("scan census: the covered population is every registered module, and it is 
   // A guard that names its subject has already chosen how much to check. State
   // the number, and refuse a universe that has collapsed.
   const modules = ARCHITECTURE_MANIFEST.modules.length;
-  const dependencyEdges = ARCHITECTURE_MANIFEST.modules
-    .reduce((total, module) => total + module.dependencies.length, 0);
+  const dependencyEdges = repositorySources()
+    .reduce((total, module) => total + analyzeArchitectureSource(module.path, module.source).dependencies.length, 0);
   assert.ok(modules >= 700, `architecture verification must cover the whole manifest; covered ${modules}`);
   assert.ok(dependencyEdges >= 2500, `dependency census must be populated; got ${dependencyEdges} edges`);
   assert.equal(

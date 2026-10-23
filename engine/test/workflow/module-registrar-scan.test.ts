@@ -6,7 +6,6 @@ import {
   compareModuleRegistrations,
   generateModuleRegistrarReport,
 } from "../../src/workflow/module-registrar.ts";
-import { ARCHITECTURE_MANIFEST, type ArchitectureManifest } from "../../src/architecture-manifest.ts";
 
 /**
  * INVARIANT #56 (RES-12): generateModuleRegistrarReport must call
@@ -33,25 +32,19 @@ test("ModuleRegistrar scan: compareModuleRegistrations uses the provided compute
   // real files). Its presence in the result proves the `computed` array was used.
   const sentinel = Object.freeze([{
     path: "src/__sentinel_does_not_exist__.ts",
-    exportCount: 999,
-    namesSha256: "sentinel-hash-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    dependencies: Object.freeze(["node:fs"]),
     registered: false,
+    compositionRoot: true,
   }]);
-  const emptyManifest: ArchitectureManifest = {
-    ...ARCHITECTURE_MANIFEST,
-    modules: Object.freeze([]),
-  } as ArchitectureManifest;
 
-  const result = compareModuleRegistrations(ROOT, emptyManifest, sentinel);
+  const result = compareModuleRegistrations(ROOT, [], sentinel);
   // The sentinel is not in the (empty) manifest, so it appears as unregistered.
   assert.ok(
-    result.unregistered.some((m) => m.path === "src/__sentinel_does_not_exist__.ts" && m.exportCount === 999),
+    result.unregistered.some((m) => m.path === "src/__sentinel_does_not_exist__.ts" && m.compositionRoot),
     "the sentinel from the computed array must appear as unregistered — proving computed was used, not a re-scan",
   );
   assert.ok(
     !result.unregistered.some((m) => m.path !== "src/__sentinel_does_not_exist__.ts"),
-    "no real source files should appear when the manifest is empty AND computed is a sentinel (no re-scan occurred)",
+    "no real source files should appear when the entries are empty AND computed is a sentinel (no re-scan occurred)",
   );
 });
 
@@ -85,12 +78,8 @@ test("ModuleRegistrar scan: computed result is passed through unchanged (same re
   // uses it — the registeredModules count in the report equals
   // totalSourceModules - unregistered, all derived from the same scan.
   const computed = scanSourceModules(ROOT);
-  const emptyManifest: ArchitectureManifest = {
-    ...ARCHITECTURE_MANIFEST,
-    modules: Object.freeze([]),
-  } as ArchitectureManifest;
-  const result = compareModuleRegistrations(ROOT, emptyManifest, computed);
-  // With an empty manifest, EVERY computed module is unregistered.
+  const result = compareModuleRegistrations(ROOT, [], computed);
+  // With no entries, EVERY computed module is unregistered.
   assert.equal(result.unregistered.length, computed.length);
-  assert.equal(result.drift.length, 0, "an empty manifest has no manifest-only modules to drift");
+  assert.equal(result.drift.length, 0, "no entries means no entry-only modules to drift");
 });
