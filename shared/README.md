@@ -47,6 +47,11 @@ two cannot drift.
   each in one pass (no double unescaping, no token formed across a removed
   region). `tests/public/markup-owner.test.mjs` refuses a hand-rolled copy
   anywhere in the tree.
+- `site-page.ts` — WHAT EVERY PAGE OF THE PUBLIC SITE CARRIES: the
+  Content-Security-Policy (`sitePolicy`, with the Markdown table alignments
+  as its only hashed style attributes) and where a reader's theme choice is
+  remembered. The site builder writes them into the pages, and the rendered
+  judge checks them on every built page.
 - `token-reader.ts` — THE TOKEN OWNER READ AS DATA: the one door between
   the design system (`src/cockpit/tokens.css`) and every surface that cannot
   load it as a stylesheet — the Pages site's generated token sheet, the
@@ -74,6 +79,7 @@ The folder lives at `shared/`.
 - `module-contract.ts` is consumed by `server/schema/derive-modules.ts`, `server/schema/ui-declarations.ts`, `src/cockpit/rooms/instruments-data.ts`, `src/cockpit/settings/settings-data.ts`, `src/state/schema-store.ts`.
 - `provenance.ts` is consumed by `server/blocks/provenance.ts`, `src/cockpit/lens/LensCallout.svelte`, `src/cockpit/lens/lens-callout-data.ts`, `src/data/broker.ts`, `src/data/ledger.ts`, `src/state/lens.ts`.
 - `routes.ts` is consumed by `server/tools/ui-control.ts`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/shell/RightMenuHost.svelte`, `src/cockpit/shell/right-menu.ts`, `src/cockpit/shell/view-request.ts` and 3 more.
+- `site-page.ts` is consumed by nothing yet.
 - `token-reader.ts` is consumed by nothing yet.
 - `types.ts` is consumed by `src/client.ts`, `src/cockpit/desk/TripScope.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/run-stream.ts`, `src/state/chat-messages.ts`, `src/state/config-snapshot.ts` and 6 more.
 - `ui-schema.ts` is consumed by `server/schema/ui-declarations.ts`, `server/schema/ui-schema.ts`, `src/client.ts`, `src/cockpit/lens/lens-callout-data.ts`, `src/cockpit/rooms/InstrumentCell.svelte`, `src/cockpit/rooms/InstrumentsRoom.svelte` and 5 more.

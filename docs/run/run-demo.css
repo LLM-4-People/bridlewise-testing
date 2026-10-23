@@ -39,10 +39,8 @@
   --edge-light: rgba(255, 255, 255, 0.035);
 
   --focus: #8fd3ff;
-  --font-sans: "IBM Plex Sans", "IBM Plex Sans Text", ui-sans-serif, system-ui,
-    "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Code",
-    "Liberation Mono", "DejaVu Sans Mono", monospace;
+  --font-sans: var(--face-sans);
+  --font-mono: var(--face-mono);
 
   --r: 2px;
   --gutter: 28px;
@@ -243,20 +241,6 @@ kbd {
   gap: 9px;
   min-width: 0;
   white-space: nowrap;
-}
-
-.brand__mark {
-  display: inline-grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r);
-  color: var(--beam);
-  font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
 }
 
 .brand__name {
@@ -2653,12 +2637,6 @@ h1 {
   .brand__section,
   .brand__rule {
     display: none;
-  }
-
-  .brand__mark {
-    width: 22px;
-    height: 22px;
-    font-size: 7.5px;
   }
 
   .brand__name {

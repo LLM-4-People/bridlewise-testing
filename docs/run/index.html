@@ -1,38 +1,20 @@
 ---
-layout: null
+layout: standalone
 title: "Run 0001 · trace the request boundary"
 description: "An illustrative, interactive Bridlewise run record. Eight causal beats, governed tools, a typed refusal, and a redaction. Synthetic data; no live model or engine connection."
 permalink: /run/
 sitemap: true
+root_theme: dark
+color_scheme: dark light
+head_scripts: [run-theme.js]
+stylesheets: [run-demo.css]
 ---
-
-<!doctype html>
-<html lang="en" data-theme="dark">
-<head>
-  <meta charset="utf-8">
-  {% include csp.html %}
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="canonical" href="{{ page.url | absolute_url }}">
-  <meta property="og:type" content="article">
-  <meta property="og:title" content="Run 0001 · trace the request boundary">
-  <meta property="og:description" content="An illustrative Bridlewise run record: eight causal beats, a governed tool, a typed refusal, and a redaction. Synthetic; not a live engine.">
-  <meta property="og:url" content="{{ page.url | absolute_url }}">
-  <meta property="og:image" content="{{ site.url }}{{ site.baseurl }}/assets/social-preview.png">
-  <meta name="color-scheme" content="dark light">
-  <meta name="theme-color" content="#0b0d11">
-  <meta name="description" content="An illustrative, interactive Bridlewise run record. Synthetic data, no live model, no engine connection.">
-  <title>Run 0001 · trace the request boundary · Bridlewise</title>
-  <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
-  <script src="run-theme.js"></script>
-  <link rel="stylesheet" href="run-demo.css">
-</head>
-<body>
   <a class="skip-link" href="#timeline-heading">Skip to the causal timeline</a>
 
   <div class="frame">
     <header class="topbar">
       <div class="brand" aria-label="Bridlewise run record">
-        <span class="brand__mark" aria-hidden="true">BW</span>
+        {% include brand-mark.svg %}
         <span class="brand__name">bridlewise</span>
         <span class="brand__rule" aria-hidden="true">/</span>
         <span class="brand__section">run record</span>
@@ -188,5 +170,3 @@ sitemap: true
   </dialog>
 
   <script type="module" src="run-demo.js"></script>
-</body>
-</html>

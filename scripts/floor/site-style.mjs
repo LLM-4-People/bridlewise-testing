@@ -27,8 +27,9 @@
  * - a colour literal anywhere in a value: a hex, a colour function (`rgb`,
  *   `RGB`, `oklch`, `color`, …) or a colour keyword (named or system) in a
  *   property whose grammar takes a colour; `transparent` and `currentColor`
- *   carry no palette and pass, and `color-mix()`/`light-dark()` pass when
- *   what they mix does;
+ *   carry no palette and pass;
+ * - a mixed colour (`color-mix()`, `light-dark()`): each mix the site needs
+ *   is a token in the owner, so a page computes only token values;
  * - a duration literal (`120ms`, `.2S`) anywhere in a value;
  * - a `var()` naming a token the owner does not declare, or carrying a
  *   fallback (a fallback is a literal the token was meant to replace);
@@ -54,14 +55,15 @@
  * - an inline `<script>` (a data block such as JSON-LD excepted) or an
  *   `on…` event handler attribute.
  * This parse is fast feedback. The boundary is the Content-Security-Policy
- * every page carries (`site-design.mjs` `sitePolicy`), which the browser
+ * every page carries (`shared/site-page.ts` `sitePolicy`), which the browser
  * enforces whatever spelling produced the markup.
  * Markdown pages are judged where they render, by the rendered-site checker
  * (#409): a parse of their source would read the prose's code spans as tags.
  *
- * The burn-down list names the sheets that still carry a palette of their
- * own; the build skips them. It only shrinks: each entry names the issue
- * that removes it, and the design test fails an entry that is clean or gone
+ * The burn-down list (`shared/site-page.ts` `PALETTE_BURN_DOWN`) names the
+ * sheets that still carry a palette of their own; the build skips them. It
+ * only shrinks: each entry names the issue that removes it, and the design
+ * test fails an entry that is clean or gone
  * (`tests/public/site-design-system.test.mjs`).
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -70,19 +72,16 @@ import { join, sep } from "node:path";
 import * as csstree from "css-tree";
 import { parse as parseHtml } from "parse5";
 
+import { PALETTE_BURN_DOWN } from "../../shared/site-page.ts";
 import { readTokenOwner } from "../../shared/token-reader.ts";
 import { SITE_TOKEN_SHEET } from "./site-design.mjs";
 
 export const STYLE_EXTENSIONS = Object.freeze([".css", ".scss", ".sass"]);
 
-/** Sheets (source-relative) that still carry their own palette, each with the issue that removes it. */
-export const STYLE_BURN_DOWN = Object.freeze(new Map([
-  ["run/run-demo.css", "#161: the run demo's own palette"],
-  ["policy-lab/policy-lab.css", "#161: the policy lab's own palette"],
-]));
-
 /** The at-rules a site sheet may hold. */
 const AT_RULES = new Set(["media", "supports", "keyframes", "container", "layer", "charset"]);
+/** Colours composed from tokens: the owner declares each one as a token, so a page computes only token values. */
+const MIX_FUNCTIONS = new Set(["color-mix", "light-dark"]);
 const COLOUR_FUNCTIONS = new Set(["rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color", "device-cmyk"]);
 const COLOUR_TYPES = ["named-color", "system-color", "deprecated-system-color"];
 const NO_PALETTE = new Set(["transparent", "currentcolor"]);
@@ -156,6 +155,7 @@ function valueViolations(property, value, tokens) {
       case "Function": {
         const name = plain(node.name);
         if (COLOUR_FUNCTIONS.has(name)) findings.push(`colour literal: ${node.name}()`);
+        if (MIX_FUNCTIONS.has(name)) findings.push(`a mixed colour: ${node.name}() is declared once, as a token in the owner`);
         if (name === "var") {
           const parts = node.children.toArray();
           const token = parts[0]?.type === "Identifier" ? parts[0].name : null;
@@ -328,7 +328,7 @@ export function judgeSiteStyles({ root, sourceRoot }) {
   const sheets = siteStylesheets(sourceRoot);
   const findings = [];
   for (const path of sheets) {
-    if (STYLE_BURN_DOWN.has(path)) continue;
+    if (PALETTE_BURN_DOWN.has(path)) continue;
     if (!path.toLowerCase().endsWith(".css")) {
       findings.push(`${path}: a Sass source: the site's stylesheets are plain CSS, judged by one parser`);
       continue;

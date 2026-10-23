@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="{{ page.lang | default: site.lang | default: 'en' }}"{% if page.root_theme %} data-theme="{{ page.root_theme }}"{% endif %}>
+<head>
+  <meta charset="utf-8">
+  {% include csp.html %}
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title }} · {{ site.title }}</title>
+  <meta name="description" content="{{ page.description | escape }}">
+  <link rel="canonical" href="{{ page.url | absolute_url }}">
+  <meta name="color-scheme" content="{{ page.color_scheme | default: 'light dark' }}">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="{{ site.title }}">
+  <meta property="og:title" content="{{ page.title }}">
+  <meta property="og:description" content="{{ page.description | escape }}">
+  <meta property="og:url" content="{{ page.url | absolute_url }}">
+  <meta property="og:image" content="{{ page.image | absolute_url }}">
+  <link rel="icon" href="{{ '/assets/mark.svg' | relative_url }}" type="image/svg+xml">
+  {% include design-head.html %}
+  {%- for script in page.head_scripts %}
+  <script src="{{ script }}"></script>
+  {%- endfor %}
+  {%- for sheet in page.stylesheets %}
+  <link rel="stylesheet" href="{{ sheet }}">
+  {%- endfor %}
+</head>
+<body{% if page.body_id %} id="{{ page.body_id }}"{% endif %}>
+{{ content }}
+</body>
+</html>
