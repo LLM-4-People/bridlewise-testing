@@ -72,7 +72,7 @@ const published = (tag: string, at: number): ReleaseRecord => ({ tag, draft: fal
 /** A tracker item (the public record) on the source, `open` or `closed`. */
 function record(fixture: PromotionFixture, id: string, state: "open" | "closed", type = "Task"): void {
   const closed = state === "closed" ? "resolution: completed\nclosed: 2026-10-21\n" : "";
-  fixture.commit(SOURCE, { [`docs/trackers/items/${id}.md`]: `---\nschema: bridlewise-tracker-item/v1\nid: ${id}\ntype: ${type}\ntitle: The ${id.toLowerCase()} record\nstate: ${state}\n${closed}lane: floor\nopened: 2026-10-20\n---\n\nWhat ${id} tracks.\n` }, `${id} ${state}`);
+  fixture.commit(SOURCE, { [`docs/trackers/items/${id}.md`]: `---\nschema: bridlewise-tracker-item/v1\npublished: false\nid: ${id}\ntype: ${type}\ntitle: The ${id.toLowerCase()} record\nstate: ${state}\n${closed}lane: floor\nopened: 2026-10-20\n---\n\nWhat ${id} tracks.\n` }, `${id} ${state}`);
 }
 
 function refusedWith(code: string, run: () => unknown): void {
@@ -225,7 +225,7 @@ test("every text a record carries reaches the notes through the markup owner: a 
   const first = project(fixture, { "package.json": manifest(fixture, "1.0.0") });
   releaseTag(fixture, "v1.0.0", first);
   const evil = "<script>alert(1)</script> [x](javascript:alert(1)) _b_";
-  fixture.commit(SOURCE, { "docs/trackers/items/EVIL.md": `---\nschema: bridlewise-tracker-item/v1\nid: EVIL\ntype: Task\ntitle: ${evil}\nstate: closed\nresolution: completed\nlane: floor\nopened: 2026-10-20\nclosed: 2026-10-21\n---\n\nA planted title.\n` }, `${evil} **bold** (#7)\n\nSigned-off-by: <img src=x onerror=alert(1)> Name`);
+  fixture.commit(SOURCE, { "docs/trackers/items/EVIL.md": `---\nschema: bridlewise-tracker-item/v1\npublished: false\nid: EVIL\ntype: Task\ntitle: ${evil}\nstate: closed\nresolution: completed\nlane: floor\nopened: 2026-10-20\nclosed: 2026-10-21\n---\n\nA planted title.\n` }, `${evil} **bold** (#7)\n\nSigned-off-by: <img src=x onerror=alert(1)> Name`);
   project(fixture, { "package.json": manifest(fixture, "1.1.0") });
   const notes = renderReleaseNotes(fixture.repository, plan(fixture, { releases: [published("v1.0.0", Date.now() - 48 * HOUR)] }), SETTINGS, "https://forge.example/owner/name");
   for (const raw of ["<script>", "](javascript", "_b_", "**bold**", "<img"]) assert.ok(!notes.includes(raw), `${raw} reached the notes raw:\n${notes}`);

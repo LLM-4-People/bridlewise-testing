@@ -1,0 +1,128 @@
+/**
+ * WHERE `project()` RUNS — a SEPARATE PROCESS under the harness's one
+ * confinement owner, so its purity is a KERNEL property and not a convention
+ * (github-only §9.0, V-26; src/filesystem/self-protection/confined-run.ts):
+ *
+ *   - no file but node's own binary and libraries is readable, none writable;
+ *   - no socket of any family, no io_uring (the network is refused);
+ *   - a CPU-time ceiling, judged by CPU work, and an address-space ceiling;
+ *   - no signal to any process (the guardian's seccomp signal refusal);
+ *   - no environment;
+ *   - the program and its input arrive on stdin; the one answer leaves on stdout.
+ *
+ * {@link linkProgram} turns the declared pure modules into that one program:
+ * each module's TypeScript types stripped, each relative import rewritten to
+ * the linked module's `data:` URL, and any specifier outside the declared set
+ * — a bare name, a `node:` built-in, a relative file not declared — refused
+ * typed (`projection_import_refused`) before anything runs. A module that
+ * still reaches for the host at run time (a dynamic `import("node:fs")`,
+ * `fetch`) meets the kernel: the read, the write or the connect is refused,
+ * and the projection is `projection_impure`. The clock cannot be refused by
+ * any kernel boundary (the vDSO): `projection.ts` runs every projection twice
+ * and refuses two different answers (`projection_nondeterministic`).
+ *
+ * Each refusal is typed: `projection_confinement_refused` (the guardian
+ * cannot confine on this host — never an unconfined run), `projection_impure`,
+ * `projection_import_refused`, `projection_cpu_exhausted`,
+ * `projection_memory_exhausted`, `projection_failed`.
+ */
+import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { HarnessError } from "../../../kernel/errors.ts";
+import { runConfinedNode } from "../../../filesystem/self-protection/confined-run.ts";
+import type { KeepOutFacts } from "../../../filesystem/self-protection/keep-out.ts";
+import { debugLog } from "../../../shared/debug/debug-system.ts";
+
+const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+/** What a confined call runs: `entry` and every module it may import (absolute paths), and the function it calls (text in, text out). */
+export type ConfinedModule = Readonly<{
+  entry: string;
+  modules: readonly string[];
+  exportName: string;
+}>;
+
+/** Where and how bounded a confined call runs: the harness (its guardian), the host's keep-out facts, the CPU and address-space ceilings. */
+export type ProjectorConfinement = Readonly<{
+  harnessRoot: string;
+  keepOut: Omit<KeepOutFacts, "harnessRoot">;
+  cpuSeconds: number;
+  memoryBytes: number;
+}>;
+
+/** The projection's program: `project.ts`'s `projectText`, and the pure modules it is allowed to load. */
+export const PROJECTION_PROGRAM: ConfinedModule = Object.freeze({
+  entry: join(SOURCE_ROOT, "workflow/forge/projector/project.ts"),
+  modules: Object.freeze([
+    "workflow/forge/projector/project.ts",
+    "workflow/forge/projector/model.ts",
+    "workflow/markdown-links.ts",
+    "kernel/product-identity.ts",
+    "kernel/ordered.ts",
+    // The one Markdown parser, at the repository's root (pure, no import).
+    "../../shared/markdown.ts",
+  ].map((path) => join(SOURCE_ROOT, path))),
+  exportName: "projectText",
+});
+
+/** A static or literal dynamic import's specifier: `from "x"`, `import "x"`, `import("x")`. */
+const SPECIFIER = /(\bfrom\s*|\bimport\s*\(?\s*)(["'])([^"'\n]+)\2/gu;
+
+/**
+ * The one program for `module` and `input`: every declared module linked into
+ * a `data:` URL (types stripped, relative imports rewritten), and a loader
+ * that calls `exportName(input)` and writes its text answer to stdout.
+ */
+function linkProgram(module: ConfinedModule, input: string): string {
+  const allowed = new Set(module.modules.map((path) => resolve(path)));
+  const urls = new Map<string, string>();
+  const refuse = (message: string): never => { throw new HarnessError(`projection_import_refused: ${message}`, "projection_import_refused"); };
+  const link = (path: string, chain: readonly string[]): string => {
+    const known = urls.get(path);
+    if (known !== undefined) return known;
+    if (!allowed.has(path)) refuse(`${path} (imported by ${chain.at(-1) ?? "the entry"}) is not a module of the confined program`);
+    if (chain.includes(path)) refuse(`${path} imports itself through ${chain.join(" → ")}`);
+    const code = stripTypeScriptTypes(readFileSync(path, "utf8")).replace(SPECIFIER, (_whole, lead: string, quote: string, specifier: string) => {
+      if (!specifier.startsWith("./") && !specifier.startsWith("../")) refuse(`${specifier} (imported by ${path}) is not a module of the confined program`);
+      return `${lead}${quote}${link(resolve(dirname(path), specifier), [...chain, path])}${quote}`;
+    });
+    const url = `data:text/javascript;base64,${Buffer.from(code, "utf8").toString("base64")}`;
+    urls.set(path, url);
+    return url;
+  };
+  const entry = link(resolve(module.entry), []);
+  const name = module.exportName;
+  if (!/^[A-Za-z_$][\w$]*$/u.test(name)) refuse(`${name} is not an export name`);
+  return [
+    `import { ${name} } from ${JSON.stringify(entry)};`,
+    `let answer;`,
+    `try { answer = ${name}(${JSON.stringify(input)}); }`,
+    `catch (error) { process.stderr.write("projection_failed: " + (error && error.code ? error.code + ": " : "") + String(error && error.message !== undefined ? error.message : error) + "\\n"); process.exit(5); }`,
+    `if (typeof answer !== "string") { process.stderr.write("projection_failed: ${name} answered " + typeof answer + ", not text\\n"); process.exit(5); }`,
+    // Exit only once the whole answer is written: a pipe write may still be pending when write() returns.
+    `process.stdout.write(answer, (error) => process.exit(error ? 5 : 0));`,
+  ].join("\n");
+}
+
+/** `module.exportName(input)` computed in its confined process; its text answer, or a typed refusal. */
+export function confinedCall(module: ConfinedModule, input: string, confinement: ProjectorConfinement): string {
+  const result = runConfinedNode({ harnessRoot: confinement.harnessRoot, keepOut: confinement.keepOut, program: linkProgram(module, input), cpuSeconds: confinement.cpuSeconds, memoryBytes: confinement.memoryBytes });
+  if (result.status === "ok") return result.stdout;
+  const fail = (code: string, message: string): never => {
+    debugLog("forge", "warn", `confined ${module.exportName} refused: ${code}: ${message}`, () => ({ entry: module.entry }));
+    throw new HarnessError(`${code}: ${message}`, code);
+  };
+  if (result.status === "refused") return fail("projection_confinement_refused", `${result.code}: ${result.message}`);
+  if (result.signal === "SIGKILL" || result.signal === "SIGXCPU") return fail("projection_cpu_exhausted", `the program spent its ${String(confinement.cpuSeconds)} CPU seconds and the kernel ended it (${result.signal})`);
+  // An allocation the address-space ceiling refused: node reports it and ends (an abort, or a caught allocation failure).
+  if (result.signal === "SIGABRT" || /out of memory|allocation failed|\bENOMEM\b/iu.test(result.stderr)) return fail("projection_memory_exhausted", `the program reached its ${String(confinement.memoryBytes)}-byte address-space ceiling`);
+  // The line that names the failure: the boundary's EACCES/EPERM, else the error node printed, else its last word.
+  const lines = result.stderr.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+  const reason = lines.find((line) => /\b(?:EACCES|EPERM)\b/u.test(line)) ?? lines.find((line) => /(?:^projection_|Error\b)/u.test(line)) ?? lines.at(-1) ?? "";
+  // The boundary answered EACCES/EPERM: the program reached for a file or the network it is not given.
+  if (/\b(?:EACCES|EPERM)\b/u.test(result.stderr)) return fail("projection_impure", reason);
+  return fail("projection_failed", reason || `the program ended with status ${String(result.exitCode)}`);
+}

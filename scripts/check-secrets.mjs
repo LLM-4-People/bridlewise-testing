@@ -7,7 +7,9 @@
  * paths that must never appear in a public repository.
  *
  * Findings print the file, line, and rule. The matched value is never printed.
- * Test fixtures under the allowlisted trees do not fail the gate; GitHub
+ * No path is exempt, test trees included: a test assembles a credential at
+ * runtime (the catalogue's `signalFixture`, or a split literal), so the tree
+ * holds none and push protection never needs a bypass. GitHub
  * secret scanning remains the independent second gate.
  *
  * ── ONE OWNER FOR "IS THIS A SECRET FILE?" ──
@@ -84,18 +86,6 @@ const CONTENT_MATCHERS = treeScannedSignals().map((signal) => ({
 }));
 
 
-// Test and benchmark fixtures may plant credentials; shipped source and
-// documentation may not, and no value is excused for its spelling: a
-// placeholder-looking key outside these trees is a finding like any other.
-const SAFE_FIXTURE_PATHS = [
-  /^engine\/test\//,
-  /^tests\//,
-  /^bench\//,
-];
-
-function isSafeFixture(path) {
-  return SAFE_FIXTURE_PATHS.some((re) => re.test(path));
-}
 
 function trackedFiles() {
   try {
@@ -140,14 +130,8 @@ function normalizePathText(text) {
 
 const findings = [];
 
-function report(path, line, rule, detail, fixture) {
-  findings.push({ path, line, rule, detail, fixture });
-}
-
-/** The line a literal spelling appears on, or 0 when the text was escaped. */
-function lineOf(text, needle) {
-  const index = text.indexOf(needle);
-  return index === -1 ? 0 : text.slice(0, index).split("\n").length;
+function report(path, line, rule, detail) {
+  findings.push({ path, line, rule, detail });
 }
 
 /** Every string value in a parsed JSON document, keys included. */
@@ -170,32 +154,39 @@ function jsonStrings(value, out = []) {
  * `{"home":"\/home\/leakuser\/work"}` and the `\u002f` spelling name the
  * same path as the plain form, but the raw bytes never look like one.
  */
-function scanJsonDocument(path, text, fixture) {
+function scanJsonDocument(path, text) {
   let parsed;
   try {
     parsed = JSON.parse(text);
   } catch {
     return;
   }
+  // A string spelled with no escape was already covered by the raw line pass;
+  // only an ESCAPED string (whose decoded value no raw line contains) needs
+  // this decoded pass. Reporting both was a duplicate finding for one path.
+  // The literal spellings are read in ONE linear pass over the raw string
+  // tokens: searching the whole text once per value (the old `lineOf`, which
+  // also split the prefix into lines) was quadratic in a large document (#301).
+  const literal = new Set();
+  for (const token of text.matchAll(/"((?:[^"\\\n]|\\.)*)"/gu)) {
+    if (!token[1].includes("\\")) literal.add(token[1]);
+  }
   for (const value of jsonStrings(parsed)) {
-    // A value that appears literally in the file was already covered by the
-    // raw line pass; only an ESCAPED value (which no raw line contains) needs
-    // this decoded pass. Reporting both was a duplicate finding for one path.
-    if (lineOf(text, value) !== 0) continue;
-    scanText(path, 0, value, fixture);
+    if (literal.has(value)) continue;
+    scanText(path, 0, value);
   }
 }
 
 /** Run the path rules and the content rules over one line of text. */
-function scanText(path, lineNumber, line, fixture) {
+function scanText(path, lineNumber, line) {
   const normalizedLine = normalizePathText(line);
   for (const signal of publicationPrivacyFindings(normalizedLine, "text")) {
-    report(path, lineNumber, signal.id, signal.description, fixture);
+    report(path, lineNumber, signal.id, signal.description);
   }
   for (const rule of CONTENT_MATCHERS) {
     rule.pattern.lastIndex = 0;
     for (const _match of line.matchAll(rule.pattern)) {
-      report(path, lineNumber, rule.id, rule.detail, fixture);
+      report(path, lineNumber, rule.id, rule.detail);
     }
   }
 }
@@ -205,27 +196,26 @@ function scanText(path, lineNumber, line, fixture) {
  * published in the same commit as one pasted into its body, so the matchers
  * run over the normalized path too (including every directory component).
  */
-function scanPath(path, fixture) {
+function scanPath(path) {
   const normalized = normalizePathText(path.split("\\").join("/"));
   for (const signal of publicationPrivacyFindings(normalized, "text")) {
-    report(normalized, 0, signal.id, `${signal.description} in a file path`, fixture);
+    report(normalized, 0, signal.id, `${signal.description} in a file path`);
   }
   for (const rule of CONTENT_MATCHERS) {
     rule.pattern.lastIndex = 0;
     for (const _match of normalized.matchAll(rule.pattern)) {
-      report(normalized, 0, rule.id, `${rule.detail} in a file path`, fixture);
+      report(normalized, 0, rule.id, `${rule.detail} in a file path`);
     }
   }
   // A file whose NAME says it holds credentials is a finding even when its
   // content looks ordinary (`isSecretFile` is the engine's single owner).
-  // Never allowlisted: a fixture path does not make a private key publishable.
   if (isSecretFile(normalized)) {
-    report(normalized, 0, "forbidden-file", "secret file", false);
+    report(normalized, 0, "forbidden-file", "secret file");
     return;
   }
   const name = normalized.slice(normalized.lastIndexOf("/") + 1);
   for (const signal of publicationPrivacyFindings(name, "file-name")) {
-    report(normalized, 0, "forbidden-file", signal.description, false);
+    report(normalized, 0, "forbidden-file", signal.description);
   }
 }
 
@@ -235,7 +225,7 @@ function readFailure(path, err) {
 }
 
 /** A symlink's committed blob IS its target string; scan that, never follow it. */
-function scanSymlink(path, fixture) {
+function scanSymlink(path) {
   let target;
   try {
     target = readlinkSync(path);
@@ -243,11 +233,11 @@ function scanSymlink(path, fixture) {
     readFailure(path, err);
     return;
   }
-  scanText(path, 1, target, fixture);
+  scanText(path, 1, target);
 }
 
 /** Scan the first `MAX_SCAN_BYTES` and REFUSE to call the unread tail clean. */
-function scanCappedPrefix(path, fixture) {
+function scanCappedPrefix(path) {
   let text;
   let fd;
   try {
@@ -263,7 +253,7 @@ function scanCappedPrefix(path, fixture) {
   }
   const lastNewline = text.lastIndexOf("\n");
   const complete = lastNewline === -1 ? "" : text.slice(0, lastNewline);
-  complete.split("\n").forEach((line, index) => scanText(path, index + 1, line, fixture));
+  complete.split("\n").forEach((line, index) => scanText(path, index + 1, line));
   report(
     path,
     0,
@@ -273,14 +263,14 @@ function scanCappedPrefix(path, fixture) {
   );
 }
 
-async function scanStreamed(path, fixture) {
+async function scanStreamed(path) {
   const input = createReadStream(path, { encoding: "utf8" });
   const lines = createInterface({ input, crlfDelay: Infinity });
   let lineNumber = 0;
   try {
     for await (const line of lines) {
       lineNumber += 1;
-      scanText(path, lineNumber, line, fixture);
+      scanText(path, lineNumber, line);
     }
   } catch (err) {
     readFailure(path, err);
@@ -290,7 +280,7 @@ async function scanStreamed(path, fixture) {
   }
 }
 
-async function scanRegularFile(path, fixture) {
+async function scanRegularFile(path) {
   let size;
   try {
     size = statSync(path).size;
@@ -299,11 +289,11 @@ async function scanRegularFile(path, fixture) {
     return;
   }
   if (size > MAX_SCAN_BYTES) {
-    scanCappedPrefix(path, fixture);
+    scanCappedPrefix(path);
     return;
   }
   if (size > STREAM_THRESHOLD_BYTES) {
-    await scanStreamed(path, fixture);
+    await scanStreamed(path);
     return;
   }
   let text;
@@ -313,14 +303,13 @@ async function scanRegularFile(path, fixture) {
     readFailure(path, err);
     return;
   }
-  text.split(/\r?\n/u).forEach((line, index) => scanText(path, index + 1, line, fixture));
-  scanJsonDocument(path, text, fixture);
+  text.split(/\r?\n/u).forEach((line, index) => scanText(path, index + 1, line));
+  scanJsonDocument(path, text);
 }
 
 for (const path of trackedFiles()) {
   const normalized = normalizePathText(path.split("\\").join("/"));
-  const fixture = isSafeFixture(normalized);
-  scanPath(normalized, fixture);
+  scanPath(normalized);
 
   let stats;
   try {
@@ -330,9 +319,9 @@ for (const path of trackedFiles()) {
     continue;
   }
   if (stats.isSymbolicLink()) {
-    scanSymlink(path, fixture);
+    scanSymlink(path);
   } else if (stats.isFile()) {
-    await scanRegularFile(path, fixture);
+    await scanRegularFile(path);
   } else {
     report(normalized, 0, "unreadable-file", "not a regular file; it is not certified clean", false);
   }
@@ -343,25 +332,9 @@ if (findings.length === 0) {
   process.exit(0);
 }
 
-let hard = 0;
-let allowlisted = 0;
 for (const f of findings) {
-  if (f.fixture && f.rule !== "forbidden-file") {
-    allowlisted += 1;
-    continue;
-  }
   const location = f.line > 0 ? `${f.path}:${f.line}` : f.path;
   console.error(`${location}: ${f.rule}: ${f.detail}`);
-  // EVERY non-fixture finding is hard. The `fixture` early-continue above is
-  // the only allowlisting decision; a rule may not carve out a second one —
-  // that is how a private-key block outside a fixture certified a tree.
-  hard += 1;
 }
-
-if (hard === 0) {
-  console.log(`secret scan: clean (${allowlisted} synthetic fixture reference(s) allowlisted)`);
-  process.exit(0);
-}
-
-console.error(`\nsecret scan: ${hard} finding(s) outside fixture paths`);
+console.error(`\nsecret scan: ${findings.length} finding(s)`);
 process.exit(1);

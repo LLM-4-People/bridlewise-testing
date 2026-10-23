@@ -179,7 +179,7 @@ describe("the turn footer's masked-input face", () => {
         redactionNotice: {
           ...MASKED,
           ...({
-            value: "sk-SECRET-PLANTED-9f8e7d6c",
+            value: ("sk" + "-SECRET-PLANTED-9f8e7d6c"),
             maskedValue: "hunter2-super-secret",
             preview: "AKIA1234567890EXAMPLE",
           } as Record<string, unknown>),
