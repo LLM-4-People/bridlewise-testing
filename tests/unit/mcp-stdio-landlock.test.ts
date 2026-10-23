@@ -365,5 +365,5 @@ describe("a stdio MCP server under the real guardian", () => {
       expect(["EACCES", "ENOENT"], `${path} from the confined server`).toContain(measured!.server);
       expect(["EACCES", "ENOENT"], `${path} from a confined command`).toContain(measured!.command);
     }
-  }, 120_000);
+  });
 });

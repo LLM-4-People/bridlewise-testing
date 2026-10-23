@@ -31,7 +31,7 @@ export const INTAKE_PATH = `${COMMUNITY_DIRECTORY}/intake.json`;
 export const FEATURES_PATH = `${COMMUNITY_DIRECTORY}/features.json`;
 
 /** GitHub's repository permission levels, weakest first (`GET …/collaborators/{u}/permission` answers one). */
-export const PERMISSION_LEVELS = Object.freeze(["read", "triage", "write", "maintain", "admin"] as const);
+const PERMISSION_LEVELS = Object.freeze(["read", "triage", "write", "maintain", "admin"] as const);
 export type PermissionLevel = (typeof PERMISSION_LEVELS)[number];
 
 /**

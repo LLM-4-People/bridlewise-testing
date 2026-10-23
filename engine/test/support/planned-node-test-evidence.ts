@@ -6,6 +6,7 @@ import {
   lstatSync,
   mkdirSync,
   realpathSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -49,6 +50,7 @@ import {
 } from "./repository-local-temporary.ts";
 import { PLANNED_NODE_TEST_SOURCE_AUTHORITY } from "./planned-node-test-source-authority.ts";
 import { shouldExcludeExperiment } from "../../src/shared/source-scan.ts";
+import { CORPUS_ENGINE_ROOT } from "../../scripts/verification/corpus-root.ts";
 
 export type PlannedNodeTestEvidenceObservation = Readonly<{
   accepted: boolean;
@@ -599,6 +601,15 @@ function materializeSourceSnapshot(
     throw new Error("planned Node test materialization source tree changed");
   }
   copyIsolatedDependencies(sourceRoot, isolatedRoot);
+  // THE CORPUS IS LINKED, NEVER COPIED: it lives outside every checkout
+  // (`npm run corpus:fetch`), and the path policy's git sources are fetched
+  // there for testing, never vendored. The snapshot links the same cache the
+  // source links (ignored, like the source's link); a source with no corpus
+  // links none, and a suite that reads a fetched source fails by name.
+  const corpus = resolve(sourceRoot, CORPUS_ENGINE_ROOT);
+  if (lstatSync(corpus, { throwIfNoEntry: false })?.isSymbolicLink() === true) {
+    symlinkSync(realpathSync(corpus), resolve(isolatedRoot, CORPUS_ENGINE_ROOT), "dir");
+  }
   runGit(isolatedRoot, ["init", "--quiet", "--initial-branch=qualification"]);
   runGit(isolatedRoot, ["config", "user.name", "Code Harness Qualification"]);
   runGit(isolatedRoot, ["config", "user.email", "qualification.invalid@example.invalid"]);

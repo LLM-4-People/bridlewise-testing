@@ -14,6 +14,10 @@ upstream, so every test drives the real outbound door and transport.
 - `repository-identity.test.ts` — the repository identity: every address derived, a rename moving all of them and nothing else, github.com only for Pages, the configured identity equal to the section's.
 - `forge-settings.ts` — the test `forge` section (a fixture, not a test file).
 
+- `proving/` — the proving-ground scenarios on real GitHub (P1.11, P3.8), run by `proving/run.ts`, never by the offline suites (see its README).
+- `proving-ground-api.ts` — the proving ground's rules on any forge client, shared by the scenarios and their offline tests (not a test file): the repository's identity (the one `provingGround` repository, never the trunk), the seed, the read-only configuration check, a deleted branch (404 only), a commit's verification, and the verdict rules of V-6, V-14 and V-15.
+- `proving-ground-api.test.ts` — those rules against the fake GitHub, each red under mutation.
+- `proving-isolation.test.ts` — no test file reaches `proving/`, directly or through a helper (the repository's one reachability walk, with a direct and a transitive witness).
 - `forge-key-home.ts` — the forge tests' key homes (a helper, not a test file): `temporaryKeyHome` creates a new, empty key home under the test process's own temporary root for every test that stores a key; `requireTestKeyHome` refuses to run unless the process is under the runners' private test key home.
 - `flake-shim-token-ends-zero.ts` — a deterministic reproduction shim (registered in `testExecution.flakeReproduction.deterministicShims`): every `randomBytes` answer ends in a byte with a zero low half, recreating the one draw in sixteen that made the token test's near miss equal the real token.
 

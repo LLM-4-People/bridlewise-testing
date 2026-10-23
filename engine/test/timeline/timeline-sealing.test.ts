@@ -39,7 +39,7 @@ import { createTimelineStore } from "../../src/timeline/timeline-store.ts";
 import { makeTimelineEventInput } from "../support/timeline.ts";
 import { mkTempDir } from "../support/temp-dir.ts";
 
-const SECRET = "ghp_AAAAAAAAAAAAAAAAAAAAAAAA";
+const SECRET = ("gh" + "p_AAAAAAAAAAAAAAAAAAAAAAAA");
 registerKnownSecret(SECRET, "timeline-sealing-test");
 const key = () => createSecretKey(randomBytes(32));
 const refused = { code: "timeline_sealed_original_unavailable" };

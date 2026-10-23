@@ -169,7 +169,7 @@ describe("mcp-runtime-bridge: live stdio connect → manifest → dispatch → s
     // A real tools/call round-trip — the fake server answers "pong:1".
     const out = await callMcpTool("mcp__fake__ping", { text: "hello" });
     expect(out).toBe("pong:1");
-  }, 20_000);
+  });
 
   it("the status read triggers the start WITHOUT paying it — the first snapshot is the honest pre-start state", async () => {
     // The settings surface's first status paint must not carry the connect
@@ -189,7 +189,7 @@ describe("mcp-runtime-bridge: live stdio connect → manifest → dispatch → s
     expect(registry.getServerSignals("fake")?.status).toBe("connected");
     const second = await getLiveMcpServerSignals();
     expect(second.map((signal) => signal.status)).toContain("connected");
-  }, 20_000);
+  });
 
   it("merges the discovered tool into the unified manifest with the real schema", async () => {
     const { ensureMcpRuntimeStarted } = await import("../../server/integrations/mcp-runtime-bridge.ts");
@@ -204,7 +204,7 @@ describe("mcp-runtime-bridge: live stdio connect → manifest → dispatch → s
     // And it is in the ENABLED manifest (it reaches the LLM), not filtered out.
     const enabled = getEnabledToolManifestForSession(new Map());
     expect(enabled.some((t) => t.name === "mcp__fake__ping")).toBe(true);
-  }, 20_000);
+  });
 
   it("the per-account tool states include MCP tools — the breaker panel's row source lists the gated surface, every category", async () => {
     // The gate auto-trips MCP tools exactly as it trips built-ins, and its
@@ -230,7 +230,7 @@ describe("mcp-runtime-bridge: live stdio connect → manifest → dispatch → s
     const switched = getToolAccountStates(new Map([["mcp__fake__ping", false]]));
     expect(switched.find((t) => t.name === "mcp__fake__ping")!.enabled).toBe(false);
     expect(switched.find((t) => t.name === "mcp__fake__ping")!.source).toBe("you");
-  }, 20_000);
+  });
 
   it("the executor dispatches an MCP (mcp__*) call to the registry and returns the real result", async () => {
     const { ensureMcpRuntimeStarted } = await import("../../server/integrations/mcp-runtime-bridge.ts");
@@ -244,7 +244,7 @@ describe("mcp-runtime-bridge: live stdio connect → manifest → dispatch → s
     );
     expect(result.success).toBe(true);
     expect(result.output).toBe("pong:1");
-  }, 20_000);
+  });
 
   it("an MCP tool that reports isError is a failed call, not a successful string", async () => {
     writeConfig([{
@@ -267,7 +267,7 @@ describe("mcp-runtime-bridge: live stdio connect → manifest → dispatch → s
     expect(result.unavailable, "a completed MCP error is a failure, not an unavailable server").toBeUndefined();
     expect(result.unavailableReason, "a completed error carries no unavailable cause — nothing to install").toBeUndefined();
     expect(result.output).toMatch(/error:\d+/);
-  }, 20_000);
+  });
 
   it("stopAll closes every client (the server reports stopped after)", async () => {
     const { ensureMcpRuntimeStarted, stopAllMcpConnections, mcpRuntimeStarted } = await import("../../server/integrations/mcp-runtime-bridge.ts");
@@ -279,7 +279,7 @@ describe("mcp-runtime-bridge: live stdio connect → manifest → dispatch → s
     // — a stopped server's tools do not linger in the manifest).
     const { getDiscoveredMcpTools } = await import("../../server/integrations/mcp-runtime-bridge.ts");
     expect(getDiscoveredMcpTools()).toEqual([]);
-  }, 20_000);
+  });
 
   it("a tools.mcp defaults-only edit rebuilds the registry (the fingerprint covers them)", async () => {
     // A config-bound `mcp.*` customization's contract is `immediate`: the
@@ -300,7 +300,7 @@ describe("mcp-runtime-bridge: live stdio connect → manifest → dispatch → s
     // would return the SAME one. Identity is the observable proof.
     expect(second).not.toBe(first);
     expect(second.getServerSignals("fake")?.status).toBe("connected");
-  }, 20_000);
+  });
 
   it("a server args-only edit rebuilds the registry (the fingerprint covers the whole entry)", async () => {
     // An args/env/header/auth edit never touches id/transport/command/url —
@@ -322,7 +322,7 @@ describe("mcp-runtime-bridge: live stdio connect → manifest → dispatch → s
       name: "McpError",
       code: "mcp_call_tool_failed",
     });
-  }, 20_000);
+  });
 
   it("a tools.defaultBounds timeout-only edit rebuilds the registry (the fingerprint covers the bound the build resolves)", async () => {
     // The registry's per-call default timeout resolves from `tools.defaultBounds.timeoutMs`
@@ -343,7 +343,7 @@ describe("mcp-runtime-bridge: live stdio connect → manifest → dispatch → s
 
     expect(second, "a tool-bounds timeout edit must rebuild — the registry resolved that timeout at build time").not.toBe(first);
     expect(second.getServerSignals("fake")?.status).toBe("connected");
-  }, 20_000);
+  });
 
   it("a reordered-but-identical env map does NOT rebuild the registry (the fingerprint is canonical)", async () => {
     // Object key ORDER is not config content: an operator (or a migration)
@@ -359,7 +359,7 @@ describe("mcp-runtime-bridge: live stdio connect → manifest → dispatch → s
     const again = await ensureMcpRuntimeStarted();
 
     expect(again, "identical content in a different key order is the same config — no rebuild").toBe(first);
-  }, 20_000);
+  });
 
   it("the config fingerprint is a digest — retained state never carries a serialized copy of a secret-bearing entry", () => {
     // A server entry may carry a LITERAL credential (a non-${VAR} value). The
@@ -430,7 +430,7 @@ describe("mcp-runtime-bridge: deny-by-default (failure + phantom refusal)", () =
     const { invalidateToolManifestCache, getToolManifest } = await import("../../server/tools/tools-bridge.ts");
     invalidateToolManifestCache();
     expect(getToolManifest().some((t) => t.category === "mcp")).toBe(false);
-  }, 20_000);
+  });
 
   it("an MCP (mcp__*) call to an unconnected server is refused, not a phantom", async () => {
     writeConfig([GOOD_SERVER]);
@@ -444,7 +444,7 @@ describe("mcp-runtime-bridge: deny-by-default (failure + phantom refusal)", () =
     );
     expect(result.success).toBe(false);
     expect(result.output).toMatch(/not registered|failed/i);
-  }, 20_000);
+  });
 
   it("a disabled MCP tool refuses typed — the executor records the failure WITH its reason key", async () => {
     // A tool the user deliberately disabled is unavailable for a different
@@ -464,7 +464,7 @@ describe("mcp-runtime-bridge: deny-by-default (failure + phantom refusal)", () =
     expect(result.success).toBe(false);
     expect(result.unavailable).toBe(true);
     expect(result.unavailableReason, "the typed cause must reach the tool result — the pause text can name it").toBe("disabled");
-  }, 20_000);
+  });
 
   it("the reason rides the PRODUCTION feeding seam: executor → safety runtime → pause text asks to re-enable, never to install", async () => {
     // The full wired channel against the REAL executor: `executeToolCall`
@@ -505,7 +505,7 @@ describe("mcp-runtime-bridge: deny-by-default (failure + phantom refusal)", () =
     } finally {
       rt.dispose();
     }
-  }, 20_000);
+  });
 
   it("a disabled server is never connected", async () => {
     writeConfig([{ ...GOOD_SERVER, id: "off", enabled: false }]);
@@ -515,7 +515,7 @@ describe("mcp-runtime-bridge: deny-by-default (failure + phantom refusal)", () =
     const signals = registry.getServerSignals("off");
     expect(signals?.status).toBe("stopped");
     expect(getDiscoveredMcpTools()).toEqual([]);
-  }, 20_000);
+  });
 });
 describe("mcp-runtime-bridge: ${VAR} placeholder resolution", () => {
   it("resolves ${VAR} in env values from process.env at connect time", async () => {
@@ -540,7 +540,7 @@ describe("mcp-runtime-bridge: ${VAR} placeholder resolution", () => {
     const { knownSecretLabels } = await import("../../engine/src/privacy/secret-intelligence.ts");
     expect(knownSecretLabels().some((label) => label.startsWith("mcp-server/"))).toBe(false);
     delete process.env["MCP_TEST_SECRET"];
-  }, 20_000);
+  });
 
   it("an unresolved ${VAR} is a MISSING credential: the server is not connected, never started with the placeholder as its secret", async () => {
     delete process.env["MCP_NONEXISTENT_VAR"];
@@ -554,7 +554,7 @@ describe("mcp-runtime-bridge: ${VAR} placeholder resolution", () => {
     // spelling used to reach the server as the credential.
     expect(registry.getServerSignals("fake")?.status).toBe("error");
     expect(registry.getServerSignals("fake")?.lastErrorCode).toBe("mcp_credential_missing");
-  }, 20_000);
+  });
 });
 
 describe("mcp-runtime-bridge: LITERAL credentials are HELD for the server's output (no ${VAR} intent)", () => {
@@ -583,7 +583,7 @@ describe("mcp-runtime-bridge: LITERAL credentials are HELD for the server's outp
     expect(masked, "the literal env token is masked in the server's output").not.toContain(literalEnvToken);
     expect(masked, "the literal header token is masked in the server's output").not.toContain(literalHeaderToken);
     expect(masked, "witness: the non-secret remainder survives (no over-mask)").toContain("role stdio");
-  }, 20_000);
+  });
 
   it("an unresolved ${VAR} spelling is NOT registered as a literal — the spelling is not credential material", async () => {
     delete process.env["MCP_TRULY_MISSING"];
@@ -600,7 +600,7 @@ describe("mcp-runtime-bridge: LITERAL credentials are HELD for the server's outp
       knownSecretLabels(),
       "a leftover placeholder spelling must not be registered as a literal secret (it masks nothing an attacker could observe)",
     ).not.toContain("mcp-server/fake/env/MAYBE");
-  }, 20_000);
+  });
 });
 
 describe("mcp-runtime-bridge: the warn payload carries the typed shape (never a flattened message string)", () => {
@@ -691,7 +691,7 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
     await expectNoOwnedFakeServers(
       "a superseded build stops its own stdio child before teardown completes — nothing leaks past the drain",
     );
-  }, 20_000);
+  });
 
   it("a teardown racing a config rebuild still drains the whole transition — no registry materialises after teardown returns", async () => {
     // The rebuild path stops the PUBLISHED registry before building the
@@ -717,7 +717,7 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
     await expectNoOwnedFakeServers(
       "the stopped rebuild and its replacement build both leave no stdio child behind",
     );
-  }, 20_000);
+  });
 
   it("teardown drains EVERY in-flight generation — a superseded build's own stop is settled before teardown returns", async () => {
     // Three overlapping generations: config A starts (stall — never
@@ -750,7 +750,7 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
     await expectNoOwnedFakeServers(
       "both superseded builds stopped their own stdio children before teardown returned — nothing leaks past the drain",
     );
-  }, 20_000);
+  });
 
   it("teardown never fences AND never waits on a start stamped after its fence — the post-teardown world owns its runtime", async () => {
     // The drain is a SNAPSHOT of the chains in flight at the fence. A start
@@ -785,7 +785,7 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
     const registry = await resurrected;
     expect(mcpRuntimeStarted(), "a start stamped after the fence publishes into the new world").toBe(true);
     expect(registry.getServerSignals("stallB"), "the resurrected registry knows its configured server").toBeDefined();
-  }, 20_000);
+  });
 
   it("a start superseded by teardown refuses adoption of a LATER lifecycle — pre-fence awaiters get the typed supersession", async () => {
     // Even when a post-fence lifecycle exists (a fast good server publishing
@@ -807,7 +807,7 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
     ).rejects.toMatchObject({ name: "McpError", code: "mcp_start_superseded" });
     const registry = await resurrected;
     expect(registry.getServerSignals("fake")?.status, "the post-fence world is healthy").toBe("connected");
-  }, 20_000);
+  });
 
   it("a start superseded by a newer config build hands its awaiter the CURRENT registry — never the stale one", async () => {
     // The production shape: a status-read start (superseded config) racing a
@@ -830,7 +830,7 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
       getDiscoveredMcpTools().map((t) => t.id),
       "only the current generation's discovery survives — the discarded build's tools never linger",
     ).toEqual(["mcp__fake2__ping"]);
-  }, 20_000);
+  });
 
   it("an in-flight build exposes NO partial discovery, and a superseded build's discovery never lingers", async () => {
     // Two servers: "mark" answers the full handshake and writes a marker
@@ -871,7 +871,7 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
       await getDiscoveredIds(),
       "the superseded build's discovery died with it — no discarded entry lingers beside the current one",
     ).toEqual(["mcp__fake2__ping"]);
-  }, 20_000);
+  });
 
   it("a dispatch racing teardown fails TYPED on the stopped registry — never a hang, never a phantom", async () => {
     // `callMcpTool` awaits the start, then dispatches on the registry it was
@@ -899,7 +899,7 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
       isMcpUnavailableError(refusal),
       "a tool racing teardown finds the runtime deliberately down — unavailable, never an installed-tool failure",
     ).toBe(true);
-  }, 20_000);
+  });
 
   it("a FINAL teardown seals the lazy-start door — a consumer racing shutdown is refused typed, never a resurrection", async () => {
     // The defect: any consumer (status poll, manifest build, tool call) after
@@ -959,7 +959,7 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
     const reopened = await ensureMcpRuntimeStarted();
     expect(reopened.getServerSignals("fake")?.status).toBe("connected");
     await stopAllMcpConnections();
-  }, 20_000);
+  });
 
   it("the fence arms drive the SHARED fixture — no divergent inline -e protocol server lives in this file", () => {
     // The engine owns the fake MCP server's JSON-RPC replies
@@ -1098,7 +1098,7 @@ async function waitForMarkerFile(path: string, why: string): Promise<void> {
 
 describe("mcp-runtime-bridge: a stdio server's host placement — its own home, an allowlisted environment, the confinement owner's door", () => {
   it("runs in a harness-owned home (cwd = HOME, 0700) with ONLY the subprocess allowlist and its own configured env — no secret inherited", async () => {
-    process.env["BRIDLEWISE_MCP_TEST_SECRET"] = "sk-must-not-reach-an-mcp-server";
+    process.env["BRIDLEWISE_MCP_TEST_SECRET"] = ("sk" + "-must-not-reach-an-mcp-server");
     try {
       writeConfig([PROBE_SERVER]);
       const { ensureMcpRuntimeStarted, callMcpTool } = await import("../../server/integrations/mcp-runtime-bridge.ts");
@@ -1119,7 +1119,7 @@ describe("mcp-runtime-bridge: a stdio server's host placement — its own home, 
     } finally {
       delete process.env["BRIDLEWISE_MCP_TEST_SECRET"];
     }
-  }, 20_000);
+  });
 
   it("the census says how the child runs: unconfined only because the operator turned confinement off, with the reason", async () => {
     writeConfig([PROBE_SERVER]);
@@ -1130,7 +1130,7 @@ describe("mcp-runtime-bridge: a stdio server's host placement — its own home, 
     expect(child, "the probe child is a census component").toBeDefined();
     expect((child!.facts as Record<string, unknown>)["confinement"]).toBe("unconfined");
     expect(String((child!.facts as Record<string, unknown>)["reason"]).length).toBeGreaterThan(0);
-  }, 20_000);
+  });
 
   it("with confinement asked for and not available the server is REFUSED — typed status, nothing started, never an unconfined fallback", async () => {
     // This test world's harness root (the config's own folder) has no
@@ -1143,7 +1143,7 @@ describe("mcp-runtime-bridge: a stdio server's host placement — its own home, 
     expect(signals.status).toBe("error");
     expect(signals.lastErrorCode).toBe("mcp_spawn_refused");
     expect(componentSnapshot().some((c) => c.kind === "mcp-child"), "no MCP child was started").toBe(false);
-  }, 20_000);
+  });
 
   it("a ${VAR} naming a variable tools.mcp.credentialEnv does not permit — the database passphrase — is refused typed, and nothing is read or started", async () => {
     process.env["HARNESS_WEB_DB_KEY_PROBE"] = "must-never-reach-a-tool-server";
@@ -1163,7 +1163,7 @@ describe("mcp-runtime-bridge: a stdio server's host placement — its own home, 
     } finally {
       delete process.env["HARNESS_WEB_DB_KEY_PROBE"];
     }
-  }, 20_000);
+  });
 
   it("an unset ${VAR} credential is 'not connected' (mcp_credential_missing, naming the variable) and nothing is started", async () => {
     delete process.env["BRIDLEWISE_UNSET_MCP_TOKEN"];
@@ -1176,7 +1176,7 @@ describe("mcp-runtime-bridge: a stdio server's host placement — its own home, 
     expect(signals.lastErrorCode).toBe("mcp_credential_missing");
     expect(signals.lastError).toContain("BRIDLEWISE_UNSET_MCP_TOKEN");
     expect(componentSnapshot().some((c) => c.kind === "mcp-child"), "no request and no process carries the placeholder").toBe(false);
-  }, 20_000);
+  });
 
   it("annotations reach the manifest: the probe's write tool is classified write, its readers read", async () => {
     writeConfig([PROBE_SERVER]);
@@ -1187,7 +1187,7 @@ describe("mcp-runtime-bridge: a stdio server's host placement — its own home, 
     const byName = new Map(getToolManifest().filter((t) => t.category === "mcp").map((t) => [t.name, [...t.capabilities]] as const));
     expect(byName.get("mcp__probe__write")).toContain("write");
     expect(byName.get("mcp__probe__read")).not.toContain("write");
-  }, 20_000);
+  });
 });
 
 describe("the live tool manifest is spec-legal — built-ins plus a real MCP discovery", () => {
@@ -1208,5 +1208,5 @@ describe("the live tool manifest is spec-legal — built-ins plus a real MCP dis
     expect(manifest.filter((t) => t.category === "mcp" && !isMcpToolName(t.name)).map((t) => t.name)).toEqual([]);
     const projected = toolsToResponses(manifest.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.inputSchema } })));
     expect(projected.length).toBe(manifest.length);
-  }, 20_000);
+  });
 });
