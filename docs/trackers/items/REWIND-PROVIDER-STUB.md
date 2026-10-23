@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: REWIND-PROVIDER-STUB
 type: Task
 title: Update the rewind provider stub

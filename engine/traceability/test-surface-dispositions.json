@@ -4117,6 +4117,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/site-prose.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/test-execution-config.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4150,6 +4158,14 @@
     },
     {
       "path": "test/workflow/tracker-items.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/workflow/tracker-status.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -4317,5 +4333,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "c86e2276b229dfe68ea950d1a55548fa96226ec5419e1d6216109a97810f7cb2"
+  "integrityHash": "36044fd4a685bb6dcb67bed602072f0309df03f068c6dd016a7d79f839fb705b"
 }

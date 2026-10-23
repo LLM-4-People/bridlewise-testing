@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: PUBLIC-SNAPSHOT-FILE-MODES
 type: Task
 state: closed

@@ -1,11 +1,13 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-SHARD-RECEIPT
 type: Task
 title: Publish the full supported-set shard receipt
 state: closed
 resolution: completed
 lane: floor
+evidence: https://github.com/LLM-4-People/bridlewise-testing/actions/runs/39439338300
 opened: 2026-10-20
 closed: 2026-10-20
 ---
