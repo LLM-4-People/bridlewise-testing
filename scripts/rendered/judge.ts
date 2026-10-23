@@ -7,7 +7,7 @@
  *     browser context; `--judge-only` is that walk without images (CI);
  *   - the site: `node scripts/rendered/judge.ts site --site <built site>
  *     --baseurl <base path>` serves a built site on loopback and judges every
- *     HTML page it holds, in both colour schemes.
+ *     HTML page it holds, in both of the site's themes.
  *
  * It prints one finding per line and exits 1 when any rule is broken. Typed
  * refusals (`rendered_*`) for a run that cannot judge at all.
@@ -20,6 +20,7 @@ import { parseArgs } from "node:util";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
+import { SITE_THEME_STORAGE } from "../../shared/site-page.ts";
 import { RENDERED_RULES, type PageRule, type RequestRule, type Surface } from "./rules.ts";
 
 class RenderedRefusal extends Error {
@@ -114,7 +115,7 @@ function sitePages(siteRoot: string, baseurl: string): readonly string[] {
   return pages;
 }
 
-/** Judges every page of a built site in both colour schemes; returns the findings, each with its page. */
+/** Judges every page of a built site in both of its themes; returns the findings, each with its page. */
 async function judgeSite(siteRoot: string, baseurl: string, executable: string | null): Promise<readonly string[]> {
   if (!existsSync(siteRoot)) throw new RenderedRefusal("rendered_site_missing", `${siteRoot} is not a built site`);
   const pages = sitePages(siteRoot, baseurl);
@@ -123,8 +124,17 @@ async function judgeSite(siteRoot: string, baseurl: string, executable: string |
   const browser = await launchBrowser(executable);
   const findings = new Set<string>();
   try {
-    for (const scheme of ["light", "dark"] as const) {
-      const context = await browser.newContext({ colorScheme: scheme, serviceWorkers: "block", viewport: { width: 1280, height: 900 } });
+    // The site's two themes: Logbook leads (nothing stored), Carbon is the
+    // reader's stored choice (shared/site-page.ts SITE_THEME_STORAGE); the
+    // site does not follow the system scheme.
+    for (const scheme of ["logbook", "carbon"] as const) {
+      const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 900 } });
+      await context.addInitScript(({ key, value, stored }) => {
+        try {
+          if (stored) localStorage.setItem(key, value);
+          else localStorage.removeItem(key);
+        } catch { /* a page without storage shows the lead theme */ }
+      }, { key: SITE_THEME_STORAGE.key, value: SITE_THEME_STORAGE.carbon, stored: scheme === "carbon" });
       let current = "";
       await instrumentContext(context, "site", origin, (finding) => findings.add(`${current} (${scheme}): ${finding}`));
       const page = await context.newPage();

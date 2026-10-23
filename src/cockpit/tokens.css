@@ -783,6 +783,12 @@
   --f-hero-track: -0.04em;
   --f-hero-lh: 1;
   --f-lede-size: clamp(1.125rem, 1rem + 0.5vw, 1.3125rem);
+  /* The page's few mixed inks, declared here once so a page computes only
+     token values (the rendered judge holds every colour to this file). */
+  --page-link-underline: color-mix(in srgb, var(--accent) 45%, transparent);
+  --page-limit-edge: color-mix(in srgb, var(--warn) 55%, var(--line-1));
+  --page-button-hover: color-mix(in srgb, var(--ink-1) 88%, var(--ground-0));
+  --page-scrim: color-mix(in srgb, var(--ink-1) 28%, transparent);
 }
 
 /* ── Light — "logbook": warm paper, a real theme, every token re-derived. */

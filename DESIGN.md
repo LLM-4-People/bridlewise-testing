@@ -113,16 +113,32 @@ slip with dotted leaders and a mono stamp. A refusal pairs the model's call
 (the turn hue on its top edge) with the harness's answer (warn on its top edge,
 never the fill). A claim's state is a word in its state ink. Kickers are
 sentence case, never tracked capitals. Text is ink-1 or ink-2 only (ink-3 and
-ink-4 fail AA on paper). The site build parses every stylesheet it hands
-Jekyll and refuses one that is not this system (`scripts/floor/site-style.mjs`):
-every colour, duration and face is a token `var()` with no fallback, the
-themes and tokens are declared only in the owner, nothing is imported or
-fetched from elsewhere, and the sheets are plain CSS. No layout, include or
-HTML page carries a style of its own (`<style>`, `style=`) or loads a sheet,
-font or script from another origin. The boundary under both is the browser's:
-every page carries one Content-Security-Policy first
-(`scripts/floor/site-design.mjs` `sitePolicy`). Only the site's own scripts,
-sheets, fonts and images load. There is no inline script or `<style>`, and
-the only style attributes are the Markdown table alignments, allowed by hash.
-`tests/public/site-design-system.test.mjs` proves each refusal and holds the
-text to 4.5:1 in both themes.
+ink-4 fail AA on paper). A page computes only token values: the few mixed
+inks a page needs (a link's underline, a limit's edge, a button's hover, the
+search scrim) are tokens in the owner's public-page block, never a mix in a
+site sheet.
+
+Three judges hold the site to this system, fastest first:
+- the build parses every stylesheet and every layout, include and HTML page
+  it hands Jekyll, and refuses what is not this system
+  (`scripts/floor/site-style.mjs`): a colour, duration or face that is not a
+  token `var()` (with no fallback), a theme or token declared outside the
+  owner, a mix, anything imported or fetched from elsewhere, a Sass source,
+  and a style or script written into markup;
+- the browser enforces the boundary: every page wears a layout (`default`,
+  or `standalone` for a page with its own body), and every layout carries
+  one Content-Security-Policy first (`shared/site-page.ts` `sitePolicy`).
+  Only the site's own scripts, sheets, fonts and images load, and there is
+  no inline script or `<style>`. The only style attributes are the Markdown
+  table alignments, allowed by hash;
+- the rendered judge (`scripts/rendered/`) loads every built page in both
+  themes and requires, in what the browser computed:
+  - the policy, first and exactly once, with no violation of it;
+  - no request leaving the origin;
+  - the mark drawn from its geometry;
+  - text only in the face stacks;
+  - every colour and duration a token's value.
+
+`tests/public/site-design-system.test.mjs` proves each static refusal and
+holds the text to 4.5:1 in both themes, and `scripts/rendered/proof.ts`
+proves each rendered row on planted breaks.

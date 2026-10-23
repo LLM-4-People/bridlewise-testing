@@ -17,6 +17,10 @@
  * judge.ts `site`). A row that does not hold on a surface YET says why in
  * `pending`, and is not run there until the owner of that surface flips it.
  */
+import { readFileSync } from "node:fs";
+
+import { PALETTE_BURN_DOWN, sitePolicy } from "../../shared/site-page.ts";
+import { readTokenOwner } from "../../shared/token-reader.ts";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
 
 export type Surface = "cockpit" | "site";
@@ -156,18 +160,115 @@ function judgeFonts(args: { input: { faceTokens: readonly string[] }; surface: S
 /**
  * THE CONTENT SECURITY POLICY every page carries as its meta tag, exactly:
  * the browser itself then refuses any font, stylesheet, script or image from
- * elsewhere, and any inline script or style. The page's owner writes it into
- * the page; this is the one statement of what it must say.
+ * elsewhere, and any inline script or style. Its one statement is
+ * `shared/site-page.ts` `sitePolicy()`, which the site's builder writes into
+ * every page; the cockpit adopts it when it sends one (#319).
  */
-export const CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'none'";
+export const CONTENT_SECURITY_POLICY = sitePolicy();
 
-/** The page carries exactly one CSP meta tag, and it says exactly the policy. */
+/** The page carries exactly one CSP meta tag, first in its head after the charset, saying exactly the policy. */
 function judgeCspMeta(args: { input: { policy: string }; surface: Surface }): string[] {
   const metas = [...document.querySelectorAll("meta")].filter((m) => (m.getAttribute("http-equiv") ?? "").toLowerCase() === "content-security-policy");
   if (metas.length !== 1) return [`the page carries ${metas.length} Content-Security-Policy meta tags, not one`];
+  const findings: string[] = [];
+  const head = [...document.head.children];
+  if (!(head[0]?.tagName === "META" && head[0].hasAttribute("charset") && head[1] === metas[0])) {
+    findings.push("the Content-Security-Policy meta tag is not the head's first element after <meta charset>: what loads before it is not under it");
+  }
   const normal = (policy: string): string => policy.split(";").map((d) => d.trim().replace(/\s+/gu, " ")).filter((d) => d.length > 0).join("; ");
   const content = normal(metas[0]!.getAttribute("content") ?? "");
-  return content === normal(args.input.policy) ? [] : [`the Content-Security-Policy is "${content}", not "${normal(args.input.policy)}"`];
+  if (content !== normal(args.input.policy)) findings.push(`the Content-Security-Policy is "${content}", not "${normal(args.input.policy)}"`);
+  return findings;
+}
+
+/** Every token name the owner declares: what a page's colours and durations may compute to. */
+function ownerTokens(): readonly string[] {
+  const owner = readTokenOwner(readFileSync(new URL("../../src/cockpit/tokens.css", import.meta.url), "utf8"));
+  return [...new Set([...owner.base.keys(), ...owner.logbook.keys()])].sort();
+}
+
+/** The colour and duration values the page's own tokens compute to, probed in the page through the CSSOM (the policy allows a script's own style writes). */
+type TokenInput = Readonly<{ tokens: readonly string[]; ownPalette: readonly string[] }>;
+
+/**
+ * Every colour the page shows computes to a token's value: text, grounds,
+ * drawn borders and outlines, decorations, and SVG paint. A page whose sheet
+ * still carries its own palette (the burn-down list) is not judged here.
+ */
+function judgeTokenColours(args: { input: TokenInput; surface: Surface }): string[] {
+  const { tokens, ownPalette } = args.input;
+  if ([...document.styleSheets].some((sheet) => ownPalette.some((name) => (sheet.href ?? "").endsWith(`/${name}`)))) return [];
+  const host = document.createElement("div");
+  host.style.setProperty("color", "rgb(1, 2, 3)");
+  document.body.append(host);
+  const allowed = new Set<string>(["rgba(0, 0, 0, 0)"]);
+  for (const token of tokens) {
+    const probe = document.createElement("span");
+    host.append(probe);
+    probe.style.setProperty("color", `var(${token})`);
+    const value = getComputedStyle(probe).color;
+    if (value !== "rgb(1, 2, 3)") allowed.add(value);
+    probe.remove();
+  }
+  host.remove();
+  const describe = (element: Element): string => {
+    const cls = typeof element.className === "string" && element.className.trim() ? `.${element.className.trim().split(/\s+/u).slice(0, 2).join(".")}` : "";
+    return `${element.tagName.toLowerCase()}${cls}`;
+  };
+  const shapes = new Set(["rect", "circle", "ellipse", "line", "path", "polygon", "polyline", "text", "tspan"]);
+  const off = new Map<string, string[]>();
+  const note = (what: string, value: string, element: Element): void => {
+    if (allowed.has(value)) return;
+    const key = `${what} ${value}`;
+    const seen = off.get(key) ?? [];
+    if (seen.length < 3) seen.push(describe(element));
+    off.set(key, seen);
+  };
+  for (const element of [document.body, ...document.body.querySelectorAll("*")]) {
+    if (element.getClientRects().length === 0) continue;
+    const s = getComputedStyle(element);
+    const text = [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim().length > 0);
+    if (text) note("color", s.color, element);
+    note("background-color", s.backgroundColor, element);
+    for (const side of ["top", "right", "bottom", "left"]) {
+      if (s.getPropertyValue(`border-${side}-style`) !== "none" && s.getPropertyValue(`border-${side}-width`) !== "0px") note(`border-${side}-color`, s.getPropertyValue(`border-${side}-color`), element);
+    }
+    if (s.outlineStyle !== "none" && s.outlineWidth !== "0px") note("outline-color", s.outlineColor, element);
+    if (text && s.textDecorationLine !== "none") note("text-decoration-color", s.textDecorationColor, element);
+    if (element instanceof SVGElement && shapes.has(element.tagName.toLowerCase())) {
+      if (s.fill !== "none" && !s.fill.startsWith("url(")) note("fill", s.fill, element);
+      if (s.stroke !== "none" && !s.stroke.startsWith("url(")) note("stroke", s.stroke, element);
+    }
+  }
+  return [...off].map(([key, where]) => `${key} is no token's value (${where.join(", ")})`);
+}
+
+/** Every transition and animation the page runs lasts a token's duration (or none). */
+function judgeTokenDurations(args: { input: TokenInput; surface: Surface }): string[] {
+  const { tokens, ownPalette } = args.input;
+  if ([...document.styleSheets].some((sheet) => ownPalette.some((name) => (sheet.href ?? "").endsWith(`/${name}`)))) return [];
+  const probe = document.createElement("span");
+  document.body.append(probe);
+  const allowed = new Set<string>(["0s"]);
+  for (const token of tokens) {
+    probe.style.setProperty("transition-duration", `var(${token})`);
+    allowed.add(getComputedStyle(probe).transitionDuration);
+  }
+  probe.remove();
+  const off = new Map<string, string[]>();
+  for (const element of [document.body, ...document.body.querySelectorAll("*")]) {
+    const s = getComputedStyle(element);
+    for (const [property, values] of [["transition-duration", s.transitionDuration], ["animation-duration", s.animationDuration]] as const) {
+      for (const value of values.split(",").map((part) => part.trim())) {
+        if (allowed.has(value)) continue;
+        const key = `${property} ${value}`;
+        const seen = off.get(key) ?? [];
+        if (seen.length < 3) seen.push(element.tagName.toLowerCase());
+        off.set(key, seen);
+      }
+    }
+  }
+  return [...off].map(([key, where]) => `${key} is no token's duration (${where.join(", ")})`);
 }
 
 /** No Content-Security-Policy violation happened on the page (recorded from the first byte by judge.ts's context instrument). */
@@ -196,8 +297,7 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
     kind: "page",
     id: "brand-mark",
     holds: "Every rendered brand mark draws exactly the declared parts, each in its token's value, opaque, unfiltered, visible, unclipped and unmasked, and has a size.",
-    surfaces: ["cockpit"],
-    pending: { site: "the site's layout draws a mark of its own (another geometry, painted with currentColor) until DESIGN generates it from brand-mark.ts (#201); DESIGN adds \"site\" here when it does" },
+    surfaces: ["cockpit", "site"],
     input: () => ({ parts: markParts(), selector: MARK_SELECTOR }),
     judge: judgeMark as PageRule["judge"],
   },
@@ -205,22 +305,38 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
     kind: "page",
     id: "font-families",
     holds: "Every element that renders text computes exactly a --face-* token stack, and the document loads only token families.",
-    surfaces: ["cockpit"],
-    pending: { site: "the site declares its own --sans/--mono stacks until it wears the token owner (DESIGN, #201); DESIGN adds \"site\" here when it does" },
+    surfaces: ["cockpit", "site"],
     input: () => ({ faceTokens: FACE_TOKENS }),
     judge: judgeFonts as PageRule["judge"],
   },
   {
     kind: "page",
     id: "csp-meta",
-    holds: `Every page carries exactly one Content-Security-Policy meta tag, saying exactly "${CONTENT_SECURITY_POLICY}".`,
-    surfaces: [],
+    holds: "Every page carries exactly one Content-Security-Policy meta tag, first in its head after the charset, saying exactly sitePolicy() (shared/site-page.ts).",
+    surfaces: ["site"],
     pending: {
-      site: "DESIGN adds the meta tag to the site's one layout (#201); DESIGN adds \"site\" here when it does",
       cockpit: "the cockpit sends no Content-Security-Policy yet (#319); its owner adds \"cockpit\" here when it does",
     },
     input: () => ({ policy: CONTENT_SECURITY_POLICY }),
     judge: judgeCspMeta as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "token-colours",
+    holds: "Every colour the page shows (text, grounds, drawn borders and outlines, decorations, SVG paint) computes to a token's value; a page on the palette burn-down list is exempt until #161.",
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit's components are not yet judged by computed colour; its owner adds \"cockpit\" here when they are" },
+    input: () => ({ tokens: ownerTokens(), ownPalette: [...PALETTE_BURN_DOWN.keys()] }),
+    judge: judgeTokenColours as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "token-durations",
+    holds: "Every transition and animation the page runs lasts 0s or a token's duration; a page on the palette burn-down list is exempt until #161.",
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit's motion is not yet judged by computed duration; its owner adds \"cockpit\" here when it is" },
+    input: () => ({ tokens: ownerTokens(), ownPalette: [...PALETTE_BURN_DOWN.keys()] }),
+    judge: judgeTokenDurations as PageRule["judge"],
   },
   {
     kind: "page",

@@ -260,7 +260,10 @@ describe("D. the source step", () => {
     // shell reads (and what that reads), Logbook leads, the faces are served.
     const sheet = readFileSync(join(out, "assets/css/tokens.css"), "utf8");
     expect(sheet).toMatch(/^\/\* GENERATED from src\/cockpit\/tokens\.css/u);
-    expect(sheet).toMatch(/:root \{\n {2}color-scheme: light;\n {2}--ground-0: #f6f4ef;/u);
+    expect(sheet).toMatch(/:root \{\n {2}color-scheme: light;\n/u);
+    expect(sheet).toContain("\n  --ground-0: #f6f4ef;\n");
+    // The mark's inks ride in the sheet, each part from its own token.
+    expect(sheet).toContain(".brand-mark > :nth-child(1) { fill: var(--ground-0); }");
     expect(sheet).not.toContain("--cat-turn");
     expect(readFileSync(join(out, "_includes/design-head.html"), "utf8")).toContain('<meta name="theme-color" content="#f6f4ef">');
     expect(readFileSync(join(out, "_includes/brand-mark.svg"), "utf8")).toMatch(/^<svg class="brand-mark"/u);
@@ -314,6 +317,18 @@ describe("D. the source step", () => {
       "<style>: the styles live in the token-reading stylesheets",
       "<body style=…>: the styles live in the token-reading stylesheets",
     ]);
+  });
+
+  test("a page that wears no layout but renders as HTML is refused; a non-HTML page may", async () => {
+    const root = repository({
+      "docs/bare.md": "---\nlayout: null\ntitle: Bare\n---\n\n<style>p { color: red; }</style>\n",
+      "docs/app/index.html": "---\nlayout: none\npermalink: /app/\n---\n<!doctype html><html><head></head><body></body></html>\n",
+      "docs/feed.json": "---\nlayout: null\n---\n{}\n",
+      "docs/notes.txt": "---\nlayout: null\npermalink: /notes.txt\n---\nplain\n",
+    });
+    const refused = siteSourceViolations({ root }).filter((violation: string) => violation.includes("site_page_without_layout"));
+    expect(refused.map((violation: string) => violation.split(":")[0])).toEqual(["docs/app/index.html", "docs/bare.md"]);
+    await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/site_page_without_layout/u);
   });
 
   test("a plain page holding {% endraw %} is refused (it would end the raw block early)", async () => {

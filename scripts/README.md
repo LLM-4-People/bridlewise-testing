@@ -65,9 +65,13 @@ ships into the client bundle or the server runtime.
   and `gif.ts` its PNG-to-GIF encoder. [Shipping](../docs/shipping.md#cockpit-captures)
   states what it guarantees.
 - `rendered/` — the rendered judgement: what the browser actually shows,
-  judged by ONE rule table (`rules.ts`: the brand mark's computed paint and
-  visibility, the families text renders in, the Content-Security-Policy meta
-  tag and no violation of it, no request leaving the origin).
+  judged by ONE rule table. `rules.ts` holds these rows:
+  - the brand mark's computed paint and visibility;
+  - the families text renders in;
+  - the Content-Security-Policy meta tag, first and exactly once, and no
+    violation of it;
+  - no request leaving the origin;
+  - on the site, every colour and duration computing to a token's value.
   `judge.ts` runs the table on a page and over every page of a built site
   (`judge.ts site`); the capture walk calls it on every cockpit view
   (`capture/cockpit.ts --judge-only`); `proof.ts` proves each rule on planted

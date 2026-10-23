@@ -13,23 +13,24 @@
  * - `assets/fonts/`: the self-hosted IBM Plex files the owner's `@font-face`
  *   blocks name (`public/fonts/`), with their licence.
  * - `_includes/brand-mark.svg`: the mark drawn from its one geometry
- *   (`src/cockpit/shell/brand-mark.ts`), each part carrying a class the
- *   stylesheet inks from the live theme's tokens.
+ *   (`src/cockpit/shell/brand-mark.ts`); the token sheet carries its inks
+ *   (`markRules`), each part painted from its own token in the live theme.
  * - `_includes/design-head.html`: the head's design links — the token sheet,
  *   a preload for each upright face (the first paint's text), and the lead
  *   theme's ground as the browser's `theme-color`.
  *
  * - `_includes/csp.html`: the Content-Security-Policy meta tag
- *   (`sitePolicy`), the browser-enforced boundary every page includes first.
+ *   (`shared/site-page.ts` `sitePolicy`), the browser-enforced boundary every
+ *   page includes first.
  *
  * The layout includes the includes; nothing here is committed.
  */
-import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
 import { escapeHtml } from "../../shared/markup.ts";
+import { sitePolicy } from "../../shared/site-page.ts";
 import { readNames, readTokenOwner, themeColor, tokenSheet } from "../../shared/token-reader.ts";
 import { SHARED_CSS } from "./design-coverage.mjs";
 
@@ -39,40 +40,6 @@ export const SITE_FONTS = "assets/fonts";
 export const MARK_INCLUDE = "_includes/brand-mark.svg";
 export const HEAD_INCLUDE = "_includes/design-head.html";
 export const CSP_INCLUDE = "_includes/csp.html";
-
-/**
- * The only style attributes a page may carry: the table alignments kramdown
- * writes for a Markdown table's `:--`, `:-:` and `--:` columns. The policy
- * allows exactly these by hash; any other style attribute is blocked.
- */
-export const MARKDOWN_STYLE_ATTRIBUTES = Object.freeze(["text-align: left", "text-align: center", "text-align: right"]);
-
-/**
- * THE SITE'S CONTENT-SECURITY-POLICY, the boundary the browser enforces on
- * every page whatever spelling produced it. Only the site's own files load:
- * - no inline script and no event handler;
- * - no inline `<style>`, and no style attribute beyond the table
- *   alignments above;
- * - no remote sheet, font, image or connection;
- * - no `<base>`, no plugin, no form posting elsewhere.
- * Written into `_includes/csp.html`, which the base layout and every HTML
- * page include right after their charset, before anything that loads.
- */
-export function sitePolicy() {
-  const hashes = MARKDOWN_STYLE_ATTRIBUTES.map((value) => `'sha256-${createHash("sha256").update(value).digest("base64")}'`);
-  return [
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self'",
-    `style-src-attr 'unsafe-hashes' ${hashes.join(" ")}`,
-    "font-src 'self'",
-    "img-src 'self'",
-    "connect-src 'self'",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'self'",
-  ].join("; ");
-}
 
 /** The site's attribute for an explicit theme choice; its absence is the lead theme. */
 export const THEME_ATTRIBUTE = "data-theme";
@@ -99,14 +66,36 @@ function fontFiles(owner) {
 
 /** The mark as an inline SVG whose parts the site inks by class (`brand-mark-*`). */
 export function markInclude(mark = BRAND_MARK) {
-  const stroke = (part, className) => `<path class="${className}" d="${strokePath(part)}" fill="none" stroke-width="${mark.stroke}" stroke-linecap="round"/>`;
+  const stroke = (part) => `<path d="${strokePath(part)}" fill="none" stroke-width="${mark.stroke}" stroke-linecap="round"/>`;
   return [
-    `<svg class="brand-mark" viewBox="0 0 ${mark.grid} ${mark.grid}" aria-hidden="true" focusable="false">`,
-    stroke(mark.rein, "brand-mark-rein"),
-    ...mark.lines.map((line) => stroke(line, "brand-mark-line")),
-    `<circle class="brand-mark-beam" cx="${mark.beam.at[0]}" cy="${mark.beam.at[1]}" r="${mark.beam.r}"/>`,
+    `<svg class="brand-mark" data-brand-mark viewBox="0 0 ${mark.grid} ${mark.grid}" aria-hidden="true" focusable="false">`,
+    `<rect width="${mark.grid}" height="${mark.grid}" rx="${mark.tileRadius}"/>`,
+    stroke(mark.rein),
+    ...mark.lines.map(stroke),
+    `<circle cx="${mark.beam.at[0]}" cy="${mark.beam.at[1]}" r="${mark.beam.r}"/>`,
     "</svg>",
   ].join("");
+}
+
+/**
+ * The mark's inks, generated from the same geometry: each part, in drawing
+ * order, painted from its own token. They ride in the token sheet, so any
+ * page that loads the sheet shows the mark as declared, and a page's own
+ * stylesheet sizes it.
+ */
+export function markRules(mark = BRAND_MARK) {
+  const parts = [["fill", mark.tile], ["stroke", mark.rein.ink], ...mark.lines.map((line) => ["stroke", line.ink]), ["fill", mark.beam.ink]];
+  return [
+    "/* The brand mark's parts, from src/cockpit/shell/brand-mark.ts. */",
+    ".brand-mark { width: 1.25em; height: 1.25em; flex: none; }",
+    ...parts.map(([paint, token], index) => `.brand-mark > :nth-child(${String(index + 1)}) { ${paint}: var(${token}); }`),
+    "",
+  ].join("\n");
+}
+
+/** The tokens the mark's inks read. */
+function markTokens(mark = BRAND_MARK) {
+  return [mark.tile, mark.rein.ink, ...mark.lines.map((line) => line.ink), mark.beam.ink];
 }
 
 /** The stylesheets the shell loads, read from the assembled source. */
@@ -117,14 +106,14 @@ function shellStylesheets(outRoot) {
 /** Writes the design assets (see the header) into the Jekyll source at `outRoot`. */
 export function writeSiteDesign({ root, outRoot }) {
   const owner = readTokenOwner(readFileSync(join(root, TOKEN_OWNER), "utf8"));
-  const used = new Set(shellStylesheets(outRoot).flatMap((css) => [...readNames(css)]));
+  const used = new Set([...shellStylesheets(outRoot).flatMap((css) => [...readNames(css)]), ...markTokens()]);
   const fontsUrl = `../${SITE_FONTS.split("/").pop()}`;
   write(outRoot, SITE_TOKEN_SHEET, tokenSheet(owner, used, {
     themeAttribute: THEME_ATTRIBUTE,
     lead: LEAD_THEME,
     fontUrl: (url) => `${fontsUrl}/${url.split("/").pop()}`,
     banner: `GENERATED from ${TOKEN_OWNER} by scripts/floor/site-design.mjs: edit the owner, never this file.`,
-  }));
+  }) + markRules());
 
   const fonts = fontFiles(owner);
   mkdirSync(join(outRoot, ...SITE_FONTS.split("/")), { recursive: true });

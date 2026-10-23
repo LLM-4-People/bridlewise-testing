@@ -34,7 +34,7 @@ function markSvg(): string {
 }
 
 /** The clean page: the token stacks, a brand mark painted from its tokens, text in the stacks. */
-const CLEAN = `<!doctype html><html><head><meta charset="utf-8"><title>clean</title>
+const CLEAN = `<!doctype html><html><head><meta charset="utf-8"><!--PLANT-POLICY--><title>clean</title>
 <style>
 :root { --face-sans: "Proof Sans", sans-serif; --face-mono: "Proof Mono", monospace; --ground-0: #101216; --ink-1: #e8ebef; --ink-2: #a6adb8; --beam: #8fd3ff; }
 body { font-family: var(--face-sans); }
@@ -46,7 +46,11 @@ body { font-family: var(--face-sans); }
 <main><p id="prose">A sentence in the sans stack.</p><p>Inline <code>code</code> in the mono stack.</p></main><!--PLANT-BODY--></body></html>`;
 
 /** A page: what it adds to the clean one, and the rule that must name it. `only` judges it with exactly those rows (a row pending on every surface is proved this way). */
-type Plant = Readonly<{ name: string; head?: string; body?: string; rule: string; only?: readonly string[] }>;
+type Plant = Readonly<{ name: string; policy?: string; head?: string; body?: string; rule: string; only?: readonly string[] }>;
+
+/** The clean page's text and ground in its tokens: the base the token-colour and token-duration rows are proved on. */
+const SITE_INKS = "<style>body { color: var(--ink-1); background: var(--ground-0); }</style>";
+const SITE_ROWS: readonly string[] = ["token-colours", "token-durations"];
 
 const cspMeta = (policy: string): string => `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
 
@@ -69,14 +73,25 @@ const PLANTS: readonly Plant[] = [
   { name: "a remote font face", head: '<style>@font-face { font-family: "Proof Sans"; src: url("https://fonts.example.invalid/proof.woff2") } </style>', rule: "same-origin" },
   { name: "a remote script", head: '<script src="https://cdn.example.invalid/loader.js"></script>', rule: "same-origin" },
   { name: "the Content-Security-Policy meta tag missing", rule: "csp-meta", only: ["csp-meta"] },
-  { name: "a loosened Content-Security-Policy", head: cspMeta(`${CONTENT_SECURITY_POLICY.replace("'self'", "'self' 'unsafe-inline'")}`), rule: "csp-meta", only: ["csp-meta"] },
-  { name: "a second Content-Security-Policy meta tag", head: `${cspMeta(CONTENT_SECURITY_POLICY)}${cspMeta("default-src *")}`, rule: "csp-meta", only: ["csp-meta"] },
-  { name: "a resource the policy blocks", head: cspMeta("default-src 'self' 'unsafe-inline'"), body: '<img alt="" src="https://cdn.example.invalid/pixel.png">', rule: "csp-violations", only: ["csp-violations"] },
+  { name: "a loosened Content-Security-Policy", policy: cspMeta(`${CONTENT_SECURITY_POLICY.replace("'self'", "'self' 'unsafe-inline'")}`), rule: "csp-meta", only: ["csp-meta"] },
+  { name: "a second Content-Security-Policy meta tag", policy: cspMeta(CONTENT_SECURITY_POLICY), head: cspMeta("default-src *"), rule: "csp-meta", only: ["csp-meta"] },
+  { name: "the policy after something that loads before it", head: cspMeta(CONTENT_SECURITY_POLICY), rule: "csp-meta", only: ["csp-meta"] },
+  { name: "a colour that is no token", head: `${SITE_INKS}<style>#prose { color: rgb(200, 30, 30) }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a colour named through an escape", head: `${SITE_INKS}<style>#prose { color: \\63 rimson }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a mix of a token and a literal", head: `${SITE_INKS}<style>#prose { color: color-mix(in srgb, var(--ink-1) 50%, red) }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a drawn border in a literal", head: `${SITE_INKS}<style>#prose { border: 1px solid #ff0000 }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a colour set by a script", head: SITE_INKS, body: '<script>document.getElementById("prose").style.backgroundColor = "gold"</script>', rule: "token-colours", only: SITE_ROWS },
+  { name: "a mark part painted off its token", head: `${SITE_INKS}<style>.brand circle { fill: orange !important }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a duration that is no token", head: `${SITE_INKS}<style>#prose { transition: color 120ms }</style>`, rule: "token-durations", only: SITE_ROWS },
+  { name: "an animation duration that is no token", head: `${SITE_INKS}<style>@keyframes k { to { opacity: 1 } } #prose { animation: k 2.5s infinite }</style>`, rule: "token-durations", only: SITE_ROWS },
+  { name: "a resource the policy blocks", policy: cspMeta("default-src 'self' 'unsafe-inline'"), body: '<img alt="" src="https://cdn.example.invalid/pixel.png">', rule: "csp-violations", only: ["csp-violations"] },
 ];
 
 /** Near-misses each row must pass: the exact policy, in another spacing. */
 const CLEAN_TOO: readonly Plant[] = [
-  { name: "the exact policy, spaced differently", head: cspMeta(CONTENT_SECURITY_POLICY.replace("; ", " ;  ")), rule: "csp-meta", only: ["csp-meta"] },
+  { name: "the exact policy, spaced differently", policy: cspMeta(CONTENT_SECURITY_POLICY.replace("; ", " ;  ")), rule: "csp-meta", only: ["csp-meta"] },
+  { name: "text and ground in their tokens, the mark in its own", head: SITE_INKS, rule: "token-colours", only: SITE_ROWS },
+  { name: "a transition in a token's duration", head: `${SITE_INKS}<style>:root { --t-1: 90ms } #prose { transition: color var(--t-1) }</style>`, rule: "token-durations", only: SITE_ROWS },
 ];
 
 /** Builds the fixture site, judges every page as the cockpit is judged (every rule), and returns what failed. */
@@ -85,7 +100,7 @@ async function prove(executable: string | null): Promise<readonly string[]> {
   const failures: string[] = [];
   try {
     writeFileSync(join(dir, "clean.html"), CLEAN);
-    const page = (plant: Plant): string => CLEAN.replace("<!--PLANT-HEAD-->", plant.head ?? "").replace("<!--PLANT-BODY-->", plant.body ?? "");
+    const page = (plant: Plant): string => CLEAN.replace("<!--PLANT-POLICY-->", plant.policy ?? "").replace("<!--PLANT-HEAD-->", plant.head ?? "").replace("<!--PLANT-BODY-->", plant.body ?? "");
     PLANTS.forEach((plant, i) => writeFileSync(join(dir, `plant-${i}.html`), page(plant)));
     CLEAN_TOO.forEach((plant, i) => writeFileSync(join(dir, `clean-${i}.html`), page(plant)));
     const rows = (only: readonly string[] | undefined): readonly PageRule[] | undefined =>
