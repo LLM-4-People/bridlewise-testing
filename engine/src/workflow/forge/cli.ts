@@ -28,7 +28,7 @@ import { wrapResult, type CommandAnswer } from "../command-result.ts";
 import { readIntake } from "../community/sources.ts";
 import { trackedTop } from "../evidence-store.ts";
 import { FORGE_APP_ROLES, FORGE_APPS } from "./app-registry.ts";
-import { serveAppsPage } from "./apps-page.ts";
+import { serveAppsPage, type AppsPage, type AppsPageOptions } from "./apps-page.ts";
 import { ForgeError } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
 import { environmentCredential, memoryCredential } from "./credentials.ts";
@@ -55,6 +55,8 @@ export type ForgeCliWiring = Readonly<{
   endpoint: (settings: ForgeSettings) => ForgeEndpoint;
   keyHome: () => AdmittedKeyHome;
   maintainerCli: (settings: ForgeSettings) => MaintainerCli;
+  /** The Apps page server (production: `serveAppsPage`; a test records what it was given). */
+  appsPage: (options: AppsPageOptions) => Promise<AppsPage>;
 }>;
 
 const CONFIGURED: ForgeCliWiring = Object.freeze({
@@ -62,6 +64,7 @@ const CONFIGURED: ForgeCliWiring = Object.freeze({
   endpoint: forgeEndpoint,
   keyHome: () => admitHarnessKeyHome([]),
   maintainerCli: (settings: ForgeSettings) => maintainerCli(settings.webUrl, settings.maintainerCli),
+  appsPage: serveAppsPage,
 });
 
 const USAGE = "harness forge takes: apps manifests [--check] | apps create | plan|audit (--token-env <VAR> | --token-stdin) | apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]...";
@@ -94,7 +97,7 @@ async function appsCreate(root: string, rest: readonly string[], onProgress: (li
     }
   }
   const { discussionCategories } = readIntake(trackedTop(root));
-  const page = await serveAppsPage({ settings, endpoint: wiring.endpoint(settings), keyHome: wiring.keyHome(), cli, port: settings.appsPage.port, discussionCategories });
+  const page = await wiring.appsPage({ settings, endpoint: wiring.endpoint(settings), keyHome: wiring.keyHome(), cli, port: settings.appsPage.port, discussionCategories });
   onProgress(`Open ${page.url} in your browser (Session 1). The address carries a one-time token: it is printed here only, and the page answers nothing without it. The page stays up until you press Done there.`);
   const summary = await page.done;
   return { result: wrapResult("forge", deepFreeze({ verb: "apps create", ...summary }), { status: summary.pending.length === 0 ? "pass" : "fail" }) };

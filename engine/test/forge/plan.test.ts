@@ -413,7 +413,7 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
   execFileSync("git", ["add", "package-lock.json", "engine/package-lock.json", ".github/workflows/ci.yml"], { cwd: top });
   syncForgeFiles(top, forgeFileSources(top, SETTINGS), true);
   const fake = wholeGithub();
-  const wiring = { settings: () => SETTINGS, endpoint: () => fake.endpoint(), keyHome: () => temporaryKeyHome(), maintainerCli: () => assert.fail("plan, apply and audit never run gh") };
+  const wiring = { settings: () => SETTINGS, endpoint: () => fake.endpoint(), keyHome: () => temporaryKeyHome(), maintainerCli: () => assert.fail("plan, apply and audit never run gh"), appsPage: () => assert.fail("plan, apply and audit serve no page") };
   const progress: string[] = [];
   const run = (...argv: string[]) => runForgeCli(top, argv, (line) => progress.push(line), wiring);
   const variable = "FORGE_CLI_TEST_TOKEN";
@@ -464,6 +464,33 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     assert.deepEqual(ghCalls.map((args) => args.slice(0, 2).join(" ")), ["auth status"], "the wired gh, and nothing else, was asked");
     const noDoor = { ...wiring, maintainerCli: recordingGh((args) => args[0] === "auth" ? { status: 0 } : { status: 1, stderr: "gh: Not Found (HTTP 404)" }) };
     await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, noDoor), (error: unknown) => isForgeError(error, "forge_environment_missing") && /bridlewise-testing/u.test(error.message));
+    // Every input of apps create is the WIRED one: a section whose trunk has a name the configuration never uses, the
+    // wired endpoint and key home handed to the page (recorded, not served), and the wired gh asked about that trunk.
+    const wiredSettings = { ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, name: "wired-trunk" } : repository) };
+    const wiredEndpoint = fake.endpoint();
+    const wiredKeyHome = temporaryKeyHome();
+    let handed: Readonly<{ settings: unknown; endpoint: unknown; keyHome: unknown }> | undefined;
+    ghCalls.length = 0;
+    const allWired = {
+      ...wiring,
+      settings: () => wiredSettings,
+      endpoint: () => wiredEndpoint,
+      keyHome: () => wiredKeyHome,
+      maintainerCli: recordingGh((args) => args[0] === "auth" ? { status: 0 } : { status: 0, stdout: `${String(args[3]).split("/").at(-1)}\n` }),
+      appsPage: async (options: Readonly<{ settings: unknown; endpoint: unknown; keyHome: unknown }>) => {
+        handed = options;
+        return { url: "http://127.0.0.1:1/?t=recorded", done: Promise.resolve({ created: [], pending: [] }), close: async () => {} };
+      },
+    };
+    const created = await runForgeCli(top, ["apps", "create"], () => {}, allWired);
+    assert.equal(created.result.status, "pass");
+    assert.ok(ghCalls.some((args) => args.includes("repos/LLM-4-People/wired-trunk/environments/door")), JSON.stringify(ghCalls));
+    assert.ok(!ghCalls.some((args) => args.some((arg) => arg.includes("bridlewise-testing"))), "the configured trunk is never asked about");
+    assert.equal(handed?.settings, wiredSettings, "the page gets the wired section");
+    assert.equal(handed?.endpoint, wiredEndpoint, "the page gets the wired endpoint");
+    assert.equal(handed?.keyHome, wiredKeyHome, "the page gets the wired key home");
+    // And a bypass of the wired gh cannot hang: under test the real gh is refused at once, typed.
+    await assert.rejects(maintainerCli(SETTINGS.webUrl, SETTINGS.maintainerCli).ready(), (error: unknown) => isForgeError(error, "forge_maintainer_cli_failed") && error.facts.underTest === true);
     // A hand edit of a generated file: refused before the credential is read or GitHub is asked.
     writeFileSync(join(top, ".github/forge/label/bridlewise-testing.area_ci.json"), "{}\n");
     const asked = fake.requests.length;
