@@ -501,3 +501,40 @@ async function lockedApply(initial: PromotionContext, request: ApplyRequest, run
     });
   }
 }
+
+/**
+ * RECOMPUTES the projection of the plan's source S onto its target T from
+ * nothing but S and the profile: a fresh candidate holding the plan's tree P,
+ * settled by the profile's own phases (setup, converge to the fixed point,
+ * verify) exactly as a build settles it, and removed again. Answers the
+ * settled tree F — `project(S, profile)`, every generated output its
+ * generator's. The publisher compares a built commit with it (no path is
+ * special: equal trees, or a refusal). The candidate is this recompute's own
+ * (named from the plan id, swept like any other).
+ */
+export async function recomputeProjection(context: PromotionContext, run: ApplyRun, plan: PromotionPlan): Promise<string> {
+  const { git } = run;
+  const timeouts = worktreeOperationTimeouts(context.document);
+  const folder = promotionFolder(context);
+  const candidate = candidatePath(context, sha256(`recompute:${plan.planId}`));
+  const isThis = (name: string): boolean => join(folder, name) === candidate;
+  assertWorkRoot(context, candidate);
+  sweepCandidates(git, context.top, folder, isThis, false, timeouts.worktreeMs);
+  const identity = committerOf(context, context.source);
+  try {
+    await runLandingPhase("candidate", { recompute: true }, () => createCandidate({
+      git, repoRoot: context.top, path: candidate, target: context.target!, source: context.source, tree: plan.projection.tree,
+      message: "recompute", identity, timeoutMs: timeouts.worktreeMs,
+    }));
+    const settled = await runLandingPhase("settle", { recompute: true }, () => settleCandidate({
+      git, root: candidate, sourceRoot: context.top, engineRelative: run.engineRelative,
+      isolation: context.isolation, phases: context.loaded.profile.phases, run: checkoutCommandRunner(candidate, run.runner),
+      generatedOutputs: run.generatedOutputs, baseTree: plan.projection.tree, timeoutMs: timeouts.worktreeMs,
+    }));
+    return settled.tree;
+  } catch (error) {
+    throw promotionErrorOf(error, { candidate, recompute: true });
+  } finally {
+    sweepCandidates(git, context.top, folder, isThis, false, timeouts.worktreeMs);
+  }
+}

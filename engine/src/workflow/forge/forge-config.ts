@@ -80,6 +80,22 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
   }),
 });
 
+/**
+ * THE BOUNDS OF A FORGE REFUSAL'S TEXT: how much of GitHub's or `gh`'s
+ * answer a typed refusal keeps. They are owned here, one value each, never
+ * a literal at a call site.
+ */
+export const FORGE_REFUSAL_TEXT = deepFreeze({
+  /** The excerpt of an error body that is not JSON, in characters. */
+  bodyExcerptChars: 300,
+  /** The validation or GraphQL error entries a refusal names. */
+  errorEntries: 20,
+  /** The last lines of `gh`'s standard error a refusal quotes. */
+  cliStderrLines: 3,
+  /** The characters of that quote. */
+  cliStderrChars: 400,
+});
+
 export type ForgeSettings = DeepReadonly<z.infer<typeof FORGE_CONFIG_SCHEMA>>;
 export type ForgeRepository = ForgeSettings["repositories"][number];
 

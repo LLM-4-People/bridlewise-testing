@@ -116,7 +116,7 @@ describe("event-loop callbacks", () => {
       console.log(JSON.stringify({ ok: true }));
     `);
     expect(result.status, result.stdout + result.stderr).toBe(0);
-  }, 60_000);
+  });
 
   test("guarded attributes and counts a throw, returns undefined, and observes a rejected promise (in a service process, which lives on)", () => {
     // In a child: a process with NO role re-raises a guarded fault (Node's
@@ -140,7 +140,7 @@ describe("event-loop callbacks", () => {
     `);
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stderr).toMatch(/callback fault in probe\.sync: TypeError: boom/u);
-  }, 60_000);
+  });
 
   test("no user-defined SQL function is registered (closing a database inside one is a SIGSEGV)", () => {
     expect(sqliteUserFunctions(process.cwd()).map((finding) => `${finding.path}:${String(finding.line)} ${finding.registration}`)).toEqual([]);

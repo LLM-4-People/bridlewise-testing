@@ -1,5 +1,5 @@
 import { HarnessError } from "../kernel/errors.ts";
-import { deepFreeze } from "../kernel/integrity.ts";
+import { deepFreeze, sha256 } from "../kernel/integrity.ts";
 
 export type SecretSignalProfile = "admission" | "classification";
 
@@ -71,6 +71,9 @@ export const SENSITIVE_KEY_PATTERNS: readonly RegExp[] = [
   // defect class this owner exists to end.
   /(?:^|[^\p{L}\p{N}])sk[_-]/iu,
 ];
+
+/** The Discord webhook grammar, in GitHub's custom-pattern subset (see the row). */
+const DISCORD_WEBHOOK_PATTERN = "(?:ptb\\.|canary\\.)?discord(?:app)?\\.com/api/webhooks/[0-9]{17,20}/[A-Za-z0-9_-]{60,68}";
 
 /**
  * THE FORMAT CATALOG — each signal carries its redaction CATEGORY and the
@@ -169,6 +172,46 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     github: { kind: "custom", pattern: "sk-[0-9a-f]{64}" }, treeScan: true,
     fixtures: { positive: [["s", "k-", "0a1b2c3d".repeat(8)]], negative: ["sk-0a1b2c3d"] },
     category: "api-key", description: "Neuralwatt API key", admission: /\bsk-[0-9a-f]{64}\b/u, classification: /\bsk-[0-9a-f]{64}\b/u },
+  // ── PROVIDER FORMATS GITHUB DETECTS IN THIS TREE ─────────────────────────
+  //
+  // GitHub's push protection knew these and this catalogue did not: test
+  // fixtures of each raised secret-scanning alerts, while the repository scan
+  // and the redaction engine let the same values through. Each row matches
+  // GitHub's documented shape for its secret type.
+  { id: "google-api-key",
+    github: { kind: "provider", secretTypes: ["google_api_key"] }, treeScan: true,
+    fixtures: { positive: [["AI", "za", "Sy", "Gh7Jk9Lm2Np4Qr6St8Vw0Xy3Zb5Cd7Ef9"]], negative: ["AIzaShort"] },
+    category: "api-key", description: "Google API key", admission: /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/u, classification: /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/u },
+  { id: "huggingface-token",
+    github: { kind: "provider", secretTypes: ["hf_user_access_token"] }, treeScan: true,
+    fixtures: { positive: [["hf", "_", "QwErTyUiOpAsDfGhJkLzXcVbNmQwErTyUi"]], negative: ["hf_hub_download_cache_directory"] },
+    category: "token", description: "Hugging Face token", admission: /\bhf_[A-Za-z0-9]{34,40}\b/u, classification: /\bhf_[A-Za-z0-9]{34,40}\b/u },
+  { id: "doppler-token",
+    github: { kind: "provider", secretTypes: ["doppler_personal_token"] }, treeScan: true,
+    fixtures: { positive: [["dp.", "pt.", "Ab3".repeat(14), "Z"]], negative: ["dp.pt.short"] },
+    category: "token", description: "Doppler token", admission: /\bdp\.pt\.[A-Za-z0-9]{43}\b/u, classification: /\bdp\.pt\.[A-Za-z0-9]{43}\b/u },
+  { id: "slack-webhook-url",
+    github: { kind: "provider", secretTypes: ["slack_incoming_webhook_url"] }, treeScan: true,
+    fixtures: { positive: [["https://hooks.slack", ".com/services/T", "0A1B2C3D4", "/B", "5E6F7G8H9", "/", "aB1cD2eF3gH4iJ5kL6mN7oP8"]], negative: ["https://hooks.slack.com/services/T0A1B2C3D4"] },
+    category: "credential", description: "Slack incoming webhook URL", admission: /https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]{8,}\/B[A-Z0-9]{8,}\/[A-Za-z0-9]{24,}\b/u, classification: /https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]{8,}\/B[A-Z0-9]{8,}\/[A-Za-z0-9]{24,}\b/u },
+  // GitHub has no secret type for a Discord webhook URL (only the bot token).
+  // ONE pattern feeds all three consumers (the GitHub custom pattern, the
+  // admission and the classification), so they cannot diverge. The credential
+  // is the host and path (id + token); the scheme is not part of it, so the
+  // pattern starts at the host and also catches `http://` and bare forms (the
+  // fixtures pin each form against every consumer).
+  { id: "discord-webhook-url",
+    github: { kind: "custom", pattern: DISCORD_WEBHOOK_PATTERN }, treeScan: true,
+    fixtures: {
+      positive: [
+        ["https://discord", ".com/api/webhooks/", "123456789012345678", "/", "Wq3-Er5_Ty7".repeat(6)],
+        ["http://ptb.discord", ".com/api/webhooks/", "12345678901234567", "/", "Zx9_Cv8-Bn7".repeat(6)],
+        ["canary.discordapp", ".com/api/webhooks/", "12345678901234567890", "/", "Qa1-Ws2_Ed3".repeat(6)],
+      ],
+      negative: ["https://discord.com/api/webhooks/123", "discord.com/api/webhooks/12345678901234567/short"],
+    },
+    category: "credential", description: "Discord webhook URL",
+    admission: new RegExp(DISCORD_WEBHOOK_PATTERN, "u"), classification: new RegExp(DISCORD_WEBHOOK_PATTERN, "u") },
   { id: "aws-access-key",
     github: { kind: "provider", secretTypes: ["aws_access_key_id"] }, treeScan: true,
     fixtures: { positive: [["AK", "IA", "Q7XZ".repeat(4)]], negative: ["AKIA123"] },
@@ -319,6 +362,17 @@ export function treeScannedSignals(): readonly SecretTextSignal[] {
  *
  * `appliesTo: "text"` rows run over every line and every tracked path;
  * `"file-name"` rows run over the tracked path's last segment.
+ *
+ * A row that protects a NAME (an internal host, a private directory) never
+ * spells it: this repository is public, and a pattern that names what it
+ * guards publishes it. Such a row carries `names` (how candidates are cut out
+ * of a text) and `digests` (each protected name's length and SHA-256,
+ * lower-cased); a candidate matches when its digest is one of them. Only SHAPE
+ * rows (a home path, a database file name) carry a `pattern`. Every row is
+ * applied through {@link createPrivacyMatcher}, the one matcher.
+ *
+ * The digests are authored pins: their inputs are deliberately absent from
+ * the tree, so no generator can re-derive them.
  */
 const HOME_PATH_PLACEHOLDERS = deepFreeze([
   "example", "user", "runner", "bridlewise", "ubuntu", "node", "app",
@@ -332,15 +386,118 @@ const HOME_PATH_PLACEHOLDERS = deepFreeze([
 const HOME_PLACEHOLDER_GUARD = `(?!(?:${HOME_PATH_PLACEHOLDERS.join("|")})(?![A-Za-z0-9_-])(?!\\.[A-Za-z0-9]))`;
 
 export const PUBLICATION_PRIVACY_SIGNALS = deepFreeze([
-  { id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path", pattern: new RegExp(`\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u") },
-  { id: "internal-git-host", category: "privacy", appliesTo: "text", description: "internal Git host", pattern: /git\.localserver\.ca\b/u },
-  { id: "internal-provider-host", category: "privacy", appliesTo: "text", description: "internal provider host", pattern: /api\.neuralwatt\.com\b/u },
-  { id: "internal-scratch-path", category: "privacy", appliesTo: "text", description: "internal scratch path", pattern: /\/tmp\/opencode\b/u },
-  { id: "local-evidence-state", category: "privacy", appliesTo: "text", description: "local evidence state directory", pattern: /\bcode-harness\.fresh-evidence\b/u },
+  // ABSOLUTE only: `/home/` that begins the path. `src/pages/home/widgets`,
+  // `backup/home/x` and `<root>/home/x` are relative paths that merely hold a
+  // `home` segment, and reading them as an account published nothing.
+  { id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path", pattern: new RegExp(`(?<![\\w.>}-])\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u") },
+  // BEGIN AUTHORED PINS
+  { id: "internal-git-host", category: "privacy", appliesTo: "text", description: "internal Git host", names: "dotted", digests: [{ length: 18, sha256: "64228b8af389331cee6e7dba27c81450a7181c1f719e7a133e37128c6a4309e5" }] },
+  { id: "internal-provider-host", category: "privacy", appliesTo: "text", description: "internal provider host", names: "dotted", digests: [{ length: 18, sha256: "c565b621df0b9302f8b7e6881dd58353a803981a9fe69ef0542009f1ad9c76d1" }] },
+  { id: "internal-scratch-path", category: "privacy", appliesTo: "text", description: "internal scratch path", names: "scratch-path", digests: [{ length: 13, sha256: "736a4cae0826a534c3de9b47542cbe9dd50ec8b8714e1d42aa45f4afc0799c0d" }] },
+  { id: "local-evidence-state", category: "privacy", appliesTo: "text", description: "local evidence state directory", names: "dotted", digests: [{ length: 27, sha256: "3bcb2fbbb43fef9d40e18b6e1858d5ca761166d8710552ae03d89b3ae9e6de8b" }] },
+  // END AUTHORED PINS
   // A database or SQLite state file (and its -wal/-shm/-journal sidecars) is
   // not a credential file, but a local data blob that is never published.
   { id: "database-state", category: "privacy", appliesTo: "file-name", description: "database state", pattern: /\.(?:db|sqlite3?)(?:-[a-z]+)?$/iu },
 ] as const);
+
+export type PublicationPrivacySignal = (typeof PUBLICATION_PRIVACY_SIGNALS)[number];
+type PrivacyNameKind = "dotted" | "scratch-path";
+type PrivacyRow = Readonly<{ id: string } & (
+  | { pattern: RegExp }
+  | { names: PrivacyNameKind; digests: readonly Readonly<{ length: number; sha256: string }>[] }
+)>;
+
+// A dotted name (a host, a dotted directory name) is a run of name characters
+// `[A-Za-z0-9_.-]` whose dot-separated labels are non-empty. Runs are cut by a
+// linear pattern, never a backtracking one: the scanner reads multi-megabyte
+// lines (see `createPrivacyMatcher`).
+// A directory directly under the system scratch root.
+const SCRATCH_DIRECTORY = /\/tmp\/\w+/gu;
+// The longest label window tried. A protected name is a host or a dotted
+// directory name of a few labels; the bound keeps a long dotted run linear.
+const MAXIMUM_NAME_LABELS = 6;
+
+/**
+ * THE ONE PRIVACY MATCHER over `rows`: the ids of the rows a text matches, in
+ * row order. A shape row is its pattern. Name rows are judged TOGETHER, so a
+ * text is cut ONCE however many name rows there are, and only a candidate
+ * whose length is a protected name's length is hashed, then looked up in one
+ * table (the scanner runs this on every line of the tree; per-row cutting and
+ * hashing every window cost the required scan +64% CPU).
+ *
+ * A dotted run yields every contiguous window of two to
+ * {@link MAXIMUM_NAME_LABELS} non-empty labels, so a protected host is found
+ * as a subdomain's suffix or a longer name's prefix (`a.<host>`, `<host>.x`),
+ * but never inside a label (`x<host>`, `x-<host>`).
+ */
+const NO_PRIVACY_FINDINGS: readonly string[] = Object.freeze([]);
+
+export function createPrivacyMatcher(rows: readonly PrivacyRow[]): (text: string) => readonly string[] {
+  const shapes: Readonly<{ id: string; pattern: RegExp }>[] = [];
+  const kinds = new Map<PrivacyNameKind, { lengths: Set<number>; ids: Map<string, string[]> }>();
+  for (const row of rows) {
+    if ("pattern" in row) {
+      shapes.push({ id: row.id, pattern: row.pattern });
+      continue;
+    }
+    const kind = kinds.get(row.names) ?? { lengths: new Set<number>(), ids: new Map<string, string[]>() };
+    kinds.set(row.names, kind);
+    for (const pin of row.digests) {
+      kind.lengths.add(pin.length);
+      kind.ids.set(pin.sha256, [...(kind.ids.get(pin.sha256) ?? []), row.id]);
+    }
+  }
+  const order = new Map(rows.map((row, index) => [row.id, index] as const));
+  const dotted = kinds.get("dotted");
+  // Only a run at least as long as the shortest protected dotted name can hold
+  // one: the regex finds just those runs (greedy, no backtracking: a shorter
+  // run fails within its own length), so the common short token costs nothing.
+  const longRuns = dotted === undefined
+    ? undefined
+    : new RegExp(`[A-Za-z0-9_.-]{${String(Math.min(...dotted.lengths))},}`, "gu");
+  const scratch = kinds.get("scratch-path");
+  return (text) => {
+    const found = new Set<string>();
+    for (const shape of shapes) if (shape.pattern.test(text)) found.add(shape.id);
+    const consider = (kind: { lengths: Set<number>; ids: Map<string, string[]> }, candidate: string): void => {
+      if (!kind.lengths.has(candidate.length)) return;
+      for (const id of kind.ids.get(sha256(candidate.toLowerCase())) ?? []) found.add(id);
+    };
+    if (scratch !== undefined) {
+      for (const match of text.matchAll(SCRATCH_DIRECTORY)) consider(scratch, match[0]);
+    }
+    if (dotted !== undefined && longRuns !== undefined && text.includes(".")) {
+      for (const match of text.matchAll(longRuns)) {
+        const run = match[0];
+        if (!run.includes(".")) continue;
+        // Label boundaries as offsets: a window is a slice, built only when its length can match.
+        const starts = [0];
+        for (let at = run.indexOf("."); at !== -1; at = run.indexOf(".", at + 1)) starts.push(at + 1);
+        const labelEnd = (index: number): number => (index + 1 < starts.length ? starts[index + 1]! - 1 : run.length);
+        for (let first = 0; first < starts.length - 1; first += 1) {
+          for (let last = first + 1; last < Math.min(starts.length, first + MAXIMUM_NAME_LABELS); last += 1) {
+            if (labelEnd(last) === starts[last] || labelEnd(last - 1) === starts[last - 1]) break;
+            const begin = starts[first]!;
+            const end = labelEnd(last);
+            if (dotted.lengths.has(end - begin)) consider(dotted, run.slice(begin, end));
+          }
+        }
+      }
+    }
+    if (found.size === 0) return NO_PRIVACY_FINDINGS;
+    return [...found].sort((left, right) => order.get(left)! - order.get(right)!);
+  };
+}
+
+const PRIVACY_ROW_BY_ID = new Map<string, PublicationPrivacySignal>(PUBLICATION_PRIVACY_SIGNALS.map((row) => [row.id, row] as const));
+const PRIVACY_TEXT_MATCHER = createPrivacyMatcher(PUBLICATION_PRIVACY_SIGNALS.filter((row) => row.appliesTo === "text"));
+const PRIVACY_FILE_NAME_MATCHER = createPrivacyMatcher(PUBLICATION_PRIVACY_SIGNALS.filter((row) => row.appliesTo === "file-name"));
+
+/** The publication-privacy rows `text` matches: `"text"` rows over a line or a path, `"file-name"` rows over a path's last segment. */
+export function publicationPrivacyFindings(text: string, appliesTo: "text" | "file-name"): readonly PublicationPrivacySignal[] {
+  return (appliesTo === "text" ? PRIVACY_TEXT_MATCHER : PRIVACY_FILE_NAME_MATCHER)(text).map((id) => PRIVACY_ROW_BY_ID.get(id)!);
+}
 
 export function secretTextSignalIds(
   value: string,
@@ -394,6 +551,34 @@ export function normalizeSecretKey(value: string): string {
 export function isSensitiveKeyName(key: string): boolean {
   if (normalizedKeyHasSensitivePart(normalizeSecretKey(key))) return true;
   return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
+}
+
+/**
+ * THE HEADERS KNOWN NOT TO CARRY A CREDENTIAL, lower-case: the only header names whose values are shown or
+ * sent where a credential must not go. Everything else is treated as a credential BY DEFAULT, so a header
+ * nobody has named yet (`X-Jwt`, `DPoP`, `X-Session`, `X-Signature`, a vendor's next key header) is redacted
+ * without anyone having to think of it. A name joins this list only when its value is never a credential:
+ * content negotiation and framing, caching and conditional requests, and the GitHub request-id and
+ * rate-limit headers the forge reads. A session id (`Mcp-Session-Id`, `Session-Id`) is a bearer of access
+ * and never belongs here.
+ */
+export const NON_CREDENTIAL_HEADER_NAMES: ReadonlySet<string> = new Set([
+  "accept", "accept-charset", "accept-encoding", "accept-language",
+  "cache-control", "connection", "content-encoding", "content-language", "content-length", "content-type",
+  "date", "etag", "if-match", "if-modified-since", "if-none-match", "keep-alive", "last-modified", "link",
+  "location", "mcp-protocol-version", "pragma", "retry-after", "transfer-encoding", "user-agent", "vary",
+  "x-github-api-version", "x-github-media-type", "x-github-request-id",
+  "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "x-ratelimit-resource", "x-ratelimit-used",
+]);
+
+/**
+ * Whether a HEADER's value may carry a credential: true for EVERY name except the
+ * {@link NON_CREDENTIAL_HEADER_NAMES} (matched case-insensitively). THE ONE answer for every header
+ * redaction and every credential refusal. An allowlist, not a denylist: a denylist can only name the
+ * credential headers someone thought of, and a missed credential is never acceptable.
+ */
+export function isSensitiveHeaderName(name: string): boolean {
+  return !NON_CREDENTIAL_HEADER_NAMES.has(name.trim().toLowerCase());
 }
 
 export function secretLikeValuePaths(value: unknown, profile: SecretSignalProfile): readonly string[] {

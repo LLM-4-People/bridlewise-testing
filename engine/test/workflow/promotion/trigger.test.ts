@@ -99,7 +99,11 @@ test("T-T1: the trigger exits 0 in every state, with node absent and with a fail
   const broken = hookedRepository("promotion-trigger-broken", "#!/bin/sh\nset -e\n[ \"$1\" = committed ]\n");
   const blocked = broken.git(["commit", "-q", "--allow-empty", "-m", "a commit"], programs.path);
   assert.notEqual(blocked.status, 0);
-  assert.match(String(blocked.stderr), /ref updates aborted by hook/u);
+  // git names the abort in its own words, which differ by version ("ref updates aborted by hook" in 2.47, "in
+  // 'preparing' phase, update aborted by the reference-transaction hook" on the hosted runner's): the behaviour is the
+  // fact judged — no commit landed — and the words only say it was the hook (#149).
+  assert.match(String(blocked.stderr), /aborted by (?:the reference-transaction )?hook/u);
+  assert.notEqual(broken.git(["rev-parse", "--verify", "-q", "HEAD"], programs.path).status, 0, "the aborted commit did not land");
 });
 
 test("T-T2/T-T3: a push moving a remote-tracking ref starts `harness promote auto --refs <the ref>` in the background; ordinary commits, checkouts and the promoter's own fetch start nothing", () => {

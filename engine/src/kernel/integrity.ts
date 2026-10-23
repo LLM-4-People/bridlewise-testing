@@ -49,6 +49,26 @@ export function canonicalJson(value: unknown): string {
   return encode(value, new Set<object>());
 }
 
+/**
+ * THE LINE-PER-ENTRY CANONICAL FORM of a committed generated document (#221):
+ * the same canonical JSON (keys sorted, one value per key), laid out with each
+ * top-level field on its own line and each element of a top-level array on its
+ * own line. It parses to the same value as {@link canonicalJson}; two changes
+ * to different entries touch different lines, so parallel branches merge.
+ */
+export function canonicalJsonLines(document: Readonly<Record<string, unknown>>): string {
+  canonicalJson(document);
+  if (Array.isArray(document)) throw new InputError("A line-per-entry document must be an object");
+  const fields = Object.keys(document).toSorted().map((key) => {
+    const value = document[key];
+    const encoded = Array.isArray(value) && value.length > 0
+      ? `[\n${value.map((entry: unknown) => `  ${canonicalJson(entry)}`).join(",\n")}\n]`
+      : canonicalJson(value);
+    return `${JSON.stringify(key)}:${encoded}`;
+  });
+  return `{\n${fields.join(",\n")}\n}\n`;
+}
+
 export function canonicalHash(value: unknown): string {
   return sha256(canonicalJson(value));
 }

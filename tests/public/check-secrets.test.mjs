@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -8,7 +9,12 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
-const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
+// Private paths and hosts this file plants are assembled at runtime, so the
+// scan of THIS tree (which exempts no path) stays clean.
+const HOME = "/ho" + "me/";
+const LEAK = `${HOME}leakuser`;
+const { readRunCpu } = await import("../../engine/src/shared/run-cpu.ts");
+const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, createPrivacyMatcher, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
   const dir = mkdtempSync(join(tmpdir(), "bridlewise-secret-scan-"));
@@ -46,7 +52,7 @@ test("the scanner passes a clean tracked tree", () => {
   }
 });
 
-test("the scanner fails on a provider-shaped key outside a fixture path", () => {
+test("the scanner fails on a provider-shaped key in a plain file", () => {
   const dir = makeRepo();
   try {
     writeFileSync(join(dir, "config.txt"), `api_key = "sk-${"C".repeat(24)}"\n`);
@@ -63,7 +69,7 @@ test("the scanner fails on a provider-shaped key outside a fixture path", () => 
 test("the scanner fails on an internal absolute path", () => {
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "notes.md"), "see /home/private-user/secret\n");
+    writeFileSync(join(dir, "notes.md"), `see ${HOME}private-user/secret\n`);
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -78,7 +84,7 @@ test("the scanner fails on a BARE home directory", () => {
   // `/home/<user>` — the shape a prose citation uses — matched nothing.
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "notes.md"), "the checkout was /home/private-user\n");
+    writeFileSync(join(dir, "notes.md"), `the checkout was ${HOME}private-user\n`);
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -101,12 +107,12 @@ test("the scanner accepts a DOCUMENTED home placeholder, bare or with a segment"
   }
 });
 
-test("the scanner fails on a private-key block outside a fixture path", () => {
+test("the scanner fails on a private-key block in shipped source", () => {
   // The old hard-count skipped `private-key-block` entirely, so a tracked
   // key header printed a finding and still certified the tree.
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "config.ts"), 'const key = "-----BEGIN OPENSSH PRIVATE KEY-----";\n');
+    writeFileSync(join(dir, "config.ts"), ('const key = "--' + '---BEGIN OPENSSH PRIVATE KEY-----";\n'));
     execFileSync("git", ["add", "config.ts"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -164,7 +170,7 @@ test("a key under docs/ is not a fixture", () => {
   }
 });
 
-test("a placeholder-looking key outside the fixture trees is a finding like any other", () => {
+test("a placeholder-looking key is a finding like any other", () => {
   // The scanner once excused seven exact "placeholder" spellings anywhere in
   // the tree; a value is never excused for its spelling.
   const dir = repoWith({ "example.md": `reference: sk-${"A".repeat(24)}\n` });
@@ -211,8 +217,8 @@ test("every format the canonical owner calls a secret file fails the scan", asyn
 
 test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => {
   const headers = [
-    "-----BEGIN ENCRYPTED PRIVATE KEY-----",
-    "-----BEGIN PGP PRIVATE KEY BLOCK-----",
+    ("--" + "---BEGIN ENCRYPTED PRIVATE KEY-----"),
+    ("--" + "---BEGIN PGP PRIVATE KEY BLOCK-----"),
   ];
   for (const header of headers) {
     const dir = repoWith({ "src/key.txt": `${header}\nsynthetic-body\n` });
@@ -229,7 +235,7 @@ test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => 
 
 test("a text blob named .png is scanned by content, not by extension", () => {
   const dir = repoWith({
-    "src/blob.png": "-----BEGIN OPENSSH PRIVATE KEY-----\nsee /home/leakuser/.ssh\n",
+    "src/blob.png": ("--" + "---BEGIN OPENSSH PRIVATE KEY-----\nsee " + LEAK + "/.ssh\n"),
   });
   try {
     const result = scan(dir);
@@ -242,7 +248,7 @@ test("a text blob named .png is scanned by content, not by extension", () => {
 });
 
 test("a file above the old 2 MiB cap has its tail scanned", () => {
-  const content = `${"a".repeat(2 * 1024 * 1024 + 64)}\n-----BEGIN OPENSSH PRIVATE KEY-----\n`;
+  const content = `${"a".repeat(2 * 1024 * 1024 + 64)}\n--${""}---BEGIN OPENSSH PRIVATE KEY-----\n`;
   const dir = repoWith({ "src/large.txt": content });
   try {
     const result = scan(dir);
@@ -257,7 +263,7 @@ test("a symlink is scanned through its committed target string, never followed",
   const dir = makeRepo();
   try {
     mkdirSync(join(dir, "docs"), { recursive: true });
-    symlinkSync("/home/leakuser/.ssh/id_ed25519", join(dir, "docs/profile"));
+    symlinkSync(`${LEAK}/.ssh/id_ed25519`, join(dir, "docs/profile"));
     execFileSync("git", ["add", "docs/profile"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
@@ -270,8 +276,8 @@ test("a symlink is scanned through its committed target string, never followed",
 
 test("a dotted account name is not a documented placeholder", () => {
   // `/home/example.` is the placeholder followed by sentence punctuation;
-  // `/home/jane.doe` is a real account whose first component is a placeholder.
-  for (const line of ["home: /home/jane.doe/work\n", "home: /home/user.name/work\n"]) {
+  // `/home/jane` + `.doe` is a real account whose first component is a placeholder.
+  for (const line of [`home: ${HOME}jane.doe/work\n`, `home: ${HOME}user.name/work\n`]) {
     const dir = repoWith({ "src/notes.md": line });
     try {
       const result = scan(dir);
@@ -292,7 +298,7 @@ test("a dotted account name is not a documented placeholder", () => {
 
 test("repeated slashes and JSON slash escapes name the same forbidden path", () => {
   const lines = [
-    "checkout: /home//leakuser/work\n",
+    `checkout: ${HOME}/leakuser/work\n`,
     '{"home":"\\/home\\/leakuser\\/work"}\n',
     '{"home":"\\u002fhome\\u002fleakuser\\u002fwork"}\n',
   ];
@@ -356,7 +362,7 @@ test("every tree-scanned catalogue row is found by its id; the others say why no
   }
 });
 
-test("a 520-character installation token with dots is found by its row id, outside and inside a fixture tree", () => {
+test("a 520-character installation token with dots is found by its row id, in docs and in a test tree", () => {
   const token = signalFixture("github-installation-token", 0);
   assert.equal(token.length, 520);
   assert.equal(token.split(".").length, 3, "the fixture is a three-part JWT");
@@ -365,22 +371,39 @@ test("a 520-character installation token with dots is found by its row id, outsi
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
     assert.match(result.stderr, /docs\/run\.log:1: github-installation-token: GitHub App installation token/);
-    assert.doesNotMatch(result.stderr, /tests\/fixture\.txt/, "a fixture tree is still allowlisted until P0.6 removes it");
+    assert.match(result.stderr, /tests\/fixture\.txt:1: github-installation-token: /, "no tree is exempt: a test tree is scanned like any other");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test("each publication-privacy row is reported by its id; database state by file name", () => {
-  const planted = {
-    "home-path": "see /home/private-user/work\n",
-    "internal-git-host": "remote: https://git.localserver.ca/x.git\n",
-    "internal-provider-host": "base: https://api.neuralwatt.com/v1\n",
-    "internal-scratch-path": "scratch: /tmp/opencode/run\n",
-    "local-evidence-state": "state: ~/.local/state/code-harness.fresh-evidence/x\n",
+  // A NAME row never spells its name (this repository is public), so it
+  // cannot be planted here; the one matcher it runs through is driven with a
+  // synthetic row below. The SHAPE rows are planted end to end.
+  // THE EXACT SET of privacy rows, ids and pins: removing a row, or changing
+  // a name row's digest, reds here (the per-kind checks below iterate whatever
+  // rows exist, so they cannot see one disappear).
+  assert.deepEqual(PUBLICATION_PRIVACY_SIGNALS.map((signal) => signal.id).sort(),
+    ["database-state", "home-path", "internal-git-host", "internal-provider-host", "internal-scratch-path", "local-evidence-state"]);
+  const NAME_ROWS = {
+    "internal-git-host": { names: "dotted", digests: [{ length: 18, sha256: "64228b8af389331cee6e7dba27c81450a7181c1f719e7a133e37128c6a4309e5" }] },
+    "internal-provider-host": { names: "dotted", digests: [{ length: 18, sha256: "c565b621df0b9302f8b7e6881dd58353a803981a9fe69ef0542009f1ad9c76d1" }] },
+    "internal-scratch-path": { names: "scratch-path", digests: [{ length: 13, sha256: "736a4cae0826a534c3de9b47542cbe9dd50ec8b8714e1d42aa45f4afc0799c0d" }] },
+    "local-evidence-state": { names: "dotted", digests: [{ length: 27, sha256: "3bcb2fbbb43fef9d40e18b6e1858d5ca761166d8710552ae03d89b3ae9e6de8b" }] },
   };
-  const textRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => signal.appliesTo === "text").map((signal) => signal.id);
-  assert.deepEqual(Object.keys(planted).sort(), [...textRows].sort(), "every text privacy row has a planted case");
+  assert.deepEqual(
+    Object.fromEntries(PUBLICATION_PRIVACY_SIGNALS.filter((row) => !("pattern" in row)).map((row) => [row.id, { names: row.names, digests: row.digests }])),
+    NAME_ROWS,
+  );
+  const shapeRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => "pattern" in signal).map((signal) => signal.id);
+  assert.deepEqual([...shapeRows].sort(), ["database-state", "home-path"],
+    "a new pattern row must not spell a protected name: give it `names` and `digests` instead");
+  for (const signal of PUBLICATION_PRIVACY_SIGNALS.filter((row) => !("pattern" in row))) {
+    assert.ok(signal.digests.length > 0 && signal.digests.every((pin) => /^[0-9a-f]{64}$/u.test(pin.sha256) && Number.isSafeInteger(pin.length) && pin.length > 0),
+      `${signal.id} carries no SHA-256 digest with its name's length`);
+  }
+  const planted = { "home-path": `see ${HOME}private-user/work\n` };
   for (const [id, line] of Object.entries(planted)) {
     const dir = repoWith({ "src/notes.md": line });
     try {
@@ -407,6 +430,140 @@ test("each publication-privacy row is reported by its id; database state by file
   } finally {
     rmSync(nearMiss, { recursive: true, force: true });
   }
+});
+
+// ── NO TREE IS EXEMPT ───────────────────────────────────────────────────
+//
+// The scanner used to allowlist engine/test/, tests/ and bench/, so a test
+// could hold a real-format credential and GitHub's push protection raised an
+// alert on every push. Every credential a test needs is now assembled at
+// runtime; the planted ones below are found in every test tree, and the
+// runtime-assembled spellings (the catalogue fixture, a split literal, a
+// template hole, a regex with an empty group) are not credentials in source.
+test("a credential literal is a finding in every test tree; runtime-assembled ones are not", () => {
+  const token = signalFixture("token-prefix", 0);
+  const key = signalFixture("private-key", 0);
+  const planted = repoWith({
+    "engine/test/privacy/planted.test.ts": `const key = "${token}";\n`,
+    "tests/unit/planted.test.ts": `const block = \`${key}\`;\n`,
+    "bench/planted.ts": `const literal = /${token}/;\n`,
+  });
+  try {
+    const result = scan(planted);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /engine\/test\/privacy\/planted\.test\.ts:1: token-prefix: /);
+    assert.match(result.stderr, /tests\/unit\/planted\.test\.ts:1: private-key: /);
+    assert.match(result.stderr, /bench\/planted\.ts:1: token-prefix: /);
+  } finally {
+    rmSync(planted, { recursive: true, force: true });
+  }
+  const [head, tail] = [token.slice(0, 2), token.slice(2)];
+  const assembled = repoWith({
+    "engine/test/privacy/assembled.test.ts": [
+      'import { signalFixture } from "../../src/privacy/secret-signals.ts";',
+      'const fromCatalogue = signalFixture("token-prefix");',
+      `const split = ("${head}" + "${tail}");`,
+      `const hole = \`${head}\${""}${tail}\`;`,
+      `const pattern = /${head}(?:)${tail}/;`,
+    ].join("\n") + "\n",
+    "tests/unit/assembled.test.ts": `const value = ["${head}", "${tail}"].join("");\n`,
+  });
+  try {
+    const result = scan(assembled);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(assembled, { recursive: true, force: true });
+  }
+});
+
+test("a name row matches by digest: whole labels, any case, as a subdomain or a prefix; never inside a label", () => {
+  // Synthetic protected names (RFC 2606 `.invalid`), through the same matcher
+  // every privacy row runs through.
+  const pin = (name) => ({ length: name.length, sha256: createHash("sha256").update(name).digest("hex") });
+  const match = createPrivacyMatcher([
+    { id: "host", names: "dotted", digests: [pin("probe.internal.invalid")] },
+    { id: "other", names: "dotted", digests: [pin("other.example.invalid")] },
+    { id: "scratch", names: "scratch-path", digests: [pin("/tmp/probescratch")] },
+  ]);
+  for (const text of [
+    "remote: https://probe.internal.invalid/x.git",
+    "base: https://api.probe.internal.invalid/v1",
+    "PROBE.Internal.INVALID",
+    "probe.internal.invalid.example:443",
+    // A long dotted run stays linear (the scanner reads multi-megabyte lines).
+    `${"a.".repeat(200_000)}probe.internal.invalid`,
+  ]) assert.deepEqual(match(text), ["host"], text.slice(0, 60));
+  for (const text of ["xprobe.internal.invalid", "x-probe.internal.invalid", "probe.internal.invalidx", "probe-internal-invalid", "probe.internal", "probe..internal.invalid"]) {
+    assert.deepEqual(match(text), [], text);
+  }
+  // Several name rows in one text, judged in one cut, reported in row order.
+  assert.deepEqual(match("other.example.invalid then probe.internal.invalid in /tmp/probescratch/x"), ["host", "other", "scratch"]);
+  assert.deepEqual(match("scratch: /tmp/probescratch-2/run"), ["scratch"], "a word boundary ends the directory, as before");
+  assert.deepEqual(match("scratch: /tmp/probescratchx"), []);
+  assert.deepEqual(match("scratch: /var/tmp/other"), []);
+  // The scanner applies every privacy row through this matcher (one door).
+  assert.match(readFileSync(SCANNER, "utf8"), /publicationPrivacyFindings\(normalizedLine, "text"\)/u);
+});
+
+test("the privacy matcher's CPU work is bounded: one cut per text, only length-matching windows hashed", () => {
+  // CPU WORK, never wall time (process.cpuUsage, best of three): the matcher
+  // over lines dense with dotted names, against the irreducible cost of cutting
+  // the same lines into name runs once. The previous design (each name row
+  // re-cut the text and hashed every window) is planted and must break the
+  // same budget, so the bound is shown to see the regression it guards.
+  const pin = (name) => ({ length: name.length, sha256: createHash("sha256").update(name).digest("hex") });
+  const rows = [
+    { id: "a", names: "dotted", digests: [pin("probe.internal.invalid")] },
+    { id: "b", names: "dotted", digests: [pin("other.host.invalid")] },
+    { id: "c", names: "dotted", digests: [pin("state-dir.local-evidence.ex")] },
+    { id: "d", names: "scratch-path", digests: [pin("/tmp/probescrat")] },
+  ];
+  const match = createPrivacyMatcher(rows);
+  const lines = Array.from({ length: 20_000 }, (_, index) =>
+    `import { x${index} } from "./src/module-${index}.helpers.ts"; // https://docs.example.org/api/v1.2.${index}/index.html a.b.c.d.e.f.g.h /tmp/build${index}`);
+  const cpu = (work) => {
+    let best = Number.POSITIVE_INFINITY;
+    for (let round = 0; round < 3; round += 1) {
+      const start = process.cpuUsage();
+      work();
+      const used = process.cpuUsage(start);
+      best = Math.min(best, used.user + used.system);
+    }
+    return best;
+  };
+  const cut = cpu(() => {
+    for (const line of lines) for (const run of line.matchAll(/[A-Za-z0-9_.-]+/gu)) void run;
+  });
+  const BUDGET = 10;
+  const matcher = cpu(() => {
+    for (const line of lines) match(line);
+  });
+  assert.ok(matcher <= BUDGET * cut, `the privacy matcher used ${String(matcher)} µs CPU, over ${String(BUDGET)}× the ${String(cut)} µs cut`);
+  const perRow = (text) => {
+    const found = [];
+    for (const row of rows) {
+      const candidates = [];
+      if (row.names === "scratch-path") {
+        for (const hit of text.matchAll(/\/tmp\/\w+/gu)) candidates.push(hit[0]);
+      } else {
+        for (const hit of text.matchAll(/[A-Za-z0-9_.-]+/gu)) {
+          const labels = hit[0].split(".");
+          for (let first = 0; first < labels.length - 1; first += 1) {
+            for (let last = first + 2; last <= Math.min(labels.length, first + 6); last += 1) candidates.push(labels.slice(first, last).join("."));
+          }
+        }
+      }
+      for (const candidate of candidates) {
+        const digest = createHash("sha256").update(candidate.toLowerCase()).digest("hex");
+        if (row.digests.some((entry) => entry.sha256 === digest)) found.push(row.id);
+      }
+    }
+    return found;
+  };
+  const planted = cpu(() => {
+    for (const line of lines) perRow(line);
+  });
+  assert.ok(planted > BUDGET * cut, `the planted per-row design (${String(planted)} µs) did not break the budget: the bound sees nothing`);
 });
 
 /**
@@ -449,4 +606,35 @@ test("every required row is present, scanned over the tree, and projected to Git
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("a large JSON document costs the scanner about what its raw lines do: no per-value search of the whole text (#301)", () => {
+  // CPU WORK of the scanner child (procfs, the engine's one CPU reader), never
+  // wall time. The same document is scanned as valid JSON (raw lines plus the
+  // decoded-string pass, which any file that parses as JSON gets) and with one
+  // leading byte that stops it parsing (raw lines only); the decoded pass used
+  // to search the whole document once per string value (`lineOf`, which also
+  // split the prefix into lines), which made the JSON scan quadratic.
+  const values = Array.from({ length: 8_000 }, (_, index) => ({ id: `entry-${index}`, path: `docs/section-${index}/page.md`, note: `plain value ${index}` }));
+  const text = `${JSON.stringify(values, null, 1)}\n`;
+  const childCpu = (files) => {
+    const dir = repoWith(files);
+    try {
+      let best = Number.POSITIVE_INFINITY;
+      for (let round = 0; round < 2; round += 1) {
+        const before = readRunCpu();
+        const result = scan(dir);
+        const after = readRunCpu();
+        assert.equal(result.status, 0, result.stderr);
+        assert.ok(before !== null && after !== null, "this host cannot measure child CPU (no procfs)");
+        best = Math.min(best, after.childCpuMs - before.childCpuMs);
+      }
+      return best;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const asText = childCpu({ "data/values.txt": `#${text}` });
+  const asJson = childCpu({ "data/values.json": text });
+  assert.ok(asJson <= 2.5 * asText, `the JSON scan used ${String(asJson)} ms CPU against ${String(asText)} ms for the same bytes as text`);
 });

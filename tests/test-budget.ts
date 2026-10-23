@@ -1,13 +1,14 @@
 /**
- * THE TEST RUN'S TIME LIMITS — one owner, read by the vitest config AND by
- * the watchdog that wraps it (`scripts/run-tests.ts`).
+ * THE TEST RUN'S HANG BOUNDS — one owner, read by the vitest config AND by
+ * the watchdog that wraps it (`scripts/run-tests.ts`). Both end a HANG; neither
+ * judges how long a test takes, which is CPU work's question (NO-LOAD-BLOCK).
  *
  * ── WHY THERE ARE TWO NUMBERS AND NOT ONE ──────────────────────────────────
  *
  * They defend against different failures, and the second exists because the
  * first provably cannot cover its case.
  *
- * `TEST_TIMEOUT_MS` is vitest's own per-test limit. It works against an ASYNC
+ * `TEST_HANG_BACKSTOP_MS` is vitest's own per-test limit. It works against an ASYNC
  * hang: a promise that never settles, a timer that never fires, a request
  * with no response. The event loop is still turning, so the timer that kills
  * the test can actually run.
@@ -29,33 +30,40 @@
  * They corrupted every measurement taken that day.
  */
 
+import { readTestHangBackstopMs } from "./helpers/budget-config.ts";
+
 /**
- * Per-test and per-hook limit.
+ * Per-test and per-hook WALL bound: the HANG BACKSTOP, and nothing else.
  *
- * Generous on purpose. The slowest legitimate tests here mount Svelte
- * components in jsdom and walk the whole source tree; the point of this
- * number is to end a HANG, not to police slowness, and a tight value would
- * turn a loaded machine into a red suite. Slowness is the budget reporter's
- * job (`tests/reporters/budget-reporter.ts`), which ratchets against the
- * measured wall of the previous run.
+ * It ends a test that never settles (an async hang: a promise that never
+ * resolves, a timer that never fires). It does NOT police slowness: that is
+ * judged in CPU WORK, per test, by its file's class
+ * (`testExecution.testCpuClasses`, `tests/setup/test-cpu-class.ts`), because
+ * a busy host makes a test wait for a core, not do more work (NO-LOAD-BLOCK).
+ * It used to be a 30 s wall limit, and that limit was the judgement: on
+ * hosted runners `declared-pattern-liveness` hit it at 17-30 s of wall while
+ * other lanes' PRs went red for code they did not touch. The value is
+ * `testExecution.testHangBackstopMs`, below the stall watchdog's bound so a
+ * hung test is named before its run is killed.
  */
-export const TEST_TIMEOUT_MS = 30_000;
+export const TEST_HANG_BACKSTOP_MS = readTestHangBackstopMs();
+
+/** What a test holding one nested launch adds to {@link NESTED_RUNNER_LAUNCH_MS}: its own assertions and the fixture's writes. */
+export const NESTED_RUNNER_TEST_MARGIN_MS = 15_000;
 
 /**
  * ONE NESTED REAL-RUNNER LAUNCH's bound — a test that starts a whole vitest
  * run as its child (the isolation witness, `tests/helpers/vm-isolation-witness.ts`).
  *
- * MEASURED (2026-09-29, this 12-core host, the witness's first launch): 13.9 s
- * idle, 25.1 s at a 5-minute load of ~24, 30.5 s at 42-52. A bound equal to
- * {@link TEST_TIMEOUT_MS} left no headroom: the suite's own load pushed a
- * launch past it and the arm went red (a4-correctness N-2). The bound is
- * twice the worst launch measured; the test around a launch takes
- * {@link NESTED_RUNNER_TEST_MARGIN_MS} more, so the nested bound always fires
- * first and the failure carries the child's output, never a bare timeout.
+ * A HANG BACKSTOP like the test's own, and derived from it: a launch is hung
+ * only when the test holding it would be. It sits
+ * {@link NESTED_RUNNER_TEST_MARGIN_MS} below {@link TEST_HANG_BACKSTOP_MS},
+ * so the nested bound fires first and a hung launch's failure carries the
+ * child's output, never a bare timeout. (It was a 60 s wall bound, measured
+ * at 13.9 s idle and 30.5 s at a load of 42-52: the load, not the work, set
+ * it.)
  */
-export const NESTED_RUNNER_LAUNCH_MS = 60_000;
-/** What a test holding one nested launch adds to {@link NESTED_RUNNER_LAUNCH_MS}: its own assertions and the fixture's writes. */
-export const NESTED_RUNNER_TEST_MARGIN_MS = 15_000;
+export const NESTED_RUNNER_LAUNCH_MS = TEST_HANG_BACKSTOP_MS - NESTED_RUNNER_TEST_MARGIN_MS;
 
 /**
  * The watchdog's settings (`testExecution.webSuiteWatchdog` in
