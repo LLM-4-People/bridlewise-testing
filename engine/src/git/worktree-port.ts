@@ -10,8 +10,8 @@ import {
 import { resolveGitExecutable, withGitRuntime, type GitRuntime } from "./git-adapter.ts";
 import type { ConfigDocument } from "../kernel/config-contracts.ts";
 import { DEFAULT_GIT_RUNTIME_MAXIMUM_BYTES, worktreeOperationTimeouts } from "../workflow/workflow-config.ts";
-import { GIT_OBJECT_NAME, parsePushPorcelain, type GitIdentity, type PushedRef } from "./git-port.ts";
-import type { GitRepository } from "./tree-reader.ts";
+import { GIT_OBJECT_NAME, parsePushPorcelain, remoteTrackingPrefix, type GitIdentity, type PushedRef } from "./git-port.ts";
+import { rawDiffEntries, type GitRepository } from "./tree-reader.ts";
 import { COMMAND_ENVIRONMENT, GIT_NETWORK_ENVIRONMENT, projectEnvironment } from "../process/environment-projection.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 
@@ -606,7 +606,7 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
     const forced = refspec.startsWith("+");
     const [source, destination, extra] = (forced ? refspec.slice(1) : refspec).split(":");
     const fullRef = /^refs\/[A-Za-z0-9._/-]+$/u;
-    const fetchedInto = (ref: string): boolean => [`refs/remotes/${remote}/`, `${ROOT_POLICY.workflow.promotion.refNamespace}/`].some((prefix) => ref.startsWith(prefix) && ref.length > prefix.length);
+    const fetchedInto = (ref: string): boolean => [remoteTrackingPrefix(remote), `${ROOT_POLICY.workflow.promotion.refNamespace}/`].some((prefix) => ref.startsWith(prefix) && ref.length > prefix.length);
     const valid = extra === undefined && source !== undefined && destination !== undefined && fullRef.test(destination) && !destination.includes("..") && (kind === "push"
       ? !forced && (source === "" || GIT_OBJECT_NAME.test(source) || (fullRef.test(source) && !source.includes("..")))
       : fullRef.test(source) && !source.includes("..") && fetchedInto(destination));
@@ -813,14 +813,8 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
       assertAbsolutePath(repoRoot, "repoRoot");
       assertGitSha(fromSha, "fromSha");
       assertGitSha(toSha, "toSha");
-      // `--raw --no-abbrev -z`: `:<srcmode> <dstmode> <srcsha> <dstsha> <status>` then one path.
-      const fields = nulRecords(textOf("diff-tree --raw", repoRoot, ["diff-tree", "-r", "--raw", "--no-abbrev", "--no-renames", "--diff-filter=D", "-z", fromSha, toSha], timeoutMs));
-      const entries: DeletedBlobEntry[] = [];
-      for (let index = 0; index + 1 < fields.length; index += 2) {
-        const blob = fields[index]!.replace(/^:/u, "").split(" ")[2] ?? "";
-        if (GIT_OBJECT_NAME.test(blob)) entries.push(deepFreeze({ path: fields[index + 1]!, blob }));
-      }
-      return deepFreeze(entries);
+      const deleted = rawDiffEntries(nulRecords(textOf("diff-tree --raw", repoRoot, ["diff-tree", "-r", "--raw", "--no-abbrev", "--no-renames", "--diff-filter=D", "-z", fromSha, toSha], timeoutMs)));
+      return deepFreeze(deleted.filter((entry) => GIT_OBJECT_NAME.test(entry.srcOid)).map((entry) => deepFreeze({ path: entry.path, blob: entry.srcOid })));
     },
 
     isAncestor(repoRoot: string, ancestor: string, descendant: string, timeoutMs: number): boolean {

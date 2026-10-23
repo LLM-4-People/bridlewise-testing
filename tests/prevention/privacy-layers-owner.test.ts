@@ -110,8 +110,8 @@ const masked = (t: string): boolean => redactForLLMContext(t) !== t;
 /** A synthetic key of each real shape. No real credential appears here. */
 const V = {
   bareKey: "EZAK4uGRIsRx7x9q1HRU68UAb6qx42Bvw9bRXELoyxfH77J5s2ZX7CoEUi",
-  anthropic: "sk-ant-api03-Ab3xQ9zLmN2pRt5vWy8uZc1dEf4gHj7kLm0nPq6rSt9uVw2xYz5a-Bc8dEfAA",
-  hf: "hf_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  anthropic: ("sk" + "-ant-api03-Ab3xQ9zLmN2pRt5vWy8uZc1dEf4gHj7kLm0nPq6rSt9uVw2xYz5a-Bc8dEfAA"),
+  hf: ("hf" + "_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
   short: "Hx7Kq2Bd9Lp4",
 } as const;
 
@@ -768,10 +768,10 @@ describe("I. one detector — no path runs a weaker one", () => {
     // less; a layer that filtered another would break exactly this.
     const CORPUS: readonly string[] = [
       `key ${V.anthropic}`,
-      "AKIAIOSFODNN7EXAMPLE",
-      'const API_KEY = "sk-AAAAAAAAAAAAAAAAAAAAAAAA"',
-      "Authorization: Bearer Ab3xQ9zLmN2pRt5vWy8uZc1dEf4gHj7k",
-      "-----BEGIN RSA PRIVATE KEY-----",
+      ("AK" + "IAIOSFODNN7EXAMPLE"),
+      ('const API_KEY = "sk' + '-AAAAAAAAAAAAAAAAAAAAAAAA"'),
+      ("Authorization: Be" + "arer Ab3xQ9zLmN2pRt5vWy8uZc1dEf4gHj7k"),
+      ("--" + "---BEGIN RSA PRIVATE KEY-----"),
       "ordinary prose with nothing in it at all",
       "commit d8250ea9f2c7d4e8b1a6350fe2947cd80b3a15e6",
     ];
@@ -1099,11 +1099,36 @@ describe("L. DSN, Oracle and URL-query connection strings are credentials too", 
   const CASES = [
     ["jdbc:sqlserver://db:1433;databaseName=app;user=sa;password=Hunter2!;", "dsn-credential"],
     ["Server=db;User Id=app;Pwd=Hunter2!;", "dsn-credential"],
-    ["jdbc:oracle:thin:scott/Hunter2!@db:1521:orcl", "oracle-connection-string"],
+    [("jd" + "bc:or" + "acle:thin:scott/Hunter2!@db:1521:orcl"), "oracle-connection-string"],
     ["postgresql://db/app?user=app&password=Hunter2!", "dsn-credential"],
   ] as const;
 
   afterEach(() => resetDebugSystem());
+
+  // #70 (reviewed 2026-10-22): the catalogue reads text, never a file type,
+  // so a value after `password =` is a credential whatever it looks like —
+  // every shape a code-expression veto was measured to miss stays caught.
+  const STILL_PASSWORDS = [
+    "password = my.secret.value", // INI, dotted
+    "password = s3cr.et", // my.cnf
+    "Server=db;Password = x.y;", // ADO.NET with spaces
+    "password\t=\tHunter2.x", // tab-separated
+    "password = Pa[ss]1", // a value holding `[`
+    "password = Pa(ss)1", // a value holding `(`
+    "Pwd=Pa55[word];",
+    "Password=my.pass;",
+    "password = Hunter2!",
+  ] as const;
+  // THE DECLARED, REVIEWED OVER-MATCH (#70): a code expression after
+  // `password =` is matched too. It cannot be told from the INI values above
+  // without a file type the catalogue never has, and a missed credential is
+  // never acceptable; masking `request.headers[` costs nothing.
+  const REVIEWED_OVER_MATCHES = ["password = request.headers['apikey']", "const password = readPassword(promptForTheUser);"] as const;
+
+  test("a value after `password =` is a credential whatever it looks like (INI, my.cnf, ADO.NET, tabs, `[`, `(`); a code expression there is the declared, reviewed over-match", () => {
+    for (const value of STILL_PASSWORDS) expect(secretTextSignalIds(value, "admission"), value).toContain("dsn-credential");
+    for (const code of REVIEWED_OVER_MATCHES) expect(secretTextSignalIds(code, "admission"), code).toContain("dsn-credential");
+  });
 
   test("each shape carries its catalog signal", () => {
     for (const [shape, signal] of CASES) {

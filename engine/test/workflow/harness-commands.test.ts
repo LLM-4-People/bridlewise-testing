@@ -13,6 +13,8 @@ import {
   runBundleBuildStep,
   syncPassVerdict,
   regenerateReadmeConsumers,
+  regenerateWebBudgetPopulation,
+  webBudgetPopulationStep,
   harnessNewModule,
   runArchitectureCheck,
   runInventoryCheck,
@@ -37,7 +39,7 @@ import { createTempDir } from "../support/temp-dir.ts";
 import { relaxSafeReadFloorForThisFile } from "../support/test-env-helpers.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import { ROOT_POLICY as ROOT_POLICY_AT_LOAD } from "../../src/kernel/root-policy.ts";
-import { README_CONSUMER_BLOCK, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+import { README_CONSUMER_BLOCK, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../../src/kernel/verification-paths.ts";
 import {
   createRepositoryWorkingCopy,
   engineGeneratorPopulation,
@@ -165,6 +167,13 @@ test("M1: harnessCheck judges dead registry commands over the checkout's promoti
   assert.match(result.result.deadCommands.message, /every registry command is run by a workspace phase or a promotion profile/u, "this checkout declares its profiles, so the step judges");
 });
 
+test("#221: harnessCheck judges the bundle against a rebuild of the source (no committed digest)", async () => {
+  const result = await checkSkipAll();
+  assert.equal(result.result.bundle.step, "bundle");
+  assert.ok(["pass", "fail"].includes(result.result.bundle.status));
+  assert.match(result.result.bundle.message, /dist\/bundle\.js/u);
+});
+
 test("HarnessCommands: harnessCheck result is frozen", async () => {
   const result = await checkSkipAll();
   assert.ok(Object.isFrozen(result));
@@ -268,6 +277,59 @@ test("HarnessCommands: the README consumer arm drives the generator — a check 
     assert.match(readFileSync(readme, "utf8"), /`provider\.ts` is consumed by `engine\/src\/feature\/user\.ts`/u);
     assert.match(readFileSync(sharedReadme, "utf8"), /`lib\.ts` is consumed by `engine\/src\/feature\/shared-user\.ts`/u);
     assert.deepEqual(regenerateReadmeConsumers(engineRoot, false), { status: "current", converged: true, readmes: 2, changed: [] });
+  } finally {
+    rmSync(repository, { recursive: true, force: true });
+  }
+});
+
+test("HarnessCommands: the web budget population arm — check refuses a stale count by name, sync writes the derived count, then check passes", () => {
+  // The WIRING, with a stand-in generator at the arm's own path speaking the
+  // one protocol: the real derivation is proved beside its owner
+  // (tests/prevention/web-ui-runtime-budget-verdict.test.ts). The stand-in
+  // derives 536, holds 535 in a file, and writes only when asked with --write.
+  const repository = createTempDir("web-budget-population-arm-");
+  try {
+    const engineRoot = join(repository, "engine");
+    mkdirSync(engineRoot, { recursive: true });
+    const generator = join(repository, WEB_BUDGET_POPULATION.generator);
+    mkdirSync(join(generator, ".."), { recursive: true });
+    const count = join(repository, "population.txt");
+    writeFileSync(count, "535");
+    writeFileSync(generator, [
+      'import { readFileSync, writeFileSync } from "node:fs";',
+      `const file = ${JSON.stringify(count)};`,
+      "const live = 536;",
+      'if (!process.argv.includes("--population")) { process.stdout.write("{}\\n"); process.exit(2); }',
+      'const write = process.argv.includes("--write");',
+      'const declared = Number(readFileSync(file, "utf8"));',
+      'let out;',
+      'if (declared === live) out = { allCurrent: true, status: "current", changed: [] };',
+      'else if (write) { writeFileSync(file, String(live)); out = { allCurrent: true, status: "regenerated", changed: ["engine/bridlewise.config.json"] }; }',
+      'else out = { allCurrent: false, status: "stale", changed: ["engine/bridlewise.config.json"] };',
+      'process.stdout.write(JSON.stringify(out) + "\\n");',
+      "process.exitCode = out.allCurrent ? 0 : 1;",
+      "",
+    ].join("\n"));
+    execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
+
+    // A stale count: the check step FAILS, naming the population, and writes nothing.
+    const stale = regenerateWebBudgetPopulation(engineRoot, false);
+    assert.deepEqual([stale.status, stale.converged, stale.changed], ["stale", false, ["engine/bridlewise.config.json"]]);
+    const step = webBudgetPopulationStep(stale);
+    assert.equal(step.step, "web-budget-population");
+    assert.equal(step.status, "fail");
+    assert.match(step.message, /population differs from the live supported test files \(run harness sync\)/u);
+    assert.equal(readFileSync(count, "utf8"), "535", "a check wrote the count");
+    // Sync: the derived count is written, and the step passes after it.
+    const written = regenerateWebBudgetPopulation(engineRoot, true);
+    assert.deepEqual([written.status, written.converged], ["regenerated", true]);
+    assert.equal(readFileSync(count, "utf8"), "536", "sync did not write the derived count");
+    const current = regenerateWebBudgetPopulation(engineRoot, false);
+    assert.deepEqual(current, { status: "current", converged: true, changed: [] });
+    assert.equal(webBudgetPopulationStep(current).status, "pass");
+    // No generator in the tree (a product-only tree): converged by absence.
+    rmSync(generator);
+    assert.deepEqual(regenerateWebBudgetPopulation(engineRoot, false), { status: "absent", converged: true, changed: [] });
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }
@@ -465,30 +527,22 @@ test("HarnessCommands: harnessCheck inventory step checks inventory hash", async
   assert.ok(["pass", "fail", "skip"].includes(result.result.inventory.status));
 });
 
-test("HarnessCommands: the inventory check asks the owning generator — an emptied inventory with its hash preserved is refused", () => {
+test("HarnessCommands: the inventory check judges the tree, not its cache — the cache is the owner's to rewrite (#221)", () => {
   const copy = createRepositoryWorkingCopy("inventory-owner-check-", { include: engineGeneratorPopulation });
   const engine = copy.engineRoot;
   try {
     const inventoryPath = join(engine, VERIFICATION_PATHS.testInventory);
-    const original = readFileSync(inventoryPath, "utf8");
-    const parsed = JSON.parse(original) as { inventoryHash: string; tests: unknown[] };
-    assert.ok(parsed.tests.length > 0, "the fixture inventory must carry tests for the emptied arm to mean anything");
-    // The copy starts from whatever the checked-in inventory says; converge it
-    // through its owner first, so this test is about the emptied arm and not
-    // about the checkout's own freshness.
+    // The inventory is not committed: a fresh copy has none until its owner writes it.
+    assert.equal(existsSync(inventoryPath), false, "the copy carries no committed inventory");
+    assert.equal(runInventoryCheck(engine).status, "pass", "an absent cache is no drift of the tree");
     execFileSync(process.execPath, [join(engine, "scripts", "test-inventory.ts"), "--write"], { cwd: engine, stdio: "pipe" });
-    assert.equal(runInventoryCheck(engine).status, "pass", "the copy's own inventory is current after its generator ran");
-    // THE DEFECT'S EXACT SHAPE: empty the entries, keep the self-declared hash.
-    // The old step compared that hash with the root-policy pin — the same value
-    // — and passed. The owner refuses an inventory with no entries.
-    writeFileSync(inventoryPath, `${JSON.stringify({ ...parsed, tests: [] })}\n`);
-    const refused = runInventoryCheck(engine);
-    assert.equal(refused.status, "fail", "an emptied inventory must be refused by the commit gate");
-    assert.match(refused.message, /test inventory|Too small|invalid/iu, `the refusal names the owner's reason: ${refused.message}`);
-    // A malformed entry is refused too, not just the empty array.
-    writeFileSync(inventoryPath, `${JSON.stringify({ ...parsed, tests: [{ bogus: true }] })}\n`);
-    assert.equal(runInventoryCheck(engine).status, "fail", "a malformed entry is refused by the owner");
-    writeFileSync(inventoryPath, original);
+    const written = JSON.parse(readFileSync(inventoryPath, "utf8")) as { tests: unknown[] };
+    assert.ok(written.tests.length > 0, "the owner writes the tree's inventory");
+    // An emptied cache is no drift of the tree either, and the owner restores it on its next write.
+    writeFileSync(inventoryPath, `${JSON.stringify({ ...written, tests: [] })}\n`);
+    assert.equal(runInventoryCheck(engine).status, "pass");
+    execFileSync(process.execPath, [join(engine, "scripts", "test-inventory.ts"), "--write"], { cwd: engine, stdio: "pipe" });
+    assert.equal((JSON.parse(readFileSync(inventoryPath, "utf8")) as { tests: unknown[] }).tests.length, written.tests.length, "the owner rewrote the cache");
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
   }
@@ -1113,9 +1167,8 @@ test("HarnessCommands: harnessSync result is frozen with a valid integrity hash"
 
 // ---------------------------------------------------------------------------
 // harness sync --with-bundle: the one-shot command that rebuilds the
-// production bundle THEN re-pins the hash bindings in a single pass. This
-// eliminates the bundle/regenerate chicken-and-egg that required two sync
-// rounds to stabilize manifest hash drift after a config/root-policy edit.
+// production bundle from the stabilized pins and re-derives what the build
+// wrote, in a single pass (no digest of the bundle is committed, #221).
 //
 // The bundle-build step is verified STRUCTURALLY (the step type + the
 // runBundleBuildStep export + the CLI flag parsing) rather than by running the
@@ -1324,7 +1377,8 @@ test("HarnessCommands: the check's generated-block steps FAIL on drift and name 
   assert.equal(trackerBoardStep({ status: "absent", converged: true, changed: [], problems: [] }).status, "pass");
   const result = await checkSkipAll();
   assert.equal(result.result.trackerBoard.step, "tracker-board", "the task-board step is wired into harnessCheck");
-  for (const step of [result.result.evidenceIgnore, result.result.frozenRecords, result.result.trackerBoard]) {
+  assert.equal(result.result.forgeFiles.step, "forge-files", "the forge-files step is wired into harnessCheck");
+  for (const step of [result.result.evidenceIgnore, result.result.forgeFiles, result.result.frozenRecords, result.result.trackerBoard]) {
     assert.equal(step.status, "pass", `${step.step} passes on this synced tree: ${step.message}`);
   }
   assert.equal(result.result.allPassed, Object.values(result.result).every((step) => typeof step !== "object" || step === null || !("status" in step) || step.status !== "fail"), "allPassed is every step");

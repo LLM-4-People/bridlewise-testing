@@ -159,7 +159,7 @@ describe("a real database under test", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout.trim().split("\n").at(-1)!)).toEqual([REAL_DATABASE_UNDER_TEST_CODE, REAL_DATABASE_UNDER_TEST_CODE]);
     expect(readFileSync(path).equals(before), "nothing was migrated or stamped").toBe(true);
-  }, 60_000);
+  });
 
   test("a browser suite refuses a server that serves a real database, or that does not say", () => {
     expect(realServerRefusal({ status: "ok", database: "product" }, "http://127.0.0.1:5174")).toMatch(/serves a REAL database/u);

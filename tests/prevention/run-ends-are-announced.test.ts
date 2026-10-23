@@ -443,7 +443,7 @@ beforeAll(async () => {
   projectId = project.id;
   chatId = chat.id;
   ownerUserId = user.userId;
-}, 60_000);
+});
 
 afterAll(async () => {
   const { releaseAllRunFeeds } = await import("../../server/run/run-feed.ts");
@@ -673,7 +673,6 @@ describe("a run that stops publishes a terminal frame, on every path", () => {
       expect(terminals.length).toBe(1);
       expect(terminals[0]!.event).toBe("cancelled");
     },
-    40_000,
   );
 
   test(
@@ -712,7 +711,6 @@ describe("a run that stops publishes a terminal frame, on every path", () => {
       );
       for (const f of trailing) expect(f.id).toBeLessThan(terminals[0]!.id!);
     },
-    40_000,
   );
 
   test("the terminal vocabulary is one owner, and it is what the feed demands", async () => {
@@ -780,7 +778,6 @@ describe("no tool call outlives its run — the SERVER half", () => {
       // a result.
       expect(after!.output, "no synthesised sentence may sit where a tool result belongs").toBeNull();
     },
-    40_000,
   );
 });
 
@@ -841,7 +838,6 @@ describe("a run whose frames were evicted still has its tool results in the read
       expect(servedRow!.status).toBe("error");
       expect(String(servedRow!.output ?? "")).toMatch(/file_not_found|no longer exists/i);
     },
-    40_000,
   );
 });
 
@@ -896,7 +892,6 @@ describe("the safety-findings frame carries each finding's own ledger address (t
         ).toBe(true);
       }
     },
-    40_000,
   );
 });
 
@@ -978,7 +973,6 @@ describe("a gate-repaired artifact call records what RAN, end to end", () => {
         "the reloaded view renders the artifact from THIS row — it must carry the merged whole",
       ).toEqual(MERGE_WHOLE);
     },
-    40_000,
   );
 });
 
@@ -1061,7 +1055,6 @@ describe("the run's ending carries the gate auto-trip revert it performed", () =
         "a run that reverted nothing must not announce a revert",
       ).toBe(false);
     },
-    60_000,
   );
 });
 
@@ -1145,7 +1138,6 @@ describe("a run whose last call failed ends by saying so", () => {
         "the ending's message is the failure's own record — the same words the error row holds",
       ).toBe(errorRows[0]!.content);
     },
-    40_000,
   );
 
   test(
@@ -1211,7 +1203,6 @@ describe("a run whose last call failed ends by saying so", () => {
         "a run that continued past a failure and finished ends `done` — the ending names the last call's fate, never an earlier call's",
       ).toBe("done");
     },
-    40_000,
   );
 });
 
@@ -1257,7 +1248,7 @@ test.each([false, true])("policy refusal stops queued continuation and permits a
     expect(providerBranches.slice(before)).toEqual(native ? ["policy", "policy-edit", "fast"] : ["policy", "fast"]);
     expect(readFileSync(join(projectRoot, policyEditArgs.path), "utf8")).toBe(native ? policyEditArgs.newString : policyEditArgs.oldString);
   } finally { clearTimeout(watchdog); released.resolve(); policyBarrier = undefined; chatId = db.createChat({ project_id: projectId, title: "unrelated after policy" }, ownerUserId).id; }
-}, 40_000);
+});
 
 test.each([false, true])("observed policy closes steering before persistence and survives an explicit cancellation record (cancel=%s)", async (cancel) => {
   chatId = db.createChat({ project_id: projectId, title: "policy persistence scenario" }, ownerUserId).id;
@@ -1280,7 +1271,7 @@ test.each([false, true])("observed policy closes steering before persistence and
     expect(ending).toHaveLength(1); expect(ending[0]!.event).toBe(cancel ? "cancelled" : "error");
     if (!cancel) expect(JSON.parse(ending[0]!.data).code).toBe("llm_misalignment_policy_violation");
   } finally { clearTimeout(timer); released.resolve(); if (heldRunId) await runToCompletion(heldRunId); policyPersistence = undefined; policyBarrier = undefined; chatId = db.createChat({ project_id: projectId, title: "unrelated after policy persistence" }, ownerUserId).id; }
-}, 40_000);
+});
 
 // ── 3. A refused start leaves nothing behind ──────────────────────────────
 
@@ -1333,7 +1324,6 @@ describe("a start refused at the door leaves no feed and no registry entry", () 
       expect(corpse.status).toBe(404);
       expect(corpse.frames.length).toBe(0);
     },
-    40_000,
   );
 });
 
@@ -1467,7 +1457,6 @@ describe("a run that dies in the executor's setup window ends by its own termina
         failSetupRead = null;
       }
     },
-    40_000,
   );
 
   test(
@@ -1529,7 +1518,6 @@ describe("a run that dies in the executor's setup window ends by its own termina
         failSetupRead = null;
       }
     },
-    40_000,
   );
 });
 
@@ -1572,7 +1560,6 @@ describe("a replay that cannot be continuous says so", () => {
       expect(payload.resumedFrom).toBe(1);
       expect(payload.reason).toBe("frames_dropped");
     },
-    40_000,
   );
 
   test(
@@ -1605,7 +1592,6 @@ describe("a replay that cannot be continuous says so", () => {
       );
       expect(atEnd.frames.some((f) => f.event === "replay_gap")).toBe(false);
     },
-    40_000,
   );
 });
 
@@ -1631,7 +1617,6 @@ describe("Last-Event-ID is read by the grammar this server writes", () => {
         expect(body.error).toBe("invalid_resume_point");
       }
     },
-    40_000,
   );
 
   test("an absent or empty header is not a refusal — it is the ordinary first connection", async () => {
@@ -1817,7 +1802,7 @@ describe("the retention window has a floor tied to what it must outlast", () => 
     const text = await res.text();
     const { serverConfig } = await import("../../server/kernel/config.ts");
     expect(text).toContain(`retry: ${String(serverConfig.runStreamRetryMs)}`);
-  }, 40_000);
+  });
 });
 
 // ── 8. The provider was really driven ─────────────────────────────────────
@@ -1885,7 +1870,7 @@ test("canonical policy stop survives projection failure, rewind, trash, copied h
     const independent = await startRun("unrelated ordinary context"); expect(independent.runId).not.toBe(""); await runToCompletion(independent.runId);
     expect(providerBranches.slice(before)).toEqual(["policy", "fast"]);
   } finally { failPolicyProjection = false; policyBarrier = undefined; chatId = db.createChat({ project_id: projectId, title: "after durable policy" }, ownerUserId).id; }
-}, 40_000);
+});
 
 test("reserved policy admission sees a stop appended while its run mapping was awaited", async () => {
   chatId = db.createChat({ project_id: projectId, title: "policy reservation race" }, ownerUserId).id;
@@ -1905,7 +1890,7 @@ test("reserved policy admission sees a stop appended while its run mapping was a
     expect(result.runId).toBe(""); expect(result.refusalCode).toBe("llm_misalignment_policy_violation");
     expect(activeRunForChat(chatId, ownerUserId)).toBeUndefined(); expect(providerBranches.slice(before)).toEqual([]);
   } finally { clearTimeout(timer); release.resolve(); await pending; mappingObserver = undefined; chatId = db.createChat({ project_id: projectId, title: "after policy race" }, ownerUserId).id; }
-}, 40_000);
+});
 
 test("a steer admitted before policy cannot queue after its message persistence completes", async () => {
   chatId = db.createChat({ project_id: projectId, title: "policy steer race" }, ownerUserId).id;
@@ -1921,7 +1906,7 @@ test("a steer admitted before policy cannot queue after its message persistence 
     const steered = await pending; expect(steered.queued).toBeNull(); expect(steered.refusalCode).toBe("llm_misalignment_policy_violation");
     expect(providerBranches.slice(before)).toEqual(["policy"]);
   } finally { clearTimeout(timer); providerRelease.resolve(); release.resolve(); await pending; if (heldRunId) await runToCompletion(heldRunId); policyBarrier = undefined; steerPersistence = undefined; chatId = db.createChat({ project_id: projectId, title: "after steer race" }, ownerUserId).id; }
-}, 40_000);
+});
 
 test("a cancellation before forwarding an actual native policy error retains the durable stop", async () => {
   const { SharedLLMClient } = await import("../../engine/src/shared/llm/client.ts");
@@ -1949,4 +1934,4 @@ test("a cancellation before forwarding an actual native policy error retains the
     const refused = await startRun("operator review is not authority"); expect(refused.refusalCode).toBe("llm_misalignment_policy_violation"); expect(refused.runId).toBe("");
     expect(providerBranches.slice(before)).toEqual(["policy"]); expect(db.listToolCallsByChat(chatId, ownerUserId)).toHaveLength(0);
   } finally { clearTimeout(timer); release.resolve(); if (runId) await runToCompletion(runId); spy.mockRestore(); policyBarrier = undefined; chatId = db.createChat({ project_id: projectId, title: "after delivery cancel" }, ownerUserId).id; }
-}, 30_000);
+});

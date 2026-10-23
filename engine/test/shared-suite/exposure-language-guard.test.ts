@@ -519,10 +519,6 @@ const VERIFIED_NON_IMMEDIATE: ReadonlyMap<string, string> = new Map([
     "engine/src/workflow/test-result-collector.ts resolves the testExecution section from the pinned config document once per runner invocation (readTestExecutionConfig :318-353) and threads fullSuiteParallelConcurrency into the full suite's parallel phase lane count (:330-331), so the honest timing is next-run; engine/test/workflow/test-execution-config.test.ts drives the real harness-test door consuming the section",
   ],
   [
-    "harnessCommands.typecheckTimeoutMs",
-    "engine/src/workflow/harness-commands.ts resolves harness.typecheckTimeoutMs from the pinned config document once per command invocation (resolveTypecheckTimeoutMs :60-65, a fresh process per run) and bounds the typecheck subprocess with it (:1365), so the honest timing is next-run; engine/test/workflow/harness-commands-timeouts.test.ts proves resolveTypecheckTimeoutMs returns the configured value from the pinned file",
-  ],
-  [
     "harnessCommands.lockTimeoutMs",
     "engine/src/workflow/harness-commands.ts resolves the resourceLock section from the pinned config document once per command invocation (resolveLockOptions :1305-1312, a fresh process per run) and hands timeoutMs to the shared lock the harness-test door holds (:527), so the honest timing is next-run; engine/test/workflow/resource-lock.test.ts proves the lock machinery consumes its acquire options",
   ],
@@ -541,6 +537,26 @@ const VERIFIED_NON_IMMEDIATE: ReadonlyMap<string, string> = new Map([
   [
     "harnessCommands.commandRetryBackoffMs",
     "engine/src/workflow/workflow-config.ts commandRetryPolicy resolves harness.commandRetryBackoffMs from the pinned config document once per command invocation, and configuredCheckoutCommandRunner hands it to the ONE runner (runCheckoutCommand, src/workflow/checkout-setup.ts) as the first wait, doubled per retry, for every consumer (workspace, candidate checkout, promotion), so the honest timing is next-run; engine/test/workflow/working-copy.test.ts and engine/test/workflow/promotion/transforms.test.ts prove the doubling waits",
+  ],
+  [
+    "release.train",
+    "engine/src/workflow/promotion/release-cli.ts resolves the promotion.release section from the pinned config document once per command invocation (releaseVerb: resolveRepositoryContext reads the pinned snapshot; `harness release` is a fresh process on every land) and hands it to planRelease (release-train.ts), which reads the train mode (manual waits for --manual, approval sets the approval flag), so the honest timing is next-run; engine/test/workflow/promotion/release.test.ts drives the real release door with the section and proves the plan consumes it",
+  ],
+  [
+    "release.minIntervalHours",
+    "engine/src/workflow/promotion/release-cli.ts resolves the promotion.release section from the pinned config document once per command invocation (releaseVerb: resolveRepositoryContext reads the pinned snapshot; `harness release` is a fresh process on every land) and hands it to planRelease (release-train.ts), which reads minIntervalHours (the interval reason), so the honest timing is next-run; engine/test/workflow/promotion/release.test.ts drives the real release door with the section and proves the plan consumes it",
+  ],
+  [
+    "release.profile",
+    "engine/src/workflow/promotion/release-cli.ts resolves the promotion.release section from the pinned config document once per command invocation (releaseVerb: resolveRepositoryContext reads the pinned snapshot; `harness release` is a fresh process on every land) and hands it to planRelease (release-train.ts), which reads profile (the product ref is that profile's target), so the honest timing is next-run; engine/test/workflow/promotion/release.test.ts drives the real release door with the section and proves the plan consumes it",
+  ],
+  [
+    "release.tagPrefix",
+    "engine/src/workflow/promotion/release-cli.ts resolves the promotion.release section from the pinned config document once per command invocation (releaseVerb: resolveRepositoryContext reads the pinned snapshot; `harness release` is a fresh process on every land) and hands it to planRelease (release-train.ts), which reads tagPrefix (the release tag and the previous release's tags), so the honest timing is next-run; engine/test/workflow/promotion/release.test.ts drives the real release door with the section and proves the plan consumes it",
+  ],
+  [
+    "release.discussionCategory",
+    "engine/src/workflow/promotion/release-cli.ts resolves the promotion.release section from the pinned config document once per command invocation (releaseVerb: resolveRepositoryContext reads the pinned snapshot; `harness release` is a fresh process on every land) and hands it to planRelease (release-train.ts), which reads discussionCategory (the plan names the announcement's category), so the honest timing is next-run; engine/test/workflow/promotion/release.test.ts drives the real release door with the section and proves the plan consumes it",
   ],
   [
     "harnessCommands.identityAttestationTimeoutMs",
@@ -630,14 +646,30 @@ test("enrichment sweep: every declared measuredBy resolves to a same-module regi
  * belonged to: a declaration that tells a generic renderer to format a value
  * as something it is not. Two mechanical rules over every registered signal.
  */
+/**
+ * Prose that names a point in time: "epoch", "instant", or "at" as a
+ * preposition of time. "At least" and "at most" are quantities, not instants:
+ * "not measured until at least one call is recorded" describes a duration's
+ * availability, and reading it as an instant misdeclared two correct timers.
+ */
+const DESCRIBES_AN_INSTANT = /epoch|instant|\bat\b(?!\s+(?:least|most)\b)/iu;
+
+test("the instant reading: a preposition of time is an instant; 'at least' and 'at most' are not", () => {
+  for (const instant of ["The epoch ms of the last edit.", "The instant the turn began.", "When the run started, at the wall clock."]) {
+    assert.ok(DESCRIBES_AN_INSTANT.test(instant), instant);
+  }
+  for (const quantity of ["Not measured until at least one call is recorded.", "Kept for at most an hour.", "The median duration of every call."]) {
+    assert.ok(!DESCRIBES_AN_INSTANT.test(quantity), quantity);
+  }
+});
+
 test("misdeclaration sweep: an epoch instant is typed `timestamp`, never a duration `timer`", () => {
   resetAllRegistrations();
   registerAllExposure();
   try {
     const misdeclared: string[] = [];
     for (const signal of listSignals()) {
-      const describesAnInstant =
-        /epoch|instant|\bat\b/i.test(signal.description) || /At$|lastUpdate$/.test(signal.id);
+      const describesAnInstant = DESCRIBES_AN_INSTANT.test(signal.description) || /At$|lastUpdate$/.test(signal.id);
       if (describesAnInstant && signal.type === "timer") {
         misdeclared.push(
           `${signal.id}: describes an instant but is typed "timer" — a renderer will format it as a duration`,

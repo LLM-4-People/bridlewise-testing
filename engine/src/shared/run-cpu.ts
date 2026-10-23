@@ -64,6 +64,7 @@
 import { spawnSync } from "node:child_process";
 
 import { parseStatLine, procfsDocument, STAT_FIELD } from "../process/process-facts.ts";
+import { DEFAULT_CPU_CALIBRATION_TIMEOUT_MS } from "../workflow/workflow-config.ts";
 
 /** The first field number that follows the parenthesised executable name (`proc(5)`, 1-based). */
 const FIRST_FIELD_AFTER_COMM = 3;
@@ -186,9 +187,6 @@ const CALIBRATION_CHUNKS = 6;
 /** Int32 words the calibration walks (256 KiB — the L2-sized profile). */
 const CALIBRATION_ARRAY_WORDS = 1 << 16;
 
-/** How long a calibration child may take before its reading is absent. */
-const CALIBRATION_TIMEOUT_MS = 120_000;
-
 /**
  * The benchmark a calibration child runs. Kept as source rather than a
  * separate module: the child is spawned with `--no-opt`, and a file import
@@ -243,7 +241,7 @@ export interface CalibrationReading {
  * A reading with fewer than three chunks, any non-finite/non-positive chunk,
  * or a non-positive median is ABSENT — never a zero.
  */
-export function parseCalibrationOutput(stdout: string): CalibrationReading | null {
+function parseCalibrationOutput(stdout: string): CalibrationReading | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stdout);
@@ -283,7 +281,7 @@ export function measureCalibration(
       BW_CAL_WORDS: String(CALIBRATION_ARRAY_WORDS),
     },
     encoding: "utf8",
-    timeout: CALIBRATION_TIMEOUT_MS,
+    timeout: DEFAULT_CPU_CALIBRATION_TIMEOUT_MS,
     maxBuffer: 1 << 20,
   });
   if (result.error !== undefined || result.status !== 0) return null;

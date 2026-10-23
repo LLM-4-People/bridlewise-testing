@@ -289,10 +289,6 @@ export const DECLARED_ROOT: Readonly<Record<string, RootDeclaration>> = {
     class: "proof",
     because: "The public CI, CodeQL, secret scan, Pages, and failure-reporting workflows.",
   },
-  ".gitleaks.toml": {
-    class: "proof",
-    because: "The secret-scanning configuration used by the public gate.",
-  },
   ".node-version": {
     because: "The runtime pin read by version managers and CI setup.",
   },
@@ -321,8 +317,7 @@ export const DECLARED_ROOT: Readonly<Record<string, RootDeclaration>> = {
     because: "The AGPL-3.0-only licence text; it ships with the product.",
   },
   "Makefile": {
-    class: "proof",
-    because: "The guardian build and test entry points used by the public gate.",
+    because: "The build recipe. The product's is derived from it by the profile's makefile transform, keeping the rules a product checkout runs.",
   },
   "NOTICE": {
     because: "The public attribution notice.",

@@ -1,0 +1,14 @@
+# publish
+
+The publisher App's work on the forge (`app-registry.ts` names this folder as its owner): the product branch first, and later the releases, the projection, Pages and the ledger. Every request goes through the forge port (`../port.ts`, the one GitHub client), as the publisher App; nothing here retries or waits, so a budget or a failure reaches the caller as the forge's typed refusal.
+
+## What each file does
+
+- `product.ts` — the product publication (decision PROMO-GH). `publishProduct` takes a promotion commit (its trailers must name its source and profile, and its parents must be [the product tip, the source]), refuses when the forge's product branch moved since the build, re-makes the commit with parents `[T, S]` through the one `remakeCommit` over the one GitHub adapter of the Git Data port (`githubWorkspaceForge`, `../../workspace-forge-github.ts`), moves the branch forward only by compare-and-swap from T (`forwardOnly`), and reads it back. It answers the projection receipt (`bridlewise-product-projection/v1`): the published commit, the built commit, the tree, the source, the profile and the head it landed on. `forgePublishVerb` publishes a commit and writes the receipt's canonical bytes (`receiptBytes`) for the job to attest. `configuredProductForge` is the configured forge as the publisher App; it reads the installation token the job mints. The verb `harness promote forge-publish` (`promotion/context.ts`: `promotionForgePublish`, `forgePublishWith`) is what calls it. It drops any pending commit, so nothing built elsewhere is ever carried, and BUILDS the promotion itself. It then checks the built commit against the projection recomputed from S alone (`verifyBuiltProjection`). That check matches the profile and source trailers, then compares the built tree with `recomputeProjection` in `promotion/apply.ts`: the plan's tree P settled by the profile's own phases in a fresh candidate. The two trees must be equal, and no path is special. Only then does the verb publish.
+
+## The publish job (in GH-2's generated `publish.yml`, environment `publish`, on every land; the generator lands with #67)
+
+1. Check out `main` at the landed commit with `fetch-depth: 0`, fetch `product`, install both dependency trees, and set the config mode.
+2. Mint the publisher App's installation token from the `publish` environment's `PUBLISHER_APP_KEY` and `PUBLISHER_APP_CLIENT_ID`, exported as `BRIDLEWISE_PUBLISHER_TOKEN`.
+3. Build, check and publish: `harness promote forge-publish --source HEAD --out projection-receipt.json`. The first promotion onto the seeded product adds `--accept-target-edits <the plan's exact list> --allow-deletions --reason <text>`.
+4. Attest `projection-receipt.json` (`actions/attest`, the receipt as the subject).

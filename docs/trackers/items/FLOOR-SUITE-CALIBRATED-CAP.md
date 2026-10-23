@@ -1,10 +1,12 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-SUITE-CALIBRATED-CAP
 type: Task
 title: Bring the supported suite under the calibrated-work cap
 state: open
 lane: floor
+blocked-by: [RISK-NO-CALIBRATED-JUDGED-RUN]
 opened: 2026-10-20
 ---
 

@@ -13,7 +13,7 @@ import { canonicalHash, canonicalJson, sha256 } from "../../src/kernel/integrity
 import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { createCanonicalNodeTestInventoryFixture } from "../support/test-inventory-fixture.ts";
-import { makeRuntimeCandidate, createOwnedTemporaryDirectory, removeOwnedTemporaryDirectories, appendCandidateSource, mutateTextExact, registeredOpenArchitectureDiagnostics, isMovingProjectionDiagnostic, isUnavailableCapabilityDiagnostic, isPendingArchitectureRefactor, REPOSITORY_ROOT } from "../support/s1-scenario-shared.ts";
+import { makeRuntimeCandidate, createOwnedTemporaryDirectory, removeOwnedTemporaryDirectories, appendCandidateSource, registeredOpenArchitectureDiagnostics, isMovingProjectionDiagnostic, isUnavailableCapabilityDiagnostic, isPendingArchitectureRefactor, REPOSITORY_ROOT } from "../support/s1-scenario-shared.ts";
 import { journalPathFor } from "../../src/filesystem/journaled-commit.ts";
 
 const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
@@ -396,7 +396,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       Buffer.from([0xff, 0x00, 0xfe]));
     const cacheSafeManifest = buildArtifactAdmissionManifest({
       root: admissionRoot,
-      generatedAt: "2026-07-12T10:30:33Z",
     });
     assert.deepEqual(cacheSafeManifest.entries.map((entry) => entry.path), [
       "docs/research/retained.md",
@@ -415,7 +414,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     }
     const pendingReviewManifest = buildArtifactAdmissionManifest({
       root: admissionRoot,
-      generatedAt: "2026-07-12T10:30:33Z",
     });
     assert.ok(pendingReviewManifest.entries.filter((entry) =>
       entry.path.startsWith(reviewPolicy.governedPrefix)).every((entry) =>
@@ -426,7 +424,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     writeFileSync(join(admissionRoot, finalReviewPath), `${finalReviewPath}\n`);
     const staleReviewManifest = buildArtifactAdmissionManifest({
       root: admissionRoot,
-      generatedAt: "2026-07-12T10:30:33Z",
     });
     assert.ok(staleReviewManifest.entries.filter((entry) =>
       entry.path.startsWith(reviewPolicy.governedPrefix)).every((entry) =>
@@ -435,7 +432,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       `${path} ${sha256(readFileSync(join(admissionRoot, path)))}`).join("\n")}\n`);
     const completeReviewManifest = buildArtifactAdmissionManifest({
       root: admissionRoot,
-      generatedAt: "2026-07-12T10:30:33Z",
     });
     assert.ok(completeReviewManifest.entries.filter((entry) =>
       entry.path.startsWith(reviewPolicy.governedPrefix)).every((entry) =>
@@ -475,37 +471,10 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     const baseInventory = buildTestInventory(transactionRoot, transactionInventoryOptions);
     const baseInventoryBytes = `${canonicalJson(baseInventory)}\n`;
     writeFileSync(join(transactionRoot, VERIFICATION_PATHS.testInventory), baseInventoryBytes);
-    const basePolicy = [
-      "export const policy = {",
-      "  verification: {",
-      `    testInventorySchema: ${JSON.stringify(ROOT_POLICY.verification.testInventorySchema)},`,
-      `    testInventoryHash: "${baseInventory.inventoryHash}",`,
-      "  },",
-      "};",
-      "",
-    ].join("\n");
-    const transactionPolicyPath = join(transactionRoot, ROOT_POLICY.sourcePath);
-    writeFileSync(transactionPolicyPath, basePolicy);
+    // The root policy holds no copy of the inventory's hash (#221): the transaction's one file is the inventory.
     writeFileSync(transactionTestPath, 'test("next inventory", () => undefined);\n');
     const nextInventory = buildTestInventory(transactionRoot, transactionInventoryOptions);
-
-    writeFileSync(transactionPolicyPath, mutateTextExact(
-      basePolicy,
-      baseInventory.inventoryHash,
-      "1".repeat(64),
-      "B08 stale inventory transaction base marker",
-    ));
-    assert.throws(
-      () => writeTestInventoryTransaction(
-        transactionRoot,
-        nextInventory,
-        undefined,
-        transactionInventoryOptions,
-      ),
-      /base marker is missing, stale, or ambiguous/u,
-    );
-    assert.equal(existsSync(journalPathFor(transactionRoot, "test-inventory")), false);
-    writeFileSync(transactionPolicyPath, basePolicy);
+    const inventoryCommitted = `committed:${VERIFICATION_PATHS.testInventory}`;
 
     assert.throws(() => writeTestInventoryTransaction(transactionRoot, nextInventory, (phase) => {
       if (phase === "journal-written") {
@@ -519,15 +488,14 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
           /transaction already exists/u,
         );
       }
-      if (phase === `committed:${ROOT_POLICY.sourcePath}`) throw new Error("synthetic interruption");
+      if (phase === inventoryCommitted) throw new Error("synthetic interruption");
     }, transactionInventoryOptions), /synthetic interruption/u);
-    // An in-process failure between the two renames rolls back AT ONCE: no
-    // journal is left, both files hold their base bytes.
+    // An in-process failure after the rename rolls back AT ONCE: no journal is
+    // left, and the inventory holds its base bytes.
     assert.equal(existsSync(journalPathFor(transactionRoot, "test-inventory")), false);
-    assert.equal(readFileSync(transactionPolicyPath, "utf8"), basePolicy);
     assert.equal(readFileSync(join(transactionRoot, VERIFICATION_PATHS.testInventory), "utf8"), baseInventoryBytes);
-    // A real CRASH between the two renames (SIGKILL, no finally) leaves the
-    // journal; the next run's recovery puts both files back.
+    // A real CRASH after the rename (SIGKILL, no finally) leaves the journal;
+    // the next run's recovery puts the base back.
     const crashInput = join(createOwnedTemporaryDirectory("inventory-crash-"), "next.json");
     writeFileSync(crashInput, canonicalJson(nextInventory));
     const crashed = spawnSync(process.execPath, ["--input-type=module", "-e", [
@@ -536,14 +504,13 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       "const { readFileSync } = await import('node:fs');",
       `const options = { dispositionManifest: createTestSurfaceDispositionManifest(${JSON.stringify(transactionInventoryOptions.dispositionManifest.entries)}) };`,
       `writeTestInventoryTransaction(${JSON.stringify(transactionRoot)}, JSON.parse(readFileSync(${JSON.stringify(crashInput)}, "utf8")), (phase) => {`,
-      `  if (phase === ${JSON.stringify(`committed:${ROOT_POLICY.sourcePath}`)}) process.kill(process.pid, "SIGKILL");`,
+      `  if (phase === ${JSON.stringify(inventoryCommitted)}) process.kill(process.pid, "SIGKILL");`,
       "}, options);",
     ].join("\n")], { encoding: "utf8" });
     assert.equal(crashed.signal, "SIGKILL", crashed.stderr);
     assert.equal(existsSync(journalPathFor(transactionRoot, "test-inventory")), true, "a crash leaves the journal");
-    assert.notEqual(readFileSync(transactionPolicyPath, "utf8"), basePolicy, "the crash landed between the two renames");
+    assert.notEqual(readFileSync(join(transactionRoot, VERIFICATION_PATHS.testInventory), "utf8"), baseInventoryBytes, "the crash landed after the rename");
     assert.equal(recoverTestInventoryTransaction(transactionRoot), "rolled-back");
-    assert.equal(readFileSync(transactionPolicyPath, "utf8"), basePolicy);
     assert.equal(readFileSync(join(transactionRoot, VERIFICATION_PATHS.testInventory), "utf8"),
       baseInventoryBytes);
     assert.equal(existsSync(journalPathFor(transactionRoot, "test-inventory")), false);
@@ -554,7 +521,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       undefined,
       transactionInventoryOptions,
     );
-    assert.equal(readFileSync(transactionPolicyPath, "utf8").includes(nextInventory.inventoryHash), true);
     assert.equal(readFileSync(join(transactionRoot, VERIFICATION_PATHS.testInventory), "utf8"),
       `${canonicalJson(nextInventory)}\n`);
   },

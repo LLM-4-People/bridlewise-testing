@@ -19,6 +19,7 @@ import { parseJsonExact } from "../../kernel/json-integrity.ts";
 import { debugLog } from "../../shared/debug/debug-system.ts";
 import { dispatchOutboundRequest, discardBody, isOutboundHttpError, outboundDeadline, prepareOutboundRequest, readBody } from "../../shared/outbound-http.ts";
 import { ForgeError, type ForgeCode } from "./codes.ts";
+import { FORGE_REFUSAL_TEXT } from "./forge-config.ts";
 import {
   GITHUB_API_VERSION,
   GITHUB_JSON_MEDIA_TYPE,
@@ -96,7 +97,7 @@ function numberHeader(headers: Headers, name: string): number | undefined {
 }
 
 /** The rate-limit facts of an answer. */
-export function rateFactsOf(headers: Headers): ForgeRateFacts {
+function rateFactsOf(headers: Headers): ForgeRateFacts {
   const reset = numberHeader(headers, "x-ratelimit-reset");
   const facts: { -readonly [K in keyof ForgeRateFacts]: ForgeRateFacts[K] } = {};
   const limit = numberHeader(headers, "x-ratelimit-limit");
@@ -142,9 +143,9 @@ type ErrorBody = Readonly<{ message: string; documentationUrl: string | undefine
 
 function errorBodyOf(text: string): ErrorBody {
   const parsed = parseJsonExact(text)?.value;
-  if (typeof parsed !== "object" || parsed === null) return { message: text.slice(0, 300), documentationUrl: undefined, errors: [] };
+  if (typeof parsed !== "object" || parsed === null) return { message: text.slice(0, FORGE_REFUSAL_TEXT.bodyExcerptChars), documentationUrl: undefined, errors: [] };
   const body = parsed as Record<string, unknown>;
-  const errors = Array.isArray(body.errors) ? body.errors.map((entry) => typeof entry === "string" ? entry : JSON.stringify(entry)).slice(0, 20) : [];
+  const errors = Array.isArray(body.errors) ? body.errors.map((entry) => typeof entry === "string" ? entry : JSON.stringify(entry)).slice(0, FORGE_REFUSAL_TEXT.errorEntries) : [];
   return {
     message: typeof body.message === "string" ? body.message : "",
     documentationUrl: typeof body.documentation_url === "string" ? body.documentation_url : undefined,
@@ -242,7 +243,7 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
         url: url.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
         protocolHeaders: {
           Accept: request.accept ?? GITHUB_JSON_MEDIA_TYPE,
-          Authorization: authorization,
+          ...(authorization === undefined ? {} : { Authorization: authorization }),
           "X-GitHub-Api-Version": GITHUB_API_VERSION,
           "User-Agent": endpoint.userAgent,
           ...(request.body === undefined ? {} : { "Content-Type": CONTENT_TYPE_JSON }),
@@ -318,11 +319,11 @@ function splitPath(path: string): readonly [string, Readonly<Record<string, stri
 }
 
 /** A GraphQL `errors` array as one forge refusal: its first error's `type` decides. */
-export function classifyGraphqlErrors(errors: readonly unknown[]): ForgeError {
+function classifyGraphqlErrors(errors: readonly unknown[]): ForgeError {
   const first = (errors[0] ?? {}) as { type?: unknown; message?: unknown };
   const type = typeof first.type === "string" ? first.type : "";
   const message = typeof first.message === "string" ? first.message : "";
-  const facts = { path: "/graphql", type, message, errors: errors.slice(0, 20).map((entry) => JSON.stringify(entry)) };
+  const facts = { path: "/graphql", type, message, errors: errors.slice(0, FORGE_REFUSAL_TEXT.errorEntries).map((entry) => JSON.stringify(entry)) };
   const code: ForgeCode = type === "RATE_LIMITED" ? "github_rate_limited"
     : SECONDARY_LIMIT.test(message) ? "github_content_budget_exhausted"
       : PLAN_REFUSAL.test(message) ? "unavailable_on_plan"

@@ -3,11 +3,12 @@
  * declared here beside the module it steers (the module-exports-its-section
  * idiom; `src/kernel/config-contracts.ts` splices it in). Every value the
  * forge uses that is not GitHub's own protocol comes from here: the
- * organisation, the API and web origins, the request bounds, and the
- * repository topology (each repository's `kind`, github-only §2.1). There is
- * no default in code: a checkout whose document declares no `forge` section
- * is the typed `forge_not_configured` (its one reader, `configured-forge.ts`).
- * This module imports no configuration reader (the kernel imports it).
+ * organisation, the API and web origins, the request bounds, the repository
+ * topology (each repository's `kind`, github-only §2.1) and the local Apps
+ * page. There is no default in code: a checkout whose document declares no
+ * `forge` section is the typed `forge_not_configured` (its one reader,
+ * `configured-forge.ts`). This module imports no configuration reader (the
+ * kernel imports it).
  */
 import { z } from "zod";
 
@@ -16,7 +17,7 @@ import type { ForgeRepositoryKind } from "./app-registry.ts";
 import type { ForgeEndpoint } from "./port.ts";
 
 /** The `kind` custom property's allowed values (runbook P1.8); `none` is a repository the topology does not govern. */
-export const FORGE_REPOSITORY_KINDS = deepFreeze(["trunk", "meta", "evidence", "notes", "archive", "none"] as const);
+const FORGE_REPOSITORY_KINDS = deepFreeze(["trunk", "meta", "evidence", "notes", "archive", "none"] as const);
 
 const NAME = /^[A-Za-z0-9._-]{1,100}$/u;
 const ORGANIZATION = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/u;
@@ -58,6 +59,41 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     if (new Set(names).size !== names.length) context.addIssue({ code: "custom", message: "repository names must be unique" });
     if (repositories.filter((repository) => repository.kind === "trunk").length !== 1) context.addIssue({ code: "custom", message: "exactly one repository is the trunk" });
   }),
+  /**
+   * How a run of the maintainer's `gh` is bounded: never by the wall clock
+   * (the no-load-block rule), only when it stalls (no output and no CPU work
+   * for `stallMs`) or passes `cpuLimitMs` of its own CPU time.
+   */
+  maintainerCli: z.strictObject({
+    stallMs: z.number().int().min(1_000).max(3_600_000),
+    cpuLimitMs: z.number().int().min(100).max(3_600_000),
+    killGraceMs: z.number().int().min(10).max(60_000),
+  }),
+  /** The local page `harness forge apps create` serves (on 127.0.0.1 only). */
+  appsPage: z.strictObject({
+    port: z.number().int().min(1_024).max(65_535),
+    /**
+     * Apps installed before the four (the `claude` App): the page lists the
+     * repositories each must be narrowed to until it is uninstalled.
+     */
+    legacyApps: z.array(z.strictObject({ slug: z.string().regex(/^[a-z0-9-]{1,64}$/u), repositories: z.array(z.string().regex(NAME)) })),
+  }),
+});
+
+/**
+ * THE BOUNDS OF A FORGE REFUSAL'S TEXT: how much of GitHub's or `gh`'s
+ * answer a typed refusal keeps. They are owned here, one value each, never
+ * a literal at a call site.
+ */
+export const FORGE_REFUSAL_TEXT = deepFreeze({
+  /** The excerpt of an error body that is not JSON, in characters. */
+  bodyExcerptChars: 300,
+  /** The validation or GraphQL error entries a refusal names. */
+  errorEntries: 20,
+  /** The last lines of `gh`'s standard error a refusal quotes. */
+  cliStderrLines: 3,
+  /** The characters of that quote. */
+  cliStderrChars: 400,
 });
 
 export type ForgeSettings = DeepReadonly<z.infer<typeof FORGE_CONFIG_SCHEMA>>;

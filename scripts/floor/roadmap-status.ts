@@ -7,18 +7,26 @@
  *
  * The owners are:
  *
- *   - the page's own `ROADMAP-PLAN` JSON block (workstreams, exit criteria,
- *     milestone focus, not-planned statements, and the state rule for each
- *     TASKS.md section);
- *   - `docs/trackers/TASKS.md` open rows, read through the one task-row
- *     parser (`engine/src/workflow/failure-owners.ts` `boardRows`);
+ *   - the structured tracker items (`docs/trackers/items/`, read through the
+ *     tracker's one parser, `engine/src/workflow/failure-owners.ts`): the
+ *     Milestones, the roadmap's workstreams and exit criteria (lane
+ *     `roadmap`, each naming its milestone), its not-planned statements
+ *     (closed as not planned), and every other open item (the open board);
+ *   - the decision records (`docs/decisions/`), whose progress is evidence;
  *   - `docs/floor/evidence.md`'s explicit non-proofs (`What this does not
  *     prove`, the audit-scope paragraph, and `What none of this proves`).
  *
+ * EVERY STATE IS COMPUTED: a close is the item's recorded claim, `shipped`
+ * only when linked evidence proves it and `claimed` otherwise; in progress, planned,
+ * blocked or not planned comes from the item's own facts, its sub-items, what
+ * it is blocked by and the decisions it carries out
+ * (`engine/src/workflow/tracker-status.ts`), and the reason is printed beside
+ * the state. A milestone's state is its members'.
+ *
  * No rendered table is hand-editable: `npm run docs:roadmap` is the only
  * writer, and `tests/prevention/roadmap-status-owner.test.ts` refuses a page
- * that differs from the renderer's output or a page that omits an open task
- * row, an open plan item, or an evidence non-proof.
+ * that differs from the renderer's output or a page that omits an open item,
+ * a roadmap item, or an evidence non-proof.
  *
  * The prose outside the generated markers stays hand-written, including the
  * `## Snapshot` anchor other pages link to.
@@ -29,242 +37,109 @@ import { fileURLToPath } from "node:url";
 
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
-import { boardRows, type TaskRow } from "../../engine/src/workflow/failure-owners.ts";
-import { escapeHtml, escapeMarkdownTableCell, stripTags } from "../../shared/markup.ts";
+import { TRACKER_BOARD } from "../../engine/src/kernel/verification-paths.ts";
+import { readDecisionRecords, readTrackerItems, TRACKER_LANES, type DecisionRecord, type TrackerItem } from "../../engine/src/workflow/failure-owners.ts";
+import { relativePath } from "../../engine/src/workflow/markdown-links.ts";
+import { itemStatuses, ROADMAP_STATES, type ItemStatus, type RoadmapState } from "../../engine/src/workflow/tracker-status.ts";
+import { siteDestination, siteProse, siteProseLine, type ProseTarget } from "../../engine/src/workflow/site-prose.ts";
+import { escapeSiteText, stripTags } from "../../shared/markup.ts";
+import { recordedEvidence } from "../../engine/src/workflow/evidence-store.ts";
+// The site tooling is plain Node ESM with no declaration file (the same import the floor-site tests make).
+// @ts-expect-error -- a .mjs module has no declaration file in the TS program.
+import { coordinatesOf, spelledUrls } from "./repository.mjs";
+
+/** Where this repository lives, from its one declaration (`package.json` `repository.url`, read by `repository.mjs`). */
+const COORDINATES: Readonly<{ owner: string; name: string; repositoryUrl: string }> = coordinatesOf(resolve(dirname(fileURLToPath(import.meta.url)), "../.."));
+/** This repository's URL: only its own pull requests, runs and releases prove a close (`closeProof`). */
+const REPOSITORY_URL = COORDINATES.repositoryUrl;
+
+/**
+ * `text` with every GitHub object of this repository (an issue, a pull
+ * request, a run, a release; under its current name or one in its history)
+ * spelled through the site's one declaration of where the repository lives,
+ * `{{ site.repository_url }}`: a record cites the object by its URL, the page
+ * never spells the repository's own URL (`siteSourceViolations`).
+ */
+function siteSpelled(text: string): string {
+  let spelled = text;
+  for (const { url, kind } of spelledUrls(text, COORDINATES) as readonly Readonly<{ url: string; kind: string }>[]) {
+    if (kind !== "object") continue;
+    const path = `/${url.split("/").slice(3).join("/")}`;
+    spelled = spelled.replaceAll(`https://${url}`, `{{ site.repository_url }}${path}`);
+  }
+  return spelled;
+}
 
 export const ROADMAP_PATH = "docs/floor/roadmap.md";
-export const TASKS_PATH = "docs/trackers/TASKS.md";
 export const EVIDENCE_PATH = "docs/floor/evidence.md";
-
-const PLAN_SCHEMA = "bridlewise-roadmap-plan/v1";
-const PLAN_BEGIN = "<!-- ROADMAP-PLAN-BEGIN";
-const PLAN_END = "ROADMAP-PLAN-END -->";
-const PLAN_PATTERN = /<!-- ROADMAP-PLAN-BEGIN\n([\s\S]*?)\nROADMAP-PLAN-END -->/u;
+const PAGE_DIRECTORY = dirname(ROADMAP_PATH);
 
 export const ROADMAP_BLOCKS = {
+  milestones: {
+    begin: "<!-- BEGIN GENERATED: roadmap milestones, from the Milestone tracker items (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    end: "<!-- END GENERATED: roadmap milestones -->",
+  },
   summary: {
-    begin: "<!-- BEGIN GENERATED: roadmap summary, from this page's ROADMAP-PLAN block (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    begin: "<!-- BEGIN GENERATED: roadmap summary, from the tracker items and the decision records (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap summary -->",
   },
   plan: {
-    begin: "<!-- BEGIN GENERATED: roadmap workstreams and exit criteria, from this page's ROADMAP-PLAN block (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    begin: "<!-- BEGIN GENERATED: roadmap workstreams and exit criteria, from the tracker items (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap workstreams and exit criteria -->",
   },
   open: {
-    begin: "<!-- BEGIN GENERATED: roadmap open work, from TASKS.md open rows, this page's ROADMAP-PLAN block and docs/floor/evidence.md (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    begin: "<!-- BEGIN GENERATED: roadmap open work, from the tracker items and docs/floor/evidence.md (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap open work -->",
   },
 } as const;
 
 export type RoadmapBlock = keyof typeof ROADMAP_BLOCKS;
 const BLOCK_ORDER: readonly RoadmapBlock[] = Object.keys(ROADMAP_BLOCKS) as readonly RoadmapBlock[];
-const STATES = ["shipped", "in progress", "planned", "blocked", "not planned"] as const;
-export type RoadmapState = (typeof STATES)[number];
 const HORIZONS = ["now", "next", "later"] as const;
-type Horizon = (typeof HORIZONS)[number];
-
-export type RoadmapItem = Readonly<{
-  id: string;
-  milestone: string;
-  title: string;
-  state: RoadmapState;
-  owner: string;
-  exit: string;
-  evidence: string;
-  source: string;
-  horizon?: Horizon;
-  blockedBy?: string;
-}>;
-
-type Milestone = Readonly<{ id: string; title: string; state: RoadmapState }>;
-type TaskSectionRule = Readonly<{ state: RoadmapState; owner: string; exit: string; evidence: string }>;
-type TaskOverride = Readonly<{
-  state?: RoadmapState;
-  owner?: string;
-  exit?: string;
-  evidence?: string;
-  blockedBy?: string;
-}>;
-type NotPlanned = Readonly<{ statement: string; reason: string; evidence: string }>;
-
-export type RoadmapPlan = Readonly<{
-  schemaVersion: string;
-  milestones: readonly Milestone[];
-  workstreams: readonly RoadmapItem[];
-  exitCriteria: readonly RoadmapItem[];
-  taskSections: Readonly<Record<string, TaskSectionRule>>;
-  taskOverrides: Readonly<Record<string, TaskOverride>>;
-  notPlanned: readonly NotPlanned[];
-}>;
 
 export type EvidenceNonProof = Readonly<{ area: string; anchor: string; text: string }>;
 
-type OpenTask = Readonly<{
-  row: TaskRow;
-  section: string;
-  state: RoadmapState;
-  owner: string;
-  exit: string;
-  evidence: string;
-  blockedBy?: string;
-}>;
-
-export type RoadmapSources = Readonly<{ trackerText: string; evidenceText: string }>;
+/** The roadmap's owners: the items, the decision records, the evidence paths recorded in tracked manifests (a close's proof), the evidence page. */
+export type RoadmapSources = Readonly<{ items: readonly TrackerItem[]; decisions: readonly DecisionRecord[]; recordedEvidence: ReadonlySet<string>; evidenceText: string }>;
 
 export type RoadmapReport = Readonly<{
   staleBlocks: readonly RoadmapBlock[];
   violations: readonly string[];
 }>;
 
+/** The roadmap, read from its items: the milestones in order, each one's plan items, the open board, the not-planned statements, every computed state. */
+type Roadmap = Readonly<{
+  milestones: readonly TrackerItem[];
+  workstreams: readonly TrackerItem[];
+  exitCriteria: readonly TrackerItem[];
+  board: readonly TrackerItem[];
+  notPlanned: readonly TrackerItem[];
+  status: (item: TrackerItem) => ItemStatus;
+}>;
+
 function fail(message: string): never {
   throw new Error(message);
 }
 
-function record(value: unknown, where: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(`${where} must be a JSON object`);
-  return value as Record<string, unknown>;
-}
+const byOrder = (left: TrackerItem, right: TrackerItem): number =>
+  (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
 
-function text(value: unknown, where: string): string {
-  if (typeof value !== "string" || value.trim().length === 0) fail(`${where} must be a non-empty string`);
-  return value;
-}
-
-function list(value: unknown, where: string): readonly unknown[] {
-  if (!Array.isArray(value)) fail(`${where} must be an array`);
-  return value;
-}
-
-function stateOf(value: unknown, where: string): RoadmapState {
-  if (typeof value !== "string" || !(STATES as readonly string[]).includes(value)) {
-    fail(`${where} must be one of ${STATES.join(" / ")}`);
-  }
-  return value as RoadmapState;
-}
-
-function horizonOf(value: unknown, where: string): Horizon {
-  if (typeof value !== "string" || !(HORIZONS as readonly string[]).includes(value)) {
-    fail(`${where} must be one of ${HORIZONS.join(" / ")}`);
-  }
-  return value as Horizon;
+function readRoadmap(sources: RoadmapSources): Roadmap {
+  const statuses = itemStatuses(sources.items, { decisions: sources.decisions, recordedEvidence: sources.recordedEvidence, repositoryUrl: REPOSITORY_URL });
+  const status = (item: TrackerItem): ItemStatus => statuses.get(item.id) ?? fail(`no state was computed for ${item.id}`);
+  const plan = sources.items.filter((item) => item.lane === "roadmap" && item.milestone !== null);
+  return Object.freeze({
+    milestones: sources.items.filter((item) => item.type === "Milestone").sort(byOrder),
+    workstreams: plan.filter((item) => item.type === "Workstream").sort(byOrder),
+    exitCriteria: plan.filter((item) => item.type !== "Workstream").sort(byOrder),
+    board: sources.items.filter((item) => item.state === "open" && item.milestone === null).sort(byOrder),
+    notPlanned: sources.items.filter((item) => item.lane === "roadmap" && item.milestone === null && status(item).state === "not planned").sort(byOrder),
+    status,
+  });
 }
 
 function isOpen(state: RoadmapState): boolean {
   return state === "in progress" || state === "planned" || state === "blocked";
-}
-
-function parseItem(value: unknown, where: string, requireExit = true): RoadmapItem {
-  const entry = record(value, where);
-  const state = stateOf(entry.state, `${where}.state`);
-  const horizon = entry.horizon === undefined ? undefined : horizonOf(entry.horizon, `${where}.horizon`);
-  const blockedBy = entry.blockedBy === undefined ? undefined : text(entry.blockedBy, `${where}.blockedBy`);
-  if (state === "blocked" && blockedBy === undefined) fail(`${where}.blockedBy is required on a blocked item`);
-  if (state !== "blocked" && blockedBy !== undefined) fail(`${where}.blockedBy belongs only to a blocked item`);
-  if (!isOpen(state) && horizon !== undefined) fail(`${where}.horizon belongs only to an open item`);
-  return Object.freeze({
-    id: text(entry.id, `${where}.id`),
-    milestone: text(entry.milestone, `${where}.milestone`),
-    title: text(entry.title, `${where}.title`),
-    state,
-    owner: text(entry.owner, `${where}.owner`),
-    exit: entry.exit === undefined && !requireExit ? text(entry.title, `${where}.title`) : text(entry.exit, `${where}.exit`),
-    evidence: text(entry.evidence, `${where}.evidence`),
-    source: text(entry.source, `${where}.source`),
-    ...(horizon === undefined ? {} : { horizon }),
-    ...(blockedBy === undefined ? {} : { blockedBy }),
-  });
-}
-
-function parseRule(value: unknown, where: string): TaskSectionRule {
-  const entry = record(value, where);
-  return Object.freeze({
-    state: stateOf(entry.state, `${where}.state`),
-    owner: text(entry.owner, `${where}.owner`),
-    exit: text(entry.exit, `${where}.exit`),
-    evidence: text(entry.evidence, `${where}.evidence`),
-  });
-}
-
-function parseOverride(value: unknown, where: string): TaskOverride {
-  const entry = record(value, where);
-  const override: {
-    state?: RoadmapState;
-    owner?: string;
-    exit?: string;
-    evidence?: string;
-    blockedBy?: string;
-  } = {};
-  if (entry.state !== undefined) override.state = stateOf(entry.state, `${where}.state`);
-  if (entry.owner !== undefined) override.owner = text(entry.owner, `${where}.owner`);
-  if (entry.exit !== undefined) override.exit = text(entry.exit, `${where}.exit`);
-  if (entry.evidence !== undefined) override.evidence = text(entry.evidence, `${where}.evidence`);
-  if (entry.blockedBy !== undefined) override.blockedBy = text(entry.blockedBy, `${where}.blockedBy`);
-  if (override.blockedBy !== undefined && override.state !== "blocked") {
-    fail(`${where}.blockedBy requires state "blocked"`);
-  }
-  if (override.state === "blocked" && override.blockedBy === undefined) {
-    fail(`${where}.blockedBy is required on a blocked override`);
-  }
-  return Object.freeze(override);
-}
-
-/** Parses the page's machine-readable plan block. Throws on a malformed plan; drift is reported separately. */
-export function readRoadmapPlan(pageText: string): RoadmapPlan {
-  const matches = [...pageText.matchAll(new RegExp(PLAN_PATTERN.source, "gu"))];
-  if (matches.length !== 1) fail(`the page must carry exactly one ${PLAN_BEGIN} block; found ${matches.length}`);
-  const raw = matches[0]?.[1];
-  if (raw === undefined) fail("the ROADMAP-PLAN block is empty");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    fail(`the ROADMAP-PLAN block is not JSON: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  const entry = record(parsed, "ROADMAP-PLAN");
-  if (text(entry.schemaVersion, "ROADMAP-PLAN.schemaVersion") !== PLAN_SCHEMA) {
-    fail(`ROADMAP-PLAN.schemaVersion must be ${PLAN_SCHEMA}`);
-  }
-  const milestones = list(entry.milestones, "ROADMAP-PLAN.milestones").map((value, index) => {
-    const where = `ROADMAP-PLAN.milestones[${index}]`;
-    const milestone = record(value, where);
-    return Object.freeze({
-      id: text(milestone.id, `${where}.id`),
-      title: text(milestone.title, `${where}.title`),
-      state: stateOf(milestone.state, `${where}.state`),
-    });
-  });
-  const workstreams = list(entry.workstreams, "ROADMAP-PLAN.workstreams")
-    .map((value, index) => parseItem(value, `ROADMAP-PLAN.workstreams[${index}]`));
-  const exitCriteria = list(entry.exitCriteria, "ROADMAP-PLAN.exitCriteria")
-    .map((value, index) => parseItem(value, `ROADMAP-PLAN.exitCriteria[${index}]`, false));
-  const taskSections = record(entry.taskSections, "ROADMAP-PLAN.taskSections");
-  const rules: Record<string, TaskSectionRule> = {};
-  for (const [section, value] of Object.entries(taskSections)) {
-    rules[section] = parseRule(value, `ROADMAP-PLAN.taskSections[${JSON.stringify(section)}]`);
-  }
-  const taskOverrides = record(entry.taskOverrides, "ROADMAP-PLAN.taskOverrides");
-  const overrides: Record<string, TaskOverride> = {};
-  for (const [id, value] of Object.entries(taskOverrides)) {
-    overrides[id] = parseOverride(value, `ROADMAP-PLAN.taskOverrides[${JSON.stringify(id)}]`);
-  }
-  const notPlanned = list(entry.notPlanned, "ROADMAP-PLAN.notPlanned").map((value, index) => {
-    const where = `ROADMAP-PLAN.notPlanned[${index}]`;
-    const statement = record(value, where);
-    return Object.freeze({
-      statement: text(statement.statement, `${where}.statement`),
-      reason: text(statement.reason, `${where}.reason`),
-      evidence: text(statement.evidence, `${where}.evidence`),
-    });
-  });
-  return Object.freeze({
-    schemaVersion: PLAN_SCHEMA,
-    milestones: Object.freeze(milestones),
-    workstreams: Object.freeze(workstreams),
-    exitCriteria: Object.freeze(exitCriteria),
-    taskSections: Object.freeze(rules),
-    taskOverrides: Object.freeze(overrides),
-    notPlanned: Object.freeze(notPlanned),
-  });
 }
 
 /** The GitHub / kramdown heading id: punctuation is removed, then each remaining space becomes a hyphen. */
@@ -292,66 +167,25 @@ function markdownHeadings(markdown: string): ReadonlySet<string> {
   return headings;
 }
 
+
+/**
+ * Evidence that lives online, not in this tree: an absolute URL, or one under
+ * the repository's own URL as the site configuration carries it
+ * (`{{ site.repository_url }}/issues`; the site builder writes that value from
+ * package.json, the one declaration).
+ */
+const ONLINE_EVIDENCE = /^(?:https?:\/\/|\{\{ site\.repository_url \}\}\/)/u;
+
+/** A repository evidence path (`docs/…/page.md#anchor`) that names no file, or no heading of it. */
 function localEvidenceViolation(evidence: string, repositoryRoot: string): string | null {
-  if (/^https?:\/\//u.test(evidence)) return null;
+  if (ONLINE_EVIDENCE.test(evidence) || evidence.startsWith("evidence:")) return null;
   const hash = evidence.indexOf("#");
   const pathPart = hash === -1 ? evidence : evidence.slice(0, hash);
   const anchor = hash === -1 ? "" : evidence.slice(hash + 1);
-  const target = pathPart.length === 0
-    ? join(repositoryRoot, ROADMAP_PATH)
-    : resolve(join(repositoryRoot, "docs/floor"), pathPart);
+  const target = join(repositoryRoot, pathPart);
   if (!existsSync(target)) return `${evidence}: target does not exist`;
-  if (anchor.length > 0 && target.endsWith(".md")) {
-    const headings = markdownHeadings(readFileSync(target, "utf8"));
-    if (!headings.has(anchor)) return `${evidence}: no heading anchor #${anchor} in ${pathPart.length === 0 ? ROADMAP_PATH : pathPart}`;
-  }
+  if (anchor.length > 0 && target.endsWith(".md") && !markdownHeadings(readFileSync(target, "utf8")).has(anchor)) return `${evidence}: no heading anchor #${anchor} in ${pathPart}`;
   return null;
-}
-
-function openSectionMap(trackerText: string, rows: readonly TaskRow[]): ReadonlyMap<string, string> {
-  const firstLine = new Map<string, string>();
-  for (const row of rows) {
-    const line = row.text.split("\n")[0];
-    if (line !== undefined) firstLine.set(line, row.id);
-  }
-  const sections = new Map<string, string>();
-  let heading = "Unsectioned";
-  for (const line of trackerText.split("\n")) {
-    const match = /^#{2,3}\s+(.+?)\s*$/u.exec(line);
-    if (match?.[1] !== undefined) {
-      heading = match[1];
-      continue;
-    }
-    const id = firstLine.get(line);
-    if (id !== undefined) sections.set(id, heading);
-  }
-  return sections;
-}
-
-function openTasks(plan: RoadmapPlan, trackerText: string): readonly OpenTask[] {
-  const openRows = boardRows(trackerText).filter((row) => !row.done);
-  const sections = openSectionMap(trackerText, openRows);
-  return openRows.map((row) => {
-    const section = sections.get(row.id) ?? "Unsectioned";
-    const rule = plan.taskSections[section];
-    const override = plan.taskOverrides[row.id] ?? {};
-    const state = override.state ?? rule?.state ?? "planned";
-    const fallback: TaskSectionRule = {
-      state: "planned",
-      owner: "task tracker",
-      exit: "The row closes in TASKS.md with its reproduction and verification.",
-      evidence: TASKS_PATH,
-    };
-    return Object.freeze({
-      row,
-      section,
-      state,
-      owner: override.owner ?? rule?.owner ?? fallback.owner,
-      exit: override.exit ?? rule?.exit ?? fallback.exit,
-      evidence: override.evidence ?? rule?.evidence ?? fallback.evidence,
-      ...(override.blockedBy === undefined ? {} : { blockedBy: override.blockedBy }),
-    });
-  });
 }
 
 function normalizeProse(value: string): string {
@@ -411,15 +245,21 @@ export function extractEvidenceNonProofs(markdown: string): readonly EvidenceNon
   return Object.freeze(out);
 }
 
-/** Renders the three generated blocks. The page's own plan block is the only plan source. */
+
+/**
+ * Renders the generated blocks from the items. Every text an item carries is
+ * written through the site escape (`escapeSiteText`, and `site-prose.ts` for
+ * prose), so no spelling of an item publishes markup, Liquid or a kramdown
+ * attribute list.
+ */
 export function renderRoadmapPage(pageText: string, sources: RoadmapSources): string {
-  const plan = readRoadmapPlan(pageText);
-  const tasks = openTasks(plan, sources.trackerText);
+  const roadmap = readRoadmap(sources);
   const nonProofs = extractEvidenceNonProofs(sources.evidenceText);
   const bodies: Record<RoadmapBlock, string> = {
-    summary: renderSummary(plan, tasks),
-    plan: renderPlan(plan),
-    open: renderOpenWork(plan, tasks, nonProofs),
+    milestones: renderMilestones(roadmap),
+    summary: renderSummary(roadmap),
+    plan: renderPlan(roadmap),
+    open: renderOpenWork(roadmap, nonProofs),
   };
   let next = pageText;
   for (const block of BLOCK_ORDER) {
@@ -435,64 +275,23 @@ export function renderRoadmapPage(pageText: string, sources: RoadmapSources): st
 /** Compares the page to the renderer's output and collects owner violations. Never writes. */
 export function roadmapDrift(pageText: string, sources: RoadmapSources, repositoryRoot?: string): RoadmapReport {
   const root = repositoryRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const violations: string[] = [];
   let rendered: string;
   try {
     rendered = renderRoadmapPage(pageText, sources);
   } catch (error) {
-    return Object.freeze({
-      staleBlocks: [],
-      violations: Object.freeze([error instanceof Error ? error.message : String(error)]),
-    });
+    return Object.freeze({ staleBlocks: [], violations: Object.freeze([error instanceof Error ? error.message : String(error)]) });
   }
-  const staleBlocks: RoadmapBlock[] = [];
-  for (const block of BLOCK_ORDER) {
-    const current = blockBody(pageText, block);
-    const next = blockBody(rendered, block);
-    if (current !== next) staleBlocks.push(block);
+  const staleBlocks = BLOCK_ORDER.filter((block) => blockBody(pageText, block) !== blockBody(rendered, block));
+  const violations: string[] = [];
+  const roadmap = readRoadmap(sources);
+  if (roadmap.milestones.length === 0) violations.push("the tracker holds no Milestone item");
+  for (const item of sources.items.filter((entry) => entry.lane === "roadmap" && entry.milestone === null && entry.state === "open")) {
+    violations.push(`roadmap item ${item.id} is open and names no milestone (an open roadmap item belongs to one)`);
   }
-  let plan: RoadmapPlan;
-  try {
-    plan = readRoadmapPlan(pageText);
-  } catch (error) {
-    return Object.freeze({
-      staleBlocks: Object.freeze(staleBlocks),
-      violations: Object.freeze([...violations, error instanceof Error ? error.message : String(error)]),
-    });
-  }
-  const milestoneIds = new Set(plan.milestones.map((milestone) => milestone.id));
-  if (milestoneIds.size !== plan.milestones.length) violations.push("ROADMAP-PLAN.milestones holds a duplicate id");
-  const itemIds = new Set<string>();
-  for (const [kind, items] of [["workstreams", plan.workstreams], ["exitCriteria", plan.exitCriteria]] as const) {
-    for (const item of items) {
-      if (itemIds.has(item.id)) violations.push(`${kind}: duplicate item id ${item.id}`);
-      itemIds.add(item.id);
-      if (!milestoneIds.has(item.milestone)) violations.push(`${kind} ${item.id}: unknown milestone ${item.milestone}`);
-    }
-  }
-  const openRows = boardRows(sources.trackerText).filter((row) => !row.done);
-  const openIds = new Set(openRows.map((row) => row.id));
-  if (openIds.size !== openRows.length) violations.push("TASKS.md holds two open rows with the same id");
-  const sections = openSectionMap(sources.trackerText, openRows);
-  for (const row of openRows) {
-    const section = sections.get(row.id);
-    if (section === undefined) violations.push(`TASKS.md open row ${row.id} has no section`);
-    else if (plan.taskSections[section] === undefined) {
-      violations.push(`TASKS.md open row ${row.id} is in section "${section}", which has no state rule in the ROADMAP-PLAN block`);
-    }
-  }
-  for (const id of Object.keys(plan.taskOverrides)) {
-    if (!openIds.has(id)) violations.push(`ROADMAP-PLAN.taskOverrides names ${id}, which is not an open TASKS.md row`);
-  }
-  for (const [key, evidence] of [
-    ...plan.workstreams.map((item) => [`workstream ${item.id}`, item.evidence] as const),
-    ...plan.exitCriteria.map((item) => [`exit criterion ${item.id}`, item.evidence] as const),
-    ...plan.notPlanned.map((entry, index) => [`not planned[${index}]`, entry.evidence] as const),
-    ...Object.entries(plan.taskSections).map(([section, rule]) => [`task section ${section}`, rule.evidence] as const),
-    ...Object.entries(plan.taskOverrides).flatMap(([id, override]) => (override.evidence === undefined ? [] : [[`task override ${id}`, override.evidence] as const])),
-  ]) {
-    const problem = localEvidenceViolation(evidence, root);
-    if (problem !== null) violations.push(`${key}: ${problem}`);
+  for (const item of sources.items) {
+    if (item.evidence === null) continue;
+    const problem = localEvidenceViolation(item.evidence, root);
+    if (problem !== null) violations.push(`${item.id}: ${problem}`);
   }
   return Object.freeze({ staleBlocks: Object.freeze(staleBlocks), violations: Object.freeze(violations) });
 }
@@ -508,17 +307,15 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
+/** Any text on the page (a cell, a heading, a state's reason): one line, through the site escape. */
 function cell(value: string): string {
-  return escapeMarkdownTableCell(normalizeProse(value));
+  return escapeSiteText(normalizeProse(value));
 }
 
-function link(evidence: string): string {
-  if (/^https?:\/\//u.test(evidence)) return `[GitHub](${evidence})`;
-  const hash = evidence.indexOf("#");
-  const pathPart = hash === -1 ? evidence : evidence.slice(0, hash);
-  const anchor = hash === -1 ? "" : evidence.slice(hash + 1);
-  const label = pathPart.length === 0 ? "this page" : basename(pathPart).replace(/\.md$/u, "");
-  return anchor.length === 0 ? `[${label}](${evidence})` : `[${label}: ${anchor}](${evidence})`;
+/** Where this page publishes a link an item's prose wrote: a repository path page-relative (this page's own anchors as fragments), this repository's GitHub objects through `site.repository_url`. */
+function pageHref(target: ProseTarget): string {
+  if (target.kind === "absolute") return siteSpelled(target.url);
+  return target.path === ROADMAP_PATH ? (target.fragment || "#") : `${relativePath(PAGE_DIRECTORY, target.path)}${target.fragment}`;
 }
 
 function table(headers: readonly string[], rows: readonly (readonly string[])[]): string {
@@ -529,145 +326,154 @@ function table(headers: readonly string[], rows: readonly (readonly string[])[])
   ].join("\n");
 }
 
-function milestoneAnchor(milestone: Milestone): string {
-  return headingSlug(`${milestone.id} · ${milestone.title}`);
+
+/** A link from the roadmap page to an item's own record. */
+function itemLink(item: TrackerItem): string {
+  return `[${cell(item.title ?? item.id)}](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${item.id}.md`)})`;
 }
 
-function milestoneLink(milestone: Milestone): string {
-  return `[${milestone.id}](#${milestoneAnchor(milestone)})`;
+/** The first paragraph of an item's body: its outcome, in one cell. */
+function outcome(item: TrackerItem): string {
+  return siteProseLine(item.body, TRACKER_BOARD.items, pageHref);
 }
 
-function stateText(item: { state: RoadmapState; blockedBy?: string }): string {
-  return item.blockedBy === undefined ? item.state : `${item.state} (blocked by: ${item.blockedBy})`;
+function link(evidence: string | null): string {
+  if (evidence === null) return "—";
+  if (ONLINE_EVIDENCE.test(evidence)) return `[GitHub](${siteDestination(siteSpelled(evidence))})`;
+  const hash = evidence.indexOf("#");
+  const pathPart = hash === -1 ? evidence : evidence.slice(0, hash);
+  const anchor = hash === -1 ? "" : evidence.slice(hash + 1);
+  const target = pathPart === ROADMAP_PATH ? "" : relativePath(PAGE_DIRECTORY, pathPart);
+  const label = pathPart === ROADMAP_PATH ? "this page" : basename(pathPart).replace(/\.md$/u, "");
+  return anchor.length === 0 ? `[${cell(label)}](${target})` : `[${cell(`${label}: ${anchor}`)}](${target}#${anchor})`;
 }
 
-function countState(items: readonly { state: RoadmapState }[], state: RoadmapState): number {
-  return items.filter((item) => item.state === state).length;
+function milestoneAnchor(milestone: TrackerItem): string {
+  return headingSlug(`${milestone.id} · ${milestone.title ?? milestone.id}`);
 }
 
-function horizonOrder(horizon: Horizon): number {
-  return HORIZONS.indexOf(horizon);
+function milestoneLink(roadmap: Roadmap, id: string | null): string {
+  const milestone = roadmap.milestones.find((entry) => entry.id === id);
+  return milestone === undefined ? "—" : `[${milestone.id}](#${milestoneAnchor(milestone)})`;
 }
 
-function renderSummary(plan: RoadmapPlan, tasks: readonly OpenTask[]): string {
-  const tracked: readonly { state: RoadmapState }[] = [...plan.workstreams, ...plan.exitCriteria, ...tasks];
+/** The shallowest heading a milestone's prose takes, under its `##` section. */
+const MILESTONE_HEADING_FLOOR = 3;
+
+/** Each milestone's section, from its Milestone item alone (the one place its title and prose are written): `## <id> · <title>` (the anchor every link targets) and its body, links rebased to this page. */
+function renderMilestones(roadmap: Roadmap): string {
+  return roadmap.milestones.map((milestone) => [
+    `## ${milestone.id} · ${cell(milestone.title ?? milestone.id)}`,
+    "",
+    `**State:** ${cell(`${roadmap.status(milestone).state} — ${roadmap.status(milestone).because}`)}\. [The record](${relativePath(PAGE_DIRECTORY, `${TRACKER_BOARD.items}/${milestone.id}.md`)}).`,
+    "",
+    siteProse(milestone.body, TRACKER_BOARD.items, pageHref, MILESTONE_HEADING_FLOOR),
+  ].join("\n")).join("\n\n---\n\n");
+}
+
+/** The state, and for an open state its evidence; a claim reads as the unverified claim it is. */
+function stateText(status: ItemStatus): string {
+  if (status.state === "claimed") return "claimed, unverified";
+  return status.state === "shipped" || status.state === "planned" ? status.state : `${status.state} (${status.because})`;
+}
+
+function count(roadmap: Roadmap, items: readonly TrackerItem[], state: RoadmapState): number {
+  return items.filter((item) => roadmap.status(item).state === state).length;
+}
+
+function renderSummary(roadmap: Roadmap): string {
+  const planItems = [...roadmap.workstreams, ...roadmap.exitCriteria].filter((item) => roadmap.status(item).state !== "not planned");
+  const tracked = [...planItems, ...roadmap.board];
   const total = tracked.length;
-  const shipped = countState(tracked, "shipped");
-  const inProgress = countState(tracked, "in progress");
-  const planned = countState(tracked, "planned");
-  const blocked = countState(tracked, "blocked");
-  const notPlanned = plan.notPlanned.length;
-  const percent = total === 0 ? 0 : Math.round((shipped / total) * 100);
+  const tally = Object.fromEntries(ROADMAP_STATES.map((state) => [state, count(roadmap, tracked, state)])) as Record<RoadmapState, number>;
+  const percent = total === 0 ? 0 : Math.round((tally.shipped / total) * 100);
   const lines: string[] = [];
   lines.push("### Where the floor stands");
   lines.push("");
-  lines.push(
-    `**${shipped} of ${total} tracked items shipped (${percent}%).** The tracked total covers workstreams, exit criteria, and open TASKS.md rows. ${notPlanned} not-planned statements sit outside it.`,
-  );
+  lines.push(`**${tally.shipped} of ${total} tracked items shipped (${percent}%).** The tracked total covers the roadmap's workstreams and exit criteria and every open tracker item. ${roadmap.notPlanned.length} not-planned statements sit outside it. A close counts as shipped only when linked evidence proves it; a close without proof reads claimed.`);
   lines.push("");
-  lines.push(
-    `${shipped} shipped · ${inProgress} in progress · ${planned} planned · ${blocked} blocked · ${notPlanned} not planned.`,
-  );
+  lines.push(`${tally.shipped} shipped · ${tally.claimed} claimed, unverified · ${tally["in progress"]} in progress · ${tally.planned} planned · ${tally.blocked} blocked · ${roadmap.notPlanned.length} not planned.`);
   lines.push("");
   lines.push("### Milestones");
   lines.push("");
-  lines.push("A milestone's state is its focus state; the item states are below. Shipped and open counts cover the workstreams and exit criteria assigned to it.");
+  lines.push("A milestone's state is computed from its members: shipped when every planned member shipped (proven), claimed when every member is closed but some only by an unverified claim, in progress when any proven work landed. Shipped and open count the workstreams and exit criteria assigned to it.");
   lines.push("");
-  lines.push("| Milestone | Focus | Shipped | Open |");
-  lines.push("|---|---|---|---|");
-  for (const milestone of plan.milestones) {
-    const items = [...plan.workstreams, ...plan.exitCriteria].filter((item) => item.milestone === milestone.id);
-    lines.push(
-      `| ${milestoneLink(milestone)} | ${cell(milestone.title)} | ${countState(items, "shipped")} | ${items.filter((item) => isOpen(item.state)).length} |`,
-    );
-  }
+  lines.push(table(["Milestone", "Focus", "State", "Shipped", "Open"], roadmap.milestones.map((milestone) => {
+    const members = [...roadmap.workstreams, ...roadmap.exitCriteria].filter((item) => item.milestone === milestone.id);
+    return [
+      milestoneLink(roadmap, milestone.id),
+      cell(milestone.title ?? milestone.id),
+      cell(roadmap.status(milestone).state),
+      String(count(roadmap, members, "shipped")),
+      String(members.filter((item) => isOpen(roadmap.status(item).state)).length),
+    ];
+  })));
   lines.push("");
   lines.push("### Now / next / later");
   lines.push("");
-  lines.push("Every tracked workstream or exit criterion, ordered by horizon. The plan below carries the exit criterion and source for each row.");
+  lines.push("Every open workstream or exit criterion that names a horizon, ordered by horizon, then milestone, then rank. The plan below carries every item.");
   lines.push("");
-  const rows = [...plan.workstreams, ...plan.exitCriteria]
-    .filter((item): item is RoadmapItem & { readonly horizon: Horizon } => item.horizon !== undefined)
-    .sort((left, right) => horizonOrder(left.horizon) - horizonOrder(right.horizon))
-    .map((item) => [
-      cell(item.horizon),
-      `**${cell(item.title)}**`,
-      milestoneLink(plan.milestones.find((milestone) => milestone.id === item.milestone)!),
-      cell(stateText(item)),
-      cell(item.owner),
-      link(item.evidence),
-    ]);
+  const milestoneRank = (item: TrackerItem): number => roadmap.milestones.findIndex((milestone) => milestone.id === item.milestone);
+  const rows = [...roadmap.workstreams, ...roadmap.exitCriteria]
+    .filter((item) => item.horizon !== null && isOpen(roadmap.status(item).state))
+    .sort((left, right) => HORIZONS.indexOf(left.horizon!) - HORIZONS.indexOf(right.horizon!) || milestoneRank(left) - milestoneRank(right) || byOrder(left, right))
+    .map((item) => [cell(item.horizon!), `**${itemLink(item)}**`, milestoneLink(roadmap, item.milestone), cell(stateText(roadmap.status(item))), cell(item.ownerRole ?? "—"), link(item.evidence)]);
   lines.push(table(["Horizon", "Work", "Milestone", "State", "Owner", "Evidence"], rows));
   return lines.join("\n");
 }
 
-function renderPlan(plan: RoadmapPlan): string {
+function planTable(roadmap: Roadmap, heading: string, items: readonly TrackerItem[]): string {
+  if (items.length === 0) return `No ${heading.toLowerCase()} is recorded.`;
+  return table([heading, "State", "Owner", "Evidence"], items.map((item) => [
+    `**${itemLink(item)}**<br>Exit: ${outcome(item)}`,
+    cell(stateText(roadmap.status(item))),
+    cell(item.ownerRole ?? "—"),
+    link(item.evidence),
+  ]));
+}
+
+function renderPlan(roadmap: Roadmap): string {
   const lines: string[] = [];
   lines.push("### Milestone plan");
   lines.push("");
-  lines.push("Each milestone group names its workstreams and exit criteria with the owner, state, exit criterion, evidence, and source. The Source column names the statement each row was carried from.");
-  for (const milestone of plan.milestones) {
-    const items = [...plan.workstreams, ...plan.exitCriteria].filter((item) => item.milestone === milestone.id);
-    const open = items.filter((item) => isOpen(item.state)).length;
-    const done = countState(items, "shipped");
-    const workstreams = plan.workstreams.filter((item) => item.milestone === milestone.id);
-    const exits = plan.exitCriteria.filter((item) => item.milestone === milestone.id);
+  lines.push("Each milestone group names its workstreams and exit criteria with the owner, the computed state, the exit criterion and the evidence. Each title links to its record, which carries where it was carried from, its links and its history.");
+  for (const milestone of roadmap.milestones) {
+    const items = [...roadmap.workstreams, ...roadmap.exitCriteria].filter((item) => item.milestone === milestone.id);
     lines.push("");
-    lines.push(`#### ${milestone.id} · ${escapeHtml(milestone.title)} — ${cell(milestone.state)} (${done} shipped · ${open} open)`);
+    lines.push(`#### ${milestone.id} · ${cell(milestone.title ?? milestone.id)} — ${cell(roadmap.status(milestone).state)} (${count(roadmap, items, "shipped")} shipped · ${items.filter((item) => isOpen(roadmap.status(item).state)).length} open)`);
     lines.push("");
     lines.push("**Workstreams**");
     lines.push("");
-    if (workstreams.length === 0) {
-      lines.push("No workstream is recorded.");
-    } else {
-      const rows = workstreams.map((item) => [
-        `**${cell(item.title)}**<br>Exit: ${cell(item.exit)}<br>Source: ${cell(item.source)}`,
-        cell(stateText(item)),
-        cell(item.owner),
-        link(item.evidence),
-      ]);
-      lines.push(table(["Workstream", "State", "Owner", "Evidence"], rows));
-    }
+    lines.push(planTable(roadmap, "Workstream", roadmap.workstreams.filter((item) => item.milestone === milestone.id)));
     lines.push("");
     lines.push("**Exit criteria**");
     lines.push("");
-    if (exits.length === 0) {
-      lines.push("No exit criterion is recorded.");
-    } else {
-      const rows = exits.map((item) => [
-        `**${cell(item.exit)}**<br>Source: ${cell(item.source)}`,
-        cell(stateText(item)),
-        cell(item.owner),
-        link(item.evidence),
-      ]);
-      lines.push(table(["Exit criterion", "State", "Owner", "Evidence"], rows));
-    }
+    lines.push(planTable(roadmap, "Exit criterion", roadmap.exitCriteria.filter((item) => item.milestone === milestone.id)));
   }
   return lines.join("\n");
 }
 
-function renderOpenWork(plan: RoadmapPlan, tasks: readonly OpenTask[], nonProofs: readonly EvidenceNonProof[]): string {
+function renderOpenWork(roadmap: Roadmap, nonProofs: readonly EvidenceNonProof[]): string {
   const lines: string[] = [];
   lines.push("### Open task board");
   lines.push("");
-  lines.push("Every open row of [TASKS.md](../trackers/TASKS.md) appears here. A row leaves this table only when its tracker row closes; the state rule and exit criterion for each tracker section are declared in the ROADMAP-PLAN block.");
-  const sections = [...new Set(tasks.map((task) => task.section))];
-  for (const section of sections) {
-    const sectionTasks = tasks.filter((task) => task.section === section);
+  lines.push("Every open tracker item outside the milestone plan appears here, by lane. An item leaves this table only when it closes.");
+  for (const [lane, { heading }] of Object.entries(TRACKER_LANES)) {
+    const items = roadmap.board.filter((item) => item.lane === lane);
+    if (items.length === 0) continue;
     lines.push("");
-    lines.push(`#### ${section}`);
+    lines.push(`#### ${heading}`);
     lines.push("");
-    const rows = sectionTasks.map((task) => [
-      `**${cell(task.row.id)}**<br>Exit: ${cell(task.exit)}`,
-      cell(stateText(task)),
-      cell(task.owner),
-      link(task.evidence),
-    ]);
-    lines.push(table(["Task", "State", "Owner", "Evidence"], rows));
+    lines.push(table(["Task", "State", "Owner", "Evidence"], items.map((item) => [
+      `**${itemLink(item)}**`,
+      cell(stateText(roadmap.status(item))),
+      cell(item.ownerRole ?? "—"),
+      link(item.evidence),
+    ])));
   }
-  if (tasks.length === 0) {
+  if (roadmap.board.length === 0) {
     lines.push("");
-    lines.push("No open task row remains.");
+    lines.push("No open item remains.");
   }
   lines.push("");
   lines.push("### What the evidence does not prove");
@@ -677,29 +483,26 @@ function renderOpenWork(plan: RoadmapPlan, tasks: readonly OpenTask[], nonProofs
   if (nonProofs.length === 0) {
     lines.push("No non-proof is recorded.");
   } else {
-    const rows = nonProofs.map((nonProof) => [
-      cell(nonProof.area),
-      `[${cell(nonProof.text)}](evidence.md#${nonProof.anchor})`,
-    ]);
-    lines.push(table(["Evidence area", "Not proved"], rows));
+    lines.push(table(["Evidence area", "Not proved"], nonProofs.map((nonProof) => [cell(nonProof.area), `[${cell(nonProof.text)}](evidence.md#${nonProof.anchor})`])));
   }
   lines.push("");
   lines.push("### Not planned");
   lines.push("");
   lines.push("Deliberate non-goals, kept here with their reason.");
   lines.push("");
-  if (plan.notPlanned.length === 0) {
+  if (roadmap.notPlanned.length === 0) {
     lines.push("No not-planned statement is recorded.");
   } else {
-    const rows = plan.notPlanned.map((entry) => [cell(entry.statement), cell(entry.reason), link(entry.evidence)]);
-    lines.push(table(["Not planned", "Why", "Evidence"], rows));
+    lines.push(table(["Not planned", "Why", "Evidence"], roadmap.notPlanned.map((item) => [itemLink(item), outcome(item), link(item.evidence)])));
   }
   return lines.join("\n");
 }
 
 function readSources(repositoryRoot: string): RoadmapSources {
   return Object.freeze({
-    trackerText: readFileSync(join(repositoryRoot, TASKS_PATH), "utf8"),
+    items: readTrackerItems(repositoryRoot),
+    decisions: readDecisionRecords(repositoryRoot),
+    recordedEvidence: new Set(recordedEvidence(repositoryRoot).keys()),
     evidenceText: readFileSync(join(repositoryRoot, EVIDENCE_PATH), "utf8"),
   });
 }

@@ -12,12 +12,12 @@ permalink: /testing/
 
 ## Two layers
 
-| Layer | Repository | What it proves | Fresh-clone status |
+| Layer | Where | What it proves | Fresh-clone status |
 |---|---|---|---|
-| Public smoke tests | `bridlewise` | The shipped CLI launcher, the typed refusal surface, the preflight receipt, the secret scanner, the safety warning and docs | Green with `npm run test:public` |
-| Development floor | `bridlewise-testing` | Prevention guards, server/cockpit unit tests, engine domain tests, performance and E2E suites | CI runs typechecks and the public smoke suite; the full suite has prerequisites below |
+| Public smoke tests | `main` and the `product` projection | The shipped CLI launcher, the typed refusal surface, the preflight receipt, the secret scanner, the safety warning and docs | Green with `npm run test:public` |
+| Development floor | `main` | Prevention guards, server/cockpit unit tests, engine domain tests, performance and E2E suites | CI runs typechecks and the public smoke suite; the full suite has prerequisites below |
 
-The product repository intentionally carries no large test tree. Publishing a test inventory without its fixtures and frozen records would create a false impression of coverage. The development floor is published separately so the machinery can be inspected.
+The `product` branch intentionally carries no large test tree. Publishing a test inventory without its fixtures and frozen records would create a false impression of coverage. The development floor stays on `main`, public, so the machinery can be inspected.
 
 ## Public smoke tests
 
@@ -32,7 +32,7 @@ The suite uses Node's built-in test runner and covers:
 - `bin/bridlewise.mjs` is executable, prints help/version, and lists every harness verb;
 - `harness` without a verb is a typed refusal, not a crash or a silent success;
 - `preflight` returns `harnessReady: false` and denies model invocation, repository mutation, and network egress;
-- the secret scanner passes a clean tree, fails on a provider-shaped key outside a fixture path, fails on an internal absolute path, and never prints the candidate value;
+- the secret scanner reads the one secret catalogue, exempts no path (test trees included: a test assembles any credential at runtime), fails on a credential shape or an internal absolute path, and never prints the candidate value;
 - the README carries the developer-preview and sensitive-codebase warning;
 - the CLI/testing/extending docs and the licence/community files exist.
 
@@ -45,8 +45,8 @@ npm run verify:public   # typecheck + secret scan + public tests
 ## Development-floor setup
 
 ```bash
-git clone https://github.com/LLM-4-People/bridlewise-testing.git
-cd bridlewise-testing
+git clone {{ site.repository_url }}.git
+cd bridlewise
 npm ci
 npm --prefix engine ci
 npm run bootstrap:hooks
@@ -280,9 +280,7 @@ test("a malformed when-clause is refused, not defaulted", () => {
 
 ## CI
 
-The product repository runs Node 24, two `npm ci` installs, both typechecks, the secret scan, the public smoke tests, the cockpit build, the engine bundle, and the guardian build/test on every push and pull request.
-
-The testing repository runs both typechecks, the secret scan, the public smoke suite, the cockpit and engine builds, the guardian build/test, and the supported file set on ten disjoint shards. It does not run the corpus-backed engine suite, the four named shard exclusions, or the E2E suite. Those remain documented manual or nightly work until their prerequisites can be published reproducibly.
+CI runs on every pull request and every push to `main`: Node 24, both typechecks, the secret scan, the public smoke suite, the cockpit and engine builds, the guardian build/test, and the supported file set on ten disjoint shards. It does not run the corpus-backed engine suite, the four named shard exclusions, or the E2E suite. Those remain documented manual or nightly work until their prerequisites can be published reproducibly.
 
 ## Flakiness
 

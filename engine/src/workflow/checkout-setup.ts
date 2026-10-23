@@ -53,7 +53,9 @@ import { QUALIFICATION_INVOCATION_ENV } from "../shared/run-history.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import type { WorkspaceIsolationConfig } from "../kernel/config-contracts.ts";
-import { directoryGitEnvironment } from "../git/repository-ownership.ts";
+import { trackedFiles } from "../git/repository-ownership.ts";
+import { CHECKOUT_COMMAND_ENVIRONMENT, projectEnvironment } from "../process/environment-projection.ts";
+import { INSTRUMENT_LOCK_TOKEN_VARIABLE } from "../process/instrument-lock.ts";
 import { superviseCommand, type SupervisedCommand } from "../process/supervised-run.ts";
 import { debugLog } from "../shared/debug/debug-system.ts";
 import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, commandRetryPolicy } from "./workflow-config.ts";
@@ -174,6 +176,34 @@ const ENVIRONMENTAL_LINE = new RegExp(`^(?:npm (?:ERR!|error) (?:code|errno) (?:
 export function commandFailureClass(ending: SupervisedCommand["ending"], tail: string): CheckoutFailureClass {
   if (ending !== "exited") return "errored";
   return ENVIRONMENTAL_LINE.test(tail) ? "errored" : "failed";
+}
+
+/**
+ * THE ENVIRONMENT OF EVERY CHECKOUT COMMAND, the lowest choke point for
+ * code from the tree it runs in (a dependency's install script, a
+ * candidate's converge, a promoter home's setup, a workspace's suites): it
+ * inherits NO credential. That is the one projection (`projectEnvironment`)
+ * through `CHECKOUT_COMMAND_ENVIRONMENT` (programs, locale, home, the proxy
+ * without its userinfo, the temp root). The harness's own `HARNESS_*`
+ * namespace never passes the projection, so the harness forwards by name
+ * only the coordination values its own children read, none of them a
+ * secret:
+ * - the instrument lock's acquisition token (a nonce: the command runs
+ *   inside the hold this runner took, and a vitest door borrows it);
+ * - the checkout write door's marker (the JSON list of armed checkout
+ *   roots, which keeps the door shut in a child);
+ * - the run's invocation id.
+ * No `GIT_*` variable passes either, so git in a command reads the
+ * repository it runs in.
+ */
+export function checkoutCommandEnvironment(environment: NodeJS.ProcessEnv, invocationId?: string): Readonly<Record<string, string>> {
+  const forwarded = [INSTRUMENT_LOCK_TOKEN_VARIABLE, ROOT_POLICY.verification.checkoutWriteDoor.markerEnvironmentVariable]
+    .flatMap((name) => (typeof environment[name] === "string" ? [[name, environment[name]!] as const] : []));
+  return Object.freeze({
+    ...projectEnvironment(environment, CHECKOUT_COMMAND_ENVIRONMENT),
+    ...Object.fromEntries(forwarded),
+    ...(invocationId === undefined ? {} : { [QUALIFICATION_INVOCATION_ENV]: invocationId }),
+  });
 }
 
 /**
@@ -369,7 +399,7 @@ async function runOnce(checkoutRoot: string, name: string, command: CheckoutComm
       hardCeilingMs: command.timeoutMs,
       killGraceMs: runner.killGraceMs,
       cwd: join(checkoutRoot, command.cwd),
-      env: { ...directoryGitEnvironment(), ...(invocationId === undefined ? {} : { [QUALIFICATION_INVOCATION_ENV]: invocationId }) },
+      env: checkoutCommandEnvironment(process.env, invocationId),
       onStdout: keep("stdout"),
       onStderr: keep("stderr"),
       killOnInterrupt: true,
@@ -654,6 +684,19 @@ export function assertSameFilesystem(source: string, target: string, code: strin
  * configuration document's required mode. Synchronous and command-free — the
  * commit guard's materialized index needs exactly this.
  */
+/**
+ * THE INSTALLED DEPENDENCIES A COPY OF `repositoryRoot` LINKS (each tracked
+ * lockfile's `node_modules`, repository-relative): a copy never carries them,
+ * and linking them at the same relative place makes every command in it, the
+ * bundle build included, resolve exactly what the checkout resolves. The
+ * commit guard's staged tree and the test working copies both take these.
+ */
+export function installedDependencyLinks(repositoryRoot: string): readonly string[] {
+  return (trackedFiles(repositoryRoot) ?? [])
+    .filter((path) => basename(path) === "package-lock.json")
+    .map((path) => join(dirname(path), "node_modules").split(sep).join("/"));
+}
+
 export function applyCheckoutFiles(
   checkoutRoot: string,
   sourceRoot: string,
