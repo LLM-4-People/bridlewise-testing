@@ -21,7 +21,7 @@ jobs:
   links:
     name: Relative Markdown links
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -30,6 +30,19 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      # The link classifier reads the repository identity (the forge section,
+      # engine/src/workflow/forge/repository-identity.ts) through the engine's
+      # own config loader, so it needs the engine's dependencies and the
+      # config's protected mode; without them it dies on the first import,
+      # which is not a link verdict.
+      - name: Install engine dependencies
+        run: npm --prefix engine ci --no-audit --no-fund
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
 
       - name: Check relative links
         run: node scripts/check-docs-links.mjs

@@ -18,6 +18,7 @@ import { schemaId } from "../../kernel/product-identity.ts";
 import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError } from "./codes.ts";
 import { trunkRepository, type ForgeSettings } from "./forge-config.ts";
+import { repositoryIdentity, repositoryIdentityCopies } from "./repository-identity.ts";
 
 /** Where the generated files live, relative to the repository top. */
 const FORGE_FILES_DIRECTORY = ".github/forge";
@@ -95,8 +96,9 @@ function filesUnder(directory: string): readonly string[] {
 }
 
 /**
- * Compare `.github/forge/` under `top` with its owners' bytes; with `write`,
- * write what differs and remove what is not generated. `settings` absent
+ * Compare `.github/forge/` under `top` with its owners' bytes, and the
+ * repository identity's copies (`repositoryIdentityCopies`); with `write`,
+ * write what differs and remove what is not generated under the folder. `settings` absent
  * (a checkout without a `forge` section): converged only when the folder is
  * absent too.
  */
@@ -117,6 +119,17 @@ export function syncForgeFiles(top: string, settings: ForgeSettings | undefined,
     if (wanted.has(path)) continue;
     changed.push(`${FORGE_FILES_DIRECTORY}/${path}`);
     if (write) rmSync(join(directory, path));
+  }
+  // The identity's copies in files other formats own (a field each, never the whole file).
+  const copies = settings === undefined ? new Map<string, string>() : repositoryIdentityCopies(top, repositoryIdentity(settings));
+  for (const [path, text] of copies) {
+    const file = join(top, path);
+    if (readFileSync(file, "utf8") === text) continue;
+    changed.push(path);
+    if (write) {
+      const written = atomicWriteFile(file, text, { createMode: 0o666 });
+      if (!written.success) throw new ForgeError("forge_request_invalid", `The identity copy in ${path} could not be written (${written.reason ?? "unknown"}).`, { path });
+    }
   }
   const status = changed.length === 0 ? "current" : write ? "regenerated" : "stale";
   return deepFreeze({ status, converged: status !== "stale", changed: changed.sort() });

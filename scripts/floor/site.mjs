@@ -17,9 +17,10 @@
  *    internal link crawl over every page (snapshots included) and the design
  *    coverage over the pages this build rendered.
  *
- * `buildRedirectSite` writes the static site that answers the old
- * `/bridlewise-testing/` base path (Pages URLs do not follow a repository
- * rename): every old URL lands on the same path under the current site.
+ * `buildRedirectSite` writes the static site that answers the old base path
+ * (`LEGACY_BASEURL`, scripts/floor/repository.mjs; Pages URLs do not follow
+ * a repository rename): every old URL lands on the same path under the
+ * current site.
  *
  * Nothing here reads another repository or a network: the inputs are this
  * tree and the snapshot folder the workflow downloaded and verified.
@@ -34,7 +35,7 @@ import { escapeHtml } from "../../shared/markup.ts";
 import { buildAtlas } from "./atlas.mjs";
 import { coverage } from "./design-coverage.mjs";
 import { stableJson } from "./files.mjs";
-import { LEGACY_BASEURL, SITE_URL, coordinatesOf } from "./repository.mjs";
+import { COORDINATES, LEGACY_BASEURL, SITE_URL } from "./repository.mjs";
 import { crawlSiteLinks } from "./site-links.mjs";
 import { BUILDER_OWNED_CONFIG_KEYS, DOCS_ROOT, legacyAliases, rewritePageLinks, siteLinkTargets, siteSourceViolations, sitePlan, siteUrlForPermalink } from "./site-pages.mjs";
 import { buildStatus } from "./status.mjs";
@@ -87,7 +88,7 @@ function configWith(text, values) {
   const { document, errors, keys } = readSiteConfig(text);
   if (errors.length > 0) fail(`${DOCS_ROOT}/_config.yml is unreadable: ${errors.join("; ")}`);
   const declared = keys.filter((key) => BUILDER_OWNED_CONFIG_KEYS.includes(key));
-  if (declared.length > 0) fail(`${DOCS_ROOT}/_config.yml declares ${declared.join(", ")}, which the builder writes from package.json and the deployment`);
+  if (declared.length > 0) fail(`${DOCS_ROOT}/_config.yml declares ${declared.join(", ")}, which the builder writes from the repository identity and the deployment`);
   for (const [key, value] of Object.entries(values)) document.set(key, value);
   return String(document);
 }
@@ -151,16 +152,15 @@ export async function floorDataOf(root) {
   return { atlas, status: await buildStatus({ root, offline: true, counts: atlas.counts }) };
 }
 
-export async function buildSiteSource({ root, out, baseurl, versionsDir = null, release = null, floorData = floorDataOf }) {
+export async function buildSiteSource({ root, out, baseurl, versionsDir = null, release = null, floorData = floorDataOf, coordinates = COORDINATES }) {
   const repositoryRoot = resolve(root);
   const outRoot = resolve(out);
   const docs = join(repositoryRoot, DOCS_ROOT);
   if (!existsSync(join(docs, "_config.yml"))) fail(`${DOCS_ROOT}/_config.yml is missing: the tree at ${repositoryRoot} holds no site`);
   if (existsSync(join(docs, VERSIONS_FOLDER))) fail(`${DOCS_ROOT}/${VERSIONS_FOLDER}/ exists: that folder is the released snapshots' place on the site`);
-  const violations = siteSourceViolations({ root: repositoryRoot });
+  const violations = siteSourceViolations({ root: repositoryRoot, coordinates });
   if (violations.length > 0) fail(`the site source refuses (${String(violations.length)}):\n  ${violations.join("\n  ")}`);
-  const plan = sitePlan({ root: repositoryRoot });
-  const coordinates = coordinatesOf(repositoryRoot);
+  const plan = sitePlan({ root: repositoryRoot, coordinates });
   // A release snapshot is built once, at release time, for its own place on
   // the site (`<base>/v/<version>`); it carries no versions list of its own
   // and links the live one.
@@ -232,7 +232,7 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
   }
 
   // Every coordinate a page reads comes from the repository's one
-  // declaration (package.json) and the deployment's base path.
+  // identity (the forge section) and the deployment's base path.
   const configPath = join(outRoot, "_config.yml");
   writeFileSync(configPath, configWith(readFileSync(configPath, "utf8"), {
     url: coordinates.siteOrigin,
@@ -340,7 +340,7 @@ export function redirectTarget(pathname, { from = LEGACY_BASEURL, to = SITE_URL 
 export function buildRedirectSite({ out, from = LEGACY_BASEURL, to = SITE_URL }) {
   // Before the rename the old base IS the site: a redirect there would loop.
   if (new URL(to).pathname.replace(/\/+$/u, "") === from.replace(/\/+$/u, "")) {
-    fail(`the site still answers at ${from} (package.json repository.url names it): there is nothing to redirect until the repository is renamed`);
+    fail(`the site still answers at ${from} (the repository identity names it): there is nothing to redirect until the repository is renamed`);
   }
   const outRoot = resolve(out);
   rmSync(outRoot, { recursive: true, force: true });

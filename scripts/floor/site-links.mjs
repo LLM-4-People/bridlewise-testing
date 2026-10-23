@@ -18,7 +18,7 @@
  *
  * Jekyll's `permalink: pretty` means an internal URL usually names a DIRECTORY
  * (`/floor/roadmap/`); the page is `floor/roadmap/index.html`. A root-relative
- * URL includes the deployment base path (`/bridlewise-testing/...`) while the
+ * URL includes the deployment base path (`/<repository>/...`) while the
  * built files do not, so the crawler strips `--baseurl` before resolving.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";

@@ -1,4 +1,6 @@
+<!-- BEGIN GENERATED: repository name heading, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
 # bridlewise-testing
+<!-- END GENERATED: repository name heading -->
 
 **The development floor for [Bridlewise](https://github.com/LLM-4-People/bridlewise): tests, prevention guards, benchmarks, design decisions, and verification machinery.**
 
@@ -6,9 +8,9 @@
   <img src="docs/assets/dev-floor.png" alt="The Bridlewise development floor: tests, prevention guards, benchmarks, and 134 decision records. Developer preview; not a product." width="100%">
 </p>
 
-[![CI](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml)
-[![Docs and floor](https://img.shields.io/badge/docs-development%20floor-8fd3ff.svg)](https://llm-4-people.github.io/bridlewise-testing/floor/)
-[![Secret scan](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml/badge.svg?branch=main)](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml)
+[![CI][repo:actions/workflows/ci.yml/badge.svg?branch=main]][repo:actions/workflows/ci.yml]
+[![Docs and floor](https://img.shields.io/badge/docs-development%20floor-8fd3ff.svg)][site:floor/]
+[![Secret scan][repo:actions/workflows/secret-scan.yml/badge.svg?branch=main]][repo:actions/workflows/secret-scan.yml]
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Status: developer preview](https://img.shields.io/badge/status-developer%20preview-d9a84e.svg)](#status)
 
@@ -16,17 +18,17 @@
 
 | I want to | Go to |
 |---|---|
-| Help test, review, or improve the floor | [How to help](https://llm-4-people.github.io/bridlewise-testing/floor/help/) · [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Help test, review, or improve the floor | [How to help][site:floor/help/] · [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Build on the harness | [Building on the harness](docs/extending.md) · [Architecture](https://llm-4-people.github.io/bridlewise/architecture/) |
-| See where the work is going | [Build roadmap](https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/) |
-| Verify a claim | [Floor evidence](https://llm-4-people.github.io/bridlewise-testing/floor/evidence/) · [Status](https://llm-4-people.github.io/bridlewise-testing/floor/status/) |
+| See where the work is going | [Build roadmap][site:floor/roadmap/] |
+| Verify a claim | [Floor evidence][site:floor/evidence/] · [Status][site:floor/status/] |
 | Use the product | [Product repository](https://github.com/LLM-4-People/bridlewise) · [Product docs](https://llm-4-people.github.io/bridlewise/) |
 
 ## The site is a floor, not a product mirror
 
-The testing site at <https://llm-4-people.github.io/bridlewise-testing/> starts with a **contributor hub**, not a copy of the product home. The complete product documentation is still mirrored on the site, with a [product documentation entry point](https://llm-4-people.github.io/bridlewise-testing/product/). The product home remains at <https://llm-4-people.github.io/bridlewise/>.
+The [testing site][site:] starts with a **contributor hub**, not a copy of the product home. The complete product documentation is still mirrored on the site, with a [product documentation entry point][site:product/]. The product home remains at <https://llm-4-people.github.io/bridlewise/>.
 
-The development floor lives at <https://llm-4-people.github.io/bridlewise-testing/floor/>. It carries a generated test atlas, a public status snapshot, the promotion contract, the build roadmap, the contribution guide, and the evidence commands. The mirror is assembled from the public product docs at build time. It is not a second copy in Git.
+The [development floor][site:floor/] is part of that site. It carries a generated test atlas, a public status snapshot, the promotion contract, the build roadmap, the contribution guide, and the evidence commands. The mirror is assembled from the public product docs at build time. It is not a second copy in Git.
 
 The floor site is a record, not a hosted test service. It does not run suites, hold a token in your browser, or turn an unknown into a pass.
 
@@ -57,7 +59,7 @@ The projection is described in `promotion/main-to-product.json`: the `product` b
 
 ## Roadmap
 
-The full [build roadmap](https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/) is milestone based, with exit criteria and help lanes. The short version:
+The full [build roadmap][site:floor/roadmap/] is milestone based, with exit criteria and help lanes. The short version:
 
 | Milestone | State | What must be true |
 |---|---|---|
@@ -73,9 +75,14 @@ No dates. A milestone closes when its exit criteria are reproducible, not when a
 
 Requirements: Linux, Node `>=24.18.0 <25.0.0`, npm, Git, and a C compiler for the guardian.
 
+<!-- BEGIN GENERATED: clone command, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
 ```bash
 git clone https://github.com/LLM-4-People/bridlewise-testing.git
 cd bridlewise-testing
+```
+<!-- END GENERATED: clone command -->
+
+```bash
 npm ci
 npm --prefix engine ci
 npm run bootstrap:hooks
@@ -196,9 +203,9 @@ Model invocation, repository mutation, process execution, and network egress are
 
 | Document | What it covers |
 |---|---|
-| [Contributor hub](https://llm-4-people.github.io/bridlewise-testing/) | How to help, how to build on the harness, and the roadmap |
-| [How to help](https://llm-4-people.github.io/bridlewise-testing/floor/help/) | Contribution lanes, a first-hour path, and the review checklist |
-| [Build roadmap](https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/) | Milestones, workstreams, exit criteria, and help wanted |
+| [Contributor hub][site:] | How to help, how to build on the harness, and the roadmap |
+| [How to help][site:floor/help/] | Contribution lanes, a first-hour path, and the review checklist |
+| [Build roadmap][site:floor/roadmap/] | Milestones, workstreams, exit criteria, and help wanted |
 | [docs/testing.md](docs/testing.md) | The test map, prerequisites, commands, and how to add a test |
 | [docs/cli.md](docs/cli.md) | CLI, dev lifecycle, ledger inspection, database keys, guardian |
 | [docs/extending.md](docs/extending.md) | Blocks, tools, providers, MCP, embedding, quality packs |
@@ -229,3 +236,17 @@ AGPL-3.0-only. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_N
 ---
 
 **Every run, recorded. Every tool, governed.** But not yet ready for your production code.
+
+<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
+[repo:actions/workflows/ci.yml]: https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml
+[repo:actions/workflows/ci.yml/badge.svg?branch=main]: https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml/badge.svg?branch=main
+[repo:actions/workflows/secret-scan.yml]: https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml
+[repo:actions/workflows/secret-scan.yml/badge.svg?branch=main]: https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml/badge.svg?branch=main
+[site:]: https://llm-4-people.github.io/bridlewise-testing/
+[site:floor/]: https://llm-4-people.github.io/bridlewise-testing/floor/
+[site:floor/evidence/]: https://llm-4-people.github.io/bridlewise-testing/floor/evidence/
+[site:floor/help/]: https://llm-4-people.github.io/bridlewise-testing/floor/help/
+[site:floor/roadmap/]: https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/
+[site:floor/status/]: https://llm-4-people.github.io/bridlewise-testing/floor/status/
+[site:product/]: https://llm-4-people.github.io/bridlewise-testing/product/
+<!-- END GENERATED: repository links -->
