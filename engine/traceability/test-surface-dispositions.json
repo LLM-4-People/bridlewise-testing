@@ -965,6 +965,22 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/forge/proving-ground-api.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/proving-isolation.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/forge/publish/product.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4301,5 +4317,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "00a29cec6cb6437481da48d47b36a839ee157a1261eada3b75fdb851cda0a989"
+  "integrityHash": "f38ca9a3c61b9cb730b3b786ab29409dc212cc20a4870e87a6b69f02b829d269"
 }
