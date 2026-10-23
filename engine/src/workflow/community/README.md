@@ -38,13 +38,24 @@ folder owns what they are told and who may do what.
   `syncCommunityFiles` is the `community-files` arm of `harness sync` and
   `harness check` (a refusal is the step's failure, never a crash).
 
+- `categories.ts` — THE DISCUSSION CATEGORIES, AUDITED: `liveCategories` (one
+  GraphQL read on the forge port) and `categoryDrift` (a live category missing
+  or different in name, answerability or description; a planned one that now
+  exists, to flip live; an undeclared one). GitHub has no API that creates a
+  category, so the audit is the receipt of the registry's live statuses and
+  the maintainer's checklist.
+- `community-cli.ts` — THE `harness community` DOOR (`categories`), on the
+  `forge` configuration's trunk with the token in `GH_TOKEN`; drift exits 1.
+
 ## Where it lives and what consumes it
 
 <!-- consumers:generated -->
 
 The folder lives at `engine/src/workflow/community/`.
 
+- `categories.ts` is consumed by `engine/src/workflow/community/community-cli.ts`.
+- `community-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
 - `health-files.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `sources.ts` is consumed by `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/forge/cli.ts`, `engine/src/workflow/forge/declarations.ts`, `engine/src/workflow/forge/generated-files.ts`, `engine/src/workflow/forge/repository-files.ts`.
+- `sources.ts` is consumed by `engine/src/workflow/community/categories.ts`, `engine/src/workflow/community/community-cli.ts`, `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/forge/cli.ts`, `engine/src/workflow/forge/declarations.ts` and 2 more.
 
 <!-- /consumers:generated -->
