@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-SHARD-MERGE-CONTRACT
 type: Task
 title: Add the shard merge contract
