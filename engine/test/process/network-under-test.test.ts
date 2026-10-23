@@ -52,7 +52,7 @@ const RESOLVER = `const answer = (address) => (host, options, callback) => proce
 /** Child code: `outcome(start)` resolves the error code a socket failed with, or "connected" / "lookup:<address>". */
 const OUTCOME = `const outcome = (start) => new Promise((resolve) => { const s = start(); s.once("error", (e) => resolve(e.code ?? e.cause?.code)); s.once("connect", () => { s.destroy(); resolve("connected"); }); s.once("lookup", (e, address) => { if (e) return; s.destroy(); resolve("lookup:" + address); }); });`;
 
-test("the platform's fetch, http.request and net.connect to a public address are refused, by address and by name", { timeout: 120_000 }, () => {
+test("the platform's fetch, http.request and net.connect to a public address are refused, by address and by name", () => {
   const codes = guarded([
     `import http from "node:http"; import net from "node:net";`,
     RESOLVER, OUTCOME,
@@ -67,7 +67,7 @@ test("the platform's fetch, http.request and net.connect to a public address are
   assert.deepEqual(codes, { fetched: refusal, byName: refusal, raw: refusal, positional: refusal, mapped: refusal });
 });
 
-test("a loopback server is reached, by address and as localhost; a name the resolver answers with loopback is this machine", { timeout: 120_000 }, () => {
+test("a loopback server is reached, by address and as localhost; a name the resolver answers with loopback is this machine", () => {
   const reached = guarded([
     `import http from "node:http"; import net from "node:net";`,
     RESOLVER,
@@ -82,7 +82,7 @@ test("a loopback server is reached, by address and as localhost; a name the reso
   assert.deepEqual(reached, { byAddress: "here", byLocalhost: "connected", byName: 200 });
 });
 
-test("THE ONE OPT-IN: a host the installer is handed is passed through unguarded, and only that host", { timeout: 120_000 }, () => {
+test("THE ONE OPT-IN: a host the installer is handed is passed through unguarded, and only that host", () => {
   // 192.0.2.1 (TEST-NET-1) is never dialed: with one address family
   // (`autoSelectFamily: false`) node emits `lookup` and checks `connecting`
   // after it, so the socket destroyed there never connects.
@@ -97,7 +97,7 @@ test("THE ONE OPT-IN: a host the installer is handed is passed through unguarded
   assert.deepEqual(guarded(body), { live: "outbound_network_under_test", other: "outbound_network_under_test" }, "a host nobody consented to was passed through");
 });
 
-test("IN-PROCESS: the installer the worker and the web setup call hands the guard the consented live hosts — and nothing without consent", { timeout: 120_000 }, () => {
+test("IN-PROCESS: the installer the worker and the web setup call hands the guard the consented live hosts — and nothing without consent", () => {
   const [liveHost] = ROOT_POLICY.verification.networkUnderTest.liveHosts;
   assert.ok(liveHost !== undefined);
   const INSTALLER = new URL("../../scripts/tooling/network-under-test.ts", import.meta.url).href;
@@ -145,6 +145,6 @@ test("WIRING: every process that runs tests is guarded — the engine worker (af
   const source = (path: string): string => readFileSync(path, "utf8");
   const worker = source(join(ENGINE_ROOT, "scripts", "tooling", "test-worker.ts"));
   assert.ok(worker.search(/\brefuseRemoteNetworkUnderTest\(\);/u) > worker.search(/armCheckoutUnderTest\(/u) && worker.search(/armCheckoutUnderTest\(/u) >= 0, "the engine test worker arms the checkout write door but does not guard itself after it");
-  assert.match(source(join(ENGINE_ROOT, "scripts", "tooling", "inventory-test-run.ts")), /execArgv: \[networkGuardImport\(\)\]/u, "the engine test files' processes are not started with the guard preloaded");
+  assert.match(source(join(ENGINE_ROOT, "scripts", "tooling", "inventory-test-run.ts")), /execArgv: \[engineTestBoundsImport\(phase\.bounds\), networkGuardImport\(\)\]/u, "the engine test files' processes are not started with the guard preloaded");
   assert.match(source(join(ENGINE_ROOT, "..", "tests", "setup", "test-setup.ts")), /^refuseRemoteNetworkUnderTest\(\);$/mu, "the web setup file does not guard its worker");
 });

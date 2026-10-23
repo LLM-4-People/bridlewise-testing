@@ -4,9 +4,8 @@ date: 2026-10-22
 by: coordinator
 group: process
 status: in-force
-implementation: partial
-route: NOLOAD (engine suite next; the web suite's per-test overrides next)
-acted_in: [engine/scripts/tooling/test-cpu-class.ts, tests/setup/test-cpu-class.ts, tests/test-budget.ts, vitest.config.ts, engine/src/kernel/config-contracts.ts, engine/bridlewise.config.json]
+implementation: done
+acted_in: [engine/scripts/tooling/test-cpu-class.ts, engine/scripts/tooling/engine-test-bounds.ts, engine/scripts/tooling/inventory-test-run.ts, tests/setup/test-cpu-class.ts, tests/test-budget.ts, vitest.config.ts, engine/src/kernel/config-contracts.ts, engine/bridlewise.config.json]
 ---
 # Per-test limits are CPU-work classes plus one hang backstop
 
@@ -56,6 +55,19 @@ carries out [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md)
   refusal fails the run naming the test. `tests/prevention/test-cpu-class.test.ts`
   plants each known spelling (aliased and namespace imports, spread, imported
   and call-built options, a wrapper in a helper, `vi["setConfig"]`, hook
-  bounds, a test with no bound, the DOM pool) in a real nested run. The
-  engine suite's per-test kill timeout
-  (`runtimeBudgetMs`) and its 33 overrides follow with the engine door.
+  bounds, a test with no bound, the DOM pool) in a real nested run.
+- **The engine suite has the same door** (NO-LOAD-BLOCK row G-05). Its
+  per-test WALL cap (`runtimeBudgetMs`, 120 s, node:test's `--test-timeout`)
+  is deleted with its 33 per-test overrides: under full-suite contention it
+  failed foundation-cascade, handoff-continuity and repository-path, which
+  spawn three runtimes each and pass alone. The runner
+  (`engine/scripts/tooling/inventory-test-run.ts`) preloads
+  `engine-test-bounds.ts` into every test file's process: the same CPU-class
+  judgement, node:test's per-test timeout set to `testHangBackstopMs`, and
+  the same run-time refusal of any other bound. node:test arms each test's
+  and hook's timer through `timers.setTimeout`, which the preload wraps
+  before node:test loads, with a liveness witness on every test.
+  `engine/test/workflow/inventory-test-run.test.ts` plants a test timeout,
+  a hook timeout and a CPU burner through the real runner. The engine
+  watchdog's stall bound sits above the backstop (900 s) and its run ceiling
+  is the schema's largest (4 h): both end hangs, neither judges speed.

@@ -44,7 +44,6 @@ import {
 import { readConfigCustomization, readNumberCustomization, writeConfigCustomization } from "../config-binding.ts";
 import {
   DEFAULT_ENGINE_SUITE_WATCHDOG,
-  DEFAULT_TEST_RUNTIME_BUDGET_MS,
   DEFAULT_SERIAL_PHASE_CONCURRENCY,
   DEFAULT_FULL_SUITE_SERIAL_PHASE_CONCURRENCY,
   DEFAULT_FULL_SUITE_IN_PROCESS_SERIAL_PHASE_CONCURRENCY,
@@ -82,17 +81,6 @@ function asPercent(fraction: number): string {
 }
 
 const ROWS = [
-  {
-    id: "runtimeBudgetMs",
-    configPath: "testExecution.runtimeBudgetMs",
-    name: "How long one test may run before it fails",
-    description:
-      "Every test gets this many milliseconds to settle; a test that never does is killed and FAILS instead of stalling the whole suite. Lower = a stuck test ends sooner; higher = a slow but legitimate test still finishes. Takes effect on the next test run.",
-    default: DEFAULT_TEST_RUNTIME_BUDGET_MS,
-    min: 1,
-    max: 600_000,
-    unit: "milliseconds",
-  },
   {
     id: "serialPhaseConcurrency",
     configPath: "testExecution.serialPhaseConcurrency",

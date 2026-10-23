@@ -1279,7 +1279,7 @@ describe("exposure is declared and reachable", () => {
       // fields and the signals read them directly. 26 → 29: the per-test
       // limits (TEST-CPU-CLASSES): the default CPU ceiling, the classes
       // (one array leaf) and the hang backstop, all served read-only.
-      testExecution: 29,
+      testExecution: 28, // 29 → 28: the engine's per-test wall cap (`runtimeBudgetMs`) deleted (TEST-CPU-CLASSES, NO-LOAD-BLOCK G-05)
       // 1 → 3: the ONE command runner's errored-class retries (PROMO-1).
       // 3 → 2: the typecheck's wall limit (`typecheckTimeoutMs`) deleted; a
       // typecheck is bounded by CPU work and one hang backstop (NO-LOAD-BLOCK A-17).
@@ -1311,7 +1311,7 @@ describe("exposure is declared and reachable", () => {
       sectionCounts[section] = declared.size - before;
     }
     expect(sectionCounts, "each section must declare exactly its measured leaves — a new leaf reds its own section here").toEqual(expectedSectionCounts);
-    expect(declared.size, "the class's twelve sections declare seventy-two leaves in total").toBe(72);
+    expect(declared.size, "the class's twelve sections declare seventy-one leaves in total").toBe(71);
 
     // The class's rows live in THREE modules (testExecution,
     // harnessCommands, agents) spanning FIVE sections — the census binds
@@ -1473,8 +1473,8 @@ describe("exposure is declared and reachable", () => {
     for (const [signalId] of readOnlyBudgets) {
       if (!withDefault.has(signalId)) expectSignal(signalId, NOT_DECLARED);
     }
-    expectSignal("testExecution.engineSuiteStallTimeout", "not declared — the default applies: a phase that reports nothing for 300 s is killed");
-    expectSignal("testExecution.engineSuiteHardCeiling", "not declared — the default applies: a run still going after 1800 s is killed");
+    expectSignal("testExecution.engineSuiteStallTimeout", "not declared — the default applies: a phase that reports nothing for 900 s is killed");
+    expectSignal("testExecution.engineSuiteHardCeiling", "not declared — the default applies: a run still going after 14400 s is killed");
     expectSignal("testExecution.engineSuiteKillGrace", "not declared — the default applies: a stopped run has 3 s before it is killed");
 
     // (c) The filed leaves — every disposition restated here is a REASON,
@@ -1592,9 +1592,8 @@ describe("exposure is declared and reachable", () => {
     // from that set would promise a partition it no longer has. The loops
     // above already assert every declared leaf is a row, a signal or filed,
     // and that a filed leaf is never served; this pin is the row count.
-    expect(rowsByPath.size, "the class serves exactly its fifteen disposed rows").toBe(15);
+    expect(rowsByPath.size, "the class serves exactly its fourteen disposed rows").toBe(14);
     const expectedRows: ReadonlyArray<readonly [string, "immediate" | "next-run", unknown, string | undefined]> = [
-      ["testExecution.runtimeBudgetMs", "next-run", 120000, "milliseconds"],
       ["testExecution.serialPhaseConcurrency", "next-run", 2, "lanes"],
       ["testExecution.fullSuiteSerialPhaseConcurrency", "next-run", 8, "lanes"],
       ["testExecution.fullSuiteInProcessSerialPhaseConcurrency", "next-run", 4, "lanes"],

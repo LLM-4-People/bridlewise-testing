@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import test, { after } from "node:test";
 
 import {
@@ -243,10 +243,10 @@ test("executeInventoryTestRun: a test that never settles FAILS the run instead o
     [{ path: "test/hang.test.ts", source: HANGING_SOURCE }],
     "auto",
     1,
-    // A small budget so the test costs a second rather than two minutes. The
-    // production default is `testExecution.runtimeBudgetMs`; what is under
-    // test here is that the budget is honoured at all.
-    { runtimeBudgetMs: 1_000 },
+    // A small backstop so the test costs a second rather than ten minutes. The
+    // production value is `testExecution.testHangBackstopMs`; what is under
+    // test here is that the backstop is honoured at all.
+    { testHangBackstopMs: 1_000 },
   );
   const elapsed = Date.now() - started;
   assert.equal(out.passed, false);
@@ -267,6 +267,31 @@ test("executeInventoryTestRun: a test that never settles FAILS the run instead o
   assert.ok(elapsed >= 1_000, `the run returned in ${elapsed} ms, before the 1000 ms budget could have fired`);
 });
 
+test("executeInventoryTestRun: every test file's process is BOUNDED BY CPU WORK and the one hang backstop — a test or hook that declares its own wall timeout fails naming it, a test over its CPU class fails naming its work, and waiting is never judged", () => {
+  const root = makeRoot("engine-bounds");
+  const bounded = [
+    'import test, { describe, it, beforeEach } from "node:test";',
+    'test("its own timeout", { timeout: 1234 }, () => {});',
+    'describe("a hook with its own timeout", () => { beforeEach(() => {}, { timeout: 77 }); it("under it", () => {}); });',
+    'test("burns CPU past its class", () => { const s = process.cpuUsage(); while ((process.cpuUsage(s).user + process.cpuUsage(s).system) / 1000 < 400) {} });',
+    'test("waits far past its class in wall time", async () => { await new Promise((r) => setTimeout(r, 600)); });',
+    'test("clean", () => {});',
+  ].join("\n");
+  const file = "test/bounded.test.ts";
+  const classPath = relative(resolve(root, ".."), join(root, file)).split(sep).join("/");
+  const out = runExecutorSubprocess(root, [{ path: file, source: bounded }], false, undefined, {
+    testHangBackstopMs: 600_000,
+    testCpuClasses: { defaultCeilingMs: 100_000, classes: [{ name: "planted", ceilingMs: 150, files: [classPath] }] },
+  });
+  const said = (name: string): string => JSON.stringify(out.receiptDetails.filter((detail) => JSON.stringify(detail).includes(name)));
+  assert.equal(out.passed, false);
+  assert.match(said("its own timeout"), /bounded by a 1234 ms wall timeout: a per-test wall timeout is not allowed/u);
+  assert.match(said("under it"), /bounded by a 77 ms wall timeout/u);
+  assert.match(said("burns CPU past its class"), /ms of CPU work, over its planted class ceiling of 150 ms/u);
+  assert.equal(said("waits far past its class"), "[]", "waiting is not work: a test that sleeps past its CPU ceiling in wall time passes");
+  assert.equal(said("\"clean\""), "[]");
+});
+
 test("executeInventoryTestRun: a file that never EXITS after its cancelled test is killed at the stall bound, and the run FAILS", () => {
   // Measured before the watchdog: a file whose cancelled test left a server
   // listening held the engine run for two hours — the per-test budget fired,
@@ -276,7 +301,7 @@ test("executeInventoryTestRun: a file that never EXITS after its cancelled test 
   const root = makeRoot("stall-watchdog");
   const started = Date.now();
   const out = runExecutorSubprocess(root, [{ path: "test/leak.test.ts", source: LEAKING_SOURCE }], "auto", 1,
-    { runtimeBudgetMs: 1_000, engineSuiteWatchdog: { stallTimeoutMs: 4_000, hardCeilingMs: 50_000, killGraceMs: 1_000 } });
+    { testHangBackstopMs: 1_000, engineSuiteWatchdog: { stallTimeoutMs: 4_000, hardCeilingMs: 50_000, killGraceMs: 1_000 } });
   const elapsed = Date.now() - started;
   assert.equal(out.passed, false, "a killed run is a failed run");
   assert.ok(out.failureDetails.some((detail) => detail.error?.failureType === "testAborted"), `the killed file is reported: ${JSON.stringify(out.failureDetails.map((detail) => detail.error?.failureType))}`);
@@ -301,7 +326,7 @@ test("executeInventoryTestRun: a SIGTERM ends the run — the running file is ki
   // the same abort as the watchdogs, never leave its files running.
   const root = makeRoot("terminate");
   const helperPath = executorHelper(root, [{ path: "test/leak.test.ts", source: LEAKING_SOURCE }], "auto", 1,
-    { runtimeBudgetMs: 60_000, engineSuiteWatchdog: { stallTimeoutMs: 60_000, hardCeilingMs: 120_000, killGraceMs: 1_000 } });
+    { testHangBackstopMs: 60_000, engineSuiteWatchdog: { stallTimeoutMs: 60_000, hardCeilingMs: 120_000, killGraceMs: 1_000 } });
   const started = Date.now();
   const child = spawn(process.execPath, [helperPath], { env: CLEAN_SUBPROCESS_ENV, stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";

@@ -308,7 +308,7 @@ test("THE SUPERVISING DOOR (`harness slot run`, the coverage run, the perf profi
   assert.match(cli, /await runInsideInstrumentLock\(slotRunLabel\(command\), count, command\)/u);
 });
 
-test("A WAITING DOOR HONOURS SIGTERM AND SIGINT (design L-1): the wait is asynchronous, a signal ends it with a typed exit (128 + its number), and the door never goes on to take the lock", { timeout: 60_000 }, async () => {
+test("A WAITING DOOR HONOURS SIGTERM AND SIGINT (design L-1): the wait is asynchronous, a signal ends it with a typed exit (128 + its number), and the door never goes on to take the lock", async () => {
   const lockPath = join(createTempDir("instrument-lock-signal-"), "instrument.lock");
   const holder = child(holderBody("a long holder"), [lockPath]);
   try {

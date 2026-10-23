@@ -29,9 +29,11 @@ import {
   type ConcurrencyMode,
   type TestFileDuration,
 } from "../../src/workflow/test-result-collector.ts";
-import { DEFAULT_ENGINE_SUITE_WATCHDOG, DEFAULT_TEST_RUNTIME_BUDGET_MS, type SuiteWatchdog } from "../../src/workflow/workflow-config.ts";
+import { DEFAULT_ENGINE_SUITE_WATCHDOG, DEFAULT_TEST_CPU_CLASSES, DEFAULT_TEST_HANG_BACKSTOP_MS, type SuiteWatchdog } from "../../src/workflow/workflow-config.ts";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
 import { networkGuardImport } from "./network-under-test.ts";
+import { engineTestBoundsImport, type EngineTestBounds } from "./engine-test-bounds.ts";
+import type { TestCpuClasses } from "./test-cpu-class.ts";
 
 type TestEvent = Readonly<{
   type: string;
@@ -156,34 +158,25 @@ export type InventoryTestRunOptions = Readonly<{
    */
   fullSuiteInProcessSerialPhaseConcurrency?: number;
   /**
-   * Wall-clock budget for a SINGLE TEST CASE, in milliseconds. Passed to the
-   * runner as `timeout`, so a test that never settles FAILS instead of
-   * removing the suite.
-   *
-   * ── THE POPULATION THIS NUMBER BOUNDS, AND WHERE IT CAME FROM ───────────
-   *
-   * It bounds ONE TEST, not one file and not the run: driven on node
-   * v24.18.0, `run({ timeout })` fails the individual test with
-   * `failureType: "testTimeoutFailure"`, then lets the remaining tests in the
-   * same file run and the run complete normally.
-   *
-   * The default is `testExecution.runtimeBudgetMs`. Its value is bounded from
-   * below by measurement: the slowest FILE in this suite is
-   * `test/foundation-cascade.test.ts` at 45,195 ms, and a file's duration is
-   * the sum of its tests, so 45,195 ms is a measured UPPER BOUND on the
-   * slowest single test. The default sits above that with room for
-   * contention. Changing the file set changes that bound, which is why the
-   * number lives in the config beside the measurement rather than in this
-   * file.
-   *
-   * Absent this, the children ran at node's default `--test-timeout=0` —
-   * never. Measured: a hung `test/tools/concurrent/worker-pool.test.ts` sat
-   * for 22 minutes across three respawns and produced no verdict at all.
-   * The suite-level CPU budget cannot help, because it is judged AFTER the
-   * run returns and a run that never returns is never judged: a hung test did
-   * not fail the suite, it removed the suite.
+   * THE HANG BACKSTOP of a single test, in milliseconds
+   * (`testExecution.testHangBackstopMs`): passed to the runner as `timeout`,
+   * so a test that never settles FAILS (`testTimeoutFailure`) and the rest of
+   * its file runs. It is the ONLY per-test wall bound and it never polices
+   * slowness: a test is judged by its CPU work against its file's class
+   * (`cpuClasses`, below), never by a wall cap a loaded host runs it out of
+   * (TEST-CPU-CLASSES; NO-LOAD-BLOCK row G-05). It used to be
+   * `runtimeBudgetMs` (120 s of wall), and under full-suite contention it
+   * failed tests that pass alone. Without any bound, node's default
+   * `--test-timeout=0` is "never": a hung worker-pool test once sat for 22
+   * minutes across three respawns with no verdict.
    */
-  runtimeBudgetMs?: number;
+  testHangBackstopMs?: number;
+  /**
+   * The per-test CPU classes (`testExecution.testCpuClasses`), installed into
+   * every test file's process with the backstop (`engine-test-bounds.ts`). A
+   * coverage run judges no CPU: instrumentation is work no test chose.
+   */
+  testCpuClasses?: TestCpuClasses;
   /**
    * THE FILE-LEVEL WATCHDOG (`testExecution.engineSuiteWatchdog`). The
    * per-test timeout above fails a test that never settles, but it cannot end
@@ -256,7 +249,8 @@ type TestPhaseDispatch = Readonly<{
   concurrency: boolean | number;
   isolation?: "process";
   coverage: boolean;
-  timeoutMs: number;
+  /** REQUIRED: every test file's process gets the hang backstop and the CPU classes (engine-test-bounds.ts). */
+  bounds: EngineTestBounds;
   /** REQUIRED like the timeout: the stall bound and the RUN's ceiling instant (see `engineSuiteWatchdog`). */
   watchdog: Readonly<{ stallTimeoutMs: number; ceilingAt: number }>;
 }>;
@@ -292,12 +286,15 @@ async function* runTestPhase(cwd: string, phase: TestPhaseDispatch): AsyncGenera
     for await (const event of run({
       cwd,
       files: phase.files,
-      // Every test file's process connects only to this machine (network-under-test.ts).
-      execArgv: [networkGuardImport()],
+      // Every test file's process is bounded by CPU work and the one hang
+      // backstop (engine-test-bounds.ts, loaded FIRST: it must wrap the timers
+      // before node:test loads), and connects only to this machine
+      // (network-under-test.ts).
+      execArgv: [engineTestBoundsImport(phase.bounds), networkGuardImport()],
       concurrency: phase.concurrency,
       ...(phase.isolation !== undefined ? { isolation: phase.isolation } : {}),
       coverage: phase.coverage,
-      timeout: phase.timeoutMs,
+      timeout: phase.bounds.hangBackstopMs,
       signal: controller.signal,
     })) {
       stall.refresh();
@@ -325,7 +322,11 @@ export async function executeInventoryTestRun(
   // The default lives here rather than at the callers, because two of the
   // three callers (`scripts/coverage.ts`, `scripts/planned-node-test-evidence.ts`)
   // pass no options at all and would otherwise still run without a budget.
-  const timeoutMs = options.runtimeBudgetMs ?? DEFAULT_TEST_RUNTIME_BUDGET_MS;
+  const bounds: EngineTestBounds = deepFreeze({
+    hangBackstopMs: options.testHangBackstopMs ?? DEFAULT_TEST_HANG_BACKSTOP_MS,
+    cpuClasses: coverage ? null : options.testCpuClasses ?? DEFAULT_TEST_CPU_CLASSES,
+    repositoryRoot: resolve(root, ".."),
+  });
   const suiteWatchdog = options.engineSuiteWatchdog ?? DEFAULT_ENGINE_SUITE_WATCHDOG;
   const watchdog = { stallTimeoutMs: suiteWatchdog.stallTimeoutMs, ceilingAt: Date.now() + suiteWatchdog.hardCeilingMs };
   const reporter = options.reporter;
@@ -439,7 +440,7 @@ export async function executeInventoryTestRun(
       expectedSummaryCount: phases.length,
     });
     const drain = async (phase: { files: readonly string[]; concurrency: boolean | number; isolation?: "process" }): Promise<void> => {
-      const stream = runTestPhase(root, { ...phase, coverage, timeoutMs, watchdog });
+      const stream = runTestPhase(root, { ...phase, coverage, bounds, watchdog });
       for await (const value of stream) {
         const event = normalizeTestEvent(value);
         accountant.observe(event);
@@ -482,7 +483,7 @@ export async function executeInventoryTestRun(
 
   const streamConcurrency: boolean | number = concurrency;
   const accountant = createInventoryTestAccountant(root, inventory);
-  const stream = runTestPhase(root, { files, concurrency: streamConcurrency, coverage, timeoutMs, watchdog });
+  const stream = runTestPhase(root, { files, concurrency: streamConcurrency, coverage, bounds, watchdog });
   try {
     for await (const value of stream) {
       const event = normalizeTestEvent(value);
