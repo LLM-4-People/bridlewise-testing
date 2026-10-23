@@ -273,7 +273,7 @@ test("git-tools: secret-like commit message is redacted before reaching the time
     recordGitOperation: (i) => { recorded.push(i.description); return { eventId: "e", sequence: "", chainHash: "" }; },
     recordCommit: (i) => { recorded.push(i.description); return { eventId: "e", sequence: "", chainHash: "" }; },
   };
-  const secret = "ghp_012345678901234567890123456789";
+  const secret = ("gh" + "p_012345678901234567890123456789");
   const tools = createGitTools({
     repositoryRoot: "/repo",
     config: WORKSPACE_GIT,

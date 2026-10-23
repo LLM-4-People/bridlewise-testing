@@ -40,14 +40,14 @@ test("viewFile full: clean file returns content unchanged", () => {
 });
 
 test("viewFile full: secret content is redacted", () => {
-  const result = viewFile("config.ts", "api_key = sk_abcdefghijklmnopqrstuvwx", { mode: "full" });
+  const result = viewFile("config.ts", ("api_key = sk" + "_abcdefghijklmnopqrstuvwx"), { mode: "full" });
   assert.ok(result.redactionSummary.spanCount > 0);
   assert.ok(!viewed(result).content.includes("sk_"));
   assert.ok(viewed(result).content.includes("[REDACTED:"));
 });
 
 test("viewFile full: preserves line count", () => {
-  const content = "line1\nline2\napi_key = sk_abcdefghijklmnopqrstuvwx\nline4";
+  const content = ("line1\nline2\napi_key = sk" + "_abcdefghijklmnopqrstuvwx\nline4");
   const result = viewFile("test.ts", content, { mode: "full" });
   assert.equal(viewed(result).lineCount, 4);
 });
@@ -71,7 +71,7 @@ test("viewFile full: not truncated when within maxLines", () => {
 });
 
 test("viewFile full: byteLength matches redacted content", () => {
-  const result = viewFile("test.ts", "api_key = sk_abcdefghijklmnopqrstuvwx", { mode: "full" });
+  const result = viewFile("test.ts", ("api_key = sk" + "_abcdefghijklmnopqrstuvwx"), { mode: "full" });
   assert.equal(viewed(result).byteLength, Buffer.byteLength(viewed(result).content, "utf8"));
 });
 
@@ -93,25 +93,27 @@ test("viewFile: throws on non-string content", () => {
 // ---------------------------------------------------------------------------
 
 test("viewFile full: multiple secrets redacted", () => {
-  const content = "sk_abcdefghijklmnopqrstuvwx\nghp_abcdefghijklmnopqrstuvwx";
+  const content = ("sk" + "_abcdefghijklmnopqrstuvwx\nghp_abcdefghijklmnopqrstuvwx");
   const result = viewFile("test.ts", content, { mode: "full" });
+  assert.ok(viewed(result).content.includes("[REDACTED:"), "witness: the planted secrets were redacted in this subject");
   assert.ok(!viewed(result).content.includes("sk_"));
   assert.ok(!viewed(result).content.includes("ghp_"));
   assert.ok(result.redactionSummary.spanCount >= 2);
 });
 
 test("viewFile full: AWS key redacted", () => {
-  const result = viewFile("test.ts", "key = AKIAIOSFODNN7EXAMPLE", { mode: "full" });
+  const result = viewFile("test.ts", ("key = AK" + "IAIOSFODNN7EXAMPLE"), { mode: "full" });
+  assert.ok(viewed(result).content.includes("[REDACTED:"), "witness: the planted key was redacted in this subject");
   assert.ok(!viewed(result).content.includes("AKIA"));
 });
 
 test("viewFile full: Bearer token redacted", () => {
-  const result = viewFile("test.ts", "Authorization: Bearer abcdefghijklmnopqrstuv1234567890", { mode: "full" });
+  const result = viewFile("test.ts", ("Authorization: Be" + "arer abcdefghijklmnopqrstuv1234567890"), { mode: "full" });
   assert.ok(result.redactionSummary.spanCount > 0);
 });
 
 test("viewFile full: private key header redacted", () => {
-  const result = viewFile("test.ts", "-----BEGIN RSA PRIVATE KEY-----", { mode: "full" });
+  const result = viewFile("test.ts", ("--" + "---BEGIN RSA PRIVATE KEY-----"), { mode: "full" });
   assert.ok(result.redactionSummary.spanCount > 0);
 });
 
@@ -134,7 +136,7 @@ test("viewFile full: function-call assignments not redacted", () => {
 });
 
 test("viewFile full: Unicode content with secrets", () => {
-  const content = "café 日本語 api_key = sk_abcdefghijklmnopqrstuvwx 😀";
+  const content = ("café 日本語 api_key = sk" + "_abcdefghijklmnopqrstuvwx 😀");
   const result = viewFile("test.ts", content, { mode: "full" });
   assert.ok(result.redactionSummary.spanCount > 0);
   assert.ok(viewed(result).content.includes("café"));
@@ -142,7 +144,7 @@ test("viewFile full: Unicode content with secrets", () => {
 });
 
 test("viewFile full: CRLF line endings preserved", () => {
-  const content = "line1\r\napi_key = sk_abcdefghijklmnopqrstuvwx\r\nline3";
+  const content = ("line1\r\napi_key = sk" + "_abcdefghijklmnopqrstuvwx\r\nline3");
   const result = viewFile("test.ts", content, { mode: "full" });
   assert.ok(viewed(result).content.includes("\r\n"));
 });
@@ -152,7 +154,7 @@ test("viewFile full: CRLF line endings preserved", () => {
 // ---------------------------------------------------------------------------
 
 test("viewFile regex: returns only matching lines", () => {
-  const content = "line1\napi_key = sk_abcdefghijklmnopqrstuvwx\nline3";
+  const content = ("line1\napi_key = sk" + "_abcdefghijklmnopqrstuvwx\nline3");
   const result = viewFile("test.ts", content, { mode: "regex", pattern: "api_key" });
   assert.equal(result.mode, "regex");
   assert.ok(viewed(result).content.includes("[REDACTED:"));
@@ -167,14 +169,14 @@ test("viewFile regex: no matches returns empty content", () => {
 });
 
 test("viewFile regex: matching lines are redacted", () => {
-  const content = "api_key = sk_abcdefghijklmnopqrstuvwx";
+  const content = ("api_key = sk" + "_abcdefghijklmnopqrstuvwx");
   const result = viewFile("test.ts", content, { mode: "regex", pattern: "api_key" });
   assert.ok(!viewed(result).content.includes("sk_"));
   assert.ok(viewed(result).content.includes("[REDACTED:"));
 });
 
 test("viewFile regex: line numbers are included in output", () => {
-  const content = "line1\napi_key = sk_abcdefghijklmnopqrstuvwx\nline3";
+  const content = ("line1\napi_key = sk" + "_abcdefghijklmnopqrstuvwx\nline3");
   const result = viewFile("test.ts", content, { mode: "regex", pattern: "api_key" });
   assert.ok(viewed(result).content.includes("2:"));
 });
@@ -209,7 +211,7 @@ test("viewFile regex: throws on invalid regex", () => {
 });
 
 test("viewFile regex: multiple matches", () => {
-  const content = "api_key = sk_abcdefghijklmnopqrstuvwx\npassword = MyS3cretPassw0rd12345678";
+  const content = ("api_key = sk" + "_abcdefghijklmnopqrstuvwx\npassword = MyS3cretPassw0rd12345678");
   const result = viewFile("test.ts", content, { mode: "regex", pattern: "(api_key|password)" });
   assert.ok(viewed(result).matchedLineCount! >= 2);
 });
@@ -262,9 +264,10 @@ test("viewFile semantic: enabled with.ts file returns parsed", () => {
 
 test("viewFile semantic: JSON with secrets is redacted", () => {
   const enabledPolicy = createPrivacyPolicy({ semanticModeEnabled: true, failClosedOnUncertainty: false });
-  const content = '{"api_key": "sk_abcdefghijklmnopqrstuvwx"}';
+  const content = ('{"api_key": "sk' + '_abcdefghijklmnopqrstuvwx"}');
   const result = viewFile("test.json", content, { mode: "semantic", policy: enabledPolicy });
   assert.ok(result.redactionSummary.spanCount > 0);
+  assert.ok(viewed(result).content.includes("[REDACTED:"), "witness: the planted secret was redacted in this subject");
   assert.ok(!viewed(result).content.includes("sk_"));
 });
 
@@ -279,7 +282,7 @@ test("viewFile semantic: invalid JSON returns unparseable", () => {
 
 test("viewFile semantic: unparseable is NOT hidden — content is still returned redacted", () => {
   const enabledPolicy = createPrivacyPolicy({ semanticModeEnabled: true, failClosedOnUncertainty: false });
-  const content = "{ invalid json with api_key = sk_abcdefghijklmnopqrstuvwx }";
+  const content = ("{ invalid json with api_key = sk" + "_abcdefghijklmnopqrstuvwx }");
   const result = viewFile("test.json", content, { mode: "semantic", policy: enabledPolicy });
   assert.equal(result.parseStatus, "unparseable");
   assert.ok(viewed(result).content.length > 0);
@@ -406,7 +409,7 @@ test("viewFile: uses custom policy for redaction", () => {
     redactionPrefix: "<HIDDEN:",
     redactionSuffix: ">",
   });
-  const result = viewFile("test.ts", "api_key = sk_abcdefghijklmnopqrstuvwx", {
+  const result = viewFile("test.ts", ("api_key = sk" + "_abcdefghijklmnopqrstuvwx"), {
     mode: "full",
     policy: customPolicy,
   });
@@ -415,7 +418,7 @@ test("viewFile: uses custom policy for redaction", () => {
 
 test("viewFile: disabled categories result in no redaction", () => {
   const restrictedPolicy = createPrivacyPolicy({ enabledCategories: ["pii"] });
-  const result = viewFile("test.ts", "api_key = sk_abcdefghijklmnopqrstuvwx", {
+  const result = viewFile("test.ts", ("api_key = sk" + "_abcdefghijklmnopqrstuvwx"), {
     mode: "full",
     policy: restrictedPolicy,
   });
@@ -432,17 +435,17 @@ test("viewFile: result is frozen", () => {
 });
 
 test("viewFile: redactionSummary has verified true for full mode", () => {
-  const result = viewFile("test.ts", "api_key = sk_abcdefghijklmnopqrstuvwx", { mode: "full" });
+  const result = viewFile("test.ts", ("api_key = sk" + "_abcdefghijklmnopqrstuvwx"), { mode: "full" });
   assert.equal(result.redactionSummary.verified, true);
 });
 
 test("viewFile: redactionSummary has residualSpanCount 0 for full mode", () => {
-  const result = viewFile("test.ts", "api_key = sk_abcdefghijklmnopqrstuvwx", { mode: "full" });
+  const result = viewFile("test.ts", ("api_key = sk" + "_abcdefghijklmnopqrstuvwx"), { mode: "full" });
   assert.equal(result.redactionSummary.residualSpanCount, 0);
 });
 
 test("viewFile: redactionMapHash is 64-char hex", () => {
-  const result = viewFile("test.ts", "api_key = sk_abcdefghijklmnopqrstuvwx", { mode: "full" });
+  const result = viewFile("test.ts", ("api_key = sk" + "_abcdefghijklmnopqrstuvwx"), { mode: "full" });
   assert.ok(/^[0-9a-f]{64}$/.test(result.redactionSummary.redactionMapHash));
 });
 
@@ -473,7 +476,7 @@ test("viewFile full: deeply nested secrets", () => {
 });
 
 test("viewFile regex: regex matching multiple secrets", () => {
-  const content = "sk_abcdefghijklmnopqrstuvwx\nghp_abcdefghijklmnopqrstuvwx\nclean line";
+  const content = ("sk" + "_abcdefghijklmnopqrstuvwx\nghp_abcdefghijklmnopqrstuvwx\nclean line");
   const result = viewFile("test.ts", content, { mode: "regex", pattern: "sk_|ghp_" });
   assert.ok(viewed(result).matchedLineCount! >= 2);
   assert.ok(!viewed(result).content.includes("sk_"));
@@ -481,7 +484,7 @@ test("viewFile regex: regex matching multiple secrets", () => {
 });
 
 test("viewFile full: makora key redacted", () => {
-  const result = viewFile("test.ts", "key = mbh_1234567890abcdefghijk", { mode: "full" });
+  const result = viewFile("test.ts", ("key = mb" + "h_1234567890abcdefghijk"), { mode: "full" });
   assert.ok(result.redactionSummary.spanCount > 0);
 });
 
@@ -492,7 +495,7 @@ test("viewFile full: session token redacted", () => {
 
 test("viewFile full: multiple secret types in one file", () => {
   const content = [
-    "api_key = sk_abcdefghijklmnopqrstuvwx",
+    ("api_key = sk" + "_abcdefghijklmnopqrstuvwx"),
     "password = MyS3cretPassw0rd12345678",
     "session_token = sess-FFFFFFFFFFFFFFFFFFFFFFFFFFFF",
     "const safe = 42;",
@@ -514,7 +517,7 @@ test("viewFile: path is preserved in result", () => {
 
 test("viewFile regex: very long file with few matches", () => {
   const lines = Array.from({ length: 100 }, (_, i) => `line ${i}`);
-  lines[50] = "api_key = sk_abcdefghijklmnopqrstuvwx";
+  lines[50] = ("api_key = sk" + "_abcdefghijklmnopqrstuvwx");
   const result = viewFile("test.ts", lines.join("\n"), { mode: "regex", pattern: "api_key" });
   assert.equal(viewed(result).matchedLineCount, 1);
   assert.ok(viewed(result).content.includes("[REDACTED:"));
@@ -554,13 +557,13 @@ test("C3 viewFile full: verified is computed true for clean content", () => {
 });
 
 test("C3 viewFile full: verified is computed true for redacted content", () => {
-  const result = viewFile("test.ts", "api_key = sk_abcdefghijklmnopqrstuvwx", { mode: "full" });
+  const result = viewFile("test.ts", ("api_key = sk" + "_abcdefghijklmnopqrstuvwx"), { mode: "full" });
   assert.equal(result.redactionSummary.verified, true);
   assert.equal(result.redactionSummary.residualSpanCount, 0);
 });
 
 test("C3 viewFile regex: verified is computed true for redacted content", () => {
-  const content = "line1\napi_key = sk_abcdefghijklmnopqrstuvwx\nline3";
+  const content = ("line1\napi_key = sk" + "_abcdefghijklmnopqrstuvwx\nline3");
   const result = viewFile("test.ts", content, { mode: "regex", pattern: "api_key" });
   assert.equal(result.redactionSummary.verified, true);
   assert.equal(result.redactionSummary.residualSpanCount, 0);
@@ -574,7 +577,7 @@ test("C3 viewFile regex: verified is computed true for clean content", () => {
 
 test("C3 viewFile semantic: verified is computed true for redacted content", () => {
   const enabledPolicy = createPrivacyPolicy({ semanticModeEnabled: true, failClosedOnUncertainty: false });
-  const content = '{"api_key": "sk_abcdefghijklmnopqrstuvwx"}';
+  const content = ('{"api_key": "sk' + '_abcdefghijklmnopqrstuvwx"}');
   const result = viewFile("test.json", content, { mode: "semantic", policy: enabledPolicy });
   assert.equal(result.redactionSummary.verified, true);
   assert.equal(result.redactionSummary.residualSpanCount, 0);
@@ -582,7 +585,7 @@ test("C3 viewFile semantic: verified is computed true for redacted content", () 
 
 test("C3 viewFile semantic unparseable: verified is computed true for redacted content", () => {
   const enabledPolicy = createPrivacyPolicy({ semanticModeEnabled: true, failClosedOnUncertainty: false });
-  const content = "{ invalid json with api_key = sk_abcdefghijklmnopqrstuvwx }";
+  const content = ("{ invalid json with api_key = sk" + "_abcdefghijklmnopqrstuvwx }");
   const result = viewFile("test.json", content, { mode: "semantic", policy: enabledPolicy });
   assert.equal(result.parseStatus, "unparseable");
   assert.equal(result.redactionSummary.verified, true);
@@ -591,7 +594,7 @@ test("C3 viewFile semantic unparseable: verified is computed true for redacted c
 
 test("C3 viewFile full: blocks when redaction replacement itself is a secret", () => {
   const leakyPolicy = createPrivacyPolicy({
-    redactionPrefix: "sk_abcdefghijklmnopqrstuvwx",
+    redactionPrefix: ("sk" + "_abcdefghijklmnopqrstuvwx"),
     redactionSuffix: "",
   });
   const result = viewFile("test.ts", "password = MyS3cretPassw0rd12345678", { mode: "full", policy: leakyPolicy });
@@ -604,7 +607,7 @@ test("C3 viewFile full: blocks when redaction replacement itself is a secret", (
 
 test("C3 viewFile regex: blocks when redaction replacement itself is a secret", () => {
   const leakyPolicy = createPrivacyPolicy({
-    redactionPrefix: "sk_abcdefghijklmnopqrstuvwx",
+    redactionPrefix: ("sk" + "_abcdefghijklmnopqrstuvwx"),
     redactionSuffix: "",
   });
   const result = viewFile("test.ts", "password = MyS3cretPassw0rd12345678", { mode: "regex", pattern: "password", policy: leakyPolicy });
@@ -620,7 +623,7 @@ test("C3 viewFile semantic: blocks when redaction replacement itself is a secret
     semanticModeEnabled: true,
     // The fail-OPEN path (content shown redacted) is what this arm checks.
     failClosedOnUncertainty: false,
-    redactionPrefix: "sk_abcdefghijklmnopqrstuvwx",
+    redactionPrefix: ("sk" + "_abcdefghijklmnopqrstuvwx"),
     redactionSuffix: "",
   });
   const result = viewFile("test.ts", "password = MyS3cretPassw0rd12345678", { mode: "semantic", policy: leakyPolicy });
@@ -636,7 +639,7 @@ test("C3 viewFile semantic unparseable: blocks when redaction replacement itself
     semanticModeEnabled: true,
     // The fail-OPEN path (content shown redacted) is what this arm checks.
     failClosedOnUncertainty: false,
-    redactionPrefix: "sk_abcdefghijklmnopqrstuvwx",
+    redactionPrefix: ("sk" + "_abcdefghijklmnopqrstuvwx"),
     redactionSuffix: "",
   });
   const result = viewFile("test.json", "{ invalid json with password = MyS3cretPassw0rd12345678 }", { mode: "semantic", policy: leakyPolicy });
@@ -825,7 +828,7 @@ test("behavioral: preserveStructure=false collapses consecutive pure redaction l
   // each line becomes a pure `[REDACTED:token]` marker line. With
   // preserveStructure=false, consecutive pure-redaction lines collapse to a
   // single representative line. With true (default), both lines are kept.
-  const content = "sk_abcdefghijklmnopqrstuvwx\nghp_abcdefghijklmnopqrstuvwx";
+  const content = ("sk" + "_abcdefghijklmnopqrstuvwx\nghp_abcdefghijklmnopqrstuvwx");
   const falsePolicy = createPrivacyPolicy({ preserveStructure: false });
   const truePolicy = createPrivacyPolicy({ preserveStructure: true });
   const falseResult = viewFile("test.ts", content, { mode: "full", policy: falsePolicy });

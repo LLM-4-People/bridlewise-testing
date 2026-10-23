@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
@@ -12,13 +12,16 @@ import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { resignTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
 import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
-import { PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256 } from "../kernel/architecture-external-commands.ts";
-import { verifyExternalCommands, type ArchitectureSource } from "../../scripts/verification/architecture.ts";
+import {
+  externalCommandSourceFinding,
+  PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256,
+} from "../kernel/architecture-external-commands.ts";
+import { readExternalCommandSources, verifyExternalCommands } from "../../scripts/verification/architecture.ts";
 import { currentConfigContractArtifact, generateAutoGeneratorReport, type AutoGeneratorReport } from "./auto-generator.ts";
 import {
   generatedOutputPaths,
@@ -151,6 +154,8 @@ export type HarnessCheckOutput = Readonly<{
   artifactManifest: CheckStepResult;
   /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
   communityFiles: CheckStepResult;
+  /** Would `harness regenerate` rewrite the web test budget's accumulation population (scripts/testing/measure-web-budget.ts --population)? */
+  webBudgetPopulation: CheckStepResult;
   /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
   bundle: CheckStepResult;
   allPassed: boolean;
@@ -260,6 +265,8 @@ export type HarnessRegenerateOutput = Readonly<{
    * (src/workflow/community/health-files.ts), never edited by hand.
    */
   communityFiles: CommunityFilesArm;
+  /** The web test budget's accumulation population, from the live supported test files (scripts/testing/measure-web-budget.ts --population). */
+  webBudgetPopulation: DecisionIndexArm;
   /**
    * The guardian spec-schema artifact, rebuilt from the live Zod schema
    * (`scripts/verification/guardian-spec-artifact.ts`) BEFORE the binding
@@ -551,6 +558,9 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the community health files and forms...");
   steps.push(communityFilesStep(regenerateCommunityFiles(root, false)));
 
+  emitProgress(onProgress, "Checking the web test budget's population...");
+  steps.push(webBudgetPopulationStep(regenerateWebBudgetPopulation(root, false)));
+
   emitProgress(onProgress, "Checking the bundle against a rebuild of the source...");
   steps.push(bundleFreshnessStep(root));
 
@@ -579,7 +589,8 @@ export async function harnessCheck(
     trackerBoard: steps[20]!,
     artifactManifest: steps[21]!,
     communityFiles: steps[22]!,
-    bundle: steps[23]!,
+    webBudgetPopulation: steps[23]!,
+    bundle: steps[24]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -969,11 +980,13 @@ export function harnessRegenerate(
   const frozenRecords = syncFrozenRecords(trackedTop(root), write);
   // The community health files and forms, from their sources (before the inventory digests them).
   const communityFiles = regenerateCommunityFiles(root, write);
+  // The web test budget's population, from the live supported test files (before the inventory digests the settings).
+  const webBudgetPopulation = regenerateWebBudgetPopulation(root, write);
   // The canonical artifact inventory, LAST: every governed file the arms above
   // rewrote (a README in a governed root, the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, webBudgetPopulation, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -988,7 +1001,7 @@ export function harnessRegenerate(
     ? (hashBindings.allMatch && autoGenerator.allMatch &&
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1271,6 +1284,36 @@ export function evidenceIgnoreStep(evidenceIgnore: DecisionIndexArm): CheckStepR
 }
 
 /** `harness check`'s community-files step: a stale generated health file or form FAILS the check, naming each path. */
+/**
+ * The web test budget's population arm, as a subprocess like the README
+ * consumer arm (a repository-root generator the runtime must not import):
+ * the accumulation-phase `derivedAtTestFileCount` is the live supported
+ * population, written on sync and judged on check, so no pull request types
+ * it. A tree without the generator (a product-only tree) is converged by
+ * absence.
+ */
+export function regenerateWebBudgetPopulation(root: string, write: boolean): DecisionIndexArm {
+  const absent = deepFreeze({ status: "absent" as const, converged: true, changed: [] });
+  const repositoryRoot = repositoryToplevel(root, "directory");
+  if (repositoryRoot === undefined) return absent;
+  const generator = resolve(repositoryRoot, WEB_BUDGET_POPULATION.generator);
+  if (!existsSync(generator)) return absent;
+  const report = generatorReport<"current" | "regenerated" | "stale">(root, generator, ["--population", write ? "--write" : "--check"], "the web budget population generator", "web_budget_population_no_result");
+  return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed });
+}
+
+/** `harness check`'s web-budget-population step: a population that differs from the live supported test files FAILS the check. */
+export function webBudgetPopulationStep(arm: DecisionIndexArm): CheckStepResult {
+  return deepFreeze({
+    step: "web-budget-population",
+    status: arm.converged ? "pass" : "fail",
+    message: arm.converged
+      ? `the web test budget's population is the live supported population${arm.status === "absent" ? " (this tree carries no web budget tool)" : ""}`
+      : "the web test budget's accumulation population differs from the live supported test files (run harness sync)",
+    details: arm,
+  });
+}
+
 export function communityFilesStep(communityFiles: CommunityFilesArm): CheckStepResult {
   return deepFreeze({
     step: "community-files",
@@ -1289,7 +1332,7 @@ export function communityFilesStep(communityFiles: CommunityFilesArm): CheckStep
  * module the IssueOps commands read too). A typed refusal is the arm's
  * `refused` answer, so `harness check` names it as a failing step.
  */
-export function regenerateCommunityFiles(root: string, write: boolean): CommunityFilesArm {
+function regenerateCommunityFiles(root: string, write: boolean): CommunityFilesArm {
   try {
     const report = syncCommunityFiles(trackedTop(root), write);
     return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed, refusal: "" });
@@ -2025,33 +2068,21 @@ function registrarDriftMessage(report: ModuleRegistrarReport): string {
  *
  * The verifier names a declared-absent `not-published` source on every run so
  * the boundary is never silent (the S1 tests assert exactly that list). For
- * the commit gate those names are the declaration itself; everything else the
- * verifier reports — a missing or drifted published source, an
- * unexpectedly-published `not-published` source, an unreadable source, or the
- * published POPULATION moving off its authored pin — refuses.
+ * the commit gate those names are the declaration itself — the ones
+ * `externalCommandSourceFinding` (the one publication rule) classes
+ * `declared-absent`; everything else the verifier or the one reader
+ * (`readExternalCommandSources`) reports — a missing or drifted published
+ * source, an unexpectedly-published `not-published` source, an unreadable
+ * source, or the published POPULATION moving off its authored pin — refuses.
  */
 function externalCommandCheckViolations(root: string): readonly string[] {
   const violations: string[] = [];
-  const sources: ArchitectureSource[] = [];
-  const maximumSourceBytes = ARCHITECTURE_MANIFEST.analysisLimits.maximumSourceBytes;
+  const sources = readExternalCommandSources(root, ARCHITECTURE_MANIFEST, violations);
+  const sourceByPath = new Map(sources.map((entry) => [entry.path, entry.source] as const));
   const declaredAbsence = new Set<string>();
   for (const command of ARCHITECTURE_MANIFEST.externalCommands) {
-    const absolute = resolve(root, command.path);
-    if (command.publication === "not-published" && !existsSync(absolute)) {
-      declaredAbsence.add(`architecture-external-command-source-not-published:${command.path}`);
-      continue;
-    }
-    try {
-      if (statSync(absolute).size > maximumSourceBytes) {
-        violations.push(`architecture-external-command-source-too-large:${command.path}`);
-        continue;
-      }
-      sources.push({ path: command.path, source: readFileSync(absolute, "utf8") });
-    } catch (error) {
-      violations.push(
-        `architecture-external-command-source-unreadable:${command.path}:${extractErrorMessage(error)}`,
-      );
-    }
+    const finding = externalCommandSourceFinding(command, sourceByPath.get(command.path));
+    if (finding.kind === "declared-absent") declaredAbsence.add(finding.violation);
   }
   const moduleByPath = new Map(ARCHITECTURE_MANIFEST.modules.map((module) => [module.path, module] as const));
   const verifierViolations: string[] = [];

@@ -1098,7 +1098,7 @@ async function waitForMarkerFile(path: string, why: string): Promise<void> {
 
 describe("mcp-runtime-bridge: a stdio server's host placement — its own home, an allowlisted environment, the confinement owner's door", () => {
   it("runs in a harness-owned home (cwd = HOME, 0700) with ONLY the subprocess allowlist and its own configured env — no secret inherited", async () => {
-    process.env["BRIDLEWISE_MCP_TEST_SECRET"] = "sk-must-not-reach-an-mcp-server";
+    process.env["BRIDLEWISE_MCP_TEST_SECRET"] = ("sk" + "-must-not-reach-an-mcp-server");
     try {
       writeConfig([PROBE_SERVER]);
       const { ensureMcpRuntimeStarted, callMcpTool } = await import("../../server/integrations/mcp-runtime-bridge.ts");

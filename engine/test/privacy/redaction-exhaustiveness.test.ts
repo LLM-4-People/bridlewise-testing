@@ -32,11 +32,11 @@ import { SECRET_TEXT_SIGNAL_CATALOG } from "../../src/privacy/secret-signals.ts"
 // chosen to match exactly one signal so the category attribution is
 // unambiguous (overlap resolution does not merge categories here).
 const SIGNAL_SAMPLES: ReadonlyArray<readonly [string, string]> = Object.freeze([
-  ["makora-key", "key = mbh_1234567890abcdefghijk"],
-  ["token-prefix", "value sk_abcdefghijklmnopqrstuvwx"],
-  ["aws-access-key", "AKIAIOSFODNN7EXAMPLE"],
-  ["bearer-token", "Bearer abcdefghijklmnopqrstuv1234567890"],
-  ["private-key", "-----BEGIN RSA PRIVATE KEY-----"],
+  ["makora-key", ("key = mb" + "h_1234567890abcdefghijk")],
+  ["token-prefix", ("value sk" + "_abcdefghijklmnopqrstuvwx")],
+  ["aws-access-key", ("AK" + "IAIOSFODNN7EXAMPLE")],
+  ["bearer-token", ("Be" + "arer abcdefghijklmnopqrstuv1234567890")],
+  ["private-key", ("--" + "---BEGIN RSA PRIVATE KEY-----")],
   ["credential-assignment", 'api_key = "Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MA=="'],
 ]);
 
@@ -90,7 +90,7 @@ test("Redaction exhaustiveness: disabling a category suppresses its spans", () =
 });
 
 test("Redaction exhaustiveness: enabling only one category yields only that category's spans", () => {
-  const sample = "value sk_abcdefghijklmnopqrstuvwx and AKIAIOSFODNN7EXAMPLE";
+  const sample = ("value sk" + "_abcdefghijklmnopqrstuvwx and AK" + "IAIOSFODNN7EXAMPLE");
   // sk_... -> token; AKIA... -> api-key. Enable only token.
   const tokenOnly = policyWith(["token"]);
   const spans = detectSensitiveSpans(sample, tokenOnly);
