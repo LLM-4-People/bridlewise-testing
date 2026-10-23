@@ -5767,5 +5767,10 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       owner: "verification-workflow", publicApi: { exportCount: 1, namesSha256: "dbf4220642228b9daecb8ff88b1cefb8ce3b53ea1355f7488ba9fc976d46f43c" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/command-result.ts","src/workflow/community/categories.ts","src/workflow/community/sources.ts","src/workflow/evidence-store.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts"],
     }),
+    moduleContract({
+      id: "scripts-verification-licence-boundary", path: "scripts/verification/licence-boundary.ts", realm: "builder", layer: "verification",
+      owner: "verification-foundation", publicApi: { exportCount: 6, namesSha256: "b49b635e37bb38efeb5819fbf927ccc937c9d2a1e4995eaab0014398a57736b1" },
+      dependencies: [],
+    }),
   ],
 });
