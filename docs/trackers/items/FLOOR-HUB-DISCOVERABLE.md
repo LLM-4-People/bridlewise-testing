@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-HUB-DISCOVERABLE
 type: Task
 title: Make the testing hub discoverable from every surface

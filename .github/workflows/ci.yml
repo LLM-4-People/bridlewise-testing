@@ -164,7 +164,9 @@ jobs:
   # cockpit view the capture walk reaches and every page of the built site
   # are judged. A static guard reads spellings; this reads the result.
   rendered:
-    name: Rendered pages (mark, fonts, network)
+    # The check's name is what the trunk ruleset requires: it stays "Rendered
+    # pages" whatever rows the table gains (rules.ts).
+    name: Rendered pages
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

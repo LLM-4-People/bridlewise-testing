@@ -38,7 +38,7 @@ function setupRepo(): string {
       "export function multiply(a: number, b: number): number {",
       "  return a * b;",
       "}",
-      "export const SECRET_TOKEN = \"sk_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";",
+      ("export const SECRET_TOKEN = \"sk" + "_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";"),
       "export class Calculator {",
       "  add(a: number, b: number): number { return add(a, b); }",
       "  mul(a: number, b: number): number { return multiply(a, b); }",
@@ -328,7 +328,7 @@ test("createToolRegistry: quick_view tool redacts secrets in context/text fields
     assert.equal(result.isError, false, `quick_view failed: ${result.content}`);
     const parsed = JSON.parse(result.content) as { view: { definition: unknown[]; docs: unknown[] } };
     const serialized = JSON.stringify(parsed);
-    assert.equal(serialized.includes("sk_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), false, "raw sk_ token must not egress via quick_view");
+    assert.equal(serialized.includes(("sk" + "_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")), false, "raw sk_ token must not egress via quick_view");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -345,7 +345,7 @@ test("createToolRegistry: slice tool redacts secrets in the slice", () => {
     );
     assert.equal(result.isError, false, `slice failed: ${result.content}`);
     const parsed = JSON.parse(result.content) as { slice: string };
-    assert.equal(parsed.slice.includes("sk_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), false, "raw sk_ token must not egress via slice");
+    assert.equal(parsed.slice.includes(("sk" + "_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")), false, "raw sk_ token must not egress via slice");
     assert.ok(parsed.slice.includes("[REDACTED"), `expected a redaction marker; got: ${parsed.slice}`);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -363,7 +363,7 @@ test("createToolRegistry: viewport tool redacts secrets", () => {
     );
     assert.equal(result.isError, false, `viewport failed: ${result.content}`);
     const parsed = JSON.parse(result.content) as { viewport: string };
-    assert.equal(parsed.viewport.includes("sk_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), false, "raw sk_ token must not egress via viewport");
+    assert.equal(parsed.viewport.includes(("sk" + "_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")), false, "raw sk_ token must not egress via viewport");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: TREE-SITTER-PARSE-REFUSAL
 type: Task
 title: Refuse a failed tree-sitter parse instead of an empty extraction
