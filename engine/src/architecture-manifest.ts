@@ -5451,7 +5451,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-failure-owners", path: "src/workflow/failure-owners.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 26, namesSha256: "aa4bdcdec6600f7f250a108a7be28748ad64163deaa83ebe69ace5a30af60ee4" },
+      owner: "verification-workflow", publicApi: { exportCount: 27, namesSha256: "586097a3e6ce1b86c4be28f82e1847bf7e33bbefb9d028fb011146f7352758dc" },
       dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/verification-paths.ts","src/workflow/markdown-links.ts"],
     }),
     moduleContract({
@@ -5710,6 +5710,41 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "scripts-verification-corpus-root", path: "scripts/verification/corpus-root.ts", realm: "builder", layer: "verification",
       owner: "verification-foundation", publicApi: { exportCount: 3, namesSha256: "b0541eb536667334cd5b333ab51f9859e9dc570853dd8ad852ee5a8a1c6576a1" },
+      dependencies: [],
+    }),
+    moduleContract({
+      id: "src-filesystem-self-protection-confined-run", path: "src/filesystem/self-protection/confined-run.ts", realm: "shared", layer: "trusted-kernel",
+      owner: "self-protection", publicApi: { exportCount: 4, namesSha256: "d900743e15e03ad13c224b343fed1d62bc1ea660e5640c6f334eefb8ac5b3a48" },
+      dependencies: ["node:child_process","node:fs","node:os","node:path","src/filesystem/private-state.ts","src/filesystem/self-protection/guardian-binary.ts","src/filesystem/self-protection/guardian-build-stamp.ts","src/filesystem/self-protection/self-protection-config.ts","src/filesystem/self-protection/self-protection-contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/process/environment-projection.ts","src/process/process-facts.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-apply", path: "src/workflow/forge/projector/apply.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "c7f0cfef714511715183ab52936569e1035c565a9f25857f374f945ae285863e" },
+      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/shared/debug/debug-system.ts","src/workflow/forge/projector/model.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-confined", path: "src/workflow/forge/projector/confined.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 4, namesSha256: "94429465133dc8a0b9a6a13b3b10ee915793e78ef1a899a8317fa59bfe58f875" },
+      dependencies: ["node:fs","node:module","node:path","node:url","src/filesystem/self-protection/confined-run.ts","src/kernel/errors.ts","src/shared/debug/debug-system.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-model", path: "src/workflow/forge/projector/model.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 19, namesSha256: "886b3d6b8543fc966fac1559aa643e6ab5c7e8b6873571f5c4375c873e3ecd50" },
+      dependencies: ["src/kernel/product-identity.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-project", path: "src/workflow/forge/projector/project.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "5d7fc1307c4e148d15173534d166fd08c1665b817d7fe617a6f2977003bf21b9" },
+      dependencies: ["src/kernel/ordered.ts","src/workflow/forge/projector/model.ts","src/workflow/markdown-links.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-projection", path: "src/workflow/forge/projector/projection.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 3, namesSha256: "5a3a9a415a89415c7fff1f1f7504235b973c0706390318bd846bddf097df1095" },
+      dependencies: ["src/git/tree-reader.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/verification-paths.ts","src/workflow/failure-owners.ts","src/workflow/forge/projector/confined.ts","src/workflow/forge/projector/model.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-projector-store", path: "src/workflow/forge/projector/store.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 3, namesSha256: "b9ff732e8b3548b25abef82813123c6616c01d7824a95b59ecf39ff0b78295e0" },
       dependencies: [],
     }),
   ],
