@@ -257,7 +257,8 @@ test("the grammar: forge-publish needs --out, takes --source and the reasoned ov
 });
 
 test("verify (P4.1's check): a product commit is the projection of the main commit its trailer names, recomputed here from that commit alone", async () => {
-  const fixture = landing("publish-verify");
+  const fixture = landing("publish-verify", {}, { remote: true });
+  fixture.publish(SOURCE);
   const built = await builtByTheFixture(fixture);
   const repository = resolveRepositoryContext(fixture.root, documentOf(fixture, false));
   const run = fixtureRun(fixture);
@@ -291,7 +292,8 @@ test("the grammar: verify takes --commit (and --source, as the promoter home spe
 });
 
 test("SECURITY (planted): verify takes its trust from THIS checkout — a branch whose own profile names itself the source, and a forged product commit projected from it, are refused", async () => {
-  const fixture = landing("publish-verify-forged-source");
+  const fixture = landing("publish-verify-forged-source", {}, { remote: true });
+  fixture.publish(SOURCE);
   const built = await builtByTheFixture(fixture);
   // The attacker's branch: the source's content, its profile rewritten to call ITSELF the source branch.
   fixture.git(["branch", "evil", fixture.tip(SOURCE)]);
@@ -311,4 +313,45 @@ test("SECURITY (planted): verify takes its trust from THIS checkout — a branch
   // The genuine promotion still verifies.
   const genuine = verifyTarget(repository, { verb: "verify", commit: built });
   assert.equal((await verifyProductCommit(genuine.context, genuine.commit, fixtureRun(fixture))).code, "promotion_verified");
+});
+
+/** A product commit naming `source` as its Projected-From, as a forger or a genuine build would write it (the tree is the built one: only the trailers are judged here). */
+function productCommitFrom(fixture: PromotionFixture, built: string, source: string): string {
+  return fixture.git(["commit-tree", fixture.git(["rev-parse", `${built}^{tree}`]), "-p", fixture.git(["rev-parse", `${built}^1`]), "-p", source, "-m", `promote\n\nProjected-From: ${source}\nPromotion-Profile: ${PROFILE_NAME}@${fixture.loaded().blob!}`]);
+}
+
+test("SECURITY (planted): a commit merged into the source branch from a side branch is no landing — only the first-parent line counts", async () => {
+  const fixture = landing("publish-verify-first-parent", {}, { remote: true });
+  fixture.publish(SOURCE);
+  const built = await builtByTheFixture(fixture);
+  // The attacker's side line: an evil change, reverted, merged with --no-ff, so the source branch's TREE never shows it.
+  fixture.git(["checkout", "-q", "-b", "side", fixture.tip(SOURCE)]);
+  fixture.commit("side", { "product/lib/helper.ts": "export const helper = 666; // evil\n" }, "evil");
+  const evil = fixture.tip("side");
+  fixture.git(["revert", "--no-edit", evil]);
+  fixture.git(["checkout", "-q", SOURCE]);
+  fixture.git(["merge", "-q", "--no-ff", "--no-edit", "side"]);
+  fixture.publish(SOURCE);
+  const repository = resolveRepositoryContext(fixture.root, documentOf(fixture, false));
+  assert.equal(fixture.git(["merge-base", "--is-ancestor", evil, SOURCE]) === "", true, "the evil commit IS an ancestor of the source branch");
+  const refused = await refusedWith("promotion_verify_off_source", async () => verifyTarget(repository, { verb: "verify", commit: productCommitFrom(fixture, built, evil) }));
+  assert.match(refused.message, /first-parent/u);
+  // The merge itself is a landing: a product commit from it passes the source check.
+  assert.equal(verifyTarget(repository, { verb: "verify", commit: productCommitFrom(fixture, built, fixture.tip(SOURCE)) }).context.source, fixture.tip(SOURCE));
+});
+
+test("SECURITY (planted): the source branch is trusted only as its remote published it — a local branch ahead of the fetched one, or a profile with no remote, is refused", async () => {
+  const fixture = landing("publish-verify-unconfirmed", {}, { remote: true });
+  fixture.publish(SOURCE);
+  const built = await builtByTheFixture(fixture);
+  const repository = resolveRepositoryContext(fixture.root, documentOf(fixture, false));
+  assert.equal(verifyTarget(repository, { verb: "verify", commit: built }).commit, built, "local equals the published branch");
+  // A local commit on the source branch that was never published.
+  fixture.commit(SOURCE, { "product/lib/helper.ts": "export const helper = 9;\n" }, "local only");
+  const unconfirmed = await refusedWith("promotion_verify_source_unconfirmed", async () => verifyTarget(repository, { verb: "verify", commit: productCommitFrom(fixture, built, fixture.tip(SOURCE)) }));
+  assert.deepEqual([unconfirmed.facts["local"], unconfirmed.facts["published"]], [fixture.tip(SOURCE), fixture.git(["rev-parse", `refs/remotes/origin/${SOURCE}`])]);
+  // A profile that names no remote has nothing to confirm against.
+  const local = landing("publish-verify-no-remote");
+  const localBuilt = await builtByTheFixture(local);
+  await refusedWith("promotion_verify_source_unconfirmed", async () => verifyTarget(resolveRepositoryContext(local.root, documentOf(local, false)), { verb: "verify", commit: localBuilt }));
 });

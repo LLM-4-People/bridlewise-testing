@@ -35,6 +35,7 @@ import type { ConfigDocument, WorkspaceIsolationConfig } from "../../kernel/conf
 import { ensurePrivateStateDirectory } from "../../filesystem/private-state.ts";
 import { configuredGitRepository, configuredWorktreeGitPort, type WorktreeGitPort } from "../../git/worktree-port.ts";
 import { commitTreeReader, gitOutput, resolveRevision, type GitRepository } from "../../git/tree-reader.ts";
+import { remoteTrackingRef } from "../../git/git-port.ts";
 import { auditEvent, debugLog } from "../../shared/debug/debug-system.ts";
 import type { PromotionSource } from "../../shared/exposure/registrations/promotion.ts";
 import { qualificationEvidence, diffRunFailures, latestRunOfTree, readRunHistory, suiteLedgerPaths, SUITE_LEDGER_NAMES } from "../../shared/run-history.ts";
@@ -53,7 +54,7 @@ import { autoPromotion, launchUnattendedApply, withUnattendedChain, type Unatten
 import type { PromotionRequest } from "./promote-arguments.ts";
 import { engineRelativeIn, promoterPlacement, runInPromoterHome, type PromoterPlacement } from "./promoter-home.ts";
 import { branchOf, loadPromotionProfiles, parsePromotionProfile, profileCommandNames, selectPromotionProfile, type LoadedPromotionProfile } from "./profile.ts";
-import { classifyTree, explainPaths, isAncestor, planPromotion, projectSource, type PromotionPlan } from "./projection.ts";
+import { classifyTree, explainPaths, planPromotion, projectSource, type PromotionPlan } from "./projection.ts";
 import { configuredProductForge, forgePublishVerb, type ProductForge } from "../forge/publish/product.ts";
 import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { planRelease } from "./release-train.ts";
@@ -436,10 +437,15 @@ export async function verifyBuiltProjection(context: PromotionContext, run: Appl
  * source branch. TRUST comes from this checkout, never from the commit under
  * check or from the source it names: the profile is the one this checkout
  * declares at HEAD, and the source branch is that profile's, as this
- * repository holds it. The commit's trailer must name that profile, and its
- * source must be a commit of that branch. Only then is the source's own
- * content (its profile, its promoter) read. A branch whose own profile names
- * itself the source proves nothing.
+ * repository holds it AND as its remote published it: the local branch must
+ * equal the fetched remote-tracking ref (`promotion_verify_source_unconfirmed`
+ * otherwise). The commit's trailer must name that profile, and its source
+ * must be on that branch's FIRST-PARENT line. Every landing on the source
+ * branch is a merge commit, so the first-parent line is exactly its
+ * published history; a commit merged in from a side branch is not a
+ * landing. Only then is the source's own content (its profile, its
+ * promoter) read. A branch whose own profile names itself the source proves
+ * nothing.
  */
 export function verifyTarget(repository: RepositoryContext, request: PromotionRequest): Readonly<{ context: PromotionContext; commit: string; profile: string }> {
   const declared = declaredProfiles(repository);
@@ -447,6 +453,12 @@ export function verifyTarget(repository: RepositoryContext, request: PromotionRe
   const trusted = selectPromotionProfile(declared, request.profile, `HEAD:${repository.profileDirectory}`).profile;
   const trustedTip = resolveRevision(repository.repository, trusted.source.ref);
   if (trustedTip === null) throw new PromotionError("promotion_source_missing", `the source branch ${trusted.source.ref} of profile ${trusted.name} does not exist here`, { source: trusted.source.ref });
+  const published = trusted.remote === null ? null : resolveRevision(repository.repository, remoteTrackingRef(trusted.remote, branchOf(trusted.source.ref)));
+  if (published !== trustedTip) {
+    throw new PromotionError("promotion_verify_source_unconfirmed", trusted.remote === null
+      ? `profile ${trusted.name} names no remote, so ${trusted.source.ref} here cannot be confirmed as the published one`
+      : `${trusted.source.ref} here is ${trustedTip}, but the fetched ${trusted.remote}/${branchOf(trusted.source.ref)} is ${String(published)}: fetch, and verify from the published source branch`, { sourceRef: trusted.source.ref, local: trustedTip, published });
+  }
   const named = request.commit ?? targetTip(repository.repository, trusted);
   if (named === null) throw new PromotionError("promotion_target_missing", "the profile's target branch does not exist here: fetch it, or name the product commit with --commit", {});
   const commit = resolveRevision(repository.repository, named);
@@ -460,10 +472,15 @@ export function verifyTarget(repository: RepositoryContext, request: PromotionRe
     throw new PromotionError("promotion_forge_profile_mismatch", `${commit} names the profile ${profile.name}; this checkout's is ${trusted.name}`, { commit, profile: trailers.profile, expectedProfile: trusted.name });
   }
   const source = resolveRevision(repository.repository, trailers.projectedFrom);
-  if (source === null || !isAncestor(repository.repository, source, trustedTip)) {
-    throw new PromotionError("promotion_verify_off_source", `${commit} names the source ${trailers.projectedFrom}, which is not a commit of ${trusted.source.ref} as this repository holds it`, { commit, source: trailers.projectedFrom, sourceRef: trusted.source.ref });
+  if (source === null || !firstParentLine(repository.repository, trustedTip).has(source)) {
+    throw new PromotionError("promotion_verify_off_source", `${commit} names the source ${trailers.projectedFrom}, which is not on the first-parent line of ${trusted.source.ref} (a commit merged in from a side branch is not a landing)`, { commit, source: trailers.projectedFrom, sourceRef: trusted.source.ref });
   }
   return deepFreeze({ context: contextFor(repository, trusted.name, source), commit, profile: trailers.profile! });
+}
+
+/** The commits of `tip`'s first-parent line: a branch's landings, each a merge on it. */
+function firstParentLine(repository: GitRepository, tip: string): ReadonlySet<string> {
+  return new Set(gitOutput(repository, ["rev-list", "--first-parent", tip]).stdout.toString("utf8").split("\n").filter((line) => line.length > 0));
 }
 
 /** The recompute of `verify` over `run` (the publisher's check, {@link verifyBuiltProjection}), as its answer. */
@@ -480,9 +497,10 @@ export async function verifyProductCommit(context: PromotionContext, commit: str
  *   - it is a promotion commit: `Projected-From` names its source S and
  *     `Promotion-Profile` the profile and its blob
  *     (`promotion_source_unproven_commit` otherwise);
- *   - its profile is the one THIS checkout declares at HEAD, and S is a
- *     commit of that profile's source branch as this repository holds it
- *     (`promotion_verify_off_source`). Trust never comes from the commit
+ *   - its profile is the one THIS checkout declares at HEAD; that profile's
+ *     source branch here must equal its remote's, as fetched
+ *     (`promotion_verify_source_unconfirmed`); and S must be on that
+ *     branch's first-parent line, its landings (`promotion_verify_off_source`). Trust never comes from the commit
  *     under check or from S's own content, which is read only afterwards
  *     ({@link verifyTarget});
  *   - its tree EQUALS the projection recomputed from S alone by S's own
