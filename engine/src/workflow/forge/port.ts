@@ -6,7 +6,7 @@
  * one credential shape, one answer shape, one refusal family (`codes.ts`).
  *
  * The port is deliberately thin: a typed REST call, a paginated read, a
- * GraphQL call. Each lane writes its own typed operations ON this client
+ * GraphQL call, and the release assets' raw-body upload and download. Each lane writes its own typed operations ON this client
  * (one owner per object kind), never a second HTTP path: the adapter
  * (`github.ts`) is the only code that builds a GitHub request, and it does so
  * through the ONE outbound HTTP door (`src/shared/outbound-http.ts`).
@@ -92,6 +92,12 @@ export type ForgeCredential = Readonly<{
 export type ForgeEndpoint = Readonly<{
   /** `https://api.github.com` (a loopback `http:` URL only for a test server). */
   apiUrl: string;
+  /** `https://uploads.github.com`: where a release asset is uploaded (a loopback `http:` URL only for a test server). */
+  uploadsUrl: string;
+  /** The origins a release-asset download may be redirected to (GitHub's signed asset hosts). */
+  assetOrigins: readonly string[];
+  /** The largest release asset uploaded or downloaded. */
+  maxAssetBytes: number;
   /** May a request reach a loopback or private address? (false for GitHub; true only for a local test server). */
   allowPrivateAddress: boolean;
   /** Each request's lifetime. */
@@ -115,6 +121,41 @@ export type ForgePageOptions<T> = Readonly<{
   items?: (data: unknown) => readonly T[];
 }>;
 
+/**
+ * A release asset's bytes, streamed: its chunks, its size and the SHA-256 of
+ * its bytes (lower-case hex). The one HTTP door holds the bytes that leave to
+ * both (a mismatch cuts the upload: `forge_asset_integrity`).
+ */
+export type ForgeAssetBody = Readonly<{ chunks: AsyncIterable<Uint8Array>; size: number; sha256: string }>;
+
+/** A raw-body upload to the uploads host (a release asset): `path` is the uploads API path, already filled in. */
+export type ForgeUploadRequest = Readonly<{
+  path: string;
+  query?: ForgeQuery | undefined;
+  /** The asset's media type (`Content-Type`). */
+  contentType: string;
+  body: ForgeAssetBody;
+  signal?: AbortSignal | undefined;
+}>;
+
+/**
+ * A raw-body download of a release asset (`GET …/releases/assets/{id}` as
+ * `application/octet-stream`). The bytes stream to `sink`, bounded by
+ * `forge.request.maxAssetBytes` and held to `sha256` (the caller's own
+ * checksum, from SHA256SUMS). A mismatch is `forge_asset_integrity` after
+ * the sink has seen the bytes, and the caller discards what it wrote.
+ */
+export type ForgeDownloadRequest = Readonly<{
+  path: string;
+  query?: ForgeQuery | undefined;
+  sha256: string;
+  sink: (chunk: Uint8Array) => void | Promise<void>;
+  signal?: AbortSignal | undefined;
+}>;
+
+/** What a download read: its size and its (verified) SHA-256. */
+export type ForgeDownloadAnswer = Readonly<{ bytes: number; sha256: string }>;
+
 /** THE CLIENT every lane uses. */
 export type ForgeClient = Readonly<{
   principal: string;
@@ -123,6 +164,10 @@ export type ForgeClient = Readonly<{
   paginate: <T = unknown>(request: Omit<ForgeRequest, "method" | "body">, options: ForgePageOptions<T>) => Promise<readonly T[]>;
   /** A GraphQL call; an answer carrying `errors` is a typed refusal, never partial data. */
   graphql: <T = unknown>(query: string, variables?: Readonly<Record<string, unknown>>, signal?: AbortSignal) => Promise<T>;
+  /** A raw-body upload to the uploads host; answers the parsed record, whose `digest` must be the one sent. */
+  upload: <T = unknown>(request: ForgeUploadRequest) => Promise<ForgeResponse<T>>;
+  /** A raw-body asset download, streamed and checksum-verified; a redirect is followed only to `endpoint.assetOrigins`, without the credential. */
+  download: (request: ForgeDownloadRequest) => Promise<ForgeDownloadAnswer>;
 }>;
 
 export type { ForgeError };

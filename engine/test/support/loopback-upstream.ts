@@ -11,7 +11,8 @@
  * URL that carries the original scheme and host in its path, so the handler
  * sees the ORIGINAL url (`https://a.test/v1/responses?…`) and a test can keep
  * routing on host names. The handler is called like `fetch` was: `(url,
- * init)` with `init.method`, `init.headers` (a `Headers`), `init.body` (text)
+ * init)` with `init.method`, `init.headers` (a `Headers`), `init.body` (text),
+ * `init.bytes` (the same body's raw bytes, for a binary upload)
  * and `init.signal` (aborted when the client goes away before the answer
  * ends). It returns a `Response` (streamed back as it is read) or throws —
  * a throw drops the connection, which the client sees as a network failure.
@@ -26,7 +27,7 @@ import type { TestContext } from "node:test";
 
 import { closeOutboundConnections } from "../../src/shared/outbound-http.ts";
 
-export type UpstreamRequest = Readonly<{ method: string; headers: Headers; body: string | undefined; signal: AbortSignal }>;
+export type UpstreamRequest = Readonly<{ method: string; headers: Headers; body: string | undefined; bytes: Uint8Array | undefined; signal: AbortSignal }>;
 export type UpstreamHandler = (url: string, init: UpstreamRequest) => unknown;
 
 /** The path segment that marks a mapped remote: `/_/<scheme>/<host>/…`. */
@@ -55,6 +56,8 @@ async function answer(request: IncomingMessage, response: ServerResponse, origin
     method: request.method ?? "GET",
     headers,
     body: chunks.length === 0 ? undefined : Buffer.concat(chunks).toString("utf8"),
+    // The raw bytes too: a binary upload is read as bytes, never as text.
+    bytes: chunks.length === 0 ? undefined : new Uint8Array(Buffer.concat(chunks)),
     signal: abort.signal,
   });
   received.push(init);

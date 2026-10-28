@@ -4622,7 +4622,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-kernel-contracts", path: "src/kernel/contracts.ts", realm: "shared", layer: "trusted-kernel",
-      owner: "architecture", publicApi: { exportCount: 35, namesSha256: "265a9f904190c6d11b38b432cfaa75f0574f8136eb4aaf6986ed9d5d2034fa60" },
+      owner: "architecture", publicApi: { exportCount: 36, namesSha256: "44eaf01f0ca8bff88d70acfba406539c7d01e2fd599e82c26533a7ebec7512e3" },
       dependencies: ["src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","zod"],
       authorityFamilies: ["events"], authorityIdentifiers: ["MODEL_EVENT_SCHEMA", "ModelEvent"],
     }),
@@ -5053,8 +5053,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-shared-outbound-http", path: "src/shared/outbound-http.ts", realm: "shared", layer: "domain",
-      owner: "shared-abort-signals", publicApi: { exportCount: 27, namesSha256: "a921cc0ac3e879a7b37dd980757a3c84fad4ba7fb178d7447c84142493eac987" },
-      dependencies: ["node:dns/promises","node:module","node:net","node:perf_hooks","src/filesystem/checkout-write-door.ts","src/kernel/errors.ts","src/kernel/root-policy.ts","src/process/environment-projection.ts","src/process/fault-policy.ts","src/process/live-network.ts","src/shared/abort-signals.ts","src/shared/debug/debug-system.ts","src/shared/outbound-policy.ts","undici","undici/lib/core/symbols"],
+      owner: "shared-abort-signals", publicApi: { exportCount: 31, namesSha256: "d1e790caec3d9c10f71fa0382ef9289e06ac74bfe523090b6fd50d7a10040eec" },
+      dependencies: ["node:crypto","node:dns/promises","node:module","node:net","node:perf_hooks","node:stream","src/filesystem/checkout-write-door.ts","src/kernel/errors.ts","src/kernel/root-policy.ts","src/process/environment-projection.ts","src/process/fault-policy.ts","src/process/live-network.ts","src/shared/abort-signals.ts","src/shared/debug/debug-system.ts","src/shared/outbound-policy.ts","undici","undici/lib/core/symbols"],
     }),
     moduleContract({
       id: "src-filesystem-journaled-commit", path: "src/filesystem/journaled-commit.ts", realm: "shared", layer: "domain",
@@ -5625,7 +5625,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-forge-port", path: "src/workflow/forge/port.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 12, namesSha256: "2f3f3da3e726c078e7f43b346b99f195fba66be9f9989a7cae74b04dfe296cb4" },
+      owner: "verification-workflow", publicApi: { exportCount: 16, namesSha256: "8517958ada154eb153370d13c2d6c695eb9d12322d55a91632a26b37b61385e2" },
       dependencies: [],
     }),
     moduleContract({

@@ -33,6 +33,15 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
   apiUrl: httpsOrigin,
   /** The web origin (`https://github.com`): App creation and installation pages. */
   webUrl: httpsOrigin,
+  /** The uploads origin (`https://uploads.github.com`): release assets are uploaded there as raw bodies. */
+  uploadsUrl: httpsOrigin,
+  /**
+   * The origins a release-asset download may be redirected to. GitHub answers
+   * an asset's bytes with a redirect to a signed URL on its asset hosts. The
+   * client asks that location itself, without the API credential, and only
+   * when its origin is listed here.
+   */
+  assetOrigins: z.array(httpsOrigin).min(1).max(8),
   /** The `User-Agent` every request carries (GitHub requires one). */
   userAgent: z.string().min(1).max(128).regex(/^[\x21-\x7e]+$/u),
   /** Each request's bounds. */
@@ -43,6 +52,8 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     etagCacheEntries: z.number().int().min(1).max(100_000),
     /** The most pages one list read follows (a longer list is refused, never truncated). */
     maxPages: z.number().int().min(1).max(1_000),
+    /** The largest release asset uploaded or downloaded (GitHub's own limit is 2 GiB). */
+    maxAssetBytes: z.number().int().min(1_024).max(2_147_483_648),
   }),
   /** An installation token is minted again this long before it expires. */
   tokenRenewBeforeMs: z.number().int().min(0).max(3_000_000),
@@ -193,6 +204,9 @@ export function repositoriesOfKinds(settings: ForgeSettings, kinds: readonly For
 export function forgeEndpoint(settings: ForgeSettings): ForgeEndpoint {
   return deepFreeze({
     apiUrl: settings.apiUrl.replace(/\/$/u, ""),
+    uploadsUrl: settings.uploadsUrl.replace(/\/$/u, ""),
+    assetOrigins: settings.assetOrigins.map((origin) => origin.replace(/\/$/u, "")),
+    maxAssetBytes: settings.request.maxAssetBytes,
     allowPrivateAddress: false,
     timeoutMs: settings.request.timeoutMs,
     maxResponseBytes: settings.request.maxResponseBytes,

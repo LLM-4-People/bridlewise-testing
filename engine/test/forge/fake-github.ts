@@ -36,7 +36,7 @@
  * Tokens are assembled at runtime from random bytes: no credential-shaped
  * literal is in the tree.
  */
-import { generateKeyPairSync, randomBytes, verify, type KeyObject } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, verify, type KeyObject } from "node:crypto";
 
 import { canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
 import { GITHUB_API_VERSION, type ForgeEndpoint } from "../../src/workflow/forge/port.ts";
@@ -44,8 +44,16 @@ import { address, serve } from "../support/loopback-upstream.ts";
 
 export const FAKE_GITHUB_ORIGIN = "https://api.github.com";
 
-export type FakeRequest = Readonly<{ method: string; path: string; query: URLSearchParams; headers: Headers; body: unknown }>;
-export type FakeAnswer = Readonly<{ status: number; body?: unknown; headers?: Readonly<Record<string, string>> }>;
+export type FakeRequest = Readonly<{ method: string; host: string; path: string; query: URLSearchParams; headers: Headers; body: unknown; bytes: Uint8Array | undefined }>;
+/** An answer: a JSON `body`, or `raw` bytes (an asset's). */
+export type FakeAnswer = Readonly<{ status: number; body?: unknown; raw?: Uint8Array; headers?: Readonly<Record<string, string>> }>;
+
+/** The uploads host (release assets are uploaded there) and the asset host a download is redirected to. */
+export const FAKE_UPLOADS_ORIGIN = "https://uploads.github.com";
+export const FAKE_ASSETS_ORIGIN = "https://release-assets.githubusercontent.com";
+
+/** One stored release asset: GitHub's record and its bytes. */
+export type FakeAsset = Readonly<{ record: Readonly<Record<string, unknown>>; bytes: Uint8Array }>;
 export type FakeRoute = (request: FakeRequest, match: RegExpMatchArray) => FakeAnswer | undefined;
 
 export type FakeApp = Readonly<{
@@ -89,6 +97,8 @@ export type FakeGithub = Readonly<{
   pendingConversion: (code: string, input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
   /** The principal a request's token belongs to (undefined when unknown). */
   principalOf: (request: FakeRequest) => string | undefined;
+  /** The release assets uploaded (or planted), by id. */
+  assets: Map<number, FakeAsset>;
 }>;
 
 function json(status: number, body: unknown, headers: Readonly<Record<string, string>> = {}): FakeAnswer {
@@ -117,7 +127,31 @@ export function fakeGithub(): FakeGithub {
   const conversions = new Map<string, FakeApp>();
   const tokenPolicy = { lifetimeMs: 3600_000 };
   const rate = { limit: 5000, remaining: 5000, resetEpochSeconds: Math.floor(Date.now() / 1000) + 3600 };
+  const assets = new Map<number, FakeAsset>();
+  /** The signed asset URLs handed out, each to one asset. */
+  const signed = new Map<string, number>();
   let nextId = 1000;
+
+  /** The uploads host and the asset host (`null` when the request is the API's). */
+  function assetHosts(request: FakeRequest): FakeAnswer | null | undefined {
+    if (request.host === new URL(FAKE_ASSETS_ORIGIN).host) {
+      // A signed URL: anonymous by design. GitHub's signed asset URLs refuse a request that carries an API credential.
+      if (request.headers.get("authorization") !== null) return json(400, { message: "Only one auth mechanism allowed" });
+      const id = signed.get(request.path.replace(/^\/assets\//u, ""));
+      const asset = id === undefined ? undefined : assets.get(id);
+      return asset === undefined ? json(404, { message: "Not Found" }) : { status: 200, raw: asset.bytes, headers: { "content-type": "application/octet-stream" } };
+    }
+    if (request.host !== new URL(FAKE_UPLOADS_ORIGIN).host) return null;
+    const upload = /^\/repos\/([^/]+)\/([^/]+)\/releases\/(\d+)\/assets$/u.exec(request.path);
+    if (request.method !== "POST" || upload === null) return json(404, { message: "Not Found" });
+    const name = request.query.get("name");
+    if (name === null || name === "") return json(422, { message: "name is required" });
+    const bytes = request.bytes ?? new Uint8Array();
+    const id = nextId++;
+    const record = { id, name, state: "uploaded", size: bytes.byteLength, content_type: request.headers.get("content-type") ?? "", digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}` };
+    assets.set(id, { record, bytes });
+    return json(201, record);
+  }
 
   function newApp(input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>): FakeApp & { publicKey: KeyObject } {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -218,6 +252,16 @@ export function fakeGithub(): FakeGithub {
   }
 
   function builtIn(request: FakeRequest): FakeAnswer | undefined {
+    const asset = /^\/repos\/[^/]+\/[^/]+\/releases\/assets\/(\d+)$/u.exec(request.path);
+    if (request.method === "GET" && asset !== null) {
+      const stored = assets.get(Number(asset[1]));
+      if (stored === undefined) return json(404, { message: "Not Found" });
+      if (request.headers.get("accept") !== "application/octet-stream") return json(200, stored.record);
+      // The bytes are a redirect to a signed, anonymous URL on the asset host (as GitHub answers them).
+      const token = runtimeToken("asset");
+      signed.set(token, Number(asset[1]));
+      return { status: 302, headers: { location: `${address(FAKE_ASSETS_ORIGIN)}/assets/${token}` } };
+    }
     const conversion = /^\/app-manifests\/([^/]+)\/conversions$/u.exec(request.path);
     if (request.method === "POST" && conversion !== null) {
       const app = conversions.get(conversion[1]!);
@@ -264,9 +308,10 @@ export function fakeGithub(): FakeGithub {
     const base = new URL(FAKE_GITHUB_ORIGIN);
     let body: unknown;
     try { body = init.body === undefined ? undefined : JSON.parse(init.body); } catch { body = init.body; }
-    const request: FakeRequest = Object.freeze({ method: init.method, path: decodeURIComponent(parsed.pathname.slice(base.pathname.replace(/\/$/u, "").length)) || "/", query: parsed.searchParams, headers: init.headers, body });
+    const request: FakeRequest = Object.freeze({ method: init.method, host: parsed.host, path: decodeURIComponent(parsed.pathname.slice(base.pathname.replace(/\/$/u, "").length)) || "/", query: parsed.searchParams, headers: init.headers, body, bytes: init.bytes });
     requests.push(request);
     const answer = ((): FakeAnswer => {
+      if (request.host === new URL(FAKE_ASSETS_ORIGIN).host) return assetHosts(request)!;
       if (request.headers.get("x-github-api-version") !== GITHUB_API_VERSION) return json(400, { message: "Unsupported API version" });
       const refusalIndex = refusals.findIndex((entry) => (entry.method === undefined || entry.method === request.method) && (entry.path === undefined || entry.path.test(request.path)));
       if (refusalIndex !== -1) {
@@ -283,12 +328,15 @@ export function fakeGithub(): FakeGithub {
         const routed = route.handler(request, match);
         if (routed !== undefined) return routed;
       }
+      const hosted = assetHosts(request);
+      if (hosted !== null && hosted !== undefined) return hosted;
       const built = builtIn(request);
       if (built !== undefined) return built;
       if (!tokens.has(token ?? "")) return json(401, { message: "A JSON web token is not a token for this endpoint" });
       return store(request);
     })();
     const final = counted(answer, answer.status !== 304);
+    if (final.raw !== undefined) return new Response(Buffer.from(final.raw), { status: final.status, headers: { ...final.headers } });
     const hasBody = final.body !== undefined && final.status !== 204 && final.status !== 304;
     return new Response(hasBody ? JSON.stringify(final.body) : null, { status: final.status, headers: { ...(hasBody ? { "content-type": "application/json; charset=utf-8" } : {}), ...final.headers } });
   });
@@ -296,7 +344,8 @@ export function fakeGithub(): FakeGithub {
   return Object.freeze({
     apiUrl,
     endpoint: (overrides: Partial<ForgeEndpoint> = {}) => Object.freeze({
-      apiUrl, allowPrivateAddress: true, timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64,
+      apiUrl, uploadsUrl: address(FAKE_UPLOADS_ORIGIN), assetOrigins: [address(FAKE_ASSETS_ORIGIN)], maxAssetBytes: 1_048_576,
+      allowPrivateAddress: true, timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64,
       userAgent: "bridlewise-forge-test", ...overrides,
     }),
     requests,
@@ -317,6 +366,7 @@ export function fakeGithub(): FakeGithub {
       return token;
     },
     installApp: (input) => newApp(input),
+    assets,
     pendingConversion: (code, input) => {
       const app = newApp(input);
       conversions.set(code, app);

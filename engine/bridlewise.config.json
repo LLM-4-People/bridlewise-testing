@@ -1065,13 +1065,19 @@
     "organization": "LLM-4-People",
     "apiUrl": "https://api.github.com",
     "webUrl": "https://github.com",
+    "uploadsUrl": "https://uploads.github.com",
+    "assetOrigins": [
+      "https://release-assets.githubusercontent.com",
+      "https://objects.githubusercontent.com"
+    ],
     "userAgent": "bridlewise-forge",
     "request": {
       "timeoutMs": 30000,
       "maxResponseBytes": 16777216,
       "cleanupTimeoutMs": 2000,
       "etagCacheEntries": 1024,
-      "maxPages": 50
+      "maxPages": 50,
+      "maxAssetBytes": 1073741824
     },
     "tokenRenewBeforeMs": 300000,
     "repositories": [

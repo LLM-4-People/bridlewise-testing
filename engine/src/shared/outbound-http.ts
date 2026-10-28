@@ -88,8 +88,13 @@
  *     protocol header the platform refuses (a credential with a line break)
  *     is the typed `outbound_header_invalid`, never a raw `TypeError`.
  *   - SIZE AND TIME ARE BOUNDED. A response body is read only through
- *     {@link readBody} / {@link decodeReadableStream}, whose byte bound is a
- *     required argument (`outbound_body_too_large`); a body that is not read
+ *     {@link readBody} / {@link decodeReadableStream} (text) or
+ *     {@link readBodyBytes} (binary, streamed to a sink and checksum-verified),
+ *     whose byte bound is a required argument (`outbound_body_too_large`); a
+ *     binary REQUEST body is a {@link OutboundStreamBody}: streamed, with its
+ *     declared size and SHA-256 held to the bytes that actually leave
+ *     (`outbound_body_size_mismatch`, `outbound_body_integrity_failed`, the
+ *     request cut before it completes); a body that is not read
  *     is let go through {@link discardBody}; a request's lifetime is the
  *     shared `deadline()` of `abort-signals.ts`, whose timeout is required —
  *     and it is the ONLY lifetime: every dispatcher is built from
@@ -97,6 +102,11 @@
  *     body timeouts off (undici's 300 s defaults would cut a 600 s Responses
  *     call, or an SSE stream silent for five minutes, below its deadline and
  *     report it as a network failure — sec-e-design H1).
+ *   - A REDIRECT IS AN ANSWER ONLY WHEN THE CALLER ASKS FOR IT. With
+ *     `redirects: "answer"` the 3xx comes back to the caller unread and
+ *     unfollowed; the door still sends no second request, and the caller,
+ *     which knows which origins it trusts, decides whether to ask the new
+ *     location itself (without the first request's credentials).
  *
  * Every refusal is an `OutboundHttpError` (a `SecurityError`, never
  * retryable) with a stable code, LOGGED ONCE HERE, counted by code and served
@@ -105,6 +115,8 @@
  */
 
 import { guarded } from "../process/fault-policy.ts";
+import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
 import { BlockList, isIP, type LookupFunction } from "node:net";
 import { lookup } from "node:dns/promises";
 import { createRequire } from "node:module";
@@ -922,15 +934,57 @@ function transportFailure(error: unknown, signal: AbortSignal): unknown {
   return Object.assign(failure, { code });
 }
 
+/**
+ * A BINARY REQUEST BODY, streamed: its chunks, the size it declares (sent as
+ * `Content-Length`) and the SHA-256 of its bytes (lower-case hex). The door
+ * counts and hashes what actually leaves; a body longer or shorter than
+ * declared is `outbound_body_size_mismatch`, and one whose bytes hash to
+ * another digest is `outbound_body_integrity_failed`. Either cuts the request
+ * before it completes, so the server never takes a body other than the one
+ * declared.
+ */
+export type OutboundStreamBody = Readonly<{ chunks: AsyncIterable<Uint8Array>; size: number; sha256: string }>;
+
+/** A request body: text, or a streamed binary body. */
+export type OutboundBody = string | OutboundStreamBody;
+
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
+
+/** The streamed body's chunks, held to its declared size and digest as they leave. */
+async function* verifiedChunks(body: OutboundStreamBody, origin: string, logCategory: string): AsyncGenerator<Uint8Array> {
+  const digest = createHash("sha256");
+  let sent = 0;
+  for await (const chunk of body.chunks) {
+    sent += chunk.byteLength;
+    if (sent > body.size) refuse(logCategory, `The request body to ${origin} is longer than the ${String(body.size)} bytes it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size });
+    digest.update(chunk);
+    yield chunk;
+  }
+  if (sent !== body.size) refuse(logCategory, `The request body to ${origin} is ${String(sent)} bytes, not the ${String(body.size)} it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size, sent });
+  const actual = digest.digest("hex");
+  if (actual !== body.sha256) refuse(logCategory, `The request body to ${origin} does not hash to the SHA-256 it declared, so it was cut before it completed.`, "outbound_body_integrity_failed", { origin, declared: body.sha256, actual });
+}
+
 /** Send one request on the door's own dispatcher and answer the platform `Response` shape. */
-async function send(prepared: PreparedOutboundRequest, route: Route, body: string | undefined, signal: AbortSignal): Promise<Response> {
+async function send(prepared: PreparedOutboundRequest, route: Route, body: OutboundBody | undefined, signal: AbortSignal): Promise<Response> {
   const { url } = prepared;
   const headers: Record<string, string> = {};
   prepared.headers.forEach((value, name) => { headers[name] = value; });
+  let wire: string | Readable | undefined;
+  if (typeof body === "object") {
+    if (!Number.isSafeInteger(body.size) || body.size < 0 || !SHA256_HEX.test(body.sha256)) {
+      refuse(prepared.logCategory, `A streamed request body to ${url.origin} must declare a byte size and a lower-case hex SHA-256, so nothing was sent.`, "outbound_body_declaration_invalid", { origin: url.origin });
+    }
+    headers["content-length"] = String(body.size);
+    wire = Readable.from(verifiedChunks(body, url.origin, prepared.logCategory), { objectMode: false });
+  } else {
+    wire = body;
+  }
   let answer: Dispatcher.ResponseData;
   try {
-    answer = await (await dispatcherFor(route)).request({ origin: url.origin, path: `${url.pathname}${url.search}`, method: prepared.method, headers, ...(body === undefined ? {} : { body }), signal });
+    answer = await (await dispatcherFor(route)).request({ origin: url.origin, path: `${url.pathname}${url.search}`, method: prepared.method, headers, ...(wire === undefined ? {} : { body: wire }), signal });
   } catch (error) {
+    if (isOutboundHttpError(error)) throw error;
     throw transportFailure(error, signal);
   }
   const responseHeaders = new Headers();
@@ -943,11 +997,14 @@ async function send(prepared: PreparedOutboundRequest, route: Route, body: strin
   return new Response(bodiless ? null : (answer.body as unknown as { body: ReadableStream<Uint8Array> }).body, { status: answer.statusCode, headers: responseHeaders });
 }
 
+/** How a 3xx is handled: refused (the default), or answered to the caller unread and unfollowed (see the module doc). */
+export type OutboundRedirects = "refuse" | "answer";
+
 /** Dispatch a prepared request under the policy: pinned, and no redirect is followed (see the module doc). */
-export async function dispatchOutboundRequest(prepared: PreparedOutboundRequest, body: string | undefined, signal: AbortSignal): Promise<Response> {
+export async function dispatchOutboundRequest(prepared: PreparedOutboundRequest, body: OutboundBody | undefined, signal: AbortSignal, redirects: OutboundRedirects = "refuse"): Promise<Response> {
   const { url } = prepared;
   const response = await send(prepared, await routeOf(prepared), body, signal);
-  if (isRedirect(response)) {
+  if (isRedirect(response) && redirects === "refuse") {
     const target = redirectTarget(response, url);
     // Never read: the refusal does not wait on the redirecting server.
     void discardBody(response, prepared.logCategory);
@@ -1036,6 +1093,47 @@ export async function readBody(response: Response, signal: AbortSignal, maxBytes
   let text = "";
   for await (const part of decodeReadableStream(response.body, signal, maxBytes, cleanupTimeoutMs, logCategory)) text += part;
   return text.replace(/^﻿/u, "");
+}
+
+/**
+ * Read a whole BINARY response body into `sink`, chunk by chunk, bounded by
+ * `maxBytes` (`outbound_body_too_large`) and, when `sha256` is declared,
+ * held to it: bytes that hash to another digest are
+ * `outbound_body_integrity_failed` once the body ends (the sink has seen
+ * them; the caller discards what it wrote). Answers the byte count and the
+ * digest of what was read.
+ */
+export async function readBodyBytes(response: Response, options: Readonly<{
+  signal: AbortSignal; maxBytes: number; cleanupTimeoutMs: number; logCategory: string; sha256?: string | undefined;
+  sink: (chunk: Uint8Array) => void | Promise<void>;
+}>): Promise<Readonly<{ bytes: number; sha256: string }>> {
+  const digest = createHash("sha256");
+  let bytes = 0;
+  if (response.body !== null) {
+    const reader = response.body.getReader();
+    const abort = guarded("outbound.body.abort", (): void => { void cancelBody(() => reader.cancel(options.signal.reason), options.cleanupTimeoutMs, options.logCategory); });
+    options.signal.addEventListener("abort", abort, { once: true });
+    try {
+      while (true) {
+        options.signal.throwIfAborted();
+        const { done, value } = await reader.read();
+        options.signal.throwIfAborted();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > options.maxBytes) throw tooLarge();
+        digest.update(value);
+        await options.sink(value);
+      }
+    } finally {
+      options.signal.removeEventListener("abort", abort);
+      await cancelBody(() => reader.cancel(), options.cleanupTimeoutMs, options.logCategory); reader.releaseLock();
+    }
+  }
+  const actual = digest.digest("hex");
+  if (options.sha256 !== undefined && actual !== options.sha256) {
+    refuse(options.logCategory, "The response body does not hash to the SHA-256 the caller declared.", "outbound_body_integrity_failed", { declared: options.sha256, actual, bytes });
+  }
+  return Object.freeze({ bytes, sha256: actual });
 }
 
 /** Cancel a body within a bound; a cancel that fails or hangs is logged, never thrown. */

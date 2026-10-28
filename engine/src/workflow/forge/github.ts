@@ -11,13 +11,13 @@
  * debug log of each request (category `forge`; method, path, status, the
  * rate-limit facts; never a header value or a body).
  */
-import { CONTENT_TYPE_JSON } from "../../kernel/contracts.ts";
+import { CONTENT_TYPE_JSON, CONTENT_TYPE_OCTET_STREAM } from "../../kernel/contracts.ts";
 import { isAbortError } from "../../kernel/errors.ts";
 import { safePercentDecode } from "../../privacy/data-policy.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { parseJsonExact } from "../../kernel/json-integrity.ts";
 import { debugLog } from "../../shared/debug/debug-system.ts";
-import { dispatchOutboundRequest, discardBody, isOutboundHttpError, outboundDeadline, prepareOutboundRequest, readBody } from "../../shared/outbound-http.ts";
+import { dispatchOutboundRequest, discardBody, isOutboundHttpError, outboundDeadline, prepareOutboundRequest, readBody, readBodyBytes } from "../../shared/outbound-http.ts";
 import { ForgeError, type ForgeCode } from "./codes.ts";
 import { FORGE_REFUSAL_TEXT } from "./forge-config.ts";
 import {
@@ -25,6 +25,9 @@ import {
   GITHUB_JSON_MEDIA_TYPE,
   type ForgeClient,
   type ForgeCredential,
+  type ForgeDownloadAnswer,
+  type ForgeDownloadRequest,
+  type ForgeUploadRequest,
   type ForgeEndpoint,
   type ForgeMethod,
   type ForgePageOptions,
@@ -50,15 +53,20 @@ const PLAN_REFUSAL = /upgrade to github|make this repository public|not availabl
 const SECONDARY_LIMIT = /secondary rate limit|abuse detection/iu;
 
 /** The API's origin and base path, checked once. */
-function apiBase(endpoint: ForgeEndpoint): URL {
+/** A base URL of the endpoint (`apiUrl`, `uploadsUrl`), checked. */
+function baseUrl(raw: string, field: "apiUrl" | "uploadsUrl"): URL {
   let url: URL;
-  try { url = new URL(endpoint.apiUrl); } catch {
-    throw new ForgeError("forge_endpoint_invalid", "The forge API URL is not an absolute URL.", { apiUrl: endpoint.apiUrl });
+  try { url = new URL(raw); } catch {
+    throw new ForgeError("forge_endpoint_invalid", `The forge ${field} is not an absolute URL.`, { [field]: raw });
   }
   if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") {
-    throw new ForgeError("forge_endpoint_invalid", "The forge API URL must be an https URL with no credentials, query or fragment.", { apiUrl: endpoint.apiUrl });
+    throw new ForgeError("forge_endpoint_invalid", `The forge ${field} must be an https URL with no credentials, query or fragment.`, { [field]: raw });
   }
   return url;
+}
+
+function apiBase(endpoint: ForgeEndpoint): URL {
+  return baseUrl(endpoint.apiUrl, "apiUrl");
 }
 
 /** The refusal of a path that is not an API path under the base. */
@@ -74,8 +82,7 @@ function pathRefused(path: string, why: string): ForgeError {
  * double encoding (`%25`), and finally the URL the platform builds must keep
  * the path byte for byte under the base: nothing resolves outside it.
  */
-export function forgeRequestUrl(endpoint: ForgeEndpoint, path: string, query?: ForgeRequest["query"]): URL {
-  const base = apiBase(endpoint);
+export function forgeRequestUrl(endpoint: ForgeEndpoint, path: string, query?: ForgeRequest["query"], base: URL = apiBase(endpoint)): URL {
   if (!path.startsWith("/")) throw pathRefused(path, "it does not start with '/'");
   if (/[?#\\\s\u0000-\u001f\u007f]/u.test(path)) throw pathRefused(path, "a query, fragment, backslash, space or control character");
   if (/%(?:2f|5c|25)/iu.test(path)) throw pathRefused(path, "an encoded separator or a double encoding");
@@ -308,7 +315,112 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
     return body.data as T;
   }
 
-  return Object.freeze({ principal: credential.principal, endpoint, rest, paginate, graphql });
+  /** A door refusal of a streamed body, in the forge's own family (the door logged and counted it). */
+  function assetFailure(error: unknown, method: ForgeMethod, path: string): never {
+    if (isOutboundHttpError(error) && (error.code === "outbound_body_integrity_failed" || error.code === "outbound_body_size_mismatch")) {
+      throw new ForgeError("forge_asset_integrity", `${method} ${path}: the asset's bytes do not match the size or SHA-256 they declare (${error.code}).`, { method, path, ...error.safeDetails });
+    }
+    if (isOutboundHttpError(error) && error.code === "outbound_body_too_large") {
+      throw new ForgeError("forge_asset_too_large", `${method} ${path}: the asset is larger than ${String(endpoint.maxAssetBytes)} bytes.`, { method, path, maxAssetBytes: endpoint.maxAssetBytes });
+    }
+    return networkFailure(error, method, path);
+  }
+
+  /** The protocol headers every GitHub request carries, with the credential when there is one. */
+  function githubHeaders(accept: string, authorization: string | undefined, extra: Readonly<Record<string, string>> = {}): Readonly<Record<string, string>> {
+    return { Accept: accept, ...(authorization === undefined ? {} : { Authorization: authorization }), "X-GitHub-Api-Version": GITHUB_API_VERSION, "User-Agent": endpoint.userAgent, ...extra };
+  }
+
+  async function refusedAnswer(response: Response, signal: AbortSignal, method: ForgeMethod, path: string): Promise<never> {
+    const text = await readBody(response, signal, endpoint.maxResponseBytes, endpoint.cleanupTimeoutMs, FORGE_LOG_CATEGORY);
+    const refusal = classifyGithubAnswer(response.status, response.headers, text, method, path);
+    debugLog(FORGE_LOG_CATEGORY, "warn", refusal.forgeCode, () => ({ principal: credential.principal, method, path, status: response.status }));
+    throw refusal;
+  }
+
+  async function upload<T>(request: ForgeUploadRequest): Promise<ForgeResponse<T>> {
+    const method: ForgeMethod = "POST";
+    const { path, body } = request;
+    if (body.size > endpoint.maxAssetBytes) {
+      throw new ForgeError("forge_asset_too_large", `${method} ${path}: the asset is ${String(body.size)} bytes, more than ${String(endpoint.maxAssetBytes)}.`, { method, path, size: body.size, maxAssetBytes: endpoint.maxAssetBytes });
+    }
+    const url = forgeRequestUrl(endpoint, path, request.query, baseUrl(endpoint.uploadsUrl, "uploadsUrl"));
+    const lifetime = outboundDeadline(request.signal, endpoint.timeoutMs, () => new ForgeError("github_unavailable", `${method} ${path}: GitHub did not answer within ${String(endpoint.timeoutMs)} ms.`, { method, path }));
+    try {
+      const prepared = prepareOutboundRequest({
+        url: url.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
+        protocolHeaders: githubHeaders(GITHUB_JSON_MEDIA_TYPE, await credential.authorization(lifetime.signal), { "Content-Type": request.contentType }),
+      });
+      let response: Response;
+      try {
+        response = await dispatchOutboundRequest(prepared, { chunks: body.chunks, size: body.size, sha256: body.sha256 }, lifetime.signal);
+      } catch (error) {
+        if (lifetime.expired()) throw lifetime.signal.reason;
+        return assetFailure(error, method, path);
+      }
+      if (response.status < 200 || response.status >= 300) return await refusedAnswer(response, lifetime.signal, method, path);
+      const data = parseBody(await readBody(response, lifetime.signal, endpoint.maxResponseBytes, endpoint.cleanupTimeoutMs, FORGE_LOG_CATEGORY), method, path);
+      // GitHub records the asset's own digest: it must be the one sent, or the release holds bytes nobody checked.
+      const recorded = (data as { digest?: unknown } | undefined)?.digest;
+      if (recorded !== `sha256:${body.sha256}`) {
+        throw new ForgeError("forge_asset_integrity", `${method} ${path}: GitHub recorded the asset's digest as ${typeof recorded === "string" ? recorded : "nothing"}, not the SHA-256 sent.`, { method, path, declared: body.sha256, recorded: typeof recorded === "string" ? recorded : "" });
+      }
+      const links = linkPaths(endpoint, response.headers.get("link"));
+      debugLog(FORGE_LOG_CATEGORY, "debug", "forge_asset_uploaded", () => ({ principal: credential.principal, path, bytes: body.size }));
+      return Object.freeze({ status: response.status, data: data as T, etag: response.headers.get("etag") ?? undefined, notModified: false, next: links.next, links, rate: rateFactsOf(response.headers), requestId: response.headers.get("x-github-request-id") ?? undefined });
+    } finally {
+      lifetime.clear();
+    }
+  }
+
+  async function download(request: ForgeDownloadRequest): Promise<ForgeDownloadAnswer> {
+    const method: ForgeMethod = "GET";
+    const { path } = request;
+    const url = forgeRequestUrl(endpoint, path, request.query);
+    const lifetime = outboundDeadline(request.signal, endpoint.timeoutMs, () => new ForgeError("github_unavailable", `${method} ${path}: the asset did not arrive within ${String(endpoint.timeoutMs)} ms.`, { method, path }));
+    try {
+      const asked = prepareOutboundRequest({
+        url: url.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
+        protocolHeaders: githubHeaders(CONTENT_TYPE_OCTET_STREAM, await credential.authorization(lifetime.signal)),
+      });
+      let response: Response;
+      try {
+        response = await dispatchOutboundRequest(asked, undefined, lifetime.signal, "answer");
+        if (response.status >= 300 && response.status < 400 && response.status !== 304) {
+          // GitHub answers the bytes with a signed URL on its asset hosts: asked ONLY there, and WITHOUT the credential.
+          const location = response.headers.get("location");
+          await discardBody(response, FORGE_LOG_CATEGORY, endpoint.cleanupTimeoutMs);
+          let target: URL | undefined;
+          try { target = location === null ? undefined : new URL(location, url); } catch { target = undefined; }
+          if (target === undefined || !endpoint.assetOrigins.some((origin) => target.href.startsWith(`${origin}/`))) {
+            throw new ForgeError("forge_asset_redirect_refused", `${method} ${path}: GitHub redirected the asset to ${target?.origin ?? "an unreadable location"}, which is not one of forge.assetOrigins; nothing was asked there.`, { method, path, target: target?.origin ?? "" });
+          }
+          const signed = prepareOutboundRequest({
+            url: target.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
+            protocolHeaders: { Accept: CONTENT_TYPE_OCTET_STREAM, "User-Agent": endpoint.userAgent },
+          });
+          response = await dispatchOutboundRequest(signed, undefined, lifetime.signal);
+        }
+      } catch (error) {
+        if (lifetime.expired()) throw lifetime.signal.reason;
+        if (error instanceof ForgeError) throw error;
+        return assetFailure(error, method, path);
+      }
+      if (response.status < 200 || response.status >= 300) return await refusedAnswer(response, lifetime.signal, method, path);
+      try {
+        const read = await readBodyBytes(response, { signal: lifetime.signal, maxBytes: endpoint.maxAssetBytes, cleanupTimeoutMs: endpoint.cleanupTimeoutMs, logCategory: FORGE_LOG_CATEGORY, sha256: request.sha256, sink: request.sink });
+        debugLog(FORGE_LOG_CATEGORY, "debug", "forge_asset_downloaded", () => ({ principal: credential.principal, path, bytes: read.bytes }));
+        return read;
+      } catch (error) {
+        if (lifetime.expired()) throw lifetime.signal.reason;
+        return assetFailure(error, method, path);
+      }
+    } finally {
+      lifetime.clear();
+    }
+  }
+
+  return Object.freeze({ principal: credential.principal, endpoint, rest, paginate, graphql, upload, download });
 }
 
 /** An API path with its query split off (a next-page path carries its own query). */
