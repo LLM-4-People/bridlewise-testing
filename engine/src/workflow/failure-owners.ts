@@ -446,12 +446,17 @@ export function trackerItems(entries: readonly { readonly name: string; readonly
   }).sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)));
 }
 
-/** The items a tree holds (a commit's, through `reader`): the same entries and parser as {@link readTrackerItems}; a tree without the folder has none. */
-export function trackerItemsOf(reader: TreeReader): readonly TrackerItem[] {
-  const prefix = `${TRACKER_BOARD.items}/`;
+/** Each entry directly in `directory` of a tree (a commit's, through `reader`) with its text, read in one batch: {@link readEntries} for a commit. */
+export function treeEntries(reader: TreeReader, directory: string): readonly { readonly name: string; readonly text: string }[] {
+  const prefix = `${directory}/`;
   const paths = reader.paths().filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes("/") && isEntryName(path.slice(prefix.length))).sort();
   reader.prefetch(paths);
-  return trackerItems(paths.map((path) => ({ name: path.slice(prefix.length), text: reader.text(path) ?? "" })));
+  return paths.map((path) => ({ name: path.slice(prefix.length), text: reader.text(path) ?? "" }));
+}
+
+/** The items a tree holds (a commit's, through `reader`): the same entries and parser as {@link readTrackerItems}; a tree without the folder has none. */
+export function trackerItemsOf(reader: TreeReader): readonly TrackerItem[] {
+  return trackerItems(treeEntries(reader, TRACKER_BOARD.items));
 }
 
 /**

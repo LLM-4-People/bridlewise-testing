@@ -68,7 +68,7 @@ function assertOneWinner(results: readonly ChildResult[]): ChildResult {
   return results.find((result) => result.status === 0)!;
 }
 
-test("concurrent initialization of an absent database is idempotent", { timeout: 20_000 }, async () => {
+test("concurrent initialization of an absent database is idempotent", async () => {
   const path = databasePath("bridlewise-init-");
   const results = await Promise.all(Array.from({ length: 8 }, () => invoke(path, "init")));
   for (const result of results) {
@@ -86,7 +86,7 @@ test("concurrent initialization of an absent database is idempotent", { timeout:
   database.close();
 });
 
-test("concurrent request submissions create one open request", { timeout: 20_000 }, async () => {
+test("concurrent request submissions create one open request", async () => {
   const path = databasePath("bridlewise-submit-");
   const initial = open(path);
   const session = initial.core.createSession();
@@ -105,7 +105,7 @@ test("concurrent request submissions create one open request", { timeout: 20_000
   current.store.close();
 });
 
-test("concurrent wait and completion commit exactly one valid transition", { timeout: 20_000 }, async () => {
+test("concurrent wait and completion commit exactly one valid transition", async () => {
   const path = databasePath("bridlewise-wait-finish-");
   const initial = open(path);
   const session = initial.core.createSession();
@@ -131,7 +131,7 @@ test("concurrent wait and completion commit exactly one valid transition", { tim
   current.store.close();
 });
 
-test("concurrent answers change an unanswered wait once", { timeout: 20_000 }, async () => {
+test("concurrent answers change an unanswered wait once", async () => {
   const path = databasePath("bridlewise-answer-");
   const initial = open(path);
   const session = initial.core.createSession();
@@ -151,7 +151,7 @@ test("concurrent answers change an unanswered wait once", { timeout: 20_000 }, a
   current.store.close();
 });
 
-test("snapshot and resume reads never combine separately committed graph versions", { timeout: 20_000 }, async () => {
+test("snapshot and resume reads never combine separately committed graph versions", async () => {
   const path = databasePath("bridlewise-snapshot-");
   const reader = open(path);
   const session = reader.core.createSession();

@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 /**
  * THE ONE MAIN-NESS TEST: whether the module at `moduleUrl` (its
@@ -29,4 +29,16 @@ export function isEntryPoint(moduleUrl: string, argv1: string | undefined = proc
     }
   };
   return real(resolve(argv1)) === real(fileURLToPath(moduleUrl));
+}
+
+/**
+ * The same question asked of a SET of files: whether the program node was
+ * asked to run is one of `files` (absolute paths), compared as
+ * `isEntryPoint` compares. For a module that is not the program itself but
+ * must know which program it was preloaded into, such as the engine test
+ * runner's per-file bounds, which install only in a dispatched test file's
+ * own process.
+ */
+export function isEntryPointAmong(files: readonly string[], argv1: string | undefined = process.argv[1]): boolean {
+  return files.some((file) => isEntryPoint(pathToFileURL(file).href, argv1));
 }
