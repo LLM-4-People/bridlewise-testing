@@ -9,10 +9,11 @@ name: Commit records
 # WHAT THIS DOES NOT YET GUARANTEE. A `pull_request` run uses the BRANCH's copy
 # of this file, so a branch can change these steps, and a ruleset that requires
 # a workflow from main is an Enterprise feature (our plan is Team). The check is
-# a required status check (the trunk ruleset, #537), which a branch cannot
-# skip, but it can still edit what runs under that name. The lasting boundary is
-# the door App (#67): main's code run out-of-band, posting this check, with the
-# ruleset accepting it only from that App.
+# NOT yet required: GH-1 declares "Commit records" a required status check in
+# the trunk ruleset (#537), and only once that is applied can a branch not skip
+# it — and even then a branch can edit what runs under that name. The lasting
+# boundary is the door App (#67): main's code run out-of-band, posting this
+# check, with the ruleset accepting it only from that App.
 on:
   pull_request:
   merge_group:

@@ -20,21 +20,23 @@ import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "
 import { join } from "node:path";
 import test from "node:test";
 
+import { ownedFiles } from "../../src/git/repository-ownership.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { harnessRegenerate } from "../../src/workflow/harness-commands.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 
 /**
- * sha256 of every file a commit could record in the copy at `root`, by repository-relative path: git's own
- * answer (`ls-files --cached --others --exclude-standard`: tracked, plus untracked and not ignored), never a
- * hand-kept list of folders to skip. The test inventory is a cache, never committed.
+ * sha256 of every file a commit could record in the copy at `root`, by repository-relative path: the one
+ * ownership reader's answer (`ownedFiles`: tracked, plus untracked and not ignored, unstaged deletions
+ * absent), never a hand-kept list of folders to skip. The test inventory is a cache, never committed.
  */
 function snapshot(root: string): ReadonlyMap<string, string> {
+  const owned = ownedFiles(root);
+  assert.ok(owned !== undefined && owned.length > 0, "the copy is a repository with files (liveness)");
   const files = new Map<string, string>();
-  const listed = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 });
-  for (const path of new Set(listed.split("\0").filter((entry) => entry.length > 0))) {
+  for (const path of owned) {
     const absolute = join(root, path);
-    if (existsSync(absolute) && statSync(absolute).isFile()) files.set(path, sha256(readFileSync(absolute)));
+    if (statSync(absolute).isFile()) files.set(path, sha256(readFileSync(absolute)));
   }
   files.delete("engine/traceability/s1-test-inventory.json");
   return files;

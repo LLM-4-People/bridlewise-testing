@@ -147,7 +147,7 @@ export const ARCHITECTURE_MODULES: readonly ArchitectureModuleEntry[] = [
   { path: "scripts/verification/effect-surface.ts", id: "effect-surface-verification", owner: "verification", executionBoundary: "verification", responsibilities: ["shared-static-effect-surface-classification"] },
   { path: "scripts/verification/guardian-spec-artifact.ts", executionBoundary: "composition-root", compositionRoot: true },
   { path: "scripts/verification/official-fragment-manifest.ts", id: "official-fragment-manifest-verification", owner: "traceability", executionBoundary: "verification", ports: {"requires":[],"provides":["official-fragment-manifest-contract"]}, responsibilities: ["official-fragment-manifest-schema-and-duplicate-key-safe-parsing"] },
-  { path: "scripts/verification/ratchet-baselines.ts", executionBoundary: "composition-root", compositionRoot: true },
+  { path: "scripts/verification/ratchet-baselines.ts", executionBoundary: "composition-root", compositionRoot: true, effects: ["child-process","filesystem-read","git"] },
   { path: "scripts/verification/safe-repository-reader.ts", id: "safe-repository-reader-verification", executionBoundary: "verification", ports: {"requires":["linux-mount-inspection"],"provides":["safe-repository-read"]}, effects: ["filesystem-read"], configPaths: ["verification.safeRepositoryRead"], responsibilities: ["linux-descriptor-held-ancestor-safe-repository-file-reading-and-recheck"] },
   { path: "scripts/verification/shipped-hooks.ts", executionBoundary: "composition-root", compositionRoot: true },
   { path: "scripts/verification/slice-declarations.ts", id: "slice-declarations", owner: "slice-projection" },

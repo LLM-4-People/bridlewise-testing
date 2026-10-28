@@ -204,6 +204,8 @@ test("ratchet generator: a check reports debt that fell; a sync prunes it and ne
   assert.deepEqual(synced.results.map((result) => result.status), ["pruned"]);
   assert.equal(readFileSync(join(root, BASELINE), "utf8"), document(["a.ts: x ?? 30", reason], ["b.ts: y ?? 40", reason]), "one occurrence removed; the new site is NOT added");
   assert.deepEqual(syncRatchetBaselines(root, true, fixture).results.map((result) => result.status), ["current"], "a second pass changes nothing");
-  // A tree without the baseline converges by absence.
-  assert.deepEqual(syncRatchetBaselines(createTempDir("ratchet-generator-absent-"), false, fixture).results.map((result) => result.status), ["absent"]);
+  // Absence converges only by a typed scope fact from git's index (architecture-judge-ratchet.test.ts plants each);
+  // a tree git cannot answer for is refused, never taken as converged.
+  assert.throws(() => syncRatchetBaselines(createTempDir("ratchet-generator-absent-"), false, fixture),
+    (error: unknown) => error instanceof InputError && error.code === "ratchet_baseline_scope_unreadable");
 });

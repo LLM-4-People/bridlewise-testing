@@ -227,8 +227,9 @@ export function artifactAdmissionViolations(input: ArtifactAdmissionInput): read
   const canonicalAuthorities = manifest.entries.filter((entry) => entry.authorityStatus === "canonical");
   uniqueMap(canonicalAuthorities, (entry) => entry.authorityKey, "artifact-authority-duplicate", violations);
 
+  // The same population the derivation takes: the test inventory is a cache of the tree (#221), never an artifact.
   const expectedPaths = input.paths.filter((path) =>
-    path !== manifest.selfPath && manifest.managedRoots.some((root) => path.startsWith(root)) &&
+    path !== manifest.selfPath && path !== VERIFICATION_PATHS.testInventory && manifest.managedRoots.some((root) => path.startsWith(root)) &&
     !isRepositoryScanExcludedPath(path) && isRegularFile(input.root, path)).toSorted();
   const actualPaths = [...entryByPath.keys()].toSorted();
   if (!sameOrderedValues(expectedPaths, actualPaths)) violations.push("artifact-admission-inventory-drift");

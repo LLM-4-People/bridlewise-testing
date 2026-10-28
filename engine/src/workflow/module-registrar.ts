@@ -67,7 +67,7 @@ function decisionsText(root: string): string {
 }
 
 /** The decisions recorded under `root`, read from the file's TEXT (never the module this process imported). */
-export function registeredModuleDecisions(root: string): ArchitectureModuleDecisions {
+function registeredModuleDecisions(root: string): ArchitectureModuleDecisions {
   return readArchitectureModuleDecisions(decisionsText(root));
 }
 

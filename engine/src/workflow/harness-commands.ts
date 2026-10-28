@@ -53,10 +53,10 @@ import { commandExitCode, parseHarnessCommandResult, renderCommandAnswer, takeOu
 import { SCRIPT_SUBPROCESS_OUTPUT_BYTES, SUBPROCESS_BOUNDS, DEFAULT_TIMELINE_COMMAND_LIMIT, INVENTORY_HASH_PREVIEW_HEX, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline } from "../git/index-baseline.ts";
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
-import { syncCommunityFiles } from "./community/health-files.ts";
+import { communityFilesInput, syncCommunityFiles } from "./community/health-files.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
 import { configuredForgeSection } from "./forge/configured-forge.ts";
-import { forgeFileSources, syncForgeFiles } from "./forge/generated-files.ts";
+import { forgeFileSources, forgeFilesInput, syncForgeFiles } from "./forge/generated-files.ts";
 import { acceptFrozenRecords, frozenRecordsMessage, syncFrozenRecords, type FrozenRecordsReport } from "./record-links.ts";
 import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
 import { engineAndCheckoutRoots, repositoryToplevel } from "../git/repository-ownership.ts";
@@ -357,7 +357,9 @@ export function ratchetBaselinesStep(ratchetBaselines: RatchetBaselinesArm): Che
     step: "ratchet-baselines",
     status: ratchetBaselines.converged && newDebt.length === 0 ? "pass" : "fail",
     message: [
-      ...(ratchetBaselines.converged ? [] : [`ratchet baselines hold debt that fell (run harness sync to prune): ${ratchetBaselines.results.flatMap((result) => result.stale.map((key) => `${result.path}: ${key}`)).join("; ")}`]),
+      ...(ratchetBaselines.results.length === 0 && !ratchetBaselines.converged ? ["the ratchet judge did not answer (see its details)"] : []),
+      ...ratchetBaselines.results.filter((result) => result.status === "missing").map((result) => `${result.path} is missing: this tree carries its folder, so the ${result.id} gate would be off — restore it (a baseline is never deleted to pass)`),
+      ...(ratchetBaselines.results.some((result) => result.stale.length > 0) ? [`ratchet baselines hold debt that fell (run harness sync to prune): ${ratchetBaselines.results.flatMap((result) => result.stale.map((key) => `${result.path}: ${key}`)).join("; ")}`] : []),
       ...(newDebt.length === 0 ? [] : [`new debt no ratchet baseline accepts (fix each site; a baseline never takes a new entry): ${newDebt.join("; ")}`]),
     ].join(" | ") || "no ratchet baseline holds an entry its guard no longer finds, and no guard finds debt its baseline does not hold",
     details: ratchetBaselines,
@@ -1331,6 +1333,41 @@ function regenerateEvidenceIgnore(root: string, write: boolean): DecisionIndexAr
   const report = syncEvidenceIgnore(trackedTop(root), write);
   return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
 }
+
+/**
+ * THE GENERATOR ARMS' INPUTS BEYOND THE ENGINE: for each arm of `harness
+ * regenerate`, the repository paths outside `engine/` and `shared/` it needs
+ * in order to converge, each declared by the arm's own owner. `null` means
+ * the arm reads only those two trees, or converges by its inputs' absence (a
+ * product-only tree). The table is typed over every arm, so a new arm states
+ * its inputs or does not compile. A repository copy for a generator test
+ * (`engineGeneratorPopulation`) derives its population from this table, never
+ * from a second list.
+ */
+export const GENERATOR_INPUTS_BEYOND_ENGINE: Readonly<Record<keyof HarnessRegenerateOutput, ((repositoryPath: string) => boolean) | null>> = Object.freeze({
+  autoGenerator: null,
+  moduleRegistrar: null,
+  hashBindings: null,
+  testInventory: null,
+  dispositionAutoAdd: null,
+  dispositionManifest: null,
+  schemaArtifact: null,
+  pinAuthorities: null,
+  ratchetBaselines: null,
+  readmeConsumers: null,
+  decisionIndex: null,
+  trackerBoard: null,
+  shippedHooks: null,
+  evidenceIgnore: null,
+  // Refuses (`community_source_invalid`, a missing lockfile root) when its inputs are absent: it declares them.
+  forgeFiles: forgeFilesInput,
+  frozenRecords: null,
+  // Converges by absence alone, but runs for real once the forge arm's community sources are present: it declares its own.
+  communityFiles: communityFilesInput,
+  webBudgetPopulation: null,
+  guardianSpecArtifact: null,
+  artifactManifest: null,
+});
 
 /** The forge-files arm (in process): `.github/forge/` from the App registry and the `forge` configuration section. */
 function regenerateForgeFiles(root: string, write: boolean): DecisionIndexArm {

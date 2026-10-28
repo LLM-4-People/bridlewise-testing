@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "3658d33fcf73045c3e8a42bddbd267f6589d9c253a9fd3b4656fae20768edcd8",
+      sourceSha256: "26f23a96010549f666bf47ffd15f9f69a8b41e496467deaa538d9e7ad49191fd",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -2186,10 +2186,6 @@ const ROOT_POLICY_VALUE = {
       // engine-only working copy (the generators' copies) does not carry it and
       // is converged by its absence, like the web baseline above.
       "dead-markdown-links": "tests/prevention/markdown-links-baseline.json",
-      // The derived architecture judge (S1's architecture and governed-source verifiers over the
-      // census): outside the engine, like the two above, so the generators' engine-only working
-      // copies are converged by its absence rather than paying the judge on every check.
-      "architecture-judge": "tests/prevention/architecture-judge-baseline.json",
     },
     /**
      * THE FROZEN-RECORD ROOTS (repository-relative folder prefixes): closed

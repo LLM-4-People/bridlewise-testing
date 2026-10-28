@@ -145,6 +145,20 @@ jobs:
         working-directory: engine
         run: node src/cli.ts harness sync --with-bundle
 
+      # A ratchet only shrinks, judged against the base the change lands on (the
+      # local hook judges against HEAD; this is the server's half). On a push
+      # to main there is no base to land on, and nothing to judge.
+      - name: Every ratchet baseline only shrank since the base
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        working-directory: engine
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          SERVER: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          git fetch --no-tags --depth=1 "$SERVER/$REPOSITORY" "$BASE"
+          node scripts/verification/ratchet-baselines.ts --check --grown-since "$BASE"
+
       # Tracked AND untracked: a generator that writes a new file nobody
       # committed (and no ignore rule covers) is as stale as a changed one.
       - name: Require that the generators changed no file

@@ -69,6 +69,7 @@ import {
   type RequirementsRegistry,
 } from "../../src/kernel/requirements.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { CONFIG_FILE_BASENAME, STATE_DIRECTORY_NAME, cryptoDomain, schemaId, statePath } from "../../src/kernel/product-identity.ts";
 // The extension set has exactly one owner and the manifest is not it — the
 // manifest used to republish this array as a field, which was a second door
@@ -1040,6 +1041,8 @@ function verifyStandaloneProductBoundary(
 
   for (const path of paths) {
     if (isHistoricalResearchEvidencePath(path)) continue;
+    // The test inventory is a cache a test run writes (ignored, never committed, #221): not the tree's content.
+    if (path === VERIFICATION_PATHS.testInventory) continue;
     if (containsExternalApplicationReference(path)) {
       violations.push(`standalone-product-boundary-reference:${path}`);
     }
@@ -1111,11 +1114,15 @@ function allowedEffectIdentifiersForPath(path: string): ReadonlySet<string> {
 function architectureRegistryProductBoundaryProjection(path: string, source: string): string {
   if (path !== ARCHITECTURE_MODULES_PATH) return source;
   let projected = source;
-  // The decisions name registered historical research sources by path (a module line) and by folder (a
-  // folder default): both are the registry's own references, never product content.
-  const allowedReferences = [...ARCHITECTURE_MODULES.map((module) => module.path), ...ARCHITECTURE_DIRECTORY_DEFAULTS.map((entry) => entry.directory)]
-    .filter((reference) => isHistoricalResearchEvidencePath(reference) &&
-      containsExternalApplicationReference(reference));
+  // The decisions name registered historical research sources by path (a module line), by folder (a folder
+  // default), and by the values a research module's own line carries (its id, owner, responsibilities):
+  // each is the registry's own reference to a registered research source, never product content.
+  const stringsOf = (value: unknown): readonly string[] =>
+    typeof value === "string" ? [value] : Array.isArray(value) ? value.flatMap(stringsOf) : isPlainObject(value) ? Object.values(value).flatMap(stringsOf) : [];
+  const researchModules = ARCHITECTURE_MODULES.filter((module) => isHistoricalResearchEvidencePath(module.path));
+  const researchFolders = ARCHITECTURE_DIRECTORY_DEFAULTS.filter((entry) => isHistoricalResearchEvidencePath(entry.directory));
+  const allowedReferences = [...new Set([...researchModules.flatMap(stringsOf), ...researchFolders.flatMap(stringsOf)])]
+    .filter((reference) => containsExternalApplicationReference(reference));
   for (const reference of allowedReferences) {
     projected = projected.replaceAll(
       JSON.stringify(reference),
@@ -2314,8 +2321,14 @@ function parseArguments(argv: readonly string[]): Readonly<{ root: string; attem
 
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  try {
-    const input = parseArguments(process.argv.slice(2));
+  // `--root . --structure`: the structural judge alone (no receipt), every finding as one sorted list — the
+  // architecture-judge ratchet's instrument (scripts/verification/ratchet-baselines.ts), asked as a subprocess
+  // so the shipped ratchet never imports this testing-floor module.
+  const argv = process.argv.slice(2);
+  if (argv.length === 3 && argv[0] === "--root" && argv[1] === "." && argv[2] === "--structure") {
+    process.stdout.write(`${canonicalJson({ violations: verifyS1Structure(".").violations })}\n`);
+  } else try {
+    const input = parseArguments(argv);
     const receipt = loadTestResultFromExecution(configuredExecutionAuthority().receipt, input.attemptId);
     const result = verifyS1Repository(input.root, receipt);
     process.stdout.write(`${canonicalJson(result)}\n`);
