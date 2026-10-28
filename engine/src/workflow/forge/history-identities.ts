@@ -130,8 +130,25 @@ export type IdentityMapEntry = Readonly<{ line: number; properName: string | nul
 /** The ONE declared identity mapping, read and validated: its entries and its digest (recorded). */
 export type IdentityMap = Readonly<{ entries: readonly IdentityMapEntry[]; sha256: string }>;
 
-/** A mailmap line (its comment already cut): a name and an address, optionally followed by a commit name and a commit address. */
-const MAILMAP_LINE = /^([^<#]*?)\s*<([^<>\s]+)>(?:\s*([^<#]*?)\s*<([^<>\s]+)>)?\s*$/u;
+/**
+ * A mailmap line (its comment already cut) as its `name <address>` parts, read by index (never a pattern that
+ * would match markup): one or two parts, each name possibly empty, each address bracketed with no space or
+ * bracket inside, nothing after the last. Undefined when the line is not that.
+ */
+function mailmapParts(line: string): readonly Readonly<{ name: string; address: string }>[] | undefined {
+  const parts: { name: string; address: string }[] = [];
+  let rest = line;
+  while (rest.trim().length > 0) {
+    const open = rest.indexOf("<");
+    const close = rest.indexOf(">", open + 1);
+    if (open < 0 || close < 0) return undefined;
+    const address = rest.slice(open + 1, close);
+    if (address.length === 0 || /[\s<>]/u.test(address)) return undefined;
+    parts.push({ name: rest.slice(0, open).trim(), address });
+    rest = rest.slice(close + 1);
+  }
+  return parts.length === 1 || parts.length === 2 ? parts : undefined;
+}
 
 /**
  * The mapping at `path`, in git's mailmap forms (`Proper Name <proper> Commit
@@ -151,12 +168,16 @@ export function readIdentityMap(path: string, publicTree: string): IdentityMap {
     const hash = raw.indexOf("#");
     const line = (hash < 0 ? raw : raw.slice(0, hash)).trim();
     if (line.length === 0) return;
-    const parsed = MAILMAP_LINE.exec(line);
+    const parsed = mailmapParts(line);
     const invalid = (): never => {
       throw new ForgeError("history_import_identity_map_invalid", `line ${String(index + 1)} of the identity mapping is not a mailmap line of address-shaped addresses (Proper Name <proper> Commit Name <commit>, or a shorter form)`, { line: index + 1 });
     };
-    if (parsed === null) invalid();
-    const [, firstName, firstAddress, secondName, secondAddress] = parsed!;
+    if (parsed === undefined) invalid();
+    const [first, second] = parsed!;
+    const firstName = first!.name;
+    const firstAddress = first!.address;
+    const secondName = second?.name;
+    const secondAddress = second?.address;
     if (!ADDRESS_WHOLE.test(firstAddress!) || (secondAddress !== undefined && !ADDRESS_WHOLE.test(secondAddress))) invalid();
     const name = (value: string | undefined): string | null => (value === undefined || value.trim().length === 0 ? null : value.trim());
     entries.push(secondAddress === undefined
