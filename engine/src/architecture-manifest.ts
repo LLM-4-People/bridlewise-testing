@@ -1073,7 +1073,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "test-worker", path: "scripts/tooling/test-worker.ts", realm: "builder", layer: "verification",
       owner: "verification",
       publicApi: { exportCount: 2, namesSha256: "5034bb449150e27696f889aa9b8bdcdf387305f2f637ddd40856985be2386a6a" },
-      dependencies: ["node:fs","node:url","scripts/test-inventory.ts","scripts/tooling/candidate-manifest.ts","scripts/tooling/compile-cache.ts","scripts/tooling/inventory-test-run.ts","scripts/tooling/network-under-test.ts","scripts/tooling/s1-verification.ts","scripts/tooling/test-receipt.ts","src/filesystem/checkout-write-door.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/runtime/cli-debug.ts","src/shared/dev-mode-env.ts","src/shared/run-history.ts","src/workflow/test-result-collector.ts","test/support/test-key-home.ts"],
+      dependencies: ["node:fs","node:url","scripts/test-inventory.ts","scripts/tooling/candidate-manifest.ts","scripts/tooling/compile-cache.ts","scripts/tooling/inventory-test-run.ts","scripts/tooling/network-under-test.ts","scripts/tooling/s1-verification.ts","scripts/tooling/test-cpu-class.ts","scripts/tooling/test-receipt.ts","src/filesystem/checkout-write-door.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/kernel/verification-paths.ts","src/runtime/cli-debug.ts","src/shared/dev-mode-env.ts","src/shared/run-history.ts","src/workflow/test-result-collector.ts","test/support/test-key-home.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
       effects: ["filesystem-read", "process-status"],
       ports: {
@@ -5705,7 +5705,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-tooling-test-cpu-class", path: "scripts/tooling/test-cpu-class.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 7, namesSha256: "7a3b9fec2768fec7581f8ca4a890b9f67c7cf947787ee68b74ee9b3640368714" },
+      owner: "verification", publicApi: { exportCount: 8, namesSha256: "ffaee9e7d0d9c331f0c8839a872c3823b60bcbc714e8040e47826c9823f13c90" },
       dependencies: ["node:fs","node:path","src/shared/run-cpu.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({

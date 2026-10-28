@@ -23,6 +23,7 @@ import {
   removeRepositoryLocalTemporaryDirectory,
 } from "../support/repository-local-temporary.ts";
 import { allProcessIds, commandLineOf, isProcessAlive, parentOf } from "../../src/process/process-facts.ts";
+import { thinHeadroom } from "../../scripts/tooling/test-cpu-class.ts";
 
 const PASSING_SOURCE = `import test from "node:test";\ntest("pass", () => {});\n`;
 const SERIAL_MARKER_SOURCE = `import test from "node:test";\n// runWorkerWithEvidence\ntest("serial", () => {});\n`;
@@ -95,6 +96,7 @@ type SubprocessResult = Readonly<{
   failures: readonly string[];
   failureDetails: readonly TestFailureDetail[];
   receiptDetails: readonly TestFailureDetail[];
+  testCpu: readonly Readonly<{ identity: string; cpuMs: number }>[];
 }>;
 
 /** Writes `files` and the executor helper (the production entry point, driven in its own process); returns the helper's path. */
@@ -128,7 +130,7 @@ function executorHelper(
     `const receipt = createTestReceipt(candidate, inventory, accounting.discoveredIds, accounting.passedIds, accounting.counts, accounting.gatedTestIds, accounting.loadCrashCount, accounting.abortedFileCount);\n` +
     `const result = createTestResultReceipt(receipt, accounting.runnerSummary, candidate, accounting.failures, accounting.unknownTests, accounting.failureDetails);\n` +
     `const parsed = parseTestResultReceiptValue(JSON.parse(JSON.stringify(result)));\n` +
-    `process.stdout.write(JSON.stringify({ passed: accounting.passed, counts: accounting.counts, loadCrashCount: accounting.loadCrashCount, runnerSummary: accounting.runnerSummary, reasons: accounting.reasons, failures: accounting.failures, failureDetails: accounting.failureDetails, receiptDetails: parsed.result.diagnostic?.failureDetails ?? [] }));\n`;
+    `process.stdout.write(JSON.stringify({ passed: accounting.passed, counts: accounting.counts, loadCrashCount: accounting.loadCrashCount, runnerSummary: accounting.runnerSummary, reasons: accounting.reasons, failures: accounting.failures, failureDetails: accounting.failureDetails, receiptDetails: parsed.result.diagnostic?.failureDetails ?? [], testCpu: accounting.testCpu }));\n`;
   const helperPath = join(root, "helper.mts");
   writeFileSync(helperPath, helperSource, "utf8");
   return helperPath;
@@ -292,6 +294,15 @@ test("executeInventoryTestRun: every test file's process is BOUNDED BY CPU WORK 
   assert.match(said("burns CPU past its class"), /ms of CPU work, over its planted class ceiling of 150 ms/u);
   assert.equal(said("waits far past its class"), "[]", "waiting is not work: a test that sleeps past its CPU ceiling in wall time passes");
   assert.equal(said("\"clean\""), "[]");
+  // EACH TEST'S CPU READING IS RECORDED, by its identity, from the judgement's own diagnostic.
+  const cpu = new Map(out.testCpu.map((reading) => [reading.identity, reading.cpuMs]));
+  assert.ok((cpu.get(`${file}::burns CPU past its class`) ?? 0) >= 380, JSON.stringify(out.testCpu));
+  assert.ok(cpu.has(`${file}::clean`), "every judged test has its reading, not only the failing ones");
+  // …and THE HEADROOM SIGNAL names the tests over ceiling / headroomFactor (150 / 2 = 75 ms here).
+  const thin = thinHeadroom({ defaultCeilingMs: 100_000, headroomFactor: 2, classes: [{ name: "planted", measuredCpuMs: 75, files: [classPath] }] },
+    out.testCpu, (identity) => relative(resolve(root, ".."), join(root, identity.slice(0, identity.indexOf("::")))).split(sep).join("/"));
+  assert.deepEqual(thin.map((one) => one.identity), [`${file}::burns CPU past its class`]);
+  assert.equal(thin[0]?.ceilingMs, 150);
 });
 
 test("executeInventoryTestRun: the per-test bounds live in the test file's own process only — a worker thread or child node the test starts with the inherited options never reports as a test file of its own (the accounting stays whole)", () => {
