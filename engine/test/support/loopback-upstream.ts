@@ -45,7 +45,18 @@ function originalUrl(request: IncomingMessage, origin: string): string {
   return `${segments[2]}://${segments[3]}/${segments.slice(4).join("/")}`;
 }
 
+/** While set, every request body waits unread (the receiver not reading: the sender's socket fills and blocks). */
+let held: Promise<void> | undefined;
+
+/** Hold every request body unread until the returned release is called. */
+export function holdRequestBodies(): () => void {
+  let release: () => void = () => undefined;
+  held = new Promise<void>((resolve) => { release = resolve; });
+  return () => { held = undefined; release(); };
+}
+
 async function answer(request: IncomingMessage, response: ServerResponse, origin: string): Promise<void> {
+  if (held !== undefined) await held;
   const chunks: Buffer[] = [];
   for await (const chunk of request) chunks.push(chunk as Buffer);
   const abort = new AbortController();

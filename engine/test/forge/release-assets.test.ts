@@ -28,7 +28,7 @@ import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
 import type { ForgeAssetBody, ForgeEndpoint } from "../../src/workflow/forge/port.ts";
-import { address, connectionsClosed, connectionsSettled, mockDoorClock } from "../support/loopback-upstream.ts";
+import { address, connectionsClosed, connectionsSettled, holdRequestBodies, mockDoorClock } from "../support/loopback-upstream.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { FAKE_ASSETS_ORIGIN, FAKE_UPLOADS_ORIGIN, fakeGithub, type FakeGithub } from "./fake-github.ts";
 
@@ -305,4 +305,45 @@ test("a download's answer counts in its window: headers that arrive before the f
   await until(() => got === bytes.byteLength);
   push!(null);
   assert.deepEqual(await within(late, "the late download"), { bytes: 128, sha256: hex(bytes) });
+});
+
+test("the silence bound starts only once the last byte is WRITTEN: an upload whose final chunk is still blocked on a receiver that does not read is judged by the floor (a stall), never the answer's bound (mocked clock)", async (t) => {
+  mockDoorClock(t);
+  const fake = fakeGithub();
+  const release = holdRequestBodies();
+  t.after(release);
+  const first = new Uint8Array(randomBytes(64 * 1024));
+  // The final chunk is far larger than the loopback socket's buffers: its write blocks while nobody reads.
+  const last = new Uint8Array(32 * 1024 * 1024);
+  let pulledLast = false;
+  const chunks = (async function* () { yield first; pulledLast = true; yield last; })();
+  const whole = new Uint8Array(first.byteLength + last.byteLength);
+  whole.set(first);
+  whole.set(last, first.byteLength);
+  const stalled = client(fake, { maxBytes: 64 * 1024 * 1024, progressWindowMs: 1_000, minBytesPerWindow: 64, answerSilenceMs: 60_000 })
+    .upload({ path: UPLOADS, query: { name: "blocked.bin" }, contentType: "application/octet-stream", body: { chunks, size: whole.byteLength, sha256: hex(whole) } });
+  const refused = assert.rejects(stalled, (error: unknown) => isForgeError(error, "forge_asset_stalled"));
+  await until(() => pulledLast);
+  for (let turn = 0; turn < 2_000; turn += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+  // The first window carried the bytes; the second carries none, and the answer's bound has not started.
+  t.mock.timers.tick(1_000);
+  t.mock.timers.tick(1_000);
+  await within(refused, "the blocked upload's stall");
+});
+
+test("an upload's answer ends its silence bound and returns to the floor: an answer whose body then stops is a stall, judged within a window, not at the silence bound (mocked clock)", async (t) => {
+  mockDoorClock(t);
+  const fake = fakeGithub();
+  let answered = false;
+  // GitHub answers at once, then its answer's body never ends.
+  fake.onUploadsHost(() => { answered = true; return new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode("{")); } }), { status: 201 }); });
+  const bytes = new Uint8Array(randomBytes(4 * 1024));
+  const silent = client(fake, { progressWindowMs: 1_000, minBytesPerWindow: 64, answerSilenceMs: 60_000 }).upload({ path: UPLOADS, query: { name: "answered.bin" }, contentType: "application/octet-stream", body: body(bytes) });
+  const refused = assert.rejects(silent, (error: unknown) => isForgeError(error, "forge_asset_stalled"));
+  await until(() => answered);
+  for (let turn = 0; turn < 2_000; turn += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+  t.mock.timers.tick(1_000);
+  t.mock.timers.tick(1_000);
+  await within(refused, "the answered upload's stall");
+  fake.onUploadsHost(undefined);
 });

@@ -376,10 +376,9 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
     // draining, GitHub storing the asset) is not observable as bytes: the floor stops, and GitHub must answer within
     // the declared silence bound.
     const { answerSilenceMs } = endpoint.assets;
-    const chunks = (async function* () {
-      for await (const chunk of body.chunks) { lifetime.progress(chunk.byteLength); yield chunk; }
-      lifetime.awaitingAnswer(answerSilenceMs, () => new ForgeError("forge_asset_unanswered", `${method} ${path}: every byte was handed over and GitHub did not answer within ${String(answerSilenceMs)} ms.`, { method, path, answerSilenceMs }));
-    })();
+    const chunks = (async function* () { for await (const chunk of body.chunks) { lifetime.progress(chunk.byteLength); yield chunk; } })();
+    // The silence bound starts only once the door reports every byte WRITTEN to the connection.
+    const handedOver = (): void => lifetime.awaitingAnswer(answerSilenceMs, () => new ForgeError("forge_asset_unanswered", `${method} ${path}: every byte was handed over and GitHub did not answer within ${String(answerSilenceMs)} ms.`, { method, path, answerSilenceMs }));
     try {
       const prepared = prepareOutboundRequest({
         url: url.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
@@ -387,7 +386,7 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
       });
       let response: Response;
       try {
-        response = await dispatchOutboundRequest(prepared, { chunks, size: body.size, sha256: body.sha256 }, lifetime.signal);
+        response = await dispatchOutboundRequest(prepared, { chunks, size: body.size, sha256: body.sha256, handedOver }, lifetime.signal);
       } catch (error) {
         return transferFailure(error, request, lifetime, method, path);
       }

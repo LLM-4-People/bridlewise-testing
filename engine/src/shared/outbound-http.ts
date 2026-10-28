@@ -115,7 +115,6 @@
  */
 
 import { guarded } from "../process/fault-policy.ts";
-import { Readable } from "node:stream";
 import { BlockList, isIP, type LookupFunction } from "node:net";
 import { lookup } from "node:dns/promises";
 import { createRequire } from "node:module";
@@ -943,7 +942,15 @@ function transportFailure(error: unknown, signal: AbortSignal): unknown {
  * before it completes, so the server never takes a body other than the one
  * declared.
  */
-export type OutboundStreamBody = Readonly<{ chunks: AsyncIterable<Uint8Array>; size: number; sha256: string }>;
+export type OutboundStreamBody = Readonly<{
+  chunks: AsyncIterable<Uint8Array>; size: number; sha256: string;
+  /**
+   * Called once every byte has been WRITTEN to the connection: the HTTP
+   * client asks for more only after its last write was taken (and the socket
+   * drained), never when the final chunk is merely read ahead.
+   */
+  handedOver?: (() => void) | undefined;
+}>;
 
 /** A request body: text, or a streamed binary body. */
 export type OutboundBody = string | OutboundStreamBody;
@@ -970,6 +977,7 @@ async function* verifiedChunks(body: OutboundStreamBody, origin: string, logCate
       if (next.done === true) {
         if (sent !== body.size) refuse(logCategory, `The request body to ${origin} is ${String(sent)} bytes, not the ${String(body.size)} it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size, sent });
         digestHolds(); // an empty declared body: nothing left, and its digest is still the declared one
+        body.handedOver?.();
         return;
       }
       sent += next.value.byteLength;
@@ -980,6 +988,8 @@ async function* verifiedChunks(body: OutboundStreamBody, origin: string, logCate
         digestHolds();
         for (let after = await chunks.next(); after.done !== true; after = await chunks.next()) if (after.value.byteLength > 0) longer();
         yield next.value;
+        // Resumed only when the client asks past the last chunk: that chunk has been written.
+        body.handedOver?.();
         return;
       }
       yield next.value;
@@ -994,19 +1004,22 @@ async function send(prepared: PreparedOutboundRequest, route: Route, body: Outbo
   const { url } = prepared;
   const headers: Record<string, string> = {};
   prepared.headers.forEach((value, name) => { headers[name] = value; });
-  let wire: string | Readable | undefined;
+  // The streamed body goes to the client as the iterable itself (never a Readable, which would read ahead of
+  // the writes): the client pulls a chunk only once the previous one was written and the socket drained.
+  let wire: string | AsyncIterable<Uint8Array> | undefined;
   if (typeof body === "object") {
     if (!Number.isSafeInteger(body.size) || body.size < 0 || !SHA256_HEX_REGEX.test(body.sha256)) {
       refuse(prepared.logCategory, `A streamed request body to ${url.origin} must declare a byte size and a lower-case hex SHA-256, so nothing was sent.`, "outbound_body_declaration_invalid", { origin: url.origin });
     }
     headers["content-length"] = String(body.size);
-    wire = Readable.from(verifiedChunks(body, url.origin, prepared.logCategory), { objectMode: false });
+    wire = verifiedChunks(body, url.origin, prepared.logCategory);
   } else {
     wire = body;
   }
   let answer: Dispatcher.ResponseData;
   try {
-    answer = await (await dispatcherFor(route)).request({ origin: url.origin, path: `${url.pathname}${url.search}`, method: prepared.method, headers, ...(wire === undefined ? {} : { body: wire }), signal });
+    // undici takes an async iterable body (its iterable writer); its typings name only the stream and buffer forms.
+    answer = await (await dispatcherFor(route)).request({ origin: url.origin, path: `${url.pathname}${url.search}`, method: prepared.method, headers, ...(wire === undefined ? {} : { body: wire as unknown as string }), signal });
   } catch (error) {
     if (isOutboundHttpError(error)) throw error;
     throw transportFailure(error, signal);

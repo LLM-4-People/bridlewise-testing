@@ -102,7 +102,7 @@ export type FakeGithub = Readonly<{
   /** Answer the asset host's requests with `handler` (a raw `Response` for a body that trickles or stalls); `undefined` restores the stored assets. */
   onAssetHost: (handler: ((request: FakeRequest) => FakeAnswer | Response) | undefined) => void;
   /** Answer the uploads host's requests with `handler` (an answer that may be held: a promise the test settles); `undefined` restores the stored uploads. */
-  onUploadsHost: (handler: ((request: FakeRequest) => FakeAnswer | Promise<FakeAnswer>) | undefined) => void;
+  onUploadsHost: (handler: ((request: FakeRequest) => FakeAnswer | Response | Promise<FakeAnswer | Response>) | undefined) => void;
 }>;
 
 function json(status: number, body: unknown, headers: Readonly<Record<string, string>> = {}): FakeAnswer {
@@ -135,7 +135,7 @@ export function fakeGithub(): FakeGithub {
   /** The signed asset URLs handed out, each to one asset. */
   const signed = new Map<string, number>();
   let assetHost: ((request: FakeRequest) => FakeAnswer | Response) | undefined;
-  let uploadsHost: ((request: FakeRequest) => FakeAnswer | Promise<FakeAnswer>) | undefined;
+  let uploadsHost: ((request: FakeRequest) => FakeAnswer | Response | Promise<FakeAnswer | Response>) | undefined;
   let nextId = 1000;
 
   /** The uploads host and the asset host (`null` when the request is the API's). */
