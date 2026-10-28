@@ -30,7 +30,7 @@ import { FORGE_LOG_CATEGORY } from "./github.ts";
 import { EXCLUSIVE_KINDS, KIND_ADAPTERS, type LiveContext, type LiveObject } from "./live-state.ts";
 import { looseningOf, movedPremisesUnmet } from "./strictness.ts";
 
-export type PlanAction = "create" | "update" | "unchanged" | "refused" | "unmanaged" | "retire";
+export type PlanAction = "create" | "update" | "unchanged" | "refused" | "unmanaged" | "retire" | "pending";
 
 export type PlanEntry = Readonly<{
   kind: ForgeObjectKind;
@@ -48,6 +48,11 @@ export type PlanEntry = Readonly<{
   loosening?: readonly string[];
   /** The loosening only moves rules the org baseline (declared, and verified after it is applied) carries for this repository. */
   moved?: boolean;
+  /**
+   * Declared fields GitHub cannot take YET, with why (`pending` when nothing else differs; beside an `update` otherwise).
+   * A convergence still under way: never written early, never drift, never a failure.
+   */
+  pending?: readonly string[];
 }>;
 
 export type ForgePlan = Readonly<{
@@ -126,14 +131,21 @@ async function planObjects(context: LiveContext, objects: readonly ForgeObject[]
         planned.push({ object, entry: deepFreeze({ ...base, action: "create" }), body });
         continue;
       }
-      const differing = differences(body, found.live);
-      const loosening = differing.length === 0 ? [] : looseningOf(object.kind, body, found.live);
+      // A field GitHub cannot take yet (a certificate still being issued) is left out of the write, and reported pending.
+      const notYet = KIND_ADAPTERS[object.kind].pending?.(body, found.live) ?? {};
+      const writable = Object.keys(notYet).length === 0 || typeof body !== "object" || body === null
+        ? body
+        : Object.fromEntries(Object.entries(body as Record<string, unknown>).filter(([field]) => notYet[field] === undefined));
+      const pending = Object.entries(notYet).filter(([field]) => differences((body as Record<string, unknown>)[field], (found.live as Record<string, unknown>)[field]).length > 0).map(([field, why]) => `${field}: ${why}`);
+      const differing = differences(writable, found.live);
+      const loosening = differing.length === 0 ? [] : looseningOf(object.kind, writable, found.live);
       const moved = loosening.length > 0 && object.kind === "ruleset" && object.scope.kind === "repo"
         && movedPremisesUnmet(loosening, found.live, declaredBaseline, declaredKindOf(objects, object.scope.repository)).length === 0;
-      planned.push({ object, body, found, entry: deepFreeze({
-        ...base, action: differing.length === 0 ? "unchanged" : "update",
+      planned.push({ object, body: writable, found, entry: deepFreeze({
+        ...base, action: differing.length > 0 ? "update" : pending.length > 0 ? "pending" : "unchanged",
         ...(differing.length === 0 ? {} : { differences: differing }),
         ...(loosening.length === 0 ? {} : { loosening, moved }),
+        ...(pending.length === 0 ? {} : { pending }),
       }) });
     } catch (error) {
       const refusal = objectRefusal(error);
@@ -214,9 +226,10 @@ async function liveMovePremisesUnmet(context: LiveContext, objects: readonly For
 }
 
 function summarize(entries: readonly PlanEntry[]): ForgePlan {
-  const counts = { create: 0, update: 0, unchanged: 0, refused: 0, unmanaged: 0, retire: 0 };
+  const counts = { create: 0, update: 0, unchanged: 0, refused: 0, unmanaged: 0, retire: 0, pending: 0 };
   for (const entry of entries) counts[entry.action] += 1;
-  const drift = entries.filter((entry) => entry.action !== "unchanged" && (entry.action !== "unmanaged" || EXCLUSIVE_KINDS.has(entry.kind)));
+  // A pending entry is a convergence under way (a certificate being issued): reported, never drift.
+  const drift = entries.filter((entry) => entry.action !== "unchanged" && entry.action !== "pending" && (entry.action !== "unmanaged" || EXCLUSIVE_KINDS.has(entry.kind)));
   return deepFreeze({ entries, counts, complete: counts.refused === 0, drift });
 }
 
