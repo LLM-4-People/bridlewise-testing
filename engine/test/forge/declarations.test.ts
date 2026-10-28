@@ -10,6 +10,7 @@ import { allowedActionPatterns, FORGE_ISSUE_TYPES, forgeDeclarations } from "../
 import { differences, referencesOf, resolveReferences, scopeName, writableBody, type ForgeObject } from "../../src/workflow/forge/forge-state.ts";
 import { codeownersFile, dependabotEntryViolations, dependabotFile, dependabotUpdates, forgeTreeFacts, workflowUsesOf } from "../../src/workflow/forge/repository-files.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
+import { looseningOf } from "../../src/workflow/forge/strictness.ts";
 import { workingTreeReader, type TreeReader } from "../../src/git/tree-reader.ts";
 import { join } from "node:path";
 import { trackedTop } from "../../src/workflow/evidence-store.ts";
@@ -107,6 +108,36 @@ test("the org baseline is exactly §3.2's, at both stages: a rule removed, added
   }
   // The trunk's own ruleset keeps only what an org ruleset cannot carry.
   assert.deepEqual((find(forgeDeclarations(SOURCES), "ruleset", "trunk").desired as { rules: { type: string }[] }).rules.map((rule) => rule.type), ["merge_queue", "code_scanning"]);
+});
+
+test("merge commits only (#486): the settings, the baseline's pull-request rule and the merge queue allow merge alone, and widening any is a loosening", () => {
+  // `harness promote verify` relies on it: main's first-parent line is its published history only if every landing is a merge commit.
+  for (const stage of ["p0", "door"] as const) {
+    const objects = forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, stage } });
+    for (const repository of objects.filter((entry) => entry.kind === "repository-settings")) {
+      assert.deepEqual(Object.fromEntries(Object.entries(repository.desired as Record<string, unknown>).filter(([key]) => /^allow_(?:merge_commit|rebase_merge|squash_merge)$/u.test(key))),
+        { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false }, `${stage} ${repository.key}`);
+    }
+    const rules = (key: string, kind: string) => (find(objects, kind, key).desired as { rules: { type: string; parameters?: Record<string, unknown> }[] }).rules;
+    assert.deepEqual(rules("baseline", "org-ruleset").find((rule) => rule.type === "pull_request")?.parameters?.allowed_merge_methods, ["merge"], stage);
+    assert.equal(rules("trunk", "ruleset").find((rule) => rule.type === "merge_queue")?.parameters?.merge_method, "MERGE", stage);
+  }
+  // A plan that would allow squash or rebase again is a loosening: never applied without its acknowledgement.
+  assert.deepEqual(looseningOf("repository-settings", { allow_squash_merge: true }, { allow_squash_merge: false }), ["allow_squash_merge false -> true"]);
+  assert.deepEqual(looseningOf("repository-settings", { allow_rebase_merge: true }, { allow_rebase_merge: false }), ["allow_rebase_merge false -> true"]);
+  assert.deepEqual(looseningOf("repository-settings", { allow_squash_merge: false, allow_rebase_merge: false }, { allow_squash_merge: true, allow_rebase_merge: true }), [], "narrowing back to merge is not");
+  // The same for the two rules: widening the baseline's pull-request merge methods, or the trunk queue's merge method, is a loosening.
+  const declared = forgeDeclarations(SOURCES);
+  type Ruleset = { rules: { type: string; parameters?: Record<string, unknown> }[] };
+  const widened = (kind: string, key: string, type: string, parameters: Record<string, unknown>): Ruleset => {
+    const ruleset = find(declared, kind, key).desired as Ruleset;
+    return { ...ruleset, rules: ruleset.rules.map((rule) => rule.type === type ? { ...rule, parameters: { ...rule.parameters, ...parameters } } : rule) };
+  };
+  const baseline = find(declared, "org-ruleset", "baseline").desired;
+  const trunk = find(declared, "ruleset", "trunk").desired;
+  assert.notDeepEqual(looseningOf("org-ruleset", widened("org-ruleset", "baseline", "pull_request", { allowed_merge_methods: ["merge", "squash"] }), baseline), [], "the baseline allowing squash again");
+  assert.notDeepEqual(looseningOf("ruleset", widened("ruleset", "trunk", "merge_queue", { merge_method: "SQUASH" }), trunk), [], "the trunk queue squashing");
+  assert.deepEqual(looseningOf("org-ruleset", baseline, widened("org-ruleset", "baseline", "pull_request", { allowed_merge_methods: ["merge", "squash"] })), [], "narrowing the baseline back to merge is not");
 });
 
 test("a form naming a type outside the registry, or two labels with one name, refuses the declarations", () => {

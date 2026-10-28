@@ -92,6 +92,24 @@ function rulesetConditions(include: readonly string[]): unknown {
   return { ref_name: { include, exclude: [] } };
 }
 
+/**
+ * MERGE COMMITS ONLY (#486). `harness promote verify` accepts a product
+ * commit only when its source is on main's FIRST-PARENT line. That line is
+ * main's published history only because every landing is a merge commit: a
+ * squash or a rebase landing would put a commit there that never went
+ * through a merge. So every place a method is chosen allows merge alone:
+ * - the repository settings;
+ * - the baseline's pull-request rule;
+ * - the trunk's merge queue.
+ * The strictness order (strictness.ts) counts allowing squash or rebase as
+ * a loosening.
+ */
+const MERGE_ONLY = deepFreeze({
+  settings: { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false },
+  pullRequestMethods: ["merge"],
+  queueMethod: "MERGE",
+});
+
 function pullRequestRule(settings: ForgeSettings): unknown {
   const door = settings.stage === "door";
   return {
@@ -102,7 +120,7 @@ function pullRequestRule(settings: ForgeSettings): unknown {
       require_code_owner_review: false,
       require_last_push_approval: door,
       required_review_thread_resolution: true,
-      allowed_merge_methods: ["merge"],
+      allowed_merge_methods: [...MERGE_ONLY.pullRequestMethods],
     },
   };
 }
@@ -144,7 +162,7 @@ function rulesets(settings: ForgeSettings): readonly ForgeObject[] {
       conditions: rulesetConditions(["~DEFAULT_BRANCH"]),
       rules: [
         { type: "merge_queue", parameters: {
-          merge_method: "MERGE", grouping_strategy: "ALLGREEN", max_entries_to_build: queue.maxEntriesToBuild,
+          merge_method: MERGE_ONLY.queueMethod, grouping_strategy: "ALLGREEN", max_entries_to_build: queue.maxEntriesToBuild,
           min_entries_to_merge: queue.minEntriesToMerge, max_entries_to_merge: queue.maxEntriesToMerge,
           min_entries_to_merge_wait_minutes: queue.minEntriesToMergeWaitMinutes, check_response_timeout_minutes: queue.checkResponseTimeoutMinutes,
         } },
@@ -194,7 +212,7 @@ function repositorySettings(settings: ForgeSettings, actionPatterns: readonly st
     const scope: ForgeScope = { kind: "repo", repository: repository.name };
     const objects: ForgeObject[] = [
       object("repository-settings", scope, repository.name, {
-        allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false,
+        ...MERGE_ONLY.settings,
         merge_commit_title: "PR_TITLE", merge_commit_message: "PR_BODY",
         allow_auto_merge: false, delete_branch_on_merge: true, allow_update_branch: true,
         // DCO for web commits (U-7): the repository flag, beside the organisation's.
