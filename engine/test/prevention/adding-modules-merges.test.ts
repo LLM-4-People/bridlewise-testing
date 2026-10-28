@@ -22,12 +22,12 @@ import test from "node:test";
 
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { harnessRegenerate } from "../../src/workflow/harness-commands.ts";
-import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
+import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 
 /** Folders a regenerate never commits (caches, dependencies, build output, runtime state). */
 const UNCOMMITTED = new Set(["node_modules", ".bridlewise", "dist", ".git"]);
 
-/** sha256 of every committed-kind file under `root`, by engine-relative path (the test inventory is a cache, never committed). */
+/** sha256 of every committed-kind file under `root`, by repository-relative path (the test inventory is a cache, never committed). */
 function snapshot(root: string): ReadonlyMap<string, string> {
   const files = new Map<string, string>();
   const walk = (directory: string): void => {
@@ -39,21 +39,22 @@ function snapshot(root: string): ReadonlyMap<string, string> {
     }
   };
   walk(root);
-  files.delete("traceability/s1-test-inventory.json");
+  files.delete("engine/traceability/s1-test-inventory.json");
   return files;
 }
 
-/** The engine-relative files a branch changed, added or removed relative to `base`. */
+/** The repository-relative files a branch changed, added or removed relative to `base`. */
 function changed(base: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>): readonly string[] {
   return [...new Set([...base.keys(), ...after.keys()])].filter((path) => base.get(path) !== after.get(path)).toSorted();
 }
 
 /** One branch: add `name`'s module and test in src/workflow/ and test/workflow/, regenerate, answer what changed. */
 function branchAdding(name: string): Readonly<{ changes: readonly string[]; added: readonly string[] }> {
-  const copy = createRepositoryWorkingCopy(`adding-${name}-`, { include: engineGeneratorPopulation });
+  // The WHOLE repository: a regenerate writes beside the engine too (the web's READMEs, the forge and community files).
+  const copy = createRepositoryWorkingCopy(`adding-${name}-`);
   try {
     const root = copy.engineRoot;
-    const before = snapshot(root);
+    const before = snapshot(copy.root);
     const added = [`src/workflow/${name}.ts`, `test/workflow/${name}.test.ts`];
     writeFileSync(join(root, added[0]!), `/** A module added on its own branch. */\nexport function ${name.replaceAll("-", "")}(): number {\n  return 1;\n}\n`);
     writeFileSync(join(root, added[1]!), `import assert from "node:assert/strict";\nimport test from "node:test";\n\nimport { ${name.replaceAll("-", "")} } from "../../src/workflow/${name}.ts";\n\ntest("${name} answers one", () => {\n  assert.equal(${name.replaceAll("-", "")}(), 1);\n});\n`);
@@ -61,7 +62,7 @@ function branchAdding(name: string): Readonly<{ changes: readonly string[]; adde
     execFileSync("git", ["add", "-N", "--", ...added], { cwd: root });
     const regenerated = harnessRegenerate(root, { write: true });
     assert.equal(regenerated.status, "pass", `the regenerate of ${name} converges: ${JSON.stringify(regenerated.result).slice(0, 2000)}`);
-    return { changes: changed(before, snapshot(root)), added };
+    return { changes: changed(before, snapshot(copy.root)), added: added.map((path) => `engine/${path}`) };
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
   }
