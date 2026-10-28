@@ -113,7 +113,7 @@ export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 //   reaches it is reported HUNG, with how it ended, never retried here;
 // - the output it may print (`harness check`'s payload is ~75 KB).
 /** The defaults of `harness.subprocessBounds`, each a documented setting (src/kernel/config-contracts.ts; the settings room's harness rows). */
-export const DEFAULT_SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
+const DEFAULT_SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
   cpuBudgetMs: 1_800_000,
   minimumCpuRate: 0.05,
   stallMs: 1_800_000,

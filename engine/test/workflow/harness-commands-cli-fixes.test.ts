@@ -25,7 +25,9 @@ import {
   type HarnessRollbackOutput,
 } from "../../src/workflow/harness-commands.ts";
 import { boundedEnding, kernelCpuLimit, type SubprocessBounds } from "../../src/process/subprocess-bounds.ts";
-import { DEFAULT_SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
+import { subprocessBounds } from "../../src/workflow/workflow-config.ts";
+
+const DEFAULT_SUBPROCESS_BOUNDS = subprocessBounds({});
 import { runBenchmarkCli, parseBenchmarkArgs } from "../../src/performance/benchmark-cli.ts";
 import { runDiagnosticCli, parseDiagnosticArgs } from "../../src/performance/diagnostic-cli.ts";
 import { createTimelineStore } from "../../src/timeline/timeline-store.ts";

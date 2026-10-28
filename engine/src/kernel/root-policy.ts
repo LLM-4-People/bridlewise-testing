@@ -2815,6 +2815,10 @@ const ROOT_POLICY_VALUE = {
       toolStallMs: 900_000,
       toolPollMs: 2_000,
       toolKillGraceMs: 3_000,
+      /** How many of a failed tool's last stderr lines its refusal quotes. */
+      toolStderrLines: 5,
+      /** How many object ids a refusal's message names (every one is in the run folder's listing). */
+      refusalObjectsNamed: 8,
       /** The git door's per-call ceiling for the importer's git calls (src/git/tree-reader.ts `gitOutput`; that door bounds by wall time, an issue of its own owner). */
       gitCallCeilingMs: 3_600_000,
     },

@@ -28,7 +28,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
 import { liveFileLockHolder } from "../../src/filesystem/file-lock.ts";
 import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, isHeavyRun, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
-import { DEFAULT_SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
+import { subprocessBounds } from "../../src/workflow/workflow-config.ts";
+
+const DEFAULT_SUBPROCESS_BOUNDS = subprocessBounds({});
 import { allProcessIds, commandLineOf, isProcessAlive, ownedChild, processIdentity, procfsDocument, terminate } from "../../src/process/process-facts.ts";
 import { namedTestFileCount } from "../../scripts/tooling/test-run-lock.ts";
 import { createTempDir } from "../support/temp-dir.ts";
@@ -101,7 +103,7 @@ function inRunScope(nonce: string, body: string, env: NodeJS.ProcessEnv = proces
 
 const admitterBody = (label: string): string => [
   `const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)});`,
-  `const { DEFAULT_SUBPROCESS_BOUNDS } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "workflow-config.ts")).href)});`,
+  `const { subprocessBounds } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "workflow-config.ts")).href)}); const DEFAULT_SUBPROCESS_BOUNDS = subprocessBounds({});`,
   `const lock = admitInstrumentRun(process.argv[1], ${JSON.stringify(label)}, ${JSON.stringify(CAPS)}, DEFAULT_SUBPROCESS_BOUNDS);`,
   `console.log("ADMITTED owns=" + String(lock.owns));`,
   "setTimeout(() => undefined, 60_000);",
@@ -129,10 +131,10 @@ test("a run INSIDE an admitted run borrows it — whatever the label holds (a ba
     const workflowConfig = pathToFileURL(join(ENGINE, "src", "workflow", "workflow-config.ts")).href;
     const nestedBody = [
       `const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)});`,
-      `const { DEFAULT_SUBPROCESS_BOUNDS } = await import(${JSON.stringify(workflowConfig)});`,
+      `const { subprocessBounds } = await import(${JSON.stringify(workflowConfig)}); const DEFAULT_SUBPROCESS_BOUNDS = subprocessBounds({});`,
       `const { spawnSync } = await import("node:child_process");`,
       `const lock = admitInstrumentRun(process.argv[1], ${JSON.stringify(label)}, ${JSON.stringify(CAPS)}, DEFAULT_SUBPROCESS_BOUNDS);`,
-      `const inner = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", ${JSON.stringify(`const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)}); const { DEFAULT_SUBPROCESS_BOUNDS } = await import(${JSON.stringify(workflowConfig)}); const lock = admitInstrumentRun(process.argv[1], "the nested run", ${JSON.stringify(CAPS)}, DEFAULT_SUBPROCESS_BOUNDS); console.log("NESTED owns=" + String(lock.owns));`)}, process.argv[1]], { encoding: "utf8" });`,
+      `const inner = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", ${JSON.stringify(`const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)}); const { subprocessBounds } = await import(${JSON.stringify(workflowConfig)}); const lock = admitInstrumentRun(process.argv[1], "the nested run", ${JSON.stringify(CAPS)}, subprocessBounds({})); console.log("NESTED owns=" + String(lock.owns));`)}, process.argv[1]], { encoding: "utf8" });`,
       "console.log(inner.stdout.trim() || ('NO ANSWER ' + String(inner.status) + ' ' + String(inner.signal) + ' ' + inner.stderr));",
       "lock.release();",
     ].join("\n");

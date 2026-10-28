@@ -22,7 +22,12 @@
  *   - an object nothing decodes is refused until the review exempts it by
  *     id, and its byte-level credential is still found and stripped;
  *   - nothing is pushed when the purge leaves residue (a token in an author
- *     name) or when the receipt would carry a home path (a ref named after one).
+ *     name) or when the receipt would carry a home path (a ref named after one);
+ *   - no blob is stripped whole until the review acknowledges it by id;
+ *   - the published receipt holds no id from before the rewrite and no digest
+ *     of the mapping (they are in the private record);
+ *   - THE ADDRESS GATE, end to end: every shape and place an independent
+ *     review found escaping, kept as tests.
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -87,10 +92,27 @@ async function refusalFolder(run: Promise<unknown>, code: string): Promise<strin
   return folder;
 }
 
-function review(entries: Readonly<{ dispositions?: readonly unknown[]; binaries?: readonly unknown[] }>): string {
+function review(entries: Readonly<{ dispositions?: readonly unknown[]; binaries?: readonly unknown[]; strips?: readonly string[]; addresses?: readonly unknown[] }>): string {
   const path = join(createTempDir("history-import-review-"), "review.json");
-  writeFileSync(path, JSON.stringify({ schema: IMPORT_REVIEW_SCHEMA, dispositions: entries.dispositions ?? [], binaries: entries.binaries ?? [] }));
+  writeFileSync(path, JSON.stringify({
+    schema: IMPORT_REVIEW_SCHEMA, dispositions: entries.dispositions ?? [], binaries: entries.binaries ?? [],
+    ...(entries.strips === undefined ? {} : { strips: entries.strips.map((oid) => ({ oid, reason: "read in strip.json: dropped from the published history on purpose" })) }),
+    ...(entries.addresses === undefined ? {} : { addresses: entries.addresses }),
+  }));
   return path;
+}
+
+/** What the import of `request` would strip whole, as its dry run lists it privately (`strip.json`): each blob's id, paths and why. */
+async function stripListed(home: string, request: Readonly<{ source: string; identityMap?: string; review?: string }>, options = importOptions(home)): Promise<readonly Readonly<{ oid: string; paths: readonly string[]; why: readonly string[]; acknowledged: boolean }>[]> {
+  const dry = await importHistory({ ...request, dryRun: true }, options);
+  const listed = JSON.parse(readFileSync(join(home, POLICY.runsFolder, dry.id, "strip.json"), "utf8")) as { strip: { oid: string; paths: string[]; why: string[]; acknowledged: boolean }[] };
+  assert.equal(dry.strip.blobs, listed.strip.length, "the dry run counts what strip.json lists");
+  return listed.strip;
+}
+
+/** The private record of the import answered by `receipt` (never published). */
+function privateRecord(home: string, receipt: Readonly<{ id: string }>): Readonly<{ beforeRefs: Readonly<Record<string, string>>; firstChangedCommits: readonly string[]; strippedBlobs: readonly { oid: string; paths: string[] }[]; mapSha256: string | null }> {
+  return JSON.parse(readFileSync(join(home, POLICY.runsFolder, receipt.id, "record.json"), "utf8")) as ReturnType<typeof privateRecord>;
 }
 
 test("a planted history (UTF-16LE included) is found, purged, re-scanned to zero and pushed; the target holds no planted value", async () => {
@@ -100,12 +122,18 @@ test("a planted history (UTF-16LE included) is found, purged, re-scanned to zero
   write(source, "windows/bare.txt", Buffer.from(`key = ${MAKORA_KEY}\r\n`, "utf16le"));
   git(source, "add", ".");
   git(source, "commit", "-q", "-m", "UTF-16LE settings, with and without a BOM");
+  // Nothing is stripped silently: the three blobs the rewrite cannot rewrite in place are refused until acknowledged.
+  const unacknowledged = await refusalFolder(importHistory({ source, target: bareTarget() }, importOptions(home)), "history_import_strip_unreviewed");
+  const strip = (JSON.parse(readFileSync(join(unacknowledged, "strip.json"), "utf8")) as { strip: { oid: string; paths: string[]; why: string[] }[] }).strip;
+  assert.deepEqual(strip.map((blob) => [blob.paths, blob.why]).sort(), [[["assets/blob.bin"], ["secret"]], [["windows/bare.txt"], ["secret"]], [["windows/settings.txt"], ["secret"]]].sort(), "each blob to strip, with its paths and why");
+  assert.deepEqual((await stripListed(home, { source })).map((blob) => blob.oid), strip.map((blob) => blob.oid), "the dry run lists the same blobs");
   const target = bareTarget();
-  const receipt = await importHistory({ source, target }, importOptions(home));
+  const receipt = await importHistory({ source, target, review: review({ strips: strip.map((blob) => blob.oid) }) }, importOptions(home));
 
   assert.deepEqual(receipt.findings.catalogue, Object.fromEntries([[entryOf(CORAL_KEY), 2], [entryOf(`Pwd=${SHORT_PASSWORD};`), 2], [entryOf(MAKORA_KEY), 2], [entryOf(GITHUB_TOKEN), 3]].sort(([a], [b]) => (String(a) < String(b) ? -1 : 1))));
   assert.ok((receipt.findings.oracle.covered["github-pat"] ?? 0) >= 1, "the oracle saw the token and the catalogue covers it");
-  assert.equal(receipt.purge.strippedBlobs.length, 3, "the binary blob and both UTF-16LE blobs are stripped whole");
+  assert.equal(receipt.purge.strippedBlobs, 3, "the binary blob and both UTF-16LE blobs are stripped whole");
+  assert.equal(receipt.findings.review.strips, 3);
   assert.equal(receipt.after.catalogueHits, 0);
   assert.equal(receipt.after.oracleGaps, 0);
   assert.equal(receipt.before.objects.blob - 3, receipt.after.objects.blob);
@@ -124,6 +152,14 @@ test("a planted history (UTF-16LE included) is found, purged, re-scanned to zero
   const recorded = git(target, "show", `${POLICY.receipt.ref}:${POLICY.receipt.folder}/${receipt.id}.json`);
   assert.deepEqual(JSON.parse(recorded) as unknown, JSON.parse(JSON.stringify(receipt)));
   assert.ok(!recorded.includes(source) && !recorded.includes(target), "no absolute path in the pushed receipt");
+  // NO CONFIRMATION ORACLE: no id from before the rewrite (a commit's, a stripped blob's) is published; the private record keeps them.
+  const record = privateRecord(home, receipt);
+  const oldIds = git(source, "rev-list", "--objects", "--all", "--no-object-names").trim().split("\n");
+  const newIds = new Set(git(target, "rev-list", "--objects", "--all", "--no-object-names").trim().split("\n"));
+  const removed = oldIds.filter((oid) => !newIds.has(oid));
+  assert.ok(removed.length > 0 && removed.every((oid) => !recorded.includes(oid)), "an id the rewrite replaced is in the published receipt");
+  assert.deepEqual(record.beforeRefs, Object.fromEntries(git(source, "for-each-ref", "--format=%(refname) %(objectname)").trim().split("\n").map((line) => line.split(" ")).sort(([a], [b]) => (a! < b! ? -1 : 1))));
+  assert.deepEqual(record.strippedBlobs.map((blob) => blob.oid).sort(), strip.map((blob) => blob.oid).sort());
 
   await assert.rejects(importHistory({ source, target }, importOptions(home)), refusedWith("history_import_target_not_empty"));
 });
@@ -140,8 +176,11 @@ test("an undecodable object is refused until the review exempts it by id; its cr
   const listed = JSON.parse(readFileSync(join(folder, "undecodable.json"), "utf8")) as { undecodable: { oid: string; paths: string[] }[] };
   assert.deepEqual(listed.undecodable.map((entry) => entry.paths), [["logo.png"]]);
   const target = bareTarget();
-  const receipt = await importHistory({ source, target, review: review({ binaries: [{ oid: listed.undecodable[0]!.oid, reason: "the project logo, reviewed" }] }) }, importOptions(home));
-  assert.deepEqual(receipt.purge.strippedBlobs, [listed.undecodable[0]!.oid], "its credential was found byte for byte, so it is stripped");
+  const exempted = { binaries: [{ oid: listed.undecodable[0]!.oid, reason: "the project logo, reviewed" }] };
+  await assert.rejects(importHistory({ source, target: bareTarget(), review: review(exempted) }, importOptions(home)), refusedWith("history_import_strip_unreviewed"));
+  const receipt = await importHistory({ source, target, review: review({ ...exempted, strips: [listed.undecodable[0]!.oid] }) }, importOptions(home));
+  assert.equal(receipt.purge.strippedBlobs, 1, "its credential was found byte for byte, so it is stripped");
+  assert.deepEqual(privateRecord(home, receipt).strippedBlobs, [{ oid: listed.undecodable[0]!.oid, paths: ["logo.png"] }]);
   assert.equal(receipt.findings.review.binaries, 1);
   assert.ok(!holds(everything(target), CORAL_KEY));
 });
@@ -245,10 +284,10 @@ test("end to end, an undecodable object the review exempted is refused AFTER the
 
 // ── THE ADDRESS GATE, end to end (every shape the independent review found escaping, P1–P17, kept as tests) ──
 
-/** Everything a reader of `repository` could see: every object's bytes, every path a tree records, every ref name. */
+/** Everything a reader of `repository` could see: every object's bytes (a tree's listing names every entry), every ref name. */
 function published(repository: string): Buffer {
-  const listed = git(repository, "rev-list", "--objects", "--all").split("\n").filter((line) => line.length > 0);
-  const parts = listed.flatMap((line) => [Buffer.from(line, "utf8"), execFileSync(GIT, ["cat-file", "-p", line.split(" ")[0]!], { cwd: repository })]);
+  const listed = git(repository, "rev-list", "--objects", "--all", "--no-object-names").split("\n").filter((line) => line.length > 0);
+  const parts = listed.map((oid) => execFileSync(GIT, ["cat-file", "-p", oid], { cwd: repository }));
   parts.push(Buffer.from(git(repository, "for-each-ref", "--format=%(refname)"), "utf8"));
   return Buffer.concat(parts);
 }
@@ -373,7 +412,11 @@ test("THE ADDRESS MAPPING is applied by the importer itself in its one rewrite, 
   for (const [name, address, make] of cases) {
     const source = make();
     const target = bareTarget();
-    const receipt = await importHistory({ source, target, identityMap: MAP() }, importOptions(home));
+    const identityMap = MAP();
+    // A blob no rewrite reaches in place is stripped whole, and only once the review acknowledges it by id.
+    const strips = (await stripListed(home, { source, identityMap })).map((blob) => blob.oid);
+    assert.equal(strips.length, name.includes("stripped whole") ? 1 : 0, `${name}: the blobs to strip`);
+    const receipt = await importHistory({ source, target, identityMap, ...(strips.length === 0 ? {} : { review: review({ strips }) }) }, importOptions(home));
     assert.ok(!holdsAddress(published(target), address) && !holdsAddress(published(target), address.toUpperCase()), `${name}: the mapped-from address reached the target`);
     assert.ok(holdsAddress(published(target), MAPPED_ADDRESS), `${name}: the mapped address is published in its place`);
     assert.ok(receipt.identities.mappedAddresses >= 1 && receipt.identities.rewrittenObjects >= 1, name);
@@ -384,21 +427,65 @@ test("THE ADDRESS MAPPING is applied by the importer itself in its one rewrite, 
   for (let index = 0; index < 2; index += 1) {
     const receipt = await importHistory({ source, target: bareTarget(), identityMap: MAP() }, importOptions(home));
     ids.push(receipt.refMap.map((ref) => `${ref.target} ${ref.oid}`).join("\n"));
-    assert.ok(receipt.identities.commitMap.changed >= 1, "the commit map records the rewritten commits");
+    assert.ok(receipt.identities.changedCommits >= 1, "the commit map records the rewritten commits");
   }
   assert.equal(ids[0], ids[1]);
 });
 
-test("THE CENSUS AFTER THE REWRITE has teeth: a mapped address the rewrite cannot reach (P8 a path, P9 a ref name) is refused before the push; one the rewrite drops (a mergetag header, a UTF-16 tag message) is proven gone by it and never published", async () => {
+test("A MAPPED-FROM ADDRESS the rewrite cannot reach is refused BEFORE the rewrite, in every spelling and place (P8 a path, P9 a ref name, a shared tree's folder name, and every encoding, escape and obfuscation the second review pushed)", async () => {
   const home = testImportHome();
-  const unreachable: readonly (readonly [string, () => string])[] = [
+  const [local, domain] = UNALLOWED_ADDRESS.split("@") as [string, string];
+  const inFile = (text: string) => (): string => { const s = authoredSource(UNALLOWED_ADDRESS); write(s, "contacts.txt", text); git(s, "add", "."); git(s, "commit", "-q", "-m", "contacts"); return s; };
+  const cases: readonly (readonly [string, () => string])[] = [
     ["P8 a path", () => { const s = authoredSource(UNALLOWED_ADDRESS); write(s, `people/${UNALLOWED_ADDRESS}`, "hello\n"); git(s, "add", "."); git(s, "commit", "-q", "-m", "a path"); return s; }],
     ["P9 a ref name", () => { const s = authoredSource(UNALLOWED_ADDRESS); git(s, "branch", `${UNALLOWED_ADDRESS}/topic`); return s; }],
+    ["N8c a folder named after it whose tree another folder shares", () => { const s = authoredSource(UNALLOWED_ADDRESS); write(s, "a/same.txt", "y\n"); write(s, `${UNALLOWED_ADDRESS}/same.txt`, "y\n"); git(s, "add", "."); git(s, "commit", "-q", "-m", "a shared tree"); return s; }],
+    ["an HTML entity", inFile(`${local}&#64;${domain}\n`)],
+    ["quoted-printable =40", inFile(`${local}=40${domain}\n`)],
+    ["a quoted-printable soft break before @", inFile(`${local}=\n@${domain}\n`)],
+    ["base64", inFile(`${Buffer.from(`write to ${UNALLOWED_ADDRESS} please`).toString("base64")}\n`)],
+    ["a line folded after @", inFile(`${local}@\n ${domain}\n`)],
+    ["fullwidth @", inFile(`${local}\uff20${domain}\n`)],
+    ["[at] and [dot]", inFile(`${local} [at] ${domain.replaceAll(".", " [dot] ")}\n`)],
+    ["a quoted local part", inFile(`"${local}"@${domain}\n`)],
+    ["base64 in a git note", () => { const s = authoredSource(UNALLOWED_ADDRESS); git(s, "notes", "add", "-m", Buffer.from(`by ${UNALLOWED_ADDRESS}`).toString("base64"), "HEAD"); return s; }],
   ];
-  for (const [name, make] of unreachable) {
-    const { objects, refs } = await refusedWithoutEcho(home, make(), UNALLOWED_ADDRESS, "history_import_identity_residue", { identityMap: MAP() });
+  for (const [name, make] of cases) {
+    const { objects, refs } = await refusedWithoutEcho(home, make(), UNALLOWED_ADDRESS, "history_import_identity_unreachable", { identityMap: MAP() });
     assert.ok(objects.length > 0 || refs > 0, `${name}: the refusal names the object (or counts the ref name)`);
   }
+});
+
+test("EVERY NAME is judged, whatever object it shares (N8, SP1): an address or a secret in a file name beside a blob another path holds is refused, never pushed", async () => {
+  const home = testImportHome();
+  const shared = (name: string): string => { const s = baseSource(); write(s, name, "a history with addresses\n"); git(s, "add", "."); git(s, "commit", "-q", "-m", "a shared blob under another name"); return s; };
+  await refusedWithoutEcho(home, shared(`people/${UNALLOWED_ADDRESS}.txt`), `${UNALLOWED_ADDRESS}.txt`, "history_import_identity_unallowed");
+  const target = bareTarget();
+  await assert.rejects(importHistory({ source: shared(`keys/${GITHUB_TOKEN}`), target }, importOptions(home)), refusedWith("history_import_secret_in_name"));
+  assert.equal(git(target, "for-each-ref").trim(), "", "nothing was pushed");
+});
+
+test("THE CENSUS AFTER THE REWRITE has teeth: a mapped address the plan reads but the rewrite does not replace (a latin1 commit message, exempted as undecodable; a bare base64 run beside an encoded word) is refused before the push; one the rewrite drops (a mergetag header, a UTF-16 tag message) is proven gone by it and never published", async () => {
+  const home = testImportHome();
+  const latin1 = authoredSource(UNALLOWED_ADDRESS);
+  const messageFile = join(createTempDir("history-import-latin1-address-"), "message");
+  writeFileSync(messageFile, Buffer.concat([Buffer.from("caf"), Buffer.from([0xe9]), Buffer.from(` by ${UNALLOWED_ADDRESS}\n`)]));
+  execFileSync(GIT, ["-c", "i18n.commitEncoding=ISO-8859-1", "-c", "user.name=Import Test", "-c", `user.email=${FIXTURE_ADDRESS}`, "commit", "-q", "--allow-empty", "-F", messageFile], { cwd: latin1 });
+  const latin1Commit = git(latin1, "rev-parse", "HEAD").trim();
+  const exempt = review({ binaries: [{ oid: latin1Commit, reason: "a latin1 message, reviewed" }] });
+  let message = "";
+  const target = bareTarget();
+  await assert.rejects(importHistory({ source: latin1, target, identityMap: MAP(), review: exempt }, importOptions(home)), (error: Error & { code?: string }) => {
+    message = error.message;
+    return error.code === "history_import_identity_residue";
+  });
+  assert.ok(!holdsAddress(Buffer.from(message), UNALLOWED_ADDRESS), "the refusal never echoes the address");
+  assert.equal(git(target, "for-each-ref").trim(), "", "nothing was pushed");
+  // Only the KNOWN search reads base64: beside an RFC 2047 B-word the rewrite replaces, a bare base64 run of the
+  // address passes the plan, and the census after the rewrite refuses what is left.
+  const beside = authoredSource(UNALLOWED_ADDRESS);
+  commitMessage(beside, `change\n\nreported as =?utf-8?B?${Buffer.from(UNALLOWED_ADDRESS).toString("base64")}?=\nraw ${Buffer.from(`by ${UNALLOWED_ADDRESS} today`).toString("base64")}\n`);
+  await refusedWithoutEcho(home, beside, UNALLOWED_ADDRESS, "history_import_identity_residue", { identityMap: MAP() });
   const dropped: readonly (readonly [string, () => string])[] = [
     ["a mergetag header", () => {
       const s = authoredSource(UNALLOWED_ADDRESS);
@@ -420,6 +507,47 @@ test("THE CENSUS AFTER THE REWRITE has teeth: a mapped address the rewrite canno
     await importHistory({ source: make(), target, identityMap: MAP() }, importOptions(home));
     assert.ok(!holdsAddress(published(target), UNALLOWED_ADDRESS), `${name}: the address reached the target`);
   }
+});
+
+test("NO CONFIRMATION ORACLE (O1-O3): the published receipt of a mapped import holds no id from before the rewrite and no digest of the mapping, so a guessed address put back into a public commit confirms nothing; the private record keeps them", async () => {
+  const home = testImportHome();
+  const source = authoredSource(UNALLOWED_ADDRESS, `a change\n\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>`);
+  const identityMap = MAP();
+  const target = bareTarget();
+  const receipt = await importHistory({ source, target, identityMap }, importOptions(home));
+  const published_ = git(target, "show", `${POLICY.receipt.ref}:${POLICY.receipt.folder}/${receipt.id}.json`);
+  const oldIds = git(source, "rev-list", "--objects", "--all", "--no-object-names").trim().split("\n");
+  const oldCommit = git(source, "rev-parse", "HEAD").trim();
+  assert.notEqual(git(target, "rev-parse", "refs/heads/main").trim(), oldCommit, "the commit was rewritten");
+  for (const oid of oldIds.filter((one) => !git(target, "rev-list", "--objects", "--all", "--no-object-names").includes(one))) assert.ok(!published_.includes(oid), "an old id is published");
+  assert.ok(!published_.includes(sha256(readFileSync(identityMap, "utf8"))), "the mapping's digest is published");
+  // Put the guessed address back into the public commit: its hash would equal the old id, which is nowhere public.
+  const guessed = git(target, "cat-file", "commit", "refs/heads/main").replaceAll(`Mapped Person <${MAPPED_ADDRESS}>`, `Somebody <${UNALLOWED_ADDRESS}>`).replaceAll(MAPPED_ADDRESS, UNALLOWED_ADDRESS);
+  const rehashed = execFileSync(GIT, ["hash-object", "-t", "commit", "--stdin"], { cwd: target, input: guessed }).toString().trim();
+  assert.ok(!published_.includes(rehashed), "the receipt confirms the guess");
+  const record = privateRecord(home, receipt);
+  assert.equal(record.beforeRefs["refs/heads/main"], oldCommit, "the private record keeps the old ids");
+  assert.equal(record.mapSha256, sha256(readFileSync(identityMap, "utf8")));
+});
+
+test("NOTHING IS STRIPPED SILENTLY (S1, S2): a blob holding a mapped address the rewrite cannot replace in place is counted and listed with its paths by the dry run, refused until the review acknowledges it by id, then stripped", async () => {
+  const home = testImportHome();
+  const source = authoredSource(UNALLOWED_ADDRESS);
+  write(source, "contacts.txt", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`owner = ${UNALLOWED_ADDRESS}\r\nother data\r\n`, "utf16le")]));
+  git(source, "add", ".");
+  git(source, "commit", "-q", "-m", "contacts");
+  const identityMap = MAP();
+  const dry = await importHistory({ source, identityMap, dryRun: true }, importOptions(home));
+  assert.deepEqual(dry.strip, { blobs: 1, unreviewed: 1 });
+  const listed = await stripListed(home, { source, identityMap });
+  assert.deepEqual(listed.map((blob) => [blob.paths, blob.why, blob.acknowledged]), [[["contacts.txt"], ["address"], false]]);
+  const unacknowledged = bareTarget();
+  await assert.rejects(importHistory({ source, target: unacknowledged, identityMap }, importOptions(home)), refusedWith("history_import_strip_unreviewed"));
+  assert.equal(git(unacknowledged, "for-each-ref").trim(), "", "nothing was pushed");
+  const target = bareTarget();
+  const receipt = await importHistory({ source, target, identityMap, review: review({ strips: [listed[0]!.oid] }) }, importOptions(home));
+  assert.equal(receipt.identities.strippedBlobs, 1);
+  assert.ok(!holdsAddress(published(target), UNALLOWED_ADDRESS));
 });
 
 test("THE RECEIPT passes the same census: a receipt identity not on the allowed list is refused before the push", async () => {

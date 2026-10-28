@@ -35,6 +35,7 @@ import { boundedEnding, type BoundedEnding, type SubprocessBounds } from "../../
 import { configuredSubprocessBounds } from "../workflow-config.ts";
 import { ForgeError, type ForgeCode } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
+import { withoutAddresses } from "./history-identities.ts";
 
 /** How the importer runs a pinned file: directly, or as the script of the host's `python3`. */
 export type HistoryToolRunner = "executable" | "python3";
@@ -173,7 +174,8 @@ const STOPPED: Readonly<Record<Exclude<BoundedEnding, "exited" | "unstarted">, F
  * `history_tool_unmeasurable`); one that ended with a status outside
  * `allowed`, or never started, is `history_tool_failed`, carrying the tool's
  * own last stderr lines (the tools print names and counts, never a scanned
- * value).
+ * value), every address-shaped string in them withheld (filter-repo quotes a
+ * mailmap line it cannot parse).
  */
 export async function runBounded(
   label: string,
@@ -188,7 +190,7 @@ export async function runBounded(
   }
   if (run.status === null || !(options.allowed ?? [0]).includes(run.status)) {
     const reason = run.ending === "exited" && run.signal === null
-      ? `${boundedEnding(run, bounds)}: ${err.trim().split("\n").slice(-5).join(" | ")}`
+      ? `${boundedEnding(run, bounds)}: ${withoutAddresses(err.trim().split("\n").slice(-ROOT_POLICY.workflow.historyImport.toolStderrLines).join(" | "))}`
       : boundedEnding(run, bounds);
     throw new ForgeError("history_tool_failed", `${label} failed: ${reason}`, { tool: label });
   }

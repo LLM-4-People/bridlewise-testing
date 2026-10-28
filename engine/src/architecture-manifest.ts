@@ -4252,7 +4252,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workflow-config", path: "src/workflow/workflow-config.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 50, namesSha256: "c9b65f523b1fc6dfd1d322a9be4a1bb3ef070c0b5bd02082dc028aaa9e285553" },
+      owner: "verification-workflow", publicApi: { exportCount: 49, namesSha256: "8e7c4d05e99d66342da8241000cd223acbdafdbdeee3c60089cb857dc7856380" },
       dependencies: ["src/kernel/config.ts","src/kernel/errors.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
@@ -5831,18 +5831,23 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-forge-history-identities", path: "src/workflow/forge/history-identities.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 19, namesSha256: "4c767bc0079b9f7fea1f9aba3bf01ef90d781b0c33b19c0e8bef1dc68de508c9" },
+      owner: "verification-workflow", publicApi: { exportCount: 26, namesSha256: "51c30856387a24effd1eda6015c58424a56b779a0885d4d18673137c1c284056" },
       dependencies: ["node:fs","node:path","src/kernel/integrity.ts","src/repository-path/index.ts","src/workflow/forge/codes.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-history-import", path: "src/workflow/forge/history-import.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 36, namesSha256: "5ef1ab09de5f8b1b5c537fc40bf3d1844c91b36013e41deaa2dc766642e9106c" },
-      dependencies: ["node:fs","node:os","node:path","src/filesystem/atomic-write.ts","src/filesystem/private-home.ts","src/filesystem/private-state.ts","src/git/git-port.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/privacy/privacy-policy.ts","src/privacy/redaction-engine.ts","src/privacy/secret-intelligence.ts","src/privacy/secret-signals.ts","src/process/environment-projection.ts","src/shared/debug/debug-system.ts","src/workflow/forge/codes.ts","src/workflow/forge/gitleaks-config.ts","src/workflow/forge/history-identities.ts","src/workflow/forge/history-tools.ts","zod"],
+      owner: "verification-workflow", publicApi: { exportCount: 43, namesSha256: "e26aa4fd56ac2a0b2b2a6da2addd99baf7a8c582942e679118fc8c3fe5d14de6" },
+      dependencies: ["node:fs","node:os","node:path","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-home.ts","src/filesystem/private-state.ts","src/git/git-port.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/privacy/privacy-policy.ts","src/privacy/redaction-engine.ts","src/privacy/secret-intelligence.ts","src/privacy/secret-signals.ts","src/process/environment-projection.ts","src/shared/debug/debug-system.ts","src/workflow/forge/codes.ts","src/workflow/forge/gitleaks-config.ts","src/workflow/forge/history-identities.ts","src/workflow/forge/history-tools.ts","zod"],
     }),
     moduleContract({
       id: "src-workflow-forge-history-tools", path: "src/workflow/forge/history-tools.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 11, namesSha256: "0ef6ca32c55d4d3e2b8576f07cbecbfe413ade1ba8518f0486f61eabe93ece31" },
-      dependencies: ["node:fs","node:path","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/process/subprocess-bounds.ts","src/process/supervised-run.ts","src/workflow/forge/codes.ts","src/workflow/forge/configured-forge.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["node:fs","node:path","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/process/subprocess-bounds.ts","src/process/supervised-run.ts","src/workflow/forge/codes.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/history-identities.ts","src/workflow/workflow-config.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-history-census-child", path: "src/workflow/forge/history-census-child.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 0, namesSha256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
+      dependencies: ["node:fs","src/runtime/cli-debug.ts","src/workflow/forge/history-identities.ts","src/workflow/forge/history-import.ts"],
     }),
   ],
 });

@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
 import { getConfigDocumentSchema } from "../../src/kernel/config-contracts.ts";
-import { configuredSubprocessBounds, DEFAULT_SUBPROCESS_BOUNDS, subprocessBounds } from "../../src/workflow/workflow-config.ts";
+import { configuredSubprocessBounds, subprocessBounds } from "../../src/workflow/workflow-config.ts";
 
 /**
  * The typecheck has NO wall limit (NO-LOAD-BLOCK A-17): `runTypecheck` runs
@@ -83,7 +83,8 @@ test("workspace-cli source: the workspace command resolves its timeouts from the
 });
 
 test("the harness subprocess bounds are SETTINGS: harness.subprocessBounds is read field by field, an unset field is its declared default, the shipped file states every default, and an impossible value is refused by the schema", () => {
-  assert.deepEqual(subprocessBounds({}), DEFAULT_SUBPROCESS_BOUNDS, "an absent section answers the declared defaults");
+  const DEFAULT_SUBPROCESS_BOUNDS = subprocessBounds({});
+  assert.deepEqual(DEFAULT_SUBPROCESS_BOUNDS, { cpuBudgetMs: 1_800_000, minimumCpuRate: 0.05, stallMs: 1_800_000, hangBackstopMs: 7_200_000, pollMs: 1_000, killGraceMs: 5_000, outputBytes: 268_435_456 }, "an absent section answers the declared defaults");
   const one = subprocessBounds({ harness: { subprocessBounds: { stallMs: 123_456 } } });
   assert.equal(one.stallMs, 123_456, "a configured field is the value every consumer gets");
   assert.deepEqual({ ...one, stallMs: DEFAULT_SUBPROCESS_BOUNDS.stallMs }, DEFAULT_SUBPROCESS_BOUNDS, "the fields left unset keep their defaults");

@@ -8,10 +8,12 @@
  * message, a note, a file's content in any encoding, a path, a ref name. So
  * the gate judges EVERY published byte, the way the secret oracle does: every
  * ADDRESS-SHAPED string ({@link addressSpans}: plain, percent-encoded, or in
- * an RFC 2047 encoded word) in every object, read as UTF-8, UTF-16LE/BE and
- * latin1, in every path and in every ref name, compared under the ONE Unicode
- * case fold (`unicodeCaseFold`, after NFKC) against the ONE allowed list
- * (`forge.historyImport.allowedIdentities`). An address not on it must be:
+ * an RFC 2047 encoded word; found from its `@`, bounded, so a text costs its
+ * length) in every object, in every reading of it, in every path (every
+ * name every tree records) and in every ref name, compared under the ONE
+ * Unicode case fold (`unicodeCaseFold`, after NFKC) against the ONE allowed
+ * list (`forge.historyImport.allowedIdentities`). An address not on it must
+ * be:
  *
  * - MAPPED by the ONE identity mapping (a mailmap-style file kept outside the
  *   public tree, since it holds the address it replaces), which the importer
@@ -19,6 +21,13 @@
  * - DISPOSED by a reviewed disposition (the review file's `addresses`: the
  *   folded address's sha256 and the reason, never the address), kept outside
  *   the public tree as well.
+ *
+ * A MAPPED-FROM address is KNOWN, so it is also searched as that value in
+ * every spelling a reader would recognise ({@link knownAddresses}: escapes,
+ * entities, quoted-printable, base64, compatibility forms, `[at]`/`[dot]`,
+ * a folded line, a quoted local part): one the rewrite cannot reach is
+ * refused, before the rewrite and again after it. The shape stays the
+ * defence in depth for every address nobody named.
  *
  * Anything else is refused before anything is rewritten or pushed, naming
  * objects by id (never an address), and the rewritten history, and the
@@ -28,8 +37,8 @@
  * mapping file and the judgement. The importer (history-import.ts) reads
  * the objects, the paths and the ref names, and runs the rewrite.
  */
-import { readFileSync, realpathSync } from "node:fs";
-import { isAbsolute, relative, sep } from "node:path";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname } from "node:path";
 
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { unicodeCaseFold } from "../../repository-path/index.ts";
@@ -45,38 +54,113 @@ export function addressDigest(address: string): string {
   return sha256(foldAddress(address));
 }
 
-const LOCAL = "[\\p{L}\\p{N}\\p{M}._+\\-]+";
-const LABEL = "[\\p{L}\\p{N}\\p{M}](?:[\\p{L}\\p{N}\\p{M}\\-]*[\\p{L}\\p{N}\\p{M}])?";
-/** An address-shaped string: a local part, `@`, and a domain of at least two labels (Unicode letters, digits and marks). */
-const ADDRESS_SOURCE = `${LOCAL}@${LABEL}(?:\\.${LABEL})+`;
-const ADDRESS = new RegExp(ADDRESS_SOURCE, "gu");
-const ADDRESS_WHOLE = new RegExp(`^${ADDRESS_SOURCE}$`, "u");
-/** A percent-encoded address: `%40` for `@`, any other byte percent-encoded too. */
-const PERCENT_CANDIDATE = /[\p{L}\p{N}\p{M}._+\-%]+%40[\p{L}\p{N}\p{M}.\-%]+/giu;
-/** An RFC 2047 encoded word (`=?charset?Q|B?text?=`). */
-const ENCODED_WORD = /=\?([^?\s]+)\?([QqBb])\?([^?\s]*)\?=/gu;
+/** The comparator every generated filter-repo list is sorted by: longest first (a text contained in another is replaced after it), then by text. */
+export function longestFirst(a: string, b: string): number {
+  return b.length - a.length || (a < b ? -1 : a > b ? 1 : 0);
+}
+
+// THE SHAPE, BOUNDED: an address is found from its `@` outwards, never by a pattern that may start anywhere
+// (an unbounded run before `@` made a long line of letters cost the square of its length). The local part
+// is at most 64 characters, a label at most 63 and the domain at most 253 (RFC 5321's limits), so each `@`
+// costs a bounded amount of work and a text costs its length.
+const LOCAL_MAX = 64;
+const DOMAIN_MAX = 253;
+const LOCAL_CHARACTER = /^[\p{L}\p{N}\p{M}._+\-]$/u;
+const LABEL = "[\\p{L}\\p{N}\\p{M}](?:[\\p{L}\\p{N}\\p{M}\\-]{0,61}[\\p{L}\\p{N}\\p{M}])?";
+/** A domain of at least two labels, read from just after an `@` (sticky). */
+const DOMAIN = new RegExp(`${LABEL}(?:\\.${LABEL}){1,126}`, "uy");
+const DOMAIN_WHOLE = new RegExp(`^${LABEL}(?:\\.${LABEL}){1,126}$`, "u");
+/** An RFC 2047 encoded word (`=?charset?Q|B?text?=`), bounded (a word is at most 75 characters; the bounds are generous). */
+const ENCODED_WORD = /=\?([^?\s]{1,64})\?([QqBb])\?([^?\s]{0,2048})\?=/gu;
+
+/** Where the run of `accepts` characters that ends at `end` starts, at most `most` code points back. */
+function runStart(text: string, end: number, accepts: RegExp, most: number): number {
+  let start = end;
+  for (let taken = 0; start > 0 && taken < most; taken += 1) {
+    let previous = start - 1;
+    const low = text.charCodeAt(previous);
+    if (low >= 0xdc00 && low <= 0xdfff && previous > 0) {
+      const high = text.charCodeAt(previous - 1);
+      if (high >= 0xd800 && high <= 0xdbff) previous -= 1;
+    }
+    if (!accepts.test(text.slice(previous, start))) break;
+    start = previous;
+  }
+  return start;
+}
+
+/** Whether `address` is address-shaped as a whole (a mapping's addresses must be). */
+function addressShaped(address: string): boolean {
+  const at = address.lastIndexOf("@");
+  if (at <= 0 || runStart(address, at, LOCAL_CHARACTER, LOCAL_MAX) !== 0) return false;
+  const domain = address.slice(at + 1);
+  return domain.length <= DOMAIN_MAX && DOMAIN_WHOLE.test(domain);
+}
+
+/** Every plain address in `text`, each read from an `@`: the local part before it, the domain after it. */
+function plainAddresses(text: string): readonly Readonly<{ address: string; start: number; end: number }>[] {
+  const found: { address: string; start: number; end: number }[] = [];
+  for (let at = text.indexOf("@"); at >= 0; at = text.indexOf("@", at + 1)) {
+    const start = runStart(text, at, LOCAL_CHARACTER, LOCAL_MAX);
+    if (start === at) continue;
+    DOMAIN.lastIndex = at + 1;
+    const domain = DOMAIN.exec(text);
+    if (domain === null) continue;
+    found.push({ address: text.slice(start, at + 1 + domain[0].length), start, end: at + 1 + domain[0].length });
+  }
+  return found;
+}
 
 /** One address-shaped string in a text: the address it names, the exact spelling it was found in, where, and in which form. */
 export type AddressSpan = Readonly<{ address: string; spelling: string; start: number; end: number; form: "plain" | "percent" | "rfc2047" }>;
 
-/** `text` with every `%XX` decoded as UTF-8 bytes, or undefined when it is not valid UTF-8 after decoding. */
-function percentDecoded(text: string): string | undefined {
-  const bytes: number[] = [];
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index]!;
-    if (character === "%" && /^[0-9A-Fa-f]{2}$/u.test(text.slice(index + 1, index + 3))) {
-      bytes.push(Number.parseInt(text.slice(index + 1, index + 3), 16));
+/**
+ * A run of percent-encodable characters decoded (`%XX` as UTF-8 bytes; an invalid sequence is U+FFFD per
+ * byte), with where each decoded UTF-16 unit starts in the run (and the run's length last), so an address
+ * found in the decoded text is replaced by its exact encoded spelling.
+ */
+function percentDecodedRun(run: string): Readonly<{ decoded: string; from: readonly number[] }> {
+  let decoded = "";
+  const from: number[] = [];
+  let bytes: { byte: number; at: number }[] = [];
+  const emit = (text: string, at: number): void => {
+    for (let unit = 0; unit < text.length; unit += 1) from.push(at);
+    decoded += text;
+  };
+  const flush = (): void => {
+    for (let index = 0; index < bytes.length;) {
+      const { byte, at } = bytes[index]!;
+      const length = byte < 0x80 ? 1 : byte >= 0xf0 && byte <= 0xf7 ? 4 : byte >= 0xe0 && byte <= 0xef ? 3 : byte >= 0xc0 && byte <= 0xdf ? 2 : 0;
+      let text = "\ufffd";
+      if (length === 1) text = String.fromCharCode(byte);
+      else if (length > 1 && index + length <= bytes.length) {
+        try {
+          text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(bytes.slice(index, index + length).map((one) => one.byte)));
+        } catch {
+          text = "\ufffd";
+        }
+      }
+      emit(text, at);
+      index += text === "\ufffd" ? 1 : length;
+    }
+    bytes = [];
+  };
+  for (let index = 0; index < run.length; index += 1) {
+    if (run[index] === "%" && /^[0-9A-Fa-f]{2}$/u.test(run.slice(index + 1, index + 3))) {
+      bytes.push({ byte: Number.parseInt(run.slice(index + 1, index + 3), 16), at: index });
       index += 2;
     } else {
-      bytes.push(...Buffer.from(character, "utf8"));
+      flush();
+      emit(run[index]!, index);
     }
   }
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(bytes));
-  } catch {
-    return undefined;
-  }
+  flush();
+  from.push(run.length);
+  return { decoded, from };
 }
+
+/** A run of characters a percent-encoded address may be written in (any byte may be `%XX`). */
+const PERCENT_RUN = /[\p{L}\p{N}\p{M}._+\-%]+/gu;
 
 /** An RFC 2047 word's text decoded (Q or B) in its charset (UTF-8 or latin1; any other charset is read as latin1, so an ASCII address is still seen). */
 function encodedWordText(charset: string, encoding: string, payload: string): string {
@@ -93,34 +177,152 @@ function encodedWordText(charset: string, encoding: string, payload: string): st
   return bytes.toString("latin1");
 }
 
-/** Every address-shaped string in `text`: plain, percent-encoded, and inside RFC 2047 encoded words. */
+/** Every address-shaped string in `text`: plain, percent-encoded, and inside RFC 2047 encoded words. Linear in the text's length. */
 export function addressSpans(text: string): readonly AddressSpan[] {
   const spans: AddressSpan[] = [];
-  for (const match of text.matchAll(ADDRESS)) {
-    spans.push({ address: match[0], spelling: match[0], start: match.index, end: match.index + match[0].length, form: "plain" });
-  }
-  for (const match of text.matchAll(PERCENT_CANDIDATE)) {
-    const decoded = percentDecoded(match[0]);
-    if (decoded === undefined) continue;
-    for (const inner of decoded.matchAll(ADDRESS)) spans.push({ address: inner[0], spelling: match[0], start: match.index, end: match.index + match[0].length, form: "percent" });
+  for (const plain of plainAddresses(text)) spans.push({ address: plain.address, spelling: plain.address, start: plain.start, end: plain.end, form: "plain" });
+  for (const run of text.matchAll(PERCENT_RUN)) {
+    if (!run[0].includes("%40")) continue;
+    // Every `@` in the decoded run was a `%40` (a literal `@` ends a run): each address there is percent-encoded.
+    const { decoded, from } = percentDecodedRun(run[0]);
+    for (const inner of plainAddresses(decoded)) {
+      const start = run.index + from[inner.start]!;
+      const end = run.index + from[inner.end]!;
+      spans.push({ address: inner.address, spelling: text.slice(start, end), start, end, form: "percent" });
+    }
   }
   for (const match of text.matchAll(ENCODED_WORD)) {
     const decoded = encodedWordText(match[1]!, match[2]!, match[3]!);
-    for (const inner of decoded.matchAll(ADDRESS)) spans.push({ address: inner[0], spelling: match[0], start: match.index, end: match.index + match[0].length, form: "rfc2047" });
+    for (const inner of plainAddresses(decoded)) spans.push({ address: inner.address, spelling: match[0], start: match.index, end: match.index + match[0].length, form: "rfc2047" });
   }
   return deepFreeze(spans);
 }
 
-/** Whether `path` lies inside `tree` (both resolved through links; compared by path segment, never by spelling). */
-export function insideTree(path: string, tree: string): boolean {
-  const within = relative(realpathSync(tree), realpathSync(path));
-  return within === "" || !(within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within));
+/** `text` with every address-shaped string replaced by `[address]`: a tool's or a child's message may quote one, and a message is printed. */
+export function withoutAddresses(text: string): string {
+  const spans = [...addressSpans(text)].sort((a, b) => a.start - b.start);
+  let out = "";
+  let last = 0;
+  for (const span of spans) {
+    if (span.end <= last) continue;
+    out += `${text.slice(last, Math.max(last, span.start))}[address]`;
+    last = span.end;
+  }
+  return `${out}${text.slice(last)}`;
 }
 
-/** Refuses (`code`) a reviewed file that lies inside the public tree: it names what must never be published. */
+// ── A KNOWN address, in any spelling ─────────────────────────────────────
+//
+// The shape finds an address that is written as one. An address the gate KNOWS (a mapped-from address: the
+// mapping names it) is searched as that value, in every spelling a reader would still recognise: entities
+// (`&#64;`), quoted-printable (`=40`, soft line breaks), percent and backslash escapes, base64 at any
+// alignment, a compatibility form (fullwidth `＠`) after NFKC, any case, invisible characters removed, a line
+// folded inside it, `[at]`/`[dot]` and `at`/`dot` words, `_` or `-` for a dot, a quoted local part.
+
+/** What a text is searched in for a known address: NFKC, the one case fold, then default-ignorable characters (zero-width spaces, soft hyphens) removed. */
+export function canonicalText(text: string): string {
+  return unicodeCaseFold(text.normalize("NFKC")).normalize("NFKC").replace(/\p{Default_Ignorable_Code_Point}/gu, "");
+}
+
+/** What may stand between two parts of a known address's local part or domain: up to 8 separators, or a `dot` word. */
+const KNOWN_SEPARATOR = String.raw`(?:[\s"'._+\-\\=()\[\]{}<>]{0,8}|[\s"'._\-()\[\]{}<>]{0,4}dot[\s"'._\-()\[\]{}<>]{0,4})`;
+/** What may stand for its `@`: `@` (any compatibility form, after NFKC) or an `at` word, with up to 8 separators on each side (a line fold, brackets, a quote). */
+const KNOWN_AT = String.raw`[\s"'._\-\\=()\[\]{}<>]{0,8}(?:@|at)[\s"'._\-\\=()\[\]{}<>]{0,8}`;
+
+/** A known address (its folded form) and the pattern that finds it, in any spelling, in a {@link canonicalText}. */
+export type KnownAddress = Readonly<{ key: string; pattern: RegExp }>;
+
+/** The search for each of `keys` (folded addresses): its local part's and its domain's letter-and-digit runs, in order, with any separator spelling between them. */
+export function knownAddresses(keys: Iterable<string>): readonly KnownAddress[] {
+  const runs = (part: string): string => part.split(/[^\p{L}\p{N}\p{M}]+/u).filter((run) => run.length > 0)
+    .map((run) => run.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join(KNOWN_SEPARATOR);
+  return deepFreeze([...new Set(keys)].sort().map((key) => {
+    const at = key.lastIndexOf("@");
+    return { key, pattern: new RegExp(`${runs(key.slice(0, at))}${KNOWN_AT}${runs(key.slice(at + 1))}`, "gu") };
+  }));
+}
+
+/** Each known address `canonical` holds, and whether every match is the address exactly as folded (`exact`), or some match is another spelling. */
+export function knownMatches(canonical: string, known: readonly KnownAddress[]): readonly Readonly<{ key: string; exact: number; other: number }>[] {
+  const found: { key: string; exact: number; other: number }[] = [];
+  for (const { key, pattern } of known) {
+    let exact = 0;
+    let other = 0;
+    for (const match of canonical.matchAll(pattern)) {
+      if (match[0] === key) exact += 1;
+      else other += 1;
+    }
+    if (exact + other > 0) found.push({ key, exact, other });
+  }
+  return found;
+}
+
+/** The named character entities an address may be spelled with. */
+const ENTITIES: Readonly<Record<string, string>> = { commat: "@", period: ".", lowbar: "_", hyphen: "-", dash: "-", plus: "+", quot: "\"", apos: "'", amp: "&", lt: "<", gt: ">", nbsp: " " };
+/** A byte escape (`%XX`, quoted-printable `=XX` and its soft line break, `\xXX`). */
+const BYTE_ESCAPE = /%([0-9A-Fa-f]{2})|=([0-9A-Fa-f]{2})|=\r?\n|\\x([0-9A-Fa-f]{2})/gu;
+/** A character escape (a numeric or named entity, `\uXXXX`, `\u{X}`, a backslash before a character). */
+const CHARACTER_ESCAPE = /&#(\d{1,7});|&#[xX]([0-9A-Fa-f]{1,6});|&([A-Za-z]{2,8});|\\u\{([0-9A-Fa-f]{1,6})\}|\\u([0-9A-Fa-f]{4})|\\([^\n])/gu;
+
+/** `text` with every escape decoded: byte escapes as UTF-8 bytes (lossy), then entities and character escapes. */
+export function unescapedText(text: string): string {
+  const parts: Buffer[] = [];
+  let last = 0;
+  for (const match of text.matchAll(BYTE_ESCAPE)) {
+    parts.push(Buffer.from(text.slice(last, match.index), "utf8"));
+    const hex = match[1] ?? match[2] ?? match[3];
+    if (hex !== undefined) parts.push(Buffer.from([Number.parseInt(hex, 16)]));
+    last = match.index + match[0].length;
+  }
+  const bytesDecoded = last === 0 ? text : Buffer.concat([...parts, Buffer.from(text.slice(last), "utf8")]).toString("utf8");
+  const point = (value: number): string => (value <= 0x10ffff && (value < 0xd800 || value > 0xdfff) ? String.fromCodePoint(value) : "");
+  return bytesDecoded.replace(CHARACTER_ESCAPE, (whole, decimal?: string, hex?: string, name?: string, braced?: string, four?: string, escaped?: string) => {
+    if (decimal !== undefined) return point(Number.parseInt(decimal, 10));
+    if (hex !== undefined) return point(Number.parseInt(hex, 16));
+    if (name !== undefined) return ENTITIES[name.toLowerCase()] ?? whole;
+    if (braced !== undefined) return point(Number.parseInt(braced, 16));
+    if (four !== undefined) return point(Number.parseInt(four, 16));
+    return escaped ?? whole;
+  });
+}
+
+/** A run of base64 (standard or URL-safe), possibly wrapped over lines (MIME, PEM, a folded header). */
+const BASE64_RUN = /[A-Za-z0-9+/_-]{8,}={0,2}(?:\r?\n[ \t]*[A-Za-z0-9+/_-]+={0,2})*/gu;
+
+/** The bytes of every base64 run in `text`, each decoded from each of its first four characters (so a run that does not start on a quantum still decodes). */
+export function base64Payloads(text: string): readonly Buffer[] {
+  const payloads: Buffer[] = [];
+  for (const match of text.matchAll(BASE64_RUN)) {
+    const run = match[0].replace(/[\s=]/gu, "").replaceAll("-", "+").replaceAll("_", "/");
+    for (let offset = 0; offset < 4 && run.length - offset >= 8; offset += 1) payloads.push(Buffer.from(run.slice(offset), "base64"));
+  }
+  return payloads;
+}
+
+/**
+ * Whether `path` may lie inside `tree`, judged by IDENTITY, never by spelling: the file and each folder above
+ * it (links resolved) is compared by (device, inode) with the tree's root, so another case of the same name
+ * on a case-insensitive filesystem, `..` or a link changes nothing. A file with more than one name (a hard
+ * link) may have one inside the tree, which no walk up from this name can see, so it counts as inside.
+ */
+export function insideTree(path: string, tree: string): boolean {
+  const root = statSync(tree, { bigint: true });
+  let current = realpathSync(path);
+  const file = statSync(current, { bigint: true });
+  if (!file.isDirectory() && file.nlink > 1n) return true;
+  for (;;) {
+    const here = statSync(current, { bigint: true });
+    if (here.dev === root.dev && here.ino === root.ino) return true;
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
+/** Refuses (`code`) a reviewed file that lies inside the public tree (or has another name that may): it names what must never be published. */
 export function refuseInsidePublicTree(path: string, publicTree: string, what: string, code: ForgeCode): void {
   if (insideTree(path, publicTree)) {
-    throw new ForgeError(code, `the ${what} lies inside the public tree; it names what must never be published, so it is kept in the coordination repository, never in a tree that is published`, {});
+    throw new ForgeError(code, `the ${what} lies inside the public tree, or has another name (a hard link) that may; it names what must never be published, so it is kept, as its only name, in the coordination repository, never in a tree that is published`, {});
   }
 }
 
@@ -178,7 +380,7 @@ export function readIdentityMap(path: string, publicTree: string): IdentityMap {
     const firstAddress = first!.address;
     const secondName = second?.name;
     const secondAddress = second?.address;
-    if (!ADDRESS_WHOLE.test(firstAddress!) || (secondAddress !== undefined && !ADDRESS_WHOLE.test(secondAddress))) invalid();
+    if (!addressShaped(firstAddress!) || (secondAddress !== undefined && !addressShaped(secondAddress))) invalid();
     const name = (value: string | undefined): string | null => (value === undefined || value.trim().length === 0 ? null : value.trim());
     entries.push(secondAddress === undefined
       ? { line: index + 1, properName: name(firstName), properAddress: null, commitName: null, commitAddress: firstAddress! }
@@ -191,7 +393,7 @@ export function readIdentityMap(path: string, publicTree: string): IdentityMap {
  * The entry the mapping uses for `address` (folded), as `name` writes it: git's mailmap rule, an entry naming
  * the commit name wins over one naming only the address. Undefined when no entry maps it.
  */
-export function mappingEntry(map: IdentityMap | undefined, address: string, name: string | null = null): IdentityMapEntry | undefined {
+function mappingEntry(map: IdentityMap | undefined, address: string, name: string | null = null): IdentityMapEntry | undefined {
   if (map === undefined) return undefined;
   const key = foldAddress(address);
   const candidates = map.entries.filter((entry) => foldAddress(entry.commitAddress) === key && entry.properAddress !== null);
@@ -249,7 +451,7 @@ export function judgeAddresses(occurrences: readonly AddressOccurrence[], allowe
 }
 
 /** The ids a refusal names: the objects (and the trees whose paths) that carry an occurrence, sorted; ref names are counted, never named. */
-export function occurrenceObjects(occurrences: readonly AddressOccurrence[]): Readonly<{ objects: readonly string[]; refs: number }> {
+export function occurrenceObjects(occurrences: readonly Readonly<{ place: Readonly<{ kind: "object" | "path"; oid: string }> | Readonly<{ kind: "ref"; refSha256: string }> }>[]): Readonly<{ objects: readonly string[]; refs: number }> {
   const objects = new Set<string>();
   const refs = new Set<string>();
   for (const { place } of occurrences) {
@@ -292,9 +494,8 @@ export function planAddressRewrite(needing: readonly AddressOccurrence[], allowe
       stripped.add(place.oid);
     }
   }
-  const byText = (a: string, b: string): number => b.length - a.length || (a < b ? -1 : a > b ? 1 : 0);
   return deepFreeze({
-    expressions: [...expressions].sort(([a], [b]) => byText(a, b)).map(([from, to]) => `literal:${from}==>${to}\n`).join(""),
+    expressions: [...expressions].sort(([a], [b]) => longestFirst(a, b)).map(([from, to]) => `literal:${from}==>${to}\n`).join(""),
     mailmap: [...mailmap.values()].sort().map((line) => `${line}\n`).join(""),
     strippedBlobs: [...stripped].sort(),
     rewrittenObjects: rewritten.size,

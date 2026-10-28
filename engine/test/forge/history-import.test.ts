@@ -27,7 +27,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { constants } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -38,10 +38,11 @@ import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { SECRET_TEXT_SIGNAL_CATALOG } from "../../src/privacy/secret-signals.ts";
 import { parseImportHistoryArguments } from "../../src/workflow/forge/cli.ts";
 import { gitleaksConfigText, gitleaksProjection } from "../../src/workflow/forge/gitleaks-config.ts";
-import { addressDigest, addressSpans, allowedAddresses, foldAddress, insideTree, judgeAddresses, planAddressRewrite, readIdentityMap, type AddressOccurrence } from "../../src/workflow/forge/history-identities.ts";
+import { addressDigest, addressSpans, allowedAddresses, base64Payloads, canonicalText, foldAddress, insideTree, judgeAddresses, knownAddresses, knownMatches, planAddressRewrite, readIdentityMap, unescapedText, withoutAddresses, type AddressOccurrence } from "../../src/workflow/forge/history-identities.ts";
 import {
   addressCensus,
   enumerateHistory,
+  runAddressCensus,
   importHistory,
   judgeOracle,
   decodedTexts,
@@ -129,7 +130,7 @@ test("the oracle reads every object and name once, in chunks of whole objects, a
     const tag = inventory.objects.find((object) => object.type === "tag")!.oid;
     assert.deepEqual(scan.oracle.map((finding) => finding.location).sort(), [`blob ${blob}`, `tag ${tag}`].sort(), `chunkBytes ${String(chunkBytes)}`);
     // Every object and name went in exactly once, whole: its bytes, plus a newline where it lacks one.
-    const names = [...inventory.paths.map((entry) => entry.path), ...Object.keys(inventory.refs)];
+    const names = [...new Set(inventory.paths.map((entry) => entry.path)), ...Object.keys(inventory.refs)];
     const expected = scan.catalogue.scanned.bytes + scanned.length - endingInNewline(root, scanned) + names.reduce((sum, name) => sum + Buffer.byteLength(name) + 1, 0);
     assert.equal(Buffer.concat(seen).length, expected);
     assert.equal(seen.length > 1, chunkBytes === 64, "small chunks split the input; a large chunk holds it whole");
@@ -203,9 +204,10 @@ test("oracle judgement: contained is covered, wider or unknown is a gap, a dispo
 test("the import review: its schema is enforced (dispositions by digest, binaries by object id, never a value)", () => {
   const dir = createTempDir("history-import-review-");
   const good = join(dir, "good.json");
-  writeFileSync(good, JSON.stringify({ schema: IMPORT_REVIEW_SCHEMA, dispositions: [{ rule: "generic-api-key", secretSha256: "a".repeat(64), reason: "reviewed" }], binaries: [{ oid: "b".repeat(40), reason: "a logo" }], addresses: [{ addressSha256: "c".repeat(64), reason: "an image name, not an address" }] }));
+  writeFileSync(good, JSON.stringify({ schema: IMPORT_REVIEW_SCHEMA, dispositions: [{ rule: "generic-api-key", secretSha256: "a".repeat(64), reason: "reviewed" }], binaries: [{ oid: "b".repeat(40), reason: "a logo" }], addresses: [{ addressSha256: "c".repeat(64), reason: "an image name, not an address" }], strips: [{ oid: "d".repeat(40), reason: "read: a UTF-16 contact list, dropped on purpose" }] }));
   const review = readImportReview(good, PUBLIC_TREE);
   assert.deepEqual([...review.addresses], ["c".repeat(64)]);
+  assert.deepEqual([...review.strips], ["d".repeat(40)]);
   assert.equal(review.dispositions.length, 1);
   assert.deepEqual([...review.binaries], ["b".repeat(40)]);
   assert.equal(review.sha256, sha256(readFileSync(good)));
@@ -216,6 +218,8 @@ test("the import review: its schema is enforced (dispositions by digest, binarie
     ["binary-by-path", { schema: IMPORT_REVIEW_SCHEMA, dispositions: [], binaries: [{ oid: "assets/logo.png", reason: "x" }] }],
     ["binary-no-reason", { schema: IMPORT_REVIEW_SCHEMA, dispositions: [], binaries: [{ oid: "b".repeat(40), reason: "" }] }],
     ["an-address", { schema: IMPORT_REVIEW_SCHEMA, dispositions: [], addresses: [{ addressSha256: UNALLOWED_ADDRESS, reason: "x" }] }],
+    ["strip-by-path", { schema: IMPORT_REVIEW_SCHEMA, dispositions: [], strips: [{ oid: "contacts.txt", reason: "x" }] }],
+    ["strip-no-reason", { schema: IMPORT_REVIEW_SCHEMA, dispositions: [], strips: [{ oid: "d".repeat(40), reason: "" }] }],
   ] as const) {
     const path = join(dir, `${name}.json`);
     writeFileSync(path, JSON.stringify(body));
@@ -304,14 +308,14 @@ function rescanOf(parts: Partial<Readonly<{ hits: readonly CatalogueHit[]; nameH
 }
 
 test("re-scan to zero: a catalogue hit, a name hit or an undisposed oracle finding is residue; a disposed finding is not", () => {
-  const none = { dispositions: [], binaries: new Set<string>(), addresses: new Set<string>(), sha256: null };
+  const none = { dispositions: [], binaries: new Set<string>(), addresses: new Set<string>(), strips: new Set<string>(), sha256: null };
   const hit: CatalogueHit = { entry: GITHUB, value: GITHUB_TOKEN, oid: "c".repeat(40), type: "blob", binary: false, anchor: null };
   assert.deepEqual(purgeResidue(rescanOf({}), none), { left: {}, disposed: {} });
   assert.deepEqual(purgeResidue(rescanOf({ hits: [hit, hit] }), none).left, { [GITHUB]: 2 });
   assert.deepEqual(purgeResidue(rescanOf({ nameHits: [{ entry: MAKORA, kind: "path", oid: "d".repeat(40) }] }), none).left, { [`${MAKORA} (in a name)`]: 1 });
   const finding = { rule: "generic-api-key", secret: "Zx81Lq0Vb7Nm3Kp2", location: "blob e" };
   assert.deepEqual(purgeResidue(rescanOf({ oracle: [finding] }), none).left, { "generic-api-key (oracle)": 1 });
-  const reviewed = { dispositions: [{ rule: "generic-api-key", secretSha256: sha256("Zx81Lq0Vb7Nm3Kp2"), reason: "reviewed" }], binaries: new Set<string>(), addresses: new Set<string>(), sha256: null };
+  const reviewed = { dispositions: [{ rule: "generic-api-key", secretSha256: sha256("Zx81Lq0Vb7Nm3Kp2"), reason: "reviewed" }], binaries: new Set<string>(), addresses: new Set<string>(), strips: new Set<string>(), sha256: null };
   assert.deepEqual(purgeResidue(rescanOf({ oracle: [finding] }), reviewed), { left: {}, disposed: { "generic-api-key": 1 } });
   assert.deepEqual(purgeResidue(rescanOf({ hits: [hit], oracle: [finding] }), reviewed).left, { [GITHUB]: 1 }, "a disposition never excuses a catalogue hit");
 });
@@ -643,6 +647,21 @@ test("THE ADDRESS GATE, its parts: every address shape is found (plain, percent-
   assert.equal(insideTree(join(tree, "..dir", "m.mailmap"), tree), true, "a folder spelled ..dir is inside the tree");
   assert.throws(() => readIdentityMap(join(tree, "..dir", "m.mailmap"), tree), (error: Error & { code?: string }) => error.code === "history_import_identity_map_public");
   assert.equal(insideTree(mapPath, tree), false);
+  // By IDENTITY, never by spelling: the tree named through a link (or another case of its name, on a
+  // case-insensitive filesystem: the same inode) holds the file; a sibling whose name only starts like the
+  // tree's does not; a file with a second name (a hard link) outside the tree may have one inside it.
+  const alias = join(folder, "alias-of-tree");
+  symlinkSync(tree, alias);
+  assert.equal(insideTree(join(tree, "..dir", "m.mailmap"), alias), true, "the tree given through a link");
+  assert.equal(insideTree(join(alias, "..dir", "m.mailmap"), tree), true, "the file reached through a link to the tree");
+  const sibling = `${tree}-sibling`;
+  mkdirSync(sibling);
+  writeFileSync(join(sibling, "m.mailmap"), "\n");
+  assert.equal(insideTree(join(sibling, "m.mailmap"), tree), false, "a sibling named like the tree is outside it");
+  const linked = join(folder, "linked.mailmap");
+  linkSync(join(tree, "..dir", "m.mailmap"), linked);
+  assert.equal(insideTree(linked, tree), true, "a hard link outside the tree to a file inside it");
+  assert.throws(() => readIdentityMap(linked, tree), (error: Error & { code?: string }) => error.code === "history_import_identity_map_public" && error.message.includes("hard link"));
   assert.throws(() => allowedAddresses([]), (error: Error & { code?: string }) => error.code === "history_import_identity_map_invalid");
 });
 
@@ -655,11 +674,12 @@ test("THE ADDRESS CENSUS on a real repository: every object in every reading (UT
   write(root, `people/${UNALLOWED_ADDRESS}`, "hello\n");
   write(root, "latin.txt", Buffer.from(`l ${NON_ASCII_ADDRESS}\n`, "latin1"));
   write(root, "mixed.bin", Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe, 0xfd]), Buffer.alloc(64, 0x7f), Buffer.from(` ${NON_ASCII_ADDRESS} `, "utf16le"), Buffer.alloc(64, 0xc3)]));
+  write(root, "renee.txt", "maintainer ren\u00e9e@example.invalid\n");
   git(root, "add", ".");
   execFileSync(GIT, ["commit", "-q", "--author", `Somebody <${UNALLOWED_ADDRESS}>`, "-m", `a change\n\n    Signed-off-by: ${UNALLOWED_ADDRESS}`], { cwd: root, env: { ...process.env, GIT_COMMITTER_NAME: "Import Test", GIT_COMMITTER_EMAIL: FIXTURE_ADDRESS } });
   git(root, "branch", `${UNALLOWED_ADDRESS}/topic`);
   const inventory = enumerateHistory(repository(root));
-  const census = addressCensus(repository(root), inventory);
+  const census = addressCensus(repository(root), inventory, []).occurrences;
   const head = git(root, "rev-parse", "HEAD").trim();
   const blobOf = (path: string): string => git(root, "rev-parse", `HEAD:${path}`).trim();
   const at = (oid: string): readonly AddressOccurrence[] => census.filter((occurrence) => occurrence.place.kind === "object" && occurrence.place.oid === oid);
@@ -671,12 +691,119 @@ test("THE ADDRESS CENSUS on a real repository: every object in every reading (UT
   assert.ok(at(blobOf("be.txt")).some((occurrence) => occurrence.key === UNALLOWED_ADDRESS), "UTF-16BE without a BOM");
   assert.ok(at(blobOf("latin.txt")).some((occurrence) => occurrence.key === foldAddress(NON_ASCII_ADDRESS)), "latin1");
   assert.ok(at(blobOf("mixed.bin")).some((occurrence) => occurrence.key === foldAddress(NON_ASCII_ADDRESS)), "a non-ASCII UTF-16LE run inside a binary (only the UTF-16 reading of the whole bytes sees it)");
+  // A valid UTF-8 text is not also read as latin1 (which would invent `e@example.invalid` from `renée@`).
+  assert.deepEqual(at(blobOf("renee.txt")).map((occurrence) => occurrence.key), ["ren\u00e9e@example.invalid"]);
   assert.ok(census.some((occurrence) => occurrence.place.kind === "path" && occurrence.key === UNALLOWED_ADDRESS), "a path");
   assert.equal(census.filter((occurrence) => occurrence.place.kind === "ref").length, 1, "a ref name, by digest");
   const refPlace = census.find((occurrence) => occurrence.place.kind === "ref")!.place as { refSha256: string };
   assert.equal(refPlace.refSha256, sha256(`refs/heads/${UNALLOWED_ADDRESS}/topic`));
-  // `only` limits the objects (the receipt's); the paths and the ref names are still read.
   // `only` limits the census to what is new (the receipt's): those objects, their paths, those ref names.
-  const onlyHead = addressCensus(repository(root), inventory, { objects: new Set([head]), refs: new Set() });
+  const onlyHead = addressCensus(repository(root), inventory, [], { objects: new Set([head]), refs: new Set() }).occurrences;
   assert.ok(onlyHead.length > 0 && onlyHead.every((occurrence) => occurrence.place.kind === "object" && occurrence.place.oid === head));
+});
+
+test("EVERY NAME: a path whose blob or tree another path shares is still read (rev-list prints an object under one name only), for the address census and for the secret name scan", async () => {
+  const root = createTempDir("identity-names-");
+  git(root, "init", "-q", "-b", "main");
+  write(root, "README.md", "x\n");
+  write(root, `people/${UNALLOWED_ADDRESS}.txt`, "x\n");
+  write(root, `keys/${GITHUB_TOKEN}`, "x\n");
+  write(root, "a/same.txt", "y\n");
+  write(root, `${UNALLOWED_ADDRESS.replace("@", "@dir.")}/same.txt`, "y\n");
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "shared objects under several names");
+  const inventory = enumerateHistory(repository(root));
+  const blob = git(root, "rev-parse", "HEAD:README.md").trim();
+  const tree = git(root, "rev-parse", "HEAD:a").trim();
+  assert.deepEqual(inventory.paths.filter((entry) => entry.oid === blob).map((entry) => entry.path).sort(), ["README.md", `keys/${GITHUB_TOKEN}`, `people/${UNALLOWED_ADDRESS}.txt`].sort(), "every name of the shared blob");
+  assert.equal(inventory.paths.filter((entry) => entry.oid === tree).length, 2, "both names of the shared tree");
+  const census = addressCensus(repository(root), inventory, []).occurrences.filter((occurrence) => occurrence.place.kind === "path");
+  assert.ok(census.some((occurrence) => occurrence.place.kind === "path" && occurrence.place.oid === blob), "the address in a file name beside a shared blob");
+  assert.ok(census.some((occurrence) => occurrence.place.kind === "path" && occurrence.place.oid === tree), "the address in a folder name beside a shared tree");
+  const scan = (await scanHistory(repository(root), inventory, NO_ORACLE)).catalogue;
+  assert.deepEqual(scan.nameHits.map((hit) => `${hit.kind}:${hit.entry}`), [`path:${GITHUB}`], "the token in a file name beside a shared blob");
+});
+
+test("A KNOWN ADDRESS in any spelling: every encoding, escape and obfuscation of a mapped-from address is found as that value; another address is not", () => {
+  const known = knownAddresses([UNALLOWED_ADDRESS]);
+  const [local, domain] = UNALLOWED_ADDRESS.split("@") as [string, string];
+  const found = (text: string): boolean => [text, unescapedText(text), ...base64Payloads(text).map((payload) => payload.toString("utf8"))]
+    .some((reading) => knownMatches(canonicalText(reading), known).length > 0);
+  const base64 = (prefix: string): string => Buffer.from(`${prefix}write to ${UNALLOWED_ADDRESS} please`).toString("base64");
+  for (const [name, text] of [
+    ["an HTML entity", `${local}&#64;${domain}`],
+    ["a hex entity", `${local}&#x40;${domain}`],
+    ["a named entity", `${local}&commat;${domain}`],
+    ["quoted-printable", `${local}=40${domain}`],
+    ["a quoted-printable soft break before @", `${local}=\n@${domain}`],
+    ["a quoted-printable soft break inside the local part", `${local.slice(0, 4)}=\r\n${local.slice(4)}@${domain}`],
+    ["percent", `${local}%40${domain}`],
+    ["a backslash escape", `${local}\\u0040${domain}`],
+    ["base64 at alignment 0", base64("")],
+    ["base64 at alignment 1", base64("x")],
+    ["base64 at alignment 2", base64("xy")],
+    ["base64 wrapped over lines", base64("").replace(/(.{8})/gu, "$1\n")],
+    ["fullwidth @ (NFKC)", `${local}\uff20${domain}`],
+    ["fullwidth letters (NFKC)", `${local.toUpperCase()}@${domain}`.replace(/[A-Z]/gu, (letter) => String.fromCharCode(letter.charCodeAt(0) + 0xfee0))],
+    ["a zero-width space inside it", `${local.slice(0, 3)}\u200b${local.slice(3)}@${domain}`],
+    ["a folded line after @", `${local}@\n ${domain}`],
+    ["[at] and [dot]", `${local} [at] ${domain.replaceAll(".", " [dot] ")}`],
+    ["at and dot words", `${local} at ${domain.replaceAll(".", " dot ")}`],
+    ["underscores for dots", `${local.replaceAll(".", "_")}@${domain.replaceAll(".", "_")}`],
+    ["a quoted local part", `"${local}"@${domain}`],
+    ["upper case", UNALLOWED_ADDRESS.toUpperCase()],
+  ] as const) assert.ok(found(text), name);
+  assert.ok(!found(`${local}ly@${domain}`), "a longer local part is another address");
+  assert.ok(!found(`${local}@other.invalid`), "another domain");
+  assert.ok(!found(`${local} wrote about ${domain}`), "the parts in prose, without an @ or an at word between them");
+  // A refusal or a quoted tool message withholds every address-shaped string.
+  assert.equal(withoutAddresses(`bad line: Somebody <${UNALLOWED_ADDRESS}> and ${UNALLOWED_ADDRESS.replace("@", "%40")}`), "bad line: Somebody <[address]> and [address]");
+});
+
+test("THE SHAPE IS BOUNDED: a long run of address characters, of percent signs, or of `@`s costs its length, not its square (CPU work, never wall time)", () => {
+  const known = knownAddresses([UNALLOWED_ADDRESS]);
+  for (const [name, text] of [
+    ["letters", "a".repeat(200_000)],
+    ["percent signs", "%".repeat(200_000)],
+    ["local parts and @", "ab.c+".repeat(40_000).replace(/\+/gu, "@")],
+    ["percent-encoded @", "a%40".repeat(50_000)],
+    ["labels", `a@${"b.".repeat(100_000)}`],
+  ] as const) {
+    const before = process.cpuUsage();
+    addressSpans(text);
+    knownMatches(canonicalText(text), known);
+    base64Payloads(text);
+    const spent = process.cpuUsage(before);
+    assert.ok((spent.user + spent.system) / 1000 < 3_000, `${name}: ${String((spent.user + spent.system) / 1000)} ms of CPU for 200,000 characters`);
+  }
+});
+
+test("THE ADDRESS CENSUS RUNS BOUNDED, in a child under the one bounded run; known addresses: a spelling the shape census reads is not a variant, any other spelling and any name is", async () => {
+  const root = createTempDir("identity-known-");
+  git(root, "init", "-q", "-b", "main");
+  write(root, "plain.txt", `mail ${UNALLOWED_ADDRESS.toUpperCase()}\n`);
+  write(root, "entity.html", `mail ${UNALLOWED_ADDRESS.replace("@", "&#64;")}\n`);
+  write(root, "both.txt", `mail ${UNALLOWED_ADDRESS} or ${UNALLOWED_ADDRESS.replace("@", "\uff20")}\n`);
+  write(root, `people/${UNALLOWED_ADDRESS.replace("@", "%40")}`, "z\n");
+  git(root, "add", ".");
+  execFileSync(GIT, ["commit", "-q", "--author", `Somebody <${UNALLOWED_ADDRESS}>`, "-m", "a change"], { cwd: root, env: { ...process.env, GIT_COMMITTER_NAME: "Import Test", GIT_COMMITTER_EMAIL: FIXTURE_ADDRESS } });
+  const inventory = enumerateHistory(repository(root));
+  const inProcess = addressCensus(repository(root), inventory, knownAddresses([UNALLOWED_ADDRESS]));
+  const bounded = await runAddressCensus(repository(root), [UNALLOWED_ADDRESS]);
+  assert.deepEqual(bounded, JSON.parse(JSON.stringify(inProcess)), "the child answers exactly the in-process census");
+  const variant = (oid: string): boolean | undefined => bounded.known.find((one) => one.place.kind !== "ref" && one.place.oid === oid)?.variant;
+  const blobOf = (path: string): string => git(root, "rev-parse", `HEAD:${path}`).trim();
+  assert.equal(variant(blobOf("plain.txt")), false, "a plain spelling (any case) the shape census reads and the rewrite replaces");
+  assert.equal(variant(git(root, "rev-parse", "HEAD").trim()), false, "the author header the mailmap rewrites");
+  assert.equal(variant(blobOf("entity.html")), true, "an entity no rewrite replaces");
+  assert.equal(variant(blobOf(`people/${UNALLOWED_ADDRESS.replace("@", "%40")}`)), true, "a name (percent-encoded), which no rewrite reaches");
+  assert.equal(variant(blobOf("both.txt")), true, "a fullwidth spelling beside a plain one: more matches than the shape read");
+  // It is a CHILD under the one bounded run: a CPU budget smaller than its work stops it, typed.
+  const tiny: SubprocessBounds = { cpuBudgetMs: 30, minimumCpuRate: 0.05, stallMs: 600_000, hangBackstopMs: 600_000, pollMs: 10, killGraceMs: 500, outputBytes: 1 << 20 };
+  await assert.rejects(runAddressCensus(repository(root), [UNALLOWED_ADDRESS], undefined, tiny), (error: Error & { code?: string }) => error.code === "history_tool_cpu_exhausted" && error.message.includes("the address census"));
+});
+
+test("a failed tool's quoted stderr withholds every address (filter-repo quotes a mailmap line it cannot parse)", async () => {
+  await assert.rejects(runBounded("a tool", ["/bin/sh", "-c", `echo "cannot parse: Somebody <${UNALLOWED_ADDRESS}>" >&2; exit 3`], { cwd: createTempDir("history-tool-stderr-"), env: { PATH: process.env["PATH"] ?? "" } }),
+    (error: Error & { code?: string }) => error.code === "history_tool_failed" && error.message.includes("cannot parse: Somebody <[address]>") && !error.message.includes(UNALLOWED_ADDRESS));
 });
