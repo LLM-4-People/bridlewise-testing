@@ -266,19 +266,17 @@ describe("an abandoned tool call reaches a terminal state that says what happene
     // 300ms budget against a 10s command: this call cannot finish.
     useConfig(300);
 
-    const started = performance.now();
     const res = await executeToolCall(
       "execute_command",
       { command: "sleep", args: ["10"] },
       { projectRoot },
     );
-    const elapsed = performance.now() - started;
 
     // THE POINT OF THE WHOLE ITEM: it came back. Before this, a tool call
     // that never completed left its beat "running" for ever, with no timeout,
     // no terminal state, and no way for a reader to tell a slow call from a
-    // dead one.
-    expect(elapsed, "the call did not return near its own timeout").toBeLessThan(5_000);
+    // dead one. It came back BY ITS TIMEOUT, which the ending below names;
+    // no wall clock judges it (NO-LOAD-BLOCK).
     expect(res.success).toBe(false);
 
     const parsed = JSON.parse(res.output) as Record<string, unknown>;

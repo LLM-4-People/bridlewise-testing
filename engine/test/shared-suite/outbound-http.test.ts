@@ -347,10 +347,12 @@ test("outbound http: a request whose pool is DESTROYED during the stall, before 
     const first = await outboundFetch(request({ url: server.url, method: "POST", body: "{}" }));
     assert.equal(await readBody(first, AbortSignal.timeout(5_000), 64, 100, "llm"), "ok");
     stallOnce.armed = true;
-    const started = Date.now();
-    await assert.rejects(outboundFetch(request({ url: server.url, method: "POST", body: "{}", signal: AbortSignal.timeout(8_000) })),
-      (error: unknown) => error instanceof Error, "the request fails, typed");
-    assert.ok(Date.now() - started < 6_000, `it failed at once after the stall, not at its deadline (${String(Date.now() - started)} ms)`);
+    // FAILED BY ITS PATH, never judged by a wall clock (NO-LOAD-BLOCK): when
+    // the request rejects, its deadline has not fired, so the destroyed pool
+    // failed it, not the deadline.
+    const deadline = AbortSignal.timeout(8_000);
+    await assert.rejects(outboundFetch(request({ url: server.url, method: "POST", body: "{}", signal: deadline })),
+      (error: unknown) => error instanceof Error && !deadline.aborted, "the request fails, typed, before its deadline fired");
     assert.equal(server.staleBytes(), 0, "and nothing was written on the stale connection");
   } finally {
     diagnosticsChannel.unsubscribe("undici:request:create", stall);

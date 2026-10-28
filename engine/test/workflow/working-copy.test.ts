@@ -262,11 +262,11 @@ test("sync fixed point: passes repeat until one changes nothing (its status deci
 test("the command runner: a command past its ceiling is killed with every descendant and fails", async () => {
   const root = gateRoot("checkout-command-ceiling-");
   const sleeper = { cwd: ".", argv: [process.execPath, "-e", "setTimeout(() => {}, 60_000)"], timeoutMs: 300 };
-  const started = Date.now();
   const outcome = await runCheckoutCommand(root, "sleeper", sleeper, supervisedRunner());
   assert.equal(outcome.status, "fail");
+  // The ceiling ended it, not the command (which would exit 0 after 60 s):
+  // the outcome names the ceiling, its path, never a wall clock (NO-LOAD-BLOCK).
   assert.match(outcome.message, /ceiling/u);
-  assert.ok(Date.now() - started < 30_000, "the ceiling ended it, not the command");
 });
 
 test("the command runner's classes: the environment's ending (a ceiling, a signal, no receipt, a REPORTED environmental error) is ERRORED; any other non-zero exit FAILED", async () => {

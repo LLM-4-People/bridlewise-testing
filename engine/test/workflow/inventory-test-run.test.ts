@@ -285,14 +285,18 @@ test("executeInventoryTestRun: a file that never EXITS after its cancelled test 
 
 test("executeInventoryTestRun: a run still reporting at its hard ceiling is killed, and the run FAILS", () => {
   const root = makeRoot("ceiling-watchdog");
-  const started = Date.now();
-  const out = runExecutorSubprocess(root, [{ path: "test/endless.test.ts", source: ENDLESS_SOURCE }], "auto", 1,
+  const helperPath = executorHelper(root, [{ path: "test/endless.test.ts", source: ENDLESS_SOURCE }], "auto", 1,
     { engineSuiteWatchdog: { stallTimeoutMs: 30_000, hardCeilingMs: 3_000, killGraceMs: 1_000 } });
-  const elapsed = Date.now() - started;
+  const ran = spawnSync(process.execPath, [helperPath], { encoding: "utf8", env: CLEAN_SUBPROCESS_ENV });
+  assert.equal(ran.status, 0, `subprocess exited ${String(ran.status)}: ${ran.stderr}`);
+  const out = JSON.parse(ran.stdout) as SubprocessResult;
   assert.equal(out.passed, false);
   assert.ok(out.counts.passed < 60, "the file was ended before its last step");
   assert.ok(out.failureDetails.some((detail) => detail.error?.failureType === "testAborted"));
-  assert.ok(elapsed >= 3_000 && elapsed < 20_000, `ended by the 3 s ceiling (and not by the stall bound): ${elapsed} ms`);
+  // ENDED BY THE CEILING, read from the watchdog's own word (it names the one
+  // bound that fired), never from a wall clock (NO-LOAD-BLOCK).
+  assert.match(ran.stderr, /\[run-tests\] HARD CEILING:/u, "the hard ceiling ended the run");
+  assert.doesNotMatch(ran.stderr, /\[run-tests\] STALLED:/u, "the stall bound did not");
 });
 
 test("executeInventoryTestRun: a SIGTERM ends the run — the running file is killed and reported aborted, long before any watchdog", async () => {
@@ -302,7 +306,6 @@ test("executeInventoryTestRun: a SIGTERM ends the run — the running file is ki
   const root = makeRoot("terminate");
   const helperPath = executorHelper(root, [{ path: "test/leak.test.ts", source: LEAKING_SOURCE }], "auto", 1,
     { runtimeBudgetMs: 60_000, engineSuiteWatchdog: { stallTimeoutMs: 60_000, hardCeilingMs: 120_000, killGraceMs: 1_000 } });
-  const started = Date.now();
   const child = spawn(process.execPath, [helperPath], { env: CLEAN_SUBPROCESS_ENV, stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
   let stderr = "";
@@ -319,13 +322,14 @@ test("executeInventoryTestRun: a SIGTERM ends the run — the running file is ki
   assert.ok(fileProcess !== undefined, `the fixture's test file never started: ${stderr}`);
   child.kill("SIGTERM");
   const status = await new Promise<number | null>((resolveExit) => child.once("close", resolveExit));
-  const elapsed = Date.now() - started;
   assert.equal(status, 0, `the stopped run did not finish its accounting: ${stderr}`);
   const out = JSON.parse(stdout) as SubprocessResult;
   assert.equal(out.passed, false, "a stopped run is a failed run");
   assert.ok(out.failureDetails.some((detail) => detail.error?.failureType === "testAborted"), `the killed file is reported: ${JSON.stringify(out.failureDetails.map((detail) => detail.error?.failureType))}`);
-  assert.match(stderr, /TERMINATED/u);
-  assert.ok(elapsed < 30_000, `ended by the SIGTERM, not a watchdog: ${String(elapsed)} ms`);
+  // Ended by the SIGTERM, not a watchdog: the run names the one ending that
+  // fired (the first wins), never judged by a wall clock (NO-LOAD-BLOCK).
+  assert.match(stderr, /\[run-tests\] TERMINATED:/u);
+  assert.doesNotMatch(stderr, /\[run-tests\] (?:STALLED|HARD CEILING):/u);
   assert.equal(isProcessAlive(fileProcess), false, "the stopped run left its test file running");
 });
 

@@ -103,13 +103,12 @@ describe("1. the watchdog lives outside the runtime and kills on a STALL, never 
       `writeFileSync(${JSON.stringify(grandchildPid)}, String(g.pid));`,
       "for(;;){}",
     ].join("\n");
-    const started = Date.now();
     const run = await superviseRun(process.execPath, ["-e", script], WATCHDOG, quiet);
+    // The run's own ending names the bound that ended it; no wall clock judges it (NO-LOAD-BLOCK).
     expect(run.ending).toBe("stalled");
     expect(run.terminal.supervision?.interrupted).toBe(true);
     expect(run.terminal.supervision?.noOwnedChildren).toBe(true);
     expect(run.exitCode, "a killed run must never report the child's own exit code").toBe(1);
-    expect(Date.now() - started).toBeLessThan(15_000);
     expect(existsSync(grandchildPid)).toBe(true);
     const pid = Number(readFileSync(grandchildPid, "utf8"));
     for (let i = 0; i < 50 && isProcessAlive(pid); i += 1) await new Promise((r) => setTimeout(r, 100));
@@ -207,10 +206,9 @@ describe("1. the watchdog lives outside the runtime and kills on a STALL, never 
 
   test("DRIVEN: a run that prints FOREVER is killed at the hard ceiling — whatever the load, and it fails", async () => {
     const script = "setInterval(() => process.stdout.write('.'), 100);";
-    const started = Date.now();
     const run = await superviseRun(process.execPath, ["-e", script], { stallTimeoutMs: 60_000, hardCeilingMs: 2_000, killGraceMs: 500 }, quiet);
+    // The ending names the hard ceiling: that is its path, never a wall clock (NO-LOAD-BLOCK).
     expect(run).toMatchObject({ ending: "ceiling", exitCode: 1 });
-    expect(Date.now() - started).toBeLessThan(15_000);
   });
 
   test("DRIVEN: the LAUNCHER exits (a SIGTERM to the `npm test` wrapper) — the run is stopped with everything it started, and it fails", async () => {
