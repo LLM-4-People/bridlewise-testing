@@ -595,6 +595,28 @@ test("ModuleRegistrar: a ONE-LINE block is marked a composition root too — its
   }
 });
 
+test("ModuleRegistrar: a dependency list holding the right paths in another order is drift, rewritten byte for byte by the writer", () => {
+  // Set-equal is not current: a list renamed in place (not regenerated) kept its old order, sync and check
+  // accepted it, and only a later `register --write` rewrote the line (#489's review).
+  const copy = createRepositoryWorkingCopy("registrar-order-", { include: engineGeneratorPopulation });
+  try {
+    const manifestPath = join(copy.engineRoot, "src", "architecture-manifest.ts");
+    const current = readFileSync(manifestPath, "utf8");
+    const listed = /dependencies: \[("[^"\]]+",(?:"[^"\]]+",?)+)\]/u.exec(current);
+    assert.ok(listed !== null, "the manifest holds a dependency list of two or more paths (liveness)");
+    const paths = listed[1]!.split(",").filter((path) => path.length > 0);
+    const reversed = listed[0].replace(listed[1]!, [...paths].reverse().join(","));
+    writeFileSync(manifestPath, current.replace(listed[0], reversed));
+    const check = spawnSync(process.execPath, [join(copy.engineRoot, "src", "cli.ts"), "harness", "register"], { cwd: copy.engineRoot, encoding: "utf8" });
+    assert.match(check.stdout, /"driftedModules":1/u, `the reordered list is drift: ${check.stdout.slice(0, 400)}`);
+    const register = spawnSync(process.execPath, [join(copy.engineRoot, "src", "cli.ts"), "harness", "register", "--write"], { cwd: copy.engineRoot, encoding: "utf8" });
+    assert.equal(register.status, 0, register.stderr);
+    assert.equal(readFileSync(manifestPath, "utf8"), current, "the writer restores the canonical bytes");
+  } finally {
+    removeRepositoryLocalTemporaryDirectory(copy.root);
+  }
+});
+
 test("ModuleRegistrar: the composition-root lists are derived from the module blocks — a dangling root is reported and rewritten", () => {
   // Deleting an entry-point script used to leave its path in
   // `compositionRoots.<realm>`: the registrar removed the module block but no

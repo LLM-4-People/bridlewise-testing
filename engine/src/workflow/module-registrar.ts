@@ -133,7 +133,9 @@ export function compareModuleRegistrations(
     }
     if (computedModule.exportCount !== manifestModule.publicApi.exportCount ||
       computedModule.namesSha256 !== manifestModule.publicApi.namesSha256 ||
-      !sameSortedArray(computedModule.dependencies, [...manifestModule.dependencies].toSorted()) ||
+      // Byte for byte, never set-equal: the computed list is the writer's canonical (sorted) output, so a
+      // list holding the right paths in another order is drift the writer rewrites, not a pass.
+      !sameArray(computedModule.dependencies, manifestModule.dependencies) ||
       // A DETECTED direct-execution entrypoint is a composition root, whenever
       // it became one: the flag used to be derived at first registration only,
       // so a program that gained its entry guard later stayed unmarked and no
@@ -238,7 +240,7 @@ function computeModuleRegistration(root: string, relativePath: string, registere
 
   const exportedNames = facts.exportedNames;
   const lexicalNames = lexical.exportedNames;
-  if (!sameSortedArray(exportedNames, lexicalNames)) {
+  if (!sameArray(exportedNames, lexicalNames)) {
     throw new InputError(
       `export name disagreement for ${relativePath}: babel=${JSON.stringify(exportedNames)} lexical=${JSON.stringify(lexicalNames)}`,
       "input_error",
@@ -585,7 +587,7 @@ function walkDirectory(dir: string, root: string): string[] {
   return files;
 }
 
-function sameSortedArray(left: readonly string[], right: readonly string[]): boolean {
+function sameArray(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) return false;
   for (let index = 0; index < left.length; index += 1) {
     if (left[index] !== right[index]) return false;
