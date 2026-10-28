@@ -77,6 +77,13 @@ export function commandRetryPolicy(document: Pick<ConfigDocument, "harness">): R
     backoffMs: document.harness?.commandRetryBackoffMs ?? DEFAULT_COMMAND_RETRY_BACKOFF_MS,
   });
 }
+/**
+ * How many hex digits of a commit id a person-facing line shows (the release
+ * train's answers, the release notes), each linking or naming the full id
+ * beside it: git's own short form tops out at 12.
+ */
+export const DISPLAY_COMMIT_ID_LENGTH = 12;
+
 export const DEFAULT_GIT_ADD_TIMEOUT_MS = 30_000;
 export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 

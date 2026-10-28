@@ -296,7 +296,7 @@ The folder lives at `engine/src/workflow/`.
 - `timeline-shard.ts` is consumed by `engine/src/workflow/workspace-manager.ts`.
 - `tracker-status.ts` is consumed by `engine/src/workflow/forge/projector/project.ts`, `engine/src/workflow/forge/projector/roadmap-feed.ts`.
 - `tree-landing.ts` is consumed by `engine/src/workflow/promotion/apply.ts`, `engine/src/workflow/promotion/promoter-home.ts`, `engine/src/workflow/promotion/promotion-run.ts`, `engine/src/workflow/promotion/publication.ts`, `engine/src/workflow/workspace-manager.ts`.
-- `workflow-config.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/roadmap-feed.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-run-lock.ts`, `engine/scripts/tooling/verification/governed-source.ts` and 26 more.
+- `workflow-config.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/inventory-test-run.ts`, `engine/scripts/tooling/roadmap-feed.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-run-lock.ts`, `engine/scripts/tooling/verification/governed-source.ts` and 28 more.
 - `workspace-cli.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
 - `workspace-contracts.ts` is consumed by `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`, `engine/src/workflow/workspace-registry.ts`.
 - `workspace-forge-github.ts` is consumed by `engine/src/workflow/forge/publish/product.ts`, `engine/src/workflow/workspace-cli.ts`.

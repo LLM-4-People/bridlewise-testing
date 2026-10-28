@@ -8,7 +8,7 @@ import test from "node:test";
 
 import { allowedActionPatterns, FORGE_ISSUE_TYPES, forgeDeclarations } from "../../src/workflow/forge/declarations.ts";
 import { differences, referencesOf, resolveReferences, scopeName, writableBody, type ForgeObject } from "../../src/workflow/forge/forge-state.ts";
-import { codeownersFile, dependabotFile, forgeTreeFacts, workflowUsesOf } from "../../src/workflow/forge/repository-files.ts";
+import { codeownersFile, dependabotEntryViolations, dependabotFile, dependabotUpdates, forgeTreeFacts, workflowUsesOf } from "../../src/workflow/forge/repository-files.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { workingTreeReader, type TreeReader } from "../../src/git/tree-reader.ts";
 import { join } from "node:path";
@@ -139,6 +139,25 @@ test("Dependabot covers exactly the tracked lockfiles (frozen benchmarks exclude
   assert.equal((yaml.match(/package-ecosystem:/gu) ?? []).length, 3);
   assert.match(yaml, /open-pull-requests-limit: 5/u);
   assert.match(yaml, /default-days: 3\n {6}semver-major-days: 7/u);
+  // Dependabot's documented per-ecosystem support holds for every emitted entry: the SemVer cooldown only where it is
+  // supported (npm yes, GitHub Actions no; default-days everywhere), so the file parses on GitHub.
+  const updates = dependabotUpdates(SETTINGS, facts);
+  assert.deepEqual(updates.flatMap((entry, index) => dependabotEntryViolations(entry, index)), []);
+  assert.deepEqual(updates.map((entry) => `${String(entry["package-ecosystem"])}:${Object.keys(entry.cooldown as object).join("+")}`),
+    ["npm:default-days+semver-major-days", "npm:default-days+semver-major-days", "github-actions:default-days"]);
+  // Planted: the main bug (github-actions with semver-major-days), and each other way an entry breaks the reference.
+  assert.deepEqual(dependabotEntryViolations({ "package-ecosystem": "github-actions", directory: "/", cooldown: { "default-days": 3, "semver-major-days": 7 } }, 2),
+    ["updates[2]: cooldown.semver-major-days is not supported for the package ecosystem 'github-actions'"]);
+  assert.deepEqual(dependabotEntryViolations({ "package-ecosystem": "npm", directory: "/engine", cooldown: { "default-days": 3, "semver-major-days": 7, "semver-patch-days": 1 } }, 0), [], "near miss: npm takes them");
+  assert.equal(dependabotEntryViolations({ "package-ecosystem": "cargo", directory: "/", cooldown: { "semver-major-days": 7 } }, 0).length, 0, "near miss: Cargo takes them");
+  assert.deepEqual(dependabotEntryViolations({ "package-ecosystem": "github-actions", directory: "/.github", cooldown: {} }, 1), ['updates[1]: github-actions takes directory "/" only']);
+  assert.deepEqual(dependabotEntryViolations({ "package-ecosystem": "npm", directory: "/", cooldown: { "semver-major": 7 } }, 0), ["updates[0]: cooldown.semver-major is not a Dependabot cooldown key"]);
+  assert.deepEqual(dependabotEntryViolations({ "package-ecosystem": "npm", directory: "/", "versioning-strategy": "increase" }, 0), ["updates[0]: versioning-strategy is not a key the forge writes"]);
+  assert.equal(dependabotEntryViolations({ "package-ecosystem": "docker", directory: "/" }, 0).length, 1, "an ecosystem the forge does not classify is refused");
+  // The generator itself refuses a reachable declaration Dependabot would not take: the forge section's github-actions entry
+  // at "/.github" makes dependabotFile throw, naming the entry (never a file GitHub refuses on push).
+  const misplaced = { ...SETTINGS, dependabot: { ...SETTINGS.dependabot, packages: SETTINGS.dependabot.packages.map((entry) => entry.ecosystem === "github-actions" ? { ...entry, directory: "/.github" } : entry) } };
+  assert.throws(() => dependabotFile(misplaced, facts), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && error.message.includes('github-actions takes directory "/" only'));
   // A lockfile nobody declared (in another place than the root), and a declared root without one: both refused.
   assert.throws(() => dependabotFile(SETTINGS, forgeTreeFacts(tree({ ...files, "server/package-lock.json": "{}" }), SETTINGS)), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && /\/server/u.test(error.message));
   const withoutEngine: Record<string, string> = { ...files };
