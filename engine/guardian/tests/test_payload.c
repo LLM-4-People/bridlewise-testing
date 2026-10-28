@@ -41,7 +41,7 @@ static int report(int kind, int e)
 int main(int argc, char **argv)
 {
     if (argc < 3) {
-        fprintf(stderr, "usage: test_payload <read|write|create|list|socket|spin|signal|alloc> <path|inet|unix|pid|MiB|->\n");
+        fprintf(stderr, "usage: test_payload <read|write|create|list|socket|spin|signal> <path|inet|unix|pid|->\n");
         return 2;
     }
     const char *mode = argv[1];
@@ -101,14 +101,6 @@ int main(int argc, char **argv)
         if (kill((pid_t)atol(path), SIGTERM) == 0) return report(0, 0);
         printf("%s:%d\n", errno == EPERM ? "EPERM" : "ERROR", errno);
         return 1;
-    } else if (strcmp(mode, "alloc") == 0) {
-        /* `alloc <MiB>`: allocate and touch that much memory. */
-        size_t bytes = (size_t)atol(path) * 1024 * 1024;
-        char *block = malloc(bytes);
-        if (block == NULL) { printf("ENOMEM\n"); return 1; }
-        for (size_t i = 0; i < bytes; i += 4096) block[i] = 1;
-        free(block);
-        return report(0, 0);
     }
 
     fprintf(stderr, "unknown mode '%s'\n", mode);

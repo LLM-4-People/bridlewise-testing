@@ -15,7 +15,7 @@
  *   V-28 a field GitHub silently drops is `projection_unverified`, never a success.
  */
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -27,7 +27,7 @@ import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { applyProjection, planProjection, projectionFailure } from "../../src/workflow/forge/projector/apply.ts";
 import { PROJECTION_INPUT_SCHEMA, type ProjectionInput } from "../../src/workflow/forge/projector/model.ts";
 import { computeProjection, deterministicCall, projectionInput } from "../../src/workflow/forge/projector/projection.ts";
-import { confinedCall, PROJECTION_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
+import { configuredConfinement, confinedCall, PROJECTION_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
 import { compileSelfProtectionConfigToSpec, resolveGuardianBinaryPath } from "../../src/filesystem/self-protection/guardian-binary.ts";
 import { narrowGuardianSpec } from "../../src/filesystem/self-protection/confined-run.ts";
 import { procfsPath } from "../../src/process/process-facts.ts";
@@ -41,8 +41,8 @@ import { memoryStore } from "./projection-store.ts";
 const SOURCE = "0123456789abcdef0123456789abcdef01234567";
 const REPOSITORY_ROOT = join(import.meta.dirname, "..", "..", "..");
 const ENGINE_ROOT = join(REPOSITORY_ROOT, "engine");
-/** Every projection here runs confined: this engine's guardian, an empty keep-out registry of the test's own, a generous CPU ceiling, 1.5 GiB of address space. */
-const CONFINEMENT: ProjectorConfinement = { harnessRoot: ENGINE_ROOT, keepOut: emptyKeepOutFacts(), cpuSeconds: 60, memoryBytes: 1_610_612_736 };
+/** Every projection here runs confined: this engine's guardian, an empty keep-out registry of the test's own, a generous CPU ceiling, admitted in the host's run registry (inside a test run, it borrows that run and its caps). */
+const CONFINEMENT: ProjectorConfinement = configuredConfinement(ENGINE_ROOT, emptyKeepOutFacts(), 60);
 
 const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> = {}): ProjectionInput["items"][number] => ({
   id, type: "Task", title: null, state: "open", resolution: null, lane: "floor", milestone: null, parent: null, blockedBy: [], decisions: [], tests: [], evidence: null,
@@ -79,6 +79,34 @@ test("D is the tracker's issues and labels, with permalinks at S and the project
   assert.throws(() => computeProjection(input([item("A-ONE"), item("A-ONE")]), CONFINEMENT), (error: HarnessError) => error.code === "projection_input_invalid" && /issue\/A-ONE/u.test(error.message));
   // Another source commit is another D (the permalinks move with it).
   assert.notEqual(computeProjection(input(INPUT.items, "f".repeat(40)), CONFINEMENT).digest, digest);
+});
+
+test("memory is the admitted run's cgroup cap (the one memory-bounds owner): a confined call is born in its run's scope and its allocation meets the run's MemoryMax there; an OOM kill there is typed projection_memory_exhausted", () => {
+  requireHost(resolveGuardianBinaryPath(ENGINE_ROOT) !== undefined, "the built guardian (make -C engine/guardian all)");
+  // A run of this test's own registry, admitted at 1% of the host's memory, in a child process (admission moves its process into the run's scope).
+  const directory = createTempDir("projector-memory-");
+  const entry = join(directory, "allocate.ts");
+  // Bounded: 1 GiB touched, past 1% of any host's memory.
+  writeFileSync(entry, "export function projectText(): string { const kept: Uint8Array[] = []; for (let i = 0; i < 1024; i += 1) kept.push(new Uint8Array(1 << 20).fill(1)); return String(kept.length); }");
+  const script = join(directory, "memory.mjs");
+  writeFileSync(script, [
+    `const { readFileSync } = await import("node:fs");`,
+    `const { confinedCall } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/workflow/forge/projector/confined.ts"))});`,
+    `const { emptyKeepOutFacts } = await import(${JSON.stringify(join(ENGINE_ROOT, "test/support/keep-out-facts.ts"))});`,
+    `const run = { lockPath: ${JSON.stringify(join(directory, "instrument.lock"))}, perRun: { memoryMaxPercent: 1, cpuWeight: 100 } };`,
+    `let ending;`,
+    `try { confinedCall({ entry: ${JSON.stringify(entry)}, modules: [${JSON.stringify(entry)}], exportName: "projectText" }, "{}", { harnessRoot: ${JSON.stringify(ENGINE_ROOT)}, keepOut: emptyKeepOutFacts(), cpuSeconds: 60, run }); ending = "ANSWERED"; }`,
+    `catch (error) { ending = \`REFUSED \${error.code}\`; }`,
+    // After the call this process is inside the run's scope (admission moved it there), where the program was born.
+    `const cgroup = readFileSync("/proc/self/cgroup", "utf8").split("\\n").find((line) => line.startsWith("0::")).slice(3);`,
+    `const max = /^max (\\d+)$/mu.exec(readFileSync("/sys/fs/cgroup" + cgroup + "/memory.events", "utf8"))[1];`,
+    `process.stdout.write(\`\${ending} cgroup=\${cgroup} max=\${max}\\n\`);`,
+  ].join("\n"));
+  const ran = spawnSync(process.execPath, ["--experimental-strip-types", script], { cwd: ENGINE_ROOT, encoding: "utf8", env: process.env });
+  assert.equal(ran.status, 0, ran.stderr);
+  // The program ran in the run's own scope, and its allocation met the scope's MemoryMax (the scope's `max` events rose from a fresh 0).
+  // What the kernel did at the cap is the host's: with swap it reclaims (the call answers); without, the OOM killer ends it, typed.
+  assert.match(ran.stdout, /^(?:ANSWERED|REFUSED projection_memory_exhausted) cgroup=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope max=[1-9]\d*$/mu, `${ran.stdout} ${ran.stderr}`);
 });
 
 test("V-26: purity is a kernel property — two confined processes give one digest, and every reach outside the input is refused", async () => {
@@ -141,8 +169,6 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   } finally {
     outsider.kill("SIGKILL");
   }
-  // An ALLOCATION past the address-space ceiling (2 GiB, bounded: with no ceiling it answers and the assertion fails).
-  refused(planted("allocate", "export function projectText(): string { const kept: Uint8Array[] = []; for (let i = 0; i < 2048; i += 1) kept.push(new Uint8Array(1 << 20).fill(1)); return String(kept.length); }"), "projection_memory_exhausted", /address-space ceiling/u);
   // A large answer arrives whole (a pipe write can still be pending when write() returns).
   const large = confinedCall(planted("large", "export function projectText(): string { return 'x'.repeat(4_000_000) + 'END'; }"), "{}", CONFINEMENT);
   assert.equal(large.length, 4_000_003);

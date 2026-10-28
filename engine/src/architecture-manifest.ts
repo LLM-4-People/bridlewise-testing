@@ -4252,7 +4252,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workflow-config", path: "src/workflow/workflow-config.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 49, namesSha256: "c52c931e777a8cd8b6d5bf8183419f7539ee90b9692d80ea6352f79bd6a7eda5" },
+      owner: "verification-workflow", publicApi: { exportCount: 48, namesSha256: "089b60b9ca2e3b0225fe0859b89d53d086724b5781b5d1feaf8498bf4cf6ce8a" },
       dependencies: ["src/kernel/errors.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
@@ -5063,7 +5063,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-process-process-facts", path: "src/process/process-facts.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 44, namesSha256: "2ed71464f8b86f5154f9b86c3f3b492b125acc5321df00f37024e88ddd352829" },
+      owner: "process-infrastructure", publicApi: { exportCount: 45, namesSha256: "b3e45ea6d023b35dab9d32691549e182cf9039203e78a50b11e7bbfd89fe2ea0" },
       dependencies: ["node:fs","node:path","src/kernel/errors.ts","src/kernel/root-policy.ts","src/shared/debug/debug-system.ts"],
     }),
     moduleContract({
@@ -5720,8 +5720,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-forge-projector-confined", path: "src/workflow/forge/projector/confined.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "ab2140af25d09ebb168832423dc61b7ae58f22feb5e00795f026744d1afc84db" },
-      dependencies: ["node:fs","node:module","node:path","node:url","src/filesystem/self-protection/confined-run.ts","src/kernel/errors.ts","src/shared/debug/debug-system.ts"],
+      owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "066bc3beae4ac665955388686956d828b17998589f7600b129af8b24dad1cdaa" },
+      dependencies: ["node:fs","node:module","node:path","node:url","src/filesystem/self-protection/confined-run.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/process/instrument-lock.ts","src/process/process-facts.ts","src/shared/debug/debug-system.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-projector-model", path: "src/workflow/forge/projector/model.ts", realm: "runtime", layer: "infrastructure",
@@ -5801,7 +5801,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "scripts-tooling-roadmap-feed", path: "scripts/tooling/roadmap-feed.ts", realm: "builder", layer: "verification",
       owner: "verification", publicApi: { exportCount: 0, namesSha256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
-      dependencies: ["node:path","node:url","node:util","src/filesystem/atomic-write.ts","src/filesystem/self-protection/key-home.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/runtime/cli-debug.ts","src/workflow/forge/projector/projection.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["node:path","node:url","node:util","src/filesystem/atomic-write.ts","src/filesystem/self-protection/key-home.ts","src/git/worktree-port.ts","src/kernel/config.ts","src/kernel/errors.ts","src/runtime/cli-debug.ts","src/workflow/forge/projector/confined.ts","src/workflow/forge/projector/projection.ts","src/workflow/workflow-config.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
     }),
     moduleContract({
