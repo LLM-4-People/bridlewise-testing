@@ -17,7 +17,7 @@ import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount } from "../process/instrument-lock.ts";
-import { SUBPROCESS_BOUNDS } from "./workflow-config.ts";
+import { configuredSubprocessBounds } from "./workflow-config.ts";
 import { superviseCommand } from "../process/supervised-run.ts";
 import { wrapResult, type CommandAnswer } from "./command-result.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
@@ -64,8 +64,8 @@ export async function runInsideInstrumentLock(runner: string, testFileCount: num
   const config = readTestExecutionConfig(engineRoot);
   // `lockPath`: a test's own registry (the host's registry is never a test's to write).
   const lock = options.lockPath !== undefined
-    ? admitInstrumentRun(options.lockPath, runner, declaredInstrumentLock(config.instrumentLock).perRun, SUBPROCESS_BOUNDS)
-    : holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, cpu: SUBPROCESS_BOUNDS });
+    ? admitInstrumentRun(options.lockPath, runner, declaredInstrumentLock(config.instrumentLock).perRun, configuredSubprocessBounds())
+    : holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, cpu: configuredSubprocessBounds() });
   try {
     const run = await superviseCommand({
       supervisor: ensureTestProcessSupervisor(),

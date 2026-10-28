@@ -4,11 +4,13 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
+import { getConfigDocumentSchema } from "../../src/kernel/config-contracts.ts";
+import { configuredSubprocessBounds, subprocessBounds } from "../../src/workflow/workflow-config.ts";
 
 /**
  * The typecheck has NO wall limit (NO-LOAD-BLOCK A-17): `runTypecheck` runs
  * tsc through the harness's one subprocess bound (CPU work per process and
- * one hang backstop, src/process/subprocess-bounds.ts), and the config's
+ * one hang backstop, through the one bounded run `runCpuBounded`, src/process/subprocess-bounds.ts), and the config's
  * old `harness.typecheckTimeoutMs` (120 s of wall) is gone. (The git
  * add/commit timeouts' consumer was the deleted `harness integrate`; the
  * workspace command is their consumer now, asserted below.)
@@ -22,7 +24,7 @@ test("the typecheck is bounded by CPU work, never a wall limit: no typecheckTime
   const start = source.indexOf("export async function runTypecheck(");
   assert.ok(start !== -1, "runTypecheck function must exist");
   const body = source.slice(start, source.indexOf("\n}\n", start));
-  assert.match(body, /runBoundedSync\(/u, "runTypecheck must run tsc through the one subprocess bound");
+  assert.match(body, /runCpuBounded\(/u, "runTypecheck must run tsc through the one subprocess bound");
   assert.doesNotMatch(body, /timeout:/u, "runTypecheck must not carry a wall timeout of its own");
 });
 
@@ -78,4 +80,21 @@ test("workspace-cli source: the workspace command resolves its timeouts from the
     !/\d+_?000\b/u.test(resolutionBody),
     "the worktree timeouts reader must not carry an inline timeout literal",
   );
+});
+
+test("the harness subprocess bounds are SETTINGS: harness.subprocessBounds is read field by field, an unset field is its declared default, the shipped file states every default, and an impossible value is refused by the schema", () => {
+  const DEFAULT_SUBPROCESS_BOUNDS = subprocessBounds({});
+  assert.deepEqual(DEFAULT_SUBPROCESS_BOUNDS, { cpuBudgetMs: 1_800_000, minimumCpuRate: 0.05, stallMs: 1_800_000, hangBackstopMs: 7_200_000, pollMs: 1_000, killGraceMs: 5_000, outputBytes: 268_435_456 }, "an absent section answers the declared defaults");
+  const one = subprocessBounds({ harness: { subprocessBounds: { stallMs: 123_456 } } });
+  assert.equal(one.stallMs, 123_456, "a configured field is the value every consumer gets");
+  assert.deepEqual({ ...one, stallMs: DEFAULT_SUBPROCESS_BOUNDS.stallMs }, DEFAULT_SUBPROCESS_BOUNDS, "the fields left unset keep their defaults");
+  // The shipped document states each bound (expose everything), and they are the declared defaults.
+  assert.deepEqual(loadPinnedConfigSnapshot().document.harness?.subprocessBounds, { ...DEFAULT_SUBPROCESS_BOUNDS });
+  assert.deepEqual(configuredSubprocessBounds(), DEFAULT_SUBPROCESS_BOUNDS);
+  const schema = getConfigDocumentSchema();
+  const shipped = loadPinnedConfigSnapshot().document;
+  for (const [field, value] of [["minimumCpuRate", 0], ["minimumCpuRate", 1.5], ["stallMs", 0], ["hangBackstopMs", -1], ["pollMs", 1.5], ["outputBytes", 1], ["unknownBound", 1]] as const) {
+    const document = { ...shipped, harness: { ...shipped.harness, subprocessBounds: { ...shipped.harness?.subprocessBounds, [field]: value } } };
+    assert.equal(schema.safeParse(document).success, false, `harness.subprocessBounds.${field} = ${String(value)} is refused`);
+  }
 });

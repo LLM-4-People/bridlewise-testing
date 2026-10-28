@@ -462,6 +462,32 @@ export function processGroupOf(pid: number): number | undefined {
   return statNumber(pid, STAT_FIELD.pgrp);
 }
 
+/** One live member of a process group, as procfs answers now: its identity, its parent, and the CPU it and its reaped children used. */
+export type GroupMemberSample = Readonly<{ pid: number; startTime: number; ppid: number; cpuMs: number }>;
+
+/**
+ * Every live member of process group `pgid`, with its CPU time in ms (its
+ * own user and system time plus its reaped children's, `proc(5)` fields
+ * 14-17). A caller that budgets a group's WORK accumulates these samples
+ * (a member that vanished took its time with it: `src/process/supervised-run.ts`
+ * keeps its last sample unless its parent is a live member, whose reaped-child
+ * time now holds it). Empty when no member is left or procfs cannot answer.
+ */
+export function processGroupMembers(pgid: number): readonly GroupMemberSample[] {
+  const members: GroupMemberSample[] = [];
+  for (const pid of allProcessIds()) {
+    const fields = statFieldsOf(pid);
+    if (fields === undefined || Number(fields[STAT_FIELD.pgrp - 3]) !== pgid) continue;
+    const at = (field: number): number => Number(fields[field - 3]);
+    const used = [STAT_FIELD.utime, STAT_FIELD.stime, STAT_FIELD.cutime, STAT_FIELD.cstime].map(at);
+    const startTime = at(STAT_FIELD.starttime);
+    const ppid = at(STAT_FIELD.ppid);
+    if (!used.every(Number.isFinite) || !Number.isFinite(startTime) || !Number.isFinite(ppid)) continue;
+    members.push(Object.freeze({ pid, startTime, ppid, cpuMs: used.reduce((sum, value) => sum + value, 0) * CLOCK_TICK_MS }));
+  }
+  return Object.freeze(members);
+}
+
 /** The process's start time (clock ticks since boot, `proc(5)` field 22), or `undefined`. */
 function startTimeOf(pid: number): number | undefined {
   return statNumber(pid, STAT_FIELD.starttime);

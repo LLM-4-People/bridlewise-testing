@@ -24,8 +24,10 @@ import {
   type HarnessMetricsOutput,
   type HarnessRollbackOutput,
 } from "../../src/workflow/harness-commands.ts";
-import { boundedEnding } from "../../src/process/subprocess-bounds.ts";
-import { SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
+import { boundedEnding, kernelCpuLimit, type SubprocessBounds } from "../../src/process/subprocess-bounds.ts";
+import { subprocessBounds } from "../../src/workflow/workflow-config.ts";
+
+const DEFAULT_SUBPROCESS_BOUNDS = subprocessBounds({});
 import { runBenchmarkCli, parseBenchmarkArgs } from "../../src/performance/benchmark-cli.ts";
 import { runDiagnosticCli, parseDiagnosticArgs } from "../../src/performance/diagnostic-cli.ts";
 import { createTimelineStore } from "../../src/timeline/timeline-store.ts";
@@ -437,11 +439,11 @@ test("the harness root is the engine package, not the caller's cwd", () => {
   assert.ok(readFileSync(join(HARNESS_ROOT, "package.json"), "utf8").includes('"name": "bridlewise"'));
 });
 
-test("a builder script missing from the supplied root names the file and the root, not Node's version banner", () => {
+test("a builder script missing from the supplied root names the file and the root, not Node's version banner", async () => {
   const dir = createTempDir("harness-missing-builder-");
   try {
-    assert.throws(
-      () => runScriptSubprocess(dir, "scripts/pin-authority-regeneration.ts", ["--check"]),
+    await assert.rejects(
+      runScriptSubprocess(dir, "scripts/pin-authority-regeneration.ts", ["--check"]),
       (error: unknown) => {
         assert.ok(error instanceof InputError);
         assert.match(error.message, /does not contain scripts\/pin-authority-regeneration\.ts/u);
@@ -483,17 +485,17 @@ test("the DOCUMENTED root invocation reaches the pin-authorities step instead of
 // without a payload says HOW it ended (status, signal, which bound fired).
 // ---------------------------------------------------------------------------
 
-test("a script subprocess that dies without a payload names how it ended: the signal, or its exit status", () => {
+test("a script subprocess that dies without a payload names how it ended: the signal, or its exit status", async () => {
   const dir = createTempDir("harness-subprocess-ending-");
   try {
     mkdirSync(join(dir, "scripts"), { recursive: true });
     writeFileSync(join(dir, "scripts", "signalled.ts"), "process.kill(process.pid, 'SIGTERM');\nsetTimeout(() => {}, 10_000);\n");
     writeFileSync(join(dir, "scripts", "silent-exit.ts"), "process.exit(3);\n");
-    assert.throws(() => runScriptSubprocess(dir, "scripts/signalled.ts", []), (error: unknown) => {
+    await assert.rejects(runScriptSubprocess(dir, "scripts/signalled.ts", []), (error: unknown) => {
       assert.match((error as Error).message, /scripts\/signalled\.ts ended without a status payload: it was ended by signal SIGTERM/u);
       return true;
     });
-    assert.throws(() => runScriptSubprocess(dir, "scripts/silent-exit.ts", []), (error: unknown) => {
+    await assert.rejects(runScriptSubprocess(dir, "scripts/silent-exit.ts", []), (error: unknown) => {
       assert.match((error as Error).message, /it exited with status 3 \(it printed nothing on stderr\)/u);
       return true;
     });
@@ -502,10 +504,21 @@ test("a script subprocess that dies without a payload names how it ended: the si
   }
 });
 
-test("the two L2 bounds are named when they fire: the CPU-time limit (SIGXCPU) and the hang backstop (HUNG)", () => {
-  assert.match(boundedEnding({ status: null, signal: "SIGXCPU" }, SUBPROCESS_BOUNDS), /spent its CPU-time limit of 1800 s of CPU work \(RLIMIT_CPU\)/u);
-  assert.match(boundedEnding({ status: null, signal: "SIGKILL", errorCode: "ETIMEDOUT" }, SUBPROCESS_BOUNDS), /^HUNG: it was still running at the 7200 s hang backstop \(wall\) and was killed with SIGKILL/u);
+test("the harness's bounds are named when they fire: the group's CPU budget, the kernel's CPU-time limit (SIGXCPU), the stall and the hang backstop (HUNG)", () => {
+  const ended = { status: null, signal: null, cpuMs: 1_800_123, startError: null } as const;
+  assert.match(boundedEnding({ ...ended, ending: "cpu-exhausted" }, DEFAULT_SUBPROCESS_BOUNDS), /its process group spent its CPU budget of 1800000 ms \(1800123 ms used\) and was stopped/u);
+  assert.match(boundedEnding({ ...ended, ending: "cpu-rlimit", signal: "SIGXCPU" }, DEFAULT_SUBPROCESS_BOUNDS), new RegExp(`spent its CPU-time limit of ${String(kernelCpuLimit(DEFAULT_SUBPROCESS_BOUNDS).soft)} s of CPU work \\(RLIMIT_CPU, the kernel backstop\\) and was ended by SIGXCPU`, "u"));
+  assert.match(boundedEnding({ ...ended, ending: "stalled" }, DEFAULT_SUBPROCESS_BOUNDS), /no output and less than 5% of a core's CPU work for 1800000 ms \(stalled\)/u);
+  assert.match(boundedEnding({ ...ended, ending: "hung" }, DEFAULT_SUBPROCESS_BOUNDS), /^HUNG: it was still running at the 7200 s hang backstop \(wall\)/u);
 });
+
+/** Bounds small enough for a fixture to reach each one (every fixture also ENDS ON ITS OWN, so a bound mutated away fails by name). */
+const SMALL: SubprocessBounds = { cpuBudgetMs: 60_000, minimumCpuRate: 0.05, stallMs: 60_000, hangBackstopMs: 120_000, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 };
+
+/** A fixture body that burns `cpuMs` of its own CPU (user plus system), then runs `after`. */
+function burnFor(cpuMs: number, after = ""): string {
+  return `const used = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; }; const until = used() + ${String(cpuMs)}; while (used() < until) {}\n${after}`;
+}
 
 /** Each bound, driven THROUGH runScriptSubprocess with bounds small enough to fire. */
 function boundedFixture(name: string, body: string): Readonly<{ dir: string; script: string }> {
@@ -515,11 +528,11 @@ function boundedFixture(name: string, body: string): Readonly<{ dir: string; scr
   return { dir, script: `scripts/${name}.ts` };
 }
 
-test("BOUND 1, the CPU-time limit: a step past it is ended by SIGXCPU and says so", () => {
-  const { dir, script } = boundedFixture("spin", "for (;;) {}\n");
+test("BOUND 1, the CPU budget: a step whose process group spends it is stopped and says so", async () => {
+  const { dir, script } = boundedFixture("spin", burnFor(10_000));
   try {
-    assert.throws(() => runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 1, cpuKillGraceSeconds: 5, hangBackstopMs: 120_000 } }), (error: unknown) => {
-      assert.match((error as Error).message, /spent its CPU-time limit of 1 s of CPU work \(RLIMIT_CPU\) and was ended by SIGXCPU/u);
+    await assert.rejects(runScriptSubprocess(dir, script, [], { bounds: { ...SMALL, cpuBudgetMs: 500 } }), (error: unknown) => {
+      assert.match((error as Error).message, /ended without a status payload: its process group spent its CPU budget of 500 ms/u);
       return true;
     });
   } finally {
@@ -527,23 +540,26 @@ test("BOUND 1, the CPU-time limit: a step past it is ended by SIGXCPU and says s
   }
 });
 
-test("BOUND 1 is BINDING: the hard limit is set too, so no child can raise its CPU limit", () => {
-  const { dir, script } = boundedFixture("limits", 'import { execFileSync } from "node:child_process";\nconst read = (flag: string) => execFileSync("/bin/sh", ["-c", `ulimit ${flag} -t`], { encoding: "utf8" }).trim();\nlet raised = "refused";\ntry { execFileSync("/bin/sh", ["-c", "ulimit -H -t unlimited"], { stdio: "ignore" }); raised = "raised"; } catch {}\nprocess.stdout.write(JSON.stringify({ soft: read("-S"), hard: read("-H"), raised }));\n');
+test("BOUND 1 is BINDING: the kernel's CPU-time limit is set, hard as well as soft, past the budget, so no child can raise it; the step was exec'd under it", async () => {
+  const { dir, script } = boundedFixture("limits", 'import { execFileSync } from "node:child_process";\nconst read = (flag: string) => execFileSync("/bin/sh", ["-c", `ulimit ${flag} -t`], { encoding: "utf8" }).trim();\nlet raised = "refused";\ntry { execFileSync("/bin/sh", ["-c", "ulimit -H -t unlimited"], { stdio: "ignore" }); raised = "raised"; } catch {}\nprocess.stdout.write(JSON.stringify({ soft: read("-S"), hard: read("-H"), raised, parent: process.ppid === Number(process.argv[2]) }));\n');
   try {
-    const ran = runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 7, cpuKillGraceSeconds: 3, hangBackstopMs: 120_000 } });
+    // soft = ceil((4800 + 2 × 100 + 2000) / 1000) + 1 = 8 s; hard = soft + ceil(2000 / 1000) + 1 = 11 s.
+    const bounds = { ...SMALL, cpuBudgetMs: 4_800, pollMs: 100, killGraceMs: 2_000 };
+    assert.deepEqual(kernelCpuLimit(bounds), { soft: 8, hard: 11 });
+    const ran = await runScriptSubprocess(dir, script, [String(process.pid)], { bounds });
     assert.ok(ran.ok, "the limits probe exits clean");
-    const answer = JSON.parse(ran.payload) as { soft: string; hard: string; raised: string };
-    assert.deepEqual(answer, { soft: "7", hard: "10", raised: "refused" });
+    const answer = JSON.parse(ran.payload) as Record<string, unknown>;
+    assert.deepEqual(answer, { soft: "8", hard: "11", raised: "refused", parent: true });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("BOUND 2, the hang backstop: a step still running at it is killed and reported HUNG (script_subprocess_hung)", () => {
-  const { dir, script } = boundedFixture("sleeps", "setTimeout(() => {}, 60_000);\n");
+test("BOUND 2, the stall: a step with no output and CPU under the floor is stopped and reported hung (script_subprocess_hung)", async () => {
+  const { dir, script } = boundedFixture("sleeps", "setTimeout(() => {}, 30_000);\n");
   try {
-    assert.throws(() => runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 60, cpuKillGraceSeconds: 5, hangBackstopMs: 300 } }), (error: unknown) => {
-      assert.match((error as Error).message, /ended without a status payload: HUNG: it was still running at the 0\.3 s hang backstop \(wall\) and was killed with SIGKILL/u);
+    await assert.rejects(runScriptSubprocess(dir, script, [], { bounds: { ...SMALL, stallMs: 300 } }), (error: unknown) => {
+      assert.match((error as Error).message, /ended without a status payload: it produced no output and less than 5% of a core's CPU work for 300 ms \(stalled\) and was stopped/u);
       assert.equal((error as { code?: unknown }).code, "script_subprocess_hung");
       return true;
     });
@@ -552,10 +568,23 @@ test("BOUND 2, the hang backstop: a step still running at it is killed and repor
   }
 });
 
-test("a typed refusal printed by a step that was then KILLED is reported as the kill, never as the refusal", () => {
+test("BOUND 3, the hang backstop: a step still running at it, however busy, is stopped and reported HUNG (script_subprocess_hung)", async () => {
+  const { dir, script } = boundedFixture("chatty", "setInterval(() => console.log('.'), 100);\nsetTimeout(() => process.exit(0), 30_000);\n");
+  try {
+    await assert.rejects(runScriptSubprocess(dir, script, [], { bounds: { ...SMALL, hangBackstopMs: 300 } }), (error: unknown) => {
+      assert.match((error as Error).message, /ended without a status payload: HUNG: it was still running at the 0\.3 s hang backstop \(wall\) and was stopped/u);
+      assert.equal((error as { code?: unknown }).code, "script_subprocess_hung");
+      return true;
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a typed refusal printed by a step that was then KILLED is reported as the kill, never as the refusal", async () => {
   const { dir, script } = boundedFixture("refused-then-killed", 'process.stderr.write(JSON.stringify({ error: "some_refusal", message: "the step refused" }) + "\\n");\nprocess.kill(process.pid, "SIGTERM");\nsetTimeout(() => {}, 10_000);\n');
   try {
-    assert.throws(() => runScriptSubprocess(dir, script, []), (error: unknown) => {
+    await assert.rejects(runScriptSubprocess(dir, script, []), (error: unknown) => {
       assert.match((error as Error).message, /ended without a status payload: it was ended by signal SIGTERM/u);
       assert.notEqual((error as { code?: unknown }).code, "some_refusal");
       return true;
@@ -572,21 +601,21 @@ test("a typed refusal printed by a step that was then KILLED is reported as the 
 // allPassed. A step ended by a signal or a bound, or with no payload, fails.
 // ---------------------------------------------------------------------------
 
-test("FAIL-CLOSED: a step that printed a PASS and was then killed, or ran past its CPU bound, is a failure naming how it ended; a step that answered nothing is one too", () => {
+test("FAIL-CLOSED: a step that printed a PASS and was then killed, or ran past its CPU bound, is a failure naming how it ended; a step that answered nothing is one too", async () => {
   const killed = boundedFixture("pass-then-killed", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nprocess.kill(process.pid, "SIGTERM");\nsetTimeout(() => {}, 10_000);\n');
-  const spun = boundedFixture("pass-then-spun", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nfor (;;) {}\n');
+  const spun = boundedFixture("pass-then-spun", `process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\n${burnFor(10_000)}`);
   const silent = boundedFixture("silent-zero", "process.exit(0);\n");
   try {
-    assert.throws(() => runScriptSubprocess(killed.dir, killed.script, []), (error: unknown) => {
+    await assert.rejects(runScriptSubprocess(killed.dir, killed.script, []), (error: unknown) => {
       assert.match((error as Error).message, /ended without a status payload: it was ended by signal SIGTERM \(the \d+ characters it printed on stdout before it ended are not a verdict\)/u);
       assert.equal((error as { code?: unknown }).code, "script_subprocess_unfinished");
       return true;
     });
-    assert.throws(() => runScriptSubprocess(spun.dir, spun.script, [], { bounds: { cpuLimitSeconds: 1, cpuKillGraceSeconds: 5, hangBackstopMs: 120_000 } }), (error: unknown) => {
-      assert.match((error as Error).message, /spent its CPU-time limit of 1 s of CPU work \(RLIMIT_CPU\) and was ended by SIGXCPU \(the \d+ characters/u);
+    await assert.rejects(runScriptSubprocess(spun.dir, spun.script, [], { bounds: { ...SMALL, cpuBudgetMs: 500 } }), (error: unknown) => {
+      assert.match((error as Error).message, /its process group spent its CPU budget of 500 ms \(\d+ ms used\) and was stopped \(the \d+ characters/u);
       return true;
     });
-    assert.throws(() => runScriptSubprocess(silent.dir, silent.script, []), (error: unknown) => {
+    await assert.rejects(runScriptSubprocess(silent.dir, silent.script, []), (error: unknown) => {
       assert.match((error as Error).message, /ended without a status payload: it exited with status 0 \(it printed nothing on stderr\)/u);
       return true;
     });
@@ -595,15 +624,15 @@ test("FAIL-CLOSED: a step that printed a PASS and was then killed, or ran past i
   }
 });
 
-test("FAIL-CLOSED: a step that printed a PASS and then exited non-zero, or crashed, did not exit clean; its payload is never its verdict", () => {
+test("FAIL-CLOSED: a step that printed a PASS and then exited non-zero, or crashed, did not exit clean; its payload is never its verdict", async () => {
   const exited = boundedFixture("pass-then-exit-1", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nprocess.exitCode = 1;\n');
   const crashed = boundedFixture("pass-then-crash", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nthrow new Error("the step crashed after printing");\n');
   const clean = boundedFixture("pass-clean", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\n');
   try {
     // Only the clean branch carries a payload; a failed one carries what it printed, under another name.
-    assert.deepEqual(runScriptSubprocess(exited.dir, exited.script, []), { ok: false, ending: "it exited with status 1", printed: '{"fresh":true,"status":"pass"}' });
-    assert.deepEqual(runScriptSubprocess(crashed.dir, crashed.script, []), { ok: false, ending: "it exited with status 1", printed: '{"fresh":true,"status":"pass"}' });
-    assert.deepEqual(runScriptSubprocess(clean.dir, clean.script, []), { ok: true, payload: '{"fresh":true,"status":"pass"}' });
+    assert.deepEqual(await runScriptSubprocess(exited.dir, exited.script, []), { ok: false, ending: "it exited with status 1", printed: '{"fresh":true,"status":"pass"}' });
+    assert.deepEqual(await runScriptSubprocess(crashed.dir, crashed.script, []), { ok: false, ending: "it exited with status 1", printed: '{"fresh":true,"status":"pass"}' });
+    assert.deepEqual(await runScriptSubprocess(clean.dir, clean.script, []), { ok: true, payload: '{"fresh":true,"status":"pass"}' });
   } finally {
     for (const one of [exited, crashed, clean]) rmSync(one.dir, { recursive: true, force: true });
   }
@@ -664,14 +693,14 @@ test("FAIL-CLOSED, end to end: a `harness sync` whose check step prints a pass a
  * the arm judges it current (the control); exiting 1 after printing the very
  * same payload, it never does.
  */
-const CLEAN_EXIT_ARMS: readonly Readonly<{ arm: string; script: string; payload: unknown; current: (root: string) => boolean }>[] = [
+const CLEAN_EXIT_ARMS: readonly Readonly<{ arm: string; script: string; payload: unknown; current: (root: string) => Promise<boolean> }>[] = [
   {
     arm: "the disposition auto-add",
     script: "scripts/tooling/run-tests.ts",
     payload: { status: "current", addedCount: 0, addedPaths: [], prunedCount: 0, prunedPaths: [] },
-    current: (root) => {
+    current: async (root) => {
       try {
-        return autoAddDispositionEntries(root, true, []).status === "current";
+        return (await autoAddDispositionEntries(root, true, [])).status === "current";
       } catch (error) {
         assert.equal((error as { code?: unknown }).code, "disposition_auto_add_failed");
         return false;
@@ -682,35 +711,35 @@ const CLEAN_EXIT_ARMS: readonly Readonly<{ arm: string; script: string; payload:
     arm: "the test-inventory regenerate arm",
     script: "scripts/test-inventory.ts",
     payload: { status: "current", testCount: 3, inventoryHash: "0123456789abcdef" },
-    current: (root) => regenerateTestInventory(root, false).status === "current",
+    current: async (root) => (await regenerateTestInventory(root, false)).status === "current",
   },
   {
     arm: "the pin-authority arm",
     script: "scripts/pin-authority-regeneration.ts",
     payload: { allCurrent: true, results: [{ status: "current" }] },
-    current: (root) => regeneratePinAuthorities(root, false).converged,
+    current: async (root) => (await regeneratePinAuthorities(root, false)).converged,
   },
   {
     arm: "the ratchet-baseline arm",
     script: "scripts/verification/ratchet-baselines.ts",
     payload: { allCurrent: true, results: [] },
-    current: (root) => regenerateRatchetBaselines(root, false).converged,
+    current: async (root) => (await regenerateRatchetBaselines(root, false)).converged,
   },
   {
     arm: "the generator arm (decision index, shipped hooks, README consumers)",
     script: "scripts/generator.ts",
     payload: { allCurrent: true, status: "current", changed: [] },
-    current: (root) => generatorReport(root, "scripts/generator.ts", ["--check"], "a generator", "generator_no_result").allCurrent,
+    current: async (root) => (await generatorReport(root, "scripts/generator.ts", ["--check"], "a generator", "generator_no_result")).allCurrent,
   },
   {
     arm: "the check's inventory step",
     script: "scripts/test-inventory.ts",
     payload: { status: "current", testCount: 3, inventoryHash: "0123456789abcdef", transactionPresent: false },
-    current: (root) => runInventoryCheck(root).status === "pass",
+    current: async (root) => (await runInventoryCheck(root)).status === "pass",
   },
 ];
 
-test("FAIL-CLOSED, every arm: a script that prints its arm's current/pass answer and then exits 1 is never judged current; exiting 0 it is", () => {
+test("FAIL-CLOSED, every arm: a script that prints its arm's current/pass answer and then exits 1 is never judged current; exiting 0 it is", async () => {
   for (const row of CLEAN_EXIT_ARMS) {
     for (const exit of [0, 1] as const) {
       const dir = createTempDir("harness-arm-exit-");
@@ -720,7 +749,7 @@ test("FAIL-CLOSED, every arm: a script that prints its arm's current/pass answer
           mkdirSync(join(dir, script, ".."), { recursive: true });
           writeFileSync(join(dir, script), `process.stdout.write(${JSON.stringify(JSON.stringify(row.payload))} + "\\n");\nprocess.exitCode = ${String(exit)};\n`);
         }
-        assert.equal(row.current(dir), exit === 0, `${row.arm}, exiting ${String(exit)} after printing its current answer`);
+        assert.equal(await row.current(dir), exit === 0, `${row.arm}, exiting ${String(exit)} after printing its current answer`);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

@@ -210,6 +210,22 @@ chmod 600 engine/bridlewise.config.json
 
 A fresh checkout commonly gets `0644` or `0664`; the CLI refuses it with `config_mode_insecure`. Do not weaken the check by editing the config. Set `HARNESS_CONFIG_PATH` to point at another pinned document when you need an isolated run.
 
+### How harness steps are bounded
+
+Every step the harness runs as a subprocess is bounded by its work, never by how long a busy machine makes it wait. This covers the `harness sync` and `harness check` steps, the typecheck, the commit guard's compile checks, and the maintainer's `gh` calls. The settings live in `harness.subprocessBounds`. Each one you leave out takes its default, and the shipped file states them all. They are also rows in the settings room, under "How the harness's own commands are bounded". A change takes effect on the next run.
+
+| Setting | Default | What it bounds |
+|---|---:|---|
+| `cpuBudgetMs` | `1800000` (30 min) | The CPU time a step and every process it started may use together. Past it, the step is stopped as over budget. |
+| `minimumCpuRate` | `0.05` (5% of a core) | How busy a step that prints nothing must be to count as working. The rate is averaged since its last progress. |
+| `stallMs` | `1800000` (30 min) | How long a step may print nothing and stay under `minimumCpuRate` before it is stopped as stalled. |
+| `hangBackstopMs` | `7200000` (2 h) | The one limit on elapsed time. A step still running at it is stopped as hung, however busy it is. |
+| `pollMs` | `1000` | How often a step's CPU time and output are read. Must be shorter than `stallMs`. |
+| `killGraceMs` | `5000` | The time between asking a stopped step to exit and ending it, along with every process it started. |
+| `outputBytes` | `268435456` (256 MiB) | The output a step may print. Past it, the step is stopped. |
+
+The kernel's per-process CPU limit (RLIMIT_CPU) is derived from these values, never set on its own. It sits just past what the harness's own stop needs, so it ends a process only when the harness cannot: a process that left its group, or a run whose supervisor died.
+
 ## Exit codes
 
 | Code | Meaning |

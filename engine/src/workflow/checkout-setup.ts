@@ -58,7 +58,7 @@ import { trackedFiles } from "../git/repository-ownership.ts";
 import { CHECKOUT_COMMAND_ENVIRONMENT, projectEnvironment } from "../process/environment-projection.ts";
 import { superviseCommand, type SupervisedCommand } from "../process/supervised-run.ts";
 import { debugLog } from "../shared/debug/debug-system.ts";
-import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, SUBPROCESS_BOUNDS, commandRetryPolicy } from "./workflow-config.ts";
+import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, configuredSubprocessBounds, commandRetryPolicy } from "./workflow-config.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { workingTreeId } from "../git/working-copy.ts";
 import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount, type InstrumentHold, type PerRunCaps } from "../process/instrument-lock.ts";
@@ -246,11 +246,11 @@ async function runHoldingInstrumentLock(checkoutRoot: string, name: string, comm
   const label = `checkout setup: ${name}`;
   let hold: InstrumentHold;
   if (runner.instrumentLock !== undefined) {
-    hold = admitInstrumentRun(runner.instrumentLock.lockPath, label, runner.instrumentLock.perRun, SUBPROCESS_BOUNDS);
+    hold = admitInstrumentRun(runner.instrumentLock.lockPath, label, runner.instrumentLock.perRun, configuredSubprocessBounds());
   } else {
     const lock = readTestExecutionConfig(ENGINE_ROOT).instrumentLock;
     if (lock === undefined) throw new InputError("testExecution.instrumentLock is not declared in bridlewise.config.json", "instrument_lock_undeclared");
-    hold = holdInstrumentLock({ config: lock, harnessRoot: ENGINE_ROOT, runner: label, testFileCount: wholeInstrumentTestFileCount(lock, "slot"), cpu: SUBPROCESS_BOUNDS });
+    hold = holdInstrumentLock({ config: lock, harnessRoot: ENGINE_ROOT, runner: label, testFileCount: wholeInstrumentTestFileCount(lock, "slot"), cpu: configuredSubprocessBounds() });
   }
   try {
     const outcome = await runWithRetries(checkoutRoot, name, command, runner);
