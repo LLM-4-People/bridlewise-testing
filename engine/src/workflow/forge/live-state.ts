@@ -107,7 +107,44 @@ function namedCollection<T extends Record<string, unknown>>(options: Readonly<{
   };
 }
 
-type Environment = Readonly<{ deployment_branch_policy?: unknown; can_admins_bypass?: unknown; protection_rules?: readonly Readonly<{ type?: string; reviewers?: readonly Readonly<{ type?: string; reviewer?: { id?: number } }>[] }>[] }>;
+/**
+ * An issue field. Its options are compared by what is declared (name, color,
+ * priority), never by their ids. An update sends each existing option's id
+ * (matched by name), because an option sent without its id is a new option,
+ * and every issue's value of the old one would be wiped.
+ */
+function issueField(): KindAdapter {
+  type FieldOption = Readonly<{ id?: unknown; name?: unknown; color?: unknown; priority?: unknown }>;
+  const withoutIds = (item: Record<string, unknown>): unknown => Array.isArray(item.options)
+    ? { ...item, options: (item.options as FieldOption[]).map(({ id: _id, ...option }) => option) }
+    : item;
+  const base = namedCollection<Record<string, unknown>>({
+    collection: (context) => `${orgPath(context)}/issue-fields`,
+    nameOf: (item) => String(item.name),
+    idOf: (item) => item.id as number,
+    itemPath: (context, _scope, id) => `${orgPath(context)}/issue-fields/${String(id)}`,
+    updateMethod: "PATCH",
+    updateOmits: ["data_type"],
+    normalize: withoutIds,
+  });
+  return {
+    ...base,
+    update: async (context, object, body, found) => {
+      const raw = (await list<Record<string, unknown>>(context, `${orgPath(context)}/issue-fields`)).find((item) => item.name === object.key);
+      const liveOptions = Array.isArray(raw?.options) ? (raw.options as FieldOption[]) : [];
+      const declared = body as Record<string, unknown>;
+      const withIds = Array.isArray(declared.options)
+        ? { ...declared, options: (declared.options as FieldOption[]).map((option) => {
+          const existing = liveOptions.find((candidate) => candidate.name === option.name);
+          return existing?.id === undefined ? option : { id: existing.id, ...option };
+        }) }
+        : declared;
+      await base.update(context, object, withIds, found);
+    },
+  };
+}
+
+type Environment = Readonly<{ deployment_branch_policy?: unknown; can_admins_bypass?: unknown; protection_rules?: readonly Readonly<{ type?: string; prevent_self_review?: unknown; reviewers?: readonly Readonly<{ type?: string; reviewer?: { id?: number } }>[] }>[] }>;
 
 const environment: KindAdapter = {
   read: async (context, object) => {
@@ -115,8 +152,12 @@ const environment: KindAdapter = {
     const found = await getOrAbsent<Environment>(context, path);
     if (found === undefined) return undefined;
     const policies = await list<{ name: string }>(context, `${path}/deployment-branch-policies`, (data) => (data as { branch_policies?: { name: string }[] }).branch_policies ?? []);
-    const reviewers = (found.protection_rules ?? []).filter((rule) => rule.type === "required_reviewers").flatMap((rule) => rule.reviewers ?? []).map((entry) => ({ type: entry.type, id: entry.reviewer?.id }));
-    return { live: { deployment_branch_policy: found.deployment_branch_policy, can_admins_bypass: found.can_admins_bypass, branch_policies: policies.map((policy) => policy.name).sort(), ...(reviewers.length === 0 ? {} : { reviewers }) } };
+    const reviewerRules = (found.protection_rules ?? []).filter((rule) => rule.type === "required_reviewers");
+    const reviewers = reviewerRules.flatMap((rule) => rule.reviewers ?? []).map((entry) => ({ type: entry.type, id: entry.reviewer?.id }));
+    return { live: {
+      deployment_branch_policy: found.deployment_branch_policy, can_admins_bypass: found.can_admins_bypass, branch_policies: policies.map((policy) => policy.name).sort(),
+      ...(reviewers.length === 0 ? {} : { reviewers, prevent_self_review: reviewerRules.some((rule) => rule.prevent_self_review === true) }),
+    } };
   },
   create: async (context, object, body) => environment.update(context, object, body, { live: { branch_policies: [] } }),
   update: async (context, object, body, found) => {
@@ -132,14 +173,39 @@ const ROLE_PERMISSION: Readonly<Record<string, string>> = { read: "pull", triage
 
 const teamSlug = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/gu, "-");
 
+/**
+ * A team, with its MEMBERS as data: read back (so a member added in the UI is
+ * drift) and reconciled after every write: the declared members are added and
+ * every other member is removed. That includes the account GitHub adds as
+ * maintainer when a team is created through the API.
+ */
 const team: KindAdapter = {
   read: async (context, object) => {
-    const found = await getOrAbsent<Record<string, unknown>>(context, `${orgPath(context)}/teams/${segment(teamSlug(object.key))}`);
-    return found === undefined ? undefined : { live: found, id: found.id as number };
+    const path = `${orgPath(context)}/teams/${segment(teamSlug(object.key))}`;
+    const found = await getOrAbsent<Record<string, unknown>>(context, path);
+    if (found === undefined) return undefined;
+    const members = (await list<{ login?: unknown }>(context, `${path}/members`)).flatMap((member) => typeof member.login === "string" ? [member.login] : []).sort();
+    return { live: { ...found, members }, id: found.id as number };
   },
-  create: async (context, _object, body) => { await send(context, "POST", `${orgPath(context)}/teams`, body); },
-  update: async (context, object, body) => { await send(context, "PATCH", `${orgPath(context)}/teams/${segment(teamSlug(object.key))}`, body); },
+  create: async (context, object, body) => {
+    const { members, ...fields } = body as { members: readonly string[] } & Record<string, unknown>;
+    await send(context, "POST", `${orgPath(context)}/teams`, fields);
+    await reconcileMembers(context, object, members);
+  },
+  update: async (context, object, body) => {
+    const { members, ...fields } = body as { members: readonly string[] } & Record<string, unknown>;
+    await send(context, "PATCH", `${orgPath(context)}/teams/${segment(teamSlug(object.key))}`, fields);
+    await reconcileMembers(context, object, members);
+  },
 };
+
+/** The team's members made exactly the declared ones. */
+async function reconcileMembers(context: LiveContext, object: ForgeObject, declared: readonly string[]): Promise<void> {
+  const path = `${orgPath(context)}/teams/${segment(teamSlug(object.key))}`;
+  const current = (await list<{ login?: unknown }>(context, `${path}/members`)).flatMap((member) => typeof member.login === "string" ? [member.login] : []);
+  for (const login of declared) if (!current.includes(login)) await send(context, "PUT", `${path}/memberships/${segment(login)}`, { role: "member" });
+  for (const login of current) if (!declared.includes(login)) await send(context, "DELETE", `${path}/memberships/${segment(login)}`);
+}
 
 const teamRepository: KindAdapter = {
   read: async (context, object) => {
@@ -174,6 +240,17 @@ const immutableReleases: KindAdapter = {
   update: async (context, object) => { await send(context, "PUT", `${repoPath(context, repositoryOf(object))}/immutable-releases`); },
 };
 
+/**
+ * The two Advanced Security features GitHub reads back only as `advanced_security` (its per-feature `code_security` and
+ * `secret_protection` come back null): `enabled` is both, `code_security` or `secret_protection` the one, `disabled`
+ * neither. A per-feature value GitHub does answer is kept as answered.
+ */
+const ADVANCED_SECURITY_FEATURES: Readonly<Record<string, Readonly<{ code_security: string; secret_protection: string }>>> = {
+  enabled: { code_security: "enabled", secret_protection: "enabled" },
+  code_security: { code_security: "enabled", secret_protection: "disabled" },
+  secret_protection: { code_security: "disabled", secret_protection: "enabled" },
+  disabled: { code_security: "disabled", secret_protection: "disabled" },
+};
 const securityConfiguration: KindAdapter = {
   ...namedCollection<Record<string, unknown>>({
     collection: (context) => `${orgPath(context)}/code-security/configurations`,
@@ -181,15 +258,66 @@ const securityConfiguration: KindAdapter = {
     idOf: (item) => item.id as number,
     itemPath: (context, _scope, id) => `${orgPath(context)}/code-security/configurations/${String(id)}`,
     updateMethod: "PATCH",
+    normalize: (item) => {
+      const derived = ADVANCED_SECURITY_FEATURES[String(item.advanced_security)];
+      return {
+        ...item,
+        code_security: typeof item.code_security === "string" ? item.code_security : derived?.code_security,
+        secret_protection: typeof item.secret_protection === "string" ? item.secret_protection : derived?.secret_protection,
+      };
+    },
   }),
 };
-/** After a write, the configuration is attached to every repository and made the default for new ones (github-only §8.1). */
-async function attachSecurityConfiguration(context: LiveContext, object: ForgeObject): Promise<void> {
-  const found = await securityConfiguration.read(context, object);
-  if (found === undefined) return;
-  const path = `${orgPath(context)}/code-security/configurations/${String(found.id)}`;
-  await send(context, "POST", `${path}/attach`, { scope: "all" });
-  await send(context, "PUT", `${path}/defaults`, { default_for_new_repos: "all" });
+/**
+ * WHICH REPOSITORIES a security configuration is attached to, as data
+ * (`security-configuration-repositories`, keyed by the configuration's
+ * name): the declared repositories exactly, attached with the `selected`
+ * scope (never `all`: the organisation holds repositories the forge does not
+ * govern), any other repository detached, and its default for new
+ * repositories. Read back the same way, so a repository attached or detached
+ * in the UI is drift.
+ */
+type AttachmentDesired = Readonly<{ repositories: readonly string[]; default_for_new_repos: string }>;
+/** The attachment statuses that mean the configuration governs the repository (or is about to). */
+const EFFECTIVE_ATTACHMENT: ReadonlySet<string> = new Set(["attached", "attaching", "enforced", "updating"]);
+const securityConfigurationRepositories: KindAdapter = {
+  read: async (context, object) => {
+    const configuration = await securityConfiguration.read(context, { ...object, kind: "security-configuration" });
+    if (configuration === undefined) return undefined;
+    const path = `${orgPath(context)}/code-security/configurations/${String(configuration.id)}`;
+    // Every status (GitHub's default lists failed, detached and removed ones too): only an EFFECTIVE attachment counts,
+    // and a failed one is a loud refusal, never a success.
+    const attached = await context.client.paginate<{ status?: unknown; repository?: { name?: unknown } }>({ path: `${path}/repositories`, query: { status: "all" } }, { maxPages: context.maxPages, perPage: 100 });
+    const failed = attached.filter((entry) => entry.status === "failed").flatMap((entry) => typeof entry.repository?.name === "string" ? [entry.repository.name] : []);
+    if (failed.length > 0) {
+      throw new ForgeError("forge_security_attach_failed", `The security configuration ${object.key} failed to attach to ${failed.sort().join(", ")} (a configuration GitHub cannot enable there, such as secret scanning on a private repository without Secret Protection).`, { key: object.key, repositories: failed.sort().join(",") });
+    }
+    const effective = attached.filter((entry) => typeof entry.status === "string" && EFFECTIVE_ATTACHMENT.has(entry.status));
+    const defaults = await getOrAbsent<readonly { default_for_new_repos?: unknown; configuration?: { id?: unknown } }[]>(context, `${orgPath(context)}/code-security/configurations/defaults`);
+    const defaultFor = (defaults ?? []).find((entry) => entry.configuration?.id === configuration.id)?.default_for_new_repos;
+    return {
+      live: { repositories: effective.flatMap((entry) => typeof entry.repository?.name === "string" ? [entry.repository.name] : []).sort(), default_for_new_repos: typeof defaultFor === "string" ? defaultFor : "none" },
+      ...(configuration.id === undefined ? {} : { id: configuration.id }),
+    };
+  },
+  create: async (context, object, body) => { await attachExactly(context, object, body as AttachmentDesired, []); },
+  update: async (context, object, body, found) => { await attachExactly(context, object, body as AttachmentDesired, (found.live as AttachmentDesired).repositories); },
+};
+
+/** Attach exactly the declared repositories (by id, the `selected` scope), detach the others the configuration holds, set its default. */
+async function attachExactly(context: LiveContext, object: ForgeObject, desired: AttachmentDesired, attached: readonly string[]): Promise<void> {
+  const configuration = await securityConfiguration.read(context, { ...object, kind: "security-configuration" });
+  if (configuration === undefined) throw new ForgeError("forge_reference_unresolved", `The security configuration ${object.key} does not exist yet; it is created first.`, { key: object.key });
+  const idOf = async (name: string): Promise<number> => {
+    const repository = await getOrAbsent<{ id?: unknown }>(context, repoPath(context, name));
+    if (typeof repository?.id !== "number") throw new ForgeError("forge_reference_unresolved", `The repository ${name} does not exist, so it cannot carry a security configuration.`, { repository: name });
+    return repository.id;
+  };
+  const path = `${orgPath(context)}/code-security/configurations/${String(configuration.id)}`;
+  const extra = attached.filter((name) => !desired.repositories.includes(name));
+  if (desired.repositories.length > 0) await send(context, "POST", `${path}/attach`, { scope: "selected", selected_repository_ids: await Promise.all(desired.repositories.map(idOf)) });
+  if (extra.length > 0) await send(context, "DELETE", `${orgPath(context)}/code-security/configurations/detach`, { selected_repository_ids: await Promise.all(extra.map(idOf)) });
+  await send(context, "PUT", `${path}/defaults`, { default_for_new_repos: desired.default_for_new_repos });
 }
 
 type ProjectNode = Readonly<{ id: string; title: string; public: boolean; fields: { nodes: readonly Readonly<{ id?: string; name?: string; dataType?: string; options?: readonly Readonly<{ name: string }>[] }>[] } }>;
@@ -210,11 +338,17 @@ const project: KindAdapter = {
     if (found === undefined) return undefined;
     const fields = found.fields.nodes.filter((field) => field.name !== undefined);
     const status = fields.find((field) => field.name === "Status")?.options?.map((option) => option.name) ?? [];
+    // Only the DECLARED fields, by name and in the declared order: GitHub's own fields (Title, Assignees, Labels, …) are
+    // its, never drift; a declared field it lacks is absent here, and the update creates it.
+    const declared = (object.desired as ProjectDesired).fields.map((field) => field.name);
     return {
       id: found.id,
       live: {
         title: found.title, public: found.public, status,
-        fields: fields.filter((field) => field.name !== "Status").map((field) => ({ name: field.name, dataType: field.dataType, ...(field.options === undefined ? {} : { options: field.options.map((option) => option.name) }) })),
+        fields: declared.flatMap((name) => {
+          const field = fields.find((candidate) => candidate.name === name);
+          return field === undefined ? [] : [{ name: field.name, dataType: field.dataType, ...(field.options === undefined ? {} : { options: field.options.map((option) => option.name) }) }];
+        }),
       },
     };
   },
@@ -288,6 +422,7 @@ export const KIND_ADAPTERS: Readonly<Record<ForgeObjectKind, KindAdapter>> = Obj
   team,
   "team-repository": teamRepository,
   "security-configuration": securityConfiguration,
+  "security-configuration-repositories": securityConfigurationRepositories,
   "org-ruleset": rulesetOf((context) => orgPath(context), "Organization"),
   "repository-settings": singleton((context, object) => repoPath(context, repositoryOf(object)), "PATCH"),
   "actions-permissions": singleton((context, object) => `${repoPath(context, repositoryOf(object))}/actions/permissions`, "PUT"),
@@ -311,14 +446,7 @@ export const KIND_ADAPTERS: Readonly<Record<ForgeObjectKind, KindAdapter>> = Obj
     itemPath: (context, _scope, id) => `${orgPath(context)}/issue-types/${String(id)}`,
     updateMethod: "PUT",
   }),
-  "issue-field": namedCollection<Record<string, unknown>>({
-    collection: (context) => `${orgPath(context)}/issue-fields`,
-    nameOf: (item) => String(item.name),
-    idOf: (item) => item.id as number,
-    itemPath: (context, _scope, id) => `${orgPath(context)}/issue-fields/${String(id)}`,
-    updateMethod: "PATCH",
-    updateOmits: ["data_type"],
-  }),
+  "issue-field": issueField(),
   autolink: {
     ...namedCollection<Record<string, unknown>>({
       collection: (context, scope) => `${repoBase(context, scope)}/autolinks`,
@@ -335,11 +463,6 @@ export const KIND_ADAPTERS: Readonly<Record<ForgeObjectKind, KindAdapter>> = Obj
   },
   project,
 });
-
-/** What runs after a write of `object` (the security configuration's attachment). */
-export async function afterWrite(context: LiveContext, object: ForgeObject): Promise<void> {
-  if (object.kind === "security-configuration") await attachSecurityConfiguration(context, object);
-}
 
 /** Kinds whose undeclared live objects are drift (a ruleset or autolink nobody declared); the others are reported only. */
 export const EXCLUSIVE_KINDS: ReadonlySet<ForgeObjectKind> = new Set(["org-ruleset", "ruleset", "autolink"]);

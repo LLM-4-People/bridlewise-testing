@@ -553,6 +553,9 @@ test("stdio: a polite close cancels the escalation timer — the configured boun
   // after the bound has been outlived.
   const killLog: string[] = [];
   const listeners = new Map<string, (() => void)[]>();
+  // The child closes when the TEST says so, so the test can tell which path
+  // ended the close: the close event, or the bound.
+  let exitPolitely: (() => void) | undefined;
   const duckChild = {
     killed: false,
     exitCode: null as number | null,
@@ -572,10 +575,10 @@ test("stdio: a polite close cancels the escalation timer — the configured boun
       }
       killLog.push(signal ?? "SIGTERM");
       if (signal === "SIGTERM") {
-        setTimeout(() => {
+        exitPolitely = () => {
           this.exitCode = 0;
           for (const cb of listeners.get("close") ?? []) cb();
-        }, 10);
+        };
       }
       return true;
     },
@@ -584,10 +587,15 @@ test("stdio: a polite close cancels the escalation timer — the configured boun
     { command: "true", args: [], cwd: "/srv/home", env: {}, spawn: () => duckChild, closeGraceMs: 400, stderrTailBytes: 8192, ...STDIO_BOUNDS },
   );
   await transport.connect();
-  const started = Date.now();
-  await transport.close();
-  const elapsed = Date.now() - started;
-  assert.ok(elapsed < 300, `a polite close resolves from the close event, not by waiting out the bound — elapsed ${elapsed}ms vs the 400ms bound`);
+  const closing = transport.close();
+  // ENDED BY ITS PATH, never by a wall clock (NO-LOAD-BLOCK): the close is
+  // pending until the child closes, and settles from the close event itself,
+  // in the same turn, before any timer (the 400 ms bound among them) runs.
+  const nextTurn = (): Promise<"not yet"> => new Promise((resolve) => setImmediate(() => resolve("not yet")));
+  assert.equal(await Promise.race([closing.then(() => "closed" as const), nextTurn()]), "not yet", "the close waits for the child");
+  assert.ok(exitPolitely !== undefined, "the close asked the child to exit (SIGTERM)");
+  exitPolitely();
+  assert.equal(await Promise.race([closing.then(() => "closed" as const), nextTurn()]), "closed", "a polite close resolves from the close event, not by waiting out the bound");
   // Outlive the bound: the escalation timer must be gone.
   await new Promise((resolve) => setTimeout(resolve, 550));
   assert.deepEqual(

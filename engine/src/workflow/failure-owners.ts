@@ -233,6 +233,11 @@ export function readEntries(root: string, directory: string): readonly { readonl
 // ── The structured tracker items ────────────────────────────────────────────
 
 const TRACKER_ITEM_SCHEMA = schemaId("tracker-item", 1);
+
+/** The schema id every tracker item's front matter names (for a writer outside this module). */
+export function trackerItemSchema(): string {
+  return TRACKER_ITEM_SCHEMA;
+}
 /** An item id: upper-case words and numbers joined by hyphens; the file is `<id>.md`. */
 const TRACKER_ITEM_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/u;
 /**
@@ -241,7 +246,7 @@ const TRACKER_ITEM_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/u;
  * and no state of its own (its state is computed from its members,
  * src/workflow/tracker-status.ts), and items name it in `milestone`.
  */
-const TRACKER_ITEM_TYPES = Object.freeze(["Milestone", "Workstream", "Task", "Bug", "Flake", "Lesson", "Risk", "Finding", "Security", "Intake"] as const);
+export const TRACKER_ITEM_TYPES = Object.freeze(["Milestone", "Workstream", "Task", "Bug", "Flake", "Lesson", "Risk", "Finding", "Security", "Intake"] as const);
 /** How soon an open item is meant: a plan's order of intent, never a date. */
 const TRACKER_HORIZONS = Object.freeze(["now", "next", "later"] as const);
 const TRACKER_ITEM_STATES = Object.freeze(["open", "closed"] as const);
@@ -304,8 +309,14 @@ export type TrackerItem = Readonly<{
 }>;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/u;
+
+/** Whether `value` is a tracker date, `YYYY-MM-DD` (the one pattern every writer of an item checks against). */
+export function isTrackerDate(value: string): boolean {
+  return DATE.test(value);
+}
 /** A value YAML reads back as the same plain STRING (the site reads item front matter as YAML; a YAML 1.1 reader turns `No` into false). */
-function yamlPlain(item: string): string | null {
+/** Why `item` is not a value YAML reads back as the same plain string (the site reads item front matter as YAML), or `null`. */
+export function yamlPlain(item: string): string | null {
   if (/^[-?:,[\]{}#&*!|>'"%@`]|: | #|\s$/u.test(item)) return `${JSON.stringify(item)} is not a plain YAML scalar (no leading indicator, ": " or " #")`;
   if (/^(?:y|yes|n|no|true|false|on|off|null|~)$/iu.test(item) || /^[-+]?(?:\.?\d)[\d._:eE+-]*$/u.test(item)) return `${JSON.stringify(item)} reads as a YAML boolean, null or number, not text`;
   return null;
@@ -446,12 +457,17 @@ export function trackerItems(entries: readonly { readonly name: string; readonly
   }).sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)));
 }
 
-/** The items a tree holds (a commit's, through `reader`): the same entries and parser as {@link readTrackerItems}; a tree without the folder has none. */
-export function trackerItemsOf(reader: TreeReader): readonly TrackerItem[] {
-  const prefix = `${TRACKER_BOARD.items}/`;
+/** Each entry directly in `directory` of a tree (a commit's, through `reader`) with its text, read in one batch: {@link readEntries} for a commit. */
+export function treeEntries(reader: TreeReader, directory: string): readonly { readonly name: string; readonly text: string }[] {
+  const prefix = `${directory}/`;
   const paths = reader.paths().filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes("/") && isEntryName(path.slice(prefix.length))).sort();
   reader.prefetch(paths);
-  return trackerItems(paths.map((path) => ({ name: path.slice(prefix.length), text: reader.text(path) ?? "" })));
+  return paths.map((path) => ({ name: path.slice(prefix.length), text: reader.text(path) ?? "" }));
+}
+
+/** The items a tree holds (a commit's, through `reader`): the same entries and parser as {@link readTrackerItems}; a tree without the folder has none. */
+export function trackerItemsOf(reader: TreeReader): readonly TrackerItem[] {
+  return trackerItems(treeEntries(reader, TRACKER_BOARD.items));
 }
 
 /**

@@ -37,7 +37,7 @@ import { appInstallationCredential } from "./forge/credentials.ts";
 import { forgeEndpoint, trunkRepository } from "./forge/forge-config.ts";
 import type { ForgeClient } from "./forge/port.ts";
 import { repositoryPath } from "./forge/repository-reads.ts";
-import type { ForgeCommit, ForgeEnqueueAnswer, ForgePullRequest, ForgeTreeEntry, WorkspaceForge, WorkspaceForgeFactory } from "./workspace-forge.ts";
+import type { ForgeCommit, ForgeEnqueueAnswer, ForgePullRequest, ForgeQueueEntry, ForgeTreeEntry, WorkspaceForge, WorkspaceForgeFactory } from "./workspace-forge.ts";
 
 /** The repository the forge serves, `owner/name`. */
 export type GithubWorkspaceRepository = Readonly<{ owner: string; name: string }>;
@@ -46,6 +46,13 @@ export type GithubWorkspaceRepository = Readonly<{ owner: string; name: string }
 const PULL_REQUEST_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) { id number url headRefOid baseRefName isDraft state merged mergeCommit { oid } isInMergeQueue }
+  }
+}`;
+
+/** The merge queue of one branch, in queue order (GitHub's own positions). */
+const MERGE_QUEUE_QUERY = `query($owner: String!, $name: String!, $branch: String!) {
+  repository(owner: $owner, name: $name) {
+    mergeQueue(branch: $branch) { entries(first: 100) { nodes { position pullRequest { number headRefOid } } } }
   }
 }`;
 
@@ -186,6 +193,20 @@ export function githubWorkspaceForge(client: ForgeClient, repository: GithubWork
         throw error;
       }
     },
+    async mergeQueue(branch: string): Promise<readonly ForgeQueueEntry[]> {
+      const data = await client.graphql<{ repository?: { mergeQueue?: { entries?: { nodes?: unknown } } | null } | null }>(MERGE_QUEUE_QUERY, { owner: repository.owner, name: repository.name, branch });
+      const nodes = data.repository?.mergeQueue?.entries?.nodes ?? [];
+      if (!Array.isArray(nodes)) invalid("mergeQueue.entries");
+      return Object.freeze((nodes as { position?: unknown; pullRequest?: { number?: unknown; headRefOid?: unknown } | null }[])
+        .map((node) => {
+          const number = node.pullRequest?.number;
+          if (typeof number !== "number" || typeof node.position !== "number") invalid("mergeQueue.entries.nodes");
+          // A queued head is fetched from GitHub's own pull-request ref: a fork's head too.
+          return { position: node.position as number, entry: Object.freeze({ number, headSha: text(node.pullRequest?.headRefOid, "mergeQueue.headRefOid"), fetchRef: `refs/pull/${String(number)}/head` }) };
+        })
+        .toSorted((left, right) => left.position - right.position)
+        .map(({ entry }) => entry));
+    },
   });
 }
 
@@ -231,7 +252,7 @@ export function githubWorkspaceForgeFactory(landTargets: readonly string[]): Wor
     // The key home is admitted on the first signature, not here: a workspace that never reaches the forge needs no App key.
     let admitted: AppKeyCustody | undefined;
     const custody: AppKeyCustody = Object.freeze({
-      identity: (role: ForgeAppRole) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).identity(role),
+      clientId: (role: ForgeAppRole) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).clientId(role),
       signRs256: (role: ForgeAppRole, data: Uint8Array) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).signRs256(role, data),
     });
     const credential = appInstallationCredential(forgeEndpoint(settings), custody, { role: "agent", owner: settings.organization, repository: trunk.name, renewBeforeMs: settings.tokenRenewBeforeMs });

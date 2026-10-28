@@ -167,11 +167,23 @@ export function isPossibleUsSsn(value: string): boolean {
 // ── LAYER 2: one grammar each ────────────────────────────────────────────
 
 /**
- * An email address. The grammar is bounded on both sides so it cannot run
- * away down a line, and the TLD must be alphabetic and at least two
- * characters, which is what keeps `version@1.2` and `user@localhost` out.
+ * THE ONE ADDRESS GRAMMAR, shared by every reader of addresses (this privacy
+ * grammar; the commit-records judge, engine/scripts/verification/sign-off.ts).
+ * Bounded on both sides so it cannot run away down a line or go quadratic: a
+ * local part of at most 64 characters, labels of at most 63, a top-level label
+ * alphabetic and 2 to 24 characters long — which keeps `version@1.2` and
+ * `user@localhost` out. Letters and digits are Unicode (`\p{L}`, `\p{N}`), so an
+ * internationalised domain is an address too. A fresh `g` pattern per call (a
+ * shared one keeps its `lastIndex`).
  */
-const EMAIL = /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.[A-Za-z]{2,24}/gu;
+const EMAIL_ADDRESS_SOURCE = String.raw`[\p{L}\p{N}._%+-]{1,64}@[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?(?:\.[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?)*\.\p{L}{2,24}`;
+
+/** A new global matcher for {@link EMAIL_ADDRESS_SOURCE}. */
+export function emailAddressPattern(): RegExp {
+  return new RegExp(EMAIL_ADDRESS_SOURCE, "gu");
+}
+
+const EMAIL = emailAddressPattern();
 
 /**
  * A dotted-quad IPv4 address, every octet ≤ 255.

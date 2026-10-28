@@ -17,7 +17,7 @@ import { PromotionError, type PromotionAnswer, type PromotionCode } from "../../
 import { applyPromotion } from "../../../src/workflow/promotion/apply.ts";
 import { resolvePromotionContext, type PromotionDocument } from "../../../src/workflow/promotion/context.ts";
 import { promotionFolder, promotionRefs, type ApplyRequest, type ApplyRun } from "../../../src/workflow/promotion/promotion-run.ts";
-import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../../guardian/build.ts";
 import { FIXTURE_ENGINE, FIXTURE_GENERATED, PROFILE_NAME, SOURCE, promotionFixture, type FixtureOptions, type PromotionFixture } from "./promotion-fixture.ts";
 
 export type ApplyOptions = Readonly<{
@@ -41,7 +41,7 @@ export function fixtureRun(fixture: PromotionFixture, options: ApplyOptions = {}
   return {
     git: configuredWorktreeGitPort(document),
     runner: {
-      supervisor: testProcessSupervisorBinary(),
+      supervisor: ensureTestProcessSupervisor(),
       killGraceMs: 500,
       outputCharacters: 4_000,
       retries: { retries: options.retries ?? 1, backoffMs: 7, sleep: async (ms) => { options.waits?.push(ms); } },

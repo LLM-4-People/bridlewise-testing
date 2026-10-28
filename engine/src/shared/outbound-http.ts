@@ -88,8 +88,13 @@
  *     protocol header the platform refuses (a credential with a line break)
  *     is the typed `outbound_header_invalid`, never a raw `TypeError`.
  *   - SIZE AND TIME ARE BOUNDED. A response body is read only through
- *     {@link readBody} / {@link decodeReadableStream}, whose byte bound is a
- *     required argument (`outbound_body_too_large`); a body that is not read
+ *     {@link readBody} / {@link decodeReadableStream} (text) or
+ *     {@link readBodyBytes} (binary, streamed to a sink and checksum-verified),
+ *     whose byte bound is a required argument (`outbound_body_too_large`); a
+ *     binary REQUEST body is a {@link OutboundStreamBody}: streamed, with its
+ *     declared size and SHA-256 held to the bytes that actually leave
+ *     (`outbound_body_size_mismatch`, `outbound_body_integrity_failed`, the
+ *     request cut before it completes); a body that is not read
  *     is let go through {@link discardBody}; a request's lifetime is the
  *     shared `deadline()` of `abort-signals.ts`, whose timeout is required —
  *     and it is the ONLY lifetime: every dispatcher is built from
@@ -97,6 +102,11 @@
  *     body timeouts off (undici's 300 s defaults would cut a 600 s Responses
  *     call, or an SSE stream silent for five minutes, below its deadline and
  *     report it as a network failure — sec-e-design H1).
+ *   - A REDIRECT IS AN ANSWER ONLY WHEN THE CALLER ASKS FOR IT. With
+ *     `redirects: "answer"` the 3xx comes back to the caller unread and
+ *     unfollowed; the door still sends no second request, and the caller,
+ *     which knows which origins it trusts, decides whether to ask the new
+ *     location itself (without the first request's credentials).
  *
  * Every refusal is an `OutboundHttpError` (a `SecurityError`, never
  * retryable) with a stable code, LOGGED ONCE HERE, counted by code and served
@@ -115,8 +125,9 @@ import type { Dispatcher } from "undici";
 
 import { HarnessError, SecurityError } from "../kernel/errors.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
+import { SHA256_HEX_REGEX, sha256Stream } from "../kernel/integrity.ts";
 import { debugLog } from "./debug/debug-system.ts";
-import { deadline } from "./abort-signals.ts";
+import { deadline, progressDeadline } from "./abort-signals.ts";
 import { PROXY_VARIABLES } from "../process/environment-projection.ts";
 import { processUnderTest } from "../filesystem/checkout-write-door.ts";
 import { liveHostConsented } from "../process/live-network.ts";
@@ -620,8 +631,25 @@ export function connectionFreshForMs(advertisedMs: number | undefined, idle: num
   return Math.min(advertisedMs ?? idle, idle) - threshold;
 }
 
-/** One connection of a {@link freshPoolClass} pool: its client, whether a request is on it, and since when it is idle. */
-type FreshConnection = { readonly client: Dispatcher; busy: boolean; idleSince: number; advertisedMs: number | undefined };
+/**
+ * One connection of a {@link freshPoolClass} pool: its client, whether a request is on it, since when it is idle, and
+ * — once the pool itself ends it — why (`closedBy`), so the end is recorded by WHO ended it (see the pool's
+ * `outbound_connection_ended`).
+ */
+type FreshConnection = { readonly client: Dispatcher; busy: boolean; idleSince: number; advertisedMs: number | undefined; closedBy?: "stale" | "retired" };
+
+/**
+ * WHO ENDED a pooled connection, as its `disconnect` says: the pool itself (`stale` at dispatch, `retired` after
+ * its pool closed or at the write), the client's own idle bound (`idle-timeout`: undici's keep-alive timer, its
+ * `InformationalError` "socket idle timeout"), or the PEER (anything else: the server closed it, or the socket
+ * failed). Recorded on every end, so a reader (and a test) learns the closer from the door's own word, never from
+ * how long it took.
+ */
+export function connectionCloser(closedBy: "stale" | "retired" | undefined, error: unknown): "stale" | "retired" | "idle-timeout" | "peer" {
+  if (closedBy !== undefined) return closedBy;
+  if (error instanceof Error && error.name === "InformationalError" && /idle timeout/u.test(error.message)) return "idle-timeout";
+  return "peer";
+}
 
 /** Undici's dispatcher-state symbols, which an Agent reads off the per-origin dispatchers it holds. */
 type DispatcherStateSymbols = Readonly<{ kConnected: symbol; kBusy: symbol; kPending: symbol; kRunning: symbol; kDispatch: symbol }>;
@@ -708,6 +736,9 @@ function freshPoolClass(undici: typeof import("undici")): NonNullable<typeof fre
       const emitter = this as unknown as { emit: (event: string, ...args: unknown[]) => boolean };
       for (const event of ["connect", "disconnect", "connectionError", "drain"] as const) {
         events.on(event, guarded("outbound.pool.client-event", (origin: unknown, targets: readonly unknown[], error?: unknown) => {
+          if (event === "disconnect") {
+            debugLog("network", "debug", "outbound_connection_ended", () => ({ origin: String(origin), by: connectionCloser(entry.closedBy, error), reason: error instanceof Error ? error.message : null }));
+          }
           if (event === "disconnect" && error instanceof Error && /GOAWAY/u.test(error.message)) {
             // Undici resends, once and on a new connection, only a stream above the last-stream-id whose response had not started and whose body is replayable — possibly none.
             debugLog("network", "warn", "outbound_http2_goaway", () => ({ origin: String(origin), reason: error.message, resend: "eligible streams only (above the last-stream-id, no response started, a replayable body), once; others fail" }));
@@ -732,6 +763,7 @@ function freshPoolClass(undici: typeof import("undici")): NonNullable<typeof fre
         if (entry.busy || at - entry.idleSince < connectionFreshForMs(entry.advertisedMs, this.#idle, this.#threshold)) continue;
         this.#connections.splice(this.#connections.indexOf(entry), 1);
         debugLog("network", "debug", "outbound_connection_stale_closed", () => ({ origin: String(this.#origin), idleMs: Math.round(at - entry.idleSince) }));
+        entry.closedBy = "stale";
         closeConnection(entry.client, this.#origin, "stale");
       }
       const idle = this.#connections.find((one) => !one.busy);
@@ -746,6 +778,7 @@ function freshPoolClass(undici: typeof import("undici")): NonNullable<typeof fre
     #retire(entry: FreshConnection): void {
       const index = this.#connections.indexOf(entry);
       if (index >= 0) this.#connections.splice(index, 1);
+      entry.closedBy = "retired";
       closeConnection(entry.client, this.#origin, "retired");
     }
 
@@ -922,15 +955,95 @@ function transportFailure(error: unknown, signal: AbortSignal): unknown {
   return Object.assign(failure, { code });
 }
 
+/**
+ * A BINARY REQUEST BODY, streamed: its chunks, the size it declares (sent as
+ * `Content-Length`) and the SHA-256 of its bytes (lower-case hex). The door
+ * counts and hashes what actually leaves; a body longer or shorter than
+ * declared is `outbound_body_size_mismatch`, and one whose bytes hash to
+ * another digest is `outbound_body_integrity_failed`. Either cuts the request
+ * before it completes, so the server never takes a body other than the one
+ * declared.
+ */
+export type OutboundStreamBody = Readonly<{
+  chunks: AsyncIterable<Uint8Array>; size: number; sha256: string;
+  /**
+   * Called once every byte has been WRITTEN to the connection: the HTTP
+   * client asks for more only after its last write was taken (and the socket
+   * drained), never when the final chunk is merely read ahead.
+   */
+  handedOver?: (() => void) | undefined;
+}>;
+
+/** A request body: text, or a streamed binary body. */
+export type OutboundBody = string | OutboundStreamBody;
+
+/**
+ * The streamed body's chunks, held to its declared size and digest BEFORE
+ * the body completes: the chunk that reaches the declared size leaves only
+ * once the digest of every byte holds and the stream has nothing after it.
+ * Every refusal therefore cuts the request short of its `Content-Length`,
+ * and the server never receives a complete body other than the declared one.
+ */
+async function* verifiedChunks(body: OutboundStreamBody, origin: string, logCategory: string): AsyncGenerator<Uint8Array> {
+  const digest = sha256Stream();
+  const longer = (): never => refuse(logCategory, `The request body to ${origin} is longer than the ${String(body.size)} bytes it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size });
+  const digestHolds = (): void => {
+    const actual = digest.digest();
+    if (actual !== body.sha256) refuse(logCategory, `The request body to ${origin} does not hash to the SHA-256 it declared, so it was cut before it completed.`, "outbound_body_integrity_failed", { origin, declared: body.sha256, actual });
+  };
+  let sent = 0;
+  // The completing chunk: held until the digest holds and nothing follows it (an empty chunk carries no byte).
+  // `for await` closes the source on every way out (a refusal, or the client abandoning the body).
+  let completing: Uint8Array | undefined;
+  for await (const chunk of body.chunks) {
+    if (completing !== undefined) {
+      if (chunk.byteLength > 0) longer();
+      continue;
+    }
+    sent += chunk.byteLength;
+    if (sent > body.size) longer();
+    digest.update(chunk);
+    if (sent === body.size) {
+      digestHolds();
+      completing = chunk;
+      continue;
+    }
+    yield chunk;
+  }
+  if (completing === undefined) {
+    if (sent !== body.size) refuse(logCategory, `The request body to ${origin} is ${String(sent)} bytes, not the ${String(body.size)} it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size, sent });
+    digestHolds(); // an empty declared body: nothing left, and its digest is still the declared one
+    body.handedOver?.();
+    return;
+  }
+  yield completing;
+  // Resumed only when the client asks past the last chunk: that chunk has been written.
+  body.handedOver?.();
+}
+
 /** Send one request on the door's own dispatcher and answer the platform `Response` shape. */
-async function send(prepared: PreparedOutboundRequest, route: Route, body: string | undefined, signal: AbortSignal): Promise<Response> {
+async function send(prepared: PreparedOutboundRequest, route: Route, body: OutboundBody | undefined, signal: AbortSignal): Promise<Response> {
   const { url } = prepared;
   const headers: Record<string, string> = {};
   prepared.headers.forEach((value, name) => { headers[name] = value; });
+  // The streamed body goes to the client as the iterable itself (never a Readable, which would read ahead of
+  // the writes): the client pulls a chunk only once the previous one was written and the socket drained.
+  let wire: string | AsyncIterable<Uint8Array> | undefined;
+  if (typeof body === "object") {
+    if (!Number.isSafeInteger(body.size) || body.size < 0 || !SHA256_HEX_REGEX.test(body.sha256)) {
+      refuse(prepared.logCategory, `A streamed request body to ${url.origin} must declare a byte size and a lower-case hex SHA-256, so nothing was sent.`, "outbound_body_declaration_invalid", { origin: url.origin });
+    }
+    headers["content-length"] = String(body.size);
+    wire = verifiedChunks(body, url.origin, prepared.logCategory);
+  } else {
+    wire = body;
+  }
   let answer: Dispatcher.ResponseData;
   try {
-    answer = await (await dispatcherFor(route)).request({ origin: url.origin, path: `${url.pathname}${url.search}`, method: prepared.method, headers, ...(body === undefined ? {} : { body }), signal });
+    // undici takes an async iterable body (its iterable writer); its typings name only the stream and buffer forms.
+    answer = await (await dispatcherFor(route)).request({ origin: url.origin, path: `${url.pathname}${url.search}`, method: prepared.method, headers, ...(wire === undefined ? {} : { body: wire as unknown as string }), signal });
   } catch (error) {
+    if (isOutboundHttpError(error)) throw error;
     throw transportFailure(error, signal);
   }
   const responseHeaders = new Headers();
@@ -943,11 +1056,14 @@ async function send(prepared: PreparedOutboundRequest, route: Route, body: strin
   return new Response(bodiless ? null : (answer.body as unknown as { body: ReadableStream<Uint8Array> }).body, { status: answer.statusCode, headers: responseHeaders });
 }
 
+/** How a 3xx is handled: refused (the default), or answered to the caller unread and unfollowed (see the module doc). */
+export type OutboundRedirects = "refuse" | "answer";
+
 /** Dispatch a prepared request under the policy: pinned, and no redirect is followed (see the module doc). */
-export async function dispatchOutboundRequest(prepared: PreparedOutboundRequest, body: string | undefined, signal: AbortSignal): Promise<Response> {
+export async function dispatchOutboundRequest(prepared: PreparedOutboundRequest, body: OutboundBody | undefined, signal: AbortSignal, redirects: OutboundRedirects = "refuse"): Promise<Response> {
   const { url } = prepared;
   const response = await send(prepared, await routeOf(prepared), body, signal);
-  if (isRedirect(response)) {
+  if (isRedirect(response) && redirects === "refuse") {
     const target = redirectTarget(response, url);
     // Never read: the refusal does not wait on the redirecting server.
     void discardBody(response, prepared.logCategory);
@@ -996,8 +1112,8 @@ export async function openOutboundWebSocket(request: OutboundWebSocketRequest): 
   }) as unknown as WebSocket;
 }
 
-/** A request lifetime: the caller's cancellation plus a REQUIRED timeout (the one owner, re-exported for the door's callers). */
-export { deadline as outboundDeadline };
+/** A request lifetime: the caller's cancellation plus a REQUIRED timeout, or a progress bound for a transfer (the one owner, re-exported for the door's callers). */
+export { deadline as outboundDeadline, progressDeadline as outboundProgressDeadline };
 
 function tooLarge(): OutboundHttpError {
   countOutboundRefusal("outbound_body_too_large");
@@ -1005,8 +1121,15 @@ function tooLarge(): OutboundHttpError {
 }
 
 /** Decode a response body stream as UTF-8 text chunks, bounded by `maxBytes`. */
-export async function* decodeReadableStream(body: ReadableStream<Uint8Array>, signal: AbortSignal, maxBytes: number, cleanupTimeoutMs: number, logCategory: string): AsyncGenerator<string> {
-  const reader = body.getReader(), decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
+/**
+ * THE ONE BOUNDED BODY READER: a body's chunks, under the caller's signal
+ * (an abort cancels the read), bounded by `maxBytes` (a chunk that would
+ * pass the bound is never yielded: `outbound_body_too_large`), and always
+ * cancelled and released at the end. The text reader and the binary reader
+ * are this, with decoding or a sink and a digest on top.
+ */
+async function* boundedChunks(body: ReadableStream<Uint8Array>, signal: AbortSignal, maxBytes: number, cleanupTimeoutMs: number, logCategory: string): AsyncGenerator<Uint8Array> {
+  const reader = body.getReader();
   let bytes = 0;
   const abort = guarded("outbound.body.abort", (): void => { void cancelBody(() => reader.cancel(signal.reason), cleanupTimeoutMs, logCategory); });
   signal.addEventListener("abort", abort, { once: true });
@@ -1015,15 +1138,23 @@ export async function* decodeReadableStream(body: ReadableStream<Uint8Array>, si
       signal.throwIfAborted();
       const { done, value } = await reader.read();
       signal.throwIfAborted();
-      if (done) { const end = decoder.decode(); if (end) yield end; return; }
+      if (done) return;
       bytes += value.byteLength;
       if (bytes > maxBytes) throw tooLarge();
-      const text = decoder.decode(value, { stream: true }); if (text) yield text;
+      yield value;
     }
   } finally {
     signal.removeEventListener("abort", abort);
     await cancelBody(() => reader.cancel(), cleanupTimeoutMs, logCategory); reader.releaseLock();
   }
+}
+
+export async function* decodeReadableStream(body: ReadableStream<Uint8Array>, signal: AbortSignal, maxBytes: number, cleanupTimeoutMs: number, logCategory: string): AsyncGenerator<string> {
+  const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
+  for await (const value of boundedChunks(body, signal, maxBytes, cleanupTimeoutMs, logCategory)) {
+    const text = decoder.decode(value, { stream: true }); if (text) yield text;
+  }
+  const end = decoder.decode(); if (end) yield end;
 }
 
 /** Read a whole response body as text, bounded by `maxBytes` (a leading BOM is dropped). */
@@ -1036,6 +1167,34 @@ export async function readBody(response: Response, signal: AbortSignal, maxBytes
   let text = "";
   for await (const part of decodeReadableStream(response.body, signal, maxBytes, cleanupTimeoutMs, logCategory)) text += part;
   return text.replace(/^﻿/u, "");
+}
+
+/**
+ * Read a whole BINARY response body into `sink`, chunk by chunk, bounded by
+ * `maxBytes` (`outbound_body_too_large`) and, when `sha256` is declared,
+ * held to it: bytes that hash to another digest are
+ * `outbound_body_integrity_failed` once the body ends (the sink has seen
+ * them; the caller discards what it wrote). Answers the byte count and the
+ * digest of what was read.
+ */
+export async function readBodyBytes(response: Response, options: Readonly<{
+  signal: AbortSignal; maxBytes: number; cleanupTimeoutMs: number; logCategory: string; sha256?: string | undefined;
+  sink: (chunk: Uint8Array) => void | Promise<void>;
+}>): Promise<Readonly<{ bytes: number; sha256: string }>> {
+  const digest = sha256Stream();
+  let bytes = 0;
+  if (response.body !== null) {
+    for await (const chunk of boundedChunks(response.body, options.signal, options.maxBytes, options.cleanupTimeoutMs, options.logCategory)) {
+      bytes += chunk.byteLength;
+      digest.update(chunk);
+      await options.sink(chunk);
+    }
+  }
+  const actual = digest.digest();
+  if (options.sha256 !== undefined && actual !== options.sha256) {
+    refuse(options.logCategory, "The response body does not hash to the SHA-256 the caller declared.", "outbound_body_integrity_failed", { declared: options.sha256, actual, bytes });
+  }
+  return Object.freeze({ bytes, sha256: actual });
 }
 
 /** Cancel a body within a bound; a cancel that fails or hangs is logged, never thrown. */

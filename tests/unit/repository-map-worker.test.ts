@@ -112,19 +112,16 @@ describe("repository-map worker — non-blocking (502 wedge fix)", () => {
     // a typed MapNotReadyError (retryable) — NOT block the event loop and
     // NOT return a partially-built map.
     let threw: unknown = null;
-    const start = Date.now();
     try {
       getRepositoryMap(projectPath);
     } catch (err) {
       threw = err;
     }
-    const elapsed = Date.now() - start;
+    // Non-blocking proof, BY ITS PATH: a miss throws (the build is
+    // off-thread, spawned fire-and-forget) instead of building inline and
+    // returning a map; no wall clock judges it (NO-LOAD-BLOCK).
     expect(threw).toBeInstanceOf(MapNotReadyError);
     expect((threw as MapNotReadyError).retryable).toBe(true);
-    // Non-blocking proof: a miss returns in well under the time a real
-    // build takes (the build is off-thread; the miss returns immediately
-    // after spawning the worker fire-and-forget).
-    expect(elapsed).toBeLessThan(2000);
   });
 
   test("getRepositoryMapSummary throws MapNotReadyError when not ready", () => {

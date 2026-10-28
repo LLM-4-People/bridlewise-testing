@@ -26,7 +26,7 @@ import type { MetricEntry } from "../../src/shared/measurement-registry.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 
 import {
   deriveRollingBaseline,
@@ -542,18 +542,17 @@ test("suite-cpu prescription: the accumulation messages demand same-sha same-con
 // function rather than re-inlining the statements (§33's durable form: the
 // absence of the sequenced calls plus the presence of the derivation).
 
-test("beginMeasuredRun takes prune, then the CPU baseline, then the start-stamp — in that order", async () => {
+test("beginMeasuredRun takes the calibration, then the CPU baseline, then the start-stamp — in that order (the cache prune ran at enablement, before it)", async () => {
   const { beginMeasuredRun } = await import("../../scripts/tooling/run-tests.ts");
   const order: string[] = [];
   const baseline = { totalCpuMs: 111, childCpuMs: 22 };
   const STAMP = 1_234_567_890_123;
   const out = beginMeasuredRun(process.cwd(), {
-    pruneCache: () => { order.push("prune"); },
     readCpuBaseline: () => { order.push("cpu-baseline"); return baseline; },
     measureCalibration: () => { order.push("calibration"); return { cpuMs: 100, chunks: [100, 100, 100], workload: "int-mem-l2/v1", chunkIterations: 5_000_000 }; },
     stampStart: () => { order.push("start-stamp"); return STAMP; },
   });
-  assert.deepEqual(order, ["prune", "calibration", "cpu-baseline", "start-stamp"],
+  assert.deepEqual(order, ["calibration", "cpu-baseline", "start-stamp"],
     "the pre-run measurements must run in exactly this order — the warmth walk and the CPU delta both depend on it");
   // LIVENESS AGAINST THE INERT SHAPE: the returned values must BE the
   // injected steps' answers, not parallel reads the function made itself —
@@ -582,7 +581,12 @@ test("runCli calls beginMeasuredRun and does not re-inline the sequence it extra
   const launchAt = cliBody.indexOf("runTestsWithEvidence(");
   assert.ok(launchAt >= 0, "runCli must launch the suite through runTestsWithEvidence(…)");
   const preRun = cliBody.slice(0, launchAt);
-  for (const inlined of ["pruneCompileCacheIfDeclared(", "readRunCpu()", "Date.now()"]) {
+  // The cache prune runs at ENABLEMENT, which runCli does before beginMeasuredRun.
+  const enabledAt = cliBody.indexOf("enableSharedCompileCache(");
+  assert.ok(enabledAt >= 0 && enabledAt < cliBody.indexOf("beginMeasuredRun("),
+    "runCli must enable (and so bound) the compile cache before beginMeasuredRun takes the CPU baseline and the start-stamp");
+  assert.notEqual(cliBody[enabledAt + "enableSharedCompileCache(".length], ")", "runCli passes the declared pruning policy to the enabler");
+  for (const inlined of ["pruneCompileCache(", "readRunCpu()", "Date.now()"]) {
     assert.ok(!preRun.includes(inlined),
       `runCli spells ${inlined} inline before the worker launch — the pre-run sequence must come from beginMeasuredRun, where its order is held`);
   }
@@ -625,7 +629,7 @@ test("suite-cpu: actual adapter preserves its one-run red beside an owned test f
       delete environment.HARNESS_MUTATION_RUN;
       const output: string[] = [];
       const child = await superviseCommand({
-        supervisor: testProcessSupervisorBinary(), command: process.execPath,
+        supervisor: ensureTestProcessSupervisor(), command: process.execPath,
         args: ["--input-type=module", "-e", [
           'import assert from "node:assert/strict"; import { writeFileSync } from "node:fs";',
           `const { judgeSuiteRunCost } = await import(${JSON.stringify(owner)});`,

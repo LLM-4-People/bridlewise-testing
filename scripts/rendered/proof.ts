@@ -175,6 +175,15 @@ const PLANTS: readonly Plant[] = [
   // Text wherever it renders.
   { name: "text in a display:contents element", head: "<style>#prose { display: contents; font-family: Georgia }</style>", rule: "font-families" },
   { name: "a form control's value", body: '<input value="typed" style="font-family: Georgia">', rule: "font-families" },
+  { name: "a button input's label", body: '<input type="submit" value="Send" style="font-family: Georgia">', rule: "font-families" },
+  { name: "a date input's text", body: '<input type="date" value="2026-10-28" style="font-family: Georgia">', rule: "font-families" },
+  { name: "a time input's text", body: '<input type="time" value="13:45" style="font-family: Georgia">', rule: "font-families" },
+  { name: "a datetime-local input's text", body: '<input type="datetime-local" value="2026-10-28T13:45" style="font-family: Georgia">', rule: "font-families" },
+  { name: "a month input's text", body: '<input type="month" value="2026-10" style="font-family: Georgia">', rule: "font-families" },
+  { name: "a week input's text", body: '<input type="week" value="2026-W44" style="font-family: Georgia">', rule: "font-families" },
+  { name: "a file input's label", body: '<input type="file" style="font-family: Georgia">', rule: "font-families" },
+  { name: "a picture button with no picture (drawn as its alt text)", body: '<input type="image" alt="Send the run" style="font-family: Georgia">', rule: "font-families" },
+  { name: "an empty text field (it draws what is typed)", body: '<input type="text" style="font-family: Georgia">', rule: "font-families" },
   { name: "generated ::before content", head: '<style>#prose::before { content: "→ "; font-family: Georgia }</style>', rule: "font-families" },
   { name: "a finite animation in a shadow root", body: `<div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = "<style>@keyframes late { to { font-family: Georgia } } p { animation: late 1ms 6s forwards }</style><p>shadow text</p>"</script>`, rule: "font-families" },
   // The states a pointer and a keyboard put elements in.
@@ -214,6 +223,9 @@ const PLANTS: readonly Plant[] = [
 /** Near-misses each row must pass. */
 const CLEAN_TOO: readonly Plant[] = [
   { name: "a token family loaded from its own vendored file", head: vendoredFace(SANS_FILE), rule: "font-families" },
+  // A live page replaces nodes while the states are forced (the cockpit's Lens callout did): a node gone between snapshot and force is gone, not a refusal.
+  // Every animation frame, as an animated list does (not a task-queue loop as fast as the browser runs it: that hogs the browser itself).
+  { name: "a page that keeps replacing its nodes while the states are forced", body: '<ul id="churn"></ul><script>const ul = document.getElementById("churn"); const frame = () => { ul.replaceChildren(...Array.from({ length: 40 }, () => document.createElement("li"))); requestAnimationFrame(frame); }; requestAnimationFrame(frame);</script>', rule: "font-families" },
   // Longer than any default wall limit (Playwright's is 30 s), arriving a little at a time: a slow page is still a page.
   { name: "a page whose stylesheet loads slowly but steadily, for longer than 30 s", head: `<link rel="stylesheet" href="${STEADY_PATH.slice("/proof/".length)}">`, rule: "font-families" },
   { name: "a scheduler.postTask with no delay", body: '<script>scheduler.postTask(() => { document.getElementById("prose").textContent = "posted"; })</script>', rule: "judgeable" },
@@ -221,6 +233,7 @@ const CLEAN_TOO: readonly Plant[] = [
   { name: "an opaque-origin artifact frame the declared exclusion skips", body: `<iframe data-artifact="frame" sandbox="allow-scripts" srcdoc="<p style='font-family: Georgia'>a user's artifact</p><canvas id=c></canvas><script>document.getElementById('c').getContext('2d').font = '12px Georgia'</script>"></iframe>`, rule: "font-families" },
   { name: "a canvas drawing text in a token stack", body: `<canvas id="c"></canvas><script>const x = document.getElementById("c").getContext("2d"); x.font = ${JSON.stringify(canvasFont("--face-sans"))}; x.fillText("x", 0, 10)</script>`, rule: "font-families" },
   { name: "the Logbook theme worn with its own colours", head: `<style>:root[data-cockpit-theme="light"] { ${declarations(LOGBOOK)} }</style>`, body: '<script>document.documentElement.setAttribute("data-cockpit-theme", "light")</script>', rule: "brand-mark" },
+  { name: "the input types HTML draws no text for", body: '<input type="checkbox" checked style="font-family: Georgia"><input type="radio" checked style="font-family: Georgia"><input type="range" style="font-family: Georgia"><input type="color" style="font-family: Georgia"><input type="hidden" value="x" style="font-family: Georgia">', rule: "font-families" },
   { name: "a focusable control in the stacks", body: '<button id="go">go</button><input value="typed">', rule: "font-families" },
   { name: "a canvas given a token family", body: `<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = ${JSON.stringify(canvasFont("--face-mono"))}</script>`, rule: "font-families" },
   { name: "the exact policies, spaced differently", policy: `${cspMeta(ORIGIN_POLICY.replace("; ", " ;  "))}${cspMeta(PATH_POLICY.replace("; ", " ;  "))}`, rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },

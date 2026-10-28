@@ -27,7 +27,7 @@ import { createWorkingCopy, refreshWorkingCopy, snapshotWorkingTree, stageInCopy
 import { STATE_DIRECTORY_NAME } from "../../src/kernel/product-identity.ts";
 import { checkoutCommandRunner, commandFailureClass, commandsRun, gateLogDirectory, owedSetup, prepareCheckout, rerunChangedSetup, runCheckoutCommand, runCheckoutPhase, unconsumedCommands, type CheckoutCommandRunner, type CommandRetryPolicy } from "../../src/workflow/checkout-setup.ts";
 import { convergenceReport, convergeUntilStable } from "../../src/workflow/checkout-setup.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory, TEST_REPOSITORY_ROOT } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { ownedTemporaryName } from "../../src/filesystem/private-state.ts";
@@ -155,7 +155,7 @@ function gateRoot(prefix: string): string {
 }
 
 function supervisedRunner(retries: CommandRetryPolicy = { retries: 0, backoffMs: 0 }): CheckoutCommandRunner {
-  return { supervisor: testProcessSupervisorBinary(), killGraceMs: 1_000, outputCharacters: 4_096, retries };
+  return { supervisor: ensureTestProcessSupervisor(), killGraceMs: 1_000, outputCharacters: 4_096, retries };
 }
 
 test("checkout setup: links, the config mode, then the declared commands in order; after the first failure the rest are skipped", async () => {
@@ -262,11 +262,11 @@ test("sync fixed point: passes repeat until one changes nothing (its status deci
 test("the command runner: a command past its ceiling is killed with every descendant and fails", async () => {
   const root = gateRoot("checkout-command-ceiling-");
   const sleeper = { cwd: ".", argv: [process.execPath, "-e", "setTimeout(() => {}, 60_000)"], timeoutMs: 300 };
-  const started = Date.now();
   const outcome = await runCheckoutCommand(root, "sleeper", sleeper, supervisedRunner());
   assert.equal(outcome.status, "fail");
+  // The ceiling ended it, not the command (which would exit 0 after 60 s):
+  // the outcome names the ceiling, its path, never a wall clock (NO-LOAD-BLOCK).
   assert.match(outcome.message, /ceiling/u);
-  assert.ok(Date.now() - started < 30_000, "the ceiling ended it, not the command");
 });
 
 test("the command runner's classes: the environment's ending (a ceiling, a signal, no receipt, a REPORTED environmental error) is ERRORED; any other non-zero exit FAILED", async () => {
