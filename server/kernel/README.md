@@ -36,18 +36,6 @@ feature — these are the primitives the features share.
   at load.
 - `process-fault-policy.ts` — the web server's door to the one process fault policy (`engine/src/process/fault-policy.ts`, role `server`: a lost rejection or a guarded callback fault is counted and reported and the server lives; an uncaught exception exits 70): `server/index.ts`'s FIRST import, before the settings preflight; its import graph (the policy, the fault description, the debug system) reads no settings file at load.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/kernel/`.
-
-- `boot-settings-preflight.ts` is consumed by `server/index.ts`.
-- `canonical.ts` is consumed by `server/agent/agent-restrictions.ts`, `server/agent/agent-runtime-bridge.ts`, `server/agent/agent-types-bridge.ts`, `server/agent/agents-bridge.ts`, `server/auth/auth.ts`, `server/auth/session.ts` and 78 more.
-- `config.ts` is consumed by `server/auth/auth.ts`, `server/auth/csrf.ts`, `server/auth/session.ts`, `server/auth/user-context.ts`, `server/awareness/auto-check-runner.ts`, `server/awareness/awareness-bridge.ts` and 41 more.
-- `digest.ts` is consumed by `server/auth/auth.ts`, `server/blocks/arm.ts`, `server/blocks/client-telemetry.ts`, `server/blocks/compose.ts`, `server/blocks/editor.ts`, `server/db/backup-restore.ts` and 9 more.
-- `errors.ts` is consumed by `server/agent/agent-restrictions.ts`, `server/agent/agent-runtime-bridge.ts`, `server/auth/auth.ts`, `server/auth/csrf.ts`, `server/auth/user-context.ts`, `server/awareness/auto-check-runner.ts` and 65 more.
-- `harness-config.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/agent/agent-types-bridge.ts`, `server/awareness/auto-check-runner.ts`, `server/awareness/dedup-bridge.ts`, `server/awareness/quality-bridge.ts`, `server/blocks/compose.ts` and 32 more.
-- `process-fault-policy.ts` is consumed by `server/index.ts`.
-
-<!-- /consumers:generated -->

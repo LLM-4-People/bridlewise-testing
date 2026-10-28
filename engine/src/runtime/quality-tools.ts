@@ -183,7 +183,7 @@ export function createQualityTools(options: QualityToolsOptions): readonly Regis
       type: "function",
       function: deepFreeze({
         name: "run_quality_check",
-        description: "Run applicable language quality packs over a set of files (or the whole repository when files is omitted). Returns a normalized diagnostic report covering syntax, type, undefined-symbol, dead-code, dead-branch, unused-export, duplicate-logic, schema-drift, and config-outside-contract categories. Use this after edits to verify quality (REQ-015).",
+        description: "Run applicable language quality packs over a set of files (or the whole repository when files is omitted). Returns a normalized diagnostic report covering syntax, type, undefined-symbol, dead-code, dead-branch, unused-export, duplicate-logic and config-outside-contract categories. Use this after edits to verify quality (REQ-015).",
         parameters: deepFreeze({
           type: "object",
           properties: deepFreeze({

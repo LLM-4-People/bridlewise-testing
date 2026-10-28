@@ -14,14 +14,6 @@ manifest; the executor and the UI pick it up automatically.
 - `ui-control.ts` — the single owner of the `control_interface` tool action
   schema, the contract by which the model drives the UI.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/tools/`.
-
-- `tool-executor.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/run/run-executor.ts`.
-- `tools-bridge.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/blocks/breaker.ts`, `server/blocks/compose.ts`, `server/blocks/tools.ts`, `server/context/memory-bridge.ts`, `server/integrations/mcp-bridge.ts` and 5 more.
-- `ui-control.ts` is consumed by `server/run/run-executor.ts`, `server/tools/tool-executor.ts`, `server/tools/tools-bridge.ts`.
-
-<!-- /consumers:generated -->

@@ -42,7 +42,15 @@ const folderPrefix = z.string().refine((value) => value.endsWith("/") && pathOrP
  * also a folder (the profile's private directory) and a file name, so the
  * rule is what keeps it ONE path segment: no `/`, no `..`, never absolute.
  */
-export const PROFILE_NAME_PATTERN = /^[a-z][a-z0-9-]{0,62}$/u;
+const PROFILE_NAME_PATTERN = /^[a-z][a-z0-9-]{0,62}$/u;
+
+/** The profile-name rule, spelled for a refusal. */
+export const PROFILE_NAME_RULE = "a lower-case letter, then up to 62 lower-case letters, digits or hyphens";
+
+/** Is `name` a profile name ({@link PROFILE_NAME_PATTERN}): one path segment, never a path? */
+export function isProfileName(name: string): boolean {
+  return PROFILE_NAME_PATTERN.test(name);
+}
 
 const promotionProfileShape = z.strictObject({
   schema: z.literal(PROMOTION_PROFILE_SCHEMA_VERSION),

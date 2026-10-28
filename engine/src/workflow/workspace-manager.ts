@@ -880,7 +880,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    */
   function branchChange(cwd: string, forkPoint: string, head: string): Readonly<{ changed: readonly string[]; exempt: ReadonlySet<string> }> {
     const changed = git.diffNameOnly({ cwd, refA: forkPoint, refB: head, threeDot: false, timeoutMs: timeouts.inspectMs });
-    return { changed, exempt: generationOnlyPaths(cwd, forkPoint, head, changed, generatedOutputPaths(cwd)) };
+    return { changed, exempt: generationOnlyPaths(cwd, forkPoint, head, changed, generatedOutputPaths()) };
   }
 
   function leaseIdentity(workspaceId: string, writeSet: readonly string[]): string | null {
@@ -1089,7 +1089,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const worktreePath = join(workspaceRoot, workspaceId);
     assertWorkspaceRootPlacement();
     const invokingBranch = git.symbolicBranch(checkoutRoot, timeouts.inspectMs);
-    const generated = generatedOutputPaths(checkoutRoot);
+    const generated = generatedOutputPaths();
 
     let targetBranch: string | null = null;
     let forgeState: WorkspaceForgeState | null = null;
@@ -1427,7 +1427,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
         saveTransition(record, "active", "worktree has uncommitted changes at merge");
         throw new InputError(`workspace ${workspaceId} worktree is dirty at merge`, "workspace_merge_precondition_failed");
       }
-      const generated = generatedOutputPaths(worktreePath);
+      const generated = generatedOutputPaths();
       const targetTip = git.revParse(checkoutRoot, `refs/heads/${target}`, timeouts.inspectMs);
       // The fork point with the target: what `git merge` brings is its diff to the head.
       const forkPoint = git.mergeBase(checkoutRoot, targetTip, head, timeouts.inspectMs);
@@ -1801,7 +1801,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     if (forkPoint !== trunk) {
       const staleness = git.revListCount(worktreePath, forkPoint, trunk, timeouts.inspectMs);
       const merged = git.diffNameOnly({ cwd: worktreePath, refA: forkPoint, refB: trunk, threeDot: false, timeoutMs: timeouts.inspectMs });
-      const mergedExempt = generationOnlyPaths(worktreePath, forkPoint, trunk, merged, generatedOutputPaths(worktreePath));
+      const mergedExempt = generationOnlyPaths(worktreePath, forkPoint, trunk, merged, generatedOutputPaths());
       const mergedConflicts = computeMergedSinceConflicts(authored, merged.filter((path) => !mergedExempt.has(path)));
       if (mergedConflicts.length > 0) refuse(record, "dynamic-overlap", mergedConflicts, "a path landed on the trunk since the fork point; rebase, publish and re-validate");
       if (staleness > config.baseStalenessCommits) {
