@@ -92,6 +92,16 @@ carries out [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md)
   - Every test over about 120 s of CPU work has a performance issue for its
     owning lane. The class unblocks the suite; the issue makes the test
     cheaper.
+- **Every engine runner runs under the same bounds.** The targeted door
+  (`engine/scripts/tooling/test-guards.ts`: the engine's test:unit script,
+  and `harness flake reproduce`, which runs there) installs the suite's own
+  bounds, built by the one construction (`engineTestBoundsFrom` in
+  `engine-test-bounds.ts`), for the files it runs, with the backstop as
+  node:test's per-test timeout. A run naming no test file is refused
+  (node would otherwise discover files the bounds do not cover), and so is a
+  folder (node does not expand one). Before, a targeted run had no CPU judgement
+  and no backstop, so a CPU-class failure could never be seen or reproduced
+  there (#615).
 - **Concurrency and threads.** The judgement keeps one reading per test
   context, never one per process. A nested or concurrent test therefore
   never clears another test's window: a parent counts its subtests' work,

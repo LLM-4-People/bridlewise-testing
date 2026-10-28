@@ -1,8 +1,11 @@
-import { mkdirSync, opendirSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { mkdirSync, opendirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { enableCompileCache, getCompileCacheDir } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
+import { InputError } from "../../src/kernel/errors.ts";
+import { parseJsonExact } from "../../src/kernel/json-integrity.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
+import { debugLog, reportAlwaysOn } from "../../src/shared/debug/debug-system.ts";
 import { userCacheFolder } from "../../src/filesystem/user-folders.ts";
 import { createOwnedTemporaryDirectory, removeOwnedTemporaryDirectory } from "../../src/filesystem/private-state.ts";
 
@@ -50,11 +53,18 @@ export const COMPILE_CACHE_DIRECTORY = join(
  * (~30% faster on parse-bound module loading). This is a pure optimization:
  * when the runtime cannot enable the cache the suite still runs, just
  * without the parse speedup, so failure is deliberately non-fatal.
+ *
+ * THE ENABLER BOUNDS IT. The process that enables the cache for a tree of
+ * processes (it did not inherit `NODE_COMPILE_CACHE`) prunes it to `policy`
+ * (`testExecution.compileCachePruning`, see BOUNDED-CACHE PRUNING below)
+ * before anything is compiled, at most once per interval. No silent
+ * disable: no policy, or a prune that fails, is reported (stderr, always on).
  */
-export function enableSharedCompileCache(): void {
+export function enableSharedCompileCache(policy: CompileCachePruningPolicy | undefined): void {
   if (enabled) return;
   enabled = true;
   if (process.env.NODE_DISABLE_COMPILE_CACHE === "1") return;
+  const inherited = process.env.NODE_COMPILE_CACHE !== undefined;
   bestEffort(() => {
     if (getCompileCacheDir() === undefined) {
       // Native recursive mkdir retries ENOENT even when the parent exists
@@ -87,6 +97,24 @@ export function enableSharedCompileCache(): void {
       process.env.NODE_COMPILE_CACHE = result.directory;
     }
   });
+  // Only the enabler bounds the cache, and only a cache that is actually on.
+  if (inherited || getCompileCacheDir() === undefined) return;
+  if (policy === undefined) {
+    reportAlwaysOn("compile-cache", "no pruning policy declared (testExecution.compileCachePruning in bridlewise.config.json): the shared V8 compile cache is NOT bounded. " +
+      "Declare { maxBytes, maxEntryAgeHours, inUseMinutes, intervalMinutes, maxDeletionsPerPrune }; nothing is guessed.");
+    return;
+  }
+  // THROUGH THE LOGGER, never stdout (a runner's stdout is a machine reading:
+  // vitest's JSON listing, the engine's receipt lines). A condition the
+  // bound cannot meet is reported always; the routine summary is debug.
+  try {
+    const summary = pruneCompileCacheAtEnablement(policy);
+    if (summary === null) return;
+    if (summary.loud) reportAlwaysOn("compile-cache", summary.line);
+    else debugLog("compile-cache", "info", summary.line);
+  } catch (error) {
+    reportAlwaysOn("compile-cache", `PRUNE FAILED, the cache is NOT bounded this time: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**
@@ -166,178 +194,226 @@ export function scanCompileCache(sinceMs: number): CompileCacheScan | null {
 // those would have to come from the runtime's own keying (out of scope
 // here and recorded as such); PRUNING is the mitigation that works today.
 //
-// WHY AGE **AND** A CAP. Age alone bounds staleness (and clears abandoned
-// node-version subdirectories) but not rate — this cache grew ~950k entries
-// per day, all young. The entry cap bounds size regardless of rate; the age
-// floor keeps the cap from being the only rule when growth is slow.
+// WHAT BOUNDS IT NOW: BYTES AND LAST USE, NOT A COUNT PER DIRECTORY.
+// Measured 2026-10-28: 20 GB / 307k files (the host disk at 98%), under a
+// policy that kept the newest 400,000 entries PER DIRECTORY — a cache of
+// large entries (about 63 KB each, keyed per compiled file per PATH, so every
+// worktree adds a full copy) never reached the count, and nothing bounded its
+// size. The bound is now the cache's TOTAL BYTES, pruned least-recently-used
+// first, plus an age since last use; an entry used within `inUseMinutes` is
+// never pruned (the runs using it are live).
 //
-// ORDERING AGAINST THE WARMTH INSTRUMENT, stated once and relied on twice:
-// the pruner runs BEFORE the run's start-stamp is taken (see
-// `scripts/run-tests.ts`), and it deletes only entries whose mtime is older
-// than a cutoff in the past — so the end-of-run warmth walk (which counts
-// entries with mtime AT OR AFTER the start-stamp) can neither count a
-// pruned entry as written nor lose a written entry to the prune. A prune
-// cannot fabricate or erase "written during run" evidence by construction,
-// not by discipline.
+// "LAST USE" is the later of an entry's mtime (written) and atime (read). A
+// filesystem mounted `relatime` (this host's) refreshes atime at most once a
+// day, so an entry only READ lately may look older than it is. Pruning it is
+// safe: a missing entry is a cache miss, and the process that wanted it
+// recompiles. The in-use window protects the live runs' work, not
+// correctness — measured 2026-10-28: with a one-day window every entry was
+// "in use" (10.5 GiB written in a day across worktrees) and nothing could be
+// pruned, so the window is short (`inUseMinutes`).
+//
+// WHEN: at ENABLEMENT, by the process that enables the cache for a tree of
+// processes (one that did not inherit `NODE_COMPILE_CACHE`), at most once per
+// `intervalMinutes` (a stamp file in the cache root), before anything is
+// compiled — so the warmth instrument's ordering holds as before: the prune
+// precedes the run's start-stamp and deletes only entries last used before
+// it.
+//
+// INCREMENTAL, NEVER TIMED: one prune deletes at most `maxDeletionsPerPrune`
+// entries, the least recently used first, and records in its stamp that work
+// is left; the next enabler then continues at once, whatever the interval.
+// No wall budget (NO-LOAD-BLOCK): a loaded host still makes progress.
+//
+// NO SILENT DISABLE: a missing policy, a prune that fails, and a cache that
+// stays over its bound because the rest is in use are each REPORTED through
+// the logger (always on, stderr), never stdout, which runners read as data.
 
-/** The declared knobs — all three from the config (`testExecution.
- *  compileCachePruning`), never defaulted here: a missing policy object
- *  means NO pruning plus a printed note, not a guessed value. */
+/** The declared bound (`testExecution.compileCachePruning`), never defaulted here. */
 export type CompileCachePruningPolicy = Readonly<{
-  /** Entries whose mtime is older than this many days are pruned. */
-  maxEntryAgeDays: number;
-  /** At most this many entries survive per cache subdirectory (newest
-   *  kept). Ties at the cutoff mtime survive, so the kept count can exceed
-   *  the cap by the size of one mtime tie — a bounded, stated slack. */
-  maxEntries: number;
-  /** Wall-clock budget for the whole prune. The prune is opportunistic: on
-   *  exhaustion it stops where it is and reports partial progress — a
-   *  too-large cache trims over several runs instead of stalling one. */
-  timeBudgetMs: number;
+  /** The cache's total size the prune brings it down to (least-recently-used first). */
+  maxBytes: number;
+  /** An entry unused for this many hours is pruned whatever the size. */
+  maxEntryAgeHours: number;
+  /** An entry used within this many minutes is never pruned (in use). */
+  inUseMinutes: number;
+  /** At most one prune per this many minutes, across every process enabling the cache — unless the last one left work. */
+  intervalMinutes: number;
+  /**
+   * At most this many entries deleted by one prune: the prune is
+   * INCREMENTAL, bounded by a count and never by a wall clock (NO-LOAD-BLOCK:
+   * a loaded host must still make progress). A prune that hits it records
+   * that work is left, and the next enabler continues at once.
+   */
+  maxDeletionsPerPrune: number;
 }>;
 
 export type CompileCachePruneResult = Readonly<{
-  /** Entries examined across all version subdirectories. */
   scannedEntries: number;
-  /** Entries deleted this invocation. */
+  scannedBytes: number;
   prunedEntries: number;
-  /** Entries known to remain (scanned − pruned; a partial walk undercounts
-   *  the total the same way it undercounts scanned). */
-  survivors: number;
-  /** True when the time budget stopped the walk before it finished — the
-   *  next run continues from wherever the directory order left off. */
-  timeBudgetExhausted: boolean;
-  tookMs: number;
+  prunedBytes: number;
+  survivorBytes: number;
+  /** True when, after pruning everything allowed, the cache is still over `maxBytes`: the rest is in use. */
+  overBoundInUse: boolean;
+  /** True when the deletion cap stopped this prune with prunable entries left: the next enabler continues. */
+  workLeft: boolean;
+  /** Entries whose unlink failed (each a survivor), said in the summary line. */
+  unlinkFailures: number;
 }>;
 
-/** Clock checks are batched so the budget costs one `Date.now()` per block
- *  of filesystem operations rather than one per file. */
-const PRUNE_CLOCK_CHECK_EVERY = 512;
+type CacheEntry = { readonly path: string; readonly bytes: number; readonly lastUsedMs: number };
 
 /**
- * Prune ONE cache directory under the declared policy. Exported with the
- * directory injectable so the exact survivor set can be DRIVEN over a
- * planted fixture directory and asserted — the same discipline as
- * `scanCacheDirectory`, for the same reason: a deletion routine no test
- * ever drives is the routine whose fresh-entry-eating mutant survives.
+ * Prune the cache rooted at `root` (its version subdirectories) under
+ * `policy`, as of `nowMs`. Exported with the root injectable so the exact
+ * survivor set is DRIVEN over a planted fixture and asserted — a deletion
+ * routine no test drives is the routine whose in-use-entry-eating mutant
+ * survives every guard.
  *
- * Two walks: the first collects mtimes only (15 MB for 1.9M entries —
- * names are not held), the second deletes entries older than the single
- * derived cutoff `max(ageCutoff, capCutoff)`. One cutoff means the
- * semantics are a sentence: an entry survives iff its mtime is within the
- * age window AND among the newest `maxEntries`.
+ * One collection walk (path, size, last use), then deletion of the
+ * PRUNABLE set in least-recently-used order: every entry unused for
+ * `maxEntryAgeHours`, then — while the total is over `maxBytes` — the least
+ * recently used, never one used within `inUseMinutes`; at most
+ * `maxDeletionsPerPrune` of them, the oldest first, so a prune that stops
+ * early has removed the right ones.
  */
-export function pruneCacheDirectory(
-  dir: string,
-  policy: CompileCachePruningPolicy,
-  nowMs: number,
-  deadlineMs: number,
-): CompileCachePruneResult {
-  const started = Date.now();
-  const ageCutoff = nowMs - policy.maxEntryAgeDays * 86_400_000;
-  const mtimes: number[] = [];
-  let exhausted = false;
-
-  const walk = (onFile: (name: string, mtimeMs: number) => void): void => {
-    let handle;
+export function pruneCompileCache(root: string, policy: CompileCachePruningPolicy, nowMs: number): CompileCachePruneResult {
+  const entries: CacheEntry[] = [];
+  let subdirectories: readonly string[] = [];
+  try {
+    subdirectories = readdirSync(root, { withFileTypes: true }).filter((one) => one.isDirectory()).map((one) => join(root, one.name));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  for (const directory of subdirectories) {
+    const handle = opendirSync(directory);
     try {
-      handle = opendirSync(dir);
-    } catch {
-      return; // an unreadable directory holds nothing to prune
-    }
-    try {
-      let sinceCheck = 0;
       for (;;) {
-        if (++sinceCheck >= PRUNE_CLOCK_CHECK_EVERY) {
-          sinceCheck = 0;
-          if (Date.now() >= deadlineMs) { exhausted = true; return; }
-        }
         const entry = handle.readSync();
-        if (entry === null) return;
+        if (entry === null) break;
         if (!entry.isFile()) continue;
-        try {
-          onFile(entry.name, statSync(join(dir, entry.name)).mtimeMs);
-        } catch {
-          continue; // vanished mid-walk — not ours to prune
-        }
+        const path = join(directory, entry.name);
+        const facts = statSync(path, { throwIfNoEntry: false });
+        if (facts === undefined) continue; // vanished mid-walk: not ours to prune
+        entries.push({ path, bytes: facts.size, lastUsedMs: Math.max(facts.mtimeMs, facts.atimeMs) });
       }
     } finally {
       handle.closeSync();
     }
-  };
-
-  walk((_name, mtimeMs) => { mtimes.push(mtimeMs); });
-  const scannedEntries = mtimes.length;
-
-  let prunedEntries = 0;
-  if (!exhausted) {
-    // An incomplete collection cannot support deletion, so derive this
-    // cutoff only when its deletion walk will run.
-    // The cap's cutoff is the maxEntries-th newest mtime; ties survive.
-    let capCutoff = Number.NEGATIVE_INFINITY;
-    if (mtimes.length > policy.maxEntries) {
-      mtimes.sort((a, b) => b - a);
-      capCutoff = mtimes[policy.maxEntries - 1]!;
-    }
-    const cutoff = Math.max(ageCutoff, capCutoff);
-    walk((name, mtimeMs) => {
-      if (mtimeMs < cutoff) {
-        // One EPERM/ENOENT must not abort the prune; a failed unlink is a
-        // survivor and `bestEffort` says so instead of swallowing it.
-        bestEffort(() => {
-          unlinkSync(join(dir, name));
-          prunedEntries += 1;
-        });
-      }
-    });
   }
+  const scannedBytes = entries.reduce((total, entry) => total + entry.bytes, 0);
+  // THE PRUNABLE SET, oldest first: aged out, or LRU while over the bound; never in use.
+  const ageCutoff = nowMs - policy.maxEntryAgeHours * 3_600_000;
+  const inUseCutoff = nowMs - policy.inUseMinutes * 60_000;
+  const byAge = entries.toSorted((a, b) => a.lastUsedMs - b.lastUsedMs);
+  const prunable: CacheEntry[] = [];
+  let remaining = scannedBytes;
+  for (const entry of byAge) {
+    if (entry.lastUsedMs >= inUseCutoff) break;
+    if (entry.lastUsedMs < ageCutoff || remaining > policy.maxBytes) {
+      prunable.push(entry);
+      remaining -= entry.bytes;
+    }
+  }
+  let prunedEntries = 0;
+  let prunedBytes = 0;
+  let unlinkFailures = 0;
+  for (const entry of prunable.slice(0, policy.maxDeletionsPerPrune)) {
+    try {
+      unlinkSync(entry.path);
+      prunedEntries += 1;
+      prunedBytes += entry.bytes;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") unlinkFailures += 1; // ENOENT: another prune took it
+    }
+  }
+  const survivorBytes = scannedBytes - prunedBytes;
+  const workLeft = prunable.length > policy.maxDeletionsPerPrune;
   return {
-    scannedEntries,
+    scannedEntries: entries.length,
+    scannedBytes,
     prunedEntries,
-    survivors: scannedEntries - prunedEntries,
-    timeBudgetExhausted: exhausted,
-    tookMs: Date.now() - started,
+    prunedBytes,
+    survivorBytes,
+    overBoundInUse: !workLeft && survivorBytes > policy.maxBytes,
+    workLeft,
+    unlinkFailures,
   };
 }
 
+/** The stamp in the cache root: one typed record of the last prune. */
+const PRUNE_STAMP = ".last-prune";
+const PRUNE_STAMP_SCHEMA = "compile-cache-prune-stamp/1";
+
+/** The last prune, as its stamp records it: when it ran, and whether it left prunable entries behind. */
+export type CompilePruneStamp = Readonly<{ schema: typeof PRUNE_STAMP_SCHEMA; prunedAtMs: number; workLeft: boolean }>;
+
+/** The code of a stamp that is not a {@link CompilePruneStamp}. */
+export const PRUNE_STAMP_MALFORMED = "compile_cache_prune_stamp_malformed";
+
 /**
- * Prune every version subdirectory under the cache ROOT (the constant this
- * module enables the cache at). The root is used rather than only
- * `compileCacheDirInUse()` because abandoned node-version subdirectories
- * are exactly the entries nothing will ever read again, and the directory
- * in use is one of several. One shared budget covers the whole prune.
+ * THE STAMP, parsed and checked field by field: exactly `schema`,
+ * `prunedAtMs` (a finite, non-negative instant) and `workLeft` (a boolean).
+ * Anything else is a typed refusal ({@link PRUNE_STAMP_MALFORMED}), never a
+ * guess: a stamp nobody can read cannot say whether work was left.
  */
-export function pruneCompileCacheRoot(
-  policy: CompileCachePruningPolicy,
-  nowMs: number = Date.now(),
-): CompileCachePruneResult {
-  const deadlineMs = Date.now() + policy.timeBudgetMs;
-  let scannedEntries = 0;
-  let prunedEntries = 0;
-  let exhausted = false;
-  const started = Date.now();
-  let subdirs: readonly string[];
-  try {
-    subdirs = readdirSync(COMPILE_CACHE_DIRECTORY, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => join(COMPILE_CACHE_DIRECTORY, d.name));
-  } catch {
-    subdirs = [];
-  }
-  for (const dir of subdirs) {
-    if (Date.now() >= deadlineMs) { exhausted = true; break; }
-    const r = pruneCacheDirectory(dir, policy, nowMs, deadlineMs);
-    scannedEntries += r.scannedEntries;
-    prunedEntries += r.prunedEntries;
-    exhausted = exhausted || r.timeBudgetExhausted;
-  }
-  return {
-    scannedEntries,
-    prunedEntries,
-    survivors: scannedEntries - prunedEntries,
-    timeBudgetExhausted: exhausted,
-    tookMs: Date.now() - started,
+export function parsePruneStamp(text: string): CompilePruneStamp {
+  const refuse = (why: string): never => {
+    throw new InputError(
+      `the compile cache's prune stamp (${PRUNE_STAMP} in the cache root) is malformed: ${why}. ` +
+      `It is the record of the last prune; remove it and the next enabler prunes and writes a well-formed one.`,
+      PRUNE_STAMP_MALFORMED,
+    );
   };
+  const parsed = parseJsonExact(text);
+  if (parsed === undefined) return refuse("not JSON");
+  const record = parsed.value;
+  if (typeof record !== "object" || record === null || Array.isArray(record)) return refuse("not a JSON object");
+  const keys = Object.keys(record).sort();
+  if (keys.join(",") !== "prunedAtMs,schema,workLeft") return refuse(`its fields are [${keys.join(", ")}], not [prunedAtMs, schema, workLeft]`);
+  const { schema, prunedAtMs, workLeft } = record as Record<string, unknown>;
+  if (schema !== PRUNE_STAMP_SCHEMA) return refuse(`its schema is not ${PRUNE_STAMP_SCHEMA}`);
+  if (typeof prunedAtMs !== "number" || !Number.isFinite(prunedAtMs) || prunedAtMs < 0) return refuse("prunedAtMs is not a finite, non-negative instant");
+  if (typeof workLeft !== "boolean") return refuse("workLeft is not a boolean");
+  return { schema, prunedAtMs, workLeft };
+}
+
+/** The stamp of a prune at `prunedAtMs` that did or did not leave work. */
+export function pruneStamp(prunedAtMs: number, workLeft: boolean): CompilePruneStamp {
+  return { schema: PRUNE_STAMP_SCHEMA, prunedAtMs, workLeft };
+}
+
+/** A stamp's text: the one writer {@link parsePruneStamp} reads. */
+export function pruneStampText(stamp: CompilePruneStamp): string {
+  return `${JSON.stringify(stamp)}\n`;
+}
+
+/** What a prune did, in words, and whether that is a condition to report loudly. */
+export function pruneSummary(result: CompileCachePruneResult, policy: CompileCachePruningPolicy): Readonly<{ line: string; loud: boolean }> {
+  const gib = (bytes: number): string => `${(bytes / 1_073_741_824).toFixed(2)} GiB`;
+  const base = `prune: ${String(result.prunedEntries)} of ${String(result.scannedEntries)} entries ` +
+    `(${gib(result.prunedBytes)} of ${gib(result.scannedBytes)}) removed; ${gib(result.survivorBytes)} kept ` +
+    `(bound: ${gib(policy.maxBytes)}, unused ${String(policy.maxEntryAgeHours)}h pruned, used within ${String(policy.inUseMinutes)}min kept)`;
+  const notes: string[] = [];
+  if (result.workLeft) notes.push(`the deletion cap (${String(policy.maxDeletionsPerPrune)}) left prunable entries: the next enabler continues`);
+  if (result.overBoundInUse) notes.push("STILL OVER THE BOUND: the rest is in use");
+  if (result.unlinkFailures > 0) notes.push(`${String(result.unlinkFailures)} entr(ies) could not be removed`);
+  return { line: notes.length === 0 ? base : `${base} — ${notes.join("; ")}`, loud: result.overBoundInUse || result.unlinkFailures > 0 };
+}
+
+/**
+ * Prune the shared cache root at enablement (see the header above): when the
+ * last prune left work, or none ran within `policy.intervalMinutes`, prune
+ * and stamp (with whether work is left). Answers the summary, or null when
+ * the interval has not passed and no work was left.
+ */
+export function pruneCompileCacheAtEnablement(policy: CompileCachePruningPolicy, root: string = COMPILE_CACHE_DIRECTORY, nowMs: number = Date.now()): ReturnType<typeof pruneSummary> | null {
+  const stampPath = join(root, PRUNE_STAMP);
+  const last = statSync(stampPath, { throwIfNoEntry: false }) === undefined ? undefined : parsePruneStamp(readFileSync(stampPath, "utf8"));
+  if (last !== undefined && !last.workLeft && nowMs - last.prunedAtMs < policy.intervalMinutes * 60_000) return null;
+  const result = pruneCompileCache(root, policy, nowMs);
+  writeFileSync(stampPath, pruneStampText(pruneStamp(nowMs, result.workLeft)));
+  return pruneSummary(result, policy);
 }
 
 export function scanCacheDirectory(dir: string, sinceMs: number): CompileCacheScan | null {
