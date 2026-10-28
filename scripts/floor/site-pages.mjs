@@ -255,7 +255,7 @@ export function legacyAliases(plan) {
  * declaration (`repository.mjs`) and the deployment: the builder refuses a
  * source config that declares one (a second owner of that value).
  */
-export const BUILDER_OWNED_CONFIG_KEYS = Object.freeze(["url", "baseurl", "repository", "repository_url", "security_url", "versions_url", "release_version"]);
+export const BUILDER_OWNED_CONFIG_KEYS = Object.freeze(["url", "baseurl", "repository", "repository_url", "security_url", "product_repository", "product_repository_url", "product_site_url", "preview_repository_url", "versions_url", "release_version"]);
 
 /**
  * The record collections under `docs/`: data and dated records the site
@@ -337,9 +337,9 @@ function textFiles(root) {
  *   ({@link siteLinkTargets}): inside a release snapshot it would resolve
  *   under the snapshot, where no versions page exists (`site.versions_url`
  *   names the live one).
- * It reads the repository identity through the engine's config loader, so
- * it runs after the engine's install; the builder adds the configuration's
- * own refusals (`site.mjs`).
+ * It reads the repository identity from the file `harness sync` generates
+ * (`repository.mjs`), so it needs no install; the builder adds the
+ * configuration's own refusals (`site.mjs`).
  */
 export function siteSourceViolations({ root, coordinates = COORDINATES }) {
   const plan = sitePlan({ root, coordinates });

@@ -15,5 +15,17 @@
     "bridlewise-archive",
     "bridlewise",
     "forge-proving-ground"
-  ]
+  ],
+  "product": {
+    "name": "bridlewise",
+    "fullName": "LLM-4-People/bridlewise",
+    "webUrl": "https://github.com/LLM-4-People/bridlewise",
+    "pagesUrl": "https://llm-4-people.github.io/bridlewise/"
+  },
+  "preview": {
+    "name": "bridlewise",
+    "fullName": "LLM-4-People/bridlewise",
+    "webUrl": "https://github.com/LLM-4-People/bridlewise",
+    "pagesUrl": "https://llm-4-people.github.io/bridlewise/"
+  }
 }

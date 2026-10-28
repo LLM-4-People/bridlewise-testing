@@ -33,7 +33,8 @@ import { ForgeError } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
 import { environmentCredential, memoryCredential } from "./credentials.ts";
 import { forgeDeclarations } from "./declarations.ts";
-import { forgeEndpoint, trunkRepository, type ForgeSettings } from "./forge-config.ts";
+import { forgeEndpoint, type ForgeSettings } from "./forge-config.ts";
+import { repositoryIdentity } from "./repository-identity.ts";
 import { forgeFileSources, syncForgeFiles } from "./generated-files.ts";
 import { githubClient } from "./github.ts";
 import { forgeApply, forgePlan } from "./plan.ts";
@@ -89,7 +90,7 @@ async function appsCreate(root: string, rest: readonly string[], onProgress: (li
   const cli = wiring.maintainerCli(settings);
   const ready = await cli.ready();
   if (!ready.ready) throw new ForgeError("forge_maintainer_cli_failed", `The maintainer's gh is not ready: ${ready.reason}.`, {});
-  const trunk = `${settings.organization}/${trunkRepository(settings).name}`;
+  const trunk = repositoryIdentity(settings).fullName;
   for (const role of FORGE_APP_ROLES) {
     const custody = FORGE_APPS[role].custody;
     if (custody.kind === "environment" && !(await cli.environmentExists(trunk, custody.environment))) {

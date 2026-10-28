@@ -13,7 +13,8 @@ import test from "node:test";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { configuredForge } from "../../src/workflow/forge/configured-forge.ts";
 import { syncForgeFiles } from "../../src/workflow/forge/generated-files.ts";
-import { configuredRepositoryIdentity, repositoryIdentity, repositoryIdentityCopies, withIdentityLinks } from "../../src/workflow/forge/repository-identity.ts";
+import { FORGE_CONFIG_SCHEMA, trunkRepository } from "../../src/workflow/forge/forge-config.ts";
+import { configuredRepositoryIdentity, productRenamedSettings, repositoryIdentity, repositoryIdentityCopies, withIdentityLinks } from "../../src/workflow/forge/repository-identity.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 /** A fresh git working tree (the identity's copies are read from what a tree owns). */
@@ -35,15 +36,35 @@ test("every address is derived from the organisation, the web origin and the tru
     pagesBasePath: "/bridlewise-testing",
     pagesUrl: "https://llm-4-people.github.io/bridlewise-testing/",
     organisationRepositories: SETTINGS.repositories.map((repository) => repository.name),
+    // The product's repository and the preview: identities of their own, from the section's flags.
+    product: { name: "bridlewise", fullName: "LLM-4-People/bridlewise", webUrl: "https://github.com/LLM-4-People/bridlewise", pagesUrl: "https://llm-4-people.github.io/bridlewise/" },
+    preview: { name: "bridlewise", fullName: "LLM-4-People/bridlewise", webUrl: "https://github.com/LLM-4-People/bridlewise", pagesUrl: "https://llm-4-people.github.io/bridlewise/" },
   });
 });
 
+test("THE P1.10 RENAME is one edit of the forge section: the preview is renamed first, then the trunk takes the product's name and flag; renaming the trunk alone is refused", () => {
+  const renamed = productRenamedSettings(SETTINGS);
+  const named = (flag: "product" | "preview") => renamed.repositories.filter((repository) => repository[flag] === true).map((repository) => repository.name);
+  assert.equal(trunkRepository(renamed).name, "bridlewise");
+  assert.deepEqual(named("product"), ["bridlewise"], "the product is published from the renamed trunk");
+  assert.deepEqual(named("preview"), ["bridlewise-preview"], "the preview keeps its flag under its new name");
+  assert.deepEqual(renamed.appsPage.legacyApps.flatMap((app) => app.repositories), ["bridlewise"], "the legacy App page follows the trunk");
+  assert.deepEqual(renamed.retired.map((entry) => entry.repository), ["bridlewise"], "the retired rulesets follow the trunk");
+  const identity = repositoryIdentity(renamed);
+  assert.equal(identity.product.fullName, identity.fullName);
+  assert.equal(identity.preview?.webUrl, "https://github.com/LLM-4-People/bridlewise-preview");
+  // The trunk renamed alone collides with the preview's name: the schema refuses it.
+  assert.throws(() => FORGE_CONFIG_SCHEMA.parse({ ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, name: "bridlewise" } : repository) }), /unique/u);
+  // Without a preview declared there is nothing to rename first: refused, typed.
+  assert.throws(() => productRenamedSettings({ ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => { const { preview: _preview, ...rest } = repository; return rest; }) }), (error: unknown) => isForgeError(error, "forge_declaration_invalid"));
+});
+
 test("a rename is one value: the trunk's new name moves every address, and nothing else", () => {
-  const renamed = { ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, name: "bridlewise" } : repository) };
+  const renamed = { ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, name: "renamed-trunk" } : repository) };
   const before = repositoryIdentity(SETTINGS);
   const after = repositoryIdentity(renamed);
   for (const field of ["name", "fullName", "webUrl", "gitUrl", "issuesUrl", "pagesBasePath", "pagesUrl"] as const) {
-    assert.equal(after[field], before[field].replaceAll("bridlewise-testing", "bridlewise"), field);
+    assert.equal(after[field], before[field].replaceAll("bridlewise-testing", "renamed-trunk"), field);
   }
   assert.equal(after.owner, before.owner);
 });

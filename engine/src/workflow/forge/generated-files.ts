@@ -27,7 +27,7 @@ import { COMMUNITY_DIRECTORY, readIntake, readRoles, type CommunityRoles } from 
 import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError } from "./codes.ts";
 import { forgeDeclarations, type DeclarationSources } from "./declarations.ts";
-import { trunkRepository, type ForgeSettings } from "./forge-config.ts";
+import type { ForgeSettings } from "./forge-config.ts";
 import { repositoryIdentity, repositoryIdentityCopies, type RepositoryIdentity } from "./repository-identity.ts";
 import { CODEOWNERS_FILE, codeownersFile, DEPENDABOT_FILE, dependabotFile, forgeTreeFacts, isDependencyLockfile, type ForgeTreeFacts } from "./repository-files.ts";
 
@@ -48,6 +48,8 @@ function repositoryIdentityFile(identity: RepositoryIdentity): string {
     generator: "harness sync (engine/src/workflow/forge/generated-files.ts, from repository-identity.ts); never edit by hand",
     owner: identity.owner, name: identity.name, fullName: identity.fullName, webUrl: identity.webUrl, pagesUrl: identity.pagesUrl, pagesBasePath: identity.pagesBasePath,
     organisationRepositories: identity.organisationRepositories,
+    product: identity.product,
+    preview: identity.preview ?? null,
   });
 }
 const INDEX_SCHEMA = schemaId("forge-generated-files", 1);
@@ -57,11 +59,6 @@ export function appsPageOrigin(settings: ForgeSettings): string {
   return `http://127.0.0.1:${String(settings.appsPage.port)}`;
 }
 
-/** The trunk's web URL. */
-function trunkWebUrl(settings: ForgeSettings): string {
-  return `${settings.webUrl.replace(/\/$/u, "")}/${settings.organization}/${trunkRepository(settings).name}`;
-}
-
 /**
  * THE APP MANIFEST of `role` (GitHub's "registering a GitHub App from a
  * manifest"): the registry's name, description and exact permissions, no
@@ -69,7 +66,7 @@ function trunkWebUrl(settings: ForgeSettings): string {
  */
 export function appManifest(role: ForgeAppRole, settings: ForgeSettings): Readonly<Record<string, unknown>> {
   const app = FORGE_APPS[role];
-  const home = trunkWebUrl(settings);
+  const home = repositoryIdentity(settings).webUrl;
   return deepFreeze({
     name: app.name,
     url: home,

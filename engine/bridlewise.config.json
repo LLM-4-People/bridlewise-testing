@@ -1195,7 +1195,9 @@
       {
         "name": "bridlewise",
         "kind": "archive",
-        "visibility": "public"
+        "visibility": "public",
+        "product": true,
+        "preview": true
       },
       {
         "name": "forge-proving-ground",

@@ -68,7 +68,7 @@ const BASE = "/bridlewise";
  * names another organisation and trunk (a name unlike the real one proves
  * every coordinate the site uses is derived from the identity it is given).
  */
-const FIXTURE = siteCoordinates(repositoryIdentity({ ...configuredForge(), organization: "Example-Org", repositories: [{ name: "site-repo", kind: "trunk", visibility: "public" }] }));
+const FIXTURE = siteCoordinates(repositoryIdentity({ ...configuredForge(), organization: "Example-Org", repositories: [{ name: "site-repo", kind: "trunk", visibility: "public", product: true }] }));
 const REAL_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 /**

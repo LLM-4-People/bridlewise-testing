@@ -16,7 +16,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { join } from "node:path";
 import test from "node:test";
@@ -184,6 +184,35 @@ test("each confined program's modules are its entry's import closure, derived, n
     assert.ok(modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || path.startsWith(join(REPOSITORY_ROOT, "shared/"))), `${program.exportName} links only the engine's source and shared/`);
   }
   for (const shared of ["shared/markdown.ts", "shared/markup.ts"]) assert.ok(confinedModules(PROJECTION_PROGRAM).includes(join(REPOSITORY_ROOT, shared)), `the projection reaches ${shared}`);
+  // Containment is decided by IDENTITY, never by spelling: a module reached through a link that leaves the root is refused,
+  // even though its spelled path lies under the root.
+  const directory = createTempDir("projector-links-");
+  const root = join(directory, "root");
+  const outside = join(directory, "outside");
+  mkdirSync(root);
+  mkdirSync(outside);
+  writeFileSync(join(outside, "secret.ts"), "export const value = 'x';\n");
+  writeFileSync(join(root, "kept.ts"), "export const value = 'y';\n");
+  symlinkSync(join(outside, "secret.ts"), join(root, "file-link.ts"));
+  symlinkSync(outside, join(root, "dir-link"));
+  symlinkSync(join(root, "kept.ts"), join(root, "inside-link.ts"));
+  writeFileSync(join(root, "reexport.ts"), "export { value } from './dir-link/secret.ts';\n");
+  let entries = 0;
+  const program = (source: string): ConfinedModule => {
+    entries += 1;
+    const entry = join(root, `entry-${String(entries)}.ts`);
+    writeFileSync(entry, `${source}\nexport function projectText(): string { return value; }\n`);
+    return { entry, roots: [root], exportName: "projectText" };
+  };
+  for (const [why, source] of [
+    ["a file link out of the root", "import { value } from './file-link.ts';"],
+    ["a directory link out of the root", "import { value } from './dir-link/secret.ts';"],
+    ["a re-export through a link", "import { value } from './reexport.ts';"],
+  ] as const) {
+    assert.throws(() => confinedModules(program(source)), (error: HarnessError) => error.code === "projection_import_refused" && /outside the confined program's roots/u.test(error.message), why);
+  }
+  // Near miss: a link that stays inside the root links.
+  assert.ok(confinedModules(program("import { value } from './inside-link.ts';")).length >= 2, "a link inside the root is inside it");
 });
 
 test("the first run creates in phase order, verifies, and its receipt names every write", async () => {

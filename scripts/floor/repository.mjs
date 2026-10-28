@@ -22,8 +22,10 @@ export function generatedRepositoryIdentity() {
   const path = new URL("../../.github/forge/repository-identity.json", import.meta.url);
   const identity = JSON.parse(readFileSync(path, "utf8"));
   const text = (value) => typeof value === "string" && value !== "";
+  const repository = (value) => typeof value === "object" && value !== null && [value.name, value.fullName, value.webUrl, value.pagesUrl].every(text);
   if (![identity.owner, identity.name, identity.fullName, identity.webUrl, identity.pagesUrl, identity.pagesBasePath].every(text)
-    || !Array.isArray(identity.organisationRepositories) || !identity.organisationRepositories.every(text)) {
+    || !Array.isArray(identity.organisationRepositories) || !identity.organisationRepositories.every(text)
+    || !repository(identity.product) || !(identity.preview === null || repository(identity.preview))) {
     throw new Error(`${path.pathname} is not the generated repository identity: run harness sync`);
   }
   return Object.freeze(identity);
@@ -40,6 +42,11 @@ export function siteCoordinates(identity) {
     siteOrigin: new URL(identity.pagesUrl).origin,
     siteBaseurl: identity.pagesBasePath,
     siteUrl: identity.pagesUrl,
+    // The product's repository and site, and the preview repository: identities of their own (the forge section's flags).
+    productRepository: identity.product.fullName,
+    productRepositoryUrl: identity.product.webUrl,
+    productSiteUrl: identity.product.pagesUrl,
+    previewRepositoryUrl: identity.preview === null || identity.preview === undefined ? "" : identity.preview.webUrl,
   });
 }
 

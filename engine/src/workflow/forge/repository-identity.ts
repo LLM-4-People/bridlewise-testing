@@ -18,8 +18,20 @@ import { workingTreeReader } from "../../git/tree-reader.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { ForgeError } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
-import { trunkRepository, type ForgeSettings } from "./forge-config.ts";
+import { PRODUCT_NAME } from "../../kernel/product-identity.ts";
+import { FORGE_CONFIG_SCHEMA, trunkRepository, type ForgeSettings } from "./forge-config.ts";
 import { repositoryReferenceUrl } from "./repository-reference.ts";
+
+/** One repository of the organisation, by its addresses. */
+export type OrganisationRepository = Readonly<{
+  name: string;
+  /** `owner/name`. */
+  fullName: string;
+  /** Its web URL. */
+  webUrl: string;
+  /** Its project Pages site. */
+  pagesUrl: string;
+}>;
 
 export type RepositoryIdentity = Readonly<{
   /** The organisation (`LLM-4-People`). */
@@ -40,18 +52,19 @@ export type RepositoryIdentity = Readonly<{
   pagesUrl: string;
   /** Every repository of the organisation the forge declares (this one included), by name. */
   organisationRepositories: readonly string[];
+  /** Where the product is published (the repository declared `product: true`; the trunk itself after the P1.10 rename). */
+  product: OrganisationRepository;
+  /** The public preview repository (declared `preview: true`), if any: the product as published before the rename. */
+  preview: OrganisationRepository | undefined;
 }>;
 
 /** The trunk repository's identity under `settings`. */
 export function repositoryIdentity(settings: ForgeSettings): RepositoryIdentity {
-  const web = new URL(settings.webUrl);
   const owner = settings.organization;
   const { name } = trunkRepository(settings);
-  const webUrl = `${web.origin}/${owner}/${name}`;
-  // The project Pages site: the web origin's scheme, on `<owner>.<pagesDomain>` (the owner lower-cased, as the forge serves it).
-  const pages = new URL(web.origin);
-  pages.hostname = `${owner.toLowerCase()}.${settings.pagesDomain}`;
-  pages.pathname = `/${name}/`;
+  const trunk = organisationRepository(settings, name);
+  const webUrl = trunk.webUrl;
+  const declared = (flag: "product" | "preview") => settings.repositories.find((repository) => repository[flag] === true);
   return deepFreeze({
     owner,
     name,
@@ -60,8 +73,47 @@ export function repositoryIdentity(settings: ForgeSettings): RepositoryIdentity 
     gitUrl: `${webUrl}.git`,
     issuesUrl: `${webUrl}/issues`,
     pagesBasePath: `/${name}`,
-    pagesUrl: pages.href,
+    pagesUrl: trunk.pagesUrl,
     organisationRepositories: settings.repositories.map((repository) => repository.name),
+    product: organisationRepository(settings, declared("product")!.name),
+    preview: declared("preview") === undefined ? undefined : organisationRepository(settings, declared("preview")!.name),
+  });
+}
+
+/** The addresses of the organisation's repository `name` under `settings`. */
+function organisationRepository(settings: ForgeSettings, name: string): OrganisationRepository {
+  const web = new URL(settings.webUrl);
+  const owner = settings.organization;
+  // The project Pages site: the web origin's scheme, on `<owner>.<pagesDomain>` (the owner lower-cased, as the forge serves it).
+  const pages = new URL(web.origin);
+  pages.hostname = `${owner.toLowerCase()}.${settings.pagesDomain}`;
+  pages.pathname = `/${name}/`;
+  return Object.freeze({ name, fullName: `${owner}/${name}`, webUrl: `${web.origin}/${owner}/${name}`, pagesUrl: pages.href });
+}
+
+/**
+ * THE P1.10 RENAME as the forge section's one edit (runbook P1.10; U-3), in
+ * the order GitHub must see it, so no two repositories ever share a name:
+ * 1. the preview repository (`preview: true`, today the product's) becomes
+ *    `<name>-preview`, keeping its releases and its `preview` flag;
+ * 2. the trunk takes the product's name ({@link PRODUCT_NAME}) and becomes
+ *    the product's repository (`product: true` moves to it).
+ * Every field that names a repository by name follows (the App page's legacy
+ * Apps, the retired rulesets). The result is validated by the forge schema.
+ */
+export function productRenamedSettings(settings: ForgeSettings): ForgeSettings {
+  const preview = settings.repositories.find((repository) => repository.preview === true);
+  if (preview === undefined) throw new ForgeError("forge_declaration_invalid", "The rename needs the preview repository declared (preview: true).", { field: "repositories" });
+  const renamed = new Map([[preview.name, `${preview.name}-preview`], [trunkRepository(settings).name, PRODUCT_NAME]]);
+  const name = (current: string): string => renamed.get(current) ?? current;
+  return FORGE_CONFIG_SCHEMA.parse({
+    ...settings,
+    repositories: settings.repositories.map((repository) => {
+      const { product: _product, ...rest } = repository;
+      return { ...rest, name: name(repository.name), ...(repository.kind === "trunk" ? { product: true as const } : {}) };
+    }),
+    appsPage: { ...settings.appsPage, legacyApps: settings.appsPage.legacyApps.map((app) => ({ ...app, repositories: app.repositories.map(name) })) },
+    retired: settings.retired.map((entry) => ({ ...entry, repository: name(entry.repository) })),
   });
 }
 
@@ -70,8 +122,14 @@ export function configuredRepositoryIdentity(): RepositoryIdentity {
   return repositoryIdentity(configuredForge());
 }
 
-/** A Markdown reference to an identity link: `[text][repo:<path>]` (on GitHub) or `[text][site:<path>]` (on the Pages site). */
-const IDENTITY_LABEL = /\]\[((?:repo|site):[^\]\s<>`]*)\]/gu;
+/**
+ * A Markdown reference to an identity link: `[text][repo:<path>]` (this
+ * repository on GitHub), `[text][site:<path>]` (its Pages site),
+ * `[text][product:<path>]` and `[text][product-site:<path>]` (the product's
+ * repository and its site), `[text][preview:<path>]` (the preview
+ * repository, with its releases).
+ */
+const IDENTITY_LABEL = /\]\[((?:repo|site|product|product-site|preview):[^\]\s<>`]*)\]/gu;
 
 /** `text` with its code (fenced blocks and inline spans) blanked: a label quoted in code is an example, never a use. */
 function proseOf(text: string): string {
@@ -102,6 +160,8 @@ const LINKS_BEGIN = "<!-- BEGIN GENERATED: repository links, from the repository
 const LINKS_END = "<!-- END GENERATED: repository links -->";
 const CLONE_BEGIN = "<!-- BEGIN GENERATED: clone command, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
 const CLONE_END = "<!-- END GENERATED: clone command -->";
+const VARIABLE_BEGIN = "<!-- BEGIN GENERATED: repository variable, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
+const VARIABLE_END = "<!-- END GENERATED: repository variable -->";
 const HEADING_BEGIN = "<!-- BEGIN GENERATED: repository name heading, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
 const HEADING_END = "<!-- END GENERATED: repository name heading -->";
 
@@ -116,20 +176,29 @@ function withBlockContent(text: string, begin: string, end: string, content: str
   return body;
 }
 
-/** The address an identity label names: `repo:<path>` under the repository's GitHub URL, `site:<path>` under its Pages site. */
+/** The address an identity label names (see {@link IDENTITY_LABEL}); a `preview:` label with no preview declared is refused. */
 function identityLinkTarget(label: string, identity: RepositoryIdentity): string {
   const [kind, ...rest] = label.split(":");
   const path = rest.join(":");
-  if (kind === "site") return `${identity.pagesUrl}${path}`;
-  return repositoryReferenceUrl(label, identity.webUrl)!;
+  const under = (base: string): string => (path === "" ? base : `${base}/${path}`);
+  switch (kind) {
+    case "site": return `${identity.pagesUrl}${path}`;
+    case "product": return under(identity.product.webUrl);
+    case "product-site": return `${identity.product.pagesUrl}${path}`;
+    case "preview":
+      if (identity.preview === undefined) throw new ForgeError("forge_identity_copy_invalid", `The label [${label}] names the preview repository, and the forge section declares none (preview: true).`, { field: "preview" });
+      return under(identity.preview.webUrl);
+    default: return repositoryReferenceUrl(label, identity.webUrl)!;
+  }
 }
 
 /**
  * A hand-written Markdown document with its identity links generated. The
  * prose names an address only by a reference label (`[text][repo:issues/57]`,
  * `[text][site:floor/help/]`). One block at the end defines exactly the
- * labels the text uses; a clone block holds the clone command, and a heading
- * block the repository's name as a heading. All are written from the
+ * labels the text uses; a clone block holds the clone command, a heading
+ * block the repository's name as a heading, and a variable block the
+ * repository's `owner/name` as `REPO=` for commands in code. All are written from the
  * identity. A document that uses no label carries no block.
  */
 export function withIdentityLinks(text: string, identity: RepositoryIdentity): string {
@@ -142,6 +211,8 @@ export function withIdentityLinks(text: string, identity: RepositoryIdentity): s
   }
   body = withBlockContent(body, CLONE_BEGIN, CLONE_END, ["```bash", `git clone ${identity.gitUrl}`, `cd ${identity.name}`, "```"].join("\n"), "clone command");
   body = withBlockContent(body, HEADING_BEGIN, HEADING_END, `# ${identity.name}`, "repository name heading");
+  // Commands in code (where no reference label reaches) name the repository through this variable: `--repo "$REPO"`.
+  body = withBlockContent(body, VARIABLE_BEGIN, VARIABLE_END, ["```bash", `REPO=${identity.fullName}`, "```"].join("\n"), "repository variable");
   const labels = [...new Set([...proseOf(body).matchAll(IDENTITY_LABEL)].map((match) => match[1]!))].sort();
   if (labels.length === 0) return body;
   const definitions = labels.map((label) => `[${label}]: ${identityLinkTarget(label, identity)}`);

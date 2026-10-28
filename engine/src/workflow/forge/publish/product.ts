@@ -40,7 +40,7 @@ import { answer, type PromotionAnswer } from "../../promotion/codes.ts";
 import { configuredForge, configuredForgeClient } from "../configured-forge.ts";
 import { environmentCredential } from "../credentials.ts";
 import { FORGE_APPS } from "../app-registry.ts";
-import { trunkRepository } from "../forge-config.ts";
+import { repositoryIdentity } from "../repository-identity.ts";
 
 /** The environment variable the publish job hands the publisher App's installation token in (module-private until the workflow generator imports it). */
 const PUBLISHER_TOKEN_VARIABLE = "BRIDLEWISE_PUBLISHER_TOKEN";
@@ -125,7 +125,7 @@ export function configuredProductForge(): ProductForge {
   const settings = configuredForge();
   return deepFreeze({
     client: configuredForgeClient(environmentCredential(`app:${FORGE_APPS.publisher.name}`, PUBLISHER_TOKEN_VARIABLE)),
-    repository: `${settings.organization}/${trunkRepository(settings).name}`,
+    repository: repositoryIdentity(settings).fullName,
   });
 }
 

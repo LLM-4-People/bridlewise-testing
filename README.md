@@ -2,7 +2,7 @@
 # bridlewise-testing
 <!-- END GENERATED: repository name heading -->
 
-**The development floor for [Bridlewise](https://github.com/LLM-4-People/bridlewise): tests, prevention guards, benchmarks, design decisions, and verification machinery.**
+**The development floor for [Bridlewise][product:]: tests, prevention guards, benchmarks, design decisions, and verification machinery.**
 
 <p align="center">
   <img src="docs/assets/dev-floor.png" alt="The Bridlewise development floor: tests, prevention guards, benchmarks, and 134 decision records. Developer preview; not a product." width="100%">
@@ -19,14 +19,14 @@
 | I want to | Go to |
 |---|---|
 | Help test, review, or improve the floor | [How to help][site:floor/help/] · [CONTRIBUTING.md](CONTRIBUTING.md) |
-| Build on the harness | [Building on the harness](docs/extending.md) · [Architecture](https://llm-4-people.github.io/bridlewise/architecture/) |
+| Build on the harness | [Building on the harness](docs/extending.md) · [Architecture][product-site:architecture/] |
 | See where the work is going | [Build roadmap][site:floor/roadmap/] |
 | Verify a claim | [Floor evidence][site:floor/evidence/] · [Status][site:floor/status/] |
-| Use the product | [Product repository](https://github.com/LLM-4-People/bridlewise) · [Product docs](https://llm-4-people.github.io/bridlewise/) |
+| Use the product | [Product repository][product:] · [Product docs][product-site:] |
 
 ## The site is a floor, not a product mirror
 
-The [testing site][site:] starts with a **contributor hub**, not a copy of the product home. The complete product documentation is still mirrored on the site, with a [product documentation entry point][site:product/]. The product home remains at <https://llm-4-people.github.io/bridlewise/>.
+The [testing site][site:] starts with a **contributor hub**, not a copy of the product home. The complete product documentation is still mirrored on the site, with a [product documentation entry point][site:product/]. The product home remains at [the product's site][product-site:].
 
 The [development floor][site:floor/] is part of that site. It carries a generated test atlas, a public status snapshot, the promotion contract, the build roadmap, the contribution guide, and the evidence commands. The mirror is assembled from the public product docs at build time. It is not a second copy in Git.
 
@@ -45,7 +45,7 @@ This is the **development floor** from which the Bridlewise product is projected
 - 134 decision records and a curated set of design and architecture essays;
 - the test inventory, frozen records, verification tooling, and the guardian tests.
 
-The product repository — cockpit, loopback server, engine, guardian, shared contracts, and public docs — is [`LLM-4-People/bridlewise`](https://github.com/LLM-4-People/bridlewise).
+The product repository — cockpit, loopback server, engine, guardian, shared contracts, and public docs — is [the product repository][product:].
 
 ## Why two repositories
 
@@ -213,9 +213,9 @@ Model invocation, repository mutation, process execution, and network egress are
 | [docs/decisions/](docs/decisions/) | 134 decision records |
 | [docs/floor/](docs/floor/) | Source pages for the generated development-floor site |
 | [docs/design/](docs/design/) | Selected cockpit, performance, and structure essays |
-| [https://llm-4-people.github.io/bridlewise/architecture/](https://llm-4-people.github.io/bridlewise/architecture/) | Architecture and migration design records |
+| [The product's architecture pages][product-site:architecture/] | Architecture and migration design records |
 
-The public product docs live at <https://llm-4-people.github.io/bridlewise/> once the site is published.
+The public product docs live at [the product's site][product-site:] once the site is published.
 
 ## Status
 
@@ -238,6 +238,9 @@ AGPL-3.0-only. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_N
 **Every run, recorded. Every tool, governed.** But not yet ready for your production code.
 
 <!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
+[product-site:]: https://llm-4-people.github.io/bridlewise/
+[product-site:architecture/]: https://llm-4-people.github.io/bridlewise/architecture/
+[product:]: https://github.com/LLM-4-People/bridlewise
 [repo:actions/workflows/ci.yml]: https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml
 [repo:actions/workflows/ci.yml/badge.svg?branch=main]: https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml/badge.svg?branch=main
 [repo:actions/workflows/secret-scan.yml]: https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml

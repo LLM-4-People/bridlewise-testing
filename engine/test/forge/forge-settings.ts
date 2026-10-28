@@ -24,6 +24,7 @@ export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
     { name: "bridlewise-evidence", kind: "evidence", visibility: "public" },
     { name: "bridlewise-coordination", kind: "notes", visibility: "private" },
     { name: "bridlewise-archive", kind: "archive", visibility: "private" },
+    { name: "bridlewise", kind: "archive", visibility: "public", product: true, preview: true },
     { name: "forge-proving-ground", kind: "none", visibility: "public", provingGround: true },
   ],
   maintainerCli: { stallMs: 120_000, cpuLimitMs: 30_000, killGraceMs: 500 },
