@@ -17,7 +17,7 @@ import { parseArgs } from "node:util";
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
 import { instrumentContext, judgeFuture, judgeStates, launchBrowser, openPage, serveSite, siteRestore } from "./judge.ts";
-import { CONTENT_SECURITY_POLICY, RENDER_STATES, RENDERED_RULES, type PageRule } from "./rules.ts";
+import { CONTENT_SECURITY_POLICY, JUDGE_LIMITS, RENDER_STATES, RENDERED_RULES, type PageRule } from "./rules.ts";
 
 /** The mark as Brand.svelte draws it, from the one geometry and its tokens (never a copy of its coordinates). */
 function markSvg(): string {
@@ -103,6 +103,8 @@ const PLANTS: readonly Plant[] = [
   { name: "a mark in an open shadow root with its beam hidden", body: `<div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = ${JSON.stringify(`<style>.brand path { fill: none } circle { opacity: 0 }</style><span class="brand">${markSvg()}</span>`)}</script>`, rule: "brand-mark" },
   { name: "a closed shadow root", body: '<div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "closed" }).innerHTML = "<p>closed text</p>"</script>', rule: "judgeable" },
   { name: "a window the page opens", body: '<script>window.open("clean.html")</script>', rule: "judgeable" },
+  { name: "a change a delayed scheduler.postTask makes", body: `<script>scheduler.postTask(() => { ${GEORGIA_RULE}; }, { delay: 7000 })</script>`, rule: "judgeable" },
+  { name: "a delayed postTask called through the prototype", body: "<script>Scheduler.prototype.postTask.call(scheduler, () => {}, { delay: 1 })</script>", rule: "judgeable" },
   // Faces: bound to the token owner's vendored files, whoever declares them.
   { name: "a token family redefined to a local face", head: '<style>@font-face { font-family: "Proof Sans"; src: local("DejaVu Serif"), local("Liberation Serif") }</style>', rule: "font-families" },
   { name: "a face of another family from a local font", head: '<style>@font-face { font-family: "Shadow Serif"; src: local("DejaVu Serif") }</style>', rule: "font-families" },
@@ -121,6 +123,7 @@ const PLANTS: readonly Plant[] = [
 
 /** Near-misses each row must pass. */
 const CLEAN_TOO: readonly Plant[] = [
+  { name: "a scheduler.postTask with no delay", body: '<script>scheduler.postTask(() => { document.getElementById("prose").textContent = "posted"; })</script>', rule: "judgeable" },
   { name: "an interval that only changes text", body: '<script>let n = 0; setInterval(() => { document.getElementById("prose").textContent = `tick ${++n}`; }, 500)</script>', rule: "font-families" },
   { name: "a frame the declared exclusion skips", body: `<iframe data-artifact="frame" srcdoc="<p style='font-family: Georgia'>a user's artifact</p><canvas id=c></canvas><script>document.getElementById('c').getContext('2d').font = '12px Georgia'</script>"></iframe>`, rule: "font-families" },
   { name: "a canvas drawing text in a token stack", body: '<canvas id="c"></canvas><script>const x = document.getElementById("c").getContext("2d"); x.font = "12px \'Proof Sans\', sans-serif"; x.fillText("x", 0, 10)</script>', rule: "font-families" },
@@ -181,7 +184,7 @@ if (isEntryPoint(import.meta.url)) {
   const { values } = parseArgs({ args: process.argv.slice(2), options: { browser: { type: "string" } } });
   prove(values.browser ?? null).then((failures) => {
     for (const failure of failures) process.stdout.write(`${failure}\n`);
-    process.stdout.write(`${JSON.stringify({ plants: PLANTS.length, caught: PLANTS.length - failures.filter((f) => !f.startsWith("the clean page")).length, cleanPagePasses: !failures.some((f) => f.startsWith("the clean page")) })}\n`);
+    process.stdout.write(`${JSON.stringify({ plants: PLANTS.length, caught: PLANTS.length - failures.filter((f) => !f.startsWith("the clean page")).length, cleanPagePasses: !failures.some((f) => f.startsWith("the clean page")), limits: JUDGE_LIMITS })}\n`);
     process.exitCode = failures.length === 0 ? 0 : 1;
   }, (error: unknown) => {
     process.stderr.write(`[rendered] REFUSED ${error instanceof Error ? error.message : String(error)}\n`);

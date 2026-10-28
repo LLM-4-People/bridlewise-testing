@@ -81,6 +81,7 @@ import {
 } from "./cockpit-plan.ts";
 import { decodePngRgb, encodeGif } from "./gif.ts";
 import { instrumentContext, judgeFuture, judgeStates, launchBrowser, openPage, type RenderRestore } from "../rendered/judge.ts";
+import { JUDGE_LIMITS } from "../rendered/rules.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -795,6 +796,8 @@ async function main(): Promise<void> {
     await drive(state, browser);
     const chromiumVersion = browser.version();
     state.violations.push(...[...offOrigin].sort());
+    // What a green judgement does not claim, every time it is given (rules.ts JUDGE_LIMITS).
+    for (const { id, limit } of JUDGE_LIMITS) log(`judgement limit ${id}: ${limit}`);
     if (state.violations.length > 0) throw new CaptureRefusal(options.judgeOnly ? "rendered_judgement_failed" : "capture_unpublishable", `\n  ${state.violations.join("\n  ")}`);
     if (options.judgeOnly) {
       log(`judged every view as rendered: the mark, the fonts and the network hold (${((Date.now() - started) / 1000).toFixed(0)} s)`);
