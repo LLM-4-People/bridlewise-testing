@@ -28,10 +28,11 @@
  */
 import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { HarnessError } from "../../../kernel/errors.ts";
+import { identityOverlapIndex, resolveLocation } from "../../../filesystem/path-identity.ts";
 import { runConfinedNode } from "../../../filesystem/self-protection/confined-run.ts";
 import type { KeepOutFacts } from "../../../filesystem/self-protection/keep-out.ts";
 import { debugLog } from "../../../shared/debug/debug-system.ts";
@@ -84,13 +85,15 @@ const SPECIFIER = /(\bfrom\s*|\bimport\s*\(?\s*)(["'])([^"'\n]+)\2/gu;
 
 /** Every module of `module`'s program, linked: its path and its `data:` URL (types stripped, relative imports rewritten). */
 function linkModules(module: ConfinedModule): ReadonlyMap<string, string> {
-  const roots = module.roots.map((root) => resolve(root));
+  // Containment is decided by IDENTITY (the one path-identity owner), never by a path's spelling.
+  const identity = identityOverlapIndex();
+  const roots = module.roots.map((root) => resolveLocation(resolve(root), "a confined program's root"));
   const urls = new Map<string, string>();
   const refuse = (message: string): never => { throw new HarnessError(`projection_import_refused: ${message}`, "projection_import_refused"); };
   const link = (path: string, chain: readonly string[]): string => {
     const known = urls.get(path);
     if (known !== undefined) return known;
-    if (!roots.some((root) => path.startsWith(`${root}${sep}`))) refuse(`${path} (imported by ${chain.at(-1) ?? "the entry"}) is outside the confined program's roots (${roots.join(", ")})`);
+    if (!roots.some((root) => identity.atOrUnder(resolveLocation(path, "a confined program's module"), root))) refuse(`${path} (imported by ${chain.at(-1) ?? "the entry"}) is outside the confined program's roots (${roots.join(", ")})`);
     if (chain.includes(path)) refuse(`${path} imports itself through ${chain.join(" → ")}`);
     const code = stripTypeScriptTypes(readFileSync(path, "utf8")).replace(SPECIFIER, (_whole, lead: string, quote: string, specifier: string) => {
       if (!specifier.startsWith("./") && !specifier.startsWith("../")) refuse(`${specifier} (imported by ${path}) is not a module of the confined program`);
