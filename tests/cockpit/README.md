@@ -17,6 +17,7 @@ The `tests/cockpit/` folder of the development surface.
 - `cockpit-chord-owner.test.ts` — @vitest-environment node.
 - `cockpit-derivation-owner.test.ts` — @vitest-environment node.
 - `cockpit-flow-verb-owner.test.ts` — @vitest-environment node.
+- `cockpit-fonts-owner.test.ts` — @vitest-environment node. The self-hosted fonts, over everything the build consumes (walked from `vite.config.ts`'s own entries and public directory; an unparseable kind or an unresolved reference is refused). No remote font source on any host. Each family is declared once: `@font-face` and the `--face-*` stacks only in the token owner, one block per family and style, and every other `font-family` or `font` reads a token. Every declared file is vendored and pinned to IBM's npm release, and the OFL licence is present. Planted violations and near-misses cover each rule.
 - `cockpit-keyboard-grammar.test.ts` — @vitest-environment node.
 - `cockpit-latency-budget.test.ts` — @vitest-environment node.
 - `cockpit-mouse-path-owner.test.ts` — @vitest-environment node.
