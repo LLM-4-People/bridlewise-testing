@@ -84,6 +84,14 @@ export function commandRetryPolicy(document: Pick<ConfigDocument, "harness">): R
  */
 export const DISPLAY_COMMIT_ID_LENGTH = 12;
 
+/**
+ * How many hex digits of its key's SHA-256 an SBOM element id carries
+ * (`release-sbom.ts`: `SPDXRef-npm-<name>-<digits>`), so ids stay unique in
+ * one document however a name sanitises. Twelve keeps them unique for any
+ * lockfile a release could hold.
+ */
+export const SBOM_ELEMENT_ID_DIGEST_LENGTH = 12;
+
 export const DEFAULT_GIT_ADD_TIMEOUT_MS = 30_000;
 export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 
