@@ -59,13 +59,14 @@ export function ownCgroupPath(): string | undefined {
 const CGROUP_V2_ROOT = "/sys/fs/cgroup";
 
 /**
- * How many processes the kernel's OOM killer has ended in THIS process's own
- * cgroup and its descendants (`memory.events` `oom_kill`), or `undefined` when
- * there is no cgroup v2 memory controller to read. A child that ended by
- * SIGKILL while this count rose was ended for its memory (the run's
- * `MemoryMax`), not for its CPU.
+ * The kernel's memory events of THIS process's own cgroup and its
+ * descendants (`memory.events`: `max`, the times usage met `MemoryMax`;
+ * `oom_kill`, the processes the OOM killer ended), or `undefined` when there
+ * is no cgroup v2 memory controller to read. A child that ended by SIGKILL
+ * while `oom_kill` rose was ended for its memory (the run's `MemoryMax`), not
+ * for its CPU.
  */
-export function ownCgroupOomKills(): number | undefined {
+export function ownCgroupMemoryEvents(): Readonly<Record<string, number>> | undefined {
   const path = ownCgroupPath();
   if (path === undefined) return undefined;
   let events: string;
@@ -75,8 +76,10 @@ export function ownCgroupOomKills(): number | undefined {
     // No memory controller here: there is no count to compare, and none is invented.
     return undefined;
   }
-  const count = /^oom_kill (\d+)$/mu.exec(events)?.[1];
-  return count === undefined ? undefined : Number(count);
+  return Object.freeze(Object.fromEntries(events.split("\n").filter((line) => line.includes(" ")).map((line) => {
+    const [name, count] = line.split(" ");
+    return [name!, Number(count)];
+  })));
 }
 
 /** THIS process's CPU-time limit in force (`/proc/self/limits`), soft and hard, as written there (seconds, or "unlimited"); `undefined` when unreadable. */

@@ -40,7 +40,7 @@ import { fileURLToPath } from "node:url";
 import { HarnessError } from "../../../kernel/errors.ts";
 import { deepFreeze } from "../../../kernel/integrity.ts";
 import { admitInstrumentRun, instrumentLockPath, type PerRunCaps } from "../../../process/instrument-lock.ts";
-import { ownCgroupOomKills } from "../../../process/process-facts.ts";
+import { ownCgroupMemoryEvents } from "../../../process/process-facts.ts";
 import { readTestExecutionConfig } from "../../test-result-collector.ts";
 import { SUBPROCESS_BOUNDS } from "../../workflow-config.ts";
 import { runConfinedNode } from "../../../filesystem/self-protection/confined-run.ts";
@@ -154,9 +154,9 @@ export function confinedCall(module: ConfinedModule, input: string, confinement:
   let result: ReturnType<typeof runConfinedNode>;
   let oomKilled = false;
   try {
-    const oomBefore = ownCgroupOomKills();
+    const oomBefore = ownCgroupMemoryEvents()?.oom_kill;
     result = runConfinedNode({ harnessRoot: confinement.harnessRoot, keepOut: confinement.keepOut, program, cpuSeconds: confinement.cpuSeconds });
-    const oomAfter = ownCgroupOomKills();
+    const oomAfter = ownCgroupMemoryEvents()?.oom_kill;
     oomKilled = oomBefore !== undefined && oomAfter !== undefined && oomAfter > oomBefore;
   } finally {
     hold.release();

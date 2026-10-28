@@ -90,7 +90,6 @@ test("memory is the admitted run's cgroup cap (the one memory-bounds owner): a c
   writeFileSync(entry, "export function projectText(): string { const kept: Uint8Array[] = []; for (let i = 0; i < 1024; i += 1) kept.push(new Uint8Array(1 << 20).fill(1)); return String(kept.length); }");
   const script = join(directory, "memory.mjs");
   writeFileSync(script, [
-    `const { readFileSync } = await import("node:fs");`,
     `const { confinedCall } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/workflow/forge/projector/confined.ts"))});`,
     `const { emptyKeepOutFacts } = await import(${JSON.stringify(join(ENGINE_ROOT, "test/support/keep-out-facts.ts"))});`,
     `const run = { lockPath: ${JSON.stringify(join(directory, "instrument.lock"))}, perRun: { memoryMaxPercent: 1, cpuWeight: 100 } };`,
@@ -98,8 +97,9 @@ test("memory is the admitted run's cgroup cap (the one memory-bounds owner): a c
     `try { confinedCall({ entry: ${JSON.stringify(entry)}, modules: [${JSON.stringify(entry)}], exportName: "projectText" }, "{}", { harnessRoot: ${JSON.stringify(ENGINE_ROOT)}, keepOut: emptyKeepOutFacts(), cpuSeconds: 60, run }); ending = "ANSWERED"; }`,
     `catch (error) { ending = \`REFUSED \${error.code}\`; }`,
     // After the call this process is inside the run's scope (admission moved it there), where the program was born.
-    `const cgroup = readFileSync("/proc/self/cgroup", "utf8").split("\\n").find((line) => line.startsWith("0::")).slice(3);`,
-    `const max = /^max (\\d+)$/mu.exec(readFileSync("/sys/fs/cgroup" + cgroup + "/memory.events", "utf8"))[1];`,
+    `const { ownCgroupMemoryEvents, ownCgroupPath } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/process/process-facts.ts"))});`,
+    `const cgroup = ownCgroupPath();`,
+    `const max = ownCgroupMemoryEvents()?.max;`,
     `process.stdout.write(\`\${ending} cgroup=\${cgroup} max=\${max}\\n\`);`,
   ].join("\n"));
   const ran = spawnSync(process.execPath, ["--experimental-strip-types", script], { cwd: ENGINE_ROOT, encoding: "utf8", env: process.env });
