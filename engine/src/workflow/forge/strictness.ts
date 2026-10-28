@@ -207,8 +207,10 @@ const KIND_FIELDS: Readonly<Record<ForgeObjectKind, "neutral" | "ruleset" | Read
   "team": { name: NEUTRAL, privacy: NEUTRAL, description: NEUTRAL, members: SUBSET_IS_STRICT },
   "ruleset": "ruleset",
   "org-ruleset": "ruleset",
-  // A repository's `kind` decides which org rulesets govern it: setting one where none was only joins; changing one is unproven. So is any change to the property's schema.
-  "custom-property": {},
+  // A repository's `kind` decides which org rulesets govern it: setting one where none was only joins; changing one is unproven.
+  // The property's allowed values are a SET: a reorder changes nothing, dropping a value narrows what a repository may be, and a
+  // new value widens it (a loosening). Any other change to the schema must be equal.
+  "custom-property": { allowed_values: SUBSET_IS_STRICT },
   "custom-property-values": { kind: SET_ONCE },
   "team-repository": { permission: levels("admin", "maintain", "push", "triage", "pull") },
   "org-settings": {

@@ -208,6 +208,16 @@ test("the plan review's decisions, pinned: a security configuration per visibili
   assert.throws(() => forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, teamMembers: { "not-a-team": [] } } }), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && /not-a-team/u.test(error.message));
 });
 
+test("a custom property's allowed values compare as a set: a reorder is neutral, a subset tightens, a superset loosens", () => {
+  const property = (values: readonly string[]) => ({ property_name: "kind", value_type: "single_select", allowed_values: values });
+  const live = property(["none", "trunk", "meta", "evidence", "notes", "archive"]);
+  assert.deepEqual(looseningOf("custom-property", property(["trunk", "meta", "evidence", "notes", "archive", "none"]), live), [], "the live plan's reorder");
+  assert.deepEqual(looseningOf("custom-property", property(["none", "trunk", "meta"]), live), [], "a subset");
+  assert.notDeepEqual(looseningOf("custom-property", property([...live.allowed_values, "extra"]), live), [], "a superset");
+  // Another schema change is still judged equal.
+  assert.notDeepEqual(looseningOf("custom-property", { ...property(live.allowed_values), value_type: "string" }, live), []);
+});
+
 test("an ENABLED dismissal restriction may only stay enabled with fewer allowed actors; an unrestricted one restricts nothing", () => {
   const rule = (restriction: unknown) => ({ name: "r", target: "branch", enforcement: "active", rules: [{ type: "pull_request", parameters: { dismissal_restriction: restriction } }] });
   const live = rule({ enabled: true, allowed_actors: [{ actor_id: 1 }, { actor_id: 2 }] });
