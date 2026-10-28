@@ -57,6 +57,18 @@ export const WEB_BUDGET_POPULATION = deepFreeze({
 } as const);
 
 /**
+ * THE SERVICE WORKER'S CACHE DIGEST: `generator` (repository-relative) writes
+ * the digest line of `path` from every public asset the worker caches, on
+ * every `harness sync`, and `harness check` judges it. A hand edit of the line,
+ * or a changed asset left undigested, fails the check, whichever generator
+ * changed the asset.
+ */
+export const SERVICE_WORKER_DIGEST = deepFreeze({
+  generator: "scripts/service-worker-cache.ts",
+  path: "public/sw.js",
+} as const);
+
+/**
  * THE SHIPPED HOOKS (`<directory>/<name>`, repository-relative): the tracked
  * hooks whose text is canonical — the `guarded` ones, which hand over to the
  * commit guard, and the promotion `trigger`. Each file's WHOLE text is a
