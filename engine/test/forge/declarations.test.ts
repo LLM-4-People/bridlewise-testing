@@ -251,6 +251,13 @@ test("every field GitHub validates against an Advanced Security feature follows 
   assert.deepEqual([...SECURITY_FEATURE_DEPENDENTS.code_security].sort(), ["code_scanning_default_setup", "code_scanning_delegated_alert_dismissal", "dependabot_delegated_alert_dismissal"]);
 });
 
+test("each Advanced Security feature is strict: turning Secret Protection or Code Security off is a loosening, turning it on is not", () => {
+  for (const feature of ["secret_protection", "code_security"] as const) {
+    assert.deepEqual(looseningOf("security-configuration", { [feature]: "disabled" }, { [feature]: "enabled" }), [`${feature} "enabled" -> "disabled"`], `${feature} off`);
+    assert.deepEqual(looseningOf("security-configuration", { [feature]: "enabled" }, { [feature]: "disabled" }), [], `${feature} on`);
+  }
+});
+
 test("an ENABLED dismissal restriction may only stay enabled with fewer allowed actors; an unrestricted one restricts nothing", () => {
   const rule = (restriction: unknown) => ({ name: "r", target: "branch", enforcement: "active", rules: [{ type: "pull_request", parameters: { dismissal_restriction: restriction } }] });
   const live = rule({ enabled: true, allowed_actors: [{ actor_id: 1 }, { actor_id: 2 }] });
