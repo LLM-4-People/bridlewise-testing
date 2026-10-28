@@ -40,7 +40,7 @@ const INDEX_FILE = "manifest.json";
  * (`scripts/repository-links.ts`, run by the docs-link check before any
  * install) reads this file, never the engine module.
  */
-export const REPOSITORY_IDENTITY_FILE = `${FORGE_FILES_DIRECTORY}/repository-identity.json`;
+const REPOSITORY_IDENTITY_FILE = `${FORGE_FILES_DIRECTORY}/repository-identity.json`;
 
 function repositoryIdentityFile(identity: RepositoryIdentity): string {
   return jsonText({

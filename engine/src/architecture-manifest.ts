@@ -5675,7 +5675,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-forge-generated-files", path: "src/workflow/forge/generated-files.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 9, namesSha256: "804ed8100257abf0e138fb4ec832927bd7f85063339b475815a965918184238e" },
+      owner: "verification-workflow", publicApi: { exportCount: 8, namesSha256: "b63530a8b11f08b5d95f42d0a720f2ddfe06db3524342ec2094bdc0d1b7fe495" },
       dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/community/sources.ts","src/workflow/forge/app-registry.ts","src/workflow/forge/codes.ts","src/workflow/forge/declarations.ts","src/workflow/forge/repository-files.ts","src/workflow/forge/repository-identity.ts"],
     }),
     moduleContract({
