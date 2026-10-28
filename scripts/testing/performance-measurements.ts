@@ -3,13 +3,16 @@
  * profile report against `webUi.performance` (the root policy's one list,
  * `webPerformanceBudgets.kinds`).
  *
- * The regression gate's arms judge the report's INTEGRITY (present, measured
- * in the host's lock, fresh, every probe measured its subject); a budget is
- * judged once, by the one budget judgement (UR-16, UR-24): the web suite's
- * reporter records each measurement in the run's ledger row and fails a
- * breach, and the workspace's ledger judge passes a breach only when an open
- * task row owns its budget and the value is no worse than the target's
- * lowest slotted value (engine/src/workflow/workspace-manager.ts). A budget
+ * The regression gate's arms judge the report's INTEGRITY (present, fresh,
+ * every probe measured its subject); a budget is judged once, by the one
+ * budget judgement (UR-16, UR-24): the web suite's reporter records each
+ * measurement in the run's ledger row and fails a breach, and the
+ * workspace's ledger judge passes a breach only when an open task row owns
+ * its budget and the value is no worse than the target's lowest value
+ * (engine/src/workflow/workspace-manager.ts). A WALL-TIME budget
+ * (`WEB_PERFORMANCE_WALL_SIGNALS`) is a recorded signal, never judged
+ * (NO-LOAD-BLOCK): its outcome says its value and its budget, and is never a
+ * fail. A budget
  * several arms share takes the worst of their values (the API budget: the
  * slowest in-session response and every isolated route). A value the report
  * did not measure is `null` — never a number a budget could pass.
@@ -18,6 +21,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import type { ProfileReport } from "../../tests/performance/lib/perf-harness.ts";
 import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
+import { WEB_PERFORMANCE_WALL_SIGNALS } from "../../engine/src/kernel/web-performance-budgets.ts";
 import { finiteNumber, type GateOutcome } from "../../engine/src/shared/budget-verdict.ts";
 import { readMeasuredSurfaceHash } from "../../engine/src/shared/tree-identity.ts";
 import type { PerformanceBudgetConfig } from "../../shared/wire-types.ts";
@@ -89,8 +93,8 @@ export type PerformanceJudgement = Readonly<{ outcomes: readonly GateOutcome[]; 
 
 /**
  * THE RUN'S PERFORMANCE BUDGETS, judged like its CPU budget: the profile
- * report at `reportPath`, read only when it can be judged — present, measured
- * inside the host's lock, of the code in `repositoryRoot` (its measured
+ * report at `reportPath`, read only when it can be judged — present, of the
+ * code in `repositoryRoot` (its measured
  * surface's hash) — each budget's measurement against `budget`: a breach or
  * an unmeasured value fails its gate (`performance:<name>`), which the
  * workspace's ledger judge then passes only as owned and not worse. A report
@@ -99,14 +103,13 @@ export type PerformanceJudgement = Readonly<{ outcomes: readonly GateOutcome[]; 
  */
 /**
  * THE ONE PREDICATE of a profile report that can be judged (design M-A: the
- * budget judge and every reader of the report ask it, never a copy): present,
- * measured inside the host's lock, of the code in `repositoryRoot` (its
- * measured surface's hash); else why not.
+ * budget judge and every reader of the report ask it, never a copy): present
+ * and of the code in `repositoryRoot` (its measured surface's hash), whatever
+ * else ran beside the profile (NO-LOAD-BLOCK, audit A-07); else why not.
  */
 export function judgeableProfileReport(repositoryRoot: string, reportPath: string): Readonly<{ report: ProfileReport } | { why: string }> {
   const report = readProfileReport(reportPath);
   if (report === null) return { why: `no profile report at ${reportPath} (\`npm run perf:profile\` makes it)` };
-  if ((report as { instrumentLock?: unknown }).instrumentLock !== "held") return { why: "the profile report was measured outside the host's instrument lock" };
   if (report.treeIdentity?.measuredSurfaceHash === undefined || report.treeIdentity.measuredSurfaceHash !== readMeasuredSurfaceHash(repositoryRoot)) return { why: "the profile report describes other code (its measured surface's hash differs)" };
   return { report };
 }
@@ -120,6 +123,9 @@ export function judgePerformanceBudgets(repositoryRoot: string, reportPath: stri
   const outcomes = (Object.keys(measurements) as PerformanceBudgetName[]).map((name): GateOutcome => {
     const value = measurements[name];
     const limit = budget[name];
+    if (WEB_PERFORMANCE_WALL_SIGNALS.has(name)) {
+      return { gate: performanceGate(name), kind: "not-judged", message: `webUi.performance.${name}: ${value === null ? "unmeasured" : String(value)} (budget ${String(limit)}) — wall time, recorded as a signal and never judged (NO-LOAD-BLOCK)` };
+    }
     return value === null ? { gate: performanceGate(name), kind: "fail", message: `webUi.performance.${name}: the profile did not measure it` }
       : value > limit ? { gate: performanceGate(name), kind: "fail", message: `webUi.performance.${name}: ${String(value)} exceeds the budget ${String(limit)}` }
         : { gate: performanceGate(name), kind: "pass", message: `webUi.performance.${name}: ${String(value)} within ${String(limit)}` };
