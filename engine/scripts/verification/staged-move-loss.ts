@@ -406,7 +406,9 @@ const GUARDED_HOOK_PROSE: Readonly<Record<(typeof GUARDED_HOOKS)[number], readon
   ],
   "commit-msg": [
     "# The message of a commit: one that turns a workflow lesson to `acted` names",
-    "# it in a `Lesson: L-<id>` trailer (engine/scripts/verification/lesson-trailers.ts).",
+    "# it in a `Lesson: L-<id>` trailer (engine/scripts/verification/lesson-trailers.ts),",
+    "# and one that takes a test off the surface names each path in a",
+    "# `Test-deleted: <path>` trailer (engine/scripts/verification/test-deletions.ts).",
     "# It hands over to the same door as `pre-commit`, in its message mode.",
   ],
 });

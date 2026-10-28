@@ -15,11 +15,12 @@ import { bootstrapIntegration } from "./merge-round.mjs";
 
 const args = process.argv.slice(2);
 const force = args.includes("--force");
+// The exit code is set and the loop drains: `process.exit()` can deadlock at shutdown (Node #54918, #351).
 try {
   const res = bootstrapIntegration({ force });
   console.log(JSON.stringify(res, null, 2));
-  process.exit(res.bootstrapped ? 0 : 1);
+  process.exitCode = res.bootstrapped ? 0 : 1;
 } catch (e) {
   console.error(JSON.stringify({ bootstrapped: false, error: e.message }, null, 2));
-  process.exit(1);
+  process.exitCode = 1;
 }

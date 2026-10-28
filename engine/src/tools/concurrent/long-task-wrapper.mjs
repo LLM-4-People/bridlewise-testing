@@ -30,6 +30,7 @@ import { dirname } from "node:path";
 // The unit's process is a top-level program: the one process bootstrap first
 // (a worker fails closed on a lost fault), and every callback the event loop
 // runs is guarded (SCALE-CR1 C2/C3, SCALE-CR1-FIX H2).
+import { InputError } from "../../kernel/errors.ts";
 import { guarded } from "../../process/fault-policy.ts";
 import { bootstrapProcess } from "../../runtime/cli-debug.ts";
 
@@ -42,8 +43,8 @@ const TIMEOUT_MS = parseInt(process.env.LTR_TIMEOUT_MS || "0", 10); // 0 = no ti
 const SHELL = process.env.LTR_SHELL || "/bin/bash";
 
 if (!STATE_DIR || !COMMAND) {
-  process.stderr.write("wrapper: LTR_STATE_DIR and LTR_COMMAND are required\n");
-  process.exit(2);
+  // Thrown, never `process.exit()`: an exit can deadlock at shutdown (Node #54918, #351).
+  throw new InputError("wrapper: LTR_STATE_DIR and LTR_COMMAND are required", "long_task_wrapper_environment_missing");
 }
 mkdirSync(STATE_DIR, { recursive: true });
 const pidFile = `${STATE_DIR}/pid`;
@@ -112,7 +113,13 @@ function finish(result, reason) {
   if (child.exitCode === null && !child.killed) {
     try { child.kill("SIGKILL"); } catch { /* child already dead — ESRCH */ }
   }
-  process.exit(result.exitCode ?? 0);
+  // The wrapper ends by draining its loop (`process.exitCode`), never `process.exit()`, which can deadlock at
+  // shutdown (Node #54918, #351). Its timers are cleared above; the child's pipes are closed here, because a
+  // grandchild that inherited them would otherwise hold the loop open.
+  child.stdout.destroy();
+  child.stderr.destroy();
+  child.unref();
+  process.exitCode = result.exitCode ?? 0;
 }
 
 child.on("exit", guarded("long-task.child-exit", (code, signal) => {

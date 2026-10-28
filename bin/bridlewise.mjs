@@ -18,8 +18,10 @@ const result = spawnSync(
   { stdio: "inherit", env: process.env },
 );
 
+// The exit code is set and the loop drains: `process.exit()` can deadlock at shutdown (Node #54918, #351).
 if (result.error) {
   process.stderr.write(`bridlewise: ${result.error.message}\n`);
-  process.exit(1);
+  process.exitCode = 1;
+} else {
+  process.exitCode = result.status ?? 1;
 }
-process.exit(result.status ?? 1);

@@ -631,8 +631,25 @@ export function connectionFreshForMs(advertisedMs: number | undefined, idle: num
   return Math.min(advertisedMs ?? idle, idle) - threshold;
 }
 
-/** One connection of a {@link freshPoolClass} pool: its client, whether a request is on it, and since when it is idle. */
-type FreshConnection = { readonly client: Dispatcher; busy: boolean; idleSince: number; advertisedMs: number | undefined };
+/**
+ * One connection of a {@link freshPoolClass} pool: its client, whether a request is on it, since when it is idle, and
+ * — once the pool itself ends it — why (`closedBy`), so the end is recorded by WHO ended it (see the pool's
+ * `outbound_connection_ended`).
+ */
+type FreshConnection = { readonly client: Dispatcher; busy: boolean; idleSince: number; advertisedMs: number | undefined; closedBy?: "stale" | "retired" };
+
+/**
+ * WHO ENDED a pooled connection, as its `disconnect` says: the pool itself (`stale` at dispatch, `retired` after
+ * its pool closed or at the write), the client's own idle bound (`idle-timeout`: undici's keep-alive timer, its
+ * `InformationalError` "socket idle timeout"), or the PEER (anything else: the server closed it, or the socket
+ * failed). Recorded on every end, so a reader (and a test) learns the closer from the door's own word, never from
+ * how long it took.
+ */
+export function connectionCloser(closedBy: "stale" | "retired" | undefined, error: unknown): "stale" | "retired" | "idle-timeout" | "peer" {
+  if (closedBy !== undefined) return closedBy;
+  if (error instanceof Error && error.name === "InformationalError" && /idle timeout/u.test(error.message)) return "idle-timeout";
+  return "peer";
+}
 
 /** Undici's dispatcher-state symbols, which an Agent reads off the per-origin dispatchers it holds. */
 type DispatcherStateSymbols = Readonly<{ kConnected: symbol; kBusy: symbol; kPending: symbol; kRunning: symbol; kDispatch: symbol }>;
@@ -719,6 +736,9 @@ function freshPoolClass(undici: typeof import("undici")): NonNullable<typeof fre
       const emitter = this as unknown as { emit: (event: string, ...args: unknown[]) => boolean };
       for (const event of ["connect", "disconnect", "connectionError", "drain"] as const) {
         events.on(event, guarded("outbound.pool.client-event", (origin: unknown, targets: readonly unknown[], error?: unknown) => {
+          if (event === "disconnect") {
+            debugLog("network", "debug", "outbound_connection_ended", () => ({ origin: String(origin), by: connectionCloser(entry.closedBy, error), reason: error instanceof Error ? error.message : null }));
+          }
           if (event === "disconnect" && error instanceof Error && /GOAWAY/u.test(error.message)) {
             // Undici resends, once and on a new connection, only a stream above the last-stream-id whose response had not started and whose body is replayable — possibly none.
             debugLog("network", "warn", "outbound_http2_goaway", () => ({ origin: String(origin), reason: error.message, resend: "eligible streams only (above the last-stream-id, no response started, a replayable body), once; others fail" }));
@@ -743,6 +763,7 @@ function freshPoolClass(undici: typeof import("undici")): NonNullable<typeof fre
         if (entry.busy || at - entry.idleSince < connectionFreshForMs(entry.advertisedMs, this.#idle, this.#threshold)) continue;
         this.#connections.splice(this.#connections.indexOf(entry), 1);
         debugLog("network", "debug", "outbound_connection_stale_closed", () => ({ origin: String(this.#origin), idleMs: Math.round(at - entry.idleSince) }));
+        entry.closedBy = "stale";
         closeConnection(entry.client, this.#origin, "stale");
       }
       const idle = this.#connections.find((one) => !one.busy);
@@ -757,6 +778,7 @@ function freshPoolClass(undici: typeof import("undici")): NonNullable<typeof fre
     #retire(entry: FreshConnection): void {
       const index = this.#connections.indexOf(entry);
       if (index >= 0) this.#connections.splice(index, 1);
+      entry.closedBy = "retired";
       closeConnection(entry.client, this.#origin, "retired");
     }
 
@@ -964,39 +986,39 @@ export type OutboundBody = string | OutboundStreamBody;
  */
 async function* verifiedChunks(body: OutboundStreamBody, origin: string, logCategory: string): AsyncGenerator<Uint8Array> {
   const digest = sha256Stream();
-  const chunks = body.chunks[Symbol.asyncIterator]();
   const longer = (): never => refuse(logCategory, `The request body to ${origin} is longer than the ${String(body.size)} bytes it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size });
   const digestHolds = (): void => {
     const actual = digest.digest();
     if (actual !== body.sha256) refuse(logCategory, `The request body to ${origin} does not hash to the SHA-256 it declared, so it was cut before it completed.`, "outbound_body_integrity_failed", { origin, declared: body.sha256, actual });
   };
   let sent = 0;
-  try {
-    while (true) {
-      const next = await chunks.next();
-      if (next.done === true) {
-        if (sent !== body.size) refuse(logCategory, `The request body to ${origin} is ${String(sent)} bytes, not the ${String(body.size)} it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size, sent });
-        digestHolds(); // an empty declared body: nothing left, and its digest is still the declared one
-        body.handedOver?.();
-        return;
-      }
-      sent += next.value.byteLength;
-      if (sent > body.size) longer();
-      digest.update(next.value);
-      if (sent === body.size) {
-        // The completing chunk: held until the digest holds and nothing follows it (an empty chunk carries no byte).
-        digestHolds();
-        for (let after = await chunks.next(); after.done !== true; after = await chunks.next()) if (after.value.byteLength > 0) longer();
-        yield next.value;
-        // Resumed only when the client asks past the last chunk: that chunk has been written.
-        body.handedOver?.();
-        return;
-      }
-      yield next.value;
+  // The completing chunk: held until the digest holds and nothing follows it (an empty chunk carries no byte).
+  // `for await` closes the source on every way out (a refusal, or the client abandoning the body).
+  let completing: Uint8Array | undefined;
+  for await (const chunk of body.chunks) {
+    if (completing !== undefined) {
+      if (chunk.byteLength > 0) longer();
+      continue;
     }
-  } finally {
-    await chunks.return?.();
+    sent += chunk.byteLength;
+    if (sent > body.size) longer();
+    digest.update(chunk);
+    if (sent === body.size) {
+      digestHolds();
+      completing = chunk;
+      continue;
+    }
+    yield chunk;
   }
+  if (completing === undefined) {
+    if (sent !== body.size) refuse(logCategory, `The request body to ${origin} is ${String(sent)} bytes, not the ${String(body.size)} it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size, sent });
+    digestHolds(); // an empty declared body: nothing left, and its digest is still the declared one
+    body.handedOver?.();
+    return;
+  }
+  yield completing;
+  // Resumed only when the client asks past the last chunk: that chunk has been written.
+  body.handedOver?.();
 }
 
 /** Send one request on the door's own dispatcher and answer the platform `Response` shape. */

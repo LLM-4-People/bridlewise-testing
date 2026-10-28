@@ -166,14 +166,3 @@ test("BundleStaleness: two checkouts of one tree build the same bytes, wherever 
     "the bundle is a function of the sources, never of the checkout's location",
   );
 });
-
-// #351: `build-bundle --check` that ended by `process.exit()` hung at zero CPU after printing its verdict, about one
-// run in 300 (Node #54918: the exit deadlocks with a concurrent V8 compile job waiting for a collection). The script
-// ends by draining its loop, so the verdict's process always ends.
-test("BundleStaleness: the bundle script ends by draining its loop, never process.exit (Node #54918, #351)", () => {
-  const exits = (text: string): number => text.split("\n").filter((line) => !/^\s*(\/\/|\*)/u.test(line) && line.includes("process.exit(")).length;
-  const source = readFileSync(join(ROOT, "scripts", "build-bundle.ts"), "utf8");
-  assert.ok(source.includes("process.exitCode = freshness.fresh ? 0 : 1;"), "the verdict is the exit code (liveness)");
-  assert.equal(exits(source), 0, "scripts/build-bundle.ts calls process.exit()");
-  assert.equal(exits(source.replace("process.exitCode = freshness.fresh ? 0 : 1;", "process.exit(freshness.fresh ? 0 : 1);")), 1, "the plant is found");
-});

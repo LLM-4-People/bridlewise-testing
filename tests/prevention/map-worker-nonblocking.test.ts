@@ -120,7 +120,10 @@ describe("prevention: repository map never built synchronously (502 wedge)", () 
     const workerSource = readFileSync(workerPath, "utf8");
     expect(workerSource).toContain("node:worker_threads");
     expect(workerSource).toContain("generateRepositoryMap");
-    expect(workerSource).toContain("parentPort");
+    // The parent port is reached through the one IPC owner (server/run/worker-ipc.ts): the result is posted
+    // there, and a start without a parent port is refused there (thrown, never process.exit()).
+    expect(workerSource).toMatch(/import \{ postWorkerResult, requireWorkerThread \} from "\.\.\/run\/worker-ipc\.ts"/u);
+    expect(workerSource).toContain("requireWorkerThread();");
   });
 
   test("intelligence-bridge.ts routes the off-thread build through the worker POOL (no direct new Worker)", () => {
@@ -194,7 +197,10 @@ describe("prevention: awareness engine never computed synchronously (502 wedge #
     expect(workerSource).toContain("node:worker_threads");
     expect(workerSource).toContain("createAwarenessEngine");
     expect(workerSource).toContain(".compute(");
-    expect(workerSource).toContain("parentPort");
+    // The parent port is reached through the one IPC owner (server/run/worker-ipc.ts): the result is posted
+    // there, and a start without a parent port is refused there (thrown, never process.exit()).
+    expect(workerSource).toMatch(/import \{ postWorkerResult, requireWorkerThread \} from "\.\.\/run\/worker-ipc\.ts"/u);
+    expect(workerSource).toContain("requireWorkerThread();");
   });
 
   test("AwarenessNotReadyError is a typed WebError subclass", async () => {
