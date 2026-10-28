@@ -12,7 +12,8 @@ import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { rewriteTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, SERVICE_WORKER_DIGEST, SHIPPED_HOOK_FILES, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, FRONT_DOOR_GENERATOR, SERVICE_WORKER_DIGEST, SHIPPED_HOOK_FILES, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
+import { frontDoorInput } from "./messaging.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
@@ -155,6 +156,8 @@ export type HarnessCheckOutput = Readonly<{
   webBudgetPopulation: CheckStepResult;
   /** Would `harness regenerate` rewrite the service worker's cache digest (scripts/service-worker-cache.ts)? */
   serviceWorkerDigest: CheckStepResult;
+  /** Are the brand sources valid, and would `harness regenerate` rewrite a front door's block (engine/scripts/brand/cli.ts sync)? */
+  frontDoors: CheckStepResult;
   /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
   bundle: CheckStepResult;
   /** Would the engine runner accept the tree at its setup (scripts/verification/candidate-manifest.ts --verdict, its own door)? */
@@ -263,6 +266,12 @@ export type HarnessRegenerateOutput = Readonly<{
   webBudgetPopulation: DecisionIndexArm;
   /** The service worker's cache digest, from every public asset it caches (scripts/service-worker-cache.ts). */
   serviceWorkerDigest: DecisionIndexArm;
+  /**
+   * The front doors (the README's and the site home's opening blocks), from
+   * the messaging source and the claims register, both validated whole
+   * (engine/scripts/brand/cli.ts sync).
+   */
+  frontDoors: FrontDoorsArm;
   /**
    * The guardian spec-schema artifact, rebuilt from the live Zod schema
    * (`scripts/verification/guardian-spec-artifact.ts`) BEFORE the binding
@@ -546,6 +555,8 @@ export async function harnessCheck(
 
   emitProgress(onProgress, "Checking the service worker's cache digest...");
   steps.push(serviceWorkerDigestStep(regenerateServiceWorkerDigest(root, false)));
+  emitProgress(onProgress, "Checking the brand sources and the front doors...");
+  steps.push(frontDoorsStep(regenerateFrontDoors(root, false)));
 
   emitProgress(onProgress, "Checking the bundle against a rebuild of the source...");
   steps.push(bundleFreshnessStep(root));
@@ -579,8 +590,9 @@ export async function harnessCheck(
     communityFiles: steps[21]!,
     webBudgetPopulation: steps[22]!,
     serviceWorkerDigest: steps[23]!,
-    bundle: steps[24]!,
-    candidateFormat: steps[25]!,
+    frontDoors: steps[24]!,
+    bundle: steps[25]!,
+    candidateFormat: steps[26]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -971,11 +983,13 @@ export function harnessRegenerate(
   const webBudgetPopulation = regenerateWebBudgetPopulation(root, write);
   // The service worker's cache digest, after every arm that may change a public asset.
   const serviceWorkerDigest = regenerateServiceWorkerDigest(root, write);
+  // The front doors, from the brand sources (validated whole), before the inventory digests the README.
+  const frontDoors = regenerateFrontDoors(root, write);
   // The canonical artifact inventory, LAST: every governed file the arms above
   // rewrote (the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, webBudgetPopulation, serviceWorkerDigest, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, webBudgetPopulation, serviceWorkerDigest, frontDoors, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -990,7 +1004,7 @@ export function harnessRegenerate(
     ? (hashBindings.allMatch && autoGenerator.allMatch &&
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged && serviceWorkerDigest.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged && serviceWorkerDigest.converged && frontDoors.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1314,6 +1328,43 @@ export function webBudgetPopulationStep(arm: DecisionIndexArm): CheckStepResult 
   });
 }
 
+/** What the front-door arm did: a generator arm, or `refused` with the sources' problems (an invalid source, a missing block). */
+export type FrontDoorsArm = Readonly<{
+  status: "current" | "regenerated" | "stale" | "absent" | "refused";
+  converged: boolean;
+  changed: readonly string[];
+  problems: readonly string[];
+}>;
+
+/**
+ * The front-door arm, as a subprocess like the other builder-layer arms: the
+ * brand generator validates both sources and renders the README's and the site
+ * home's opening blocks (`FRONT_DOOR_GENERATOR.generator`). Only a tree
+ * without the generator (a product-only tree) is converged by absence: with
+ * the generator, a missing messaging source is refused by name
+ * (`messaging_source_missing`), never passed.
+ */
+export function regenerateFrontDoors(root: string, write: boolean): FrontDoorsArm {
+  if (!existsSync(resolve(root, FRONT_DOOR_GENERATOR.generator))) return deepFreeze({ status: "absent" as const, converged: true, changed: [], problems: [] });
+  const report = generatorReport<FrontDoorsArm["status"]>(root, FRONT_DOOR_GENERATOR.generator, ["sync", write ? "--write" : "--check"], "the front-door generator", "front_doors_no_result");
+  const problems = Array.isArray(report.problems) ? report.problems.filter((p): p is string => typeof p === "string") : [];
+  return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed, problems });
+}
+
+/** `harness check`'s front-door step: an invalid brand source or a stale front-door block FAILS the check. */
+export function frontDoorsStep(frontDoors: FrontDoorsArm): CheckStepResult {
+  return deepFreeze({
+    step: "front-doors",
+    status: frontDoors.converged ? "pass" : "fail",
+    message: frontDoors.status === "refused"
+      ? `the brand sources (docs/brand/) are invalid: ${frontDoors.problems.join("; ")}`
+      : frontDoors.converged
+        ? `the brand sources are valid and the front doors match them${frontDoors.status === "absent" ? " (this tree carries no brand generator)" : ""}`
+        : `a front door is stale against docs/brand/ (run harness sync): ${frontDoors.changed.join(", ")}`,
+    details: frontDoors,
+  });
+}
+
 export function communityFilesStep(communityFiles: CommunityFilesArm): CheckStepResult {
   return deepFreeze({
     step: "community-files",
@@ -1420,6 +1471,8 @@ export const GENERATOR_INPUTS_BEYOND_ENGINE: Readonly<Record<keyof HarnessRegene
   webBudgetPopulation: null,
   // A repository-root generator, like the population: a copy without scripts/service-worker-cache.ts converges by absence.
   serviceWorkerDigest: null,
+  // Its sources, the files it writes into, the addresses' owner and every file a claim cites (src/workflow/messaging.ts).
+  frontDoors: frontDoorInput,
   guardianSpecArtifact: null,
   artifactManifest: null,
 });
